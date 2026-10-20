@@ -21,7 +21,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { App } from "../_harness";
+import type { App, BodyApp } from "../_harness";
 import type { BodyViewSnapshot } from "../_harness/client";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { streamingTranscript } from "../streaming-stub-fixture";
@@ -172,4 +172,31 @@ export async function closeButtonOfPopover(app: Pick<App, "evalJS">): Promise<{ 
     }
     return null;
   })()`);
+}
+
+/**
+ * The page a card's Close popover stands in, or null when none does: the
+ * card's own, for a card that draws its own chrome, or the shell's. A card
+ * whose body is gone has no page to ask, and answers as the shell's.
+ */
+export async function closePopoverPage(app: App, cardId: string): Promise<App | BodyApp | null> {
+  const body = app.body(cardId);
+  if (await body.evalJS<boolean>(popoverPresent).catch(() => false)) return body;
+  if (await app.evalJS<boolean>(popoverPresent)) return app;
+  return null;
+}
+
+/** Whether a card's Close popover stands, in its own page or the shell's. */
+export async function closePopoverUp(app: App, cardId: string): Promise<boolean> {
+  return (await closePopoverPage(app, cardId)) !== null;
+}
+
+/** Press the Close button of a card's Close popover, wherever it stands; false when there is none. */
+export async function pressCloseOfPopover(app: App, cardId: string): Promise<boolean> {
+  const page = await closePopoverPage(app, cardId);
+  if (page === null) return false;
+  const button = await closeButtonOfPopover(page);
+  if (button === null) return false;
+  await page.nativeClick(button);
+  return true;
 }

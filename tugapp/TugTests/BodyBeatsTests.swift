@@ -1,22 +1,22 @@
 import XCTest
 
-// The host's half of the beat plan: it decodes every plan the shell's planner
+// The host's half of the card plan: it decodes every plan the shell's planner
 // wrote into the parity fixture, moves a beat's start onto the media clock
 // through one anchor, pins each beat's ends while keeping its overshoot, and
-// lays a body's beats on one track that holds across a gap and never shows
+// lays a card's beats on one track that holds across a gap and never shows
 // the landing early.
 final class BodyBeatsTests: XCTestCase {
     private struct ParityCase: Decodable {
         var name: String
         var refused: [String]
-        var plan: BeatPlan
+        var plan: CardPlan
     }
 
-    /// The fixture `body-beat-plan.test.ts` writes, beside the shell's planner.
+    /// The fixture `card-plan.test.ts` writes, beside the shell's planner.
     private func parityCases(file: StaticString = #filePath) throws -> [String: ParityCase] {
         let url = URL(fileURLWithPath: "\(file)")
             .deletingLastPathComponent()
-            .appendingPathComponent("../../tugdeck/src/lib/__tests__/fixtures/beat-plan-parity.json")
+            .appendingPathComponent("../../tugdeck/src/lib/__tests__/fixtures/card-plan-parity.json")
             .standardizedFileURL
         let data = try Data(contentsOf: url)
         let cases = try JSONDecoder().decode([ParityCase].self, from: data)
@@ -28,24 +28,24 @@ final class BodyBeatsTests: XCTestCase {
         check("five cases", cases.count == 5, "\(cases.keys.sorted())")
 
         let slide = try XCTUnwrap(cases["flow-slide"]).plan
-        check("the slide carries one body", slide.bodies.count == 1)
-        let body = slide.bodies[0]
-        check("its landing is the inset Last", body.landing == PlanRect(x: 121, y: 96, width: 398, height: 483), "\(body.landing)")
-        check("one move beat", body.beats.map(\.kind) == ["move"])
-        check("the samples survive the trip", body.beats[0].progress == [0, 0.32, 0.71, 0.93, 1.03, 1.01, 1])
-        check("no crossing on a move", body.crossing == nil)
+        check("the slide carries one card", slide.cards.count == 1)
+        let card = slide.cards[0]
+        check("its landing is the whole view at Last", card.landing == PlanRect(x: 110, y: 50, width: 420, height: 540), "\(card.landing)")
+        check("one move beat", card.beats.map(\.kind) == ["move"])
+        check("the samples survive the trip", card.beats[0].progress == [0, 0.32, 0.71, 0.93, 1.03, 1.01, 1])
+        check("no crossing on a move", card.crossing == nil)
 
-        check("the stack move carries two bodies", try XCTUnwrap(cases["stack-move"]).plan.bodies.map(\.cardId) == ["ca", "cb"])
+        check("the stack move carries two cards", try XCTUnwrap(cases["stack-move"]).plan.cards.map(\.cardId) == ["ca", "cb"])
 
-        let refused = try XCTUnwrap(cases["size-change-refused"])
-        check("a refused size change plans no body", refused.plan.bodies.isEmpty)
-        check("and names the one it refused", refused.refused == ["cs"])
+        let stale = try XCTUnwrap(cases["stale-placement"])
+        check("a stale placement plans no card", stale.plan.cards.isEmpty)
+        check("and names the one it refused", stale.refused == ["cs"])
 
-        let crossing = try XCTUnwrap(cases["size-change-crossing"]).plan.bodies[0]
-        check("an allowed size change carries its crossing size", crossing.crossing == PlannedBody.Size(width: 298, height: 363), "\(String(describing: crossing.crossing))")
-        check("a moving body is not an arrival", crossing.arrives == nil)
+        let crossing = try XCTUnwrap(cases["size-change"]).plan.cards[0]
+        check("a size change carries its crossing size", crossing.crossing == PlannedCard.Size(width: 320, height: 420), "\(String(describing: crossing.crossing))")
+        check("a moving card is not an arrival", crossing.arrives == nil)
 
-        let arrival = try XCTUnwrap(cases["arrival"]).plan.bodies[0]
+        let arrival = try XCTUnwrap(cases["arrival"]).plan.cards[0]
         check("an arrival says so, for the host to show it with its tracks", arrival.arrives == true)
         check("it rides one arrive beat", arrival.beats.map(\.kind) == ["arrive"])
         check("and fades in", arrival.beats[0].opacity == [0, 1], "\(String(describing: arrival.beats[0].opacity))")
@@ -53,30 +53,28 @@ final class BodyBeatsTests: XCTestCase {
 
     func testAPlanDecodesFromThePagesJSON() throws {
         let json = Data(#"""
-            {"planId":7,"startWallMs":1760000000000.5,"bodies":[{"cardId":"c",
+            {"planId":7,"startWallMs":1760000000000.5,"cards":[{"cardId":"c",
              "landing":{"x":1,"y":2,"width":3,"height":4},
              "beats":[{"kind":"arrive","delayMs":0,"durationMs":120,
                        "from":{"x":1,"y":2,"width":3,"height":4},"to":{"x":1,"y":2,"width":3,"height":4},
                        "opacity":[0,1],"progress":[0,1],"easing":"ease-out"}]}]}
             """#.utf8)
-        guard case .success(.beatPlan(let plan)) = ToHost.decode(name: "beatPlan", data: json) else {
+        guard case .success(.cardPlan(let plan)) = ToHost.decode(name: "cardPlan", data: json) else {
             return XCTFail("the plan does not decode")
         }
         check("the plan id", plan.planId == 7)
         check("the start keeps its fraction", plan.startWallMs == 1_760_000_000_000.5)
-        check("the fade's easing", plan.bodies[0].beats[0].easing == "ease-out")
-        let malformed = ToHost.decode(name: "beatPlan", data: Data(#"{"planId":"x"}"#.utf8))
+        check("the fade's easing", plan.cards[0].beats[0].easing == "ease-out")
+        let malformed = ToHost.decode(name: "cardPlan", data: Data(#"{"planId":"x"}"#.utf8))
         check("a malformed plan is refused", { if case .failure = malformed { return true } else { return false } }())
     }
 
     func testBeginTimeMovesTheStartOntoTheMediaClock() {
         let anchor = ClockAnchor(wallMs: 1_000_000, mediaTime: 50)
-        let future = anchor.beginTime(startWallMs: 1_000_100, delayMs: 50, offsetSec: 0)
+        let future = anchor.beginTime(startWallMs: 1_000_100, delayMs: 50)
         check("a start 150 ms ahead begins 0.15 s ahead", abs(future - 50.15) < 1e-9, "\(future)")
-        let past = anchor.beginTime(startWallMs: 999_900, delayMs: 0, offsetSec: 0)
+        let past = anchor.beginTime(startWallMs: 999_900, delayMs: 0)
         check("a start already past is returned past", abs(past - 49.9) < 1e-9, "\(past)")
-        let offset = anchor.beginTime(startWallMs: 1_000_000, delayMs: 0, offsetSec: 1.0 / 60)
-        check("the offset rides on top", abs(offset - (50 + 1.0 / 60)) < 1e-9, "\(offset)")
     }
 
     func testLayerValuesPinTheEndsAndKeepTheOvershoot() {
@@ -91,7 +89,7 @@ final class BodyBeatsTests: XCTestCase {
     }
 
     func testShrinkThenMoveIsOneTrackFromThePrepareDelay() throws {
-        let body = try XCTUnwrap(parityCases()["size-change-crossing"]).plan.bodies[0]
+        let body = try XCTUnwrap(parityCases()["size-change"]).plan.cards[0]
         let shrink = body.beats[0]
         let move = body.beats[1]
         let track = try XCTUnwrap(BodyBeats.planTrack(body.beats))

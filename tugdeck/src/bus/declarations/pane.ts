@@ -23,8 +23,9 @@
 
 import type { CloseAsks } from "../../lib/close-asks";
 import type { ColumnMode, ContentWidth } from "../../lib/layout-imposer";
-import { arr, bool, empty, literal, nullable, num, obj, str } from "../codec";
+import { arr, bool, empty, literal, nullable, num, obj, optional, str } from "../codec";
 import { defineAction } from "../routed-action";
+import { defineRequest } from "../request";
 import { defineSharedStore } from "../shared-store";
 import { cardContext } from "./card";
 
@@ -165,11 +166,21 @@ export const paneReorderTabs = defineAction({
   codec: obj({ fromIndex: num, toIndex: num }),
 });
 
-/** A tab drag past its own bar, at the sender's viewport point: the shell hit-tests and commits it. */
+/**
+ * A tab drag past its own bar, at the sender's viewport point: the shell
+ * hit-tests and commits it, and has the overlay draw the band it would merge
+ * onto and the tab's ghost (`ghost`, the sender's viewport points, on a move).
+ */
 export const paneTabDrag = defineAction({
   id: "pane.tabDrag",
   owner: "shell",
-  codec: obj({ phase: literal("move", "end", "cancel"), cardId: str, x: num, y: num }),
+  codec: obj({
+    phase: literal("move", "end", "cancel"),
+    cardId: str,
+    x: num,
+    y: num,
+    ghost: optional(obj({ x: num, y: num, width: num, height: num, label: str })),
+  }),
 });
 
 /** Set the sender's pane to a width preset. */
@@ -219,4 +230,18 @@ export const paneRevealCard = defineAction({
   id: "pane.revealCard",
   owner: "shell",
   codec: obj({ cardId: str }),
+});
+
+/**
+ * Slide the strip `cardId`, a card of the sender's pane, rides until its pane
+ * is fully in, and answer how long the travel runs, in milliseconds: zero
+ * when nothing moved. A close question waits that long before it is asked,
+ * so it is asked of a card the reader can see whole.
+ */
+export const paneRevealForQuestion = defineRequest({
+  id: "pane.revealForQuestion",
+  owner: "shell",
+  codec: obj({ cardId: str }),
+  replyCodec: obj({ travelMs: num }),
+  onDetach: "fail",
 });

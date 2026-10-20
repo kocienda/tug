@@ -97,8 +97,8 @@ import {
   landRecorder,
 } from "@/lib/land-frame-record";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
-import { bodyHideUnder, bodyRunPlan } from "@/lib/body-placement";
-import { viewportRect, type FrameBeat } from "@/lib/body-beat-plan";
+import { runCardPlan } from "@/lib/card-plan";
+import { viewportRect, type FrameBeat } from "@/lib/card-plan";
 import { hostCapabilitiesStore } from "@/lib/body-handoff";
 import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
@@ -154,28 +154,6 @@ import {
   PANE_ENTER_RISE_PX,
   type SidebarSide,
 } from "@/lib/layout-imposer";
-
-/**
- * The registry key a side's shadow strip settles under. The strip is not a
- * pane, but it is held, measured, carried and handed back exactly as a frame
- * is — it is the depth of the rail beside it, and a shadow that moves on any
- * clock but its rail's has come away from the panel. The prefix is what lets
- * `arm` find the strips' entries among the frames'.
- */
-const RAIL_SHADOW_TWEEN_PREFIX = "rail-shadow:";
-
-/**
- * The rail shadow strips that STAND. Every side's strip is always mounted: a
- * parked rail's is hidden (`data-rail-parked`), and a side with no rail at all
- * holds an empty one (`data-rail-empty`). The settle reads both as gone — the
- * way `SHOWN_PANE_FRAMES` reads its frames — so a hide carries the strip out
- * with the panel on its own element, and the show brings it in as an arrival.
- */
-const STANDING_RAIL_SHADOWS =
-  "[data-rail-shadow]:not([data-rail-parked]):not([data-rail-empty])";
-function railShadowTweenKey(side: SidebarSide): string {
-  return `${RAIL_SHADOW_TWEEN_PREFIX}${side}`;
-}
 
 /**
  * How far a rail standing at `rect` must travel to clear `side`'s edge of the
@@ -322,7 +300,9 @@ function postDisplayPeriod(): void {
 function settleStartTime(): number | undefined {
   if (!hostCapabilitiesStore.get().bodyViews) return undefined;
   const now = document.timeline.currentTime;
-  return typeof now === "number" ? now + settleGapSampler.periodMs() : undefined;
+  // The timeline reads null only before the document's first frame; the
+  // monotonic clock it is in `performance.now()` terms of stands in then.
+  return (typeof now === "number" ? now : performance.now()) + settleGapSampler.periodMs();
 }
 
 /** A layout-px rect from the settle's record, as the planner's viewport px. */
@@ -353,12 +333,12 @@ interface SettleTween {
  * One element the `depart` beat carries out ([P06]). `closing` is a closed
  * pane's own frame, kept mounted by the store until the settle lands;
  * `parked` is a rail frame whose rail was hidden whole, shown only for its
- * exit; `strip` is a side's rail shadow. `restores` hands back every inline
+ * exit. `restores` hands back every inline
  * write and mark the Last pass made on it.
  */
 interface DepartingTarget {
   el: HTMLElement;
-  kind: "closing" | "parked" | "strip";
+  kind: "closing" | "parked";
   launched: boolean;
   restores: Array<() => void>;
   /** The depart beat's animation on this target, once it is launched. */
@@ -782,18 +762,6 @@ export function useSettleEngine({
    */
   const settleFirstRailSidesRef = useRef<Map<string, SidebarSide>>(new Map());
   /**
-   * Where each side's rail shadow stood before the commit, by side.
-   *
-   * The shadow strip is the canvas's, not the pane's ([D183]'s one-per-side
-   * rule), and it always stands: a side whose rail departs keeps its strip
-   * mounted, parked or empty. This is the rect a departing strip is held at
-   * for its beat, read on the near side of the commit for the same reason
-   * every other First fact is.
-   */
-  const settleFirstRailShadowsRef = useRef<Map<SidebarSide, DOMRect>>(
-    new Map(),
-  );
-  /**
    * The tweens running on each frame, by pane id — DOM zone, never React
    * state. At most two per settle: the one effect carrying every geometry term
    * the frame crosses ([D135] — move and size share a clock or a pinned edge
@@ -843,13 +811,13 @@ export function useSettleEngine({
    */
   const takenFramesRef = useRef<WeakMap<HTMLElement, number>>(new WeakMap());
   /**
-   * Every DEPARTING TARGET this settle is carrying out, keyed by pane id — or
-   * by `rail-shadow:<side>` for a side's strip ([P06]).
+   * Every DEPARTING TARGET this settle is carrying out, keyed by pane id
+   * ([P06]).
    *
    * A target is a real element that already stood at rest: a CLOSING pane's
    * own frame, which the store keeps mounted and `inert` for this settle
    * (`data-departing`); a PARKED rail frame, whose rail was hidden whole and
-   * which the engine shows for the length of its exit; or a side's STRIP.
+   * which the engine shows for the length of its exit.
    * The `depart` beat fades or slides each one where it stood, and nothing
    * is created inside the window to do it ([D9]).
    *
@@ -863,7 +831,7 @@ export function useSettleEngine({
    * Handing back differs by kind. A CLOSING frame keeps its hold and is given
    * an inline `opacity: 0`, because `fill: none` would otherwise return it at
    * full opacity until the store's land unmounts it; its id is then free to
-   * land. A PARKED frame or a strip runs its restorers, which take the mark
+   * land. A PARKED frame runs its restorers, which take the mark
    * and the holds off, and the stylesheet hides it again.
    *
    * `launched` is what makes the retarget's exit precise rather than blunt.
@@ -1288,13 +1256,6 @@ export function useSettleEngine({
           frame.removeAttribute(SETTLE_DEPARTING_ATTR);
           frame.style.removeProperty("transform");
           frame.style.removeProperty("opacity");
-        }
-        for (const strip of canvas.querySelectorAll<HTMLElement>(
-          ".tug-rail-shadow",
-        )) {
-          strip.removeAttribute(SETTLE_DEPARTING_ATTR);
-          strip.style.removeProperty("transform");
-          strip.style.removeProperty("opacity");
         }
       }
     }
@@ -1798,8 +1759,6 @@ export function useSettleEngine({
       firstFolds.clear();
       const firstRailSides = settleFirstRailSidesRef.current;
       firstRailSides.clear();
-      const firstRailShadows = settleFirstRailShadowsRef.current;
-      firstRailShadows.clear();
       // Open the episodes here, on the near side of the commit, because this
       // is the last moment the old layout is still on screen — a scroller
       // cannot say what the user is looking at once the content has already
@@ -2093,50 +2052,6 @@ export function useSettleEngine({
         finishArm();
       }
 
-      // The shadow strips, once rather than per frame: there is one per SIDE,
-      // and a rail's members all cast the same one.
-      //
-      // A strip is HELD BEFORE IT IS MEASURED, for the frames' reason above,
-      // and by the same hold: the strip is the depth of the rail beside it,
-      // so a rail caught mid-slide and re-planned from the pose the eye has
-      // needs its strip held and measured at the pose the eye has too, or the
-      // Last pass plans the two different journeys and the shadow comes away
-      // from its panel. A strip still HELD for an arrive beat that has not
-      // launched (no anims) is left exactly as a pending arrival is: not on
-      // screen, nothing to hand back, and the Last pass holds it again. An
-      // entry whose strip has left the document is a record of nothing.
-      const armedStrips: Array<{
-        key: string;
-        strip: HTMLElement;
-        running: SettleTween;
-      }> = [];
-      for (const [key, entry] of [...settleTweensRef.current]) {
-        if (!key.startsWith(RAIL_SHADOW_TWEEN_PREFIX)) continue;
-        if (!entry.el.isConnected) settleTweensRef.current.delete(key);
-      }
-      if (measure) {
-        for (const strip of el.querySelectorAll<HTMLElement>(
-          STANDING_RAIL_SHADOWS,
-        )) {
-          const side = strip.getAttribute("data-rail-shadow");
-          if (side !== "left" && side !== "right") continue;
-          const running = settleTweensRef.current.get(railShadowTweenKey(side));
-          if (
-            running !== undefined &&
-            running.el === strip &&
-            running.anims.length > 0
-          ) {
-            for (const anim of running.anims) anim.cancel("hold-at-current");
-            armedStrips.push({
-              key: railShadowTweenKey(side),
-              strip,
-              running,
-            });
-          }
-          firstRailShadows.set(side, layoutRectOf(strip));
-        }
-      }
-
       perfMark("tug:arm-measured");
       // Second pass: the episodes. A begin is a READ — `discoverScrollers`
       // asks `scrollHeight`, and every unclaimed scroller it finds is then
@@ -2192,8 +2107,8 @@ export function useSettleEngine({
       for (const apply of stamps) apply();
       // Did the arm cancel anything? Every branch below that hands residue
       // back is a retarget, and a retarget is never deferred — see the flush
-      // after the strips.
-      let retargeted = armedStrips.length > 0;
+      // below.
+      let retargeted = false;
       for (const { paneId, frame, running } of armed) {
         if (running !== undefined) {
           retargeted = true;
@@ -2207,12 +2122,6 @@ export function useSettleEngine({
           // or to end: the cancel just made the old completion a no-op.
           crossingsRef.current.retake(frame);
         }
-      }
-      // The strips' residue goes back on the same tick, after the last
-      // measurement, for the frames' reason.
-      for (const { key, strip, running } of armedStrips) {
-        for (const restore of running.restores) restore();
-        clearFlip(key, strip, running.anims);
       }
 
       // A RETARGET IS NEVER DEFERRED ([B01]).
@@ -2324,16 +2233,13 @@ export function useSettleEngine({
         const movers = armed.filter(({ frame }) =>
           frame.matches(FLOW_OFFSET_FRAME_READERS),
         );
-        // The bodies under the frames the slide carries ride it on the host,
-        // on the slide's own curve from the slide's own start; a body the
-        // planner cannot carry hides for the slide's length, as it did
-        // before the host carried any. The prelaunch measured nothing, so
-        // each frame's First is the placer's last box, and its Last is that
-        // box less `dx`: `First - Last = dx` in layout px.
+        // The cards in the frames the slide carries ride it on the host, on
+        // the slide's own curve from the slide's own start, as one plan
+        // posted through `lib/card-plan.ts` ([B11]). The prelaunch measured
+        // nothing, so each frame's First is the placer's last box, and its
+        // Last is that box less `dx`: `First - Last = dx` in layout px.
         const startTime = settleStartTime();
-        if (startTime === undefined) {
-          bodyHideUnder(movers.map(({ frame }) => frame));
-        } else {
+        if (startTime !== undefined) {
           const factor = pageZoomFactor();
           const beat: FrameBeat = {
             kind: "move",
@@ -2342,13 +2248,9 @@ export function useSettleEngine({
             durationMs: curve.durationMs * getTugTiming(),
             progress: curve.progress,
           };
-          bodyRunPlan({
+          runCardPlan({
             startTime,
             factor,
-            periodMs: settleGapSampler.periodMs(),
-            record: recordBeat,
-            planBeat,
-            allowCrossing: true,
             frames: movers.map(({ frame }) => ({ frame, first: null, last: { dx: -dx * factor }, beats: [beat] })),
           });
         }
@@ -2532,7 +2434,6 @@ export function useSettleEngine({
     const firstRects = settleFirstRectsRef.current;
     const firstFolds = settleFirstFoldsRef.current;
     const firstRailSides = settleFirstRailSidesRef.current;
-    const firstRailShadows = settleFirstRailShadowsRef.current;
     // Every episode this commit does not go on to hand a tween is finished
     // here: the new geometry is in the DOM, so ending lands each anchor
     // against the layout the user is about to see. The tweened ones are
@@ -2590,12 +2491,6 @@ export function useSettleEngine({
         const seen = releaseDeparting(frame, paneId);
         if (seen !== null) firstRects.set(paneId, seen);
       }
-      for (const strip of el.querySelectorAll<HTMLElement>(STANDING_RAIL_SHADOWS)) {
-        const side = strip.getAttribute("data-rail-shadow");
-        if (side !== "left" && side !== "right") continue;
-        const seen = releaseDeparting(strip, railShadowTweenKey(side));
-        if (seen !== null) firstRailShadows.set(side, seen);
-      }
     }
     if (el === null || firstRects.size === 0) {
       // Nothing is carried on, so every frame a retarget took is ended here.
@@ -2604,7 +2499,6 @@ export function useSettleEngine({
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
-      firstRailShadows.clear();
       endAllEpisodes();
       // A settle with nothing to carry is over the moment it is read: the
       // hold taken at arm comes off now, on the settle's own clock, rather
@@ -2646,7 +2540,6 @@ export function useSettleEngine({
       firstRects.clear();
       firstFolds.clear();
       firstRailSides.clear();
-      firstRailShadows.clear();
       endAllEpisodes();
       // A pending arrival's hold comes off HERE rather than at the sweep
       // ([B03]). Under reduced motion no arrive beat will ever run, so the
@@ -2726,9 +2619,6 @@ export function useSettleEngine({
           `.tug-pane[data-pane-id="${CSS.escape(paneId)}"]`,
         );
         if (frame !== null) lastRects.set(frame, layoutRectOf(frame));
-      }
-      for (const strip of el.querySelectorAll<HTMLElement>("[data-rail-shadow]")) {
-        lastRects.set(strip, layoutRectOf(strip));
       }
     }
     // The record's rect, or — for a target the read phase did not foresee —
@@ -2908,16 +2798,6 @@ export function useSettleEngine({
      * absent from it, which is what "this exit is a fade" means.
      */
     const railSideOfDeparture = new Map<string, SidebarSide>();
-    /**
-     * The shadow strips of the sides whose rails are ALL arriving, held
-     * invisible with their rails and slid in on the arrive beat.
-     */
-    const arrivingStrips: Array<{
-      key: string;
-      strip: HTMLElement;
-      side: SidebarSide;
-      restores: Array<() => void>;
-    }> = [];
     // This launch. Every completion below — a fade's, an entrance's, the
     // beat choreography's — checks it before touching anything, because a
     // retarget that landed in between has already cancelled, restored and
@@ -3509,76 +3389,6 @@ export function useSettleEngine({
       crossings.carry(c.frame, { fold: null, still: c.stillCrossingId });
     }
     crossings.closePass();
-    // The shadow strips, planned AFTER every frame so the answer to "did this
-    // side's rail survive?" is in hand. A strip is the rail's depth, and it
-    // moves exactly as the rail does or it is not that — every case below is
-    // one way of keeping the two on one clock.
-    //
-    // A side whose rails are ALL arriving — none survived the commit with a
-    // First rect — is a rail sliding in from its edge. The commit drew the
-    // strip at home, where it would stand alone through every beat before the
-    // arrive while the rail is still held invisible: that is the stripe seen
-    // standing in the middle of a card a beat before the rail comes in. So
-    // the strip is held invisible WITH the rail, and slides in on the arrive
-    // beat on the rail's own number. A side whose strip moved between First
-    // and Last while a rail survived — the rail was caught mid-slide and
-    // re-planned from where it was — is a strip travelling with its rail's
-    // move, and it is choreographed like a frame: held at First, carried on
-    // the side's beat, its transform taken off when the beat lands. A side
-    // whose rails all left keeps its strip parked or empty, and it is carried
-    // out below with the rail's frames. React writes neither opacity nor
-    // transform on a strip, so handing either back is taking it off.
-    const railArrivingSides = new Set<SidebarSide>();
-    for (const { frame } of arrivals) {
-      const side = frame.getAttribute("data-rail-side");
-      if (side === "left" || side === "right") railArrivingSides.add(side);
-    }
-    for (const frame of el.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
-      const paneId = frame.getAttribute("data-pane-id");
-      if (paneId === null || !firstRects.has(paneId)) continue;
-      const side = frame.getAttribute("data-rail-side");
-      if (side === "left" || side === "right") railArrivingSides.delete(side);
-    }
-    for (const strip of el.querySelectorAll<HTMLElement>(STANDING_RAIL_SHADOWS)) {
-      const side = strip.getAttribute("data-rail-shadow");
-      if (side !== "left" && side !== "right") continue;
-      const key = railShadowTweenKey(side);
-      const restores = [
-        (): void => {
-          strip.style.removeProperty("opacity");
-        },
-        (): void => {
-          strip.style.removeProperty("transform");
-        },
-      ];
-      if (railArrivingSides.has(side)) {
-        strip.style.opacity = "0";
-        settleTweensRef.current.set(key, { el: strip, anims: [], restores });
-        arrivingStrips.push({ key, strip, side, restores });
-        continue;
-      }
-      const firstRect = firstRailShadows.get(side);
-      if (firstRect === undefined) continue;
-      const dx = firstRect.left - lastRectOf(strip).left;
-      if (Math.abs(dx) < 0.5) continue;
-      const beats = planSettleBeats({ dx, dy: 0, sx: 1 }, { fused });
-      if (beats.length === 0) continue;
-      const anims: TugAnimation[] = [];
-      strip.style.transformOrigin = "0 0";
-      applyHolds(strip, { transform: { dx, dy: 0, sx: 1 } });
-      settleTweensRef.current.set(key, { el: strip, anims, restores });
-      choreography.push({
-        paneId: key,
-        frame: strip,
-        beats,
-        next: 0,
-        anims,
-        restores,
-        handBack: {},
-        crossingId: null,
-        stillCrossingId: null,
-      });
-    }
     // The departures (Spec S02). A pane `arm` measured that no longer stands
     // among the shown frames has left the arrangement during this commit, and
     // the depart beat carries it out on its OWN frame, which already stood at
@@ -3653,20 +3463,6 @@ export function useSettleEngine({
       const railSide = firstRailSides.get(paneId);
       if (railSide !== undefined) railSideOfDeparture.set(paneId, railSide);
     }
-    // A rail leaves by the edge it stands on, and it takes its SHADOW with
-    // it. The shadow is one strip per side drawn by the canvas rather than by
-    // any pane ([D183]), and it always stands: a side whose rails all left
-    // keeps its strip mounted, parked or empty and hidden, so its depth would
-    // blink out while the panel slides away — a panel and its depth are one
-    // object as the eye reads them. That strip is shown for the beat and
-    // carried out with the rail, on its own element, exactly as a parked
-    // frame is ([P05]). A rail losing one of two members keeps its standing
-    // strip, which the survivors' pass above already carries.
-    //
-    // Every target on a side travels the RAIL's distance, never its own,
-    // measured from where it stood at First. The strip stands ten pixels
-    // inboard, so measuring it against the edge separately would give it a
-    // longer journey and the two would drift apart over the crossing.
     if (railSideOfDeparture.size > 0) {
       const canvasRect = lastRectOf(el);
       const travelBySide = new Map<SidebarSide, number>();
@@ -3681,41 +3477,6 @@ export function useSettleEngine({
         const side = railSideOfDeparture.get(departure.paneId);
         if (side === undefined) continue;
         departure.travelPx = travelBySide.get(side) ?? 0;
-      }
-      for (const [side, px] of travelBySide) {
-        const firstRect = firstRailShadows.get(side);
-        if (firstRect === undefined) continue;
-        const strip = el.querySelector<HTMLElement>(
-          `[data-rail-shadow="${side}"]`,
-        );
-        if (
-          strip === null ||
-          !(
-            strip.hasAttribute("data-rail-parked") ||
-            strip.hasAttribute("data-rail-empty")
-          )
-        ) {
-          continue;
-        }
-        const key = railShadowTweenKey(side);
-        const restores: Array<() => void> = [
-          inlineRestorer(strip, "transform"),
-          inlineRestorer(strip, "opacity"),
-          () => strip.removeAttribute(SETTLE_DEPARTING_ATTR),
-        ];
-        const dx = firstRect.left - lastRectOf(strip).left;
-        strip.setAttribute(SETTLE_DEPARTING_ATTR, key);
-        applyHolds(strip, { transform: { dx, dy: 0, sx: 1 } });
-        // In the same registry as the frames, so the teardown's "take them
-        // all" sweep reaches it too, and unlaunched with its rail, because it
-        // rides the same beat ([B10]).
-        departingTargetsRef.current.set(key, {
-          el: strip,
-          kind: "strip",
-          launched: false,
-          restores,
-        });
-        departures.push({ paneId: key, el: strip, dx, dy: 0, travelPx: px });
       }
     }
     // The beats. Every frame's shrink tweens together; on their joint
@@ -3759,28 +3520,21 @@ export function useSettleEngine({
       if (totalMs > crossing.durationMs) {
         settleSweepRef.current?.(holdCapMs(totalMs, getTugTiming()));
       }
-      // The bodies under the frames these beats carry are planned here, in
-      // the pass that plans the motion and before its first frame paints:
-      // each rides its frame's beats on the host, on the curves and delays
-      // the chrome's own beats are built from, from the one start every beat
-      // of this settle shares. A body the planner cannot carry — one whose
-      // box changes size, one placed somewhere its frame is not — is hidden
-      // for the motion and shown again by the land's measurement, as every
-      // body was before the host carried any (`lib/body-placement.ts`).
+      // The cards in the frames these beats carry are planned here, in the
+      // pass that plans the motion and before its first frame paints: each
+      // rides its frame's beats on the host, on the curves and delays the
+      // chrome's own beats are built from, from the one start every beat of
+      // this settle shares, as one whole-card plan posted through
+      // `lib/card-plan.ts` ([B11]). A card whose box changes size is carried
+      // as a crossing; nothing is hidden for the motion.
       const startTime = settleStartTime();
-      if (startTime === undefined) {
-        bodyHideUnder(choreography.map((c) => c.frame));
-      } else {
+      if (startTime !== undefined) {
         const factor = pageZoomFactor();
         const timing = getTugTiming();
         const delayOf = new Map(schedule.map((b) => [b.kind, b.delayMs]));
-        bodyRunPlan({
+        runCardPlan({
           startTime,
           factor,
-          periodMs: settleGapSampler.periodMs(),
-          record: recordBeat,
-          planBeat,
-          allowCrossing: true,
           frames: [
             ...choreography.map((c) => {
               const first = firstRects.get(c.paneId);
@@ -3987,11 +3741,10 @@ export function useSettleEngine({
           // has no edge of its own and keeps the fade — it is not travelling
           // from anywhere, it is beginning to be here ([D135]). The way OUT is
           // the mirror of it, and it is here too now ([B10]): a rail's parked
-          // frames slide off the edge they came in by, on this beat, with its
-          // shadow strip beside them on the same keyframes.
+          // frames slide off the edge they came in by, on this beat. A rail's
+          // shadow is its own page's, so it rides the rail's frames.
           const canvasRect = lastRectOf(el);
-          // **One travel per side, and the shadow takes the pane's** — the
-          // exit's rule, for the exit's reason.
+          // **One travel per side** — the exit's rule, for the exit's reason.
           const railTravelBySide = new Map<SidebarSide, number>();
           const travelFor = (el2: HTMLElement, side: SidebarSide): number => {
             const known = railTravelBySide.get(side);
@@ -4046,32 +3799,6 @@ export function useSettleEngine({
                     key: "imposer-enter",
                   };
                 });
-          // The arriving sides' strips, after the frames so the positional
-          // pairing below — `arrivals[i]` to `fades[i]` — is untouched. Each
-          // is the LIVE strip the Last pass held invisible with its rail, and
-          // it rides the rail's own number — one travel per side, the exit's
-          // rule for the exit's reason — on the rail's own keyframes, so the
-          // two cannot be a pixel apart on any frame of the crossing.
-          //
-          // Registered on its own entry, as a frame's slide is on the frame's:
-          // a retarget's `arm` holds it where it is and measures it there, the
-          // sweep hands it back, and `land` takes the hold off with the rails'.
-          // Nothing here snaps to an end or lands on its own — a strip that
-          // snapped home while its rail was held mid-slide would be the shadow
-          // standing away from the panel that this whole passage forbids.
-          const stripKeys: string[] = [];
-          if (kind === "arrive") {
-            for (const { key, strip, side } of arrivingStrips) {
-              const px = railTravelBySide.get(side);
-              if (px === undefined) continue;
-              targets.push({
-                el: strip,
-                keyframes: slideIn(px),
-                key: "imposer-enter-rail-shadow",
-              });
-              stripKeys.push(key);
-            }
-          }
           if (targets.length === 0) return Promise.resolve();
           // What the beat leaves behind when it lands. A departing target is
           // landed by its kind (`landDepartingTarget`): a closing frame held
@@ -4108,10 +3835,6 @@ export function useSettleEngine({
             for (const { frame } of arrivals) {
               frame.style.removeProperty("opacity");
             }
-            for (const { strip } of arrivingStrips) {
-              strip.style.removeProperty("opacity");
-              strip.style.removeProperty("transform");
-            }
           };
           // A fade is `divide-join`: carried by opacity rather than by travel,
           // so its window is that recipe's and its easing is the plain one the
@@ -4140,10 +3863,6 @@ export function useSettleEngine({
             kind === "depart",
           );
           const fades = beat.anims;
-          for (const [i, key] of stripKeys.entries()) {
-            const slide = fades[arrivals.length + i];
-            if (slide !== undefined) settleTweensRef.current.get(key)?.anims.push(slide);
-          }
           if (kind === "depart") {
             // The beat is running, so each of these targets now has a landing
             // coming that is unconditional on the generation. That is what
@@ -4384,10 +4103,6 @@ export function useSettleEngine({
             for (const restore of restores) restore();
             clearFlip(paneId, frame, settleTweensRef.current.get(paneId)?.anims ?? []);
           }
-          for (const { key, strip, restores } of arrivingStrips) {
-            for (const restore of restores) restore();
-            clearFlip(key, strip, settleTweensRef.current.get(key)?.anims ?? []);
-          }
           // The covered members' holds and marks come off here and nowhere
           // earlier: the survivor has covered a retiring member, or retreated
           // off a revealed one, only when the chain is done ([B03]).
@@ -4453,7 +4168,6 @@ export function useSettleEngine({
     firstRects.clear();
     firstFolds.clear();
     firstRailSides.clear();
-    firstRailShadows.clear();
     holdPlan.survivors.clear();
     holdPlan.covered.clear();
     holdPlan.held.clear();

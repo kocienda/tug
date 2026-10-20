@@ -4,11 +4,12 @@
  *
  * A piece of row 6 ([B02] row 6): with the body of each kind under test but
  * the Session card holding the keyboard, View › Zoom In changes its placed
- * width and Actual Size restores it. File › Close on a rail raises the
- * shell's popover — a rail always asks (`tug-pane.tsx`'s
- * `paneConfirmClose`) — which Escape dismisses with the keyboard handed
- * back and whose confirm button closes it; any other kind closes at once.
- * Either way its body goes with the card.
+ * width and Actual Size restores it. File › Close on a rail raises its
+ * Close popover — a rail always asks (`closeAsksOf`) — in the page that
+ * draws its chrome, the card's own for a kind that carries it; Escape
+ * dismisses it with the keyboard handed back and its Close button closes
+ * the card. Any other kind closes at once. Either way its body goes with
+ * the card.
  *
  * @foreground
  * @family row-06-menus
@@ -22,11 +23,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { note } from "../_harness";
-import { SETTLE_MS, bodyOf, pollFor, popoverPresent } from "./_bodies";
+import { SETTLE_MS, bodyOf, closePopoverUp, pollFor, pressCloseOfPopover } from "./_bodies";
 import { kindsUnderTest } from "./_kinds";
 import { SHOULD_RUN, TEST_TIMEOUT_MS, withKind } from "./_row-06";
-
-const CONFIRM = '[data-slot="tug-confirm-popover"] [data-slot="tug-confirm-confirm"]';
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what the body of every other kind shows", () => {
   for (const kind of kindsUnderTest(6)) {
@@ -49,7 +48,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what the body of every other
           const close = await app.performMenuItem("file.closeCard");
           expect(close.found && close.performed, "File › Close performs").toBe(true);
           const raised = await pollFor(
-            async () => ({ popover: await app.evalJS<boolean>(popoverPresent), cards: await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`) }),
+            async () => ({ popover: await closePopoverUp(app, card), cards: await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`) }),
             (r) => r.popover || r.cards < cardsBefore,
             SETTLE_MS,
           );
@@ -57,13 +56,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what the body of every other
           expect(raised.popover, kind.rail ? "File › Close on a rail asks" : "File › Close asks nothing").toBe(kind.rail);
           if (kind.rail) {
             await app.nativeKey("Escape");
-            expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
+            expect(await pollFor(() => closePopoverUp(app, card), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
             const handedBack = await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
             expect(handedBack?.firstResponder, "the card's body holds the keyboard again").toBe(true);
             expect(await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), "no card was closed").toBe(cardsBefore);
             await app.performMenuItem("file.closeCard");
-            expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS), "File › Close asks again").toBe(true);
-            await app.nativeClickAtElement(CONFIRM);
+            expect(await pollFor(() => closePopoverUp(app, card), (v) => v, SETTLE_MS), "File › Close asks again").toBe(true);
+            expect(await pressCloseOfPopover(app, card), "its Close button is pressed").toBe(true);
           }
           const left = await pollFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
           expect(left, "the card closed").toBe(cardsBefore - 1);

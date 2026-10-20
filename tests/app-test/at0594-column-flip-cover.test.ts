@@ -388,6 +388,7 @@ describe.skipIf(!SHOULD_RUN)("at0594 — column flip cover", () => {
       try {
         // Split first, so the bottom member can be found and raised. This
         // flip is not under test; it lands before anything samples.
+        // card-dom: shell — a deck command dispatched in the shell, reaching no card's DOM.
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
         );
@@ -443,6 +444,7 @@ describe.skipIf(!SHOULD_RUN)("at0594 — column flip cover", () => {
       const paneIds = ["p1", "p2", "p3"];
       const app = await launch(3, "at0594-column-flip-cover-three");
       try {
+        // card-dom: shell — a deck command dispatched in the shell, reaching no card's DOM.
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
         );

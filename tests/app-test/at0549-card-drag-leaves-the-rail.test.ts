@@ -36,6 +36,7 @@
  * arc's diff selects this file through `rail-vacancy.css` regardless.
  *
  * @covers tugdeck/src/lib/drop-zones.ts
+ * @covers tugdeck/src/overlay/overlay-indication.ts
  * @covers tugdeck/src/components/chrome/rail-vacancy.css
  */
 
@@ -44,6 +45,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
 import { RAIL_GUTTER_PX } from "../../tugdeck/src/lib/layout-imposer";
 import { chromePoint } from "./card-chrome-fixture";
+import { overlayPage } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -72,7 +74,6 @@ const RAIL_PANES: Record<string, string> = {
 const CONTENT_PANE = "p1";
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
-const titleBar = (paneId: string): string => `${frame(paneId)} .tug-pane-title-bar`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -242,20 +243,28 @@ function flowSlotRects(app: App): Promise<SlotRect[]> {
 interface FlowSample {
   t: number;
   offset: number;
-  indRight: number | null;
   railLeft: number;
-  indZ: number | null;
-  railZ: number;
 }
 
-/** Start sampling, every 8ms, the drawn flow offset, the drop-zone indicator's
- *  right edge (or null when none stands), the rail's left edge, and the two
- *  elements' computed stacking ranks. The ranks are what say which of them the
- *  reader sees where they overlap, and they are read per frame because the
- *  indicator's own rule is keyed on what is in the air. A timer rather than
+/** One frame of the drop-zone outline, read in the overlay that draws it: its
+ *  box, and the left edge of the span cut out of it for what stands over it
+ *  (null when nothing is), in viewport points. */
+interface OutlineSample {
+  left: number;
+  right: number;
+  cutLeft: number | null;
+  cutFullHeight: boolean;
+}
+
+/** Start sampling, every 8ms, the drawn flow offset and the rail's left edge
+ *  in the shell, and the drop-zone outline in the overlay: its box and what is
+ *  cut out of it. The cut is what says the reader sees the rail rather than
+ *  the outline where the two overlap, and it is read per frame because what
+ *  stands over the outline is keyed on what is in the air. A timer rather than
  *  rAF, which an occluded harness window suspends. */
 const startFlowSampler = (app: App): Promise<null> =>
-  app.evalJS<null>(
+  Promise.all([
+    app.evalJS<null>(
     `(function () {
       window.__flow = { samples: [] };
       window.__flow.timer = setInterval(function () {
@@ -263,28 +272,54 @@ const startFlowSampler = (app: App): Promise<null> =>
         var reader = document.querySelector("[data-space-layer][data-space-shown] .tug-pane[data-imposed]");
         var rail = document.querySelector('.tug-pane[data-pane-id="pRail"]');
         if (bg === null || rail === null || reader === null) return;
-        var ind = document.querySelector(".tug-drop-zone-indicator");
         window.__flow.samples.push({
           t: performance.now(),
           offset: parseFloat(getComputedStyle(reader).getPropertyValue("--tug-imposer-flow-offset")) || 0,
-          indRight: ind === null ? null : ind.getBoundingClientRect().right,
           railLeft: rail.getBoundingClientRect().left,
-          indZ: ind === null ? null : parseInt(getComputedStyle(ind).zIndex, 10),
-          railZ: parseInt(getComputedStyle(rail).zIndex, 10),
         });
       }, 8);
       return null;
     })()`,
-  );
+    ),
+    overlayPage(app).evalJS<null>(
+      `(function () {
+      window.__outline = { samples: [] };
+      window.__outline.timer = setInterval(function () {
+        var ind = document.querySelector(".tug-drop-zone-indicator");
+        if (ind === null) return;
+        var r = ind.getBoundingClientRect();
+        // The clip is \`polygon(evenodd, <the box's ring>, <a ring per cut>)\`:
+        // a cut's first corner is its top left, against the box.
+        var points = (ind.style.clipPath.match(/polygon\\(evenodd, (.*)\\)/) || [null, ""])[1].split(", ");
+        var cut = points.length > 5 ? points[5].split(" ").map(parseFloat) : null;
+        var cutBottom = points.length > 6 ? parseFloat(points[6].split(" ")[1]) : null;
+        window.__outline.samples.push({
+          left: r.left,
+          right: r.right,
+          cutLeft: cut === null ? null : r.left + cut[0],
+          cutFullHeight: cut !== null && cut[1] === 0 && Math.abs(cutBottom - r.height) < 1,
+        });
+      }, 8);
+      return null;
+    })()`,
+    ),
+  ]).then(() => null);
 
 /** Stop the sampler and answer everything it saw, oldest first. */
-const stopFlowSampler = (app: App): Promise<FlowSample[]> =>
-  app.evalJS<FlowSample[]>(
+const stopFlowSampler = async (app: App): Promise<{ flow: FlowSample[]; outline: OutlineSample[] }> => ({
+  flow: await app.evalJS<FlowSample[]>(
     `(function () {
       clearInterval(window.__flow.timer);
       return window.__flow.samples;
     })()`,
-  );
+  ),
+  outline: await overlayPage(app).evalJS<OutlineSample[]>(
+    `(function () {
+      clearInterval(window.__outline.timer);
+      return window.__outline.samples;
+    })()`,
+  ),
+});
 
 const RECT_JS = (selector: string): string =>
   `(function () {
@@ -389,7 +424,7 @@ describe.skipIf(!SHOULD_RUN)(
           const before = await railOffsetDrawn(app);
           expect(before, "the re-seeded rail is at rest again").toBe(0);
 
-          await app.nativeDragElementWithoutRelease(titleBar(CONTENT_PANE), cardFoot);
+          await app.nativeDragWithoutRelease(await chromePoint(app, "A", ".tug-pane-title-bar"), cardFoot);
           await wait(HOLD_MS);
           const withCard = await carryReading(app);
           const cardOffset = await railOffsetDrawn(app);
@@ -466,23 +501,23 @@ describe.skipIf(!SHOULD_RUN)(
           };
 
           await startFlowSampler(app);
-          await app.nativeDragElementWithoutRelease(titleBar("pf0"), hold);
+          await app.nativeDragWithoutRelease(await chromePoint(app, "A", ".tug-pane-title-bar"), hold);
           await wait(HOLD_MS);
           const drawn = await flowOffsetDrawn(app);
-          const samples = await stopFlowSampler(app);
-          const withIndicator = samples.filter((s) => s.indRight !== null);
+          const { flow: samples, outline: withIndicator } = await stopFlowSampler(app);
+          // The rail stands still through a content card's hold: its one edge
+          // is what the outline's frames are read against.
+          const railLeft = samples[samples.length - 1].railLeft;
 
           note(
             `flow click held at the rail's inner edge (${hold.x}, ${hold.y}): ` +
               `offset ${before.toFixed(1)} → ${drawn.toFixed(1)} ` +
               `(one slot's reveal ${expectedOffset.toFixed(1)}); ` +
-              `${samples.length} samples, ${withIndicator.length} with an indicator; ` +
+              `${samples.length} samples, ${withIndicator.length} with an outline; ` +
               `worst overhang past the rail ${Math.max(
                 0,
-                ...withIndicator.map((s) => (s.indRight as number) - s.railLeft),
-              ).toFixed(1)}px, ranks indicator ${withIndicator[0]?.indZ ?? "—"} vs rail ${
-                withIndicator[0]?.railZ ?? "—"
-              }`,
+                ...withIndicator.map((s) => s.right - railLeft),
+              ).toFixed(1)}px, cut from ${withIndicator[0]?.cutLeft?.toFixed(1) ?? "—"} vs rail ${railLeft.toFixed(1)}`,
           );
 
           // 1. One slot's reveal, exactly — the click fired, and did not run on
@@ -511,28 +546,30 @@ describe.skipIf(!SHOULD_RUN)(
           //    once was ([B01]); what has to hold instead is the occlusion
           //    every card on this deck already lives under ([B02]).
           //
-          //    The reading is the two elements' computed stacking rank, NOT
-          //    `document.elementFromPoint`: the indicator is `pointer-events:
-          //    none`, so that call answers what the POINTER would hit and
-          //    returns the rail whether the outline is above it or below — a
-          //    probe that ranked the outline over the whole band still got the
-          //    rail back from it. The two ranks compare directly because
-          //    nothing between them opens a stacking context: the workspace
-          //    wrapper they share is `display: contents`.
+          //    The outline is drawn in the overlay, above every card ([B08]),
+          //    so the rail no longer outranks it by stacking: the shell sends
+          //    what stands over the outline, and the overlay cuts it out of
+          //    the outline's paint — painted over, not cut away, since the
+          //    outline's own edge is not drawn there. So the reading is that
+          //    cut, at every frame the box runs on behind the rail: it starts
+          //    at the rail's near edge and runs the outline's whole height.
+          //    Not `elementFromPoint` in either page: the outline is
+          //    `pointer-events: none`, so that call answers what the POINTER
+          //    would hit, whatever is drawn.
           expect(
             withIndicator.length,
             "the drag offered the card a landing at some frame",
           ).toBeGreaterThan(0);
           const behind = withIndicator.filter(
-            (s) => (s.indRight as number) - s.railLeft > FLOW_TOL,
+            (s) => s.right - railLeft > FLOW_TOL,
           );
           expect(
             behind.length,
             "the outline traced the whole tile, so its box ran on behind the rail",
           ).toBeGreaterThan(0);
           expect(
-            behind.every((s) => (s.indZ as number) < s.railZ),
-            "and the rail outranked it at every one of those frames, so the reader sees panel rather than outline",
+            behind.every((s) => s.cutLeft !== null && Math.abs(s.cutLeft - railLeft) <= FLOW_TOL && s.cutFullHeight),
+            "and the rail's span was cut from it at every one of those frames, so the reader sees panel rather than outline",
           ).toBe(true);
 
           await app.nativeMouseUp(hold);

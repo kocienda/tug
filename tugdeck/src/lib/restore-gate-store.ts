@@ -69,6 +69,16 @@ class RestoreGateStore {
     return this._listeners.subscribe(listener);
   };
 
+  /**
+   * Take the fold from the shell instead of computing one: the overlay page
+   * holds no card, and shows the gate the shell's fold says
+   * (`overlay.restoreGate`). A store that has adopted never folds.
+   */
+  adopt = (next: RestoreGateSnapshot): void => {
+    this._initialized = true;
+    this._publish(next.open ? { ...next } : CLOSED);
+  };
+
   getSnapshot = (): RestoreGateSnapshot => {
     this._ensureInitialized();
     return this._snapshot;

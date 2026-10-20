@@ -492,8 +492,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // card's responders and stops are.
   registerAction(TUG_ACTIONS.CYCLE_FOCUS_MODE, cycleFocusMode);
   // What the card raises past its own content box — the Z2 placard — the
-  // shell draws (`getShellSurfaceHost`), and a logout is the app's, which
-  // only the shell mounts (`requestLogout` sends it `app.logout`).
+  // overlay draws (`getSurfaceHost`), and a logout is the app's, which only
+  // the shell mounts (`requestLogout` sends it `app.logout`).
   const appLifecycle = new AppLifecycle();
   registerAppLifecycle(appLifecycle);
   const sheetLifecycle = new SheetLifecycle();
@@ -719,9 +719,10 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // and no-git notices read the answer, and an unprobed store shows neither.
   registerAction("host_tools_result", (payload) => applyHostToolsResultPayload(payload));
   registerAction("host_tools_offer_result", (payload) => applyHostToolsOfferResultPayload(payload));
-  connectionLifecycle.observeConnectionDidReconnect(() => connection.sendControlFrame("check_host_tools"));
+  // Asked on every open of the wire, the first included: a frame sent before
+  // the socket is open is dropped, so an ask right after `connect()` was lost.
+  connectionLifecycle.observeConnectionDidOpen(() => connection.sendControlFrame("check_host_tools"));
   connection.connect();
-  connection.sendControlFrame("check_host_tools");
   // The maker kinds load beside the snapshot and the WASM, not after them.
   const [, , makerTooling] = await Promise.all([
     tugbankClient.ready(),

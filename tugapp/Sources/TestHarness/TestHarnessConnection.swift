@@ -149,7 +149,7 @@ final class TestHarnessConnection {
     ///
     /// `1.18.0`: adds `accessibilityOrder` — the web views the window's
     /// accessibility tree reaches, in the order it reaches them, each named
-    /// `shell` or by its body's card. Additive; major stays `1`.
+    /// `shell`, `overlay`, or by its body's card. Additive; major stays `1`.
     static let surfaceVersion = "1.18.0"
 
     private let fileHandle: FileHandle
@@ -384,6 +384,8 @@ final class TestHarnessConnection {
                 if let webView = element as? WKWebView {
                     if webView === shell {
                         order.append("shell")
+                    } else if webView === mainWindow.bodies?.overlayView {
+                        order.append("overlay")
                     } else {
                         order.append(mainWindow.bodies?.body(for: webView)?.cardId ?? "spare")
                     }

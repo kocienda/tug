@@ -58,9 +58,11 @@ import {
   letTimePass,
   nextReveal,
   postedActions,
+  postedOnceIncludes,
   push,
   snapshot,
   stepStatuses,
+  ui,
   waitForClickable,
   waitForWizard,
   waitForWizardGone,
@@ -123,7 +125,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
             await clearPosted(app);
             const target = cta(action);
             await waitForClickable(app, target);
-            await app.click(target);
+            await ui(app).click(target);
             try {
               await app.waitForCondition<boolean>(
                 `window.__at0612.posted.length > 0`,
@@ -132,7 +134,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
             } catch (err) {
               note(
                 `at0612 no post from ${stage}/${action}`,
-                await app.evalJS<string>(
+                await ui(app).evalJS<string>(
                   `(function () {
                      var d = document.querySelector(${JSON.stringify(WIZARD)});
                      var t = document.querySelector(${JSON.stringify(target)});
@@ -179,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
         );
         await waitForWizard(app, "error");
         await waitForClickable(app, cta("retry"));
-        await app.click(cta("retry"));
+        await ui(app).click(cta("retry"));
         await app.waitForCondition<boolean>(
           `window.__at0612.posted.length > 0`,
           { timeoutMs: 10_000 },
@@ -221,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
           }),
         );
         await waitForWizard(app, "downloading");
-        const cost = await app.evalJS<string>(
+        const cost = await ui(app).evalJS<string>(
           `(function () {
              var el = document.querySelector(${JSON.stringify(PROGRESS)});
              return el === null ? "" : (el.textContent || "").trim();
@@ -244,10 +246,10 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
         // The button says what it does. Not *Pause*, which would promise the
         // bytes are kept, and not *Cancel*, which would say the update is
         // being given up rather than the download.
-        expect(await app.getElementText(cta("pause"))).toContain("Stop for Now");
+        expect(await ui(app).getElementText(cta("pause"))).toContain("Stop for Now");
 
         await waitForClickable(app, cta("pause"));
-        await app.click(cta("pause"));
+        await ui(app).click(cta("pause"));
         await app.waitForCondition<boolean>(
           `window.__at0612.posted.length > 0`,
           { timeoutMs: 10_000 },
@@ -274,7 +276,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
         // same one Retry uses, is what keeps the panel standing through it.
         await clearPosted(app);
         await waitForClickable(app, cta("resume"));
-        await app.click(cta("resume"));
+        await ui(app).click(cta("resume"));
         await app.waitForCondition<boolean>(
           `window.__at0612.posted.length > 0`,
           { timeoutMs: 10_000 },
@@ -308,11 +310,11 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
             }),
           );
           await waitForWizard(app, stage);
-          expect(await app.getElementText(CLOSE)).toContain(label);
+          expect(await ui(app).getElementText(CLOSE)).toContain(label);
           await waitForClickable(app, CLOSE);
-          await app.click(CLOSE);
+          await ui(app).click(CLOSE);
           await waitForWizardGone(app);
-          expect(await postedActions(app)).toEqual(["dismiss"]);
+          expect(await postedOnceIncludes(app, "dismiss")).toEqual(["dismiss"]);
           note(`at0612 terminal ${stage}`, `${label} posts dismiss`);
         }
 
@@ -338,14 +340,14 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
         // No total yet: no attribute, and a phrase rather than a number,
         // because `null` is not zero.
         expect(
-          await app.getElementAttribute(PROGRESS, "data-progress"),
+          await ui(app).getElementAttribute(PROGRESS, "data-progress"),
         ).toBeNull();
-        expect(await app.getElementText(PROGRESS)).toContain("Starting");
+        expect(await ui(app).getElementText(PROGRESS)).toContain("Starting");
         // And the bar runs its barber pole rather than sitting at a literal
         // 0%: it claims no value and wears no `data-painted`.
         expect(await elementCount(app, BAR)).toBe(1);
-        expect(await app.getElementAttribute(BAR, "aria-valuenow")).toBeNull();
-        expect(await app.getElementAttribute(BAR, "data-painted")).toBeNull();
+        expect(await ui(app).getElementAttribute(BAR, "aria-valuenow")).toBeNull();
+        expect(await ui(app).getElementAttribute(BAR, "data-painted")).toBeNull();
 
         const TOTAL = 48_100_000;
         // Spaced, on purpose. A rate is defined over elapsed time, and the
@@ -366,13 +368,13 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
               expectedBytes: TOTAL,
             }),
           );
-          await app.waitForCondition<boolean>(
+          await ui(app).waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(PROGRESS)})
                 ?.getAttribute("data-progress")) === ${JSON.stringify(String(percent))}`,
             { timeoutMs: 10_000 },
           );
-          const text = await app.getElementText(PROGRESS);
-          const rate = await app.getElementAttribute(PROGRESS, "data-rate");
+          const text = await ui(app).getElementText(PROGRESS);
+          const rate = await ui(app).getElementAttribute(PROGRESS, "data-rate");
           note(`at0612 progress ${percent}%`, `${text}  [data-rate=${rate}]`);
           // Bytes, not a percent: the bar draws the fraction, and the line
           // says what the fraction cannot ([B06]).
@@ -382,12 +384,12 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
           // The bar moved with it. This is the assertion the whole painted
           // seam exists for — a bar wired through React state would still
           // pass every text assertion above.
-          await app.waitForCondition<boolean>(
+          await ui(app).waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(BAR)})
                 ?.getAttribute("aria-valuenow")) === ${JSON.stringify(String(percent))}`,
             { timeoutMs: 10_000 },
           );
-          expect(await app.getElementAttribute(BAR, "data-painted")).not.toBeNull();
+          expect(await ui(app).getElementAttribute(BAR, "data-painted")).not.toBeNull();
           note(`at0612 bar ${percent}%`, "aria-valuenow tracks the transfer");
 
           // The rate is measured on the deck rather than sent, so it is the
@@ -428,13 +430,13 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
               expectedBytes: TOTAL,
             }),
           );
-          await app.waitForCondition<boolean>(
+          await ui(app).waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(PROGRESS)})
                 ?.getAttribute("data-progress")) === ${JSON.stringify(String(percent))}`,
             { timeoutMs: 10_000 },
           );
         }
-        const uncancellable = await app.getElementText(PROGRESS);
+        const uncancellable = await ui(app).getElementText(PROGRESS);
         note("at0612 progress, no stop", uncancellable);
         expect(uncancellable).not.toContain("stopping");
         expect(uncancellable).toContain("left");

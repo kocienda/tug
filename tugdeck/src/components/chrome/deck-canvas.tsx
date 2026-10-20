@@ -34,8 +34,7 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
-import { closePane, moveActiveCardToSpace, revealStackEntry } from "@/lib/pane-verbs";
-import { mergePaneInto } from "@/lib/card-gesture-commit";
+import { closePane, revealStackEntry } from "@/lib/pane-verbs";
 import { installHostCardGesture } from "@/lib/host-card-gesture";
 import { paneFrameOf } from "@/layout-imposition";
 import {
@@ -58,13 +57,10 @@ import {
 import { CardHost } from "./card-host";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
-import { UpdateTug } from "@/components/tugways/update-tug";
-import { UpdatePill } from "./update-pill";
-import { BodyPlacementBeacon } from "./body-placement-beacon";
+import { CardPlacementBeacon } from "./card-placement-beacon";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
-import { usePaneOcclusionController } from "./pane-occlusion-controller";
 import { canvasDeck, canvasDeckEqual } from "./canvas-deck-fields";
 import { useStoreDerived } from "@/lib/use-store-derived";
 import {
@@ -72,7 +68,6 @@ import {
   CARD_ZINDEX_BASE,
   MARGIN_CAP_ZINDEX,
   RAIL_SEAM_ZINDEX,
-  RAIL_SHADOW_ZINDEX,
   SIDEBAR_PANE_ZINDEX_MAX_RANK,
   usePaneRaise,
 } from "./pane-stacking";
@@ -99,6 +94,8 @@ import type { IDeckManagerStore } from "@/deck-manager-store";
 import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { isBodyKind } from "@/lib/body-handoff";
+import { hostKeepsOverlay } from "@/lib/overlay-shell";
+import { overlayMarginCaps } from "@/bus/declarations/overlay";
 import { getJotsStore } from "@/lib/jots-store";
 import { jotsNewJot } from "@/bus/declarations/verbs";
 import {
@@ -173,6 +170,7 @@ import {
   registerDropZoneHost,
 } from "@/lib/drop-zone-host-registry";
 import { indicateDropZone } from "@/lib/drop-zone-indicator";
+import { indicate } from "@/lib/drag-indication";
 import {
   publishColumnOffset,
   publishDragFrame,
@@ -196,7 +194,7 @@ import {
   SpaceLayerShownContext,
   type SpaceLayerShownSource,
 } from "./space-layer";
-import { registerColumnSeamDrag } from "./column-seam-drag";
+import { driveColumnSeam, registerColumnSeamDrag, type ColumnSeamGesture } from "./column-seam-drag";
 import {
   stillHiddenLayerLoops,
   stillLoopOnStart,
@@ -206,7 +204,6 @@ import { mark as perfMark } from "@/lib/perf-marks";
 import "./space-layer.css";
 import "./rail-vacancy.css";
 import "./margin-cap.css";
-import "./rail-shadow.css";
 import {
   sidebarSide,
   withEveryHideCleared,
@@ -244,8 +241,6 @@ import {
   stripCoordinatesOf,
   impositionGapBottomPx,
   RAIL_EDGE_INSET_PX,
-  RAIL_EDGE_INSET,
-  RAIL_GAP_BOTTOM,
   railGapBottomPx,
   RAIL_SEAM_PX,
   RAIL_TREATMENT,
@@ -577,12 +572,8 @@ interface PlaceSeamProps {
  * The drag shares the rail width drag's grammar (`rail-width-draft.ts`) —
  * pointer capture, a move-threshold latch, zoom-corrected deltas, and the
  * record and the preview changing hands in one task at the release so no
- * frame reads a stale value — with **one deliberate divergence: no occlusion
- * bracket.** That bracket exists to keep a frame passing over another from
- * being stamped `data-occluded` mid-gesture. A seam drag resizes two members
- * that stay tiled: no frame ever passes over another, and there is nothing for
- * the bracket to keep visible. (The reorder drag needs one for exactly the
- * reason this does not.)
+ * frame reads a stale value. A seam drag resizes two members that stay tiled,
+ * so no frame ever passes over another.
  */
 function PlaceSeam({
   place,
@@ -607,9 +598,9 @@ function PlaceSeam({
   // The drag, for a press already in progress — the seam's own, or one a
   // column member's inner edge hands over (`column-seam-drag.ts`).
   const beginDrag = useCallback(
-    (seam: HTMLElement, pointerId: number, startClientY: number) => {
+    (seam: HTMLElement, pointerId: number | null, startClientY: number): ColumnSeamGesture | null => {
       const container = seam.parentElement;
-      if (container === null) return;
+      if (container === null) return null;
 
       const zoom = pageZoomFactor();
       // The division the gesture starts from, and the run it is stated against
@@ -622,7 +613,7 @@ function PlaceSeam({
       const seamPx = placeSeamPx(place);
       const startTop = start.tops[index] ?? 0;
       const startHeight = start.heights[index] ?? 0;
-      if (!(run > 0) || start.heights.length < 2) return;
+      if (!(run > 0) || start.heights.length < 2) return null;
 
       // How far this seam may travel, as the range of the upper member's
       // HEIGHT: the allocator's own bounds, so a drag can never write a height
@@ -650,7 +641,7 @@ function PlaceSeam({
           ? startTop + height + seamPx
           : (startTop + height + seamPx / 2) / run;
 
-      seam.setPointerCapture(pointerId);
+      if (pointerId !== null) seam.setPointerCapture(pointerId);
       seam.setAttribute("data-gesture", "seam");
       // The place's members are the hand's for the duration — the two this
       // seam divides always, and, when the drag cascades past a floor, the
@@ -928,8 +919,8 @@ function PlaceSeam({
       // property write is cheap, style resolves once per rendering update
       // however many writes precede it, and the hop had no case where it
       // gained a frame and one where it could lose one ([B04]).
-      const onPointerMove = (e: PointerEvent): void => {
-        latestY = e.clientY;
+      const move = (clientY: number): void => {
+        latestY = clientY;
         const wasMoved = moved;
         if (!latch(latestY)) return;
         // At the latch, before the first write: the one layout the interior
@@ -944,13 +935,21 @@ function PlaceSeam({
         else pin(height);
       };
 
-      const onPointerUp = (e: PointerEvent): void => {
+      // The pointer's listeners, when a press on the seam (or a member's edge
+      // in the shell) drives the drag; a gesture the host tracks drives it
+      // through the same three calls instead (`driveColumnSeam`).
+      const detach = (): void => {
+        if (pointerId === null) return;
         seam.removeEventListener("pointermove", onPointerMove);
         seam.removeEventListener("pointerup", onPointerUp);
         seam.removeEventListener("pointercancel", onPointerCancel);
-        seam.releasePointerCapture(e.pointerId);
+        if (seam.hasPointerCapture(pointerId)) seam.releasePointerCapture(pointerId);
+      };
+
+      const release = (clientY: number): void => {
+        detach();
         seam.removeAttribute("data-gesture");
-        latestY = e.clientY;
+        latestY = clientY;
         try {
           if (!latch(latestY)) return;
           const height = computeHeight();
@@ -1008,19 +1007,23 @@ function PlaceSeam({
       // outlives the listener meant to clear it is a frame the settle skips
       // for the rest of the session. The pins come off the same way, and the
       // frames stand where the record says.
-      const onPointerCancel = (): void => {
-        seam.removeEventListener("pointermove", onPointerMove);
-        seam.removeEventListener("pointerup", onPointerUp);
-        seam.removeEventListener("pointercancel", onPointerCancel);
+      const cancel = (): void => {
+        detach();
         seam.removeAttribute("data-gesture");
         for (const { el } of divided) el.removeAttribute("data-pointer-owned");
         releasePins();
         releaseHold();
       };
 
-      seam.addEventListener("pointermove", onPointerMove);
-      seam.addEventListener("pointerup", onPointerUp);
-      seam.addEventListener("pointercancel", onPointerCancel);
+      const onPointerMove = (e: PointerEvent): void => move(e.clientY);
+      const onPointerUp = (e: PointerEvent): void => release(e.clientY);
+      const onPointerCancel = (): void => cancel();
+      if (pointerId !== null) {
+        seam.addEventListener("pointermove", onPointerMove);
+        seam.addEventListener("pointerup", onPointerUp);
+        seam.addEventListener("pointercancel", onPointerCancel);
+      }
+      return { move, release, cancel };
     },
     [place, index, onCommit],
   );
@@ -1048,7 +1051,7 @@ function PlaceSeam({
     if (columnSlot === undefined) return;
     return registerColumnSeamDrag(columnSlot, index, (pointerId, clientY) => {
       const seam = seamRef.current;
-      if (seam !== null) beginDragRef.current(seam, pointerId, clientY);
+      return seam === null ? null : beginDragRef.current(seam, pointerId, clientY);
     });
   }, [columnSlot, index]);
 
@@ -1786,12 +1789,6 @@ function SpaceLayerWrapper({
  */
 interface StackCallbacks {
   readonly onClose: () => void;
-  readonly onMoveToSpace: (spaceId: string) => void;
-  readonly onCardMerged: (
-    sourceStackId: string,
-    targetStackId: string,
-    insertIndex: number,
-  ) => void;
 }
 
 /**
@@ -1841,7 +1838,6 @@ const LayerPanes = memo(function LayerPanes({
   arr,
   store,
   onRevealPane,
-  dropZones,
 }: {
   spaceId: string;
   shown: boolean;
@@ -1849,7 +1845,6 @@ const LayerPanes = memo(function LayerPanes({
   arr: LayerArrangement;
   store: IDeckManagerStore;
   onRevealPane: TugPaneProps["onRevealPane"];
-  dropZones: DropZoneHost | undefined;
 }) {
   useLayoutEffect(() => {
     if (!deckTrace.isKindEnabled("layer-render")) return;
@@ -1895,15 +1890,6 @@ const LayerPanes = memo(function LayerPanes({
           if (!shownRef.current) return;
           closePane(store, stackId);
         },
-        // The pane's ACTIVE card is what moves — the one the title bar is
-        // naming. [B04]: the move does not follow the card, so nothing here
-        // touches the active workspace.
-        onMoveToSpace: (spaceId) => moveActiveCardToSpace(store, stackId, spaceId),
-        onCardMerged: (sourceStackId, targetStackId, insertIndex) => {
-          if (!shownRef.current) return;
-          // The source stack's active card, resolved at commit time.
-          mergePaneInto(store, sourceStackId, targetStackId, insertIndex);
-        },
       };
       stackCallbacks.set(stackId, entry);
     }
@@ -1947,9 +1933,7 @@ const LayerPanes = memo(function LayerPanes({
           <TugPane
             key={stackState.id}
             stackState={stackState}
-            meta={registration.defaultMeta}
             layoutRole={registration.layoutRole}
-            activeComponentId={componentId}
             // A pane is one box shared by every tab in the stack, so
             // its resize floor must clear the widest card kind it
             // hosts — not just the active tab. `getStackSizePolicy`
@@ -2003,34 +1987,19 @@ const LayerPanes = memo(function LayerPanes({
             contentWidthPx={arr.contentWidthPx}
             resizeKeepsSlot={impositionResizeSlot(deck.imposition) === "keep"}
             columnMember={arr.columnMemberByPaneId.get(stackState.id)}
-            columnMode={arr.columnModeByPaneId.get(stackState.id)}
             arriving={arr.arrivingSeatByPaneId.get(stackState.id)}
             // The pane's own field ([P01]) rather than `paneFoldedOf` over
             // the deck state: the selector exists for readers holding a state
             // and an id, and this one is already holding the pane.
             folded={stackState.folded === true}
             onRevealPane={revealIfShown}
-            // Given to EVERY layer, shown or not, because the title bar
-            // renders its move control on the handler's presence and a
-            // bar that gains a control on show is a bar that changes
-            // width on show. A hidden pane cannot reach it — no pointer,
-            // no focus ([B02], `at0641`) — so the handler is inert there.
-            //
-            onMoveToSpace={callbacks.onMoveToSpace}
             sidebarStack={arr.stackByPaneId.get(stackState.id)}
             railParked={arr.parkedRailSideByPaneId.get(stackState.id)}
             departing={arr.departingPaneIds.has(stackState.id)}
             isSidebarPane={arr.sidebarPaneIds.has(stackState.id)}
-            onCardMoved={store.handlePaneMoved}
             onClose={callbacks.onClose}
-            dropZones={dropZones}
-            onCardMerged={callbacks.onCardMerged}
             activeCardId={stackState.activeCardId}
             cards={hasMultipleCards ? stackCards : undefined}
-            cardTitle={hasMultipleCards ? stackState.title : undefined}
-            acceptedFamilies={
-              hasMultipleCards ? stackState.acceptsFamilies : undefined
-            }
           />
         );
       })}
@@ -2216,7 +2185,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
 
   const deckRootRef = useRef<HTMLDivElement | null>(null);
   usePaneFocusController(deckRootRef);
-  usePaneOcclusionController(deckRootRef);
   usePaneRaise(deckRootRef, store);
 
   // ---------------------------------------------------------------------------
@@ -2260,6 +2228,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     () =>
       installHostCardGesture(store, {
         railEdge: (paneId) => railEdgeDriverFor(store, railWidthDraft, paneId, paneFrameOf),
+        columnSeam: driveColumnSeam,
       }),
     [store, railWidthDraft],
   );
@@ -3698,7 +3667,40 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // through, which the gesture stamps itself — showing the outline there
       // too would be two answers to one question ([P10]).
       const rect = zone === null || zone.kind === "tab-bar" ? null : zone.rect;
-      indicateDropZone(containerRef.current, rect);
+      const canvas = containerRef.current;
+      if (!hostKeepsOverlay()) {
+        indicateDropZone(canvas, rect);
+        return;
+      }
+      // Drawn by the overlay, above every card ([B08]): the zone is a place
+      // in this canvas's layout px, sent in viewport points.
+      if (rect === null || canvas === null) {
+        indicate({ zone: null });
+        return;
+      }
+      const origin = canvas.getBoundingClientRect();
+      const zoom = pageZoomFactor();
+      // What outranks the outline of a card in the air, and so stands over
+      // it: the rails and the margin caps ([B02] of the rail tier). A rail in
+      // the air rides above both, and nothing stands over its outline.
+      const under =
+        canvas.getAttribute("data-carrying") === "rail"
+          ? []
+          : [...document.querySelectorAll<HTMLElement>(`${SHOWN_PANE_FRAMES}[data-role="sidebar"], .tug-margin-cap`)].map(
+              (el) => {
+                const r = el.getBoundingClientRect();
+                return { x: r.left, y: r.top, width: r.width, height: r.height };
+              },
+            );
+      indicate({
+        zone: {
+          x: origin.left + rect.x * zoom,
+          y: origin.top + rect.y * zoom,
+          width: rect.width * zoom,
+          height: rect.height * zoom,
+          under,
+        },
+      });
     };
     const carry = (kind: "rail" | "card" | null): void => {
       const canvas = containerRef.current;
@@ -4840,6 +4842,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     [responderRef],
   );
 
+  // The margin caps paint over any card standing in the bare strip, and the
+  // cards stand over this page, so where the host keeps an overlay the
+  // overlay draws them above the cards from these widths ([B09]). The caps
+  // below still stand here, where they read as the canvas they are and take
+  // the presses no card's hit shape claims.
+  const capLeft = railWidthOf("left") > 0 ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+  const capRight = railWidthOf("right") > 0 ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+  useLayoutEffect(() => {
+    if (hostKeepsOverlay()) overlayMarginCaps.set({ left: capLeft, right: capRight });
+  }, [capLeft, capRight]);
+
   return (
     <ResponderScope>
       {/*
@@ -4995,7 +5008,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               arr={arr}
               store={store}
               onRevealPane={handleRevealPane}
-              dropZones={dropZoneHost}
             />
             </SpaceLayerShownContext.Provider>
           </SpaceLayerWrapper>
@@ -5130,57 +5142,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         );
       })}
-      {/* The rail shadows: one strip per side, standing in the gutter off the
-          rail's inner edge. It is the rail's z-order made visible —
-          the panel is above every content card, and a card travelling toward
-          it passes under this before it goes behind the panel, so the gutter
-          reads as depth rather than as air between two cards.
-
-          Drawn HERE rather than by the pane, and that is the whole point of
-          the element. A strip drawn per rail member is only as continuous as
-          the member frames are, and it broke at every seam of a split rail —
-          against the panel's own law, which says the members touch at one
-          hairline so a rail reads as one flush surface from window top to
-          foot. One element per side has no seam in it to break at. It spans
-          the rail RUN rather than the window, so it stops at the rail's foot
-          instead of running on beside the maker strip. See rail-shadow.css
-          for the falloff and its reasoning.
-
-          The strip ALWAYS stands, on every side, railed or not. A side whose
-          rail is parked keeps it hidden (`data-rail-parked`) and a side with
-          no rail keeps it hidden and empty (`data-rail-empty`), so a rail
-          that leaves carries its own strip out with it rather than having a
-          stand-in planted inside the settle ([D9]). */}
-      {(["left", "right"] as const).map((side) => {
-        // The same `railWidthOf` the inset effect reads, so the shadow and
-        // the band can never disagree about where the rail's inner edge is.
-        // No rail on this side, nothing to cast a shadow: the strip stands
-        // hidden, parked for a parked rail's show or empty, and its inner
-        // edge resolves to the edge inset while the width variable is zero.
-        const parked = railWidthOf(side) === 0 && parkedRailSides.has(side);
-        const empty = railWidthOf(side) === 0 && !parked;
-        const innerEdge =
-          `calc(${RAIL_EDGE_INSET} + var(${sidebarWidthProperty(side)}, 0px))`;
-        return (
-          <div
-            key={`rail-shadow:${side}`}
-            className={`tug-rail-shadow tug-rail-shadow--${side}`}
-            data-rail-shadow={side}
-            {...(parked ? { "data-rail-parked": side } : {})}
-            {...(empty ? { "data-rail-empty": side } : {})}
-            aria-hidden="true"
-            style={{
-              ...(side === "left" ? { left: innerEdge } : { right: innerEdge }),
-              top: RAIL_EDGE_INSET,
-              bottom: RAIL_GAP_BOTTOM,
-              zIndex: RAIL_SHADOW_ZINDEX,
-            }}
-          />
-        );
-      })}
       </div>
       {/*
-        * BodyPlacementBeacon: zero-output; measures every body card's
+        * CardPlacementBeacon: zero-output; measures every body card's
         * placeholder after each commit and tells the host where its body
         * stands. Inert when the host makes no bodies. AFTER containerRef's
         * div, not beside DeckCommitBeacon above it: a sibling's ref is
@@ -5189,7 +5153,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         * at mount — and every pane's own effects have run by the time this
         * one does.
         */}
-      <BodyPlacementBeacon containerRef={containerRef} />
+      <CardPlacementBeacon containerRef={containerRef} />
       {/*
         * CanvasOverlayRoot: single deck-level container for popup-class
         * overlays (completion menus, popovers, etc.). Mounted as a
@@ -5200,19 +5164,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         * canvas-overlay-root.tsx for the full contract. [D01, D07, D09]
         */}
       <CanvasOverlayRoot />
-      {/* Deck-global Open Quickly popup (File ▸ Open Quickly). Renders
-        * nothing until opened; portals into the overlay root above. */}
-      <OpenQuicklyOverlay />
-      {/* UpdateTug — the app-modal update wizard. Renders nothing until one of
-        * its two doors raises it: the host's reveal count, or a pill click. */}
-      <UpdateTug />
-      {/* The one modeless piece of the update feature: an update exists, top
-        * centre of the window, with an x. Shows only while an update is live
-        * and the wizard is closed; clicking it opens the wizard. */}
-      <UpdatePill />
-      {/* The factor a View › Zoom step is going to, raised as the step is
-        * applied and let go once it settles. See zoom-readout.tsx. */}
-      <ZoomReadout />
+      {/* Deck-global Open Quickly popup (File ▸ Open Quickly), and the factor
+        * a View › Zoom step is going to. Each portals into the overlay root
+        * above — in this page only where the host keeps no overlay page;
+        * where it does, both are drawn there, above every card ([B08]). */}
+      {hostKeepsOverlay() ? null : <OpenQuicklyOverlay />}
+      {hostKeepsOverlay() ? null : <ZoomReadout />}
       </div>
     </ResponderScope>
   );

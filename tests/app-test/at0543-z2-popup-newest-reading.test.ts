@@ -26,11 +26,12 @@
  *
  * @covers tugdeck/src/components/tugways/tug-popup-list.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
- * @covers tugdeck/src/lib/shell-surface.ts
+ * @covers tugdeck/src/overlay/overlay-surface-drawer.ts
  */
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -123,13 +124,13 @@ describe.skipIf(!SHOULD_RUN)(
               })()`,
             ),
           ).toBe(true);
-          // The placard the reader sees is the shell's: a body has no room
+          // The placard the reader sees is the overlay's: a body has no room
           // above its status row, so it renders the placard hidden
-          // (`tug-placard-drawn-elsewhere`) and the shell draws its content
-          // over the deck (`lib/shell-surface.ts`). The log read is that drawn
-          // copy's.
-          // card-dom: shell — the Z2 placard is drawn by the shell.
-          await app.waitForCondition<boolean>(
+          // (`tug-placard-drawn-elsewhere`) and the overlay draws its content
+          // above every card (`overlay/overlay-surface-drawer.ts`). The log
+          // read is that drawn copy's.
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(LOG_SCROLLER)});
               return el !== null &&
@@ -138,8 +139,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8000 },
           );
 
-          // card-dom: shell — the Z2 placard is drawn by the shell.
-          const opened = await app.evalJS<{
+          const opened = await ui.evalJS<{
             rows: number;
             scrollable: boolean;
             scrollTop: number;

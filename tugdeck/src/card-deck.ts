@@ -208,6 +208,14 @@ export interface CardDeck {
   revealCard: (cardId: string) => void;
 
   /**
+   * {@link revealCard}, for a question about to be asked of the card: answers
+   * how long the travel it started runs, in milliseconds, zero when nothing
+   * moved. Present on a card's own page, whose deck's strip is the shell's
+   * to slide; the shell's own title bar reads its canvas instead.
+   */
+  revealForQuestion?: (cardId: string) => Promise<number>;
+
+  /**
    * Read the composite first-responder bit: the active pane's
    * active card id, or `null` when no pane is active. At any
    * moment, exactly zero or one card is the first responder.

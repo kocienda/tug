@@ -214,6 +214,7 @@ async function columnOffset(app: App): Promise<number> {
  *  (`place-properties.ts`). Asserted beside the stored number so a commit that
  *  never reached the DOM cannot pass. */
 async function offsetProperty(app: App): Promise<string> {
+  // card-dom: shell — a column's published property, on the shell's stand-in frame.
   return app.evalJS<string>(
     `getComputedStyle(
        document.querySelector('.tug-space-layer[data-space-shown] .tug-pane[data-imposed="0"]')
@@ -232,6 +233,7 @@ async function seamCount(app: App): Promise<number> {
  *  overflowing frames' `calc()`s actually pin to. Read off a slot-0 frame, so
  *  a coordinate the allocator resolved but never published cannot pass. */
 async function stripProperties(app: App, count: number): Promise<number[]> {
+  // card-dom: shell — the strip coordinates, on the shell's stand-in frame.
   return app.evalJS<number[]>(
     `(function () {
       var style = getComputedStyle(
@@ -292,10 +294,12 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
         {
           const before = await rects(app, ["p1", "p2"]);
           const seam = await app.getElementBounds(columnSeam(0, 0));
+          // card-dom: shell — the column's seam is the shell's own.
           await app.nativeDragElement(columnSeam(0, 0), {
             x: Math.round(seam.x + seam.width / 2),
             y: Math.round(before.p1.top + before.p1.height * 0.5),
           });
+          // card-dom: shell — the pane's arranged rect is its stand-in's.
           await app.waitForCondition<boolean>(
             `(function () {
               var r = document.querySelector(${JSON.stringify(frame("p1"))})
@@ -479,7 +483,8 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
         //
         // Closed by the door the user has, as at0455 does: raise the member's
         // pane, then close the first card responder.
-        await app.click(`${frame("p3")} [data-testid="tug-pane-title-bar"]`);
+        // p3's chrome is drawn in its card's own page.
+        await app.body("C").click('[data-testid="tug-pane-title-bar"]');
         await wait(300);
         await app.dispatchControlAction("close");
         await app.waitForCondition<boolean>(

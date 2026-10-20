@@ -146,7 +146,7 @@ async function settleAfter(app: App, card: string): Promise<{ handedBack: boolea
   }
   const bar = '[data-testid="tug-pane-title-bar"]';
   if (standing === "stand-in") await app.body(card).nativeClickAtElement(bar);
-  // card-dom: shell — a card that keeps its chrome in the shell is clicked there.
+  // card-dom: shell — a card whose body failed has its chrome drawn in the shell, and is clicked there.
   else await app.nativeClickAtElement(`${pane} ${bar}`);
   await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
   return { handedBack: false, facts };

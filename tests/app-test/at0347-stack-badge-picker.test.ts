@@ -4,7 +4,7 @@
  *
  * The imposer piles any number of panes into one numbered slot and shows you
  * the top one. Until now nothing on the deck admitted that: a fully covered
- * pane is stamped `data-occluded="true"` and hidden outright, so a buried card
+ * card stands wholly beneath the one above it in the host's stacking, so it
  * contributed not one pixel — not an edge, not a shadow — to say it existed,
  * and the Cards card was the only way to reach it. The badge is the local
  * admission and the picker is the local way through.
@@ -19,8 +19,8 @@
  *
  *   2. The picker lists the slot, topmost first, with the front pane checked.
  *      It is built from store data, never from revealed DOM: the buried pane's
- *      title reaches the menu as a string, so nothing has to negotiate with
- *      the occlusion controller to render a row for a pane that is hidden.
+ *      title reaches the menu as a string, so no card has to be brought
+ *      forward to render a row for one that is covered.
  *
  *   3. Choosing a row raises that pane — first responder AND z-order, in one
  *      commit, through the same `transferFocusForActivation` a Cards row click
@@ -44,18 +44,15 @@
  *      declares itself a screen-taking test and earns its key window;
  *      everything above it is frameless and stays here, in the everyday tier.
  *
- * The occlusion variant is the honest statement of claim 1: with two panes of
- * EQUAL width in one slot the buried one is fully covered, so it carries
- * `data-occluded="true"` and its badge computes `visibility: hidden`. The
- * badge is still in the DOM and `querySelector` still finds it — a test that
- * assumed otherwise would be asserting the wrong thing — so the assertion
- * reads computed visibility rather than presence. That is why the main deck
- * seeds MISMATCHED widths: it keeps the buried pane visible so both badges can
- * be seen at once.
+ * The covered variant is the honest statement of claim 1: with two panes of
+ * EQUAL width in one slot the buried card's view stands wholly beneath the
+ * front card's, badge and all, so the host's stacking is what the assertion
+ * reads. That is why the main deck seeds MISMATCHED widths: it keeps part of
+ * the buried card out from under the front one so both badges can be seen at
+ * once.
  *
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
- * @covers tugdeck/src/components/chrome/pane-occlusion-controller.ts
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/lib/pane-title.ts
  * @covers tugdeck/src/lib/card-title-store.ts
@@ -64,7 +61,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -84,12 +81,19 @@ const ROW = `${MENU} [role="menuitemradio"]`;
 
 const frame = (paneId: string): string =>
   `.tug-pane[data-pane-id="${paneId}"]`;
-const titleBar = (paneId: string): string =>
-  `${frame(paneId)} [data-testid="tug-pane-title-bar"]`;
 /** The dots a content card is pressed by: a press anywhere else on the bar
  *  starts no gesture, so the no-travel Cmd branch is reached only here. */
-const grabHandle = (paneId: string): string =>
-  `${titleBar(paneId)} .tug-pane-grab-handle`;
+const GRAB_HANDLE = '[data-testid="tug-pane-title-bar"] .tug-pane-grab-handle';
+
+/** Every pane's one card, in both decks this file seeds. */
+const CARD_OF: Readonly<Record<string, string>> = { p0: "Z", p1: "A", p2: "B", pFree: "F", pRail: "L" };
+
+/**
+ * The page that draws a pane's chrome: its card's own. The pane's frame in the
+ * shell is a stand-in that carries the arrangement's facts (its z-index, its
+ * `data-stack-depth`) and draws nothing.
+ */
+const page = (app: App, paneId: string): BodyApp => app.body(CARD_OF[paneId]);
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -155,8 +159,7 @@ function railPane() {
  *   pRail   — the Layout card, which never carries a slot
  *
  * The two slot-0 panes are given different widths on purpose: the wider buried
- * one is not fully covered, so the occlusion controller leaves it visible and
- * both badges can be asserted in one pass.
+ * one is not fully covered, so both badges can be asserted in one pass.
  */
 function deckShape() {
   return {
@@ -181,7 +184,7 @@ function deckShape() {
 }
 
 /** The same slot-0 pair at EQUAL widths, so the buried one is fully covered. */
-function occludedDeckShape() {
+function coveredDeckShape() {
   return {
     ...deckShape(),
     panes: [
@@ -194,15 +197,20 @@ function occludedDeckShape() {
   };
 }
 
-async function count(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+async function count(page: App | BodyApp, selector: string): Promise<number> {
+  return page.evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 }
 
+/** How many badges a pane's chrome draws. */
+async function badgeCount(app: App, paneId: string): Promise<number> {
+  return count(page(app, paneId), BADGE);
+}
+
 async function badgeText(app: App, paneId: string): Promise<string> {
-  return app.evalJS<string>(
-    `(document.querySelector(${JSON.stringify(`${frame(paneId)} ${BADGE}`)}) || { textContent: "" }).textContent.trim()`,
+  return page(app, paneId).evalJS<string>(
+    `(document.querySelector(${JSON.stringify(BADGE)}) || { textContent: "" }).textContent.trim()`,
   );
 }
 
@@ -220,21 +228,21 @@ async function zIndexOf(app: App, paneId: string): Promise<number> {
 
 /** The text a pane's own title bar is rendering, right now. */
 async function titleBarText(app: App, paneId: string): Promise<string> {
-  return app.evalJS<string>(
-    `document.querySelector(${JSON.stringify(`${frame(paneId)} [data-testid="tug-pane-title"]`)}).textContent.trim()`,
+  return page(app, paneId).evalJS<string>(
+    `document.querySelector('[data-testid="tug-pane-title"]').textContent.trim()`,
   );
 }
 
 /** Row labels in render order — topmost first. */
-async function rowLabels(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+async function rowLabels(menuPage: BodyApp): Promise<string[]> {
+  return menuPage.evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(ROW)})).map((el) => el.textContent.trim())`,
   );
 }
 
 /** The `data-item-id` (a pane id) of the row whose radio reads checked. */
-async function checkedRowPaneId(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
+async function checkedRowPaneId(menuPage: BodyApp): Promise<string | null> {
+  return menuPage.evalJS<string | null>(
     `(function () {
       var rows = Array.from(document.querySelectorAll(${JSON.stringify(ROW)}));
       var hit = rows.find(function (el) { return el.getAttribute("aria-checked") === "true"; });
@@ -248,11 +256,21 @@ async function checkedRowPaneId(app: App): Promise<string | null> {
  * app-test window runs no rAF and throttles DOM timers, so anything hung off
  * an animation completing would pass by not running.
  */
-async function waitForMenu(app: App, present: boolean): Promise<void> {
-  await app.waitForCondition<boolean>(
+async function waitForMenu(menuPage: BodyApp, present: boolean): Promise<void> {
+  await menuPage.waitForCondition<boolean>(
     `(document.querySelectorAll(${JSON.stringify(MENU)}).length > 0) === ${present ? "true" : "false"}`,
     { timeoutMs: 5_000 },
   );
+}
+
+/** Each pane's card has drawn its title bar in its own page. */
+async function chromeDrawn(app: App, paneIds: readonly string[]): Promise<void> {
+  for (const paneId of paneIds) {
+    await page(app, paneId).waitForCondition<boolean>(
+      `document.querySelector('[data-testid="tug-pane-title-bar"]') !== null`,
+      { timeoutMs: 10_000 },
+    );
+  }
 }
 
 // Kept local: every file's `seed` builds its own deck and waits on its own
@@ -263,6 +281,7 @@ async function seed(app: App, state: unknown, focusCardId: string): Promise<void
     `document.querySelectorAll('.tug-pane[data-pane-id]').length === 5`,
     { timeoutMs: 5_000 },
   );
+  await chromeDrawn(app, Object.keys(CARD_OF));
   await wait(AFTER_LAND_MS);
 }
 
@@ -282,19 +301,19 @@ describe.skipIf(!SHOULD_RUN)(
           // the one card that most needs "Split Vertically" — a card alone in
           // its column — with no way to reach it. A place one card deep is
           // still a place, and the badge says so with a quiet `1`.
-          expect(await count(app, `${frame("p1")} ${BADGE}`), "front pane of the 2-deep slot has a badge").toBe(1);
-          expect(await count(app, `${frame("p0")} ${BADGE}`), "buried pane of the same slot has one too").toBe(1);
+          expect(await badgeCount(app, "p1"), "front pane of the 2-deep slot has a badge").toBe(1);
+          expect(await badgeCount(app, "p0"), "buried pane of the same slot has one too").toBe(1);
           expect(await badgeText(app, "p1"), "badge carries the slot's pane count").toBe("2");
           expect(await badgeText(app, "p0"), "and says the same thing on the buried pane").toBe("2");
 
-          expect(await count(app, `${frame("p2")} ${BADGE}`), "a pane alone in its slot stands in a place one deep").toBe(1);
+          expect(await badgeCount(app, "p2"), "a pane alone in its slot stands in a place one deep").toBe(1);
           expect(await badgeText(app, "p2"), "and says so — one of one").toBe("1");
-          expect(await count(app, `${frame("pRail")} ${BADGE}`), "a lone rail is a place too, and splittable").toBe(1);
+          expect(await badgeCount(app, "pRail"), "a lone rail is a place too, and splittable").toBe(1);
           expect(await badgeText(app, "pRail"), "reading the same one").toBe("1");
           // The one case that still draws nothing: a pane standing in no place
           // at all. A chip there would claim a position the pane does not hold
           // — the same rule the slot chip beside it follows.
-          expect(await count(app, `${frame("pFree")} ${BADGE}`), "a free pane holds no slot, so no badge").toBe(0);
+          expect(await badgeCount(app, "pFree"), "a free pane holds no slot, so no badge").toBe(0);
 
           // --- data-stack-depth says the same thing on the frame. ----------
           expect(await stackDepthAttr(app, "p1")).toBe("2");
@@ -308,29 +327,31 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await stackDepthAttr(app, "pRail")).toBe("1");
 
           // --- The badge is unlit at rest. ---------------------------------
+          // The picker opens in the page that draws the badge: p1's card's.
+          const menuPage = page(app, "p1");
           expect(
-            await app.evalJS<string | null>(
-              `document.querySelector(${JSON.stringify(`${frame("p1")} ${BADGE}`)}).getAttribute("data-state")`,
+            await menuPage.evalJS<string | null>(
+              `document.querySelector(${JSON.stringify(BADGE)}).getAttribute("data-state")`,
             ),
             "a closed picker leaves its badge in the resting pose",
           ).toBe("closed");
 
           // --- The picker lists the slot, topmost first, front row checked. -
-          await app.nativeClickAtElement(`${frame("p1")} ${BADGE}`);
-          await waitForMenu(app, true);
+          await menuPage.nativeClickAtElement(BADGE);
+          await waitForMenu(menuPage, true);
 
           // ...and the badge stays lit for as long as the menu is down, the
           // way a macOS menu-bar title holds its highlight. The CSS hangs off
           // `data-state`, so this is the whole contract that keeps the control
           // that opened the surface saying so.
           expect(
-            await app.evalJS<string | null>(
-              `document.querySelector(${JSON.stringify(`${frame("p1")} ${BADGE}`)}).getAttribute("data-state")`,
+            await menuPage.evalJS<string | null>(
+              `document.querySelector(${JSON.stringify(BADGE)}).getAttribute("data-state")`,
             ),
             "an open picker keeps its badge lit",
           ).toBe("open");
 
-          expect(await count(app, ROW), "one row per pane in the slot").toBe(2);
+          expect(await count(menuPage, ROW), "one row per pane in the slot").toBe(2);
 
           // A row REPRODUCES ITS PANE'S TITLE BAR TEXT — not a name derived
           // some other way. That distinction is the whole point: a pane's
@@ -340,15 +361,15 @@ describe.skipIf(!SHOULD_RUN)(
           // `test-repo/petit-thaw`. The seeded cards carry a `CardState.title`
           // ("Card A") that differs from what their title bars render
           // ("Chain Actions"), so this comparison catches exactly that drift.
-          expect(await rowLabels(app), "each row reads as its pane's title bar does").toEqual([
+          expect(await rowLabels(menuPage), "each row reads as its pane's title bar does").toEqual([
             await titleBarText(app, "p1"),
             await titleBarText(app, "p0"),
           ]);
-          expect(await rowLabels(app), "topmost first, and named from the registry not the card record").toEqual([
+          expect(await rowLabels(menuPage), "topmost first, and named from the registry not the card record").toEqual([
             "Chain Actions",
             "TugAnimator",
           ]);
-          expect(await checkedRowPaneId(app), "the front pane's row is the checked one").toBe("p1");
+          expect(await checkedRowPaneId(menuPage), "the front pane's row is the checked one").toBe("p1");
 
           // --- Each row is a miniature of the title bar it stands for. ------
           // Not merely "an icon is present": the row's glyph has to be the one
@@ -357,32 +378,32 @@ describe.skipIf(!SHOULD_RUN)(
           // stacked cards are of different kinds precisely so this can tell
           // the difference.
           expect(
-            await app.evalJS<string | null>(
+            await menuPage.evalJS<string | null>(
               lucideClassOf(`${ROW}[data-item-id="p1"] .tug-menu-item-icon svg`),
             ),
             "the front row carries the front pane's icon",
           ).toBe(
-            await app.evalJS<string | null>(
-              lucideClassOf(`${frame("p1")} [data-testid="tug-pane-icon"] svg`),
+            await page(app, "p1").evalJS<string | null>(
+              lucideClassOf(`[data-testid="tug-pane-title-bar"] [data-testid="tug-pane-icon"] svg`),
             ),
           );
           expect(
-            await app.evalJS<string | null>(
+            await menuPage.evalJS<string | null>(
               lucideClassOf(`${ROW}[data-item-id="p0"] .tug-menu-item-icon svg`),
             ),
             "and the buried row carries the buried pane's — a different one",
           ).toBe(
-            await app.evalJS<string | null>(
-              lucideClassOf(`${frame("p0")} [data-testid="tug-pane-icon"] svg`),
+            await page(app, "p0").evalJS<string | null>(
+              lucideClassOf(`[data-testid="tug-pane-title-bar"] [data-testid="tug-pane-icon"] svg`),
             ),
           );
           expect(
-            await app.evalJS<string | null>(
+            await menuPage.evalJS<string | null>(
               lucideClassOf(`${ROW}[data-item-id="p1"] .tug-menu-item-icon svg`),
             ),
             "the two rows are genuinely distinguishable, so the check above bites",
           ).not.toBe(
-            await app.evalJS<string | null>(
+            await menuPage.evalJS<string | null>(
               lucideClassOf(`${ROW}[data-item-id="p0"] .tug-menu-item-icon svg`),
             ),
           );
@@ -394,8 +415,8 @@ describe.skipIf(!SHOULD_RUN)(
           };
           expect(zBefore.p1, "p1 starts above p0").toBeGreaterThan(zBefore.p0);
 
-          await app.nativeClickAtElement(`${ROW}[data-item-id="p0"]`);
-          await waitForMenu(app, false);
+          await menuPage.nativeClickAtElement(`${ROW}[data-item-id="p0"]`);
+          await waitForMenu(menuPage, false);
           await app.expectFocusedCard("Z", { timeoutMs: 5_000 });
 
           expect(await app.getFocusedCardId(), "the chosen pane's card is now first responder").toBe("Z");
@@ -406,8 +427,8 @@ describe.skipIf(!SHOULD_RUN)(
           // --- Cmd-click a title bar: opens the picker, raises nothing. ----
           // Background-safe: the no-travel branch runs on pointerup and has no
           // dependence on a frame ever being served.
-          await app.click(grabHandle("p1"), { metaKey: true });
-          await waitForMenu(app, true);
+          await menuPage.click(GRAB_HANDLE, { metaKey: true });
+          await waitForMenu(menuPage, true);
           expect(await app.getFocusedCardId(), "Cmd-click looks without touching — Z stays in front").toBe("Z");
 
           // The Cmd-DRAG half of this gesture pair lives in at0349, which
@@ -440,9 +461,15 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 5_000 },
           );
           expect(await stackDepthAttr(app, "p1"), "the surviving pane stands alone in its slot").toBe("1");
-          expect(await count(app, `${frame("p1")} ${BADGE}`), "and keeps its badge, because it keeps its slot").toBe(1);
+          expect(await badgeCount(app, "p1"), "and keeps its badge, because it keeps its slot").toBe(1);
+          // The depth is the shell's; the badge is drawn in the card's page
+          // from the deck it is sent, a hop later, so it is waited for there.
+          await page(app, "p1").waitForCondition<boolean>(
+            `(document.querySelector(${JSON.stringify(BADGE)}) || { textContent: "" }).textContent.trim() === "1"`,
+            { timeoutMs: 5_000 },
+          ).catch(() => undefined);
           expect(await badgeText(app, "p1"), "now reading one of one").toBe("1");
-          await waitForMenu(app, true);
+          await waitForMenu(menuPage, true);
 
           note("at0347", "Cmd-drag-still-drags is asserted in at0349 (foreground); see Spec S07");
           note(
@@ -493,20 +520,22 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelectorAll('.tug-pane[data-pane-id]').length === 3`,
             { timeoutMs: 5_000 },
           );
+          await chromeDrawn(app, ["p0", "p1", "pRail"]);
           // The override is published from the card's own layout effect, so
           // wait for the title bar to actually carry it rather than assuming.
-          await app.waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(`${frame("p0")} [data-testid="tug-pane-title"]`)}) || { textContent: "" }).textContent.trim().startsWith("About ")`,
+          await page(app, "p0").waitForCondition<boolean>(
+            `(document.querySelector('[data-testid="tug-pane-title"]') || { textContent: "" }).textContent.trim().startsWith("About ")`,
             { timeoutMs: 5_000 },
           );
 
           const overrideTitle = await titleBarText(app, "p0");
           note("at0347 override title bar text", overrideTitle);
 
-          await app.nativeClickAtElement(`${frame("p1")} ${BADGE}`);
-          await waitForMenu(app, true);
+          const menuPage = page(app, "p1");
+          await menuPage.nativeClickAtElement(BADGE);
+          await waitForMenu(menuPage, true);
 
-          const labels = await rowLabels(app);
+          const labels = await rowLabels(menuPage);
           expect(labels[1], "the row reproduces the title bar's own text").toBe(
             overrideTitle,
           );
@@ -524,37 +553,26 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "a fully covered pane hides its badge along with everything else",
+      "a fully covered pane's card stands wholly beneath the front one, badge and all",
       async () => {
-        const app = await launchTugApp({ testName: "at0347-stack-badge-occluded" });
+        const app = await launchTugApp({ testName: "at0347-stack-badge-covered" });
         try {
-          await seed(app, occludedDeckShape(), "A");
+          await seed(app, coveredDeckShape(), "A");
 
-          // Equal widths, so the buried pane is provably covered by a single
-          // opaque pane above it. The controller's containment test is
-          // conservative — it leaves a pane visible when it cannot prove
-          // coverage — so this is the case where it can.
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(frame("p0"))}).getAttribute("data-occluded") === "true"`,
-            { timeoutMs: 5_000 },
-          );
-
-          // The badge is still in the DOM — `visibility: hidden` does not
-          // remove it, and querySelector still finds it. What changed is
-          // whether anyone can see it.
-          expect(await count(app, `${frame("p0")} ${BADGE}`), "the buried badge is still queryable").toBe(1);
-          expect(
-            await app.evalJS<string>(
-              `getComputedStyle(document.querySelector(${JSON.stringify(`${frame("p0")} ${BADGE}`)})).visibility`,
-            ),
-            "but it computes hidden, so a same-width stack shows exactly one badge",
-          ).toBe("hidden");
-          expect(
-            await app.evalJS<string>(
-              `getComputedStyle(document.querySelector(${JSON.stringify(`${frame("p1")} ${BADGE}`)})).visibility`,
-            ),
-            "the front one is the badge the user sees",
-          ).toBe("visible");
+          // Equal widths, so the buried card is covered by the one above it.
+          // Each card draws its badge in its own view, and the host stacks the
+          // two views in the deck's order at the same rect: the buried card's
+          // badge is there, and wholly under the front card's view, so a
+          // same-width stack shows exactly one badge.
+          expect(await badgeCount(app, "p0"), "the buried card still draws its badge").toBe(1);
+          expect(await badgeCount(app, "p1"), "and the front card draws its own").toBe(1);
+          const views = await app.bodies();
+          const buried = views.find((b) => b.cardId === "Z");
+          const front = views.find((b) => b.cardId === "A");
+          note("at0347 stacked views", { buried: buried && { frame: buried.frame, z: buried.z }, front: front && { frame: front.frame, z: front.z } });
+          expect(front?.visible, "the front card's view shows").toBe(true);
+          expect(front!.z, "the front card's view stacks above the buried one").toBeGreaterThan(buried!.z);
+          expect(front!.frame, "and covers it exactly").toEqual(buried!.frame);
         } finally {
           await app.close();
         }

@@ -243,7 +243,7 @@ import {
  * height. Additive; major stays `1`.
  *
  * `1.19.0`: adds {@link TugTestSurface.activateCard} — the raise gesture as
- * a surface verb (mirrors `closePane`), for the pane-occlusion cell
+ * a surface verb (mirrors `closePane`), for the buried-pane cell
  * ([AT0332]): a fully-buried pane cannot be reached by a click, so the test
  * raises it the way a Cards card row does, through
  * `DeckManager.activateCard`. Additive; major stays `1`.
@@ -550,8 +550,19 @@ import {
  * digest and activity stores and its own DOM: a Session card draws its
  * masthead in its own page, and the masthead reads them there. Additive;
  * major stays `2`.
+ *
+ * `2.48.0`: `kbfManual` and `kbfEngaged` are on a body's surface too, and so
+ * on the overlay page's, over that page's own focus engine: a modal standing
+ * in the overlay has its own keyboard focus mode, and a test of it reads the
+ * mode where the modal is. Additive; major stays `2`.
+ *
+ * `2.49.0`: adds {@link TugTestSurface.setReplaySilenceDeadlineMs}, on the
+ * page whose session store arms the replay silence timer (a card's body):
+ * the decided deadline is 15 s, longer than an app-test file's budget, so a
+ * test of what the deadline does shortens it and waits the production path
+ * out. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.47.0" as const;
+export const SURFACE_VERSION = "2.49.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1096,6 +1107,14 @@ export interface TugTestSurface {
    * `scrollTop`.
    */
   forceCommitClamp(selector: string): void;
+
+  /**
+   * Shorten the replay silence deadline on this page (SURFACE_VERSION
+   * 2.49.0): the next bracket's silence timer is armed with `ms` instead of
+   * `REPLAY_SILENCE_DEADLINE_MS`. A value that is not a positive number
+   * restores the decided deadline.
+   */
+  setReplaySilenceDeadlineMs(ms: number): void;
 
   /**
    * Force a scroller's follow-bottom flag (SURFACE_VERSION 1.21.0).
@@ -1898,7 +1917,7 @@ export interface TugTestSurface {
   /**
    * Raise/activate a card by id — the same `DeckManager.activateCard`
    * mutation a Cards card row click commits. SURFACE_VERSION 1.19.0, for
-   * the pane-occlusion cell ([AT0332]): a fully-buried pane presents no
+   * the buried-pane cell ([AT0332]): a fully-buried pane presents no
    * clickable pixels, so raise-from-buried is driven here.
    */
   activateCard(cardId: string): void;
@@ -2738,6 +2757,15 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
       probe.forceCommitClamp();
     },
 
+    setReplaySilenceDeadlineMs(ms: number): void {
+      // A realm global the reducer reads at schedule time, in every realm the
+      // reducer runs in (the page and the ingest worker each read their own),
+      // so the harness sets it on each page and the worker inherits the page's
+      // at spawn. Gated to test mode in the reducer.
+      (globalThis as { __tugReplaySilenceDeadlineMs?: number }).__tugReplaySilenceDeadlineMs =
+        Number.isFinite(ms) && ms > 0 ? ms : undefined;
+    },
+
     startListReveal(selector: string, index: number): void {
       const probe = listViewProbeForScroller(queryRequired(selector));
       if (probe === null) {
@@ -3220,13 +3248,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       getFocusManager()?.reproject();
     },
 
-    kbfManual(): boolean | null {
-      return getFocusManager()?.kbfManual() ?? null;
-    },
-
-    kbfEngaged(): boolean | null {
-      return getFocusManager()?.kbfEngaged() ?? null;
-    },
+    // `kbfManual` and `kbfEngaged` are every page's (`pageStoreSurfaceMethods`).
 
     currentGesture() {
       const g = currentGesture();
@@ -3842,6 +3864,14 @@ function overviewSurfaceMethods() {
  */
 function pageStoreSurfaceMethods() {
   return {
+    kbfManual(): boolean | null {
+      return getFocusManager()?.kbfManual() ?? null;
+    },
+
+    kbfEngaged(): boolean | null {
+      return getFocusManager()?.kbfEngaged() ?? null;
+    },
+
     getLayoutCursor(): string | null {
       return getLayoutCursorCard();
     },
@@ -3939,6 +3969,20 @@ function pageStoreSurfaceMethods() {
       }));
     },
   };
+}
+
+/**
+ * The view surface for a page that holds no card: the overlay's
+ * (`overlay/overlay-main.ts`). Its gestures and reads drive the page's own
+ * document, and every card read finds nothing, because there is none here.
+ */
+export function attachOverlayTestSurface(): void {
+  attachBodyTestSurface({
+    invokeSaveCallback: () => {},
+    getCardState: () => undefined,
+    getSnapshot: makeEmptyDeckState,
+    peekCardHostRoot: () => null,
+  });
 }
 
 export function attachBodyTestSurface(deck: ViewSurfaceStore, stores: { usageStore?: UsageStore } = {}): void {

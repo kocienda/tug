@@ -12,16 +12,12 @@
 
 import type { PageCall, ToHost, ToPage } from "./declare";
 import {
-  beatPlanToHost,
+  cardPlanToHost,
   bodyCrossingToPage,
   cardGestureToHost,
   cardGestureToPage,
   cardInsetsToPage,
-  cardLandToHost,
-  floorGridToHost,
-  placeBodiesToHost,
   placeCardsToHost,
-  pointerClaimToHost,
 } from "./declarations/geometry";
 import {
   bodyBindToPage,
@@ -79,17 +75,17 @@ import {
   updateActionToHost,
   updateStateToPage,
 } from "./declarations/services";
+import { overlayClaimToHost, overlayCreateToHost } from "./declarations/overlay";
 
 /** Every page→host message. */
 export const TO_HOST: readonly ToHost<unknown>[] = [
   // geometry
-  placeBodiesToHost,
   placeCardsToHost,
   cardGestureToHost,
-  cardLandToHost,
-  beatPlanToHost,
-  pointerClaimToHost,
-  floorGridToHost,
+  cardPlanToHost,
+  // overlay
+  overlayCreateToHost,
+  overlayClaimToHost,
   // lifecycle
   bodyHelloToHost,
   paintedToHost,

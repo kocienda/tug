@@ -1,8 +1,8 @@
 /**
- * A stuck scroller in a surface the shell draws stays on its newest row.
+ * A stuck scroller in a surface the overlay draws stays on its newest row.
  *
- * The body renders a Z2 placard hidden and the shell draws its markup in a
- * panel clamped to the shell's own room — a different height from the hidden
+ * The body renders a Z2 placard hidden and the overlay draws its markup in a
+ * panel clamped to its own room — a different height from the hidden
  * copy's. The body's scroller sticks to its bottom (`TugPopupListScroller`'s
  * `stickToBottom`), but an absolute `scrollTop` copied once leaves the drawn
  * copy short of its bottom by the difference (`at0543` read 84 px). The
@@ -13,12 +13,13 @@
  * jsdom lays nothing out, so the scroller's box is modelled: each row is
  * `ROW_PX` tall and the drawn scroller's room is `ROOM_PX`.
  *
- * @covers tugdeck/src/lib/shell-surface.ts
+ * @covers tugdeck/src/overlay/overlay-surface-drawer.ts
  * @covers tugdeck/src/components/tugways/tug-popup-list.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ShellSurface } from "../../bus/declarations/card";
+import type { CardSurface } from "../../bus/declarations/card";
+import type { OverlaySurfaceEntry } from "../../bus/declarations/overlay";
 
 import { installJsdom } from "../../__tests__/jsdom-deck";
 
@@ -105,8 +106,8 @@ function logHtml(rows: number): string {
   return `<div class="tug-popup-list-grid"><div data-slot="tug-popup-list-scroller" data-stick-to-bottom="" class="tug-popup-list-scroller tug-popup-list-grid-scroller">${cells.join("")}</div></div>`;
 }
 
-function surfaceOf(rows: number, scroll: ShellSurface["scroll"]): ShellSurface {
-  return {
+function surfaceOf(rows: number, scroll: CardSurface["scroll"]): OverlaySurfaceEntry {
+  return { body: { x: 0, y: 0, width: 480, height: 400 }, pane: null, bound: null, surface: {
     title: "Time",
     className: "session-telemetry-status-placard",
     growth: "up",
@@ -114,25 +115,21 @@ function surfaceOf(rows: number, scroll: ShellSurface["scroll"]): ShellSurface {
     lineY: 300,
     html: logHtml(rows),
     scroll,
-  };
+  } };
 }
 
 function distanceFromBottom(el: Element): number {
   return el.scrollHeight - (el.scrollTop + el.clientHeight);
 }
 
-describe("ShellSurfaceDrawer — a stuck scroller", () => {
+describe("OverlaySurfaceDrawer — a stuck scroller", () => {
   test("opens on its newest row, follows appended rows, and lets a reader scroll up", async () => {
-    const registry = await import("../canvas-overlay-registry");
-    const { ShellSurfaceDrawer } = await import("../shell-surface");
+    const registry = await import("../../lib/canvas-overlay-registry");
+    const { OverlaySurfaceDrawer } = await import("../overlay-surface-drawer");
     const root = document.createElement("div");
     document.body.appendChild(root);
     registry.register(root);
-    const placeholder = document.createElement("div");
-    placeholder.setAttribute("data-body-placeholder", "");
-    placeholder.setAttribute("data-card-id", "A");
-    document.body.appendChild(placeholder);
-    const drawer = new ShellSurfaceDrawer({ onActivate() {}, onDismiss() {} });
+    const drawer = new OverlaySurfaceDrawer({ onActivate() {}, onDismiss() {} });
     try {
       // The body's hidden copy stood at its own bottom: 20 rows in a 200 px
       // room, 200 px down. Copied as is, that top is 84 px short here.
@@ -171,7 +168,6 @@ describe("ShellSurfaceDrawer — a stuck scroller", () => {
       drawer.dispose();
       registry.unregister(root);
       root.remove();
-      placeholder.remove();
     }
   });
 });

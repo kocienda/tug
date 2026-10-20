@@ -1,5 +1,5 @@
 /**
- * BodyPlacementBeacon — zero-output component that tells the host where each
+ * CardPlacementBeacon — zero-output component that tells the host where each
  * body card's body stands, after every deck commit.
  *
  * Mounted once in `DeckCanvas`, as the sibling just after the canvas
@@ -8,7 +8,7 @@
  * mount — and by then every pane's own layout effects in the commit have run,
  * so the placeholders it measures are the ones the commit produced. The measurement, the visibility
  * rule, the settle's hold and the wakes that move a placeholder without a
- * commit are `lib/body-placement.ts`; this component is only where they are
+ * commit are `lib/card-placement.ts`; this component is only where they are
  * attached to the deck's life. When the host makes no bodies it installs
  * nothing, and its per-commit effect returns at once.
  *
@@ -16,21 +16,21 @@
  * reads), [L06] (the rects go to the host, never into React state), [L27]
  * (the install returns its release), [D211] (no reader in a settle's set-up).
  *
- * @module components/chrome/body-placement-beacon
+ * @module components/chrome/card-placement-beacon
  */
 
 import { useLayoutEffect, useMemo, type RefObject } from "react";
 import { useDeckManager } from "@/deck-manager-context";
-import { BodyPlacer } from "@/lib/body-placement";
+import { CardPlacer } from "@/lib/card-placement";
 
-export interface BodyPlacementBeaconProps {
+export interface CardPlacementBeaconProps {
   /** The canvas container: what is measured, and what carries the settle's mark. */
   containerRef: RefObject<HTMLDivElement | null>;
 }
 
-export function BodyPlacementBeacon({ containerRef }: BodyPlacementBeaconProps): null {
+export function CardPlacementBeacon({ containerRef }: CardPlacementBeaconProps): null {
   const store = useDeckManager();
-  const placer = useMemo(() => new BodyPlacer(store), [store]);
+  const placer = useMemo(() => new CardPlacer(store), [store]);
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (container === null) return;

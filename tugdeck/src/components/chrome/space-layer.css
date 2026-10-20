@@ -186,12 +186,8 @@
   pointer-events: none;
 }
 
-/* And the parked rail's own chrome on the canvas — its shadow, its seams,
-   the vacancy it holds open opposite — kept mounted for the same show. A
-   shadow strip also stands EMPTY on a side with no rail at all. Either strip
-   is shown only while the settle carries it out with its rail. */
-.tug-rail-shadow[data-rail-parked]:not([data-settle-departing]),
-.tug-rail-shadow[data-rail-empty]:not([data-settle-departing]),
+/* And the parked rail's own chrome on the canvas — its seams and the vacancy
+   it holds open opposite — kept mounted for the same show. */
 .tug-place-seam[data-rail-parked],
 .tug-rail-vacancy[data-rail-parked] {
   visibility: hidden;

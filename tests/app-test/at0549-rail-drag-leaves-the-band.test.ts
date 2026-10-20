@@ -76,7 +76,6 @@ const RAIL_PANE = "pRail";
 const VACANT_SLOT = 5;
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
-const titleBar = (paneId: string): string => `${frame(paneId)} .tug-pane-title-bar`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -217,7 +216,7 @@ describe.skipIf(!SHOULD_RUN)(
           const edge = await seedAndFindTheBandsEdge(app);
           expect(await flowOffsetDrawn(app), "the strip starts at rest").toBe(0);
 
-          await app.nativeDragElementWithoutRelease(titleBar("p1"), edge);
+          await app.nativeDragWithoutRelease(await chromePoint(app, "A", ".tug-pane-title-bar"), edge);
           await wait(HOLD_MS);
           const withCard = await carryReading(app);
           const cardOffset = await flowOffsetDrawn(app);

@@ -10,7 +10,7 @@
  * | Z2 cells at every zoom | a mechanism that reflows the strip (`pageZoom`'s  |
  * |                        | 9px font floor grew the cells below 90 %)        |
  * | type scales            | a zoom that stops shrinking the face at 90 %     |
- * | grid on the root       | a 1× grid under a scaled deck                    |
+ * | grid scales with deck  | a 1× grid under a scaled deck                    |
  * | readout names factor   | a chord with no feedback, the wrong number, or a |
  * |                        | readout that never lets go                       |
  *
@@ -20,11 +20,13 @@
  * where it was: the transform is the deck's, not WebKit's.
  *
  * @covers tugdeck/src/lib/page-zoom-store.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/globals.css
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugapp/Sources/TestHarness/TestHarnessConnection.swift
  * @covers tugdeck/src/components/chrome/zoom-readout.tsx
  * @covers tugdeck/src/components/chrome/zoom-readout.css
+ * @covers tugdeck/src/overlay/overlay-main.ts
  * @covers tugdeck/src/components/tugways/tug-status-cell.tsx
  * @covers tugdeck/src/components/tugways/tug-status-cell.css
  */
@@ -32,6 +34,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -192,6 +195,7 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
         const baseline = await read(app, 1);
         expect(baseline.shown.length).toBe(5);
         expect(baseline.rootTransform).toBe("none");
+        // The grid scales with the deck: it is painted on the root.
         expect(baseline.rootGrid, "the grid is painted on the root").toBe(true);
         expect(baseline.bodyGrid, "and not on body, where it would stay 1×").toBe(false);
 
@@ -248,33 +252,37 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
     async () => {
       const app = await standUp("at0710-readout");
       try {
-        // The host's zoom step lands on the shell's bridge, and the readout
-        // and the root it scales are the deck canvas's.
-        // card-dom: shell
-        await app.evalJS<boolean>(`(function () {
-  var bridge = window.__tugBridge;
+        // The readout is drawn in the overlay page, above every card ([B08]).
+        // That page applies the deck's zoom to its own root from the shell's
+        // facts, and the readout is raised in the task that writes that
+        // transform. A mutation observer delivers once per task, so each
+        // batch it records is one task's writes: the batch that carries the
+        // new transform has to carry the readout, shown and naming it.
+        const ui = await overlayReady(app);
+        await ui.evalJS<boolean>(`(function () {
   var log = [];
+  var deck = document.getElementById("deck-container");
   var snap = function (kind) {
     var el = document.querySelector('[data-testid="zoom-readout"]');
     log.push({
       kind: kind,
-      transform: document.getElementById("deck-container").style.transform,
+      transform: deck.style.transform,
       readout: el === null ? null : { state: el.getAttribute("data-state"), text: el.textContent },
     });
   };
-  var apply = bridge.onPageZoomApply;
-  bridge.onPageZoomApply = function (factor) {
-    snap("before");
-    var done = apply(factor);
-    snap("applied");
-    return done.then(function () { snap("settled"); });
-  };
-  window.__at0710 = { log: log, apply: apply };
+  snap("before");
+  var observer = new MutationObserver(function () { snap("task"); });
+  observer.observe(document.documentElement, { subtree: true, attributes: true, childList: true, characterData: true });
+  window.__at0710 = { log: log, observer: observer };
   return true;
 })()`);
         await app.setPageZoom(0.9);
-        // card-dom: shell — the log was recorded on the shell's bridge.
-        const log = await app.evalJS<
+        // Leaving once the step settled.
+        await ui.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="zoom-readout"]').getAttribute("data-state") === "leaving"`,
+          { timeoutMs: 5_000 },
+        );
+        const log = await ui.evalJS<
           Array<{
             kind: string;
             transform: string;
@@ -282,28 +290,23 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
           }>
         >(`(function () {
   var rec = window.__at0710;
-  window.__tugBridge.onPageZoomApply = rec.apply;
+  rec.observer.disconnect();
   delete window.__at0710;
   return rec.log;
 })()`);
         note("zoom step", log);
 
-        // The RPC resolved after the deck's apply did.
-        expect(log.map((e) => e.kind)).toEqual(["before", "applied", "settled"]);
         expect(log[0]).toEqual({
           kind: "before",
           transform: "",
           readout: { state: "hidden", text: "" },
         });
         // Up, naming the target, in the same task as the transform.
-        expect(log[1]).toEqual({
-          kind: "applied",
-          transform: "scale(0.9)",
-          readout: { state: "shown", text: "90%" },
-        });
-        // Leaving once the step settled; gone after its hold and fade.
-        expect(log[2].readout?.state).toBe("leaving");
-        await app.waitForCondition<boolean>(
+        const stepped = log.find((e) => e.transform === "scale(0.9)");
+        expect(stepped, "the overlay's root took the step").toBeDefined();
+        expect(stepped?.readout).toEqual({ state: "shown", text: "90%" });
+        // Gone after its hold and fade.
+        await ui.waitForCondition<boolean>(
           `getComputedStyle(document.querySelector('[data-testid="zoom-readout"]')).visibility === "hidden"`,
           { timeoutMs: 5_000 },
         );

@@ -44,10 +44,10 @@ html[data-body-page][data-chrome-in-body] #deck-container {
 
 .body-chrome-frame {
   position: absolute;
-  top: var(--tug-card-inset-top, 6px);
-  left: var(--tug-card-inset-left, 6px);
-  bottom: var(--tug-card-inset-bottom, 6px);
-  right: var(--tug-card-inset-right, 6px);
+  top: var(--tug-card-inset-top, 10px);
+  left: var(--tug-card-inset-left, 10px);
+  bottom: var(--tug-card-inset-bottom, 10px);
+  right: var(--tug-card-inset-right, 10px);
 }
 
 /* The content lid: chrome paints at once, and the content box stands in the

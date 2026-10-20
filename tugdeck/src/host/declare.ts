@@ -46,15 +46,18 @@ export function looseReply(sample: unknown): Codec<unknown> {
   return opaque((_value: unknown): _value is unknown => true, sample);
 }
 
-/** Which page may post a message, or receive one. */
-export type HostPage = "shell" | "body" | "any";
+/**
+ * Which page may post a message, or receive one: the shell, a card's body,
+ * the overlay above every card (`overlay/`), or any of them.
+ */
+export type HostPage = "shell" | "body" | "overlay" | "any";
 
 /** A message a page posts to the host. */
 export interface ToHost<T> {
   readonly kind: "toHost";
   /** The `WKScriptMessageHandler` name. */
   readonly name: string;
-  /** The page that may post it; the host refuses a `shell` message from a body. */
+  /** The page that may post it; the host refuses a `shell` message from any other page, and an `overlay` one from any but the overlay. */
   readonly from: HostPage;
   readonly codec: Codec<T>;
   readonly samples: readonly T[];

@@ -21,10 +21,13 @@
  * Every other kind that is a body is read the same way, standing to the
  * right of a body Session card and the Text card — a rail on its edge.
  *
+ * The overlay page stands over every card and is read last, after the
+ * cards: what it holds covers the deck ([D216]).
+ *
  * @foreground
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/MainWindow.swift
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -101,7 +104,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
           await waitForBody(app, A);
           await standUpKind(app, kind, K);
           await focusBody(app, A, { composer: false });
-          const expected = ["shell", A, T, K];
+          const expected = ["shell", A, T, K, "overlay"];
           const first = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
           note(`A in front: order ${JSON.stringify(first)}`);
           expect(first, "the shell, then the bodies left to right").toEqual(expected);
@@ -140,7 +143,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
         await waitForBody(app, A);
         await waitForBody(app, B);
         await focusBody(app, A, { composer: false });
-        const expected = ["shell", A, T, B];
+        const expected = ["shell", A, T, B, "overlay"];
 
         const bodies = await app.bodies();
         const first = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);

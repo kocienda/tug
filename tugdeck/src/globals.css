@@ -64,16 +64,3 @@ body {
   background-size: 100% calc(100% + 24px), calc(100% + 24px) 100%;
   background-repeat: no-repeat;
 }
-
-/* A host that makes bodies places them BENEATH this page, so the page's own
- * canvas — `body` and the deck root above — would paint over every one of
- * them. On such a host both stand down, and the host draws the floor: the
- * canvas colour and the grid, beneath the bodies, from the `floorGrid` the
- * body placer posts (`lib/body-placement.ts`), which carries these same
- * tokens. The placer sets `data-body-host` only once the host says its
- * floor is on screen, so until then the page paints its own. */
-html[data-body-host] body,
-html[data-body-host] #deck-container {
-  background-color: transparent;
-  background-image: none;
-}

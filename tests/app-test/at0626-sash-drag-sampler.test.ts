@@ -69,10 +69,14 @@
  * `height` — `chrome.css`'s window-shade transition, a settle beat — outranks
  * the inline value for as long as it runs and puts the box behind the hand.
  *
- * **The hold stands and every exit releases it.** The card roots take exactly
- * one layout, at the mark; nothing inside either transcript is resized or
- * committed while the hold is on; and none of a released drag, a press that
- * never travelled, or a cancel leaves a member marked ([B03], [L27]).
+ * **Every exit releases the mark.** None of a released drag, a press that
+ * never travelled, or a cancel leaves a member marked ([B03], [L27]). The
+ * interior work under the drag — the card roots' layouts, the transcripts'
+ * resizes and commits — is read and reported, not held to zero: a whole card
+ * follows its sash live, since the placer posts every write the drag makes
+ * on the stand-ins, and the live-resize reading of 2026-10-20 found that
+ * reflow under both bars above (the shell-beneath-the-cards brief, [B12]).
+ * The bars are the guarantee; the interior counts are what they cost.
  *
  * The display interval is read off an idle `requestAnimationFrame` control
  * before the gesture and reported with every reading, because 16.7ms and
@@ -944,33 +948,30 @@ describe.skipIf(!SHOULD_RUN)(
             "each member's laid-out height is its pinned height on every held tick",
           ).toBeLessThan(1);
 
-          // The hold the previous arc proved, still standing under this one.
+          // The interior work under the drag, read beside the bars. The hold
+          // the previous arc proved kept a divided member's card still inside
+          // the shell's own DOM; a whole card now follows its sash live in its
+          // own page, by decision ([B12] of the shell-beneath-the-cards
+          // brief, read 2026-10-20 under both bars), so these are the cost
+          // of that reflow rather than a count held at zero.
           const insideHold = run.deliveries.filter(
             (d) => d.t >= holdOpens && d.t < holdCloses,
           );
           for (const member of DIVIDED) {
             const mine = insideHold.filter((d) => d.member === member);
-            expect(
-              mine.filter((d) => d.box === "root").length,
-              `${member}: the card root is not laid out again while the hold is on`,
-            ).toBe(0);
-            expect(
-              mine.filter((d) => d.box === "list").length,
-              `${member}: nothing inside the transcript is resized while the hold is on`,
-            ).toBe(0);
-            expect(
-              deliveries.filter((d) => d.member === member && d.box === "root")
-                .length,
-              `${member}: the interior takes exactly one layout, at the mark`,
-            ).toBe(1);
+            note(
+              `at0626 ${member} inside the hold`,
+              `card root laid out ${mine.filter((d) => d.box === "root").length} time(s), ` +
+                `transcript resized ${mine.filter((d) => d.box === "list").length} time(s), ` +
+                `over the gesture the root took ${deliveries.filter((d) => d.member === member && d.box === "root").length} layout(s)`,
+            );
           }
           // A windowed transcript keeps a little housekeeping running under
           // any box that moves — a sticky pin's `data-stuck`, a cell's
           // content-visibility state, the list's eviction flag — driven by
-          // intersection and visibility observers rather than by the hold.
-          // Those are a handful of attribute writes a gesture, and the bar is
-          // that they stay a handful: what the hold removes is the commit per
-          // frame, and one per frame would be one per heartbeat tick here.
+          // intersection and visibility observers, and a card following its
+          // sash live commits what each step's box asks of it. Reported as
+          // the reflow's cost; the bars above are what it is held to.
           const inHoldMutations = run.mutations.filter(
             (m) => m.t >= holdOpens && m.t < holdCloses,
           );
@@ -978,14 +979,8 @@ describe.skipIf(!SHOULD_RUN)(
             "at0626 inside the hold",
             inHoldMutations.length === 0
               ? "no transcript mutation"
-              : inHoldMutations
-                  .map((m) => `${m.kind ?? "?"} at +${fmt(m.t - markAt)}ms`)
-                  .join("; "),
+              : `${inHoldMutations.length} transcript mutation(s) over ${gaps.length} ticks; first ${inHoldMutations[0].kind ?? "?"} at +${fmt(inHoldMutations[0].t - markAt)}ms`,
           );
-          expect(
-            inHoldMutations.length,
-            "no per-frame commit lands inside either transcript while the hold is on",
-          ).toBeLessThan(Math.max(4, gaps.length * 0.05));
 
           // [B03]: the hold is an acquisition, and the release takes it off.
           const landed = run.ticks.filter((t) => t.t > closes);

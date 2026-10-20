@@ -32,6 +32,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -95,42 +96,44 @@ describe.skipIf(!SHOULD_RUN)("AT0598: ConfigureTug's ring, dots, and Log Out…"
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.bindSession("A", { tugSessionId: SID });
+        // The wizard and the logout confirm are drawn in the overlay page.
+        const overlay = await overlayReady(app);
 
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("configure-tug", {}), null)`,
         );
-        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(present(ACTIVE_ROW), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(present(SETUP_DONE), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(present(ACTIVE_ROW), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(present(SETUP_DONE), { timeoutMs: 8000 });
 
         // 1. One ring, on the active row's button, and not on Done.
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(
           present(`${SETUP} [data-default-ring]`),
           { timeoutMs: 8000 },
         );
         const ringed = JSON.parse(
-          await app.evalJS<string>(`JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
+          await overlay.evalJS<string>(`JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
             `${SETUP} [data-default-ring]`,
           )})).map(function (n) {
             var row = n.closest(".configure-tug-step");
             return (row === null ? "done-button" : row.getAttribute("data-step")) + ":" + n.textContent;
           }))`),
         ) as string[];
-        const activeStep = await app.evalJS<string | null>(attr(ACTIVE_ROW, "data-step"));
+        const activeStep = await overlay.evalJS<string | null>(attr(ACTIVE_ROW, "data-step"));
         note(`at0598 ringed: ${JSON.stringify(ringed)}; active row: ${activeStep}`);
         expect(ringed.length, "exactly one button wears the ring").toBe(1);
         expect(ringed[0].startsWith(`${activeStep}:`), "the active row's button wears it").toBe(true);
         expect(
-          await app.evalJS<string | null>(attr(SETUP_DONE, "data-default-ring")),
+          await overlay.evalJS<string | null>(attr(SETUP_DONE, "data-default-ring")),
           "Done does not wear the ring while a row wants the user",
         ).toBeNull();
 
         // 2. The active row's dot is still: paused, animating nothing.
         expect(
-          await app.evalJS<string | null>(attr(ACTIVE_DOT, "data-state")),
+          await overlay.evalJS<string | null>(attr(ACTIVE_DOT, "data-state")),
           "the active row's dot is paused, not running",
         ).toBe("paused");
-        const runningAnimations = await app.evalJS<number>(`(function () {
+        const runningAnimations = await overlay.evalJS<number>(`(function () {
           var dot = document.querySelector(${JSON.stringify(ACTIVE_DOT)});
           var count = 0;
           [dot].concat(Array.from(dot.querySelectorAll("*"))).forEach(function (n) {
@@ -142,33 +145,33 @@ describe.skipIf(!SHOULD_RUN)("AT0598: ConfigureTug's ring, dots, and Log Out…"
 
         // 3. Log Out… raises the confirm over the wizard; Cancel returns to it.
         expect(
-          await app.evalJS<string | null>(attr(SIGNIN_ROW, "data-status")),
+          await overlay.evalJS<string | null>(attr(SIGNIN_ROW, "data-status")),
           "this test needs a logged-in machine",
         ).toBe("done");
-        expect((await app.evalJS<string>(text(SIGNIN_BUTTON))).trim()).toBe("Log Out…");
-        await app.nativeClickAtElement(SIGNIN_BUTTON);
-        await app.waitForCondition<boolean>(present(ALERT), { timeoutMs: 8000 });
-        expect((await app.evalJS<string>(text(ALERT_TITLE))).trim()).toBe("Log Out of Claude?");
+        expect((await overlay.evalJS<string>(text(SIGNIN_BUTTON))).trim()).toBe("Log Out…");
+        await overlay.nativeClickAtElement(SIGNIN_BUTTON);
+        await overlay.waitForCondition<boolean>(present(ALERT), { timeoutMs: 8000 });
+        expect((await overlay.evalJS<string>(text(ALERT_TITLE))).trim()).toBe("Log Out of Claude?");
         expect(
-          await app.evalJS<boolean>(present(SETUP)),
+          await overlay.evalJS<boolean>(present(SETUP)),
           "the confirm stacks over the wizard rather than replacing it",
         ).toBe(true);
 
         // Never press the confirm: guard the click on the button's own words.
-        const cancelLabel = (await app.evalJS<string>(text(ALERT_CANCEL))).trim();
+        const cancelLabel = (await overlay.evalJS<string>(text(ALERT_CANCEL))).trim();
         if (cancelLabel !== "Cancel") {
           throw new Error(`refusing to click ${JSON.stringify(cancelLabel)} in the logout confirm`);
         }
-        await app.nativeClickAtElement(ALERT_CANCEL);
-        await app.waitForCondition<boolean>(`!(${present(ALERT)})`, { timeoutMs: 8000 });
-        expect(await app.evalJS<boolean>(present(SETUP)), "Cancel returns to the wizard").toBe(true);
+        await overlay.nativeClickAtElement(ALERT_CANCEL);
+        await overlay.waitForCondition<boolean>(`!(${present(ALERT)})`, { timeoutMs: 8000 });
+        expect(await overlay.evalJS<boolean>(present(SETUP)), "Cancel returns to the wizard").toBe(true);
         expect(
-          await app.evalJS<string | null>(attr(SIGNIN_ROW, "data-status")),
+          await overlay.evalJS<string | null>(attr(SIGNIN_ROW, "data-status")),
           "Cancel leaves the login alone",
         ).toBe("done");
 
-        await app.nativeClickAtElement(SETUP_DONE);
-        await app.waitForCondition<boolean>(`!(${present(SETUP)})`, { timeoutMs: 8000 });
+        await overlay.nativeClickAtElement(SETUP_DONE);
+        await overlay.waitForCondition<boolean>(`!(${present(SETUP)})`, { timeoutMs: 8000 });
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") {

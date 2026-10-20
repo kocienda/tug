@@ -7,7 +7,7 @@
  * web view, which covers the window, is sent every drag, even over a body a
  * click would pass through to. The shell's view now hands each dragging call
  * to the body beneath the pointer wherever the hit region passes through and
- * no `pointerClaim` covers it, and WebKit turns the forwarded call into the
+ * the overlay's claim does not cover it, and WebKit turns the forwarded call into the
  * body page's own `dragenter`/`dragover`/`drop`.
  *
  * One body Session card beside the Jots card, each in its own body:
@@ -30,7 +30,6 @@
  * @covers tugdeck/src/components/tugways/use-composer-drop.ts
  * @covers tugdeck/src/lib/jot-drag.ts
  * @covers tugdeck/src/components/jots/jots-card-registration.tsx
- * @covers tugdeck/src/lib/pointer-claim.ts
  */
 
 import { describe, expect, test } from "bun:test";

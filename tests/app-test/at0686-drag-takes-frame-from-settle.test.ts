@@ -62,6 +62,7 @@ interface Sample {
 
 /** Arm a per-frame sampler of the pane's rect and the pointer's last position. */
 async function armSampler(app: App): Promise<void> {
+  // card-dom: shell — the stand-in frame's rect, and the shell's own pointer events.
   await app.evalJS<null>(
     `(function () {
       var rec = (window.__at0686 = { samples: [], px: null, py: null, stop: false });

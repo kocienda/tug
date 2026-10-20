@@ -7,7 +7,7 @@
  * rate whatever the deck's page is doing. This file reads that premise before
  * anything is built on it. The `spikeBody` verb places one child page
  * (`/?body=spike`, which animates and paints a log line every frame) in a
- * WKWebView beneath the deck, shown through a hole cut in the deck's paint,
+ * WKWebView over the deck's page, where a card stands,
  * then stalls the deck with a three-second synchronous loop and takes three
  * readings over it:
  *
@@ -90,15 +90,14 @@ describe.skipIf(!SHOULD_RUN)("at0737: a child web view holds display rate under 
 
         const { frame } = created;
 
-        // What the deck has at the child's centre once the hole is cut — read
-        // before the capture, so a capture that shows the deck says which of
-        // its elements still paints there.
+        // What the deck has beneath the child's centre — read before the
+        // capture, so a capture that shows the deck says which of its
+        // elements paints there.
         const cx = frame.x + frame.width / 2;
         const cy = frame.y + frame.height / 2;
         note(
           "deck at the child's centre",
           await app.evalJS<unknown>(`(() => ({
-            hole: document.getElementById("tug-spike-hole") !== null,
             html: getComputedStyle(document.documentElement).backgroundColor,
             body: getComputedStyle(document.body).backgroundColor,
             bodyClip: getComputedStyle(document.body).clipPath.slice(0, 60),
@@ -127,7 +126,7 @@ describe.skipIf(!SHOULD_RUN)("at0737: a child web view holds display rate under 
         };
         const inside = pixelAt(frame.x + frame.width - 24, frame.y + frame.height - 24);
         note("composited pixel inside the child", inside);
-        note("composited pixel outside the hole", pixelAt(frame.x - 40, cy));
+        note("composited pixel outside the child", pixelAt(frame.x - 40, cy));
         const showsThrough = inside.every((c, k) => Math.abs(c - SPIKE_BG[k]) <= COLOR_SLACK);
         expect(showsThrough).toBe(true);
 

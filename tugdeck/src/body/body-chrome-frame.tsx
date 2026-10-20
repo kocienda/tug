@@ -41,6 +41,7 @@ import { readCardCloseAdvice } from "../lib/card-close-advice";
 import { deckCards } from "../bus/declarations/deck";
 import { bodyChromeVerbs, chromeCardsKey, chromeModelOf, soleCardCloseAdvice } from "./body-chrome";
 import type { BodyCardDeck } from "./body-card-deck";
+import "../components/chrome/rail-shadow.css";
 
 /** On the frame once the card's own content has painted: the content lid lifts. */
 export const CONTENT_PAINTED_ATTRIBUTE = "data-content-painted";
@@ -217,7 +218,7 @@ export function BodyChromeFrame({
         const toIndex = insertIndex > fromIndex ? insertIndex - 1 : insertIndex;
         if (toIndex !== fromIndex) paneReorderTabs.dispatch({ fromIndex, toIndex });
       },
-      away: (phase, dragged, x, y) => paneTabDrag.dispatch({ phase, cardId: dragged, x, y }),
+      away: (phase, dragged, x, y, ghost) => paneTabDrag.dispatch({ phase, cardId: dragged, x, y, ghost }),
     });
     return () => cardDragCoordinator.initRemote(null);
   }, [deck]);
@@ -287,6 +288,17 @@ export function BodyChromeFrame({
             />
           </ResponderScope>
         </div>
+        {/* A pinned rail's shadow into its gutter: the rail's own pixels,
+            in the apron beside its inner edge, so it moves with the rail
+            and stands over every free card the rail outranks
+            (`rail-shadow.css`). */}
+        {model.role === "sidebar" && railSide !== null ? (
+          <div
+            className={`tug-rail-shadow tug-rail-shadow--${railSide}`}
+            data-rail-shadow={railSide}
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
       <ResponderScope>
         <CardHost cardId={cardId} hostStackId={paneId} componentId={componentId} isActive />

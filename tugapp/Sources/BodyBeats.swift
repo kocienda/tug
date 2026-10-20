@@ -1,15 +1,18 @@
 import Foundation
 
-/// The host's half of the beat plan: what the shell's `beatPlan` says, the one
-/// clock both sides agree on, and the one track per property per body the
+/// The host's half of the card plan: what the shell's `cardPlan` says, the one
+/// clock both sides agree on, and the one track per property per card the
 /// host runs it as.
 ///
-/// The shell plans each body's beats at the moment its settle plans the
-/// chrome's (`lib/body-beat-plan.ts`) and posts the rects each beat starts and
+/// The shell plans each card's beats at the moment its settle plans the
+/// stand-ins' (`lib/card-plan.ts`) and posts the rects each beat starts and
 /// ends at, its delay and duration from the plan's wall-clock start, and the
 /// progress samples the chrome beat was built from. The host does not
 /// re-derive a curve: it plays the samples it was given, linearly between
-/// them, so the body rides the chrome's own curve.
+/// them, so the whole card rides the chrome's own curve. A card's view is
+/// the container whole: there is no inset body under a pane to carry
+/// separately, and a placement names the plan it lands by `planId` rather
+/// than by a rect the host would have to recognise ([B11]).
 ///
 /// Foundation-only, so `TugTests` compiles it and checks it against the
 /// shell's parity fixture; `BodyViewController` turns a `Track` into
@@ -25,7 +28,7 @@ struct PlanRect: Codable, Equatable {
     var cgRect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 }
 
-/// One beat of one body.
+/// One beat of one card.
 struct BodyBeat: Decodable, Equatable {
     var kind: String
     /// From the plan's `startWallMs`, already scaled by the shell's timing.
@@ -41,30 +44,30 @@ struct BodyBeat: Decodable, Equatable {
     var easing: String?
 }
 
-/// One body's beats in a plan.
-struct PlannedBody: Decodable, Equatable {
+/// One card's beats in a plan.
+struct PlannedCard: Decodable, Equatable {
     struct Size: Decodable, Equatable {
         var width: Double
         var height: Double
     }
 
     var cardId: String
-    /// The rect at rest after the plan: the container's model value.
+    /// The view's rect at rest after the plan: the container's model value.
     var landing: PlanRect
-    /// Present when the body's box changes size.
+    /// Present when the card's box changes size.
     var crossing: Size?
-    /// The body was not shown before the plan: an arrival, which the host
+    /// The card was not shown before the plan: an arrival, which the host
     /// shows in the same transaction as its tracks.
     var arrives: Bool?
     var beats: [BodyBeat]
 }
 
-/// The `beatPlan` message body.
-struct BeatPlan: Decodable, Equatable {
+/// The `cardPlan` message body.
+struct CardPlan: Decodable, Equatable {
     var planId: Int
     /// The settle's t = 0 on the wall clock, ms since 1970.
     var startWallMs: Double
-    var bodies: [PlannedBody]
+    var cards: [PlannedCard]
 }
 
 /// One pair of readings of the two clocks, taken together when a plan
@@ -78,11 +81,12 @@ struct ClockAnchor: Equatable {
     var mediaTime: Double
 
     /// The media time a beat begins at: the plan's start plus the beat's delay,
-    /// moved onto the media clock through the anchor, plus the host's offset.
-    /// A time already past is returned as it is: a beat that arrives late
-    /// starts mid-curve, which is where the chrome is.
-    func beginTime(startWallMs: Double, delayMs: Double, offsetSec: Double) -> Double {
-        mediaTime + (startWallMs + delayMs - wallMs) / 1000 + offsetSec
+    /// moved onto the media clock through the anchor. No offset against the
+    /// chrome: a card's chrome is in the card, so there is nothing to line the
+    /// card up with ([B11]). A time already past is returned as it is: a beat
+    /// that arrives late starts mid-curve, which is where the stand-in is.
+    func beginTime(startWallMs: Double, delayMs: Double) -> Double {
+        mediaTime + (startWallMs + delayMs - wallMs) / 1000
     }
 }
 

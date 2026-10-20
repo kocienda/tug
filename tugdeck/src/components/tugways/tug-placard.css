@@ -59,8 +59,8 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* A placard a body asked the shell to draw (`lib/shell-surface.ts`): the body
-   keeps it rendered, since what the shell draws is its content, but nothing
+/* A placard a body has the overlay draw (`lib/surface-mirror.ts`): the body
+   keeps it rendered, since what the overlay draws is its content, but nothing
    of it shows or takes the pointer here. */
 .tug-placard.tug-placard-drawn-elsewhere {
   visibility: hidden;

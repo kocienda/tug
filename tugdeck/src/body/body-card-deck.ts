@@ -52,7 +52,7 @@ import {
   type ArrangementDeckValue,
   type ArrangementSpaces,
 } from "../bus/declarations/arrangement";
-import { paneRevealCard } from "../bus/declarations/pane";
+import { paneRevealCard, paneRevealForQuestion } from "../bus/declarations/pane";
 import type { StoreView } from "../bus/shared-store";
 import type { EngineHooks } from "../deck-manager-store";
 import type { CardDeck, DeckView } from "../card-deck";
@@ -73,6 +73,9 @@ import { arrangementSnapshot } from "../lib/body-arrangement";
 
 /** How long a body waits for the shell to say which live sessions it interrupted ([L33]). */
 export const INTERRUPT_LIVE_SESSIONS_HORIZON_MS = 10_000;
+
+/** How long a close question waits for the shell to say how far its reveal travels: past it, it is asked where the card stands. */
+export const REVEAL_FOR_QUESTION_HORIZON_MS = 2_000;
 
 /** The pane id a body's card stands in — also its `CardHost`'s `hostStackId`. */
 export function bodyPaneId(cardId: string): string {
@@ -462,6 +465,11 @@ export class BodyCardDeck implements CardDeck {
   );
   /** The shell slides the strip this card's pane rides; it answers only for a card of the sender's pane. */
   revealCard = (cardId: string): void => paneRevealCard.dispatch({ cardId });
+  /** The shell slides the strip and answers how long the travel runs; a refusal or a silence reads as none. */
+  revealForQuestion = async (cardId: string): Promise<number> => {
+    const result = await paneRevealForQuestion.ask({ cardId }, { horizon: { ms: REVEAL_FOR_QUESTION_HORIZON_MS } });
+    return result.ok ? result.value.travelMs : 0;
+  };
   /**
    * Mint the new card's id here and hand it to the shell with the ask, so
    * the caller can act on the card at once — spawn its session, flash its

@@ -18,6 +18,16 @@
  *   lands at the rect the host reported, already clamped and snapped;
  * - a resize's `end` writes the slot height, the slot-keeping width, or the
  *   free rect, as the pane's standing says;
+ * - a flow card's right-edge resize moves every later slot with the hand
+ *   while it holds: each report shifts the later stand-ins and the strip's
+ *   length by the strip's own answer at the width the host reports
+ *   (`openFlowFollow`), and the placer's wake on those writes carries their
+ *   views, so the commit at the release lays out what the hand already
+ *   showed. A cancel hands every stand-in back its own pin;
+ * - a split column member's inner top or bottom edge is the seam it borders,
+ *   so its resize drives the seam's own drag (`driveColumnSeam`), as a press
+ *   on that edge in the shell hands the seam the pointer: each report moves
+ *   the seam and the release commits the column's division;
  * - a rail's edge drag (`kind: "rail"`) is the rail's width draft: the host
  *   moves no view, and each report drives the driver the draft's owner
  *   hands this module for the rail's pane (`railEdgeDriverFor` in
@@ -50,13 +60,18 @@ import {
 import { getDropZoneHost } from "./drop-zone-host-registry";
 import { mergeBandOf, pickLiveZone, type DropZoneHost } from "./drop-zones";
 import { flashCardPane } from "./flash-pane-border";
-import { slotHeightAfterDrag } from "./keep-slot-resize";
+import { flowResizeShift, slotHeightAfterDrag } from "./keep-slot-resize";
+import { FLOW_STRIP_PROPERTY } from "./layout-imposer";
+import type { DeckState } from "../layout-tree";
 import { pageZoomFactor } from "./page-zoom-store";
 import { paneStandingOf } from "./pane-chrome-projection";
 import { CANVAS_BACKGROUND_ATTRIBUTE, SHOWN_PANE_FRAMES } from "./pane-frame-selectors";
 import type { ResizeEdge } from "../bus/declarations/pane";
-import { landAfterPlacement } from "./body-placement";
+import { landCard } from "./card-placement";
 import { createDragAutoscroll, type DragAutoscroll } from "./drag-autoscroll";
+import type { ColumnSeamGesture } from "../components/chrome/column-seam-drag";
+import { overlaySurfaceBook } from "./overlay-surfaces";
+import { indicate } from "./drag-indication";
 
 /** One step of a gesture the host tracks, as it reports it (`onCardGesture`, decoded by its codec). */
 export interface CardGestureReport {
@@ -107,10 +122,67 @@ export interface HostGestureReaders {
   revealStack: (cardId: string) => void;
   /** The rail width drag of the pinned rail `paneId`, or null. */
   railEdge: (paneId: string) => RailEdgeDriver | null;
+  /** Column `slot`'s seam `index` dragging from a press at viewport `clientY`, or null. */
+  columnSeam: (slot: number, index: number, clientY: number) => ColumnSeamGesture | null;
   /** Land the view of `cardId`, dropped, where its placement stands once the drop's commit is placed. */
-  land: (cardId: string) => void;
+  land: (cardId: string, paneRect: Rect) => void;
   /** Run `step` at the next frame: the autoscroll's clock while the hand holds. */
   requestFrame: (step: () => void) => void;
+  /** The later slots of a flow deck following `paneId`'s right edge, or null when the deck is not in flow. */
+  flowFollow: (state: DeckState, paneId: string) => FlowFollow | null;
+}
+
+/** A flow resize's later slots, moved with the hand while it holds the right edge. */
+export interface FlowFollow {
+  /** Stand the later slots where the strip puts them at `width`, layout px. */
+  move(width: number): void;
+  /** The release at `width`: the commit lays out what this leaves, and overwrites each moved pin. */
+  release(width: number): void;
+  /** Hand every stand-in back the pin it had, and the strip its length. */
+  cancel(): void;
+}
+
+/**
+ * The later slots of the flow deck `state` following `paneId`'s right edge,
+ * by the stand-ins under `root`: each slotted frame other than the one in
+ * hand, with the `left` its render gave it, and the element carrying the
+ * strip's length the frames' offset clamp reads. Each `move` asks the deck's
+ * one strip at the new width (`flowResizeShift`), so the frames it shifts are
+ * the frames the canvas places once the width is in the store. Null when the
+ * deck is not in flow.
+ */
+export function openFlowFollow(state: DeckState, paneId: string, root: ParentNode): FlowFollow | null {
+  const pane = state.panes.find((p) => p.id === paneId);
+  if (pane === undefined || flowResizeShift(state, paneId, pane.size.width) === null) return null;
+  const frameOf = (id: string) => root.querySelector<HTMLElement>(`.tug-pane[data-pane-id="${id}"]`);
+  const frames = new Map<string, { el: HTMLElement; left: string }>();
+  for (const p of state.panes) {
+    if (p.slot === undefined || p.id === paneId) continue;
+    const el = frameOf(p.id);
+    if (el !== null) frames.set(p.id, { el, left: el.style.left });
+  }
+  let stripHost = frameOf(paneId)?.parentElement ?? null;
+  while (stripHost !== null && stripHost.style.getPropertyValue(FLOW_STRIP_PROPERTY) === "") {
+    stripHost = stripHost.parentElement;
+  }
+  const stripStart = stripHost?.style.getPropertyValue(FLOW_STRIP_PROPERTY) ?? "";
+  const move = (width: number): void => {
+    const strip = flowResizeShift(state, paneId, width);
+    if (strip === null) return;
+    for (const [id, { el, left }] of frames) {
+      const dx = strip.shifts.get(id) ?? 0;
+      el.style.left = dx === 0 ? left : `calc(${left} + ${dx}px)`;
+    }
+    stripHost?.style.setProperty(FLOW_STRIP_PROPERTY, `${strip.stripWidth}px`);
+  };
+  return {
+    move,
+    release: move,
+    cancel: () => {
+      for (const { el, left } of frames.values()) el.style.left = left;
+      if (stripHost !== null && stripStart !== "") stripHost.style.setProperty(FLOW_STRIP_PROPERTY, stripStart);
+    },
+  };
 }
 
 /**
@@ -137,6 +209,8 @@ export function createHostCardGesture(
     carrying: "rail" | "card";
     meta: boolean;
     framePending: boolean;
+    /** A flow resize's later slots, following the right edge; null for every other gesture. */
+    follow: FlowFollow | null;
   } | null = null;
 
   const toCanvas = (canvas: CanvasFrame, p: { x: number; y: number }) => ({
@@ -148,6 +222,33 @@ export function createHostCardGesture(
     width: r.width / canvas.zoom,
     height: r.height / canvas.zoom,
   });
+  /** A rect in the canvas's layout space, in viewport points: what the overlay draws in. */
+  const rectToViewport = (canvas: CanvasFrame, r: Rect): Rect => ({
+    x: canvas.left + r.x * canvas.zoom,
+    y: canvas.top + r.y * canvas.zoom,
+    width: r.width * canvas.zoom,
+    height: r.height * canvas.zoom,
+  });
+  /** The title band under `pointer` (canvas layout px) among `bands`, or null. */
+  const bandUnder = (bands: Map<string, Rect>, pointer: { x: number; y: number }): Rect | null => {
+    for (const band of bands.values()) {
+      if (pointer.x >= band.x && pointer.x <= band.x + band.width && pointer.y >= band.y && pointer.y <= band.y + band.height) {
+        return band;
+      }
+    }
+    return null;
+  };
+  /**
+   * Indicate the band a free drop would merge onto: a drag with no zones, or
+   * one ⌘ frees, released over another pane's title merges there
+   * ({@link endDrag}), so the band under the hand is the place it would go.
+   */
+  const indicateBand = (): void => {
+    const canvas = readers.canvas();
+    const free = live !== null && (live.meta || live.zone === null);
+    const band = free && live !== null && canvas !== null ? bandUnder(live.bands, live.pointer) : null;
+    indicate({ band: band === null || canvas === null ? null : rectToViewport(canvas, band) });
+  };
   const paneOf = (cardId: string) => deck.getSnapshot().panes.find((p) => p.cardIds.includes(cardId));
   const roleOf = (paneId: string): "content" | "sidebar" => {
     const pane = deck.getSnapshot().panes.find((p) => p.id === paneId);
@@ -180,6 +281,10 @@ export function createHostCardGesture(
       if (set.origin !== null) zone = { zones: set.zones, live: set.origin, origin: set.origin };
     }
     const autoscroll = createDragAutoscroll({ host: readers.zones, paneId: pane.id, schedule: () => scheduleFrame() });
+    const follow =
+      r.kind === "resize" && r.edge === "e" && paneStandingOf(deck.getSnapshot(), pane.id).keepSlot?.layout === "flow"
+        ? readers.flowFollow(deck.getSnapshot(), pane.id)
+        : null;
     live = {
       cardId: r.cardId,
       paneId: pane.id,
@@ -192,6 +297,7 @@ export function createHostCardGesture(
       carrying: roleOf(pane.id) === "sidebar" ? "rail" : "card",
       meta: r.meta,
       framePending: false,
+      follow,
     };
     if (zone !== null) host?.indicate(zone.live);
   };
@@ -206,6 +312,7 @@ export function createHostCardGesture(
   const zoneFrame = (): void => {
     if (live === null) return;
     live.framePending = false;
+    indicateBand();
     const zone = live.zone;
     if (zone === null) return;
     const host = readers.zones();
@@ -324,11 +431,66 @@ export function createHostCardGesture(
     else held.driver.cancel();
   };
 
+  /** The seam a resize from `r`'s edge drives: a split member's inner top or bottom edge. */
+  const seamOf = (r: CardGestureReport): { slot: number; index: number } | null => {
+    if (r.edge !== "n" && r.edge !== "s") return null;
+    const pane = paneOf(r.cardId);
+    if (pane === undefined || pane.slot === undefined) return null;
+    const column = paneStandingOf(deck.getSnapshot(), pane.id).keepSlot?.column;
+    if (column === undefined) return null;
+    const index = r.edge === "n" ? column.index - 1 : column.index;
+    return index < 0 || index >= column.count - 1 ? null : { slot: pane.slot, index };
+  };
+
+  /** The seam drag in hand: opened at the first travelled report, at the press point. */
+  let seam: { cardId: string; gesture: ColumnSeamGesture } | null = null;
+  /** Drive a resize that is a seam's; false when `r` is no seam's and is the resize's own. */
+  const stepSeam = (r: CardGestureReport): boolean => {
+    if (seam !== null && seam.cardId !== r.cardId) return false;
+    if (seam === null) {
+      const at = seamOf(r);
+      if (at === null) return false;
+      if (r.phase === "cancel" || !r.moved) return true;
+      const gesture = readers.columnSeam(at.slot, at.index, r.start.y);
+      if (gesture === null) return true;
+      seam = { cardId: r.cardId, gesture };
+    }
+    if (r.phase === "move") {
+      seam.gesture.move(r.pointer.y);
+      return true;
+    }
+    const held = seam;
+    seam = null;
+    if (r.phase === "end") {
+      // The view the hand carried lands where the column's commit places
+      // it, from where the hand let go: told before the commit, so the
+      // commit's own plan carries it there.
+      readers.land(r.cardId, r.rect);
+      deck.batchGesture(() => held.gesture.release(r.pointer.y));
+    } else {
+      held.gesture.cancel();
+    }
+    return true;
+  };
+
   return (r: CardGestureReport): void => {
+    // The card is moving from its first travelled report to its release: its
+    // overlay surface comes off for that span ([B07]).
+    if (r.phase === "move") {
+      if (r.moved) overlaySurfaceBook.hold(r.cardId, "gesture");
+    } else {
+      overlaySurfaceBook.release(r.cardId, "gesture");
+    }
+    // The guides the host snapped the step to, drawn in the overlay for the
+    // length of the step ([B08]); none once the hand lets go.
+    indicate({
+      guides: r.phase === "move" && r.snap !== undefined ? { x: r.snap.x, y: r.snap.y } : { x: null, y: null },
+    });
     if (r.kind === "rail") {
       stepRail(r);
       return;
     }
+    if (r.kind === "resize" && stepSeam(r)) return;
     const canvas = readers.canvas();
     if (canvas === null) return;
     if (live !== null && live.cardId !== r.cardId) return;
@@ -339,14 +501,17 @@ export function createHostCardGesture(
       live.pointer = toCanvas(canvas, r.pointer);
       live.rect = rectToCanvas(canvas, r.rect);
       live.meta = r.meta;
+      live.follow?.move(live.rect.width);
       zoneFrame();
       return;
     }
     const held = live;
     live = null;
     readers.zones()?.indicate(null);
+    indicate({ band: null });
     if (held?.zone != null) readers.zones()?.gaugeDragRect(null, held.carrying);
     if (r.phase === "cancel") {
+      held?.follow?.cancel();
       // The strips the hand scrolled stay where it took them: real state,
       // committed though the card goes home.
       deck.batchGesture(() => held?.autoscroll.commit());
@@ -354,6 +519,14 @@ export function createHostCardGesture(
     }
     const paneId = held?.paneId ?? paneOf(r.cardId)?.id;
     if (paneId === undefined) return;
+    held?.follow?.release(rectToCanvas(canvas, r.rect).width);
+    // The view the hand carried lands where its placement stands once the
+    // commit's own placement is posted, from where the hand let go: a plan
+    // from the released rect to the pane's, posted by the commit's settle or
+    // by the measurement after it, so a drop that moved nothing — home, a
+    // refusal — lands too. Told before the commit, so the commit's plan sees
+    // the released rect ([B11]).
+    if (r.moved) readers.land(r.cardId, r.rect);
     deck.batchGesture(() => {
       // Ahead of the drop, so the settle that lands the card is the
       // arrangement change's rather than the offset's.
@@ -361,15 +534,11 @@ export function createHostCardGesture(
       if (r.kind === "resize") endResize(r, canvas, paneId);
       else endDrag(r, canvas, paneId, held?.zone ?? null);
     });
-    // The view the hand carried lands where its placement stands once the
-    // commit's own placement is posted: a drop that moved nothing — home, a
-    // refusal — posts none, and would leave the view where the hand let go.
-    if (r.moved) readers.land(r.cardId);
   };
 }
 
 /** The canvas and the shown panes as the shell's document has them. */
-const DOCUMENT_READERS: Omit<HostGestureReaders, "railEdge"> = {
+const DOCUMENT_READERS: Omit<HostGestureReaders, "railEdge" | "columnSeam"> = {
   canvas: () => {
     const el = document.querySelector<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
     if (el === null) return null;
@@ -395,19 +564,21 @@ const DOCUMENT_READERS: Omit<HostGestureReaders, "railEdge"> = {
     return rects;
   },
   revealStack: (cardId) => commandForCard.dispatch({ id: TUG_ACTIONS.REVEAL_STACK }, { card: cardId }),
-  land: landAfterPlacement,
+  land: landCard,
   requestFrame: (step) => {
     requestAnimationFrame(step);
   },
+  flowFollow: (state, paneId) => openFlowFollow(state, paneId, document),
 };
 
 /**
  * Take the host's gesture reports in this page: `window.__tugBridge.onCardGesture`.
- * `readers.railEdge` is the rail width draft's, which its owner supplies.
+ * `readers.railEdge` is the rail width draft's, and `readers.columnSeam` the
+ * canvas's seams', which their owner supplies.
  */
 export function installHostCardGesture(
   deck: IDeckManagerStore,
-  readers: Pick<HostGestureReaders, "railEdge">,
+  readers: Pick<HostGestureReaders, "railEdge" | "columnSeam">,
 ): () => void {
   return onHostMessage(cardGestureToPage, createHostCardGesture(deck, { ...DOCUMENT_READERS, ...readers }));
 }

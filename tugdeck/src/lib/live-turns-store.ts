@@ -122,6 +122,20 @@ export class LiveTurnsStore extends Subscribable {
    */
   getSnapshot = (): LiveTurnsSnapshot => this.snapshot;
 
+  /**
+   * Take the answer from the shell instead of computing one: the overlay
+   * page holds no card and no session, and shows the count the shell's own
+   * store folds (`overlay.liveTurns`). Reference-stable on an unchanged answer.
+   */
+  adopt(next: LiveTurnsSnapshot): void {
+    if (sameAnswer(this.snapshot, next.titles)) return;
+    this.snapshot =
+      next.titles.length === 0
+        ? NO_LIVE_TURNS
+        : Object.freeze({ count: next.titles.length, titles: Object.freeze([...next.titles]) });
+    this.notify();
+  }
+
   /** Release every subscription this store holds ([L27]). */
   dispose(): void {
     this.detachSources();

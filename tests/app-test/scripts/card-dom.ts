@@ -40,6 +40,8 @@ export const EVALUATORS = [
   "nativeClickAtElement",
   "nativeRightClickAtElement",
   "nativeDoubleClickAtElement",
+  "nativeDragElement",
+  "nativeDragElementWithoutRelease",
 ] as const;
 
 /** Selectors that enter a card's DOM whatever the card's kind. */
@@ -505,7 +507,7 @@ function receiverStart(src: string, dot: number): number {
  */
 function bodyNames(src: string): Set<string> {
   const names = new Set<string>();
-  for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:await\s+)?[^;\n]*(?:\.body\(|\bbodyOfKind\(|\bkindBody\(|\bstandUpKind\(|\bcardPage\(|\bwaitForBodyReady\(|\bwaitForBodyPainted\()/g)) names.add(m[1]);
+  for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:await\s+)?[^;\n]*(?:\.body\(|\bbodyOfKind\(|\bkindBody\(|\bstandUpKind\(|\bcardPage\(|\bwaitForBodyReady\(|\bwaitForBodyPainted\(|\boverlayPage\(|\boverlayReady\()/g)) names.add(m[1]);
   // `BodyApp`, or a page the caller chooses (`App | BodyApp`, either order),
   // or the picker fixture's `PickerDriver`, which is the picker's body.
   for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\s*:\s*(?:BodyApp\b|PickerDriver\b|App\s*\|\s*BodyApp\b)/g)) names.add(m[1]);
@@ -531,7 +533,7 @@ const BODY_TUG_VERBS = new Set([
 ]);
 
 /** The calls that make a page a card's DOM is read in. */
-const PAGE_MAKERS = /\.body\(|\bbodyOfKind\(|\bkindBody\(|\bcardPage\(|\bwaitForBodyReady\(|\bwaitForBodyPainted\(/;
+const PAGE_MAKERS = /\.body\(|\bbodyOfKind\(|\bkindBody\(|\bcardPage\(|\bwaitForBodyReady\(|\bwaitForBodyPainted\(|\boverlayPage\(|\boverlayReady\(/;
 
 /** Whether `text` reads the shell's deck: `window.tugdeck`, a bare `__tug` reference, or a `__tug` verb only the shell answers. */
 function readsShellDeck(text: string): boolean {

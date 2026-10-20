@@ -1,0 +1,28 @@
+/* The overlay page: the transparent page the host keeps above every card
+   (`overlay-main.ts`). It paints nothing of its own — no canvas, no grid,
+   no surface — so wherever it shows no surface every card beneath it shows
+   through, and the host passes the pointer through it there too
+   (`overlay-claim.ts`). Only what it draws — a modal's scrim and panel, an
+   alert, the update pill — is seen. */
+
+html[data-overlay-page],
+html[data-overlay-page] body,
+html[data-overlay-page] #deck-container {
+  background-color: transparent;
+  background-image: none;
+}
+
+/* The margin caps' layer (`overlay-margin-caps.tsx`): the deck root's own box,
+   beneath every surface this page draws, and inert to the pointer. */
+.overlay-margin-caps {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.overlay-margin-caps .tug-margin-cap {
+  pointer-events: none;
+}

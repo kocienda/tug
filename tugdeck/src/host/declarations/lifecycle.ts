@@ -192,11 +192,10 @@ export const bodyBindToPage = defineToPage<BodyBind>({
   refused: ["c1", { ...bind, facts: undefined }, { ...bind, intent: null }],
 });
 
-/** What the host reports of a body, or of its floor, to the shell. */
+/** What the host reports of a body to the shell. */
 export interface BodyStateReport {
-  /** Absent only for `floorShown`, which names no card. */
-  readonly cardId?: string;
-  readonly state: "ready" | "painted" | "shown" | "landed" | "beatsCancelled" | "failed" | "terminated" | "floorShown";
+  readonly cardId: string;
+  readonly state: "ready" | "painted" | "landed" | "beatsCancelled" | "failed" | "terminated";
   /** `ready`: bind → ready, ms. */
   readonly readyMs?: number;
   /** `ready`: whether the body began as the spare. */
@@ -207,8 +206,6 @@ export interface BodyStateReport {
   readonly lateMs?: number;
   /** `failed`: why the host gave the body up. */
   readonly cause?: string;
-  /** `floorShown`: how long after the window's reveal began the floor showed. */
-  readonly sinceRevealMs?: number;
 }
 
 /** Where a body stands, told to the shell. */
@@ -217,14 +214,13 @@ export const bodyStateToPage = defineToPage<BodyStateReport>({
   to: "shell",
   typed: true,
   codec: obj({
-    cardId: optional(str),
-    state: literal("ready", "painted", "shown", "landed", "beatsCancelled", "failed", "terminated", "floorShown"),
+    cardId: str,
+    state: literal("ready", "painted", "landed", "beatsCancelled", "failed", "terminated"),
     readyMs: optional(num),
     start: optional(literal("warm", "cold")),
     planId: optional(num),
     lateMs: optional(num),
     cause: optional(str),
-    sinceRevealMs: optional(num),
   }),
   samples: [
     { cardId: "c1", state: "ready", readyMs: 412, start: "warm" },
@@ -232,10 +228,8 @@ export const bodyStateToPage = defineToPage<BodyStateReport>({
     { cardId: "c1", state: "landed", planId: 7, lateMs: 3.5 },
     { cardId: "c1", state: "beatsCancelled", planId: 7 },
     { cardId: "c1", state: "failed", cause: "deadline" },
-    { state: "floorShown", sinceRevealMs: 140 },
-    { state: "floorShown" },
   ],
-  refused: ["ready", { cardId: "c1", state: "asleep" }, { cardId: "c1", state: "landed", planId: "7" }],
+  refused: ["ready", { cardId: "c1", state: "asleep" }, { cardId: "c1", state: "landed", planId: "7" }, { state: "ready" }],
 });
 
 // The host's calls into `window.tugdeck`.

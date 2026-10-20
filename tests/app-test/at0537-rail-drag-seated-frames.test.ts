@@ -41,12 +41,14 @@
  * and at0457 already names both; the rule under test here is the engine's.
  *
  * @covers tugdeck/src/lib/drop-zones.ts
+ * @covers tugdeck/src/overlay/overlay-indication.ts
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { ZONE_INDICATOR_INSET_PX } from "../../tugdeck/src/lib/drop-zone-indicator";
+import { overlayPage } from "./overlay-fixture";
 import { chromePoint, heldRectOf } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -179,8 +181,8 @@ function railOrderInStore(app: App): Promise<string[]> {
 
 /** The drop-zone indicator's rect, or null when nothing is indicated. */
 async function indicator(app: App): Promise<Rect | null> {
-  // card-dom: shell — the drop-zone indicator is the shell canvas's.
-  return app.evalJS<Rect | null>(
+  // The outline is drawn in the overlay, above every card.
+  return overlayPage(app).evalJS<Rect | null>(
     `(function () {
       var el = document.querySelector(".tug-drop-zone-indicator");
       if (el === null) return null;

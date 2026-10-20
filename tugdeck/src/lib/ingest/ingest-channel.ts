@@ -122,6 +122,20 @@ export interface IngestWorkerFailure {
   readonly error: string;
 }
 
+/**
+ * A test-only message the page posts to the ingest Worker so the Worker's
+ * realm carries the harness's deadline overrides. The reducer runs in the
+ * Worker, and a Worker inherits none of the page's injected test globals, so
+ * the one override a deadline test needs (`__tugReplaySilenceDeadlineMs`) is
+ * forwarded here and set on the Worker's `self` before the next control. The
+ * page only ever sends it under `__tugTestMode`; production never posts one.
+ */
+export interface IngestTestConfig {
+  readonly kind: "test-config";
+  readonly testMode: true;
+  readonly replaySilenceDeadlineMs: number | null;
+}
+
 export class WorkerIngestChannel implements IngestChannel {
   private readonly worker: Worker;
   private batchListener: ((batch: SessionBatch) => void) | null = null;
@@ -131,6 +145,8 @@ export class WorkerIngestChannel implements IngestChannel {
   /** The failure, once one is seen; reported once, and nothing is delivered after it. */
   private failure: string | null = null;
   private disposed = false;
+  /** The deadline override last forwarded to the Worker, so a change is sent once. */
+  private lastForwardedSilenceMs: number | null | undefined = undefined;
 
   constructor(makeWorker: IngestWorkerFactory = bundledIngestWorker) {
     this.worker = makeWorker();
@@ -156,7 +172,24 @@ export class WorkerIngestChannel implements IngestChannel {
 
   post(control: SessionControl, transfer: ArrayBuffer[] = []): void {
     if (this.failure !== null || this.disposed) return;
+    this.forwardTestConfig();
     this.worker.postMessage(control, transfer);
+  }
+
+  /**
+   * Under the test harness, keep the Worker's realm carrying the current
+   * deadline override; a no-op in production (no `__tugTestMode`) and when the
+   * override has not changed since the last control.
+   */
+  private forwardTestConfig(): void {
+    const g = globalThis as { __tugTestMode?: boolean; __tugReplaySilenceDeadlineMs?: unknown };
+    if (g.__tugTestMode !== true) return;
+    const raw = g.__tugReplaySilenceDeadlineMs;
+    const ms = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
+    if (ms === this.lastForwardedSilenceMs) return;
+    this.lastForwardedSilenceMs = ms;
+    const config: IngestTestConfig = { kind: "test-config", testMode: true, replaySilenceDeadlineMs: ms };
+    this.worker.postMessage(config);
   }
 
   setBatchListener(listener: (batch: SessionBatch) => void): void {

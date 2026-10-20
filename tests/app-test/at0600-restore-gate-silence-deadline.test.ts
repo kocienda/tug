@@ -21,9 +21,11 @@
  *  - the card that stalled says so on itself, through the error banner,
  *    and the turn it had already restored is still there.
  *
- * The deadline is 15 s of real time and the test waits it out: the
- * timer under test is the production one, armed by the store on the
- * frames the harness feeds through the real `routeFrame` path.
+ * The decided deadline is 15 s of real time, longer than an app-test file's
+ * budget, so the test shortens it through the card's test surface
+ * (`setReplaySilenceDeadlineMs`) and waits that out: the timer under test
+ * is still the production one, armed by the store on the frames the harness
+ * feeds through the real `routeFrame` path, and what it fires is unchanged.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -36,6 +38,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -48,10 +51,11 @@ const CODE_OUTPUT_FEED = 0x40;
 const SID = "test-session-at0600";
 
 /**
- * `REPLAY_SILENCE_DEADLINE_MS` is 15 s. The wait allows it that plus
- * headroom for a loaded machine; it is a ceiling, not the expectation.
+ * The deadline the test sets, and the wait it allows it — the deadline plus
+ * headroom for a loaded machine; a ceiling, not the expectation.
  */
-const SILENCE_WAIT_MS = 30_000;
+const SILENCE_DEADLINE_MS = 3_000;
+const SILENCE_WAIT_MS = 9_000;
 
 const userMsg = (text: string) => ({
   type: "add_user_message",
@@ -115,6 +119,12 @@ describe.skipIf(!SHOULD_RUN)(
             tugSessionId: SID,
             sessionMode: "resume",
           });
+          // The store that arms the timer is the card's; a resume Session
+          // card runs it in its body, but in the in-shell fallback the shell
+          // runs it, so the deadline is shortened on both pages — each has its
+          // own module and only the one running the store matters.
+          await app.evalJS<null>(`(window.__tug.setReplaySilenceDeadlineMs(${SILENCE_DEADLINE_MS}), null)`);
+          await app.body("A").evalJS<null>(`(window.__tug.setReplaySilenceDeadlineMs(${SILENCE_DEADLINE_MS}), null)`);
 
           // The bracket opens and a whole turn arrives: every turn is in
           // and the app is idle — and the closing frame never comes.
@@ -123,20 +133,20 @@ describe.skipIf(!SHOULD_RUN)(
           await ingest(asstText("m1", "The relay went quiet.", 1));
           await ingest(turnDone("m1"));
 
-          // card-dom: shell — the gate is the app-modal at the shell's deck root (`deck-manager.ts`).
-          await app.waitForCondition<boolean>(GATE_OPEN_JS, { timeoutMs: 8000 });
+          // The gate is the app-modal in the overlay page, from the shell's restore fold.
+          const overlay = await overlayReady(app);
+          await overlay.waitForCondition<boolean>(GATE_OPEN_JS, { timeoutMs: 8000 });
           const openedAt = Date.now();
 
           // Nothing else is sent. The modal has to close by itself.
-          // card-dom: shell — the same app-modal, at the shell's deck root.
-          await app.waitForCondition<boolean>(`!(${GATE_OPEN_JS})`, {
+          await overlay.waitForCondition<boolean>(`!(${GATE_OPEN_JS})`, {
             timeoutMs: SILENCE_WAIT_MS,
           });
           const heldMs = Date.now() - openedAt;
           note("restore gate closed after ms of silence", heldMs);
           // It measured a deadline rather than closing for some earlier,
-          // unrelated reason: the gate held for most of the 15 s.
-          expect(heldMs).toBeGreaterThan(10_000);
+          // unrelated reason: the gate held for most of the deadline.
+          expect(heldMs).toBeGreaterThan(SILENCE_DEADLINE_MS * 0.6);
 
           // The card that stalled carries the error, on itself.
           await app.body("A").waitForCondition<boolean>(

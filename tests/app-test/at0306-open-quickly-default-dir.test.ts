@@ -18,6 +18,11 @@
  *   a card on a deck that has none. at0213 covers the same dialog with no
  *   workspace at all; this one covers it with a workspace nothing bound.
  *
+ *   The dialog is drawn in the overlay page, above every card: the shell
+ *   opens it and opens the file it chose (`overlay-shell.ts`), so every read
+ *   of the dialog is the overlay's, and every read of the deck, of tugbank and
+ *   of the app is the shell's.
+ *
  *   The rest drive the `TugFileChooser` scope row that replaced the directory
  *   switcher. The switcher was a `TugPopupButton` whose Radix menu portalled
  *   outside the panel; the chooser's dropdown portals INSIDE it, because a
@@ -64,6 +69,7 @@
  *
  * @foreground
  * @covers tugdeck/src/components/chrome/open-quickly-overlay.tsx
+ * @covers tugdeck/src/lib/overlay-shell.ts
  * @covers tugdeck/src/lib/default-workspace-store.ts
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/lib/open-file-in-card.ts
@@ -87,7 +93,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 import { appIsActive } from "./_harness/selectors";
 
@@ -120,9 +127,20 @@ const RING = `(function () {
   return el === null ? "(none)" : (el.getAttribute("data-tug-focus-key") || el.getAttribute("data-slot") || el.tagName);
 })()`;
 
-/** Set the query field's value the way a React controlled input accepts it. */
-async function typeIntoField(app: App, text: string): Promise<void> {
-  await app.evalJS<null>(
+/**
+ * A tugbank write, made in both pages that read it: the shell's (the menu
+ * gate, the deck) and the overlay's (the dialog). The harness's write is the
+ * page's own client cache, as a DEFAULTS frame arriving there would write it,
+ * so a setting the dialog must see is written where the dialog is.
+ */
+async function setInBoth(app: App, ui: BodyApp, script: string): Promise<void> {
+  await app.evalJS<null>(script);
+  await ui.evalJS<null>(script);
+}
+
+/** Set the query field's value the way a React controlled input accepts it, in the overlay page `ui`. */
+async function typeIntoField(ui: BodyApp, text: string): Promise<void> {
+  await ui.evalJS<null>(
     `(function(){
        var input = document.querySelector(${JSON.stringify(INPUT)});
        var setter = Object.getOwnPropertyDescriptor(
@@ -150,7 +168,8 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0306-open-quickly-default-dir",
         });
         try {
-          await app.waitForCondition<boolean>(
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
@@ -169,33 +188,33 @@ describe.skipIf(!SHOULD_RUN)(
           expect(menuItem.found).toBe(true);
           expect(menuItem.found && menuItem.enabled).toBe(true);
 
-          await app.evalJS<null>(
+          await setInBoth(app, ui,
             `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(dir)} }), null)`,
           );
 
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("open-quickly"), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
             { timeoutMs: 8000 },
           );
 
           // The placeholder names the fallback root's leaf directory.
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(INPUT)})
                .getAttribute("placeholder") === ${JSON.stringify(`Open Quickly in ${leaf}`)}`,
             { timeoutMs: 8000 },
           );
           // …and the scope row opens on the whole path, not a leaf.
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHOOSER)}).value === ${JSON.stringify(dir)}`,
             { timeoutMs: 8000 },
           );
 
           // The acquisition + index round trip lands and the marker shows up.
-          await typeIntoField(app, "at0306-marker");
-          await app.waitForCondition<boolean>(
+          await typeIntoField(ui, "at0306-marker");
+          await ui.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(ROWS)}))
                .some((el) => (el.textContent || "").indexOf(${JSON.stringify(MARKER)}) !== -1)`,
             { timeoutMs: 15000 },
@@ -203,14 +222,14 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Enter commits the highlighted row, which opens a Text card on a
           // deck that had none.
-          await app.evalJS<null>(
+          await ui.evalJS<null>(
             `(function(){
                document.querySelector(${JSON.stringify(INPUT)}).dispatchEvent(
                  new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
                return null;
              })()`,
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(PANEL)}) === null`,
             { timeoutMs: 8000 },
           );
@@ -269,11 +288,12 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0306-open-quickly-chooser",
         });
         try {
-          await app.waitForCondition<boolean>(
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
-          await app.evalJS<null>(
+          await setInBoth(app, ui,
             `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(dir)} }),
               window.__tug.setTugbankValue("dev.tugapp.dev", "recent-projects", { kind: "json", value: { paths: [${JSON.stringify(other)}] } }),
               null)`,
@@ -282,7 +302,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("open-quickly"), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHOOSER)}) !== null`,
             { timeoutMs: 8000 },
           );
@@ -290,7 +310,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The row sits inside the panel, ABOVE the query field — the read
           // order the walk order matches.
           expect(
-            await app.evalJS<boolean>(
+            await ui.evalJS<boolean>(
               `(function(){
                  var panel = document.querySelector(${JSON.stringify(PANEL)});
                  var input = document.querySelector(${JSON.stringify(INPUT)});
@@ -303,53 +323,53 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Open the dropdown with a real click. The dialog must stay up: the
           // dropdown is inside the panel, so nothing about this is "outside".
-          await app.nativeClickAtElement(CHOOSER);
-          await app.waitForCondition<boolean>(
+          await ui.nativeClickAtElement(CHOOSER);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(DROPDOWN)}) !== null`,
             { timeoutMs: 8000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await ui.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(PANEL)})
                  .contains(document.querySelector(${JSON.stringify(DROPDOWN)}))`,
             ),
             "the dropdown portals inside the panel, where the pointer can reach it",
           ).toBe(true);
           expect(
-            await app.evalJS<string>(
+            await ui.evalJS<string>(
               `getComputedStyle(document.querySelector(${JSON.stringify(DROPDOWN_ITEMS)})).pointerEvents`,
             ),
             "a modal content leaves everything outside it pointer-dead",
           ).not.toBe("none");
 
           // Pick the recent project by clicking its row.
-          const index = await app.evalJS<number>(
+          const index = await ui.evalJS<number>(
             `Array.from(document.querySelectorAll(${JSON.stringify(DROPDOWN_ITEMS)}))
                .findIndex((el) => (el.textContent || "").indexOf(${JSON.stringify(other)}) !== -1)`,
           );
           expect(index).toBeGreaterThanOrEqual(0);
-          await app.nativeClickAtElement(
+          await ui.nativeClickAtElement(
             `${DROPDOWN} li:nth-child(${index + 1})`,
           );
 
           // The dialog survived the pick…
           expect(
-            await app.evalJS<boolean>(
+            await ui.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
             ),
             "picking a row does not dismiss the dialog",
           ).toBe(true);
 
           // …the placeholder renames itself to the picked directory…
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(INPUT)})
                .getAttribute("placeholder") === ${JSON.stringify(`Open Quickly in ${otherLeaf}`)}`,
             { timeoutMs: 10000 },
           );
 
           // …and the results come from it, not from the default directory.
-          await typeIntoField(app, "at0306-");
-          await app.waitForCondition<boolean>(
+          await typeIntoField(ui, "at0306-");
+          await ui.waitForCondition<boolean>(
             `(function(){
                var rows = Array.from(document.querySelectorAll(${JSON.stringify(ROWS)}))
                  .map((el) => el.textContent || "");
@@ -362,7 +382,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Escape still dismisses from anywhere in the surface.
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(PANEL)}) === null`,
             { timeoutMs: 8000 },
           );
@@ -392,11 +412,12 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0306-open-quickly-places",
         });
         try {
-          await app.waitForCondition<boolean>(
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
-          await app.evalJS<null>(
+          await setInBoth(app, ui,
             `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }),
               window.__tug.setTugbankValue("dev.tugapp.dev", "recent-projects", { kind: "json", value: { paths: [
                 ${JSON.stringify(`${base}/a/proj`)},
@@ -408,26 +429,26 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("open-quickly"), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHOOSER)}) !== null`,
             { timeoutMs: 8000 },
           );
 
           // The default directory is empty — say so rather than showing a
           // blank panel that reads as a hang.
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `(document.querySelector('[data-slot="tug-modal-input-dialog-empty"]')
                || {}).textContent === "No files in tug"`,
             { timeoutMs: 15000 },
           );
 
-          await app.nativeClickAtElement(CHOOSER);
-          await app.waitForCondition<boolean>(
+          await ui.nativeClickAtElement(CHOOSER);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(DROPDOWN)}) !== null`,
             { timeoutMs: 8000 },
           );
           const items = JSON.parse(
-            await app.evalJS<string>(
+            await ui.evalJS<string>(
               `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(DROPDOWN_ITEMS)}))
                  .map(function (el) { return (el.textContent || "").trim(); }))`,
             ),
@@ -470,11 +491,12 @@ describe.skipIf(!SHOULD_RUN)(
 
         const app = await launchTugApp({ testName: "at0306-open-quickly-keys" });
         try {
-          await app.waitForCondition<boolean>(
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
-          await app.evalJS<null>(
+          await setInBoth(app, ui,
             `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }),
               window.__tug.setTugbankValue("dev.tugapp.dev", "recent-projects", { kind: "json", value: { paths: [${JSON.stringify(`${base}/other`)}] } }),
               null)`,
@@ -482,14 +504,14 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("open-quickly"), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHOOSER)}) !== null`,
             { timeoutMs: 10000 },
           );
 
           // The dialog seeds the key view onto its query field, and the field
           // being a text surface means the engine grants it real DOM focus.
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.activeElement === document.querySelector(${JSON.stringify(INPUT)})`,
             { timeoutMs: 8000 },
           );
@@ -497,17 +519,17 @@ describe.skipIf(!SHOULD_RUN)(
           // Tab advances the walk through the scope row in reading order:
           // Browse… first, then the path field, parked.
           await app.nativeKey("Tab");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `${RING} === "tug-modal-input-dialog:1"`,
             { timeoutMs: 8000 },
           );
           await app.nativeKey("Tab");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `${RING} === "tug-modal-input-dialog:2"`,
             { timeoutMs: 8000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await ui.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
             ),
             "stepping off the query field does not dismiss the dialog",
@@ -515,7 +537,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Enter at a parked text stop claims the caret — the grant.
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.activeElement === document.querySelector(${JSON.stringify(CHOOSER)})`,
             { timeoutMs: 8000 },
           );
@@ -523,7 +545,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ↓ opens the seed menu, ↓ again moves the highlight off the first
           // row, Return accepts it — the keyboard equivalent of test 2's click.
           await app.nativeKey("ArrowDown");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(DROPDOWN)}) !== null`,
             { timeoutMs: 8000 },
           );
@@ -533,17 +555,17 @@ describe.skipIf(!SHOULD_RUN)(
           })()`;
           // Walk down to the "other" row whatever its index, then commit.
           for (let i = 0; i < 4; i += 1) {
-            const onOther = await app.evalJS<boolean>(
+            const onOther = await ui.evalJS<boolean>(
               `${highlighted}.indexOf(${JSON.stringify(`${base}/other`)}) !== -1`,
             );
             if (onOther) break;
             await app.nativeKey("ArrowDown");
           }
-          note(`highlighted before Return: ${await app.evalJS<string>(highlighted)}`);
+          note(`highlighted before Return: ${await ui.evalJS<string>(highlighted)}`);
           await app.nativeKey("Return");
 
           // The root swaps…
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(INPUT)})
                .getAttribute("placeholder") === "Open Quickly in other"`,
             { timeoutMs: 10000 },
@@ -552,12 +574,12 @@ describe.skipIf(!SHOULD_RUN)(
           // …and the keyboard comes back to the query field, because the next
           // thing the user does is type a filename. An engine placement, so it
           // grants the caret rather than parking.
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.activeElement === document.querySelector(${JSON.stringify(INPUT)})`,
             { timeoutMs: 8000 },
           );
-          await typeIntoField(app, "at0306-");
-          await app.waitForCondition<boolean>(
+          await typeIntoField(ui, "at0306-");
+          await ui.waitForCondition<boolean>(
             `(function () {
                var rows = Array.from(document.querySelectorAll(${JSON.stringify(ROWS)}))
                  .map(function (el) { return el.textContent || ""; });
@@ -585,7 +607,7 @@ describe.skipIf(!SHOULD_RUN)(
             };
           })()`;
           type Paint = { caret: boolean; shadow: string };
-          const live = await app.evalJS<Paint>(highlightPaint);
+          const live = await ui.evalJS<Paint>(highlightPaint);
           note(`highlight with the caret in the field: ${JSON.stringify(live)}`);
           expect(live.caret, "the query field holds the caret").toBe(true);
           expect(live.shadow, "a live highlight is the plain selection fill").toBe(
@@ -593,11 +615,11 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           await app.nativeKey("Tab");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `${RING} === "tug-modal-input-dialog:1"`,
             { timeoutMs: 8000 },
           );
-          const parked = await app.evalJS<Paint>(highlightPaint);
+          const parked = await ui.evalJS<Paint>(highlightPaint);
           note(`highlight with the walk parked on Browse: ${JSON.stringify(parked)}`);
           expect(
             parked.caret,
@@ -639,7 +661,8 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0306-open-quickly-settle",
         });
         try {
-          await app.waitForCondition<boolean>(
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
@@ -656,17 +679,19 @@ describe.skipIf(!SHOULD_RUN)(
             },
           });
           await app.waitForCondition<boolean>(appIsActive(), { timeoutMs: 8000 });
-          await app.evalJS<null>(
+          // A seed may bring the pages up again, the overlay among them.
+          await overlayReady(app);
+          await setInBoth(app, ui,
             `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }), null)`,
           );
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("open-quickly"), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHOOSER)}) !== null`,
             { timeoutMs: 10000 },
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(INPUT)})
                .getAttribute("placeholder") === "Open Quickly in tug"`,
             { timeoutMs: 10000 },
@@ -674,24 +699,24 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Click into the scope field — real DOM focus, which is what makes a
           // later blur a real blur — then close the menu the click opened.
-          await app.nativeClickAtElement(CHOOSER);
-          await app.waitForCondition<boolean>(
+          await ui.nativeClickAtElement(CHOOSER);
+          await ui.waitForCondition<boolean>(
             `document.activeElement === document.querySelector(${JSON.stringify(CHOOSER)})`,
             { timeoutMs: 8000 },
           );
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(DROPDOWN)}) === null`,
             { timeoutMs: 8000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await ui.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
             ),
             "Escape closes the chooser's list, not the dialog under it",
           ).toBe(true);
 
-          const scopeBefore = await app.evalJS<string>(
+          const scopeBefore = await ui.evalJS<string>(
             `document.querySelector(${JSON.stringify(CHOOSER)}).value`,
           );
 
@@ -699,12 +724,12 @@ describe.skipIf(!SHOULD_RUN)(
           // guard is the only thing standing between that settle and a
           // pointless re-scope.
           await app.nativeKey("Tab");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `${RING} === "tug-modal-input-dialog:3"`,
             { timeoutMs: 8000 },
           );
           note(
-            `after Tab off the chooser: ring=${await app.evalJS<string>(RING)}`,
+            `after Tab off the chooser: ring=${await ui.evalJS<string>(RING)}`,
           );
 
           // The chevron is a live control, and a live control fills with its
@@ -713,7 +738,7 @@ describe.skipIf(!SHOULD_RUN)(
           // bare outline reads as a stray box beside the field, so this is
           // asserted as PAINT: the resting chevron is transparent, the one
           // holding the ring is not.
-          const chevronFill = await app.evalJS<string>(
+          const chevronFill = await ui.evalJS<string>(
             `(function () {
                var el = document.querySelector('${CHEVRON}');
                return el === null ? "(none)" : getComputedStyle(el).backgroundColor;
@@ -730,24 +755,24 @@ describe.skipIf(!SHOULD_RUN)(
           // The walk landed on the chevron rather than bouncing back to the query
           // field, and the scope is exactly what it was.
           expect(
-            await app.evalJS<boolean>(
+            await ui.evalJS<boolean>(
               `document.activeElement === document.querySelector(${JSON.stringify(INPUT)})`,
             ),
             "the walk did not bounce back to the query field",
           ).toBe(false);
           expect(
-            await app.evalJS<string>(
+            await ui.evalJS<string>(
               `document.querySelector(${JSON.stringify(CHOOSER)}).value`,
             ),
             "leaving the row unchanged leaves the scope unchanged",
           ).toBe(scopeBefore);
           expect(
-            await app.evalJS<string>(
+            await ui.evalJS<string>(
               `document.querySelector(${JSON.stringify(INPUT)}).getAttribute("placeholder")`,
             ),
           ).toBe("Open Quickly in tug");
           expect(
-            await app.evalJS<boolean>(
+            await ui.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(BROWSE)}) !== null`,
             ),
           ).toBe(true);
@@ -781,11 +806,12 @@ describe.skipIf(!SHOULD_RUN)(
         });
         const panelUp = `document.querySelector(${JSON.stringify(PANEL)}) !== null`;
         try {
-          await app.waitForCondition<boolean>(
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
-          await app.evalJS<null>(
+          await setInBoth(app, ui,
             `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }), null)`,
           );
 
@@ -793,16 +819,16 @@ describe.skipIf(!SHOULD_RUN)(
             await app.evalJS<null>(
               `(window.__tug.dispatchControlAction("open-quickly"), null)`,
             );
-            await app.waitForCondition<boolean>(
+            await ui.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(BROWSE)}) !== null`,
               { timeoutMs: 10000 },
             );
-            await app.waitForCondition<boolean>(
+            await ui.waitForCondition<boolean>(
               `document.activeElement === document.querySelector(${JSON.stringify(INPUT)})`,
               { timeoutMs: 8000 },
             );
             await app.nativeKey("Tab");
-            await app.waitForCondition<boolean>(
+            await ui.waitForCondition<boolean>(
               `${RING} === "tug-modal-input-dialog:1"`,
               { timeoutMs: 8000 },
             );
@@ -813,7 +839,7 @@ describe.skipIf(!SHOULD_RUN)(
           // never answer: it has no focus and sees no key.
           await openOnBrowse();
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(`!(${panelUp})`, {
+          await ui.waitForCondition<boolean>(`!(${panelUp})`, {
             timeoutMs: 8000,
           });
 
@@ -822,7 +848,7 @@ describe.skipIf(!SHOULD_RUN)(
           // frame, not a synthesized blur.
           await openOnBrowse();
           await app.simulateAppResign();
-          await app.waitForCondition<boolean>(`!(${panelUp})`, {
+          await ui.waitForCondition<boolean>(`!(${panelUp})`, {
             timeoutMs: 8000,
           });
         } finally {
@@ -867,7 +893,8 @@ describe.skipIf(!SHOULD_RUN)(
         const SETTINGS_FIELD =
           '[data-testid="settings-default-project-dir-field"] input';
         try {
-          await app.waitForCondition<boolean>(
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
@@ -898,12 +925,12 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("open-quickly"), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `${placeholder} === "Open Quickly in before"`,
             { timeoutMs: 10000 },
           );
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(PANEL)}) === null`,
             { timeoutMs: 8000 },
           );
@@ -992,15 +1019,15 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("open-quickly"), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await ui.waitForCondition<boolean>(
             `${placeholder} === "Open Quickly in after"`,
             { timeoutMs: 10000 },
           );
 
           // And the search root really moved, not just the label: the file
           // that only exists in the new directory is the one that comes back.
-          await typeIntoField(app, "at0306-");
-          await app.waitForCondition<boolean>(
+          await typeIntoField(ui, "at0306-");
+          await ui.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(ROWS)}))
                .some((el) => (el.textContent || "").indexOf(${JSON.stringify(OTHER_MARKER)}) !== -1)`,
             { timeoutMs: 10000 },

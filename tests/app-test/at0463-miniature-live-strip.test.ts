@@ -55,7 +55,7 @@ import {
   gauge,
   memberSlidePx,
   openDeck,
-  titleBar,
+  titleBarPoint,
   wait,
 } from "./miniature-live-fixture";
 import { kindBody } from "./_harness/card-reach";
@@ -141,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under 
         let transitionUnderHand!: string | null;
         // The census brackets the HOLD alone: the press and the travel to the
         // edge are outside it, so what it counts is the autoscroll's own cost.
-        await app.nativeDragElementWithoutRelease(titleBar(members[0]), edge);
+        await app.nativeDragWithoutRelease(await titleBarPoint(app, members[0]), edge);
         const census = await app.motionCensus(async () => {
           await wait(HOLD_MS);
           gaugeUnderHand = await gauge(app, "--gauge-column-offset-1");

@@ -64,7 +64,7 @@ struct JSONObject: Codable, Equatable {
     subscript(key: String) -> JSONValue? { fields[key] }
 }
 
-/// A whole card's pane within its view, points per side.
+/// A card's pane within its view, points per side.
 struct CardInsets: Codable, Equatable {
     var top: Double
     var right: Double
@@ -72,52 +72,41 @@ struct CardInsets: Codable, Equatable {
     var left: Double
 }
 
-/// One body's entry in `placeBodies`: a viewport rect and whether it shows.
-struct BodyPlacementEntry: Decodable, Equatable {
-    var cardId: String
-    var x: Double
-    var y: Double
-    var width: Double
-    var height: Double
-    var visible: Bool
-    /// The pane's resize handles, or a whole card's shell controls over it.
-    var grips: [PlanRect]
-    /// The pane's computed `z-index`.
-    var z: Double
-    /// Present, and true, for a card that draws its pane's chrome in its own page.
-    var whole: Bool?
-    /// Present, and true, for an inactive card of a whole card's pane.
-    var sibling: Bool?
-    var insets: CardInsets?
-
-    var frame: CGRect { CGRect(x: x, y: y, width: width, height: height) }
-}
-
-/// The `placeBodies` message body.
-struct PlaceBodies: Decodable, Equatable {
-    /// The pane's corner radius, px.
-    var radius: Double
-    var bodies: [BodyPlacementEntry]
-}
-
-/// One whole card in `placeCards`: its pane rect and what the hand carries it by.
+/// One card in `placeCards`: its pane rect, its view and the pane's insets
+/// within it, whether it shows, and what the hand carries it by.
 struct CardPlacementEntry: Decodable, Equatable {
     var cardId: String
     var x: Double
     var y: Double
     var width: Double
     var height: Double
+    /// The card's view: the pane outset by the apron, grown to whole points.
+    var view: PlanRect
+    var insets: CardInsets
+    /// The shell's own controls over the view (the place seams): points the
+    /// host keeps for the shell.
+    var shell: [PlanRect]
     var visible: Bool
+    /// Present, and true, for an inactive card of a pane.
     var sibling: Bool?
+    /// The pane's computed `z-index`.
     var z: Double
     var grips: [ResizeEdge]
     var free: Bool
-    var min: PlannedBody.Size
+    var min: PlannedCard.Size
+    /// The tallest a resize may make the pane, layout px, where the
+    /// arrangement holds a ceiling the canvas does not (a slot's run).
+    var maxHeight: Double?
+    /// The plan whose landing this view is, while the host carries the card
+    /// there: a placement naming a running plan leaves its beats alone, and
+    /// one naming none takes the card from them.
+    var planId: Int?
 
     var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 }
 
-/// The `placeCards` message body: the whole cards, and the canvas they stand on.
+/// The `placeCards` message body: every card, in the deck's reading order,
+/// and the canvas they stand on.
 struct PlaceCards: Decodable, Equatable {
     var apron: Double
     /// The canvas's viewport rect; nil when the shell shows none.
@@ -146,11 +135,6 @@ struct CardGestureBegin: Decodable, Equatable {
     var y: Double
     var meta: Bool
     var alt: Bool
-}
-
-/// `cardLand`: a drop the shell committed nothing for.
-struct CardLand: Decodable, Equatable {
-    var cardId: String
 }
 
 /// `crossingReady` and `bodySurface`: the page's own surface as sRGB bytes,
@@ -274,29 +258,27 @@ struct BodyBind: Codable, Equatable {
     var facts: BindFacts
 }
 
-/// `onBodyState`: what the host reports of a body, or of its floor, to the shell.
+/// `onBodyState`: what the host reports of a body to the shell.
 struct BodyStateReport: Codable, Equatable {
     enum State: String, Codable, Equatable {
-        case ready, painted, shown, landed, beatsCancelled, failed, terminated, floorShown
+        case ready, painted, landed, beatsCancelled, failed, terminated
     }
 
     enum Start: String, Codable, Equatable {
         case warm, cold
     }
 
-    /// Absent only for `floorShown`, which names no card.
-    var cardId: String?
+    var cardId: String
     var state: State
     var readyMs: Double?
     var start: Start?
     var planId: Int?
     var lateMs: Double?
     var cause: String?
-    var sinceRevealMs: Double?
 
     init(
-        cardId: String?, state: State, readyMs: Double? = nil, start: Start? = nil, planId: Int? = nil,
-        lateMs: Double? = nil, cause: String? = nil, sinceRevealMs: Double? = nil
+        cardId: String, state: State, readyMs: Double? = nil, start: Start? = nil, planId: Int? = nil,
+        lateMs: Double? = nil, cause: String? = nil
     ) {
         self.cardId = cardId
         self.state = state
@@ -305,7 +287,6 @@ struct BodyStateReport: Codable, Equatable {
         self.planId = planId
         self.lateMs = lateMs
         self.cause = cause
-        self.sinceRevealMs = sinceRevealMs
     }
 }
 
@@ -313,7 +294,9 @@ struct BodyStateReport: Codable, Equatable {
 /// names it.
 enum ToHostName: String, CaseIterable {
     // Placement and gestures.
-    case placeBodies, placeCards, cardGesture, cardLand, beatPlan, pointerClaim, floorGrid
+    case placeCards, cardGesture, cardPlan
+    // The overlay's view.
+    case overlayCreate, overlayClaim
     // Page lifecycle.
     case bodyHello, painted, frontendReady, frontendLaunchStalled, pageFault
     case crossingReady, bodySurface, bodyCreate, bodyDestroy, bodyFocus, hmrUpdate
@@ -330,12 +313,17 @@ enum ToHostName: String, CaseIterable {
     var shellOnly: Bool {
         switch self {
         case .sourceTree, .setTheme, .devBadge, .updateAction, .frontendLaunchStalled, .hmrUpdate,
-             .bodyCreate, .placeBodies, .bodyDestroy, .bodyFocus, .pointerClaim, .hostFrames,
-             .floorGrid, .beatPlan, .placeCards, .cardLand:
+             .bodyCreate, .bodyDestroy, .bodyFocus, .hostFrames,
+             .cardPlan, .placeCards, .overlayCreate:
             return true
         default:
             return false
         }
+    }
+
+    /// Whether only the overlay page may post it: where it takes the pointer.
+    var overlayOnly: Bool {
+        self == .overlayClaim
     }
 }
 
@@ -370,13 +358,11 @@ enum HostDecodeError: Error, CustomStringConvertible {
 
 /// One page→host message, decoded.
 enum ToHost {
-    case placeBodies(PlaceBodies)
     case placeCards(PlaceCards)
     case cardGesture(CardGestureBegin)
-    case cardLand(CardLand)
-    case beatPlan(BeatPlan)
-    case pointerClaim(BodyHitRegion.Claim)
-    case floorGrid(FloorGrid)
+    case cardPlan(CardPlan)
+    case overlayCreate
+    case overlayClaim(CardHitRegion.Claim)
     case bodyHello
     case painted
     case frontendReady
@@ -433,13 +419,11 @@ enum ToHost {
         let decoder = JSONDecoder()
         func read<T: Decodable>(_ type: T.Type) throws -> T { try decoder.decode(type, from: data) }
         switch name {
-        case .placeBodies: return .placeBodies(try read(PlaceBodies.self))
         case .placeCards: return .placeCards(try read(PlaceCards.self))
         case .cardGesture: return .cardGesture(try read(CardGestureBegin.self))
-        case .cardLand: return .cardLand(try read(CardLand.self))
-        case .beatPlan: return .beatPlan(try read(BeatPlan.self))
-        case .pointerClaim: return .pointerClaim(try read(BodyHitRegion.Claim.self))
-        case .floorGrid: return .floorGrid(try read(FloorGrid.self))
+        case .cardPlan: return .cardPlan(try read(CardPlan.self))
+        case .overlayCreate: _ = try read(EmptyPayload.self); return .overlayCreate
+        case .overlayClaim: return .overlayClaim(try read(CardHitRegion.Claim.self))
         case .bodyHello: _ = try read(EmptyPayload.self); return .bodyHello
         case .painted: _ = try read(EmptyPayload.self); return .painted
         case .frontendReady: _ = try read(EmptyPayload.self); return .frontendReady
@@ -475,7 +459,8 @@ enum ToHost {
         case .dictation: return .dictation(body)
         case .pageZoom: return .pageZoom(body)
         case .hostFrames: return .hostFrames(body)
-        case .placeBodies, .placeCards, .cardGesture, .cardLand, .beatPlan, .pointerClaim, .floorGrid,
+        case .placeCards, .cardGesture, .cardPlan,
+             .overlayCreate, .overlayClaim,
              .bodyHello, .painted, .frontendReady, .crossingReady, .bodySurface, .bodyCreate,
              .bodyDestroy, .bodyFocus, .updateAction:
             preconditionFailure("\(name.rawValue) is typed, not loose")

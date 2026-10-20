@@ -30,6 +30,10 @@
  * Reached through Tug ▸ Configure Tug… (`dispatchControlAction("configure-tug")`,
  * the exact action the menu item posts), because the blocking wizard is
  * suppressed under the harness — an on-demand open is the only way it appears.
+ * The wizard is drawn in the overlay page (`overlay-fixture.ts`): its rows are
+ * read and pressed there, and a faked probe is dispatched there, where the
+ * wizard's store reads tugcast's broadcast. A reload remakes the overlay with
+ * the shell, so the skip that survives it is the one tugbank kept.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -43,6 +47,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -97,9 +102,9 @@ function present(selector: string): string {
   return `document.querySelector(${JSON.stringify(selector)}) !== null`;
 }
 
-/** Push a `host_tools_result` through the real action table. */
+/** Push a `host_tools_result` through the real action table, in the overlay page the wizard reads it in. */
 function fakeProbe(result: Record<string, unknown>): string {
-  return `(window.__tug.dispatchControlAction("host_tools_result", ${JSON.stringify(
+  return `(window.tugdeck.lab.dispatch("host_tools_result", ${JSON.stringify(
     result,
   )}), null)`;
 }
@@ -118,36 +123,37 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the git row offers the tools it needs", ()
         );
         await app.bindSession("A", { tugSessionId: SID });
 
+        let overlay = await overlayReady(app);
         await app.evalJS<null>(OPEN_WIZARD);
-        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
 
         // 1. The real probe. Every machine that can build and run this corpus
         //    has git, so waiting for the settled version line IS the assertion
         //    that `check_host_tools` → `host_tools_result` works end to end.
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(
           `/^Version \\d+\\.\\d+/.test(${text(GIT_DETAIL)})`,
           { timeoutMs: 20_000 },
         );
-        const settled = await app.evalJS<string>(text(GIT_DETAIL));
+        const settled = await overlay.evalJS<string>(text(GIT_DETAIL));
         note(`at0441 real probe: ${JSON.stringify(settled)}`);
         expect(
-          await app.evalJS<string>(text(GIT_LABEL)),
+          await overlay.evalJS<string>(text(GIT_LABEL)),
           "a machine with git reads as settled",
         ).toBe("git installed");
 
         // 2. The reading this machine cannot produce: no git, and the offer.
-        await app.evalJS<null>(fakeProbe(NO_GIT_RESULT));
-        await app.waitForCondition<boolean>(
+        await overlay.evalJS<null>(fakeProbe(NO_GIT_RESULT));
+        await overlay.waitForCondition<boolean>(
           `${text(GIT_LABEL)} === "Install git"`,
           { timeoutMs: 4000 },
         );
-        const offer = await app.evalJS<string>(text(GIT_DETAIL));
+        const offer = await overlay.evalJS<string>(text(GIT_DETAIL));
         note(`at0441 offer: ${JSON.stringify(offer)}`);
         expect(offer, "the offer says what it costs").toContain("3 GB");
         // The offer is the longest prose the row carries, and it has to fit
         // the plinth ConfigureTug allocates: a detail that wraps past the
         // row's floor grows the row and pushes every step below it down.
-        const fit = await app.evalJS<{ row: number; floor: number }>(`(function () {
+        const fit = await overlay.evalJS<{ row: number; floor: number }>(`(function () {
           var row = document.querySelector(${JSON.stringify(GIT_ROW)});
           return {
             row: row.offsetHeight,
@@ -157,19 +163,19 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the git row offers the tools it needs", ()
         note(`at0441 offer fit: ${JSON.stringify(fit)}`);
         expect(fit.row, "the offer fits the row's allocated height").toBeLessThanOrEqual(fit.floor);
         expect(
-          await app.evalJS<string>(text(GIT_SECONDARY)),
+          await overlay.evalJS<string>(text(GIT_SECONDARY)),
           "the offer is deferrable",
         ).toBe("Skip for now");
 
         // 4. A missing git never blocks the wizard — the rows below it stand.
         expect(
-          await app.evalJS<boolean>(present(INSTALL_ROW)),
+          await overlay.evalJS<boolean>(present(INSTALL_ROW)),
           "the Claude row is still reachable while git is missing",
         ).toBe(true);
 
         // 3. Skip retires the row for this launch…
-        await app.nativeClickAtElement(GIT_SECONDARY);
-        await app.waitForCondition<boolean>(
+        await overlay.nativeClickAtElement(GIT_SECONDARY);
+        await overlay.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(GIT_ROW)}) === null`,
           { timeoutMs: 4000 },
         );
@@ -182,12 +188,22 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the git row offers the tools it needs", ()
           `typeof window.__tug !== "undefined"`,
           { timeoutMs: 20_000 },
         );
+        overlay = await overlayReady(app);
         await app.evalJS<null>(OPEN_WIZARD);
-        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(present(INSTALL_ROW), { timeoutMs: 8000 });
-        await app.evalJS<null>(fakeProbe(NO_GIT_RESULT));
+        await overlay.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(present(INSTALL_ROW), { timeoutMs: 8000 });
+        // The reloaded shell and the reloaded overlay each ask for the real
+        // probe at their boot, and tugcast broadcasts every answer to every
+        // page, so each lands in the wizard. They must all have landed before
+        // the fake, or one overwrites it. This machine has git, so an answer
+        // stands the row as settled even under the skip: the first is waited
+        // for, and the beat after it lets the other land too. The fake that
+        // follows is what the skip has to hold against.
+        await overlay.waitForCondition<boolean>(`${text(GIT_LABEL)} === "git installed"`, { timeoutMs: 20_000 });
+        await new Promise((r) => setTimeout(r, 1500));
+        await overlay.evalJS<null>(fakeProbe(NO_GIT_RESULT));
         // Give the row every chance to come back before concluding it didn't.
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(
           `${text(GIT_LABEL)} === "Install git"`,
           { timeoutMs: 2500 },
         ).then(
@@ -197,7 +213,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the git row offers the tools it needs", ()
           () => undefined,
         );
         expect(
-          await app.evalJS<boolean>(present(GIT_ROW)),
+          await overlay.evalJS<boolean>(present(GIT_ROW)),
           "a remembered skip keeps the row away",
         ).toBe(false);
       } catch (err) {

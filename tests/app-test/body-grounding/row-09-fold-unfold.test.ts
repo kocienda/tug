@@ -8,7 +8,7 @@
  *
  * @foreground
  * @family row-09-fold
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/card-fold.ts
  * @covers tugapp/Sources/BodyViewController.swift
  */

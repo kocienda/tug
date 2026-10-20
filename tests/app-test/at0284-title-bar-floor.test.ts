@@ -24,6 +24,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
+import { chromeRect } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 30_000;
@@ -85,12 +86,14 @@ function imposedDeckShape() {
   };
 }
 
-/** Every pane's title-bar top edge, in viewport coordinates. */
-async function titleBarTops(app: App): Promise<number[]> {
-  return app.evalJS<number[]>(
-    `Array.from(document.querySelectorAll('.tug-pane .tug-pane-title-bar'))
-       .map(function(el){ return Math.round(el.getBoundingClientRect().top); })`,
-  );
+/**
+ * Each card's title-bar top edge, in the shell's viewport coordinates: a card
+ * draws its title bar in its own page.
+ */
+async function titleBarTops(app: App, cards: readonly string[]): Promise<number[]> {
+  const tops: number[] = [];
+  for (const card of cards) tops.push(Math.round((await chromeRect(app, card, ".tug-pane-title-bar")).top));
+  return tops;
 }
 
 /** The committed `position.y` of every pane in the store. */
@@ -102,6 +105,7 @@ async function committedYs(app: App): Promise<number[]> {
 
 /** The deck root's top edge, in viewport coordinates. */
 async function deckTop(app: App): Promise<number> {
+  // card-dom: shell — the deck root is the shell's.
   return app.evalJS<number>(
     `Math.round(document.getElementById("deck-container").getBoundingClientRect().top)`,
   );
@@ -115,17 +119,13 @@ describe.skipIf(!SHOULD_RUN)("at0284 — the title-bar floor", () => {
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: freeDeckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `document.querySelector('.tug-pane[data-pane-id="pFree"] .tug-pane-title-bar') !== null`,
-          { timeoutMs: 5_000 },
-        );
 
         // The store never holds the out-of-bounds value it was handed.
         expect(await committedYs(app)).toEqual([0]);
 
         // And the title bar is really on the deck, not merely renumbered.
         const top = await deckTop(app);
-        const tops = await titleBarTops(app);
+        const tops = await titleBarTops(app, ["A"]);
         expect(tops.length).toBe(1);
         expect(tops[0]).toBeGreaterThanOrEqual(top);
       } catch (err) {
@@ -146,13 +146,9 @@ describe.skipIf(!SHOULD_RUN)("at0284 — the title-bar floor", () => {
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: imposedDeckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `document.querySelectorAll('.tug-pane .tug-pane-title-bar').length === 3`,
-          { timeoutMs: 5_000 },
-        );
 
         const top = await deckTop(app);
-        const tops = await titleBarTops(app);
+        const tops = await titleBarTops(app, ["A", "B", "C"]);
         expect(tops.length).toBe(3);
         for (const t of tops) expect(t).toBeGreaterThanOrEqual(top);
       } catch (err) {

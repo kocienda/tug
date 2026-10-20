@@ -276,29 +276,6 @@ body {
   overflow: clip;
 }
 
-/* ============================================================================
-   Occluded pane — paint suspended, everything else preserved
-   ========================================================================= */
-
-/*
- * `data-occluded="true"` is written by `pane-occlusion-controller.ts` on a
- * pane whose frame is fully covered by an opaque pane above it in z-order.
- * `visibility: hidden` releases the pane's graphics tile backing while
- * keeping layout, scroll positions, editor state, and running animations
- * intact — nothing unmounts, nothing re-measures ([L06], [L23]).
- *
- * The subtree selector (not just the frame) is required: `visibility`
- * inherits, but a descendant rule that sets `visibility: visible` explicitly
- * (the jump-to-bottom button, hover-revealed row controls, checkbox icons)
- * wins over inheritance and would leave that element painting alone above
- * the hidden pane. `!important` outranks the higher-specificity reveal
- * rules those components use.
- */
-.tug-pane[data-occluded="true"],
-.tug-pane[data-occluded="true"] * {
-  visibility: hidden !important;
-}
-
 /* ---- Card shadow: active when focused ---- */
 .tug-pane[data-focused="true"] .tug-pane-chrome {
   box-shadow: var(--tugx-pane-shadow-active);
@@ -434,10 +411,8 @@ body {
  * stays on the bar's ink, where the rail tier already carries it; the card's
  * all-round drop shadow was never the rail's focus signal and it gives that
  * up. What it casts instead is ONE-SIDED, from its inner edge into the
- * gutter — and the canvas draws it, not the pane: one strip per SIDE
- * spanning the whole rail run (`rail-shadow.css`), because a strip drawn per
- * member breaks at every seam of a split rail, which is the one boundary the
- * panel's own law says must read as continuous. The activation flash still
+ * gutter, drawn in the rail's own page beside its frame (`rail-shadow.css`),
+ * so the shadow is part of the rail's view and moves with it. The activation flash still
  * lands, and no longer has to outrank anything here to do it: it is an inset
  * ring on a layer of its own above the chrome, so `box-shadow: none` below and
  * the ring are about different boxes.
@@ -1805,11 +1780,10 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   overscroll-behavior: contain;
 }
 
-/* A body card: its content is another web view the host places
-   beneath this page, under the placeholder's rect. The pane's chrome and
-   content stop painting so it shows through; the body paints the pane's
-   surface itself. The placeholder fills the content box, and is what the
-   shell measures. */
+/* A body card: the card is another web view the host stands over this
+   page, at the placeholder's rect. The stand-in's chrome and content paint
+   nothing; the card's page paints the pane itself. The placeholder fills
+   the content box, and is what the shell measures. */
 .tug-pane[data-body-card] .tug-pane-chrome,
 .tug-pane[data-body-card] .tug-pane-content {
   background-color: transparent;
@@ -1820,37 +1794,8 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   inset: 0;
 }
 
-/* The lid. A body is beneath this page, so until the host has it on screen
-   the placeholder paints the pane's own surface over the body's rect — the
-   same token the body paints itself on — and what the user sees of an
-   arriving, unfolding or re-placed body card is a blank card, never the
-   canvas floor through an empty content box nor the window's background
-   through the floor's hole. `data-body-shown` is the placer's word that the
-   host has shown the body (`lib/body-placement.ts`); the lid then lifts in
-   a short fade from the surface to the content. Going back on is instant:
-   the transition is declared on the lifted state alone. */
-.tug-pane-content [data-body-placeholder]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-color: var(--tugx-pane-bg);
-  opacity: 1;
-  pointer-events: none;
-}
-
-.tug-pane-content [data-body-placeholder][data-body-shown]::before {
-  opacity: 0;
-  transition: opacity 200ms ease-out;
-}
-
-/* A body carried in on its frame's arrive beat: the lid comes off at the
-   plan, with no fade, because the frame fading in around the body is the
-   arrival the reader sees (`lib/body-placement.ts`, `runPlan`). */
-.tug-pane-content [data-body-placeholder][data-body-shown="carried"]::before {
-  transition: none;
-}
-
-/* A card whose body failed twice: a placard over the lid, with a Reload. */
+/* A card whose body failed twice: a placard with a Reload and a Close, the
+   card's only face, painting the pane's own surface where no page stands. */
 .tug-pane-content [data-body-placeholder] .tug-body-failed {
   position: absolute;
   inset: 0;
@@ -1859,6 +1804,8 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   align-items: center;
   justify-content: center;
   gap: 12px;
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tugx-pane-bg);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
@@ -2343,8 +2290,4 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
 .tug-pane[data-chrome-in-body] > .tug-pane-chrome > .tug-pane-content {
   position: absolute;
   inset: 0;
-}
-
-.tug-pane[data-chrome-in-body] [data-body-placeholder]::before {
-  display: none;
 }

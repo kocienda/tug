@@ -64,6 +64,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { overlayPage, overlayReady } from "./overlay-fixture";
+
+/** The page the wizard is drawn in; the host's push stays the shell's. */
+const ui = (app: App) => overlayPage(app);
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -127,7 +131,7 @@ async function push(app: App, payload: Payload): Promise<void> {
 
 /** Wait until the wizard is up, on `stage`. */
 async function waitForWizard(app: App, stage: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await ui(app).waitForCondition<boolean>(
     `(function () {
        var d = document.querySelector(${JSON.stringify(WIZARD)});
        return d !== null && d.getAttribute("data-stage") === ${JSON.stringify(stage)};
@@ -143,7 +147,7 @@ async function waitForWizard(app: App, stage: string): Promise<void> {
  * by the same call rather than by a second one racing it.
  */
 async function rowBoxes(app: App): Promise<{ key: string; height: number }[]> {
-  return app.evalJS<{ key: string; height: number }[]>(
+  return ui(app).evalJS<{ key: string; height: number }[]>(
     `Array.prototype.map.call(
        document.querySelectorAll(${JSON.stringify(STEP_ROWS)}),
        function (r) {
@@ -157,7 +161,7 @@ async function rowBoxes(app: App): Promise<{ key: string; height: number }[]> {
 }
 
 async function elementCount(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+  return ui(app).evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 }
@@ -201,7 +205,7 @@ interface DetailLine {
  * the number `DETAIL_LINE_BUDGET` in `transfer-rate.ts` is answerable to.
  */
 async function detailLines(app: App): Promise<DetailLine[]> {
-  return app.evalJS<DetailLine[]>(
+  return ui(app).evalJS<DetailLine[]>(
     `Array.prototype.map.call(
        document.querySelectorAll(${JSON.stringify(STEP_ROWS)}),
        function (r) {
@@ -234,8 +238,9 @@ async function detailLines(app: App): Promise<DetailLine[]> {
  * four heights is the settle.
  */
 async function waitForRowsSettled(app: App): Promise<void> {
-  await app.evalJS<null>(`(window.__at0632 = { heights: null }, null)`);
-  await app.waitForCondition<boolean>(
+  await ui(app).evalJS<null>(`(window.__at0632 = { heights: null }, null)`);
+  // The wizard is drawn in the overlay page.
+  await ui(app).waitForCondition<boolean>(
     `(function () {
        var rows = document.querySelectorAll(${JSON.stringify(STEP_ROWS)});
        if (rows.length !== 4) { window.__at0632.heights = null; return false; }
@@ -316,6 +321,7 @@ describe.skipIf(!SHOULD_RUN)("AT0632: a step row holds its height", () => {
           { timeoutMs: 20_000 },
         );
 
+        await overlayReady(app);
         // ---- The baseline: the panel as the user opened it ----------------
         //
         // Raised at `idle` by a bumped reveal, which is the menu item's door
@@ -412,7 +418,7 @@ describe.skipIf(!SHOULD_RUN)("AT0632: a step row holds its height", () => {
         // The strip is inside the plinth it belongs to, flush with its bottom.
         // A strip that had escaped its row would satisfy every height above and
         // be drawn in the wrong place.
-        const strip = await app.evalJS<{
+        const strip = await ui(app).evalJS<{
           within: boolean;
           flush: number;
           height: number;

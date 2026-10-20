@@ -8,7 +8,7 @@
  *
  * @foreground
  * @family row-21-edges
- * @covers tugdeck/src/lib/body-beat-plan.ts
+ * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugdeck/src/body/body-page.css
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift

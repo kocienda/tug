@@ -240,6 +240,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         // has stopped moving: a press while the body's view is still being
         // carried to its new frame takes its down and its up at two points of
         // the page, and lands on neither.
+        // card-dom: shell — the rail's landing is its stand-in's width against the model, both the shell's.
         const settled = await pollFor(() => app.evalJS<boolean>(RAIL_LANDED), (v) => v, READ_MS);
         expect(settled, "the rail lands after the Fit commit").toBe(true);
         await clickIn(body, FLOW);

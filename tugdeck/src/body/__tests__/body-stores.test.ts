@@ -86,8 +86,8 @@ describe("the chrome a body draws", () => {
   const root = readFileSync(join(SRC, "body", "body-root.tsx"), "utf8");
   const frame = readFileSync(join(SRC, "body", "body-chrome-frame.tsx"), "utf8");
 
-  test("a card that draws its chrome reads pane.chrome through the store's own subscription", () => {
-    expect(root).toMatch(/useSyncExternalStore\(\s*carriesChrome \? paneChrome\.subscribe : \w+\.subscribe,\s*carriesChrome \? paneChrome\.getSnapshot : \w+\.getSnapshot,?\s*\)/);
+  test("a card reads pane.chrome through the store's own subscription", () => {
+    expect(root).toMatch(/useSyncExternalStore\(\s*paneChrome\.subscribe,\s*paneChrome\.getSnapshot,?\s*\)/);
   });
 
   test("a body reads pane.chrome before its first chrome render is published", () => {

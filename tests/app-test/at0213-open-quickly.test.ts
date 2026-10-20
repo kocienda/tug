@@ -3,8 +3,10 @@
  * ⇧⌘O → `open-quickly` control → OpenQuicklyOverlay → TugModalInputDialog).
  *
  * This file covers the dialog's own behavior with no search root: the control
- * opens the deck-global dialog, the query field claims focus, registers as a
- * chain responder, and accepts input, and every dismissal path closes it. The
+ * opens the deck-global dialog — drawn in the overlay page, above every card,
+ * so every read of it is the overlay's — the query field claims focus,
+ * registers as a chain responder, and accepts input, and every dismissal path
+ * closes it. The
  * FILETREE-backed result list and the file-open commit need a registered
  * workspace, which at0306 provides by pointing the default project directory at
  * a temp tree — so the two files together cover the surface end to end. The
@@ -29,7 +31,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -47,22 +50,23 @@ async function dispatchControl(app: App, action: string): Promise<void> {
   );
 }
 
-async function exists(app: App, selector: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+async function exists(ui: BodyApp, selector: string): Promise<boolean> {
+  return ui.evalJS<boolean>(
     `document.querySelector(${JSON.stringify(selector)}) !== null`,
   );
 }
 
-async function waitGone(app: App, selector: string, timeoutMs = 8000): Promise<void> {
-  await app.waitForCondition<boolean>(
+async function waitGone(ui: BodyApp, selector: string, timeoutMs = 8000): Promise<void> {
+  await ui.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(selector)}) === null`,
     { timeoutMs },
   );
 }
 
-async function openDialog(app: App): Promise<void> {
+/** Open the dialog from the shell; it is drawn in the overlay page `ui`. */
+async function openDialog(app: App, ui: BodyApp): Promise<void> {
   await dispatchControl(app, "open-quickly");
-  await app.waitForCondition<boolean>(
+  await ui.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
     { timeoutMs: 8000 },
   );
@@ -74,19 +78,20 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
     async () => {
       const app = await launchTugApp({ testName: "at0213-open-quickly" });
       try {
-        // The deck (and its canvas overlay root) must be up before the
-        // control has anywhere to portal.
-        await app.waitForCondition<boolean>(
+        // The overlay page (and its canvas overlay root) must be up before
+        // the control has anywhere to portal.
+        const ui = await overlayReady(app);
+        await ui.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
           { timeoutMs: 20000 },
         );
 
         // 1. The control opens the dialog, with its blocking overlay.
-        await openDialog(app);
-        expect(await exists(app, OVERLAY)).toBe(true);
+        await openDialog(app, ui);
+        expect(await exists(ui, OVERLAY)).toBe(true);
 
         // 2. The query field claims focus on open — typing-first.
-        await app.waitForCondition<boolean>(
+        await ui.waitForCondition<boolean>(
           `document.activeElement === document.querySelector(${JSON.stringify(INPUT)})`,
           { timeoutMs: 4000 },
         );
@@ -97,7 +102,7 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         // `data-responder-id`. Without this attribute the dialog's paste is
         // delivered to whatever surface behind it still held first responder.
         expect(
-          await app.evalJS<boolean>(
+          await ui.evalJS<boolean>(
             `document.querySelector(${JSON.stringify(INPUT)})
                .hasAttribute("data-responder-id")`,
           ),
@@ -106,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         // 4. The dialog's own rules beat TugInput's boxed chrome: the field
         // renders as a bare search line on the panel surface, not a 32px
         // bordered box with its own fill.
-        const fieldChrome = await app.evalJS<{
+        const fieldChrome = await ui.evalJS<{
           bg: string;
           border: string;
           pad: string;
@@ -131,7 +136,7 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         expect(fieldChrome.size).toBeGreaterThan(16);
 
         // 5. It is a live controlled input — typing lands in the field.
-        await app.evalJS<null>(
+        await ui.evalJS<null>(
           `(function(){
              var input = document.querySelector(${JSON.stringify(INPUT)});
              var setter = Object.getOwnPropertyDescriptor(
@@ -141,17 +146,17 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
              return null;
            })()`,
         );
-        await app.waitForCondition<boolean>(
+        await ui.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(INPUT)}).value === "readme"`,
           { timeoutMs: 4000 },
         );
 
         // 6. Escape dismisses — the engine's ladder, not a field handler.
         await app.nativeKey("Escape");
-        await waitGone(app, PANEL);
+        await waitGone(ui, PANEL);
         // …and the overlay goes with it. A blocking overlay left standing over
         // a dismissed dialog is a deck nothing can be clicked on.
-        expect(await exists(app, OVERLAY)).toBe(false);
+        expect(await exists(ui, OVERLAY)).toBe(false);
       } finally {
         await app.close();
       }
@@ -175,12 +180,13 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         foreground: true,
       });
       try {
-        await app.waitForCondition<boolean>(
+        const ui = await overlayReady(app);
+        await ui.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
           { timeoutMs: 20000 },
         );
-        await openDialog(app);
-        await app.waitForCondition<boolean>(
+        await openDialog(app, ui);
+        await ui.waitForCondition<boolean>(
           `document.activeElement === document.querySelector(${JSON.stringify(INPUT)})`,
           { timeoutMs: 8000 },
         );
@@ -214,11 +220,11 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         // ⌥⇥ engages the mode over the live caret, which PARKS the field: the
         // ring lands where the caret was.
         await app.nativeKey("Tab", ["alt"]);
-        await app.waitForCondition<boolean>(
+        await ui.waitForCondition<boolean>(
           `document.documentElement.hasAttribute("data-kbf")`,
           { timeoutMs: 8000 },
         );
-        const engaged = await app.evalJS<State>(state);
+        const engaged = await ui.evalJS<State>(state);
         note(`after ⌥⇥: ${JSON.stringify(engaged)}`);
         expect(engaged.dialog, "⌥⇥ leaves the dialog open").toBe(true);
         expect(engaged.ringed, "⌥⇥ parks the ring on the query field").toBe(
@@ -227,11 +233,11 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
 
         // First Escape: the mode goes, the caret comes back, the dialog stays.
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await ui.waitForCondition<boolean>(
           `document.activeElement === document.querySelector(${JSON.stringify(INPUT)})`,
           { timeoutMs: 8000 },
         );
-        const cancelled = await app.evalJS<State>(state);
+        const cancelled = await ui.evalJS<State>(state);
         note(`after the first Escape: ${JSON.stringify(cancelled)}`);
         expect(
           cancelled.dialog,
@@ -244,15 +250,16 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         // Second Escape: no parked stop left, so the rung falls through to the
         // surface's dismiss. THIS is the one that regressed.
         await app.nativeKey("Escape");
-        await waitGone(app, PANEL);
+        await waitGone(ui, PANEL);
         expect(
-          await exists(app, OVERLAY),
+          await exists(ui, OVERLAY),
           "the blocking overlay goes with the dialog",
         ).toBe(false);
 
         // And the same ladder from the other starting state: the deck already
-        // in the mode when the dialog opens. The manual bit is the DECK's here,
-        // not something the dialog's own ⌥⇥ set, so the grant rung must still
+        // in the mode when the dialog opens. The deck's mode is the shell's,
+        // which holds the keyboard once the dialog has gone. The manual bit
+        // is the DECK's here, not something the dialog's own ⌥⇥ set, so the grant rung must still
         // let go on the press after it — otherwise a user who works in the mode
         // finds the launcher unclosable, which is the state a fresh app-test
         // deck never reaches on its own.
@@ -261,8 +268,8 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
           `document.documentElement.hasAttribute("data-kbf")`,
           { timeoutMs: 8000 },
         );
-        await openDialog(app);
-        const onOpen = await app.evalJS<State>(state);
+        await openDialog(app, ui);
+        const onOpen = await ui.evalJS<State>(state);
         note(`dialog opened with the deck already engaged: ${JSON.stringify(onOpen)}`);
         // ONE press. The deck's bit is not the dialog's, and the dialog opens
         // with it cleared, so there is no invisible mode for Escape to spend
@@ -271,10 +278,10 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         await app.nativeKey("Escape");
         await settle(400);
         note(
-          `after one Escape: ${JSON.stringify(await app.evalJS<State>(state))}`,
+          `after one Escape: ${JSON.stringify(await ui.evalJS<State>(state))}`,
         );
         expect(
-          await exists(app, PANEL),
+          await exists(ui, PANEL),
           "one Escape closes the dialog even when the deck was already in the mode",
         ).toBe(false);
         expect(
@@ -299,15 +306,16 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         foreground: true,
       });
       try {
-        await app.waitForCondition<boolean>(
+        const ui = await overlayReady(app);
+        await ui.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
           { timeoutMs: 20000 },
         );
 
         // ⌘. — the macOS cancel chord, new with the modal shell.
-        await openDialog(app);
+        await openDialog(app, ui);
         await app.nativeKey(".", ["cmd"]);
-        await waitGone(app, PANEL);
+        await waitGone(ui, PANEL);
 
         // An outside click dismisses (launcher posture), and the overlay
         // swallows it so nothing beneath activates. The proof is a deck that
@@ -318,11 +326,11 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         const deckBefore = await app.evalJS<string>(
           `JSON.stringify(window.tugdeck.diag.getDeckState())`,
         );
-        await openDialog(app);
+        await openDialog(app, ui);
 
         // A point well outside the panel — the panel sits ~22vh down and is at
         // most 680px wide, so the top-left corner region is never under it.
-        const outside = await app.evalJS<{ x: number; y: number }>(
+        const outside = await ui.evalJS<{ x: number; y: number }>(
           `(function(){
              var r = document.querySelector(${JSON.stringify(PANEL)}).getBoundingClientRect();
              return { x: Math.max(8, Math.round(r.left / 2)), y: 8 };
@@ -330,7 +338,7 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
         );
         note(`outside click at ${outside.x},${outside.y}`);
         await app.nativeClick(outside);
-        await waitGone(app, PANEL);
+        await waitGone(ui, PANEL);
 
         // Nothing beneath the overlay was activated by that press.
         await settle(500);
@@ -338,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
           `JSON.stringify(window.tugdeck.diag.getDeckState())`,
         );
         expect(deckAfter).toBe(deckBefore);
-        expect(await exists(app, OVERLAY)).toBe(false);
+        expect(await exists(ui, OVERLAY)).toBe(false);
       } finally {
         await app.close();
       }

@@ -40,7 +40,7 @@ export interface Sample {
   whole: boolean;
   /** The canvas wears `data-imposer-settling`: a settle is running. */
   settling: boolean;
-  /** The placeholder wears `data-body-shown`: the lid is lifted. */
+  /** The shell's last placement posts the card shown (`placeCards`): what the host shows. */
   shown: boolean;
 }
 
@@ -56,6 +56,25 @@ export const BURST_INTERVAL_MS = 33;
 
 const CANVAS = "[data-deck-canvas-background]";
 
+/**
+ * Whether the shell's last placement posts `cardId` shown, as page script:
+ * the placer's own record of what it told the host (`lastPosted`), which a
+ * per-frame sampler reads beside the stand-ins.
+ */
+export const postedShownJs = (cardId: string): string => `(function () {
+  var p = window.tugdeck && window.tugdeck.diag.getBodyPlacement();
+  var last = p && p.lastPosted;
+  if (!last) return false;
+  for (var i = 0; i < last.bodies.length; i++) if (last.bodies[i].cardId === ${JSON.stringify(cardId)}) return last.bodies[i].visible === true;
+  return false;
+})()`;
+
+/** Wait until the host shows `cardId`'s view, placed visible and opaque. */
+export async function hostShows(app: App, cardId: string, timeoutMs = 5_000): Promise<boolean> {
+  const b = await pollFor(() => app.bodies().then((all) => all.find((s) => s.cardId === cardId) ?? null), (s) => s !== null && s.visible && s.opacity >= 0.99, timeoutMs);
+  return b !== null && b.visible && b.opacity >= 0.99;
+}
+
 /** The pane holding `cardId`, whatever its pane is called; a folded card's root still stands. */
 export const frameOf = (cardId: string): string => `.tug-pane:has([data-card-id="${cardId}"])`;
 export const placeholderOf = (cardId: string): string => `[data-body-placeholder][data-card-id="${cardId}"]`;
@@ -63,7 +82,7 @@ export const placeholderOf = (cardId: string): string => `[data-body-placeholder
 /** What a card draws its chrome in its own page under: its pane is a stand-in (`lib/chrome-placement.ts`). */
 export const CHROME_IN_BODY = "data-chrome-in-body";
 /** How far a whole card's view reaches past its pane: `CARD_APRON_PX`. */
-export const CARD_APRON_PX = 6;
+export const CARD_APRON_PX = 10;
 
 /**
  * The page-side expression for where `cardId`'s body view should stand: its
@@ -130,8 +149,9 @@ export const intersect = (a: Rect, b: Rect): Rect => {
   return { x, y, width: Math.max(0, Math.min(a.x + a.width, b.x + b.width) - x), height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y) };
 };
 
-/** Arm a per-animation-frame sampler of `cardId`'s frame and placeholder rects, the settle mark and the lid. */
+/** Arm a per-animation-frame sampler of `cardId`'s frame and placeholder rects, the settle mark and whether it is posted shown. */
 export async function armSampler(app: App, cardId: string): Promise<void> {
+  // card-dom: shell — callers read stand-in frames and placeholders, the shell's own.
   await app.evalJS<null>(
     `(function () {
       var rec = (window.__bodyMotion = { samples: [], stop: false });
@@ -154,7 +174,7 @@ export async function armSampler(app: App, cardId: string): Promise<void> {
             view: view,
             whole: frame.hasAttribute(${JSON.stringify(CHROME_IN_BODY)}),
             settling: canvas !== null && canvas.hasAttribute("data-imposer-settling"),
-            shown: ph !== null && ph.hasAttribute("data-body-shown"),
+            shown: ph !== null && ${postedShownJs(cardId)},
           });
         }
         requestAnimationFrame(tick);
@@ -166,6 +186,7 @@ export async function armSampler(app: App, cardId: string): Promise<void> {
 }
 
 export const samplerState = (app: App): Promise<{ saw: boolean; now: boolean; count: number }> =>
+  // card-dom: shell — the stand-in frame and the placeholder are the shell's.
   app.evalJS<{ saw: boolean; now: boolean; count: number }>(
     `(function () {
       var r = window.__bodyMotion;
@@ -177,6 +198,7 @@ export const samplerState = (app: App): Promise<{ saw: boolean; now: boolean; co
   );
 
 export async function readSampler(app: App): Promise<Sample[]> {
+  // card-dom: shell — the sampler's own record, in the shell.
   return app.evalJS<Sample[]>(`(function () { var r = window.__bodyMotion; r.stop = true; return r.samples; })()`);
 }
 
@@ -194,7 +216,7 @@ export async function bodyOf(app: App, cardId: string): Promise<BodyViewSnapshot
   return (await app.bodies()).find((b) => b.cardId === cardId) ?? null;
 }
 
-/** The host's container stands on `cardId`'s placeholder, shown, with the lid lifted. */
+/** The host's container stands on `cardId`'s placeholder, shown, and the shell posts it shown. */
 export async function expectAtRest(app: App, cardId: string, label: string): Promise<Rect> {
   const placeholder = await viewRectOf(app, cardId);
   const region = await regionRectOf(app, cardId);
@@ -202,20 +224,22 @@ export async function expectAtRest(app: App, cardId: string, label: string): Pro
   expect(placeholder, `${label}: the placeholder stands`).not.toBeNull();
   expect(body?.visible, `${label}: the body is placed visible`).toBe(true);
   const gap = edgeGap(placeholder!, body!.frame);
-  const lifted = await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(placeholderOf(cardId))})?.hasAttribute("data-body-shown") ?? false`);
-  note(`${label}: placeholder ${JSON.stringify(placeholder)}; host frame ${JSON.stringify(body!.frame)}; worst edge gap ${gap.toFixed(2)} px; lid lifted ${lifted}`);
+  // card-dom: shell — the placer's record of what it posted, in the shell.
+  const posted = await app.evalJS<boolean>(postedShownJs(cardId));
+  note(`${label}: placeholder ${JSON.stringify(placeholder)}; host frame ${JSON.stringify(body!.frame)}; worst edge gap ${gap.toFixed(2)} px; posted shown ${posted}`);
   expect(gap, `${label}: the host's container stands on the placeholder`).toBeLessThanOrEqual(REST_TOLERANCE_PX);
-  expect(lifted, `${label}: the lid is lifted`).toBe(true);
+  expect(posted, `${label}: the shell posts it shown`).toBe(true);
   return region!;
 }
 
-/** The host's container for `cardId` is hidden, and the lid is on. */
+/** The host's container for `cardId` is hidden, and the shell posts it hidden. */
 export async function expectHidden(app: App, cardId: string, label: string): Promise<void> {
   const body = await pollFor(() => bodyOf(app, cardId), (b) => b !== null && !b.visible, 5_000);
-  const lifted = await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(placeholderOf(cardId))})?.hasAttribute("data-body-shown") ?? false`);
-  note(`${label}: host ${JSON.stringify(body === null ? null : { visible: body.visible, frame: body.frame })}; lid lifted ${lifted}`);
+  // card-dom: shell — the placer's record of what it posted, in the shell.
+  const posted = await app.evalJS<boolean>(postedShownJs(cardId));
+  note(`${label}: host ${JSON.stringify(body === null ? null : { visible: body.visible, frame: body.frame })}; posted shown ${posted}`);
   expect(body?.visible, `${label}: the body is hidden`).toBe(false);
-  expect(lifted, `${label}: the lid is on`).toBe(false);
+  expect(posted, `${label}: the shell posts it hidden`).toBe(false);
 }
 
 export interface Standing {
@@ -656,7 +680,7 @@ export async function carryLeg(
   expect(reading.done, `${label}: the burst finished`).toBe(true);
   const v = judgeCarried(label, reading, samples, presented, gestureWall, before, after, standing.palette, crop);
   expect(v.motion, `${label}: frames were captured while the chrome moved`).toBeGreaterThan(3);
-  expect(v.lidOnWhileMoving, `${label}: the lid stays lifted in every sample where the frame moved`).toBe(0);
+  expect(v.lidOnWhileMoving, `${label}: the card stays posted shown in every sample where the frame moved`).toBe(0);
   expect(v.bare, `${label}: no frame shows the bare window`).toBe(0);
   expect(v.floorOffenders.length, `${label}: on every frame where the chrome moves the body fills its content box`).toBe(0);
   expect(v.tracked, `${label}: the host was read while the chrome moved`).toBeGreaterThan(0);

@@ -1,27 +1,21 @@
 /**
- * floor-host.test.ts — the host's floor is the page's canvas, pixel for pixel.
+ * floor-host.test.ts — the canvas beneath the cards is the shell's own, pixel for pixel.
  *
- * The canvas colour and the grid beneath the deck are drawn by
- * the host (`DeckFloorView`, from the shell's `floorGrid`), and the page's own
- * canvas stands down once the host answers `floorShown`. The page's paint is
- * still there, from the same tokens: it stands down only under
- * `html[data-body-host]` (`globals.css`). So at each of View › Zoom 0.8, 1.0
- * and 1.25 the same crop of bare canvas is read twice from the composite —
- * the host's floor, then the page's own with that attribute lifted, painted
- * over it — and the two must agree: the canvas colour within the composite
- * tolerance the other rows use, and every grid line of the page's within one
- * device pixel of a line of the host's, none missing and none extra.
- *
- * The floor never stands over the splash: the host shows it only once the
- * window has begun revealing the shell, fading it in with the shell's own
- * fade, and says how long after the reveal it showed. The harness's
- * handshake does not reliably precede the reveal, so a burst armed after it
- * cannot see the launch; the host's own report is the reading.
+ * The shell's page lies beneath every card and paints the deck's canvas
+ * itself: the canvas colour on `body` and the grid on the deck root, which
+ * View › Zoom scales. Nothing the host draws stands between it and the
+ * window. So at each of View › Zoom 0.8, 1.0 and 1.25 a crop of bare canvas
+ * is read from the composite and held to what the page paints: the canvas
+ * colour within the composite tolerance the other rows use, and every grid
+ * line within one device pixel of a line on the page's own lattice — the
+ * deck root's corner plus whole 24 px cells at the deck's zoom — none extra,
+ * and none of the lattice's lines inside the crop missing.
  *
  * @foreground
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/globals.css
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugapp/Sources/BodyViewController.swift
- * @covers tugapp/Sources/BodyGeometry.swift
+ * @covers tugapp/Sources/MainWindow.swift
  */
 
 import { describe, expect, test } from "bun:test";
@@ -30,7 +24,7 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { pollFor } from "./_bodies";
-import { fillOf, near, type Rgb } from "./_frames";
+import { asRgbJs, fillOf, near, type Rgb } from "./_frames";
 
 const TEST_NAME = "body-grounding-floor-host";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -41,12 +35,23 @@ const ZOOMS = [0.8, 1.0, 1.25] as const;
 const TOLERANCE = 8;
 /** How far from the canvas colour a pixel may lie and still be a grid line (`_frames.ts`). */
 const GRID_REACH = 44;
+/** The grid's cell, layout px (`globals.css`). */
+const CELL_PX = 24;
 
-/** What one launch read at one zoom: the canvas colour and the lines' centres, in device px of the crop. */
-interface FloorReading {
+/** A crop of bare canvas, in viewport points. */
+interface Crop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What one zoom read: the canvas colour, the lines' centres in device px of the crop, and the crop's scale. */
+interface CanvasReading {
   canvas: Rgb;
   columns: number[];
   rows: number[];
+  scale: number;
 }
 
 function emptyDeck(): Record<string, unknown> {
@@ -72,7 +77,7 @@ function lineCentres(share: number[]): number[] {
 }
 
 /** Read a crop of bare canvas: its commonest colour and where its grid lines run. */
-async function readFloor(app: App, crop: { x: number; y: number; width: number; height: number }): Promise<FloorReading> {
+async function readCanvas(app: App, crop: Crop): Promise<CanvasReading> {
   await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop });
   const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
   expect(reading.done, "the burst finished").toBe(true);
@@ -94,100 +99,87 @@ async function readFloor(app: App, crop: { x: number; y: number; width: number; 
     canvas,
     columns: lineCentres(columnHits.map((n) => n / png.height)),
     rows: lineCentres(rowHits.map((n) => n / png.width)),
+    scale: png.width / crop.width,
   };
 }
 
 /** A crop of the window's lower right, where an empty deck draws nothing but the canvas. */
-async function bareCrop(app: App): Promise<{ x: number; y: number; width: number; height: number }> {
+async function bareCrop(app: App): Promise<Crop> {
   const size = await app.evalJS<{ w: number; h: number }>(`({ w: window.innerWidth, h: window.innerHeight })`);
   return { x: Math.floor(size.w * 0.55), y: Math.floor(size.h * 0.55), width: 240, height: 160 };
 }
 
-/** The page's own canvas paint, lifted or put back by the attribute it stands down under. */
-async function pagePaints(app: App, paints: boolean): Promise<void> {
-  await app.evalJS<null>(
-    paints
-      ? `(document.documentElement.removeAttribute("data-body-host"), null)`
-      : `(document.documentElement.setAttribute("data-body-host", ""), null)`,
-  );
-  await Bun.sleep(400);
-  // Lifted, the page paints an opaque canvas over the host's floor — or the
-  // page reading is the host's floor read twice.
-  const background = await app.evalJS<string>(`getComputedStyle(document.body).backgroundColor`);
-  expect(background === "rgba(0, 0, 0, 0)" || background === "transparent", `the page's canvas ${paints ? "paints" : "stands down"} (${background})`).toBe(!paints);
-}
-
-/** The host's floor and the page's own canvas, read over the same crop at each zoom. */
-async function readAtZooms(): Promise<{ host: Map<number, FloorReading>; page: Map<number, FloorReading> }> {
-  const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
-  const host = new Map<number, FloorReading>();
-  const page = new Map<number, FloorReading>();
-  try {
-    await app.seedDeckState({ state: emptyDeck() });
-    {
-      const hosted = await pollFor(
-        () => app.evalJS<boolean>(`document.documentElement.hasAttribute("data-body-host")`),
-        (v) => v,
-        10_000,
-      );
-      const diag = await app.evalJS<{ floorShown: { sinceRevealMs: number | null } | null; floorGrid: unknown } | null>(
-        "window.tugdeck.diag.getBodyPlacement()",
-      );
-      note(`floorShown ${JSON.stringify(diag?.floorShown)}; floorGrid ${JSON.stringify(diag?.floorGrid)}`);
-      expect(hosted, "the host answered floorShown and the page's canvas stood down").toBe(true);
-      expect(await app.evalJS<number>(`document.querySelectorAll("[data-deck-canvas-floor]").length`), "the shell stands no floor of its own").toBe(0);
-      const since = diag?.floorShown?.sinceRevealMs ?? null;
-      expect(since === null || since >= 0, "the host's floor showed no earlier than the window's reveal: never over the splash").toBe(true);
-    }
-    const crop = await bareCrop(app);
-    for (const zoom of ZOOMS) {
-      const took = await app.setPageZoom(zoom);
-      expect(took, `View › Zoom took ${zoom}`).toBeCloseTo(zoom, 3);
-      await pollFor(
-        () => app.evalJS<number | null>("window.tugdeck.diag.getBodyPlacement()?.floorGrid?.zoom ?? null"),
-        (z) => z !== null && Math.abs(z - zoom) < 1e-6,
-        5_000,
-      );
-      await Bun.sleep(400);
-      for (const [label, readings] of [["host", host], ["page", page]] as const) {
-        if (label === "page") await pagePaints(app, true);
-        const reading = await readFloor(app, crop);
-        if (label === "page") await pagePaints(app, false);
-        note(`${label} @ ${zoom}: canvas ${JSON.stringify(reading.canvas)}; ${reading.columns.length} columns ${JSON.stringify(reading.columns.slice(0, 6))}…; ${reading.rows.length} rows ${JSON.stringify(reading.rows.slice(0, 6))}…`);
-        readings.set(zoom, reading);
-      }
-    }
-  } finally {
-    await app.close();
+/**
+ * The centres of the page's own grid lines inside a crop's span on one axis,
+ * in device px of the crop: a line every cell at the deck's zoom from the
+ * deck root's corner, each `zoom` layout px wide. Only lines whose whole run
+ * lies inside the crop, so a line the crop's edge cuts is neither required
+ * nor counted against.
+ */
+function latticeCentres(origin: number, start: number, extent: number, zoom: number, scale: number): number[] {
+  const step = CELL_PX * zoom;
+  const width = Math.max(1, zoom * scale);
+  const centres: number[] = [];
+  for (let k = Math.ceil((start - origin) / step); origin + k * step < start + extent; k++) {
+    const runStart = (origin + k * step - start) * scale;
+    if (runStart < 0 || runStart + width > extent * scale) continue;
+    centres.push(runStart + (width - 1) / 2);
   }
-  return { host, page };
+  return centres;
 }
 
-/** Every line of `want` has a line of `got` within one device pixel, and the counts agree. */
-function linesMatch(want: number[], got: number[]): { ok: boolean; worst: number } {
+/** Every line of `got` within one device pixel of a lattice line, and every lattice line found. */
+function onLattice(want: number[], got: number[]): { ok: boolean; worst: number } {
   let worst = 0;
-  for (const w of want) {
-    const d = Math.min(...got.map((g) => Math.abs(g - w)));
+  for (const g of got) {
+    const d = Math.min(...want.map((w) => Math.abs(g - w)));
     worst = Math.max(worst, d);
   }
-  return { ok: want.length === got.length && worst <= 1, worst };
+  const found = want.every((w) => got.some((g) => Math.abs(g - w) <= 1));
+  return { ok: found && worst <= 1, worst };
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding: the host's floor is the page's canvas", () => {
+describe.skipIf(!SHOULD_RUN)("body-grounding: the canvas beneath the cards is the shell's own", () => {
   test(
-    "at zoom 0.8, 1.0 and 1.25 the host's canvas colour and grid match the page's to the device pixel",
+    "at zoom 0.8, 1.0 and 1.25 the composite's canvas colour and grid are the page's to the device pixel",
     async () => {
-      const { host, page } = await readAtZooms();
-      for (const zoom of ZOOMS) {
-        const p = page.get(zoom)!;
-        const h = host.get(zoom)!;
-        const cols = linesMatch(p.columns, h.columns);
-        const rows = linesMatch(p.rows, h.rows);
-        note(`@ ${zoom}: canvas page ${JSON.stringify(p.canvas)} host ${JSON.stringify(h.canvas)}; columns ${p.columns.length}/${h.columns.length} worst ${cols.worst}; rows ${p.rows.length}/${h.rows.length} worst ${rows.worst}`);
-        expect(p.columns.length, `@ ${zoom}: the page's grid shows in the crop`).toBeGreaterThan(2);
-        expect(near(p.canvas, h.canvas, TOLERANCE), `@ ${zoom}: the host's canvas is the page's colour`).toBe(true);
-        expect(cols.ok, `@ ${zoom}: every vertical line within one device pixel, none missing or extra`).toBe(true);
-        expect(rows.ok, `@ ${zoom}: every horizontal line within one device pixel, none missing or extra`).toBe(true);
+      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
+      try {
+        await app.seedDeckState({ state: emptyDeck() });
+        // card-dom: shell — the canvas and its grid are the shell page's paint.
+        const token = await app.evalJS<string>(
+          asRgbJs("getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')"),
+        );
+        const expected = (() => {
+          const [r, g, b] = token.match(/\d+/g)!.map(Number);
+          return { r, g, b };
+        })();
+        const crop = await bareCrop(app);
+        for (const zoom of ZOOMS) {
+          const took = await app.setPageZoom(zoom);
+          expect(took, `View › Zoom took ${zoom}`).toBeCloseTo(zoom, 3);
+          await Bun.sleep(400);
+          const root = await app.evalJS<{ x: number; y: number }>(`(function () {
+  var r = document.getElementById("deck-container").getBoundingClientRect();
+  return { x: r.left, y: r.top };
+})()`);
+          const reading = await readCanvas(app, crop);
+          const wantColumns = latticeCentres(root.x, crop.x, crop.width, zoom, reading.scale);
+          const wantRows = latticeCentres(root.y, crop.y, crop.height, zoom, reading.scale);
+          const cols = onLattice(wantColumns, reading.columns);
+          const rows = onLattice(wantRows, reading.rows);
+          note(
+            `@ ${zoom}: canvas ${JSON.stringify(reading.canvas)} want ${token}; ` +
+              `columns ${reading.columns.length} (lattice ${wantColumns.length}) worst ${cols.worst}; ` +
+              `rows ${reading.rows.length} (lattice ${wantRows.length}) worst ${rows.worst}`,
+          );
+          expect(wantColumns.length, `@ ${zoom}: the page's lattice crosses the crop`).toBeGreaterThan(2);
+          expect(near(reading.canvas, expected, TOLERANCE), `@ ${zoom}: the composite's canvas is the page's colour`).toBe(true);
+          expect(cols.ok, `@ ${zoom}: every vertical line on the page's lattice within one device pixel, none missing or extra`).toBe(true);
+          expect(rows.ok, `@ ${zoom}: every horizontal line on the page's lattice within one device pixel, none missing or extra`).toBe(true);
+        }
+      } finally {
+        await app.close();
       }
     },
     TEST_TIMEOUT_MS,

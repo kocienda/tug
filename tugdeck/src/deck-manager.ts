@@ -126,12 +126,13 @@ import type { Root } from "react-dom/client";
 import { afterGesture, flushSync, gestureScope, tellReactNow } from "@/lib/gesture-scope";
 
 import { DeckCanvas } from "./components/chrome/deck-canvas";
-import { ConfigureTug } from "./components/tugways/configure-tug";
 import { TugLogout } from "./components/tugways/tug-logout";
 import { writeCanvasFlowOffset } from "./components/chrome/flow-offset";
 import { ConfigureTugRequest } from "./components/tugways/configure-tug-request";
-import { TugVersionGate } from "./components/tugways/tug-version-gate";
-import { TugRestoreGate } from "./components/tugways/tug-restore-gate";
+import { AppGates } from "./components/tugways/app-gates";
+import { GateDeckContext } from "./lib/gate-deck";
+import { createShellGateDeck } from "./lib/shell-gate-deck";
+import { hostKeepsOverlay, overlayShowAlert } from "./lib/overlay-shell";
 import { ErrorBoundary } from "./components/chrome/error-boundary";
 import {
   CANVAS_BACKGROUND_ATTRIBUTE_SELECTOR,
@@ -144,7 +145,7 @@ import { UsageStore } from "./lib/usage-store";
 import { UsageContext } from "./lib/usage-context";
 import { ResponderChainProvider } from "./components/tugways/responder-chain-provider";
 import { TugTooltipProvider } from "./components/tugways/tug-tooltip";
-import { TugAlertProvider } from "./components/tugways/tug-alert";
+import { TugAlertProvider, TugAlertRelayProvider } from "./components/tugways/tug-alert";
 import { TugBulletinProvider } from "./components/tugways/tug-bulletin";
 import {
   TugThemeProvider,
@@ -263,7 +264,6 @@ import {
 import { cardServicesStore } from "./lib/card-services-store";
 import { bodyCardsStore, bodyReadyQuiet } from "./lib/body-cards-store";
 import { hostCapabilitiesStore } from "./lib/body-handoff";
-import { chromeInBody } from "./lib/chrome-placement";
 import type { CardBinding } from "./protocol";
 import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
@@ -309,7 +309,7 @@ export { columnIsWall, panesWithFolded, panesWithWallFolded } from "./fold";
  * source, and the bit is one of its delegates. Returns the release ([L27]).
  *
  * Not the page's own window `focus` / `blur`. Every card is a body — a web
- * view of its own beneath this page — so this page blurs whenever a card
+ * view of its own over this page — so this page blurs whenever a card
  * takes the keyboard, with the app as active as it was. Read off the page,
  * the bit went false while the user typed in a card: the deck's focus
  * language went quiet, and every body, told the app was inactive, refused
@@ -2379,6 +2379,7 @@ export class DeckManager implements IDeckManagerStore {
       this.factoryRailPending = true;
     }
 
+    const overlay = hostKeepsOverlay();
     this.reactRoot.render(
       composeProviders(
         [
@@ -2402,7 +2403,9 @@ export class DeckManager implements IDeckManagerStore {
           [AppLifecycleContext.Provider, { value: this.appLifecycle }],
           [SheetLifecycleContext.Provider, { value: this.sheetLifecycle }],
           [BannerLifecycleContext.Provider, { value: this.bannerLifecycle }],
-          [TugAlertProvider, null],
+          // Where the host keeps an overlay above the cards, an alert the
+          // shell raises is shown there, the one page nothing covers ([B07]).
+          overlay ? [TugAlertRelayProvider, { showAlert: overlayShowAlert }] : [TugAlertProvider, null],
           [TugBulletinProvider, null],
         ],
         React.createElement(
@@ -2415,22 +2418,16 @@ export class DeckManager implements IDeckManagerStore {
             store: this.rateLimitStore,
           }),
           React.createElement(DeckCanvas, {}),
-          // App-wide blocking "update macOS" gate. Opens only when the host
-          // version is known-below its line's floor; takes precedence over
-          // ConfigureTug (which suppresses itself while the gate is open) so the
-          // two app-modals never stack (Spec S02). Renders nothing otherwise.
-          React.createElement(TugVersionGate, {}),
-          // App-wide blocking restore gate. A cold restore's reveal is one
-          // uninterruptible task on the thread every card shares, so the app
-          // answers nothing while it runs; the gate says so for exactly that
-          // long instead of painting a live-looking deck that drops input.
-          // Suppresses itself under the version gate (Spec S02) and renders
-          // nothing once the restores land.
-          React.createElement(TugRestoreGate, {}),
-          // App-wide blocking setup wizard. Covers the deck until Claude Code
-          // is installed, signed in, and the first session is opened — auth is
-          // strictly required for an AI IDE. Renders nothing once set up.
-          React.createElement(ConfigureTug, {}),
+          // The app-modals and the update notice (`app-gates.tsx`): the
+          // overlay page's wherever the host keeps one, and this page's only
+          // where it does not — a plain browser ([B07]).
+          overlay
+            ? null
+            : React.createElement(
+                GateDeckContext.Provider,
+                { value: createShellGateDeck(this) },
+                React.createElement(AppGates, {}),
+              ),
           // App-level logout orchestrator (renders nothing). Watches the
           // logout-request nonce; on request runs confirm → interrupt every
           // turn → `claude_logout`, then ConfigureTug reopens for re-login (or a
@@ -4400,13 +4397,13 @@ export class DeckManager implements IDeckManagerStore {
       acceptsFamilies: registration.acceptsFamilies ?? [],
     };
 
-    // A rail card that draws its chrome in its own page arrives hidden until
+    // A rail card, which draws its chrome in its own page, arrives hidden until
     // that page has painted, as a body Session card does: its pane's slide
     // then carries the whole card in, where a slide begun before the page
     // existed showed the canvas through the stand-in until the host showed
     // the card. The bound reveals it if the page never paints.
     const quiet =
-      typeof window !== "undefined" && chromeInBody(componentId) && hostCapabilitiesStore.get().bodyViews
+      typeof window !== "undefined" && hostCapabilitiesStore.get().bodyViews
         ? bodyReadyQuiet(cardId)
         : null;
 

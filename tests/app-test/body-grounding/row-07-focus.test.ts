@@ -8,9 +8,10 @@
  * shell to activate its card — makes that body the window's first
  * responder, and so does the Focus Card chord; typing then lands in that
  * body's composer and in no other page. A click in the Text card's body
- * takes the keyboard there, and to no other body. The shell's own surface (the Close popover)
- * and the body's own (the slash-command popup, the session picker) take
- * focus while they stand and give it back when they go. And closing the
+ * takes the keyboard there, and to no other body. The Close popover, in the
+ * page that draws the card's chrome, and the body's own surfaces (the
+ * slash-command popup, the session picker) take focus while they stand and
+ * give it back when they go. And closing the
  * key card hands the keyboard to the next card's body.
  *
  * Every assertion is the host's word on which web view is first responder
@@ -41,12 +42,13 @@ import {
   PROMPT_INPUT,
   SETTLE_MS,
   bodyOf,
-  closeButtonOfPopover,
+  closePopoverPage,
+  closePopoverUp,
   composerFocused,
   composerText,
   focusBody,
   pollFor,
-  popoverPresent,
+  pressCloseOfPopover,
   responders,
   sessionPane,
   spawnStub,
@@ -137,6 +139,23 @@ async function expectHolder(app: App, cardId: string | null, label: string, time
   if (cardId !== null) expect(focused, `${label}: the shell's focused card`).toBe(cardId);
 }
 
+/**
+ * The Close popover holds the keyboard while it stands: in the card's own
+ * page, the card's body is the window's first responder; in the shell's, no
+ * body holds the keyboard. The popover's buttons refuse DOM focus — its trap
+ * takes the keys — so the Escape that follows is what proves they reach it.
+ */
+async function expectPopoverHoldsKeyboard(app: App, cardId: string): Promise<void> {
+  const page = await closePopoverPage(app, cardId);
+  expect(page, "the Close popover stands").not.toBeNull();
+  if (page === app) {
+    const shellHolds = await pollFor(() => app.bodies(), (bs) => bs.every((x) => !x.firstResponder), SETTLE_MS);
+    expect(shellHolds.every((x) => !x.firstResponder), "the shell holds the keyboard while its popover stands").toBe(true);
+    return;
+  }
+  await expectHolder(app, cardId, "with the popover up");
+}
+
 describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
   for (const kind of kindsUnderTest(7)) {
     if (kind.componentId === "session") continue;
@@ -176,14 +195,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
           await app.nativeKey("ArrowRight", ["alt", "cmd"]);
           await expectHolder(app, card, "after ⌥⌘→ from the Text card");
 
-          // ---- The shell's Close popover takes focus and gives it back ----
+          // ---- The Close popover takes focus and gives it back ----
           await app.nativeKey("w", ["cmd"]);
-          const asked = await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS);
+          const asked = await pollFor(() => closePopoverUp(app, card), (v) => v, SETTLE_MS);
           if (asked) {
-            const shellHolds = await pollFor(() => app.bodies(), (bs) => bs.every((x) => !x.firstResponder), SETTLE_MS);
-            expect(shellHolds.every((x) => !x.firstResponder), "the shell holds the keyboard while its popover stands").toBe(true);
+            await expectPopoverHoldsKeyboard(app, card);
             await app.nativeKey("Escape");
-            expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
+            expect(await pollFor(() => closePopoverUp(app, card), (v) => v === false, SETTLE_MS), "Escape dismisses it").toBe(false);
             await expectHolder(app, card, "after the popover");
           }
 
@@ -195,8 +213,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
           const cardsBefore = await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`);
           const closeItem = await app.performMenuItem("file.closeCard");
           expect(closeItem.found && closeItem.performed, "File › Close performs").toBe(true);
-          const button = await pollFor(() => closeButtonOfPopover(app), (p) => p !== null, 1_000);
-          if (button !== null) await app.nativeClick(button);
+          if (await pollFor(() => closePopoverUp(app, card), (v) => v, 1_000)) await pressCloseOfPopover(app, card);
           const cardsAfter = await pollFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
           expect(cardsAfter, "the card closes").toBe(cardsBefore - 1);
           expect(await pollFor(() => bodyOf(app, card), (x) => x === null, SETTLE_MS), "the host holds no body for it").toBeNull();
@@ -311,7 +328,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
           await expectHolder(app, A, "after the picker");
         }
 
-        // ---- The shell's own surface: the Close popover takes focus and gives it back ----
+        // ---- The Close popover, in A's own page, takes focus and gives it back ----
         // A's session is bound but empty (a stub plays only when prompted), and
         // an empty Session card closes without asking. An unsent draft is what
         // the confirm protects, so A gets one; it stands through the close below.
@@ -320,12 +337,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         const draft = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("draft") === true, SETTLE_MS);
         expect(draft, "the draft lands in A").toContain("draft");
         await app.nativeKey("w", ["cmd"]);
-        expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS), "⌘W raises the shell's Close popover").toBe(true);
-        const shellHolds = await pollFor(() => app.bodies(), (bs) => bs.every((x) => !x.firstResponder), SETTLE_MS);
-        note(`with the popover up: ${JSON.stringify(shellHolds.map((x) => ({ card: x.cardId, fr: x.firstResponder })))}`);
-        expect(shellHolds.every((x) => !x.firstResponder), "the shell holds the keyboard while its popover stands").toBe(true);
+        expect(await pollFor(() => closePopoverUp(app, A), (v) => v, SETTLE_MS), "⌘W raises A's Close popover").toBe(true);
+        await expectPopoverHoldsKeyboard(app, A);
         await app.nativeKey("Escape");
-        expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
+        expect(await pollFor(() => closePopoverUp(app, A), (v) => v === false, SETTLE_MS), "Escape dismisses it").toBe(false);
         await expectHolder(app, A, "after the popover");
         await app.nativeType("!");
         const bang = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("!") === true, SETTLE_MS);
@@ -346,15 +361,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         // A still holds its draft, so the close asks; the popover's Close
         // button answers it.
         const raised = await pollFor(
-          async () => ({ popover: await app.evalJS<boolean>(popoverPresent), cards: await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`) }),
+          async () => ({ popover: await closePopoverUp(app, A), cards: await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`) }),
           (r) => r.popover || r.cards < cardsBefore,
           SETTLE_MS,
         );
         note(`after File › Close: popover ${raised.popover}, cards ${cardsBefore} → ${raised.cards}`);
         expect(raised.popover, "File › Close over A's draft raises the popover").toBe(true);
-        const button = await closeButtonOfPopover(app);
-        expect(button, "the popover has a Close button").not.toBeNull();
-        await app.nativeClick(button!);
+        expect(await pressCloseOfPopover(app, A), "the popover's Close button is pressed").toBe(true);
         const cardsAfter = await pollFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
         expect(cardsAfter, "A closes").toBe(cardsBefore - 1);
         const gone = await pollFor(() => bodyOf(app, A), (x) => x === null, SETTLE_MS);

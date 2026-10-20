@@ -91,6 +91,7 @@ import type { CompletionItem, CompletionProvider } from "@/lib/tug-text-types";
 import {
   closeOpenQuickly,
   getOpenQuicklyOpen,
+  openQuicklyFileSink,
   subscribeOpenQuickly,
 } from "@/lib/open-quickly-store";
 
@@ -444,18 +445,13 @@ function OpenQuicklyBody(): React.ReactElement {
 
   const commit = (item: CompletionItem): void => {
     const relative = item.atom.value;
-    const store = getCardDeck();
-    if (
-      store !== null &&
-      projectDir !== null &&
-      typeof relative === "string" &&
-      relative !== ""
-    ) {
-      openFileInCard(
-        store,
-        resolveAgainstRoot(projectDir, relative),
-        lineRef.current,
-      );
+    if (projectDir !== null && typeof relative === "string" && relative !== "") {
+      const path = resolveAgainstRoot(projectDir, relative);
+      // Drawn in the overlay, which holds no deck: the shell opens it.
+      const sink = openQuicklyFileSink();
+      const store = getCardDeck();
+      if (sink !== null) sink(path, lineRef.current);
+      else if (store !== null) openFileInCard(store, path, lineRef.current);
     }
     closeOpenQuickly();
   };

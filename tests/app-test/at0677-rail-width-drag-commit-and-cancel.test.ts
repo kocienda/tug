@@ -17,14 +17,15 @@
  *     `pointerup`; and the user can take it back themselves with Escape.
  *     Either way, everything acquired at pointer-down then has to be given
  *     back by the cancel: the `data-gesture` and `data-pointer-owned` marks,
- *     the scroll-preservation episodes on every frame, the occlusion bracket
- *     that keeps every pane revealed for the gesture's length, the pointer
- *     listeners themselves, and the width the drag previewed. The bracket is
- *     read through its one visible effect: a pane provably buried under
- *     another is revealed when the gesture begins and hidden again only once
- *     the bracket closes, so a leaked bracket leaves it revealed for good.
- *     The listeners are read through theirs: a `pointerup` arriving after the
+ *     the scroll-preservation episodes on every frame, the pointer listeners
+ *     themselves, and the width the drag previewed. The listeners are read
+ *     through their one visible effect: a `pointerup` arriving after the
  *     cancel finds nobody listening and commits nothing.
+ *
+ * The shell's occlusion bracket is not read here any more. Every pane in the
+ * shell is a stand-in that paints nothing, so the shell proves no pane
+ * covered and hides none; a card buried under another is beneath it in the
+ * host's stacking, which `at0347` reads.
  *
  * The rail card draws its edge grip in its own page, and the host carries
  * the press (`cardGesture` of kind `rail`) while the shell's draft moves the
@@ -39,10 +40,10 @@
  * this file by name with any change to the rail width drag.
  *
  * The cancel hides the app to take its window's pointer away, and a hide
- * works only on an app that was active, so that launch is in the foreground.
+ * works only on an app that was active, so the file launches in the
+ * foreground.
  *
  * @foreground
- * @covers tugdeck/src/components/chrome/pane-occlusion-controller.ts
  * @covers tugdeck/src/lib/resize-episode.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
@@ -117,8 +118,7 @@ function railPane(id: string, cardId: string, title: string) {
 /**
  * Three sidebar cards on the left rail, all at `RAIL_WIDTH`, beside a
  * three-up chain. Slot 0 holds TWO panes of equal width — `pBuried` behind
- * `pFront` — so the buried one is provably covered and the occlusion
- * controller hides it at rest ([at0347]'s occluded shape).
+ * `pFront` — so the drag runs over a stack ([at0347]'s occluded shape).
  */
 function deckShape() {
   return {
@@ -229,7 +229,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "narrowing a three-member rail lands every member at the new width",
       async () => {
-        const app = await launchTugApp({ testName: "at0677-rail-width-commit" });
+        const app = await launchTugApp({ testName: "at0677-rail-width-commit", foreground: true });
         try {
           await seed(app);
           expectEveryMember(await memberWidths(app), RAIL_WIDTH, "at rest");
@@ -256,7 +256,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a release with no move before it still commits the width it landed at",
       async () => {
-        const app = await launchTugApp({ testName: "at0677-rail-width-bare-release" });
+        const app = await launchTugApp({ testName: "at0677-rail-width-bare-release", foreground: true });
         try {
           await seed(app);
           // A press and a release 60px apart, with nothing between them —
@@ -287,13 +287,9 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a drag whose window loses the mouse releases everything it took",
       async () => {
-        const app = await launchTugApp({ foreground: true, testName: "at0677-rail-width-cancel" });
+        const app = await launchTugApp({ testName: "at0677-rail-width-cancel", foreground: true });
         try {
           await seed(app);
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(frame("pBuried"))}).getAttribute("data-occluded") === "true"`,
-            { timeoutMs: 5_000 },
-          );
 
           const from = await grip(app);
           await app.nativeDragWithoutRelease(from, {
@@ -302,18 +298,11 @@ describe.skipIf(!SHOULD_RUN)(
           });
           await wait(FRAMES_MS);
 
-          // The gesture is under way: the frame is marked as held, and the
-          // bracket has revealed the buried pane.
+          // The gesture is under way: the frame is marked as held.
           expect(
             await count(app, `${frame(DRAGGED)}[data-pointer-owned]`),
             "the drag latched",
           ).toBe(1);
-          expect(
-            await app.evalJS<string | null>(
-              `document.querySelector(${JSON.stringify(frame("pBuried"))}).getAttribute("data-occluded")`,
-            ),
-            "the gesture's bracket reveals every pane",
-          ).not.toBe("true");
 
           // ── The moment: the window loses the mouse. ──────────────────────
           // The press is the card's page's and the host carries the pointer,
@@ -340,13 +329,6 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(0);
           expectEveryMember(await memberWidths(app), RAIL_WIDTH, "rolled back");
 
-          // The bracket closed, so the buried pane is hidden again once the
-          // deck is quiet.
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(frame("pBuried"))}).getAttribute("data-occluded") === "true"`,
-            { timeoutMs: 5_000 },
-          );
-
           // The gesture is gone: a release arriving now commits nothing.
           await app.nativeMouseUp({ x: from.x - NARROW_PX, y: from.y });
           await wait(AFTER_LAND_MS);
@@ -362,13 +344,9 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "Escape mid-drag cancels it, and the release that follows commits nothing",
       async () => {
-        const app = await launchTugApp({ testName: "at0677-rail-width-escape" });
+        const app = await launchTugApp({ testName: "at0677-rail-width-escape", foreground: true });
         try {
           await seed(app);
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(frame("pBuried"))}).getAttribute("data-occluded") === "true"`,
-            { timeoutMs: 5_000 },
-          );
 
           const from = await grip(app);
           await app.nativeDragWithoutRelease(from, {
@@ -392,10 +370,6 @@ describe.skipIf(!SHOULD_RUN)(
             "every scroll-preservation episode is closed",
           ).toBe(0);
           expectEveryMember(await memberWidths(app), RAIL_WIDTH, "rolled back");
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(frame("pBuried"))}).getAttribute("data-occluded") === "true"`,
-            { timeoutMs: 5_000 },
-          );
 
           // The button is still down; letting it go is not a second chance
           // at the commit the user just declined.

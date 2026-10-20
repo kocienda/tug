@@ -44,7 +44,7 @@ export async function chromeRectOf(app: App, card: string, selector: string): Pr
 }
 
 /** How far a card's view reaches past its pane on every side, points (`CARD_APRON_PX`). */
-const CARD_APRON = 6;
+const CARD_APRON = 10;
 
 /**
  * Where `card`'s pane stands on screen now, in the shell's viewport points:

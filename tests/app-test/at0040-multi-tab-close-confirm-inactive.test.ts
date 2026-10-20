@@ -38,20 +38,22 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
 import {
   AFTER_SETTLE_MS,
-  CONFIRM_POPOVER_SELECTOR,
   HALF_PANE_OFFSET_PX,
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
   TOL,
   band,
+  clickCloseBox,
   flowDeckShape,
   inactiveMultiTabDeckShape,
   inactiveSingleTabDeckShape,
-  paneCloseButtonSelector,
   paneRect,
   pause,
-  popoverButtonByText,
+  popoverIn,
+  popoverRect,
+  pressPopoverButton,
   railDeckShape,
+  waitForPopover,
 } from "./multi-tab-close-confirm-fixture";
 
 describe.skipIf(!SHOULD_RUN)(
@@ -77,7 +79,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(activeBefore, "C must be active before the click").toBe("C");
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          await clickCloseBox(app, "A");
 
           // Per-card policy: `gallery-input` does not opt into confirm, so even an
           // inactive single-tab pane closes immediately on the X click — no popover.
@@ -85,9 +87,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 2000 },
           );
-          const popoverPresent = await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}) !== null`,
-          );
+          const popoverPresent = (await popoverIn(app, "A")).present;
           expect(
             popoverPresent,
             "no confirm popover should render for a non-opt-in single-tab pane",
@@ -120,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(activeBefore, "C must be active before the click").toBe("C");
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          await clickCloseBox(app, "A");
           await pause(300);
 
           // After the click, p1's active card (A) must be the new
@@ -135,13 +135,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe("A");
 
           // And the popover must be open with the right prompt.
-          const popoverState = await app.evalJS<{ present: boolean; text: string | null }>(
-            `(function(){
-              var el = document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)});
-              if (el === null) return { present: false, text: null };
-              return { present: true, text: el.textContent };
-            })()`,
-          );
+          const popoverState = await popoverIn(app, "A");
           expect(popoverState.present, "popover must be open").toBe(true);
           expect(popoverState.text ?? "", "popover must read 'Close 2 Tabs?'").toContain(
             "Close 2 Tabs?",
@@ -201,12 +195,9 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe("p1");
 
           // ── The gesture ─────────────────────────────────────────────────
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          await clickCloseBox(app, "A");
 
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}) !== null`,
-            { timeoutMs: 5000 },
-          );
+          await waitForPopover(app, "A", 5000);
 
           const after = await paneRect(app, "p1");
           note(`[at0040] p1 after [${after.left.toFixed(1)}, ${after.right.toFixed(1)}]`);
@@ -219,26 +210,17 @@ describe.skipIf(!SHOULD_RUN)(
             "p1's far edge must be inside the band too — revealed WHOLE, not nudged",
           ).toBeLessThanOrEqual(bandBox.right + TOL);
 
-          // The popover is what the travel was for, so it has to be readable.
-          const popover = await app.evalJS<{
-            left: number;
-            width: number;
-            text: string;
-          }>(
-            `(function(){
-              var el = document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)});
-              var b = el.getBoundingClientRect();
-              return { left: b.left, width: b.width, text: el.textContent || "" };
-            })()`,
-          );
-          expect(popover.text, "the question is the pane's own").toContain(
+          // The popover is what the travel was for, so it has to be readable:
+          // its rect is read in the card's page, in the shell's viewport.
+          const popover = await popoverRect(app, "A");
+          expect((await popoverIn(app, "A")).text ?? "", "the question is the pane's own").toContain(
             "Close 2 Tabs?",
           );
           expect(
-            popover.left,
+            popover?.left ?? -1,
             "the popover must not be clipped by the window's near edge",
           ).toBeGreaterThanOrEqual(0);
-          expect(popover.width, "the popover must have been laid out").toBeGreaterThan(0);
+          expect(popover?.width ?? 0, "the popover must have been laid out").toBeGreaterThan(0);
 
           const paneStillThere = await app.evalJS<boolean>(
             `document.querySelector('.tug-pane[data-pane-id="p1"]') !== null`,
@@ -266,15 +248,10 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8000 },
           );
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("pRail"));
+          await clickCloseBox(app, "L");
 
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}) !== null`,
-            { timeoutMs: 5000 },
-          );
-          const text = await app.evalJS<string>(
-            `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}).textContent || ""`,
-          );
+          await waitForPopover(app, "L", 5000);
+          const text = (await popoverIn(app, "L")).text ?? "";
           expect(text, "a rail card asks the single-card question").toContain(
             "Close Layout?",
           );
@@ -286,14 +263,7 @@ describe.skipIf(!SHOULD_RUN)(
             "the rail must still stand while the question is unanswered",
           ).toBe(true);
 
-          await app.evalJS<null>(
-            `(function(){
-              var btn = ${popoverButtonByText("Close")};
-              if (btn === null) throw new Error("[at0040] Close button missing");
-              btn.click();
-              return null;
-            })()`,
-          );
+          await pressPopoverButton(app, "L", "Close");
 
           await app.waitForCondition<boolean>(
             `document.querySelector('.tug-pane[data-pane-id="pRail"]') === null`,

@@ -41,6 +41,9 @@
  * Reached through Tug ▸ Configure Tug… (`dispatchControlAction("configure-tug")`,
  * the exact action the menu item posts), because the blocking wizard is
  * suppressed under the harness — an on-demand open is the only way it appears.
+ * The wizard is drawn in the overlay page (`overlay-fixture.ts`), so its rows
+ * are read there, and a frame the test injects is dispatched there, where its
+ * stores read tugcast's broadcast.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -54,6 +57,7 @@
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
 import { waitForKeyboardInCard } from "./_harness/card-reach";
+import { overlayPage, overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -109,34 +113,36 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
     "settles on a real version, and offers Update only when behind",
     async () => {
       const app = await launchTugApp({ testName: "at0440-configure-tug-version-row" });
+      const overlay = overlayPage(app);
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.bindSession("A", { tugSessionId: SID });
+        await overlayReady(app);
 
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("configure-tug", {}), null)`,
         );
-        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
 
         // The version pair is a round trip — a local `claude --version` and a
         // network lookup — so the row starts on the version-less fallback and
         // settles when the frame lands. Waiting for the line IS the assertion
         // that the wire works end to end.
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(
           `/^Version \\d+\\.\\d+\\.\\d+/.test(${text(INSTALL_DETAIL)})`,
           { timeoutMs: 20_000 },
         );
-        const detail = await app.evalJS<string>(text(INSTALL_DETAIL));
+        const detail = await overlay.evalJS<string>(text(INSTALL_DETAIL));
         note(`at0440 install row: ${JSON.stringify(detail)}`);
         expect(detail, "the install row names the installed version").toMatch(
           VERSION_LINE,
         );
 
-        const cta = await app.evalJS<string>(text(INSTALL_CTA));
-        const hasCheck = await app.evalJS<boolean>(present(INSTALL_CHECK));
+        const cta = await overlay.evalJS<string>(text(INSTALL_CTA));
+        const hasCheck = await overlay.evalJS<boolean>(present(INSTALL_CHECK));
         if (/is available\./.test(detail)) {
           // Behind the channel: the offer takes the success check's slot.
           expect(cta.trim(), "a behind row offers the update").toBe("Update");
@@ -151,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
 
         // The rest of the wizard speaks the same vocabulary as this edit.
         const labels = JSON.parse(
-          await app.evalJS<string>(
+          await overlay.evalJS<string>(
             `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
               STEP_LABEL,
             )})).map(function (n) { return n.textContent; }))`,
@@ -163,9 +169,9 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
           "retired wording is still on screen",
         ).toEqual([]);
 
-        await app.waitForCondition<boolean>(present(SETUP_DONE), { timeoutMs: 8000 });
-        await app.nativeClickAtElement(SETUP_DONE);
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(present(SETUP_DONE), { timeoutMs: 8000 });
+        await overlay.nativeClickAtElement(SETUP_DONE);
+        await overlay.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SETUP)}) === null`,
           { timeoutMs: 8000 },
         );
@@ -186,34 +192,36 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
     "a Claude Code below the floor makes the update the step to take",
     async () => {
       const app = await launchTugApp({ testName: "at0440-configure-tug-too-old" });
+      const overlay = overlayPage(app);
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.bindSession("A", { tugSessionId: `${SID}-too-old` });
+        await overlayReady(app);
 
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("configure-tug", {}), null)`,
         );
-        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
         // Let the real probe land first, or it overwrites the injected frame.
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(
           `/^Version \\d+\\.\\d+\\.\\d+/.test(${text(INSTALL_DETAIL)})`,
           { timeoutMs: 20_000 },
         );
 
-        await app.evalJS<null>(
+        await overlay.evalJS<null>(
           `(window.tugdeck.lab.dispatch("claude_version_result", { installed: "2.1.200", latest: "2.1.290" }), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(
           `${text(INSTALL_DETAIL)}.indexOf("Tug needs Claude Code") !== -1`,
           { timeoutMs: 5000 },
         );
-        const detail = await app.evalJS<string>(text(INSTALL_DETAIL));
-        const cta = await app.evalJS<string>(text(INSTALL_CTA));
-        const hasCheck = await app.evalJS<boolean>(present(INSTALL_CHECK));
-        const status = await app.evalJS<string>(
+        const detail = await overlay.evalJS<string>(text(INSTALL_DETAIL));
+        const cta = await overlay.evalJS<string>(text(INSTALL_CTA));
+        const hasCheck = await overlay.evalJS<boolean>(present(INSTALL_CHECK));
+        const status = await overlay.evalJS<string>(
           `document.querySelector(${JSON.stringify(INSTALL_ROW)}).getAttribute("data-status")`,
         );
         note(`at0440 too-old row: ${JSON.stringify({ detail, cta, status })}`);
@@ -241,27 +249,29 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
     "the install row keeps its height through a download",
     async () => {
       const app = await launchTugApp({ testName: "at0440-configure-tug-download-height" });
+      const overlay = overlayPage(app);
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.bindSession("A", { tugSessionId: `${SID}-download-height` });
+        await overlayReady(app);
 
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("configure-tug", {}), null)`,
         );
-        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(
           `/^Version \\d+\\.\\d+\\.\\d+/.test(${text(INSTALL_DETAIL)})`,
           { timeoutMs: 20_000 },
         );
 
         const height = `document.querySelector(${JSON.stringify(INSTALL_ROW)}).offsetHeight`;
-        const floor = await app.evalJS<number>(
+        const floor = await overlay.evalJS<number>(
           `parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(INSTALL_ROW)})).getPropertyValue("--tugx-step-row-h"))`,
         );
-        const settled = await app.evalJS<number>(height);
+        const settled = await overlay.evalJS<number>(height);
 
         // Each frame goes through the real action table, the path a tugcast
         // frame takes. Zero after bytes is a transfer that started over.
@@ -275,11 +285,11 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
         ];
         const heights: Record<string, number> = { settled };
         for (const [name, action, payload, ready] of frames) {
-          await app.evalJS<null>(
+          await overlay.evalJS<null>(
             `(window.tugdeck.lab.dispatch(${JSON.stringify(action)}, ${JSON.stringify(payload)}), null)`,
           );
-          await app.waitForCondition<boolean>(ready, { timeoutMs: 5000 });
-          heights[name] = await app.evalJS<number>(height);
+          await overlay.waitForCondition<boolean>(ready, { timeoutMs: 5000 });
+          heights[name] = await overlay.evalJS<number>(height);
         }
         note(`at0440 download heights: ${JSON.stringify({ floor, heights })}`);
 
@@ -304,31 +314,33 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
     "a probe that could not answer reads as unknown, and the wizard lets go",
     async () => {
       const app = await launchTugApp({ testName: "at0440-configure-tug-probe-failed" });
+      const overlay = overlayPage(app);
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.bindSession("A", { tugSessionId: `${SID}-probe-failed` });
+        await overlayReady(app);
 
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("configure-tug", {}), null)`,
         );
-        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        await overlay.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
         // Wait for the REAL probe to answer before injecting, or the answer
         // lands afterwards and overwrites the injected frame — which is what
         // a first version of this waited into: any label satisfied it,
         // including the un-probed "Log in to Claude" the row starts on. The
         // settled logged-in label is the probe's own answer arriving, and
         // this machine's `claude` is logged in.
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(
           `/^Logged in/.test(${text(SIGNIN_LABEL)})`,
           { timeoutMs: 30_000 },
         );
 
         // The frame tugcast sends when `claude auth status` ran past
         // AUTH_PROBE_TIMEOUT, through the same dispatch a real frame takes.
-        await app.evalJS<null>(
+        await overlay.evalJS<null>(
           `(window.tugdeck.lab.dispatch("claude_auth_result", { loggedIn: null, reason: "probe_failed" }), null)`,
         );
 
@@ -336,13 +348,13 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
         // answer, so the wizard must not go back to "Looking for Claude
         // Code…" on it. An earlier revision did exactly that for twelve
         // seconds, which is what this tight budget holds the line on.
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(
           `${text(SIGNIN_LABEL)}.indexOf("Can't check your login") !== -1`,
           { timeoutMs: 5000 },
         );
-        const label = await app.evalJS<string>(text(SIGNIN_LABEL));
-        const detail = await app.evalJS<string>(text(SIGNIN_DETAIL));
-        const cta = await app.evalJS<string>(text(SIGNIN_CTA));
+        const label = await overlay.evalJS<string>(text(SIGNIN_LABEL));
+        const detail = await overlay.evalJS<string>(text(SIGNIN_DETAIL));
+        const cta = await overlay.evalJS<string>(text(SIGNIN_CTA));
         note(`at0440 offline login row: ${JSON.stringify({ label, detail, cta })}`);
 
         // The claim Tug does not have must not be on screen.
@@ -359,9 +371,9 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
 
         // And the wizard is still the user's to close — an unanswered probe
         // takes nothing away.
-        await app.waitForCondition<boolean>(present(SETUP_DONE), { timeoutMs: 8000 });
-        await app.nativeClickAtElement(SETUP_DONE);
-        await app.waitForCondition<boolean>(
+        await overlay.waitForCondition<boolean>(present(SETUP_DONE), { timeoutMs: 8000 });
+        await overlay.nativeClickAtElement(SETUP_DONE);
+        await overlay.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SETUP)}) === null`,
           { timeoutMs: 8000 },
         );

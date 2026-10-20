@@ -60,8 +60,12 @@ function seededDeck(): DeckState {
   };
 }
 
-/** Tab stops in one single-card pane: four in its chrome, one in the probe. */
-const STOPS_PER_PANE = 5;
+/**
+ * Tab stops in one single-card pane: the probe's one. The shell's pane is a
+ * stand-in that draws no chrome — a card's title bar is in its own page — so
+ * none of its stops are in the shell's walk.
+ */
+const STOPS_PER_PANE = 1;
 
 
 let manager: DeckManagerType;

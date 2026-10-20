@@ -100,14 +100,12 @@ import {
   useLayoutEffect,
   useState,
 } from "react";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { authStore, useAuth } from "@/lib/auth-store";
 import { useVersionGateOpen, deriveConfigureTugOpen } from "@/lib/macos-support";
 import { usePublishAppModalOpen } from "@/lib/app-modal-store";
 import { useAppTransportState } from "@/lib/transport-state-store";
 import { getConnection } from "@/lib/connection-singleton";
-import { fireFreshSpawn } from "@/lib/session-restore";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import {
   readSetupSeen,
@@ -130,8 +128,7 @@ import {
   closeConfigureTugOnDemand,
 } from "@/lib/configure-tug-request-store";
 import { requestLogout } from "@/lib/logout-store";
-import { useCardDeck } from "@/card-deck-context";
-import { countWorkCards } from "@/deck-store-selectors";
+import { useGateDeck, useWorkCardCount } from "@/lib/gate-deck";
 import {
   claudeVersionStore,
   useClaudeVersion,
@@ -407,11 +404,10 @@ export function ConfigureTug(): ReactElement {
     updateError,
   } = useClaudeVersion();
   const transport = useAppTransportState();
-  const deck = useCardDeck();
-  const deckState = useSyncExternalStore(deck.subscribe, deck.getSnapshot);
+  const deck = useGateDeck();
   // The rail stands at its pin on any restored deck, so it must not read as
   // "this deck already holds work" — count everything but the rail.
-  const cardCount = countWorkCards(deckState);
+  const cardCount = useWorkCardCount();
   const [openedFirstSession, setOpenedFirstSession] = useState(false);
   // The Tug-menu "Configure Tug…" route: the wizard opened by request on an app that
   // is already set up. ConfigureTugRequest has already stopped any live turns by
@@ -718,25 +714,12 @@ export function ConfigureTug(): ReactElement {
   // The wizard already has the answer the picker would ask for — the projects
   // folder confirmed one row above — so the session starts here rather than in
   // a "Choose Session" sheet that would make the user say it a second time.
-  // `fireFreshSpawn` sends the `new`-mode frame and holds the card on the quiet
-  // restoring backdrop for the bind round-trip, so the picker never flashes.
-  // Without a path or a connection there is nothing to spawn with; the card
-  // still opens and presents its picker, which is the honest fallback.
+  // The deck spawns it (`lib/shell-gate-deck.ts`): the `new`-mode frame, with
+  // the card held on the quiet restoring backdrop for the bind round-trip, so
+  // the picker never flashes. Without a path there is nothing to spawn with;
+  // the card still opens and presents its picker, the honest fallback.
   const handleOpenSession = (): void => {
-    const projectDir = projectPathValue.trim();
-    const connection = getConnection();
-    // A card that opens straight into a spawn never shows its picker, so it
-    // opens BOUND — nothing is measured for it and it lands in the call — and
-    // only a card with nothing to spawn opens as the picker.
-    const spawns = connection !== null && projectDir !== "";
-    const cardId = deck.addCard(
-      "session",
-      undefined,
-      spawns ? { opening: "bound" } : undefined,
-    );
-    if (cardId !== null && connection !== null && spawns) {
-      fireFreshSpawn(cardId, crypto.randomUUID(), projectDir, connection, "restore-open");
-    }
+    deck.openFirstSession(projectPathValue.trim());
     setOpenedFirstSession(true);
   };
 

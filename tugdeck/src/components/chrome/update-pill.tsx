@@ -193,7 +193,8 @@ export function UpdatePill(): ReactElement | null {
 
   return createPortal(
     <div className="tugx-update-pill-anchor" data-slot="update-pill">
-      <div ref={attachPill} className="tugx-update-pill" data-stage={state.stage}>
+      {/* The overlay takes the pointer inside the pill and nowhere beside it (`overlay/overlay-claim.ts`). */}
+      <div ref={attachPill} className="tugx-update-pill" data-stage={state.stage} data-overlay-claim="">
         <button
           type="button"
           className="tugx-update-pill-open"

@@ -174,11 +174,10 @@ function deckShape() {
  * claims are not about and which `at0697` asserts on its own terms. The
  * subject of every claim below is the frame itself, so the census is too.
  *
- * A pane behind a body, or moving under one, also wears a `clip-path` beat
- * for the settle's length, so the hole the body shows through rides with it
- * (`body-placement.ts`, `cutMoving`). That beat is the body's cut rather than
- * the settle's motion, and its geometry is `body-placement.test.ts`'s, so an
- * effect animating nothing but `clip-path` is not in the census either.
+ * A pane once wore a `clip-path` beat for the settle's length, the hole its
+ * body showed through riding with it. The cards stand over the shell now and
+ * nothing is cut for one, so no frame animates `clip-path`; the census still
+ * leaves an effect animating nothing else out, which costs it nothing.
  */
 interface FrameAnimation {
   paneId: string;

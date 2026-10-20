@@ -310,9 +310,10 @@ final class ClickThroughWebView: WKWebView {
     private var swallowingGesture = false
 
     /// Whether a point in the superview's coordinates belongs to a view
-    /// beneath this one. A child page placed under the deck shows through
-    /// the deck's transparent region; a click there is the child's, so the
-    /// deck's view answers no hit and AppKit tries the view below.
+    /// beneath this one. The overlay stands over the whole window and is
+    /// transparent outside what it claims; a click there is the card's or
+    /// the shell's beneath, so the overlay's view answers no hit and AppKit
+    /// tries the views below.
     var passesThrough: ((NSPoint) -> Bool)?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -320,28 +321,28 @@ final class ClickThroughWebView: WKWebView {
         return super.hitTest(point)
     }
 
-    // MARK: - Drags into a body
+    // MARK: - Drags beneath the overlay
     //
-    // AppKit finds a drag's destination without asking `hitTest`: the shell's
-    // view covers the window, so every drag over a body arrives here, from
-    // Finder and from the window alike. The shell's view hands each call to
-    // the body beneath the pointer wherever a click there would pass through
-    // (a visible body, no `pointerClaim` over it), and WebKit turns the
-    // forwarded call into that page's own `dragenter`/`dragover`/`drop` with
-    // the drag's pasteboard on `dataTransfer`. Everywhere else the call is the
-    // shell's, as before. A body's own view has no `dragTarget`, so every
-    // call it is handed is answered by WebKit.
+    // AppKit finds a drag's destination without asking `hitTest`: the
+    // overlay's view covers the window, so every drag arrives there, from
+    // Finder and from the window alike. The overlay's view hands each call
+    // to the view a click at the pointer would reach — the body beneath it,
+    // or the shell's view where no card is — and WebKit turns the forwarded
+    // call into that page's own `dragenter`/`dragover`/`drop` with the drag's
+    // pasteboard on `dataTransfer`. Where the overlay claims the pointer the
+    // call is its own. A body's view and the shell's have no `dragTarget`,
+    // so every call either is handed is answered by WebKit.
 
-    /// The body web view a drag at a point in window coordinates belongs to,
-    /// or nil where the drag is this view's.
+    /// The web view beneath this one a drag at a point in window
+    /// coordinates belongs to, or nil where the drag is this view's.
     var dragTarget: ((NSPoint) -> WKWebView?)?
 
     /// Who holds the drag in progress: the view that was last sent
     /// `draggingEntered`, and is owed the exit or the drop.
     private enum DragHolder {
         case none
-        case shell
-        case body(WKWebView)
+        case own
+        case other(WKWebView)
     }
 
     private var dragHolder: DragHolder = .none
@@ -361,22 +362,22 @@ final class ClickThroughWebView: WKWebView {
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
         switch dragHolder {
-        case .body(let view): return view.prepareForDragOperation(sender)
-        case .shell, .none: return super.prepareForDragOperation(sender)
+        case .other(let view): return view.prepareForDragOperation(sender)
+        case .own, .none: return super.prepareForDragOperation(sender)
         }
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         switch dragHolder {
-        case .body(let view): return view.performDragOperation(sender)
-        case .shell, .none: return super.performDragOperation(sender)
+        case .other(let view): return view.performDragOperation(sender)
+        case .own, .none: return super.performDragOperation(sender)
         }
     }
 
     override func concludeDragOperation(_ sender: NSDraggingInfo?) {
         switch dragHolder {
-        case .body(let view): view.concludeDragOperation(sender)
-        case .shell, .none: super.concludeDragOperation(sender)
+        case .other(let view): view.concludeDragOperation(sender)
+        case .own, .none: super.concludeDragOperation(sender)
         }
         dragHolder = .none
     }
@@ -387,17 +388,17 @@ final class ClickThroughWebView: WKWebView {
     private func routeDrag(_ sender: NSDraggingInfo) -> NSDragOperation {
         let target = dragTarget?(sender.draggingLocation)
         switch (dragHolder, target) {
-        case (.shell, nil):
+        case (.own, nil):
             return super.draggingUpdated(sender)
-        case (.body(let held), let view?) where held === view:
+        case (.other(let held), let view?) where held === view:
             return view.draggingUpdated(sender)
         default:
             leaveDrag(sender)
             if let target {
-                dragHolder = .body(target)
+                dragHolder = .other(target)
                 return target.draggingEntered(sender)
             }
-            dragHolder = .shell
+            dragHolder = .own
             return super.draggingEntered(sender)
         }
     }
@@ -405,8 +406,8 @@ final class ClickThroughWebView: WKWebView {
     private func leaveDrag(_ sender: NSDraggingInfo?) {
         switch dragHolder {
         case .none: break
-        case .shell: super.draggingExited(sender)
-        case .body(let view): view.draggingExited(sender)
+        case .own: super.draggingExited(sender)
+        case .other(let view): view.draggingExited(sender)
         }
         dragHolder = .none
     }
@@ -493,8 +494,6 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// `TUG_FORCE_LAUNCH_STALL=frontend` suppresses the first `frontendReady`
     /// and no other, so a Retry's reload can still reveal. DEBUG-only.
     private var suppressedFirstFrontendReady = false
-    /// The spike's own pass-through, consulted beside the bodies'.
-    private var spikePassThrough: ((NSPoint) -> Bool)?
     #endif
     private var contentController: WKUserContentController!
     /// The one microphone. Constructed once the web view exists, because its
@@ -518,16 +517,6 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// Every body view: created, placed, focused and destroyed at the shell's
     /// word. Made in `init`, after the container exists.
     private(set) var bodies: BodyViewController!
-    /// The body beats' offset against the chrome, in display periods
-    /// (`BodyGeometry.beatOffsetPeriods`), read once, at window creation;
-    /// `TugbankClient` is configured before the window is made.
-    let bodyBeatOffsetPeriods = BodyGeometry.beatOffsetPeriods(
-        environment: ProcessInfo.processInfo.environment,
-        setting: ProcessManager.readTugbankDouble(
-            domain: BodyGeometry.deckDomain,
-            key: BodyGeometry.beatOffsetKey
-        )
-    )
     /// The view that sent the last dictation `start`, which every dictation
     /// event goes back to.
     private weak var dictationTarget: WKWebView?
@@ -730,16 +719,6 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         clickThroughWebView.onActivationClick = { [weak self] location in
             self?.forwardActivationClick(at: location)
         }
-        // A point over a visible body is the body's, unless the shell has
-        // claimed it; AppKit then hit-tests the body host view beneath.
-        clickThroughWebView.passesThrough = { [weak self] point in
-            self?.shellPassesThrough(point) ?? false
-        }
-        // A drag goes where a click would: AppKit sends it to this view
-        // whatever the hit test says, so the view hands it on.
-        clickThroughWebView.dragTarget = { [weak self] locationInWindow in
-            self?.bodyDragTarget(at: locationInWindow)
-        }
         webView = clickThroughWebView
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -852,18 +831,12 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
         wave.startAnimating()
         containerView.addSubview(splashView, positioned: .below, relativeTo: webView)
-        // The bodies sit between the splash and the shell: beneath the
-        // shell's transparent page, above the splash it reveals over.
+        // The cards stand over the shell, which paints the deck's canvas and
+        // grid beneath them; the overlay, made later, stands over both.
         let bodyHost = BodyHostView(frame: containerView.bounds)
         bodyHost.autoresizingMask = [.width, .height]
-        containerView.addSubview(bodyHost, positioned: .below, relativeTo: webView)
-        // The canvas beneath the bodies: above the splash, below every body,
-        // hidden until the shell describes it and the window has revealed
-        // the shell.
-        let floor = DeckFloorView(frame: containerView.bounds)
-        floor.autoresizingMask = [.width, .height]
-        containerView.addSubview(floor, positioned: .below, relativeTo: bodyHost)
-        bodies = BodyViewController(window: self, hostView: bodyHost, floorView: floor)
+        containerView.addSubview(bodyHost, positioned: .above, relativeTo: webView)
+        bodies = BodyViewController(window: self, hostView: bodyHost)
         self.spinnerView = splashView
         self.splashSpinnerStack = stack
         self.splashWave = wave
@@ -1316,19 +1289,13 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// The spike's seam into the window: the view a child page is placed in
-    /// is inserted directly beneath the deck's view (above the splash), and
-    /// the deck's view passes a click through wherever `passesThrough` says.
-    /// DEBUG-only; the body views replace it.
-    func insertBeneathShell(_ view: NSView) {
-        containerView.addSubview(view, positioned: .below, relativeTo: webView)
+    /// is inserted directly over the deck's view, beneath the cards and the
+    /// overlay, where a body stands. DEBUG-only; the body views replace it.
+    func insertAboveShell(_ view: NSView) {
+        containerView.addSubview(view, positioned: .above, relativeTo: webView)
     }
 
-    func setShellPassThrough(_ passesThrough: ((NSPoint) -> Bool)?) {
-        spikePassThrough = passesThrough
-    }
-
-    /// The view the deck's web view sits in, whose coordinates a pass-through
-    /// test is asked in.
+    /// The view the deck's web view sits in.
     var shellContainerView: NSView { containerView }
     #endif
 
@@ -1340,35 +1307,36 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         return url.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
     }
 
-    /// Whether a point in the container's coordinates belongs to a view
-    /// beneath the shell: a visible body the shell has not claimed the point
-    /// over, or (DEBUG) the spike's child.
-    private func shellPassesThrough(_ point: NSPoint) -> Bool {
-        #if DEBUG
-        if let spikePassThrough, spikePassThrough(point) { return true }
-        #endif
-        guard let bodies else { return false }
-        let viewport = BodyGeometry.flipped(point, inHeight: containerView.bounds.height)
-        return bodies.passesThrough(viewport)
+    /// A point in the container's coordinates as the shell's viewport has
+    /// it: top-left origin, which is every page's, the overlay's included.
+    func viewportPoint(_ point: NSPoint) -> CGPoint {
+        BodyGeometry.flipped(point, inHeight: containerView.bounds.height)
     }
 
-    /// The body web view a drag at a window point belongs to: the visible
-    /// body a click there would pass through to, or nil when it is the
-    /// shell's.
-    private func bodyDragTarget(at locationInWindow: NSPoint) -> WKWebView? {
-        guard let bodies else { return nil }
+    /// Stand `view` over the shell's and every card's, across the whole
+    /// container: the overlay's place.
+    func placeOverCards(_ view: NSView, above cards: NSView) {
+        view.frame = containerView.bounds
+        view.autoresizingMask = [.width, .height]
+        containerView.addSubview(view, positioned: .above, relativeTo: cards)
+    }
+
+    /// The web view beneath the overlay a drag at a window point belongs to:
+    /// the visible body a click there would reach, or the shell's.
+    func dragTargetBeneathOverlay(at locationInWindow: NSPoint) -> WKWebView {
+        guard let bodies else { return webView }
         let inContainer = containerView.convert(locationInWindow, from: nil)
         let viewport = BodyGeometry.flipped(inContainer, inHeight: containerView.bounds.height)
-        return bodies.body(atViewportPoint: viewport)?.webView
+        return bodies.body(atViewportPoint: viewport)?.webView ?? webView
     }
 
     /// VoiceOver's order for the window: the shell's view, which holds the
-    /// deck's chrome and every card it draws itself, then each showing body
-    /// in the deck's reading order, left to right and down a column, as the
-    /// shell posts them. A body cannot be read
-    /// between two of the shell's own cards: the shell is one element.
-    func setAccessibilityOrder(bodies: [WKWebView]) {
-        (containerView as? DeckContainerView)?.accessibilityOrder = [webView as Any] + bodies.map { $0 as Any }
+    /// deck's own chrome, then each showing card in the deck's reading
+    /// order, left to right and down a column, as the shell posts them, then
+    /// the overlay, which holds what stands over them all.
+    func setAccessibilityOrder(bodies: [WKWebView], overlay: NSView?) {
+        (containerView as? DeckContainerView)?.accessibilityOrder =
+            [webView as Any] + bodies.map { $0 as Any } + (overlay.map { [$0 as Any] } ?? [])
     }
 
     // MARK: - Bodies
@@ -1583,11 +1551,14 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
                 return
             }
             if let image = image {
-                let overlay = NSImageView(frame: self.webView.bounds)
+                // Over the container, not inside the shell's view: the cards
+                // stand over the shell, and would show through a snapshot
+                // placed beneath them.
+                let overlay = NSImageView(frame: self.containerView.bounds)
                 overlay.image = image
                 overlay.imageScaling = .scaleNone
                 overlay.autoresizingMask = [.width, .height]
-                self.webView.addSubview(overlay)
+                self.containerView.addSubview(overlay, positioned: .above, relativeTo: nil)
             } else {
                 // Snapshot failed — fall back to hiding the WebView.
                 self.webView.isHidden = true
@@ -1976,8 +1947,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         anim.fillMode = .forwards
         webView.layer?.add(anim, forKey: "revealFade")
         webView.layer?.opacity = 1
-        // The host's floor, on a host that makes bodies, fades in with the
-        // shell over the splash rather than covering it before.
+        // The cards and the overlay fade in with the shell over the splash
+        // rather than covering it before.
         bodies?.shellDidReveal(fade: anim)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -2267,6 +2238,7 @@ extension MainWindow {
     /// already torn down.
     func hostSender(for view: WKWebView?) -> HostSender? {
         if view === webView { return .shell(webView) }
+        if let overlay = bodies?.overlayView, view === overlay { return .overlay(overlay) }
         return bodies?.body(for: view).map { .body($0) }
     }
 
@@ -2748,29 +2720,23 @@ extension MainWindow {
                 return
             }
             bodies.create(cardId: create.cardId, componentId: create.componentId, intent: create.intent)
-        case .placeBodies(let placement):
-            bodies.place(placement)
         case .placeCards(let placement):
-            // The shell's placement of every card's pane rect.
+            // The shell's placement of every card's view.
             bodies.placeCards(placement)
         case .cardGesture(let begin):
             // A card's page has taken a title-bar or grip press for the host
             // to carry. The shell never posts this.
             guard let fromBody else { return }
             bodies.claimGesture(from: fromBody, begin: begin)
-        case .cardLand(let land):
-            // A drop the shell committed nothing for: the card goes back to
-            // the place it already holds, which no placement will name.
-            bodies.landCard(cardId: land.cardId)
         case .bodyDestroy(let destroy):
             bodies.destroy(cardId: destroy.cardId, save: destroy.save)
         case .bodyFocus(let focus):
             bodies.focus(cardId: focus.cardId)
-        case .pointerClaim(let claim):
-            bodies.claim(claim)
-        case .floorGrid(let grid):
-            bodies.floor(grid)
-        case .beatPlan(let plan):
+        case .overlayCreate:
+            bodies.createOverlay()
+        case .overlayClaim(let claim):
+            bodies.overlayClaimed(claim)
+        case .cardPlan(let plan):
             bodies.runPlan(plan)
         case .crossingReady(let ready):
             // A body has pinned its scrollers for its crossing: its page

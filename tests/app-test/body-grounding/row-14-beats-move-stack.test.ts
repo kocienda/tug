@@ -8,7 +8,7 @@
  *
  * @foreground
  * @family row-14-beats-move
- * @covers tugdeck/src/lib/body-beat-plan.ts
+ * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift
  */
 

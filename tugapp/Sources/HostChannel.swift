@@ -5,6 +5,8 @@ import WebKit
 enum HostSender {
     case shell(WKWebView)
     case body(BodyViewController.Body)
+    /// The overlay page above every card (`BodyViewController.overlayView`).
+    case overlay(WKWebView)
 
     /// The body that posted, or nil for the shell.
     var body: BodyViewController.Body? {
@@ -16,7 +18,18 @@ enum HostSender {
         switch self {
         case .shell(let view): return view
         case .body(let body): return body.webView
+        case .overlay(let view): return view
         }
+    }
+
+    var isShell: Bool {
+        if case .shell = self { return true }
+        return false
+    }
+
+    var isOverlay: Bool {
+        if case .overlay = self { return true }
+        return false
     }
 }
 
@@ -69,11 +82,16 @@ final class HostChannel: NSObject, WKScriptMessageHandler {
             NSLog("HostChannel: script message %@ from an unknown view; ignoring", message.name)
             return
         }
-        if let body = sender.body, ToHostName(rawValue: message.name)?.shellOnly == true {
-            TugLog.warn("bodies", "shell-only message from a body", [
+        let name = ToHostName(rawValue: message.name)
+        if name?.shellOnly == true, !sender.isShell {
+            TugLog.warn("bodies", "shell-only message from another page", [
                 TugLog.field("name", message.name),
-                TugLog.field("card", body.cardId ?? "spare"),
+                TugLog.field("card", sender.body?.cardId ?? (sender.isOverlay ? "overlay" : "spare")),
             ])
+            return
+        }
+        if name?.overlayOnly == true, !sender.isOverlay {
+            TugLog.warn("bodies", "overlay-only message from another page", [TugLog.field("name", message.name)])
             return
         }
         switch Self.decode(name: message.name, body: message.body) {

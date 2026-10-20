@@ -238,15 +238,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         const version = await pollFor(() => about.body.evalJS<string>(textOf(ABOUT_VERSION)), (t) => /Version \d/.test(t), READ_MS);
         note(`About body: ${version.trim()}`);
         expect(version, "the About body shows the host's version and build").toMatch(/^Version \d[^(]*\(\d+\)$/);
-        // card-dom: shell
-        const aboutPane = await app.evalJS<string | null>(paneHolding(about.cardId));
         const paneTitle = await pollFor(
-          // card-dom: shell
-          () => app.evalJS<string>(textOf(`.tug-pane[data-pane-id="${aboutPane}"] [data-testid="tug-pane-title"]`)),
+          () => about.body.evalJS<string>(textOf('[data-testid="tug-pane-title"]')),
           (t) => t.includes("About"),
           READ_MS,
         );
-        expect(paneTitle, "the shell's title bar wears the title the About body published").toContain("About");
+        expect(paneTitle, "the card's own title bar wears the title the About body published").toContain("About");
         await expectContentSurface(app, about.cardId, 0.3);
         await closeCard(app, about.cardId);
 

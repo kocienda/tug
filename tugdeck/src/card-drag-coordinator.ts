@@ -75,11 +75,22 @@ type DragMode = "reorder" | "detach" | "merge" | "away";
  * bar: a reorder inside the source bar commits as the card's pane verb, and
  * once the pointer leaves the bar the drag is the shell's to hit-test,
  * indicate and commit, at the page's viewport point (`pane.reorderTabs`,
- * `pane.tabDrag`).
+ * `pane.tabDrag`). A move past the bar carries the ghost's box and label,
+ * since the page's own ghost cannot leave the card's box: the overlay draws
+ * it there instead, and this page hides its own for as long as it does.
  */
 export interface RemoteTabDrag {
   reorder(cardId: string, insertIndex: number): void;
-  away(phase: "move" | "end" | "cancel", cardId: string, x: number, y: number): void;
+  away(phase: "move" | "end" | "cancel", cardId: string, x: number, y: number, ghost?: RemoteTabGhost): void;
+}
+
+/** The ghost of a tab dragged past its bar, in the page's viewport points. */
+export interface RemoteTabGhost {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label: string;
 }
 
 /**
@@ -595,6 +606,7 @@ class CardDragCoordinator {
       this.cancelAway();
       this.setMode("reorder");
       this.clearDropTarget();
+      if (this.ghostElement) this.ghostElement.style.visibility = "";
 
       // Update reorder insertion indicator.
       const sourceBar = this.sourceTabElement?.closest(".tug-tab-bar") as HTMLElement | null;
@@ -612,7 +624,14 @@ class CardDragCoordinator {
       this.removeInsertionIndicator();
       this.currentMergeTarget = null;
       this.awaySent = true;
-      this.remote.away("move", this.sourceCardId, cx, cy);
+      const ghost = this.ghostElement;
+      let drawn: RemoteTabGhost | undefined;
+      if (ghost) {
+        const box = ghost.getBoundingClientRect();
+        drawn = { x: box.left, y: box.top, width: box.width, height: box.height, label: (ghost.textContent ?? "").trim() };
+        ghost.style.visibility = "hidden";
+      }
+      this.remote.away("move", this.sourceCardId, cx, cy, drawn);
       return;
     }
 

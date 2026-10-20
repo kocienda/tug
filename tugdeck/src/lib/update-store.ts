@@ -370,7 +370,19 @@ export function updateFromPayload(
  * that, and its refusal is silent by design [B03].
  */
 export function postUpdateAction(action: UpdateAction): void {
-  postToHost(updateActionToHost, action);
+  if (actionSink !== null) actionSink(action);
+  else postToHost(updateActionToHost, action);
+}
+
+let actionSink: ((action: UpdateAction) => void) | null = null;
+
+/**
+ * Send this page's update actions somewhere other than the host: the overlay
+ * page's wizard and pill ask through the shell (`overlay.updateAction`),
+ * which is the page the host answers about updates. `null` restores the host.
+ */
+export function setUpdateActionSink(sink: ((action: UpdateAction) => void) | null): void {
+  actionSink = sink;
 }
 
 let installed = false;

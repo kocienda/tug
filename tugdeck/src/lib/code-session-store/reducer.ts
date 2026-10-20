@@ -1037,6 +1037,23 @@ export const REPLAY_SOFT_BUDGET_MS = 2000;
 export const REPLAY_TIMEOUT_DWELL_MS = 1500;
 export const REPLAY_PREFLIGHT_TIMEOUT_MS = 12_000;
 export const REPLAY_SILENCE_DEADLINE_MS = 15_000;
+/**
+ * The silence deadline in force: the decided one, unless the harness
+ * shortened it so a test of the deadline ends inside its file budget. The
+ * override is read from a realm global rather than a module variable, and
+ * only under the test harness (`__tugTestMode`), because the reducer runs in
+ * more than one realm — the page and the ingest worker — and more than one
+ * bundle chunk, so a module `let` one chunk sets is not the one another
+ * chunk's schedule reads. A positive number on `globalThis.__tugReplaySilenceDeadlineMs`
+ * is honoured; anything else, and every production build, is the decided
+ * deadline. The timer and what it fires are the production ones either way.
+ */
+function replaySilenceDeadlineMs(): number {
+  const g = globalThis as { __tugTestMode?: boolean; __tugReplaySilenceDeadlineMs?: unknown };
+  if (g.__tugTestMode !== true) return REPLAY_SILENCE_DEADLINE_MS;
+  const o = g.__tugReplaySilenceDeadlineMs;
+  return typeof o === "number" && Number.isFinite(o) && o > 0 ? o : REPLAY_SILENCE_DEADLINE_MS;
+}
 export const REPLAY_BRACKET_DEADLINE_MS = 150_000;
 /**
  * How long a shadowed bracket (see `CodeSessionState.replayShadowActive`)
@@ -1199,7 +1216,7 @@ export function replaySilenceEffect(
     return {
       kind: "schedule_timer",
       name: "replay_silence",
-      ms: REPLAY_SILENCE_DEADLINE_MS,
+      ms: replaySilenceDeadlineMs(),
       fire: { type: "tick_replay_silence" },
     };
   }

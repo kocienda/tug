@@ -78,6 +78,14 @@ final class HostChannelTests: XCTestCase {
         }
     }
 
+    func testTheOverlayOnlySetAgrees() throws {
+        for entry in try toHostEntries() {
+            guard let name = ToHostName(rawValue: entry.name) else { continue }
+            check("\(entry.name) is overlay-only exactly when the page says it is from the overlay",
+                  name.overlayOnly == (entry.from == "overlay"), "from: \(entry.from)")
+        }
+    }
+
     func testEverySampleDecodes() throws {
         for entry in try toHostEntries() {
             for (i, sample) in entry.samples.enumerated() {
@@ -108,7 +116,7 @@ final class HostChannelTests: XCTestCase {
     }
 
     func testATypedMessageThatIsNotJSONIsRefusedAsNotJSON() {
-        let decoded = ToHost.decode(name: "cardLand", data: Data("not json".utf8))
+        let decoded = ToHost.decode(name: "cardPlan", data: Data("not json".utf8))
         guard case .failure(.notJSON) = decoded else { return XCTFail("\(decoded)") }
     }
 
@@ -206,9 +214,9 @@ final class HostChannelTests: XCTestCase {
     /// millisecond. The reading is the measure block's average over 1,000
     /// decodes, so one decode is that over 1,000.
     func testPlaceCardsDecodeCost() throws {
-        let card = #"{"cardId":"CARD","x":121,"y":96,"width":398,"height":483,"visible":true,"z":1,"grips":["e","s","se"],"free":true,"min":{"width":240,"height":160}}"#
+        let card = #"{"cardId":"CARD","x":121,"y":96,"width":398,"height":483,"view":{"x":111,"y":86,"width":418,"height":503},"insets":{"top":10,"right":10,"bottom":10,"left":10},"shell":[{"x":117,"y":96,"width":8,"height":483}],"visible":true,"z":1,"grips":["e","s","se"],"free":true,"min":{"width":240,"height":160}}"#
         let cards = (0..<40).map { card.replacingOccurrences(of: "CARD", with: "c\($0)") }.joined(separator: ",")
-        let head = #"{"apron":6,"canvas":{"x":0,"y":28,"width":1440,"height":872},"zoom":1,"cards":["#
+        let head = #"{"apron":10,"canvas":{"x":0,"y":28,"width":1440,"height":872},"zoom":1,"cards":["#
         let data = Data((head + cards + "]}").utf8)
         guard case .success(.placeCards(let placement)) = ToHost.decode(name: "placeCards", data: data) else {
             return XCTFail("the placement does not decode")

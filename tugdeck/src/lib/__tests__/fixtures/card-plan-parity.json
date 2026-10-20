@@ -5,14 +5,14 @@
     "plan": {
       "planId": 1,
       "startWallMs": 1760000000000,
-      "bodies": [
+      "cards": [
         {
           "cardId": "c1",
           "landing": {
-            "x": 121,
-            "y": 96,
-            "width": 398,
-            "height": 483
+            "x": 110,
+            "y": 50,
+            "width": 420,
+            "height": 540
           },
           "beats": [
             {
@@ -20,16 +20,16 @@
               "delayMs": 0,
               "durationMs": 300,
               "from": {
-                "x": 421,
-                "y": 96,
-                "width": 398,
-                "height": 483
+                "x": 410,
+                "y": 50,
+                "width": 420,
+                "height": 540
               },
               "to": {
-                "x": 121,
-                "y": 96,
-                "width": 398,
-                "height": 483
+                "x": 110,
+                "y": 50,
+                "width": 420,
+                "height": 540
               },
               "progress": [
                 0,
@@ -52,14 +52,14 @@
     "plan": {
       "planId": 2,
       "startWallMs": 1760000001000,
-      "bodies": [
+      "cards": [
         {
           "cardId": "ca",
           "landing": {
-            "x": 41,
-            "y": 396,
-            "width": 498,
-            "height": 263
+            "x": 30,
+            "y": 350,
+            "width": 520,
+            "height": 320
           },
           "beats": [
             {
@@ -67,16 +67,16 @@
               "delayMs": 0,
               "durationMs": 300,
               "from": {
-                "x": 41,
-                "y": 76,
-                "width": 498,
-                "height": 263
+                "x": 30,
+                "y": 30,
+                "width": 520,
+                "height": 320
               },
               "to": {
-                "x": 41,
-                "y": 396,
-                "width": 498,
-                "height": 263
+                "x": 30,
+                "y": 350,
+                "width": 520,
+                "height": 320
               },
               "progress": [
                 0,
@@ -93,10 +93,10 @@
         {
           "cardId": "cb",
           "landing": {
-            "x": 41,
-            "y": 76,
-            "width": 498,
-            "height": 263
+            "x": 30,
+            "y": 30,
+            "width": 520,
+            "height": 320
           },
           "beats": [
             {
@@ -104,16 +104,16 @@
               "delayMs": 0,
               "durationMs": 300,
               "from": {
-                "x": 41,
-                "y": 396,
-                "width": 498,
-                "height": 263
+                "x": 30,
+                "y": 350,
+                "width": 520,
+                "height": 320
               },
               "to": {
-                "x": 41,
-                "y": 76,
-                "width": 498,
-                "height": 263
+                "x": 30,
+                "y": 30,
+                "width": 520,
+                "height": 320
               },
               "progress": [
                 0,
@@ -131,34 +131,34 @@
     }
   },
   {
-    "name": "size-change-refused",
+    "name": "stale-placement",
     "refused": [
       "cs"
     ],
     "plan": {
       "planId": 3,
       "startWallMs": 1760000002000,
-      "bodies": []
+      "cards": []
     }
   },
   {
-    "name": "size-change-crossing",
+    "name": "size-change",
     "refused": [],
     "plan": {
       "planId": 4,
       "startWallMs": 1760000003000,
-      "bodies": [
+      "cards": [
         {
           "cardId": "cs",
           "landing": {
-            "x": 341,
-            "y": 76,
-            "width": 298,
-            "height": 363
+            "x": 330,
+            "y": 30,
+            "width": 320,
+            "height": 420
           },
           "crossing": {
-            "width": 298,
-            "height": 363
+            "width": 320,
+            "height": 420
           },
           "beats": [
             {
@@ -166,16 +166,16 @@
               "delayMs": 40,
               "durationMs": 200,
               "from": {
-                "x": 41,
-                "y": 76,
-                "width": 598,
-                "height": 363
+                "x": 30,
+                "y": 30,
+                "width": 620,
+                "height": 420
               },
               "to": {
-                "x": 41,
-                "y": 76,
-                "width": 298,
-                "height": 363
+                "x": 30,
+                "y": 30,
+                "width": 320,
+                "height": 420
               },
               "progress": [
                 0,
@@ -192,16 +192,16 @@
               "delayMs": 240,
               "durationMs": 300,
               "from": {
-                "x": 41,
-                "y": 76,
-                "width": 298,
-                "height": 363
+                "x": 30,
+                "y": 30,
+                "width": 320,
+                "height": 420
               },
               "to": {
-                "x": 341,
-                "y": 76,
-                "width": 298,
-                "height": 363
+                "x": 330,
+                "y": 30,
+                "width": 320,
+                "height": 420
               },
               "progress": [
                 0,
@@ -224,14 +224,14 @@
     "plan": {
       "planId": 5,
       "startWallMs": 1760000004000,
-      "bodies": [
+      "cards": [
         {
           "cardId": "cn",
           "landing": {
-            "x": 41,
-            "y": 396,
-            "width": 498,
-            "height": 263
+            "x": 30,
+            "y": 350,
+            "width": 520,
+            "height": 320
           },
           "arrives": true,
           "beats": [
@@ -240,16 +240,16 @@
               "delayMs": 200,
               "durationMs": 180,
               "from": {
-                "x": 41,
-                "y": 402,
-                "width": 498,
-                "height": 263
+                "x": 30,
+                "y": 356,
+                "width": 520,
+                "height": 320
               },
               "to": {
-                "x": 41,
-                "y": 396,
-                "width": 498,
-                "height": 263
+                "x": 30,
+                "y": 350,
+                "width": 520,
+                "height": 320
               },
               "opacity": [
                 0,

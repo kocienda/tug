@@ -4,10 +4,17 @@
  * X's close confirmation, a pane-level feature applied uniformly to every
  * pane.
  *
+ * Every card draws its pane's title bar in its own page, so the X is pressed
+ * there, and the confirm it opens stands there too: both are read in the
+ * card's page, in the shell's viewport points where a point is wanted
+ * (`card-chrome-fixture.ts`). The pane itself is the shell's stand-in, so
+ * whether it still stands is read in the shell.
+ *
  * @module tests/app-test/multi-tab-close-confirm-fixture
  */
 
 import type { App } from "./_harness";
+import { chromePoint, chromeRectOf, type ChromeRect } from "./card-chrome-fixture";
 import {
   IMPOSITION_GAP_PX,
   RAIL_GUTTER_PX,
@@ -32,11 +39,15 @@ export function pause(ms: number): Promise<void> {
   );
 }
 
-export function paneCloseButtonSelector(paneId: string): string {
-  return `.tug-pane[data-pane-id="${paneId}"] [data-testid="tug-pane-close-button"]`;
+/** The title bar's X, in the card's own page. */
+const CLOSE_BOX = '[data-testid="tug-pane-close-button"]';
+
+/** Click the X of the pane `cardId` fronts. */
+export async function clickCloseBox(app: App, cardId: string): Promise<void> {
+  await app.nativeClick(await chromePoint(app, cardId, CLOSE_BOX));
 }
 
-export function popoverButtonByText(label: string): string {
+function popoverButtonByText(label: string): string {
   return `(function(){
     var root = document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)});
     if (root === null) return null;
@@ -51,23 +62,57 @@ export function popoverButtonByText(label: string): string {
 }
 
 /**
- * Option(alt)-click an element. `holdModifier` buffers native verbs
- * into one atomic RPC with the modifier held; `evalJS` is not allowed
- * inside that scope, so the element's viewport-center point is
- * resolved beforehand.
+ * Option(alt)-click the X of the pane `cardId` fronts. `holdModifier`
+ * buffers native verbs into one atomic RPC with the modifier held; no read
+ * is allowed inside that scope, so the point is resolved beforehand.
  */
-export async function optionClickElement(app: App, selector: string): Promise<void> {
-  const point = await app.evalJS<{ x: number; y: number }>(
-    `(function(){
-      var el = document.querySelector(${JSON.stringify(selector)});
-      if (el === null) throw new Error("[at0040] option-click target missing: " + ${JSON.stringify(selector)});
-      var r = el.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    })()`,
-  );
+export async function optionClickCloseBox(app: App, cardId: string): Promise<void> {
+  const point = await chromePoint(app, cardId, CLOSE_BOX);
   await app.holdModifier(["alt"], async (inner) => {
     await inner.rpcCall<void>("nativeClick", { viewportPoint: point });
   });
+}
+
+/**
+ * The confirm popover in `cardId`'s page: whether it stands and what it asks.
+ * A card whose page is gone — it closed — stands none.
+ */
+export async function popoverIn(app: App, cardId: string): Promise<{ present: boolean; text: string | null }> {
+  return app
+    .body(cardId)
+    .evalJS<{ present: boolean; text: string | null }>(
+      `(function(){
+        var el = document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)});
+        if (el === null) return { present: false, text: null };
+        return { present: true, text: el.textContent };
+      })()`,
+    )
+    .catch(() => ({ present: false, text: null }));
+}
+
+/** Wait for the confirm popover to stand in `cardId`'s page. */
+export async function waitForPopover(app: App, cardId: string, timeoutMs: number): Promise<void> {
+  await app.body(cardId).waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}) !== null`,
+    { timeoutMs },
+  );
+}
+
+/** The confirm popover's rect in `cardId`'s page, in the shell's viewport points. */
+export async function popoverRect(app: App, cardId: string): Promise<ChromeRect | null> {
+  return chromeRectOf(app, cardId, CONFIRM_POPOVER_SELECTOR);
+}
+
+/** Press the confirm popover's button labelled `label`, in `cardId`'s page. */
+export async function pressPopoverButton(app: App, cardId: string, label: string): Promise<void> {
+  await app.body(cardId).evalJS<null>(
+    `(function(){
+      var btn = ${popoverButtonByText(label)};
+      if (btn === null) throw new Error("[at0040] " + ${JSON.stringify(label)} + " button missing");
+      btn.click();
+      return null;
+    })()`,
+  );
 }
 
 /** Two cards in a single pane → multi-tab pane. */

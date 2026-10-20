@@ -50,6 +50,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { chromePoint } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -72,8 +73,6 @@ const PANE_WIDTH = 420;
 const RESERVED_PX = PANE_WIDTH;
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
-const titleBar = (paneId: string): string =>
-  `${frame(paneId)} .tug-pane-title-bar`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -347,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("at0465 — the held-open slot", () => {
             x: Math.round(tile.left + tile.width * 0.25),
             y: Math.round(tile.top + 120),
           };
-          await app.nativeDragElementWithoutRelease(titleBar("p1"), target);
+          await app.nativeDragWithoutRelease(await chromePoint(app, "A", ".tug-pane-title-bar"), target);
 
           // ── 2a. A card in the air is what brings the badges out. ──
           // Mid-flight, because that is the whole moment they exist for: the

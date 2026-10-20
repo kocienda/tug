@@ -27,6 +27,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromePoint } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -67,8 +68,9 @@ function deckShape(): Record<string, unknown> {
 }
 
 const FRAME = (id: string) => `.tug-pane[data-pane-id="${id}"]`;
-const GRAB = `${FRAME("pA")} .tug-pane-title-bar .tug-pane-grab-handle`;
-const RESIZE_E = `${FRAME("pA")} .tug-pane-resize-e`;
+/** A's grab handle and east grip, drawn in A's own page and read there in the shell's points. */
+const GRAB = ".tug-pane-title-bar .tug-pane-grab-handle";
+const RESIZE_E = ".tug-pane-resize-e";
 
 interface Frame {
   x: number;
@@ -136,7 +138,7 @@ describe.skipIf(!SHOULD_RUN)("AT0711: pane gestures land in layout px under a zo
           // is what tells a snap that ran from one that did not.
           await seed(app);
           const snapDx = (B.x - (A.x + A.width)) * f;
-          const grab0 = await centre(app, GRAB);
+          const grab0 = await chromePoint(app, "A", GRAB);
           await app.withModifiersHeld(["alt"], async () => {
             await app.nativeDrag(grab0, { x: grab0.x + snapDx, y: grab0.y });
           });
@@ -144,7 +146,7 @@ describe.skipIf(!SHOULD_RUN)("AT0711: pane gestures land in layout px under a zo
 
           // ── Plain drag: N viewport px is N / f layout px.
           await seed(app);
-          const grab1 = await centre(app, GRAB);
+          const grab1 = await chromePoint(app, "A", GRAB);
           const rectBefore = await centre(app, FRAME("pA"));
           await app.nativeDrag(grab1, { x: grab1.x + DRAG.dx, y: grab1.y + DRAG.dy });
           const dragged = await changed(app, "pA", A);
@@ -155,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("AT0711: pane gestures land in layout px under a zo
           const rectAfter = await centre(app, FRAME("pA"));
 
           // ── Resize: the east edge follows the hand by N / f layout px.
-          const handle = await centre(app, RESIZE_E);
+          const handle = await chromePoint(app, "A", RESIZE_E);
           await app.nativeDrag(handle, { x: handle.x + RESIZE_DX, y: handle.y });
           const resized = await changed(app, "pA", dragged);
 

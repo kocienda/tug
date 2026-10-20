@@ -331,6 +331,19 @@
   z-index: var(--tug-z-drop-zone-indicator-rail);
 }
 
+/* The title band a release would merge onto: a tab dragged past its own bar,
+   or a ⌘-freed card over another pane's title. Drawn by the overlay
+   (`overlay/overlay-indication.ts`), outlined as a zone is, because it is the
+   same answer — the place the release goes. */
+.tug-merge-band-indicator {
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid var(--tug7-element-global-fill-normal-accent-rest);
+  border-radius: var(--tug-radius-sm);
+  background: var(--tug7-surface-highlight-primary-normal-snap-hover);
+}
+
 /* ---- Virtual sash ---- */
 .virtual-sash          { position: absolute; z-index: 9950; background: transparent; }
 .virtual-sash:hover    { background: var(--tug7-surface-highlight-primary-normal-snap-hover); }

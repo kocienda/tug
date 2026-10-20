@@ -1,5 +1,5 @@
 /**
- * The body's half of a surface the shell draws, and the two halves' shared
+ * The body's half of a surface the overlay draws, and the two halves' shared
  * tree arithmetic: a node's path survives the bus, a patch keeps the nodes
  * that still match (so a drawn scroller keeps its position), and the mirror
  * publishes the content it is shown, clicks the node a press names, and
@@ -8,8 +8,9 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { ShellSurface } from "../../bus/declarations/card";
-import { createSurfaceMirror, nodeAt, patchChildren, pathOf } from "../shell-surface";
+import type { CardSurface } from "../../bus/declarations/card";
+import { patchChildren } from "../../overlay/overlay-surface-drawer";
+import { createSurfaceMirror, nodeAt, pathOf } from "../surface-mirror";
 
 const dom = new JSDOM("<!doctype html><body></body>");
 const doc = dom.window.document;
@@ -81,7 +82,7 @@ describe("createSurfaceMirror", () => {
   const meta = { title: "Time", className: "session-telemetry-status-placard", growth: "up" as const, anchorX: 300, lineY: 580 };
 
   test("publishes the content on show, again when it changes, and null on release", async () => {
-    const sent: Array<ShellSurface | null> = [];
+    const sent: Array<CardSurface | null> = [];
     const mirror = createSurfaceMirror((s) => sent.push(s));
     const content = tree("<span>1:00</span>");
     const release = mirror.show(content, () => meta, () => {});
@@ -97,7 +98,7 @@ describe("createSurfaceMirror", () => {
   });
 
   test("publishes again when the page's viewport moves the line, and only then", async () => {
-    const sent: Array<ShellSurface | null> = [];
+    const sent: Array<CardSurface | null> = [];
     const mirror = createSurfaceMirror((s) => sent.push(s));
     let lineY = 580;
     const release = mirror.show(tree("<span>1:00</span>"), () => ({ ...meta, lineY }), () => {});
@@ -115,7 +116,7 @@ describe("createSurfaceMirror", () => {
     expect(sent[sent.length - 1]).toBeNull();
   });
 
-  test("clicks the node a press names, and runs the dismissal the shell asks for", () => {
+  test("clicks the node a press names, and runs the dismissal the drawn copy asks for", () => {
     const mirror = createSurfaceMirror(() => {});
     const content = tree('<div><button type="button">#a2</button></div>');
     const button = content.querySelector("button")!;
@@ -130,7 +131,7 @@ describe("createSurfaceMirror", () => {
   });
 
   test("a release after a newer show leaves the newer surface standing", () => {
-    const sent: Array<ShellSurface | null> = [];
+    const sent: Array<CardSurface | null> = [];
     const mirror = createSurfaceMirror((s) => sent.push(s));
     const releaseOld = mirror.show(tree("old"), () => meta, () => {});
     mirror.show(tree("new"), () => meta, () => {});

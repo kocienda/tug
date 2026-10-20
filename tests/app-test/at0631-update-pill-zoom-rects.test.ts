@@ -56,6 +56,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { overlayPage, overlayReady } from "./overlay-fixture";
+
+/** The page the pill, the wizard and their zoom are drawn in; the host's push stays the shell's. */
+const ui = (app: App) => overlayPage(app);
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -110,7 +114,7 @@ interface Box {
 }
 
 async function boxOf(app: App, selector: string): Promise<Box | null> {
-  return app.evalJS<Box | null>(
+  return ui(app).evalJS<Box | null>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(selector)});
        if (el === null) return null;
@@ -121,7 +125,7 @@ async function boxOf(app: App, selector: string): Promise<Box | null> {
 }
 
 async function elementCount(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+  return ui(app).evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 }
@@ -148,7 +152,7 @@ async function census(
   selector: string,
   wait: (ms: number) => Promise<void>,
 ): Promise<Sample[]> {
-  await app.evalJS<null>(
+  await ui(app).evalJS<null>(
     `(function () {
        window.__at0631 = { samples: [] };
        var t0 = performance.now();
@@ -191,7 +195,7 @@ async function census(
      })()`,
   );
   await wait(CENSUS_MS + 400);
-  return app.evalJS<Sample[]>(`window.__at0631.samples`);
+  return ui(app).evalJS<Sample[]>(`window.__at0631.samples`);
 }
 
 /**
@@ -204,7 +208,7 @@ async function conditions(
   app: App,
   arrived: string,
 ): Promise<{ motion: number; timing: number; marked: boolean }> {
-  return app.evalJS(
+  return ui(app).evalJS(
     `(function () {
        var root = getComputedStyle(document.documentElement);
        var el = document.querySelector(${JSON.stringify(arrived)});
@@ -219,7 +223,7 @@ async function conditions(
 
 /** Set the global timing scale, and read back what the deck computes. */
 async function setTiming(app: App, value: number): Promise<number> {
-  return app.evalJS<number>(
+  return ui(app).evalJS<number>(
     `(function () {
        document.documentElement.style.setProperty("--tug-timing", "${value}");
        return parseFloat(
@@ -345,6 +349,7 @@ describe.skipIf(!SHOULD_RUN)("AT0631: zoom rectangles between the pill and the w
           { timeoutMs: 20_000 },
         );
 
+        await overlayReady(app);
         // No action recorder is installed, and that is a claim rather than an
         // omission: nothing this file presses posts one. The pill's label and
         // the wizard's Close on a non-terminal stage both post nothing, and no
@@ -352,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)("AT0631: zoom rectangles between the pill and the w
         await app.evalJS<null>(
           `(window.__tugBridge.onUpdateState(${JSON.stringify(snapshot("available"))}), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await ui(app).waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PILL)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -377,7 +382,7 @@ describe.skipIf(!SHOULD_RUN)("AT0631: zoom rectangles between the pill and the w
           "the census caught frames at all — a stalled rAF is an occluded window, not a passing run",
         ).toBeGreaterThan(5);
 
-        await app.waitForCondition<boolean>(
+        await ui(app).waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WIZARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -446,7 +451,7 @@ describe.skipIf(!SHOULD_RUN)("AT0631: zoom rectangles between the pill and the w
           "at0631 home",
           `${back.length} frames, ${back.filter((s) => s.litCount > 0).length} with rectangles lit`,
         );
-        await app.waitForCondition<boolean>(
+        await ui(app).waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PILL)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -519,7 +524,7 @@ describe.skipIf(!SHOULD_RUN)("AT0631: zoom rectangles between the pill and the w
           "the panel is fully visible on the first frame it is committed in",
         ).toBe(1);
         expect(
-          await app.evalJS<boolean>(
+          await ui(app).evalJS<boolean>(
             `document.querySelector(${JSON.stringify(WIZARD)}).hasAttribute("data-zoom")`,
           ),
           "a run that planted nothing marks nothing",

@@ -38,6 +38,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App, type BodyApp } from "./_harness";
+import { restoreGateGone } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -194,7 +195,10 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await app.getActiveCardId()).toBe("H");
 
           const before = await textCardIds(app);
-          // The menu renders in A's body, where it was raised.
+          // The resumed card's restore gate is the overlay's claim on the
+          // whole window until its reveal settles; the right-click is made
+          // once it has gone. The menu renders in A's body, where it was raised.
+          await restoreGateGone(app);
           await app.body("A").nativeRightClickAtElement(HEADER_REF);
           await app.body("A").waitForCondition<boolean>(
             `document.querySelector('[data-item-action="open-file"]') !== null`,

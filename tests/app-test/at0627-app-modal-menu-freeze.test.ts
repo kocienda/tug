@@ -56,6 +56,10 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { overlayPage, overlayReady } from "./overlay-fixture";
+
+/** The page the wizards and the pill are drawn in; what drives them stays the shell's. */
+const ui = (app: App) => overlayPage(app);
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -184,6 +188,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20_000 },
           );
 
+          await overlayReady(app);
           // ---- At rest, both tiers are live -----------------------------
           //
           // Asserted before the wizard so a gate that was dark for some other
@@ -196,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- The wizard takes the app modally -------------------------
           await push(app, 1);
-          await app.waitForCondition<boolean>(
+          await ui(app).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(WIZARD)}) !== null`,
             { timeoutMs: 10_000 },
           );
@@ -228,8 +233,8 @@ describe.skipIf(!SHOULD_RUN)(
           // a download behind a closed panel keeps running — so the only
           // thing that can re-enable these items is the store letting go.
           await waitForClickable(app, CLOSE);
-          await app.click(CLOSE);
-          await app.waitForCondition<boolean>(
+          await ui(app).click(CLOSE);
+          await ui(app).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(WIZARD)}) === null`,
             { timeoutMs: 10_000 },
           );
@@ -272,6 +277,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20_000 },
           );
 
+          await overlayReady(app);
           // ---- ConfigureTug takes the app -------------------------------
           //
           // The required wizard is suppressed under the harness, so the
@@ -281,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("configure-tug", {}), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await ui(app).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SETUP)}) !== null`,
             { timeoutMs: 10_000 },
           );
@@ -294,7 +300,7 @@ describe.skipIf(!SHOULD_RUN)(
           // is reported as a wizard that opened instead of as a pill that
           // never came — the pill is suppressed while the wizard is up, so
           // waiting on it names the symptom and hides the cause.
-          await app.waitForCondition<boolean>(
+          await ui(app).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(PILL)}) !== null
                || document.querySelector(${JSON.stringify(WIZARD)}) !== null`,
             { timeoutMs: 10_000 },
@@ -325,8 +331,8 @@ describe.skipIf(!SHOULD_RUN)(
           // presses again and gets the wizard. A queued request would have
           // raised it the instant Done landed, before this second push.
           await waitForClickable(app, SETUP_DONE);
-          await app.click(SETUP_DONE);
-          await app.waitForCondition<boolean>(
+          await ui(app).click(SETUP_DONE);
+          await ui(app).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SETUP)}) === null`,
             { timeoutMs: 10_000 },
           );
@@ -337,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(0);
 
           await push(app, 2);
-          await app.waitForCondition<boolean>(
+          await ui(app).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(WIZARD)}) !== null`,
             { timeoutMs: 10_000 },
           );
@@ -358,7 +364,7 @@ describe.skipIf(!SHOULD_RUN)(
 );
 
 async function elementCount(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+  return ui(app).evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 }
@@ -370,8 +376,8 @@ async function elementCount(app: App, selector: string): Promise<number> {
  * button is no longer.
  */
 async function waitForClickable(app: App, selector: string): Promise<void> {
-  await app.evalJS<null>(`(window.__at0627 = { box: null }, null)`);
-  await app.waitForCondition<boolean>(
+  await ui(app).evalJS<null>(`(window.__at0627 = { box: null }, null)`);
+  await ui(app).waitForCondition<boolean>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(selector)});
        if (el === null) { window.__at0627.box = null; return false; }

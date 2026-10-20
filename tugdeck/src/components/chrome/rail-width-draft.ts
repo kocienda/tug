@@ -72,7 +72,7 @@
  *
  * **The rollback belongs to whoever wrote the draft** ([L32]). Every inline
  * style this writes is saved first and given back on cancel; every
- * acquisition it makes — the members' marks, the occlusion bracket, the
+ * acquisition it makes — the members' marks, the
  * scroll-preservation episodes, the snap guides — is released by one
  * idempotent path that runs on commit, cancel and unmount alike ([L27]).
  *
@@ -121,7 +121,6 @@ import {
   beginResizeEpisode,
   type ResizeEpisodeHandle,
 } from "@/lib/resize-episode";
-import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-controller";
 import { group } from "@/components/tugways/tug-animator";
 import { landByDeadline } from "@/lib/land-by-deadline";
 import { CHROME_IN_BODY_ATTRIBUTE } from "@/lib/chrome-placement";
@@ -414,11 +413,6 @@ class RailWidthDraft implements RailWidthGesture {
       const travel = parseRailTravel(el.getAttribute(RAIL_TRAVEL_ATTR));
       if (travel !== null) carried.push(carry(el, travel));
     }
-    for (const el of container.querySelectorAll<HTMLElement>(
-      `[data-rail-shadow="${side}"]:not([data-rail-empty])`,
-    )) {
-      carried.push(carry(el, null));
-    }
     const held: Held[] = [];
     for (const el of members) {
       if (!el.hasAttribute(RAIL_REFLOW_ATTR)) continue;
@@ -666,9 +660,6 @@ class RailWidthDraft implements RailWidthGesture {
     readout.setAttribute("aria-hidden", "true");
     draft.container.appendChild(readout);
     draft.readout = readout;
-    // A shrinking rail exposes what it hid, with no store commit until the
-    // release, so every pane is revealed for the gesture's length.
-    paneOcclusionGesture.begin();
   }
 
   /** Every inline style the preview wrote, given back as it was found. */
@@ -711,7 +702,6 @@ class RailWidthDraft implements RailWidthGesture {
     if (draft.readout !== null) this.fadeReadout(draft, null);
     if (draft.latched) {
       for (const el of draft.members) el.removeAttribute("data-pointer-owned");
-      paneOcclusionGesture.end();
     }
     for (const episode of draft.episodes) episode.end();
   }

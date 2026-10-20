@@ -36,11 +36,11 @@ import { installScrollPhaseBridge } from "./lib/scroll-phase-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
 import { attachLiveTurnsDeck } from "./lib/live-turns-store";
 import { installBodyShell } from "./lib/body-shell";
+import { installOverlayShell, requestOverlay } from "./lib/overlay-shell";
 import { installPage, page } from "./bus/page";
 import { createPageBus, installPageBus, pageBus } from "./bus/page-bus";
 import { connectionTransport } from "./bus/transport";
-import { PointerClaimTracker } from "./lib/pointer-claim";
-import { bodyPlacementDiag } from "./lib/body-placement";
+import { cardPlacementDiag } from "./lib/card-placement";
 import {
   reassertOnReconnect,
   restoreSessions,
@@ -251,6 +251,8 @@ registerConnectionLifecycle(connectionLifecycle);
 // (`bus/page-bus.ts`).
 installPage({ role: "shell", cardId: null, componentId: null });
 installPageBus(createPageBus(connectionTransport(connection, connectionLifecycle), page));
+// The overlay above every card loads beside this page, not after it ([B07]).
+requestOverlay();
 
 // Re-probe Claude login on every RECONNECT. tugcast answers with
 // `claude_auth_result`, which feeds the app-level `authStore`. The probe is
@@ -694,14 +696,13 @@ async function loadTestSurface(
   // side of each body — its facts, its advice, its context, its focus, its
   // teardown — is wired here, before the restore pass below hands any off.
   installBodyShell(connection, deck);
+  // The overlay's half of the shell: what the overlay shows, crossing from
+  // here, and what it asks, answered here ([B07]).
+  installOverlayShell(deck);
   // Then the shell says hello to every body, and again on every open: a
   // body that outlived a shell reload hears it and answers, and is sent
   // every store it reads.
   pageBus().announce();
-  // And what the shell raises over a body — a popover, a sheet, a scrim —
-  // keeps the pointer: the host passes everything else through to the body
-  // beneath. Watches the overlay root, which arrives with the deck's mount.
-  new PointerClaimTracker().start();
 
   // Sweep durable card-state bags for cards no longer in the deck. The
   // close path flushes a card's last bag to tugbank but never deletes it,
@@ -936,7 +937,7 @@ async function loadTestSurface(
        * What the shell last told the host about where its bodies stand, and
        * why it last declined to measure — null when the host makes no bodies.
        */
-      getBodyPlacement: () => bodyPlacementDiag(),
+      getBodyPlacement: () => cardPlacementDiag(),
       /**
        * Every space — its id, name, whether it is active, and its deck ([P03]).
        * The active space's deck is the live one `getDeckState()` returns; the

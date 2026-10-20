@@ -14,8 +14,8 @@
  *  2. The drag keeps the slot and clears the preset stamp: the width is a raw
  *     one nobody named, committed the way the width menu commits.
  *  3. The dragged edge lands under the pointer, the pinned edge does not move,
- *     and the frame's rect at pointer-up is its settled rect — nothing lands
- *     after the gesture ends.
+ *     and the card's rect where the hand held it is its settled rect — nothing
+ *     lands after the gesture ends.
  *  4. Freeing a card by its title bar (the ⌘-drag) still evicts it: the rule
  *     covers edges, never the gesture that means "out of the arrangement".
  *  5. Under "Releases" every edge is a handle again, as it always was.
@@ -33,6 +33,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromePoint, heldRectOf } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -74,8 +75,11 @@ interface Rect {
 }
 
 const FRAME = (paneId: string) => `.tug-pane[data-pane-id="${paneId}"]`;
+/** Each pane's one card: its grips and title bar are drawn in that card's page. */
+const CARD_OF: Readonly<Record<string, string>> = { p1: "A", p2: "B" };
 
 async function rectOf(app: App, paneId: string): Promise<Rect> {
+  // card-dom: shell — the arranged rect is the shell's stand-in's.
   return app.evalJS<Rect>(
     `(function () {
       var r = document.querySelector(${JSON.stringify(FRAME(paneId))}).getBoundingClientRect();
@@ -84,16 +88,14 @@ async function rectOf(app: App, paneId: string): Promise<Rect> {
   );
 }
 
-/** The edges this pane offers as handles, in DOM order. */
+/** The edges this pane offers as handles, in order, as its stand-in names them to the host. */
 async function handlesOf(app: App, paneId: string): Promise<string[]> {
-  return app.evalJS<string[]>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(`${FRAME(paneId)} > .tug-pane-resize`)}))
-      .map(function (el) {
-        var m = /tug-pane-resize-(\\w+)/.exec(el.className.replace("tug-pane-resize ", ""));
-        return m ? m[1] : "?";
-      })`,
-  );
+  return app.evalJS<string[]>(gripsScript(paneId));
 }
+
+/** In the shell: a stand-in's offered edges (`data-grips`). */
+const gripsScript = (paneId: string): string =>
+  `(document.querySelector(${JSON.stringify(FRAME(paneId))})?.getAttribute("data-grips") ?? "").split(" ").filter(function (g) { return g.length > 0; })`;
 
 async function storedPane(
   app: App,
@@ -112,15 +114,13 @@ async function gripOf(
   paneId: string,
   edge: string,
 ): Promise<{ x: number; y: number }> {
-  return app.evalJS(
-    `(function () {
-      var r = document.querySelector(${JSON.stringify(`${FRAME(paneId)} > .tug-pane-resize-${edge}`)}).getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    })()`,
-  );
+  return chromePoint(app, CARD_OF[paneId], `.tug-pane-resize-${edge}`);
 }
 
-/** Drag a handle, and read the frame at pointer-up and again once settled. */
+/**
+ * Drag a handle, and read the card where the hand holds it — its view, which
+ * the host carries — and its frame once the release has settled.
+ */
 async function dragEdge(
   app: App,
   paneId: string,
@@ -130,11 +130,11 @@ async function dragEdge(
   const grip = await gripOf(app, paneId, edge);
   const to = { x: grip.x + dx, y: grip.y };
   await app.nativeDragWithoutRelease(grip, to);
+  const held = (await heldRectOf(app, CARD_OF[paneId]))!;
   await app.nativeMouseUp(to);
-  const atUp = await rectOf(app, paneId);
   await new Promise((r) => setTimeout(r, SETTLE_MS));
   const settled = await rectOf(app, paneId);
-  return { grip, atUp, settled };
+  return { grip, atUp: { left: held.left, right: held.right, top: held.top, bottom: held.bottom }, settled };
 }
 
 function expectSameRect(a: Rect, b: Rect, what: string): void {
@@ -153,8 +153,9 @@ describe.skipIf(!SHOULD_RUN)(
         const app = await launchTugApp({ testName: "at0692-resize-keeps-slot-fit" });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          // card-dom: shell — the stand-in's offered edges.
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${FRAME("p2")} > .tug-pane-resize`)}) !== null`,
+            `${gripsScript("p2")}.length > 0`,
             { timeoutMs: 8_000 },
           );
 
@@ -166,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)(
           const p1Before = await rectOf(app, "p1");
           const p1 = await dragEdge(app, "p1", "e", -150);
           note(`p1 right ${p1Before.right} → ${p1.atUp.right} (pointer ${p1.grip.x - 150})`);
-          expectSameRect(p1.atUp, p1.settled, "slot 0 at pointer-up vs settled");
+          expectSameRect(p1.atUp, p1.settled, "slot 0 held vs settled");
           expect(Math.abs(p1.settled.left - p1Before.left), "the pinned left edge stands").toBeLessThanOrEqual(0.5);
           expect(
             Math.abs(p1.settled.right - p1Before.right - -150),
@@ -183,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)(
           const p2Before = await rectOf(app, "p2");
           const p2 = await dragEdge(app, "p2", "w", 120);
           note(`p2 left ${p2Before.left} → ${p2.atUp.left} (pointer ${p2.grip.x + 120})`);
-          expectSameRect(p2.atUp, p2.settled, "last slot at pointer-up vs settled");
+          expectSameRect(p2.atUp, p2.settled, "last slot held vs settled");
           expect(Math.abs(p2.settled.right - p2Before.right), "the pinned right edge stands").toBeLessThanOrEqual(0.5);
           expect(
             Math.abs(p2.settled.left - p2Before.left - 120),
@@ -195,29 +196,27 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── 5. Under "Releases", every edge is a handle again. ──
           await app.dispatchControlAction("set-resize-slot", { resizeSlot: "release" });
+          // card-dom: shell — the stand-in's offered edges.
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(`${FRAME("p1")} > .tug-pane-resize`)}).length === 8`,
+            `${gripsScript("p1")}.length === 8`,
             { timeoutMs: 8_000 },
           );
           await app.dispatchControlAction("set-resize-slot", { resizeSlot: "keep" });
+          // card-dom: shell — the stand-in's offered edges.
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(`${FRAME("p1")} > .tug-pane-resize`)}).length === 2`,
+            `${gripsScript("p1")}.length === 2`,
             { timeoutMs: 8_000 },
           );
 
           // ── 4. The title bar's ⌘-drag still frees the card. ──
-          const bar = await app.evalJS<{ x: number; y: number }>(
-            `(function () {
-              var r = document.querySelector(${JSON.stringify(`${FRAME("p1")} [data-testid="tug-pane-title-bar"]`)}).getBoundingClientRect();
-              return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-            })()`,
-          );
+          const bar = await chromePoint(app, "A", '[data-testid="tug-pane-title-bar"]');
           await app.holdModifier(["cmd"], async (inner) => {
             await inner.rpcCall<void>("nativeDrag", {
               from: bar,
               to: { x: bar.x + 40, y: bar.y + 160 },
             });
           });
+          // card-dom: shell — the deck's stored slot.
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getDeckState().panes.find(function (p) { return p.id === "p1"; }).slot === undefined`,
             { timeoutMs: 8_000 },

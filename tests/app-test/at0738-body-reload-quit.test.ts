@@ -13,11 +13,10 @@
  * the teardown fires no forced kill.
  *
  * @family at0738-body
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-facts-store.ts
  * @covers tugdeck/src/lib/body-command-route.ts
- * @covers tugdeck/src/lib/pointer-claim.ts
- * @covers tugdeck/src/components/chrome/body-placement-beacon.tsx
+ * @covers tugdeck/src/components/chrome/card-placement-beacon.tsx
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-handoff.ts
  * @covers tugdeck/src/lib/body-cards-store.ts

@@ -22,7 +22,6 @@ const CANVAS_MODULES = [
   "components/chrome/deck-canvas.tsx",
   "components/chrome/settle-engine.ts",
   "components/chrome/pane-focus-controller.ts",
-  "components/chrome/pane-occlusion-controller.ts",
   "deck-store-selectors.ts",
   "lib/layout-imposer.ts",
 ];

@@ -9,7 +9,7 @@
  *     standing in its slot is the run's.
  *  2. Dragging the bottom edge up gives the card that height: its top stands,
  *     its bottom is under the hand, the height is stored on the pane, and the
- *     frame at pointer-up is the frame once settled.
+ *     card where the hand held it is the frame once settled.
  *  3. Dragging it to or past the run's end deletes the height rather than
  *     writing the run's — the card fills its run again.
  *  4. The width menu's Fill Height row does the same from a menu, and is
@@ -26,6 +26,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromeRect, heldRectOf } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -34,6 +35,8 @@ const TEST_TIMEOUT_MS = 120_000;
 const SETTLE_MS = 900;
 
 const PANE = '.tug-pane[data-pane-id="p1"]';
+/** p1's card, which draws its grips, its title bar and its width menu in its own page. */
+const CARD = "A";
 const WIDTH_BUTTON = '[data-testid="tug-pane-title-bar-width-button"]';
 const WIDTH_MENU = '[data-testid="tug-pane-title-bar-width-menu"]';
 
@@ -66,6 +69,7 @@ interface Rect {
 }
 
 async function rect(app: App): Promise<Rect> {
+  // card-dom: shell — the arranged rect is the shell's stand-in's.
   return app.evalJS<Rect>(
     `(function () {
       var r = document.querySelector(${JSON.stringify(PANE)}).getBoundingClientRect();
@@ -74,14 +78,11 @@ async function rect(app: App): Promise<Rect> {
   );
 }
 
+/** In the shell: p1's stand-in's offered edges (`data-grips`), in order. */
+const GRIPS = `(document.querySelector(${JSON.stringify(PANE)})?.getAttribute("data-grips") ?? "").split(" ").filter(function (g) { return g.length > 0; })`;
+
 async function handles(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(`${PANE} > .tug-pane-resize`)}))
-      .map(function (el) {
-        var m = /tug-pane-resize-(\\w+)/.exec(el.className.replace("tug-pane-resize ", ""));
-        return m ? m[1] : "?";
-      })`,
-  );
+  return app.evalJS<string[]>(GRIPS);
 }
 
 async function stored(
@@ -97,8 +98,8 @@ async function stored(
 
 /**
  * Drag the bottom edge by `dy` — or, with `"window-end"`, to the window's last
- * row, which is past the run's end — reading the frame at pointer-up and
- * settled. The press lands on the handle's half inside the frame: the run
+ * row, which is past the run's end — reading the card's view where the hand
+ * holds it and its frame settled. The press lands on the handle's half inside the frame: the run
  * ends a gap above the window's bottom, so the handle's centre can sit on the
  * edge of what the pointer can reach.
  */
@@ -106,18 +107,15 @@ async function dragBottom(
   app: App,
   dy: number | "window-end",
 ): Promise<{ atUp: Rect; settled: Rect }> {
-  const grip = await app.evalJS<{ x: number; y: number; end: number }>(
-    `(function () {
-      var r = document.querySelector(${JSON.stringify(`${PANE} > .tug-pane-resize-s`)}).getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + 1, end: window.innerHeight - 1 };
-    })()`,
-  );
+  const handle = await chromeRect(app, CARD, ".tug-pane-resize-s");
+  const grip = { x: handle.x + handle.width / 2, y: handle.y + 1, end: (await app.evalJS<number>("window.innerHeight")) - 1 };
   const to = { x: grip.x, y: dy === "window-end" ? grip.end : grip.y + dy };
   await app.nativeDragWithoutRelease(grip, to);
+  // Where the hand holds it: the view the host carries, ahead of the commit.
+  const held = (await heldRectOf(app, CARD))!;
   await app.nativeMouseUp(to);
-  const atUp = await rect(app);
   await new Promise((r) => setTimeout(r, SETTLE_MS));
-  return { atUp, settled: await rect(app) };
+  return { atUp: { top: held.top, bottom: held.bottom }, settled: await rect(app) };
 }
 
 function expectSame(a: Rect, b: Rect, what: string): void {
@@ -127,13 +125,14 @@ function expectSame(a: Rect, b: Rect, what: string): void {
 
 /** Open the width menu and read whether its Fill Height row is checked. */
 async function openWidthMenu(app: App): Promise<{ present: boolean; checked: boolean }> {
-  await app.revealPaneControls(PANE);
-  await app.nativeClickAtElement(`${PANE} ${WIDTH_BUTTON}`);
-  await app.waitForCondition<boolean>(
+  const page = app.body(CARD);
+  await page.revealPaneControls();
+  await page.nativeClickAtElement(WIDTH_BUTTON);
+  await page.waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(WIDTH_MENU)}).length > 0`,
     { timeoutMs: 5_000 },
   );
-  return app.evalJS(
+  return page.evalJS(
     `(function () {
       var rows = Array.prototype.slice.call(
         document.querySelector(${JSON.stringify(WIDTH_MENU)}).querySelectorAll(".tug-menu-item"));
@@ -158,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${PANE} > .tug-pane-resize-s`)}) !== null`,
+            `${GRIPS}.indexOf("s") >= 0`,
             { timeoutMs: 8_000 },
           );
 
@@ -169,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ── 2. Up by 200: the card stands at the top of its run at it. ──
           const up = await dragBottom(app, -200);
           note(`bottom ${full.bottom} → ${up.settled.bottom}; top ${full.top} → ${up.settled.top}`);
-          expectSame(up.atUp, up.settled, "at pointer-up vs settled");
+          expectSame(up.atUp, up.settled, "held vs settled");
           expect(Math.abs(up.settled.top - full.top), "the top stands").toBeLessThanOrEqual(0.5);
           expect(Math.abs(up.settled.bottom - (full.bottom - 200)), "the bottom is under the hand").toBeLessThanOrEqual(1);
           const shorter = await stored(app);
@@ -178,7 +177,10 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── 3. Down past the run's end: the height is deleted, not written. ──
           const back = await dragBottom(app, "window-end");
-          expectSame(back.atUp, back.settled, "back at pointer-up vs settled");
+          // Held past the run's end, the edge stands at the run's end, not
+          // the canvas's: the run is the ceiling the host carries it under.
+          note(`past the run's end: held bottom ${back.atUp.bottom}, settled ${back.settled.bottom}`);
+          expectSame(back.atUp, back.settled, "back while held vs settled");
           expectSame(back.settled, full, "back to filling the run");
           const filled = await stored(app);
           expect(filled.slotHeight, "a card dragged to the run's end has no height of its own").toBeNull();
@@ -190,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)(
           const menu = await openWidthMenu(app);
           expect(menu.present, "the width menu offers Fill Height").toBe(true);
           expect(menu.checked, "unchecked while the card stands short of its run").toBe(false);
-          await app.nativeClickAtElement(`${WIDTH_MENU} [data-at0695-fill]`);
+          await app.body(CARD).nativeClickAtElement(`${WIDTH_MENU} [data-at0695-fill]`);
           await app.waitForCondition<boolean>(
             `(window.tugdeck.diag.getDeckState().panes.find(function (p) { return p.id === "p1"; }).slotHeight ?? null) === null`,
             { timeoutMs: 8_000 },

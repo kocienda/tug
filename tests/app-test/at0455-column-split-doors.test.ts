@@ -63,6 +63,7 @@ import {
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
   columnsRecord,
+  chromePage,
   deckShape,
   frame,
   markedSlots,
@@ -144,14 +145,15 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         // box. Compared rect to rect rather than against pixel constants: the
         // claim is that they AGREE, which stays true through a future retune of
         // what the size is.
-        const chipBoxes = await app.evalJS<{
+        // p3's chrome is drawn in its card's own page, the one pane there.
+        const p3 = chromePage(app, "p3");
+        const chipBoxes = await p3.evalJS<{
           slot: { width: number; height: number } | null;
           column: { width: number; height: number } | null;
         }>(
           `(function () {
-            var pane = document.querySelector(${JSON.stringify(frame("p3"))});
             function box(sel) {
-              var el = pane === null ? null : pane.querySelector(sel);
+              var el = document.querySelector(sel);
               if (el === null) return null;
               var r = el.getBoundingClientRect();
               return { width: r.width, height: r.height };
@@ -175,9 +177,9 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         // A stacked column says how many cards share the slot — the fact the
         // eye cannot get, since the pane you are looking at is the top one.
         expect(
-          await app.evalJS<string | null>(
+          await p3.evalJS<string | null>(
             `(function () {
-              var el = document.querySelector(${JSON.stringify(frame("p3"))} + ' [data-slot="tug-column-badge"]');
+              var el = document.querySelector('[data-slot="tug-column-badge"]');
               return el === null ? null : el.getAttribute("data-kind") + ":" + el.textContent.trim();
             })()`,
           ),
@@ -185,10 +187,9 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         ).toBe("stack:2");
 
         // ── The badge menu is the other door, and it names the place. ──
-        const badge = `${frame("p3")} [data-testid="tug-pane-title-bar-stack-badge"]`;
-        await app.click(badge);
+        await p3.click('[data-testid="tug-pane-title-bar-stack-badge"]');
         await wait(400);
-        const rows = await app.evalJS<string[]>(
+        const rows = await p3.evalJS<string[]>(
           `Array.from(document.querySelectorAll('[data-testid="tug-pane-title-bar-stack-menu"] [role="menuitem"], [data-testid="tug-pane-title-bar-stack-menu"] [role="menuitemradio"]'))
             .map(function (el) { return (el.textContent || "").trim(); })`,
         );
@@ -196,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
           rows,
           "a stacked column's badge menu offers Split Vertically below its members",
         ).toContain("Split Vertically");
-        await app.click(
+        await p3.click(
           `[data-testid="tug-pane-title-bar-stack-menu"] [role="menuitem"]:last-child`,
         );
         await wait(AFTER_LAND_MS);
@@ -215,7 +216,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         // storing `split` with nothing to divide — and with the row gone, no
         // way to say otherwise. The mark stays instead, still saying what the
         // slot is set to and still pressable, so there is a way back.
-        await app.click(`${frame("p2")} [data-testid="tug-pane-title-bar"]`);
+        await chromePage(app, "p2").click('[data-testid="tug-pane-title-bar"]');
         await wait(300);
         await app.dispatchControlAction("close");
         await app.waitForCondition<boolean>(
@@ -250,9 +251,9 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         // (`tuglaws/pane-model.md`, "A badge names the arrangement the place
         // is SET to").
         expect(
-          await app.evalJS<string | null>(
+          await chromePage(app, "p1").evalJS<string | null>(
             `(function () {
-              var el = document.querySelector(${JSON.stringify(frame("p1"))} + ' [data-slot="tug-column-badge"]');
+              var el = document.querySelector('[data-slot="tug-column-badge"]');
               return el === null ? null : el.getAttribute("data-kind") + ":" + el.textContent.trim();
             })()`,
           ),

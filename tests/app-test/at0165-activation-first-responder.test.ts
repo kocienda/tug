@@ -40,6 +40,7 @@ const FEED_CODE_OUTPUT = 0x40;
 const REQUEST_ID = "at0165-perm-1";
 
 const CARD = (id: string) => `[data-card-id="${id}"]`;
+/** A tab in a pane's bar, which the pane's active card draws in its own page. */
 const TAB = (id: string) => `[data-testid="tug-tab-${id}"]`;
 const DIALOG = `${CARD("A")} [data-slot="session-permission-dialog"]`;
 
@@ -144,10 +145,11 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A") && window.__tug.assertHostRootRegistered("B")`,
         );
-        await app.waitForCondition<boolean>(exists(TAB("B")), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(exists(TAB("B")), { timeoutMs: 6000 });
 
-        // Activate B (it becomes first responder), then close it.
-        await app.nativeClickAtElement(TAB("B"));
+        // Activate B (it becomes first responder), then close it. The bar is
+        // A's page's while A is the active card.
+        await app.body("A").nativeClickAtElement(TAB("B"));
         await settle();
         expect(await app.evalJS<boolean>(frWithin(CARD("B"))), "B holds first responder").toBe(true);
         await cmdKey(app, "KeyW", "w");
@@ -216,13 +218,13 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
         // reaches it.
         // Switch to B (displaces the chain's first responder onto B), then back
         // to A. The dialog survives ([P20]/[P21]).
-        await app.nativeClickAtElement(TAB("B"));
+        await app.body("A").nativeClickAtElement(TAB("B"));
         await settle();
         expect(
           await app.evalJS<boolean>(frWithin(CARD("A"))),
           "switching to B moves the first responder off A",
         ).toBe(false);
-        await app.nativeClickAtElement(TAB("A"));
+        await app.body("B").nativeClickAtElement(TAB("A"));
         await app.body("A").waitForCondition<boolean>(exists(DIALOG), { timeoutMs: 6000 });
         await settle();
 
@@ -318,7 +320,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.waitForCondition<boolean>(exists(TAB("A")), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(exists(TAB("A")), { timeoutMs: 6000 });
 
         // Click into card A so it (its card responder) is first responder.
         await app.body("A").nativeClickAtElement(CARD("A"));

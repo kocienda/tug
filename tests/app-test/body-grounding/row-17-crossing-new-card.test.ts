@@ -11,7 +11,7 @@
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  */
 
 import { describe, test } from "bun:test";

@@ -6,7 +6,7 @@
  * changing their size posts the host a beat plan — each body's rect at the
  * start and end of each beat, the curve the chrome beat was built from, and
  * the settle's start on the clock both sides read — and the host runs each
- * body's container as Core Animation on it (`lib/body-beat-plan.ts`,
+ * body's container as Core Animation on it (`lib/card-plan.ts`,
  * `BodyViewController.runPlan`). Both of the settle's planning sites are
  * driven: the flow strip's prelaunched slide (Go to slot, out and back, in
  * a four-up flow band holding two body cards) and the Last pass's move

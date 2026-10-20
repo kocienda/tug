@@ -8,8 +8,9 @@ import Foundation
 /// A card's view is its pane's rect outset by an apron on every side, so the
 /// border, shadow and grips its page draws past the pane rect are not
 /// clipped. Inside the pane rect a point is the card's; in the apron it is the
-/// card's only along an edge the shell says the pane offers as a grip, and a
-/// corner only where its own grip or both edges beside it are offered.
+/// card's only within the grip reach of an edge the shell says the pane offers
+/// as a grip, and a corner only where its own grip or both edges beside it are
+/// offered.
 ///
 /// The drag and resize arithmetic are exact ports of the deck's own
 /// (`snap.ts`'s `computeSnap`, `computeResizeSnap`, `computeEdgeVisibility`,
@@ -44,14 +45,21 @@ enum CardGeometry {
     static let moveThreshold: CGFloat = 3
     /// The gap between imposed panes; a snap overlaps adjacent edges by its negation.
     static let impositionGap: CGFloat = 5
-    /// How far a card's view reaches past its pane rect on every side.
-    static let apron: CGFloat = 6
+    /// How far a card's view reaches past its pane rect on every side: room
+    /// for the grips' overhang, the frame's shadow and a rail's shadow into
+    /// its gutter.
+    static let apron: CGFloat = 10
+    /// How far past its pane rect a press is the card's, along an edge it
+    /// grips. Narrower than the apron: the rest of the apron is paint, and a
+    /// press there reaches the card or the canvas beneath.
+    static let gripReach: CGFloat = 6
 }
 
 /// Which points of a card's view are the card's.
 struct CardHitShape: Equatable {
     var paneRect: CGRect
     var apron: CGFloat = CardGeometry.apron
+    var gripReach: CGFloat = CardGeometry.gripReach
     var grips: Set<ResizeEdge>
 
     /// The card's view: the pane rect outset by the apron.
@@ -59,7 +67,8 @@ struct CardHitShape: Equatable {
 
     func contains(_ point: CGPoint) -> Bool {
         if paneRect.contains(point) { return true }
-        guard viewRect.contains(point) else { return false }
+        let reach = min(gripReach, apron)
+        guard paneRect.insetBy(dx: -reach, dy: -reach).contains(point) else { return false }
         let above = point.y < paneRect.minY
         let below = point.y >= paneRect.maxY
         let left = point.x < paneRect.minX
@@ -474,5 +483,72 @@ struct CardGestureTracker {
             }
             return Step(rect: viewport(r), moved: true, snapX: snapX, snapY: snapY)
         }
+    }
+}
+
+/// Which card a point is.
+///
+/// The cards stand over the shell's web view, and a point a card's hit shape
+/// claims is that card's; anywhere else it falls to the shell beneath. This
+/// is that rule over plain rects, so it is tested without a window. Frames
+/// are in the shell's viewport coordinates — top-left origin, CSS px, which
+/// equal the shell view's points because the shell's `pageZoom` stays 1.0.
+struct CardHitRegion: Equatable {
+    /// Where the overlay takes the pointer (`overlayClaim`): nowhere, these
+    /// rects, or the whole window.
+    enum Claim: Equatable {
+        case none
+        case rects([CGRect])
+        case all
+    }
+
+    /// The frames of the cards placed visible. A hidden card is never here.
+    var visibleFrames: [CGRect] = []
+    /// The shell's own controls over each visible card — the place seams —
+    /// parallel to `visibleFrames`: a point on one is the shell's.
+    var visibleGrips: [[CGRect]] = []
+    /// Each visible card's hit shape, parallel to `visibleFrames`, or nil
+    /// where a card has none and its frame answers. A card's view reaches the
+    /// apron past its pane, and a point there is the card's only along an
+    /// edge it grips.
+    var visibleShapes: [CardHitShape?] = []
+
+    /// Whether a viewport point belongs to a card rather than to the shell.
+    func passesThrough(_ point: CGPoint) -> Bool {
+        frameIndex(at: point) != nil
+    }
+
+    /// The index into `visibleFrames` of the card a point is, or nil when
+    /// the point is the shell's. Front to back, the first card whose shell
+    /// controls or shape hold the point answers: a seam keeps the point for
+    /// the shell, and a card's shape takes it.
+    func frameIndex(at point: CGPoint) -> Int? {
+        for (index, frame) in visibleFrames.enumerated() {
+            if index < visibleShapes.count, let shape = visibleShapes[index] {
+                if index < visibleGrips.count, visibleGrips[index].contains(where: { $0.contains(point) }) { return nil }
+                if shape.contains(point) { return index }
+                continue
+            }
+            if index < visibleGrips.count, visibleGrips[index].contains(where: { $0.contains(point) }) { return nil }
+            if frame.contains(point) { return index }
+        }
+        return nil
+    }
+}
+
+/// An `overlayClaim` body: `{all: true}`, or `{rects: [...]}`, where an empty
+/// list is no claim. Anything else — a rect that is not one, neither field —
+/// is refused whole.
+extension CardHitRegion.Claim: Decodable {
+    private enum CodingKeys: String, CodingKey { case all, rects }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if try container.decodeIfPresent(Bool.self, forKey: .all) == true {
+            self = .all
+            return
+        }
+        let rects = try container.decode([PlanRect].self, forKey: .rects).map(\.cgRect)
+        self = rects.isEmpty ? .none : .rects(rects)
     }
 }

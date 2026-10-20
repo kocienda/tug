@@ -37,7 +37,7 @@ import {
   type ArrangementDeckValue,
   type ArrangementSpaces,
 } from "../../bus/declarations/arrangement";
-import { paneRevealCard } from "../../bus/declarations/pane";
+import { paneRevealCard, paneRevealForQuestion } from "../../bus/declarations/pane";
 import { createTestBus, type TestBus } from "../../bus/test-bus";
 import type { CardDeck, DeckView } from "../../card-deck";
 import { cardArrivingOf, cardFoldedOf } from "../../deck-store-selectors";
@@ -105,6 +105,10 @@ async function bodyPage(componentId = "session"): Promise<Probe> {
   deckReorderSpaces.on(shell.bus).handle(hear("deck.reorderSpaces"));
   deckMoveCardToSpace.on(shell.bus).handle(hear("deck.moveCardToSpace"));
   deckInterruptLiveSessions.on(shell.bus).handle(() => ({ interrupted: ["s-live"], unacknowledged: ["s-stuck"] }));
+  paneRevealForQuestion.on(shell.bus).handle((payload) => {
+    hear("pane.revealForQuestion")(payload);
+    return { travelMs: 240 };
+  });
   testBus.install(testBus.body(CARD, componentId));
   await testBus.flush();
   const reserved: CardReservationsValue[] = [];
@@ -260,6 +264,12 @@ const CARD_DECK_EVIDENCE: { [K in keyof CardDeck]-?: Evidence<CardDeck> } = {
     d.revealCard(CARD);
     await flush();
     expect(shellHeard).toEqual([["pane.revealCard", { cardId: CARD }]]);
+  },
+  revealForQuestion: async (d, { shellHeard, flush }) => {
+    const travel = d.revealForQuestion!(CARD);
+    await flush();
+    expect(await travel).toBe(240);
+    expect(shellHeard).toEqual([["pane.revealForQuestion", { cardId: CARD }]]);
   },
   getFirstResponderCardId: (d, { deck }) => {
     deck.applyContext(context({ firstResponderCardId: "another" }));

@@ -1291,10 +1291,10 @@ export interface DepartureTravel {
 
 /**
  * Start a per-frame census of every departing target's painted left edge,
- * keyed by its `data-settle-departing` — a pane id, or `rail-shadow:<side>`.
+ * keyed by its `data-settle-departing`, a pane id.
  *
- * A departing RAIL leaves by the edge it stands on: its parked frames — and
- * the shadow strip beside them — slide on the `depart` beat. Nothing else in
+ * A departing RAIL leaves by the edge it stands on: its parked frames slide
+ * on the `depart` beat, each carrying its own shadow. Nothing else in
  * this file would notice if that slide stopped happening: a rail that
  * vanished on the spot still moves the band, still carries every surviving
  * frame, and still leaves nothing marked behind. The travel has to be read
@@ -1378,6 +1378,7 @@ export const readDepartureCensus = (
  * instead is bounded too.
  */
 export const clickTaskMarks = (app: App): Promise<Record<string, unknown>> =>
+  // card-dom: shell — the shell's own performance marks.
   app.evalJS<Record<string, unknown>>(
     `(function () {
        var names = ["tug:set-pane-folded",
@@ -2280,6 +2281,7 @@ export async function sampleB09Gesture(
   // The deck's own sequence across the leg — every commit's caller, every
   // arm's outcome and the motion gate's edges — so a commit inside the
   // motion can be traced to the store write that made it.
+  // card-dom: shell — the shell's deck trace.
   const sequence = await app.evalJS<readonly string[]>(
     `window.__deckTrace.since(${mark}).filter(function (e) {
        return e.kind === "store-notify" || e.kind === "settle-arm" ||

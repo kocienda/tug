@@ -37,8 +37,10 @@ function harness() {
     paneRects: () => new Map(),
     revealStack: () => {},
     railEdge: (paneId) => (paneId === "rail" ? driver : null),
+    columnSeam: () => null,
     requestFrame: () => {},
     land: () => {},
+    flowFollow: () => null,
   };
   const handle = createHostCardGesture(deck, readers);
   const step = (phase: "move" | "end" | "cancel", x: number, moved: boolean, alt = false) =>

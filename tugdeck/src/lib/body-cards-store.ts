@@ -90,8 +90,8 @@ export const bodyCardsStore = new BodyCardsStore();
  * first frame of content composited, which `ready` alone is not — or once it
  * has failed and the card is the shell's again. Painted, because the reveal
  * this gates carries the body in on the frame's arrive beat
- * (`body-beat-plan.ts`), and only a painted body can be shown with its
- * tracks; a body revealed at `ready` rode in under its lid instead. A card
+ * (`card-plan.ts`), and only a painted body can be shown with its
+ * tracks; a body revealed at `ready` could be shown before it had drawn. A card
  * not yet handed off is not quiet — the deck's bound covers a hand-off that
  * never comes.
  */

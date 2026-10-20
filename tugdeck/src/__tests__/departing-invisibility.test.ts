@@ -53,8 +53,6 @@ const PICTURE_READERS: Record<string, number> = {
   "components/chrome/settle-engine.ts": 2,
   // Stacks a departing frame where it stood.
   "components/chrome/pane-stacking.ts": 1,
-  // Occludes against what is on screen, departing frames included.
-  "components/chrome/pane-occlusion-controller.ts": 1,
   // A departing card's place facts, slot badge and identity.
   "lib/pane-place-facts.ts": 2,
   "components/tugways/card-slot-badge.tsx": 1,

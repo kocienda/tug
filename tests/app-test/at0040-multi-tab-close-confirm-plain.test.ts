@@ -32,15 +32,16 @@
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
 import {
-  CONFIRM_POPOVER_SELECTOR,
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
   activeSingleTabDeckShape,
+  clickCloseBox,
   multiTabActiveDeckShape,
-  optionClickElement,
-  paneCloseButtonSelector,
+  optionClickCloseBox,
   pause,
-  popoverButtonByText,
+  popoverIn,
+  pressPopoverButton,
+  waitForPopover,
 } from "./multi-tab-close-confirm-fixture";
 
 describe.skipIf(!SHOULD_RUN)(
@@ -60,7 +61,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          await clickCloseBox(app, "A");
 
           // Per-card policy: a single-tab pane confirms on close ONLY when its card
           // type opts in (`confirmClose: true`, e.g. the Session card). `gallery-input`
@@ -70,9 +71,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 2000 },
           );
-          const popoverPresent = await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}) !== null`,
-          );
+          const popoverPresent = (await popoverIn(app, "A")).present;
           expect(
             popoverPresent,
             "no confirm popover should render for a non-opt-in single-tab pane",
@@ -98,19 +97,13 @@ describe.skipIf(!SHOULD_RUN)(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A") && window.__tug.assertHostRootRegistered("B")`,
           );
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          await clickCloseBox(app, "A");
 
           // The flash bug closed the popover within 1–2 frames.
           // Sleep past that window to gate that the popover holds.
           await pause(300);
 
-          const popoverState = await app.evalJS<{ present: boolean; text: string | null }>(
-            `(function(){
-              var el = document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)});
-              if (el === null) return { present: false, text: null };
-              return { present: true, text: el.textContent };
-            })()`,
-          );
+          const popoverState = await popoverIn(app, "A");
           expect(
             popoverState.present,
             "confirm popover must still be in the DOM 300ms after the X click",
@@ -146,20 +139,11 @@ describe.skipIf(!SHOULD_RUN)(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A") && window.__tug.assertHostRootRegistered("B")`,
           );
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}) !== null`,
-            { timeoutMs: 2000 },
-          );
+          await clickCloseBox(app, "A");
+          await waitForPopover(app, "A", 2000);
 
           // Click the Close All button by text.
-          await app.evalJS<void>(
-            `(function(){
-              var btn = ${popoverButtonByText("Close All")};
-              if (btn === null) throw new Error("[at0040] Close All button missing");
-              btn.click();
-            })()`,
-          );
+          await pressPopoverButton(app, "A", "Close All");
 
           await app.waitForCondition<boolean>(
             `document.querySelector('[data-pane-id="p1"]') === null`,
@@ -186,16 +170,14 @@ describe.skipIf(!SHOULD_RUN)(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );
 
-          await optionClickElement(app, paneCloseButtonSelector("p1"));
+          await optionClickCloseBox(app, "A");
           await app.waitForCondition<boolean>(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 2000 },
           );
 
           // No popover ever rendered — Option-click bypasses it.
-          const popoverPresent = await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}) !== null`,
-          );
+          const popoverPresent = (await popoverIn(app, "A")).present;
           expect(
             popoverPresent,
             "no confirm popover should render for an Option-click close",
@@ -221,15 +203,13 @@ describe.skipIf(!SHOULD_RUN)(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A") && window.__tug.assertHostRootRegistered("B")`,
           );
 
-          await optionClickElement(app, paneCloseButtonSelector("p1"));
+          await optionClickCloseBox(app, "A");
           await app.waitForCondition<boolean>(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 2000 },
           );
 
-          const popoverPresent = await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(CONFIRM_POPOVER_SELECTOR)}) !== null`,
-          );
+          const popoverPresent = (await popoverIn(app, "A")).present;
           expect(
             popoverPresent,
             "no confirm popover should render for an Option-click close",

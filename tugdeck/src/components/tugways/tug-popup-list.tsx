@@ -210,8 +210,8 @@ export const TugPopupListScroller = React.forwardRef<
         else if (ref !== null) ref.current = el;
       }}
       data-slot="tug-popup-list-scroller"
-      // The intent rides the DOM, so a copy drawn by the shell from this
-      // markup (`lib/shell-surface.ts`) honours it in its own box.
+      // The intent rides the DOM, so a copy drawn by the overlay from this
+      // markup (`overlay/overlay-surface-drawer.ts`) honours it in its own box.
       data-stick-to-bottom={stickToBottom ? "" : undefined}
       className={cn("tug-popup-list-scroller", className)}
       onScroll={handleScroll}

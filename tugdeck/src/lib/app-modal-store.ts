@@ -59,6 +59,24 @@ export const appModalStore = {
     notify();
   },
 
+  /**
+   * Take the whole set from another page: the shell's copy of the overlay's
+   * modals (`overlay.appModal`), which the menu reads here. Notifies only on
+   * a change.
+   */
+  mirror(owners: readonly AppModalOwner[]): void {
+    const next = new Set(owners);
+    if (next.size === openOwners.size && [...next].every((o) => openOwners.has(o))) return;
+    openOwners.clear();
+    for (const owner of next) openOwners.add(owner);
+    notify();
+  },
+
+  /** The owners on screen, for the overlay to publish. */
+  owners(): AppModalOwner[] {
+    return [...openOwners];
+  },
+
   /** Whether any of the three is on screen. */
   isOpen(): boolean {
     return openOwners.size > 0;

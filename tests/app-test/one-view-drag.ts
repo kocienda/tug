@@ -22,7 +22,7 @@ const TRAVEL_X = 400;
 const TRAIL_STEPS = 20;
 const TRAIL_STEP_MS = 30;
 /** How far a card's view reaches past its pane on every side, points. */
-const APRON = 6;
+const APRON = 10;
 
 /** The title bar's top to the content's top on column `x`, device px, by their colours. */
 function separationOn(frame: CaptureBurstFrame, x: number, chrome: Rgb, surface: Rgb, minChromePx: number): number | null {

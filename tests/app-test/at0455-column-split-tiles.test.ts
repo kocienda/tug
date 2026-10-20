@@ -64,6 +64,7 @@ import {
   RAIL_WIDTH,
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
+  chromePage,
   columnSeam,
   columnsRecord,
   deckShape,
@@ -229,7 +230,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the tiling", () => {
         // first card responder. A membership change, not a re-seed — the point
         // is that the arrangement survives it and the survivor's geometry does
         // not.
-        await app.click(`${frame("p2")} [data-testid="tug-pane-title-bar"]`);
+        await chromePage(app, "p2").click('[data-testid="tug-pane-title-bar"]');
         await wait(300);
         await app.dispatchControlAction("close");
         await app.waitForCondition<boolean>(

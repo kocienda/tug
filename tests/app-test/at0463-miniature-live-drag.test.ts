@@ -41,6 +41,7 @@
  * @covers tugdeck/src/lib/imposer-gauges.ts
  * @covers tugdeck/src/components/layout/layout-miniature.tsx
  * @covers tugdeck/src/components/layout/layout-miniature.css
+ * @covers tugdeck/src/overlay/overlay-indication.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -53,11 +54,13 @@ import {
   TEST_TIMEOUT_MS,
   describe_,
   openDeck,
-  titleBar,
+  titleBarPoint,
   wait,
   type Box,
 } from "./miniature-live-fixture";
 import { kindBody } from "./_harness/card-reach";
+import { heldRectOf } from "./card-chrome-fixture";
+import { overlayPage } from "./overlay-fixture";
 
 describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () => {
   test(
@@ -106,15 +109,17 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () =>
         // The canvas and the drawing are in two pages, read in two calls, so
         // the hand is held where the deck stands still, and the reads wait
         // until the indicator has — or the two halves are of different frames.
+        // Below p2's title band, which a card held over would merge into.
         const target = await app.evalJS<{ x: number; y: number }>(
           `(function () {
             var r = document.querySelector('.tug-pane[data-pane-id="p2"]')
               .getBoundingClientRect();
-            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 40) };
+            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
           })()`,
         );
-        await app.nativeDragElementWithoutRelease(titleBar("p1"), target);
-        await app.waitForCondition<boolean>(
+        await app.nativeDragWithoutRelease(await titleBarPoint(app, "p1"), target);
+        // The outline is drawn in the overlay, above every card.
+        await overlayPage(app).waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(".tug-drop-zone-indicator");
             if (el === null) return false;
@@ -131,22 +136,25 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () =>
           { timeoutMs: 4_000 },
         );
 
-        // The dragged frame and the drop indicator are the shell's; the
-        // ghost and the zone are drawn in the Layout card's body.
+        // The drop indicator is the overlay's; the dragged card is where its
+        // view stands, which the host carries under the hand; the ghost and
+        // the zone are drawn in the Layout card's body.
         const TO_BOX_JS = `function (el) {
               if (el === null) return null;
               var r = el.getBoundingClientRect();
               return { left: r.left, top: r.top, width: r.width, height: r.height };
             }`;
-        const heldShell = await app.evalJS<{ drag: Box | null; indicator: Box | null }>(
+        const heldShell = await overlayPage(app).evalJS<{ drag: Box | null; indicator: Box | null }>(
           `(function () {
             var toBox = ${TO_BOX_JS};
             return {
-              drag: toBox(document.querySelector('.tug-pane[data-pane-id="p1"]')),
+              drag: null,
               indicator: toBox(document.querySelector(".tug-drop-zone-indicator")),
             };
           })()`,
         );
+        const carried = await heldRectOf(app, "A");
+        heldShell.drag = carried === null ? null : { left: carried.left, top: carried.top, width: carried.width, height: carried.height };
         const heldBody = await kindBody(app, "layout").evalJS<{ ghost: Box | null; zone: Box | null }>(
           `(function () {
             var toBox = ${TO_BOX_JS};
@@ -198,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () =>
 
         // ── ⌘ frees the card: the ghost stays, the place goes ───────────────
         await app.withModifiersHeld(["cmd"], async () => {
-          await app.nativeDragElementWithoutRelease(titleBar("p1"), {
+          await app.nativeDragWithoutRelease(await titleBarPoint(app, "p1"), {
             x: target.x + 12,
             y: target.y + 12,
           });

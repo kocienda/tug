@@ -81,6 +81,7 @@ import {
   turnDone,
   userMsg,
 } from "./transcript-file-path-links-fixture";
+import { restoreGateGone } from "./overlay-fixture";
 
 let projectDir = "";
 let realPath = "";
@@ -259,6 +260,7 @@ describe.skipIf(!SHOULD_RUN)(
           // annotation's path as its own value, so it reaches the deck's
           // open-file handler rather than stopping at a surface that
           // would have had to supply the argument.
+          await restoreGateGone(app);
           await openAnnotationMenu(app.body("A"), HEADER_REF, "open-file");
           await activateMenuItem(app.body("A"), "open-file");
           // The file opens in a new Text card, in a body of its own.

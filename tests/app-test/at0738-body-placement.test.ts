@@ -16,17 +16,16 @@
  * 1.0, at 0.8, and after a column split, a settle, has landed (a body snaps
  * at the land). A native click inside the body's rect must reach the body —
  * its composer takes focus — and make the card the shell's first responder;
- * a click on a popover the shell raises over a body (a hello card's, whose
- * chrome the shell still draws) must reach the shell instead. And a
- * card-scoped command fired through the shell's menu path (`focus-prompt`)
- * must act in the key body.
+ * a popover a card raises from its own chrome (a hello card's width menu)
+ * stands in that card's page, and a click on it reaches that page and not the
+ * shell. And a card-scoped command fired through the shell's menu path
+ * (`focus-prompt`) must act in the key body.
  *
  * @family at0738-body
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-facts-store.ts
  * @covers tugdeck/src/lib/body-command-route.ts
- * @covers tugdeck/src/lib/pointer-claim.ts
- * @covers tugdeck/src/components/chrome/body-placement-beacon.tsx
+ * @covers tugdeck/src/components/chrome/card-placement-beacon.tsx
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-handoff.ts
  * @covers tugdeck/src/lib/body-cards-store.ts
@@ -66,20 +65,16 @@ const TEST_TIMEOUT_MS = 180_000;
 /** The spawned body card, and the unbound neighbour (a body too) sharing its column. */
 const BODY_CARD = "at0738-a";
 const NEIGHBOUR = "at0738-b";
-/**
- * A card whose pane's chrome the shell still draws, in the next slot: its
- * width popover is a surface the shell raises over a body (its own), which a
- * Session card's no longer is — that card draws its chrome in its own page.
- */
-const SHELL_CHROMED = "at0738-c";
+/** A hello card in the next slot, whose title bar's width menu is a popover over its own body. */
+const HELLO = "at0738-c";
 
 const twoInAColumn = {
   cards: [
     { id: BODY_CARD, componentId: "session", title: "Body", closable: true },
     { id: NEIGHBOUR, componentId: "session", title: "Neighbour", closable: true },
-    { id: SHELL_CHROMED, componentId: "hello", title: "Hello", closable: true },
+    { id: HELLO, componentId: "hello", title: "Hello", closable: true },
   ],
-  panes: [BODY_CARD, NEIGHBOUR, SHELL_CHROMED].map((cardId) => ({
+  panes: [BODY_CARD, NEIGHBOUR, HELLO].map((cardId) => ({
     id: `${cardId}-pane`,
     position: { x: 40, y: 40 },
     size: { width: 640, height: 480 },
@@ -87,7 +82,7 @@ const twoInAColumn = {
     activeCardId: cardId,
     title: "",
     acceptsFamilies: ["maker"],
-    slot: cardId === SHELL_CHROMED ? 1 : 0,
+    slot: cardId === HELLO ? 1 : 0,
   })),
   activePaneId: `${BODY_CARD}-pane`,
   imposition: { kind: "four-up", layout: "flow", sidebars: {} },
@@ -108,7 +103,7 @@ const placeholderRect = (app: App): Promise<Rect | null> =>
       var frame = el.closest(".tug-pane");
       var whole = frame !== null && frame.hasAttribute("data-chrome-in-body");
       var r = (whole ? frame : el).getBoundingClientRect();
-      var a = whole ? 6 : 0;
+      var a = whole ? 10 : 0;
       return { x: r.x - a, y: r.y - a, width: r.width + 2 * a, height: r.height + 2 * a };
     })()`,
   );
@@ -294,58 +289,52 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         const focused = await pollFor(() => app.getFocusedCardId(), (id) => id === BODY_CARD, PLACED_MS);
         expect(focused, "the click in the body made its card the shell's first responder").toBe(BODY_CARD);
 
-        // ---- A shell popover over a body keeps the pointer ----
+        // ---- A card's own popover takes the pointer in its own page ----
 
-        // The shell-chromed card's width popover, over that card's own body.
-        const shellChromed = app.body(SHELL_CHROMED);
-        await app.evalJS(armMenuRecorder);
-        const bodyPane = `.tug-pane[data-pane-id="${SHELL_CHROMED}-pane"]`;
-        await app.revealPaneControls(bodyPane);
-        await app.nativeClickAtElement(`${bodyPane} ${WIDTH_BUTTON}`);
+        // The hello card's width popover, raised from the chrome it draws.
+        const hello = app.body(HELLO);
+        await hello.evalJS(armMenuRecorder);
+        await hello.revealPaneControls();
+        await hello.nativeClickAtElement(WIDTH_BUTTON);
         try {
-          await app.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(WIDTH_MENU)}) !== null`, {
+          await hello.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(WIDTH_MENU)}) !== null`, {
             timeoutMs: PLACED_MS,
           });
         } catch (error) {
-          note(`width menu never stood: ${JSON.stringify(await app.evalJS(readMenuRecorder))}`);
+          note(`width menu never stood: ${JSON.stringify(await hello.evalJS(readMenuRecorder))}`);
           throw error;
         }
-        await app.evalJS(readMenuRecorder);
+        await hello.evalJS(readMenuRecorder);
         await Bun.sleep(CLAIM_SETTLE_MS);
-        const menu = await app.evalJS<Rect>(
+        const menu = await hello.evalJS<Rect>(
           `(function () {
             var r = document.querySelector(${JSON.stringify(WIDTH_MENU)}).getBoundingClientRect();
             return { x: r.x, y: r.y, width: r.width, height: r.height };
           })()`,
         );
-        const frame = (await app.bodies()).find((b) => b.cardId === SHELL_CHROMED)!.frame;
-        const left = Math.max(menu.x, frame.x);
-        const top = Math.max(menu.y, frame.y);
-        const right = Math.min(menu.x + menu.width, frame.x + frame.width);
-        const bottom = Math.min(menu.y + menu.height, frame.y + frame.height);
-        note(`width menu ${JSON.stringify(menu)} over body ${JSON.stringify(frame)}`);
-        expect(right > left && bottom > top, "the width menu stands over the body").toBe(true);
+        note(`width menu ${JSON.stringify(menu)} in the hello card's page`);
+        expect(menu.width > 0 && menu.height > 0, "the width menu stands in the card's page").toBe(true);
         await app.evalJS(armDownRecorder);
-        await shellChromed.evalJS(armDownRecorder);
-        await app.nativeClick({ x: (left + right) / 2, y: (top + bottom) / 2 });
-        const shellDowns = await pollFor(
-          () => app.evalJS<string[]>(`(window.__at0738Downs || []).slice()`),
+        await hello.evalJS(armDownRecorder);
+        await hello.nativeClick({ x: menu.x + menu.width / 2, y: menu.y + menu.height / 2 });
+        const bodyDowns = await pollFor(
+          () => hello.evalJS<string[]>(`(window.__at0738Downs || []).slice()`),
           (d) => d.length > 0,
           PLACED_MS,
         );
         const shellSaw = await app.evalJS<string[]>(readDowns);
-        const bodySaw = await shellChromed.evalJS<string[]>(readDowns);
+        const bodySaw = await hello.evalJS<string[]>(readDowns);
         note(`popover click: shell saw ${JSON.stringify(shellSaw)}, body saw ${JSON.stringify(bodySaw)}`);
-        expect(shellDowns.length, "the click on the popover reached the shell").toBeGreaterThan(0);
-        expect(bodySaw, "the click on the popover never reached the body").toEqual([]);
-        await app.dispatchControlAction("dismiss-popover");
-        await app.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(WIDTH_MENU)}) === null`, {
+        expect(bodyDowns.length, "the click on the popover reached the card's page").toBeGreaterThan(0);
+        expect(shellSaw, "the click on the popover never reached the shell").toEqual([]);
+        await app.nativeKey("Escape");
+        await hello.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(WIDTH_MENU)}) === null`, {
           timeoutMs: PLACED_MS,
         });
 
         // ---- A card-scoped menu command acts in the key body ----
 
-        // The width button's press made the shell-chromed card key: hand the
+        // The width button's press made the hello card key: hand the
         // keyboard back to the body card the command is read in.
         await app.dispatchControlAction("focus-session-card", { cardId: BODY_CARD });
         await pollFor(() => app.getFocusedCardId(), (id) => id === BODY_CARD, PLACED_MS);

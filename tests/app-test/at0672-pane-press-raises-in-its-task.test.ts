@@ -1,36 +1,36 @@
 /**
- * at0672-pane-press-raises-in-its-task.test.ts — a pane pressed on its chrome
- * from under a neighbour comes forward in the press's own task.
+ * at0672-pane-press-raises-in-its-task.test.ts — a card pressed on its chrome
+ * from under a neighbour comes forward at the press, and stays forward while
+ * the hand carries it.
  *
- * A pane-chrome press defers its React commit past the next paint
- * (`mayDeferCommit`), because the card it activates is already on screen and
- * a commit in the press's task would sit in front of the first frame of any
- * motion the press launches. The pane's stacking and its title bar's focus
- * are not React's to wait for: a pane pressed from under its neighbour and
- * dragged would otherwise travel under it for a painted frame before popping
- * forward. So the deck writes each shown frame's inline `z-index` and
- * `data-focused` from a synchronous store subscriber, in the commit's own
- * task, and React's later commit renders the same values.
+ * A card draws its chrome in its own page and is one view the host carries,
+ * so a press on its title bar lands in its page, which hands the gesture to
+ * the host (`cardGesture` `begin`) and asks the shell to activate the card.
+ * The shell's activation raises the card's stand-in and posts the stacking to
+ * the host, but that is a round trip, and a card pressed from under its
+ * neighbour and dragged would travel under it until it arrived. So the host
+ * raises the card's view itself when it takes the press
+ * (`BodyViewController.claimGesture`), and the shell's placement then says
+ * the same.
  *
- * The press here is dispatched from one task, and the frame's state is read
- * in that same task — before any frame could paint and before the deferred
- * React notify could run. Then, a frame later, the rendered state is read
- * again to show React agrees with what was written.
- *
- * `pane-stacking.ts` is declared because the `pane-raise` subscriber that
- * writes the `z-index`, and the `paneZIndexMap` it writes from, live there.
+ * The press here is a real mouse-down on p1's grab handle in A1's page, held
+ * and carried a short way: while the button is still down, A1 is the shell's
+ * focused card, its stand-in stacks above p2's, and the host stacks A1's view
+ * above A2's. After the release the stacking stands.
  *
  * @covers tugdeck/src/components/chrome/pane-focus-controller.ts
- * @covers tugdeck/src/components/chrome/pane-occlusion-controller.ts
  * @covers tugdeck/src/components/chrome/pane-stacking.ts
+ * @covers tugapp/Sources/BodyViewController.swift
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
+
+const GRAB_HANDLE = '[data-testid="tug-pane-title-bar"] .tug-pane-grab-handle';
 
 interface Standing {
   p1z: number;
@@ -39,7 +39,7 @@ interface Standing {
   p2focused: string | null;
 }
 
-/** Each pane frame's inline z and focus, read as a script expression. */
+/** Each stand-in frame's inline z and focus, read as a script expression. */
 const STANDING = `(function () {
   var p1 = document.querySelector('.tug-pane[data-pane-id="p1"]');
   var p2 = document.querySelector('.tug-pane[data-pane-id="p2"]');
@@ -51,24 +51,18 @@ const STANDING = `(function () {
   };
 })()`;
 
-/** Press p1's title from a task and read the standing in that same task. */
-const PRESS_AND_READ = `(function () {
-  var title = document.querySelector('[data-pane-id="p1"] [data-testid="tug-pane-title"]');
-  var r = title.getBoundingClientRect();
-  var init = {
-    bubbles: true, cancelable: true, composed: true,
-    clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
-    button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true,
+/** The host's stacking of the two cards' views. */
+async function viewZ(app: App): Promise<{ a1: number; a2: number }> {
+  const views = await app.bodies();
+  return {
+    a1: views.find((b) => b.cardId === "A1")?.z ?? Number.NaN,
+    a2: views.find((b) => b.cardId === "A2")?.z ?? Number.NaN,
   };
-  title.dispatchEvent(new PointerEvent("pointerdown", init));
-  var standing = ${STANDING};
-  title.dispatchEvent(new PointerEvent("pointerup", Object.assign({}, init, { buttons: 0 })));
-  return standing;
-})()`;
+}
 
-describe.skipIf(!SHOULD_RUN)("at0672: a pane press raises in its own task", () => {
+describe.skipIf(!SHOULD_RUN)("at0672: a card press raises it at the press", () => {
   test(
-    "the pressed pane is in front and focused before the press's task ends",
+    "the pressed card is in front and focused while the hand still holds it",
     async () => {
       const app = await launchTugApp({ testName: "at0672-pane-press-raises-in-its-task" });
       try {
@@ -105,43 +99,41 @@ describe.skipIf(!SHOULD_RUN)("at0672: a pane press raises in its own task", () =
           },
           focusCardId: "A2",
         });
-        await app.waitForCondition<boolean>(
-          `window.__tug.assertHostRootRegistered("A1") && window.__tug.assertHostRootRegistered("A2")`,
-        );
+        const a1 = app.body("A1");
+        await a1.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(GRAB_HANDLE)}) !== null`, { timeoutMs: 10_000 });
+        // card-dom: shell — the stand-ins' stacking and focus are the shell's.
         await app.waitForCondition<boolean>(
           `(function () { var s = ${STANDING}; return s.p2z > s.p1z && s.p2focused === "true"; })()`,
         );
+        const before = await viewZ(app);
+        expect(before.a2, "A2's view starts above A1's").toBeGreaterThan(before.a1);
 
-        const inTask = await app.evalJS<Standing>(PRESS_AND_READ);
-        expect(inTask.p1z).toBeGreaterThan(inTask.p2z);
-        expect(inTask.p1focused).toBe("true");
-        expect(inTask.p2focused).toBe("false");
+        // ---- Press A1's grab handle and carry it, the button held ----
+        const handle = await a1.getElementBounds(GRAB_HANDLE);
+        await a1.nativeDragElementWithoutRelease(GRAB_HANDLE, { x: Math.round(handle.x + handle.width / 2) + 40, y: Math.round(handle.y + handle.height / 2) + 20 });
+        // card-dom: shell — the stand-ins' stacking and focus are the shell's.
+        await app
+          .waitForCondition<boolean>(`(function () { var s = ${STANDING}; return s.p1z > s.p2z; })()`, { timeoutMs: 2_000 })
+          .catch(() => false);
+        // card-dom: shell — the stand-ins' stacking and focus are the shell's.
+        const held = await app.evalJS<Standing>(STANDING);
+        let heldViews = await viewZ(app);
+        for (const deadline = Date.now() + 2_000; !(heldViews.a1 > heldViews.a2) && Date.now() < deadline; heldViews = await viewZ(app)) {
+          await Bun.sleep(50);
+        }
+        note(`in hand: stand-ins ${JSON.stringify(held)}; views ${JSON.stringify(heldViews)}; focused ${await app.getFocusedCardId()}`);
+        expect(await app.getFocusedCardId(), "the pressed card is the shell's focused card").toBe("A1");
+        expect(held.p1z, "its stand-in stacks above its neighbour's").toBeGreaterThan(held.p2z);
+        expect(held.p1focused).toBe("true");
+        expect(held.p2focused).toBe("false");
+        expect(heldViews.a1, "the host stacks its view above its neighbour's while it is carried").toBeGreaterThan(heldViews.a2);
 
-        // React's deferred commit lands — it is told after the next painted
-        // frame — and renders the same stacking. Two painted frames past the
-        // store's activation is past that notify.
+        // ---- Released, the stacking stands ----
+        const at = await a1.getElementBounds(GRAB_HANDLE);
+        await a1.nativeMouseUp({ x: Math.round(at.x + at.width / 2), y: Math.round(at.y + at.height / 2) });
         await app.settleGestureScope();
-        await app.waitForCondition<boolean>(`window.__tug.getActiveCardId() === "A1"`);
-        await app.evalJS<boolean>(
-          `(function () {
-            window.__at0672Frames = 0;
-            var frame = function () {
-              requestAnimationFrame(function () {
-                setTimeout(function () {
-                  window.__at0672Frames += 1;
-                  if (window.__at0672Frames < 2) frame();
-                }, 0);
-              });
-            };
-            frame();
-            return true;
-          })()`,
-        );
-        await app.waitForCondition<boolean>(`window.__at0672Frames >= 2`);
-        const rendered = await app.evalJS<Standing>(STANDING);
-        expect(rendered.p1z).toBeGreaterThan(rendered.p2z);
-        expect(rendered.p1focused).toBe("true");
-        expect(rendered.p2focused).toBe("false");
+        const landed = await viewZ(app);
+        expect(landed.a1, "and after the release").toBeGreaterThan(landed.a2);
       } finally {
         await app.close();
       }

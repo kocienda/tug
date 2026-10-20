@@ -22,7 +22,7 @@
  * `spawn_session(resume)` chain (the at0192 vehicle), with fixtures large
  * enough that each reveal is real work. `MutationObserver`s installed
  * before the spawns log every change of the gate's presence (in the
- * shell, where the app-modal lives) and the first appearance of each
+ * overlay page, where the app-modal lives) and the first appearance of each
  * card's list region (in that card's body), all on one wall clock; a
  * mount's callback runs in the task of the commit that mounted the list,
  * and the gate's state at that moment is read off the gate's log.
@@ -42,6 +42,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
 import { claudeProjectDir } from "./_harness/claude-home";
+import { overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -159,7 +160,7 @@ interface Ev {
 }
 
 /**
- * The gate's recorder, in the shell: the gate is an app-modal at the deck
+ * The gate's recorder, in the overlay page: the gate is an app-modal at its
  * root. Times are wall-clock (`timeOrigin + now`), so they order against
  * the mount times each card's body records on its own page.
  */
@@ -183,14 +184,16 @@ const INSTALL_GATE_RECORDER = `(function(){
 /**
  * A card's recorder, in that card's body: its list mounts there. Logs the
  * list's first appearance, in the task of the commit that mounted it, on
- * the same wall clock as the gate's recorder.
+ * the same wall clock as the gate's recorder. The transcript's list, not the
+ * picker's: an unbound Session card shows its picker's session list before
+ * the spawn, and that list is no restore's.
  */
 const installMountRecorder = (card: string): string => `(function(){
   var log = [];
   var seen = false;
   var check = function(){
     if (seen) return;
-    if (document.querySelector('[data-card-id=${JSON.stringify(card)}] [data-slot="tug-list-view"]') !== null) {
+    if (document.querySelector('[data-card-id=${JSON.stringify(card)}] [data-slot="session-card-transcript"] [data-slot="tug-list-view"]') !== null) {
       seen = true;
       log.push({ t: performance.timeOrigin + performance.now(), kind: "mount", card: ${JSON.stringify(card)} });
     }
@@ -241,8 +244,9 @@ describe.skipIf(!SHOULD_RUN)("at0720 — the restore gate holds through each car
             { timeoutMs: 30_000 },
           );
         }
-        // card-dom: shell
-        await app.evalJS<null>(INSTALL_GATE_RECORDER);
+        // The gate is drawn in the overlay page, so its recorder stands there.
+        const overlay = await overlayReady(app);
+        await overlay.evalJS<null>(INSTALL_GATE_RECORDER);
         for (const id of CARDS) {
           await waitForBodyReady(app, id, 30_000);
           await app.body(id).evalJS<null>(installMountRecorder(id));
@@ -257,9 +261,9 @@ describe.skipIf(!SHOULD_RUN)("at0720 — the restore gate holds through each car
         for (const id of CARDS) {
           await app.body(id).waitForCondition<boolean>(mounted(id), { timeoutMs: 60_000 });
         }
-        await app.waitForCondition<boolean>(gateDown, { timeoutMs: 20_000 });
-        const gateLog = await app.evalJS<Ev[]>(readLog);
-        await app.evalJS<null>("(window.__at0720.stop(), null)");
+        await overlay.waitForCondition<boolean>(gateDown, { timeoutMs: 20_000 });
+        const gateLog = await overlay.evalJS<Ev[]>(readLog);
+        await overlay.evalJS<null>("(window.__at0720.stop(), null)");
         const mountLog: Ev[] = [];
         for (const id of CARDS) {
           const own = await app.body(id).evalJS<Ev[]>(readLog);

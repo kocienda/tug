@@ -49,7 +49,6 @@ import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, pollFor, r
 import { armPlaceholderSampler, landedFrom, openKind, placeholderAt, readPlaceholderSampler } from "./_kind-bodies";
 import { planDiag } from "./_motion";
 import type { CardKind } from "./_kinds";
-import { chromeInBody } from "../../../tugdeck/src/lib/chrome-placement";
 
 const TEST_NAME = "body-grounding-row-01-arrival";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -112,11 +111,11 @@ const placeholderRect = (app: App, cardId: string): Promise<Rect | null> =>
     })()`,
   );
 
-const lidLifted = (app: App, cardId: string): Promise<boolean> =>
-  // card-dom: shell
-  app.evalJS<boolean>(
-    `document.querySelector('[data-body-placeholder][data-card-id="${cardId}"][data-body-shown]') !== null`,
-  );
+/** The host shows `cardId`'s view: placed visible and opaque. */
+const hostShowsIt = async (app: App, cardId: string): Promise<boolean> => {
+  const b = (await app.bodies()).find((s) => s.cardId === cardId);
+  return b !== undefined && b.visible && b.opacity >= 0.99;
+};
 
 /** ⌘N through the tap; resolves the new card's id as soon as the deck focuses it. */
 async function pressNew(app: App, before: string | null): Promise<string> {
@@ -161,12 +160,6 @@ interface ArrivalReading {
   body: BodyViewSnapshot;
   host: HostFrameReading | null;
   handOffWall: number;
-  /**
-   * Whether the frames were read from the hand-off, where the lid must stand
-   * before the body shows; false when they were read from the pane's landing,
-   * by which time the body may long since have shown under the hidden pane.
-   */
-  fromHandOff: boolean;
   /** The host carried the body in on its frame's arrive beat: the plan named it, and landed it. */
   carried: boolean;
 }
@@ -203,7 +196,6 @@ function judge(label: string, r: ArrivalReading, measure: FloorMeasure = FLOOR_B
     offenders.length,
     `${label}: no frame after the hand-off shows more canvas or bare window than the finished body does`,
   ).toBe(0);
-  if (r.fromHandOff) expect(lidFrames, `${label}: the lid stood over the rect before the body showed`).toBeGreaterThan(0);
   expect(r.final.surface, `${label}: the finished rect is the body's own surface`).toBeGreaterThan(0.3);
   expect(measure.ink(r.final), `${label}: the finished rect carries the body's content`).toBeGreaterThan(0.01);
 }
@@ -213,20 +205,18 @@ function judge(label: string, r: ArrivalReading, measure: FloorMeasure = FLOOR_B
  * covers the window, and each frame is classed inside the rect its
  * placeholder stood at then.
  *
- * `from` says where the judgement starts. At the `hand-off` for a card that
- * opens into a pane already on screen. At the `landing` for one that brings a
- * pane of its own: the deck holds that pane hidden (`data-arriving`) and then
- * plays its arrive beat, and over both the canvas is what stands at that rect
- * because no card does yet — the deck's arrival of the card, not the body's.
- * The body hands off under the hidden pane, so from the landing every frame
- * is the body's own surface or the lid over it.
+ * The judgement starts at the `landing`: every card is one view that brings
+ * a pane of its own, which the deck holds hidden (`data-arriving`) and then
+ * plays its arrive beat over, and over both the canvas is what stands at that
+ * rect because no card does yet — the deck's arrival of the card, not the
+ * body's. The body hands off under the hidden pane, so from the landing every
+ * frame is the body's own surface or the lid over it.
  */
 async function arriveOpened(
   app: App,
   label: string,
   componentId: string,
   open: () => Promise<string>,
-  from: "hand-off" | "landing" = "hand-off",
 ): Promise<ArrivalReading> {
   const inner = await app.evalJS<{ w: number; h: number }>(`({ w: window.innerWidth, h: window.innerHeight })`);
   const crop = { x: 0, y: 0, width: Math.floor(inner.w), height: Math.floor(inner.h) };
@@ -246,7 +236,7 @@ async function arriveOpened(
   );
   expect(shown?.visible, `${label}: the body is placed visible`).toBe(true);
   expect(shown?.componentId, `${label}: the body holds a ${componentId} card`).toBe(componentId);
-  const lifted = await pollFor(() => lidLifted(app, cardId), (v) => v, PLACED_MS);
+  const lifted = await pollFor(() => hostShowsIt(app, cardId), (v) => v, PLACED_MS);
   // A body the placer planned on its own arrival was never shown before it:
   // the host carried it in, and the plan says whether it landed.
   const plan = (await planDiag(app)).last;
@@ -255,7 +245,7 @@ async function arriveOpened(
     const landedPlan = await pollFor(() => planDiag(app), (p) => p.last?.landed.some((l) => l.cardId === cardId) ?? false, PLACED_MS);
     expect(landedPlan.last?.landed.some((l) => l.cardId === cardId), `${label}: the plan that carried the body in landed it`).toBe(true);
   }
-  expect(lifted, `${label}: the shell lifted the lid once the host said shown`).toBe(true);
+  expect(lifted, `${label}: the host shows the card's view, opaque`).toBe(true);
   const reading = await pollFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
     (r) => r.done,
@@ -288,22 +278,12 @@ async function arriveOpened(
     const region = regionAt(f.wall);
     return region === null ? [] : [classifyFrame(f, palette, 8, region)];
   });
-  if (from === "landing") {
-    const landedWall = landedFrom(samples, cardId);
-    expect(landedWall, `${label}: the card's pane landed inside the burst`).not.toBeNull();
-    const judged = frames.filter((f) => f.wall >= landedWall!);
-    expect(judged.length, `${label}: frames were captured after the pane landed`).toBeGreaterThan(0);
-    note(`${label}: opened ${handOffWall - openWall} ms before the placeholder stood; its pane landed ${landedWall! - handOffWall} ms after it`);
-    return { frames, afterHandOff: judged, final: frames[frames.length - 1], body: shown!, host, handOffWall, fromHandOff: false, carried };
-  }
-  const firstLid = frames.findIndex((f) => f.wall >= handOffWall - BURST_INTERVAL_MS && f.surface > 0.9);
-  expect(firstLid, `${label}: a lid frame follows the hand-off`).toBeGreaterThanOrEqual(0);
-  const skewMs = frames[firstLid].wall - handOffWall;
-  note(`${label}: opened ${handOffWall - openWall} ms before the placeholder stood; the first lid frame came ${skewMs.toFixed(0)} ms after it`);
-  const beforeLid = frames.filter((f, i) => i < firstLid && f.wall >= handOffWall - BURST_INTERVAL_MS);
-  if (beforeLid.length > 0) note(`${label}: the frames between the placeholder and the lid\n${describeFrames(beforeLid)}`);
-  expect(skewMs, `${label}: the lid is painted within a few frames of the hand-off commit`).toBeLessThanOrEqual(5 * BURST_INTERVAL_MS);
-  return { frames, afterHandOff: frames.slice(firstLid), final: frames[frames.length - 1], body: shown!, host, handOffWall, fromHandOff: true, carried };
+  const landedWall = landedFrom(samples, cardId);
+  expect(landedWall, `${label}: the card's pane landed inside the burst`).not.toBeNull();
+  const judged = frames.filter((f) => f.wall >= landedWall!);
+  expect(judged.length, `${label}: frames were captured after the pane landed`).toBeGreaterThan(0);
+  note(`${label}: opened ${handOffWall - openWall} ms before the placeholder stood; its pane landed ${landedWall! - handOffWall} ms after it`);
+  return { frames, afterHandOff: judged, final: frames[frames.length - 1], body: shown!, host, handOffWall, carried };
 }
 
 /** A card of `kind` opened the way it opens, read from the hand-off on. */
@@ -312,11 +292,10 @@ export async function arrivalOfKind(launch: Launch, kind: CardKind): Promise<voi
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === null && b.state === "connected"), BODY_READY_MS);
-    // A card that draws its own chrome carries its lid in its own page and
-    // arrives whole under its pane's arrive beat, as a Session card does: it
-    // is read from the landing, where no shell lid stands over the rect.
-    const from = chromeInBody(kind.componentId) ? "landing" : "hand-off";
-    const arrival = await arriveOpened(app, kind.componentId, kind.componentId, () => openKind(app, kind), from);
+    // The card carries its lid in its own page and arrives whole under its
+    // pane's arrive beat, as a Session card does: it is read from the
+    // landing, where no shell lid stands over the rect.
+    const arrival = await arriveOpened(app, kind.componentId, kind.componentId, () => openKind(app, kind));
     judge(kind.componentId, arrival, floorMeasure(kind.rail));
   } finally {
     await app.close();
@@ -344,7 +323,7 @@ async function withSpare(launch: Launch, name: string, body: (app: App) => Promi
 /** ⌘N: the first card takes the warm spare. */
 export function arrivalWarm(launch: Launch): Promise<void> {
   return withSpare(launch, "warm", async (app) => {
-    const warm = await arriveOpened(app, "warm", "session", () => pressNew(app, SEED), "landing");
+    const warm = await arriveOpened(app, "warm", "session", () => pressNew(app, SEED));
     expect(warm.body.start, "the first card bound the spare").toBe("warm");
     // The card is unbound, so its picker is all there is to wait on: the body
     // says ready when the picker is quiet, not at its 250 ms arrival bound
@@ -361,7 +340,7 @@ export function arrivalWarm(launch: Launch): Promise<void> {
 export function arrivalCold(launch: Launch): Promise<void> {
   return withSpare(launch, "cold", async (app) => {
     const takerCard = await newCardByChord(app, SEED);
-    const cold = await arriveOpened(app, "cold", "session", () => pressNew(app, takerCard), "landing");
+    const cold = await arriveOpened(app, "cold", "session", () => pressNew(app, takerCard));
     expect(cold.body.start, "the card opened behind the spare's taker was made cold").toBe("cold");
     judge("cold", cold);
   });

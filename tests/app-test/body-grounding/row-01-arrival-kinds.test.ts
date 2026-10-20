@@ -8,7 +8,7 @@
  *
  * @foreground
  * @family row-01-arrival
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-cards-store.ts
  * @covers tugdeck/src/body/body-main.ts

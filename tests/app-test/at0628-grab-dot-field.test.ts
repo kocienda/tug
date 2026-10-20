@@ -239,12 +239,12 @@ async function readRailPseudo(
 }
 
 /**
- * The pages that draw this deck's chrome: the shell's, for the utility card,
- * and the pages of the Session card, the Text card and the Cards rail, each of
- * which draws its pane's chrome in its own.
+ * The pages that draw this deck's chrome: the utility card's, the Session
+ * card's, the Text card's and the Cards rail's, each of which draws its pane's
+ * chrome in its own.
  */
 function chromePages(app: App): Array<Pick<App, "evalJS">> {
-  return [app, app.body("A"), app.body("B"), app.body("L")];
+  return [app.body("U"), app.body("A"), app.body("B"), app.body("L")];
 }
 
 /** The Session card's pane, in its own page. */
@@ -383,7 +383,8 @@ const DECK = {
   hasFocus: true,
 };
 
-const UTILITY_BAR = '.tug-pane[data-pane-id="p3"] .tug-pane-title-bar';
+/** The utility tier's bar, in the utility card's own page. */
+const UTILITY_BAR = ".body-chrome-frame .tug-pane-title-bar";
 /**
  * The document tier's bar, in the Text card's own page: a content bar this
  * deck leaves unoccluded, so a drag from it is the card's to begin.
@@ -409,8 +410,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
           `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null`,
           { timeoutMs: 15_000 },
         );
-        // card-dom: shell — the utility card's chrome is the shell's.
-        await app.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(UTILITY_BAR)}) !== null`, {
+        await app.body("U").waitForCondition<boolean>(`document.querySelector(${JSON.stringify(UTILITY_BAR)}) !== null`, {
           timeoutMs: 15_000,
         });
         await app.body("B").waitForCondition<boolean>(`document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null`, {
@@ -422,7 +422,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         await wait(AFTER_LAND_MS);
 
         // ---- 1. The utility tier: the field is a flex item in the bar itself.
-        const utility = await readLine(app, UTILITY_BAR);
+        const utility = await readLine(app.body("U"), UTILITY_BAR);
         note(`utility bar: ${JSON.stringify(utility)}`);
         expectTheField("the utility tier", utility);
 
@@ -438,8 +438,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // BEFORE the controls, so its grow is what pushes them to the trailing
         // edge — no `order` needed, unlike the rail's `::after` stripe band,
         // which is last in document order and has to be reordered around.
-        // card-dom: shell — pane chrome.
-        const barRun = await app.evalJS<Array<[string, number]>>(
+        const barRun = await app.body("U").evalJS<Array<[string, number]>>(
           `(function () {
             var bar = document.querySelector(${JSON.stringify(UTILITY_BAR)});
             return Array.prototype.slice.call(bar.children).map(function (el) {
@@ -490,8 +489,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         const cursorOf = (sel: string): string =>
           `(function () { var el = document.querySelector(${JSON.stringify(sel)}); return el === null ? "" : getComputedStyle(el).cursor; })()`;
         const barCursors: Record<string, string> = {
-          // card-dom: shell — the utility card's chrome is the shell's.
-          utilityBar: await app.evalJS<string>(cursorOf(UTILITY_BAR)),
+          utilityBar: await app.body("U").evalJS<string>(cursorOf(UTILITY_BAR)),
           railBar: await app.body("L").evalJS<string>(cursorOf(RAIL_BAR)),
         };
         barCursors.mastheadBar = await app.body("A").evalJS<string>(
@@ -597,7 +595,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         await forceFieldVisible(app);
         await wait(300);
 
-        const shownUtility = await readLine(app, UTILITY_BAR);
+        const shownUtility = await readLine(app.body("U"), UTILITY_BAR);
         const shownSession = await readLine(app.body("A"), `${SESSION_FRAME} .tug-session-row-name-line`);
         const shownDoc = await readLine(app.body("B"), `${DOC_FRAME} .tug-session-row-name-line`);
         note(
@@ -661,8 +659,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
            })(${JSON.stringify(hosts)})`,
           );
         const floors = [
-          // card-dom: shell — the utility tier's chrome is the shell's.
-          ...(await floorsIn(app, [["the utility tier", UTILITY_BAR]])),
+          ...(await floorsIn(app.body("U"), [["the utility tier", UTILITY_BAR]])),
           ...(await floorsIn(app.body("B"), [["the document tier", `${DOC_FRAME} .tug-session-row-name-line`]])),
           ...(await floorsIn(app.body("A"), [["the session tier", `${SESSION_FRAME} .tug-session-row-name-line`]])),
         ];

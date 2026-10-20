@@ -7,7 +7,7 @@
  * draws its own chrome and is one view; `at0744` reads its drag.
  *
  * @foreground
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/TestHarness/NativeEventHandlers.swift

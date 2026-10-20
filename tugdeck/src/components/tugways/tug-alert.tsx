@@ -1080,6 +1080,23 @@ export function TugAlertProvider({ children }: TugAlertProviderProps) {
   );
 }
 
+/** Props for TugAlertRelayProvider. */
+export interface TugAlertRelayProviderProps {
+  showAlert: TugAlertContextValue["showAlert"];
+  children: React.ReactNode;
+}
+
+/**
+ * TugAlertRelayProvider — supplies `useTugAlert()` from somewhere other than
+ * a singleton in this page. The shell mounts it where the host keeps an
+ * overlay above the cards: an alert the shell raises is shown in the overlay
+ * page, which is the one page nothing covers (`lib/overlay-shell.ts`).
+ */
+export function TugAlertRelayProvider({ showAlert, children }: TugAlertRelayProviderProps) {
+  const contextValue = React.useMemo(() => ({ showAlert }), [showAlert]);
+  return <TugAlertContext.Provider value={contextValue}>{children}</TugAlertContext.Provider>;
+}
+
 /**
  * useTugAlert — returns a showAlert function that opens the singleton TugAlert.
  *

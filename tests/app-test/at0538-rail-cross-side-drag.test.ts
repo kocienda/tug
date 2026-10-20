@@ -33,6 +33,7 @@
  *
  * @motion
  * @covers tugdeck/src/lib/drop-zones.ts
+ * @covers tugdeck/src/overlay/overlay-indication.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  */
 
@@ -44,6 +45,7 @@ import {
   summarizeMotionCensus,
   type App,
 } from "./_harness";
+import { overlayPage } from "./overlay-fixture";
 import { chromePoint } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -172,8 +174,8 @@ function sidebarSideOf(app: App, componentId: string): Promise<string | null> {
 }
 
 async function indicator(app: App): Promise<Rect | null> {
-  // card-dom: shell — the drop-zone indicator is the shell canvas's.
-  return app.evalJS<Rect | null>(
+  // The outline is drawn in the overlay, above every card.
+  return overlayPage(app).evalJS<Rect | null>(
     `(function () {
       var el = document.querySelector(".tug-drop-zone-indicator");
       if (el === null) return null;

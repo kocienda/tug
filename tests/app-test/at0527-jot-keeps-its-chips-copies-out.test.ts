@@ -35,6 +35,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { restoreGateGone } from "./overlay-fixture";
 import { kindBody } from "./_harness/card-reach";
 import {
   mkTempTugbank,
@@ -114,6 +115,12 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
             sessionMode: "resume",
           });
 
+          // The resumed session raises the app-modal restore gate ("Restoring
+          // 1 session") in the overlay page while its replay reveals, and the
+          // gate holds the pointer and the keyboard for the whole window: a
+          // row click under it lands on the gate, and Return goes to it. So
+          // the Jots card is entered once the gate has let go.
+          await restoreGateGone(app);
           // The seeded jot draws its chip before anything is copied — the copy
           // reads the record, and this is that record having survived the read.
           await openFirstJotEditor(app, jots);
@@ -123,14 +130,6 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
           );
 
           // ---- The row's own Copy — a click, no chord. ------------------
-          // The resumed session raises the app-modal restore gate ("Restoring
-          // 1 session") while its replay reveals, and a click under it lands
-          // on the gate's overlay rather than the row's Copy — which is the
-          // gate doing its job. Reach for the button once the gate has let go.
-          await app.body("A").waitForCondition<boolean>(
-            `document.querySelector('[data-slot="tug-restore-gate"]') === null`,
-            { timeoutMs: 15_000 },
-          );
           Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(COPY_SENTINEL) });
           await jots.nativeClickAtElement(
             `.jot-editor-header [aria-label="Copy jot"]`,

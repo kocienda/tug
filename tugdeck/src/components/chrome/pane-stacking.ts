@@ -22,7 +22,6 @@ import { findSidebarPanes } from "@/deck-store-selectors";
 import type { CardDeck } from "@/card-deck";
 import type { DeckState } from "@/layout-tree";
 import { withDepartingStanding } from "@/lib/departing";
-import { revealPaneFrame } from "./pane-occlusion-controller";
 import { SHOWN_PANE_FRAMES } from "./space-layer";
 
 // ---- Card z-index base ----
@@ -64,15 +63,6 @@ export const SIDEBAR_PANE_ZINDEX_BASE = 8990;
  * both, with no arithmetic over the deck's card count. [B02]
  */
 export const MARGIN_CAP_ZINDEX = SIDEBAR_PANE_ZINDEX_BASE - 1;
-
-/**
- * Z for the rail shadows, deliberately the margin cap's own layer: above
- * every free card and strictly below the rail band. The shadow's whole job is
- * to darken the card sliding under it, so it must outrank cards; and it must
- * stay below the rails so a rail's own ink is never shaded by the panel it
- * belongs to.
- */
-export const RAIL_SHADOW_ZINDEX = MARGIN_CAP_ZINDEX;
 
 /** The most rails the band can order before it would collide with the overlay
  *  base. Far past any real deck; the clamp is here so it cannot ever collide.
@@ -177,7 +167,6 @@ export function usePaneRaise(
         const was = parseInt(frame.style.zIndex, 10);
         if (was === z) continue;
         frame.style.zIndex = String(z);
-        if (!(was > z)) revealPaneFrame(frame);
       }
     };
     return store.subscribeSync?.(raise, "pane-raise") ?? (() => {});

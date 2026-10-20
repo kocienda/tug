@@ -19,11 +19,10 @@
  * `at0738-body-sheets`.
  *
  * @family at0738-body
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-facts-store.ts
  * @covers tugdeck/src/lib/body-command-route.ts
- * @covers tugdeck/src/lib/pointer-claim.ts
- * @covers tugdeck/src/components/chrome/body-placement-beacon.tsx
+ * @covers tugdeck/src/components/chrome/card-placement-beacon.tsx
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-handoff.ts
  * @covers tugdeck/src/lib/body-cards-store.ts
@@ -167,15 +166,15 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
           return { fill: "rgb(" + d[0] + ", " + d[1] + ", " + d[2] + ")", focused: pane.getAttribute("data-focused"),
             layer: s.backgroundColor + " @ " + s.opacity };
         })()`);
-        const shellCanvas = await app.evalJS<string | null>(
-          `(function () { return document.documentElement.hasAttribute("data-body-host") ? ${asRgb("getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')")} : null; })()`,
+        // card-dom: shell — the canvas beneath every card is the shell's own paint.
+        const shellCanvas = await app.evalJS<string>(
+          asRgb("getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')"),
         );
         note(`the card's own frame: data-focused=${expected.focused}, frame dim ${expected.layer}, expected fill ${expected.fill}`);
         note(
           `composite in the body's rect ${JSON.stringify(frame)}: fill ${paint.fill}, ink ${(paint.ink * 100).toFixed(1)}%; ` +
-            `body surface ${bodySurface}, host canvas floor ${shellCanvas}`,
+            `body surface ${bodySurface}, shell canvas ${shellCanvas}`,
         );
-        expect(shellCanvas, "the host stands a canvas floor under the deck on a body host, and the shell's canvas stands down for it").not.toBeNull();
         expect(paint.fill, "the body's rect is painted by the body, not the shell's canvas").not.toBe(shellCanvas);
         const bodyFocused = await body.evalJS<string | null>(
           `document.querySelector(".body-chrome-frame")?.getAttribute("data-focused") ?? null`,

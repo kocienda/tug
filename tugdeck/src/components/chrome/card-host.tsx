@@ -103,6 +103,7 @@ import {
 } from "../tugways/use-component-state-preservation";
 import { CardDirtyContext, TugPaneFrameContext, TugPanePortalContext } from "./tug-pane";
 import { useResponder } from "../tugways/use-responder";
+import { useResponderChain } from "../tugways/responder-chain-provider";
 import type { ActionEvent } from "../tugways/responder-chain";
 import { TUG_ACTIONS } from "../tugways/action-vocabulary";
 import { useCardDeck } from "../../card-deck-context";
@@ -676,7 +677,10 @@ function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
  *
  * A card whose body failed, and failed again when the shell asked for it
  * once more (`lib/body-shell.ts`), stands here as a placard saying so, with a
- * Reload that asks for its body again.
+ * Reload that asks for its body again and a Close. The placard is the card's
+ * only face: the pane is a stand-in that draws no chrome, so the close it
+ * offers is the pane's own (`CLOSE_PANE`, which the pane answers for a card
+ * no page stands for by closing it).
  *
  * A card whose body did not answer its close decision stands a status banner
  * on its pane saying so (`lib/close-refusal-store.ts`), naming Option-click on
@@ -690,6 +694,7 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
     actions: {},
   });
   const failed = useSyncExternalStore(bodyCardsStore.subscribe, () => bodyCardsStore.stateOf(cardId) === "failed");
+  const chain = useResponderChain();
   const closeRefused = useSyncExternalStore(closeRefusalStore.subscribe, () => closeRefusalStore.isRefused(cardId));
   // The banner portals into the pane's card root, as a card's own banner does.
   // That root is the pane's, shared by every tab, so the banner stands only
@@ -710,6 +715,12 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
               <p className="tug-body-failed-message">This card didn’t load.</p>
               <TugPushButton emphasis="outlined" onClick={() => reloadBody(cardId)}>
                 Reload
+              </TugPushButton>
+              <TugPushButton
+                emphasis="ghost"
+                onClick={() => chain?.sendToTarget(hostStackId, { action: TUG_ACTIONS.CLOSE_PANE, phase: "discrete" })}
+              >
+                Close
               </TugPushButton>
             </div>
           ) : null}

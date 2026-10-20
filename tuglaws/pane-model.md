@@ -34,11 +34,11 @@ The top-level canvas. Owns the layout tree: the set of all Panes, the ordered `c
 
 ### Pane
 
-The visual container. A rectangular frame on the canvas with chrome (title bar, optional tab bar, width and close controls) and a content region. Panes own **position**, **size**, **z-order** (implicit in array order within `deckState.panes`), **acceptsFamilies**, and the ordered `cardIds` list of the Cards they host.
+The visual container. A rectangular frame on the canvas with chrome (title bar, optional tab bar, width and close controls) and a content region. Panes own **position**, **size**, **z-order** (implicit in array order within `deckState.panes`), **acceptsFamilies**, and the ordered `cardIds` list of the Cards they host. In the shell's page the frame is a **paintless stand-in** — the `.tug-pane` element with its data attributes and inline geometry, nothing drawn, no clip, no child that paints — and the chrome and the content are drawn by the card's own page, in the web view the host stands over the stand-in and places from its rect ([D216]). A covered Pane's card is simply beneath its neighbour's view in the host's stacking; nothing in the shell hides it.
 
 | Owner | Responsibility |
 |-------|---------------|
-| `TugPane` (component) | Renders the frame; handles drag, resize, title bar, width popup, snap, tab bar |
+| `TugPane` (component) | Renders the frame as a paintless stand-in with its geometry and data attributes; the title bar, tab bar, width popup and grips are drawn by the card's page (`body-chrome.ts`), and the host tracks drag, resize and snap from that chrome (`cardGesture`, `CardGeometry.swift`) |
 | `TugPaneBanner` (component) | Renders the pane-scoped modal banner (error/status overlays) |
 | `TugPaneState` (type) | `{ id, position, size, cardIds, activeCardId, title, acceptsFamilies, slot?, widthPreset? }` |
 
@@ -516,7 +516,7 @@ The bleed at issue is **interaction** bleed — a surface in one Pane blocking w
 
 | Law | Relationship |
 |-----|--------------|
-| [L09] TugPane composes chrome and owns geometry; Cards never set their own position, size, or z-order | The Pane / Card responsibility split described here. Panes own geometry and chrome; Cards supply content identity |
+| [L09] TugPane composes chrome and owns geometry; Cards never set their own position, size, or z-order | The Pane / Card responsibility split described here. Panes own geometry and chrome; Cards supply content identity. The chrome is drawn in the card's own page over a paintless stand-in in the shell ([D216]) |
 | [L10] One responsibility per layer | The Pane Model *is* this law applied to the canvas: DeckManager owns the tree, DeckCanvas maps state to Panes, TugPane owns the frame, CardHost owns the content bridge, Card content owns domain logic |
 | [L11] Controls emit actions; responders own state | Pane is the responder for Pane-state actions (`close`, `find`, `toggleMenu`). Card is the responder for content-state actions its body implements |
 | [L12] Selection stays inside card boundaries | The "card boundary" is the `CardHost` content region — `data-card-id` marks it, `SelectionGuard` clamps at its edges |

@@ -42,7 +42,7 @@ import React, {
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { layoutRectOf, viewportPxOf } from "@/lib/page-zoom-store";
-import { getShellSurfaceHost } from "@/lib/shell-surface";
+import { getSurfaceHost } from "@/lib/surface-mirror";
 
 import { Archive, MessageCircleQuestion, ShieldAlert } from "lucide-react";
 
@@ -950,10 +950,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const foldedForm = foldedShowing && paneFrameEl !== null;
   // In a body the pane frame is the card's content box, which is the whole
   // of the body's viewport, so an overhanging placard has nowhere to stand.
-  // The shell draws it instead (`lib/shell-surface.ts`): it renders here,
-  // hidden, and its content is what the shell draws.
-  const shellSurfaces = getShellSurfaceHost();
-  const drawnByShell = shellSurfaces !== null && overhangForm;
+  // The overlay draws it instead (`lib/surface-mirror.ts`): it renders here,
+  // hidden, and its content is what the overlay draws.
+  const surfaceHost = getSurfaceHost();
+  const drawnElsewhere = surfaceHost !== null && overhangForm;
 
   // What stands in the Z2 row INSTEAD of the five telemetry cells, on a folded
   // card ([B03]/[B04]). The folded frame's height is the wall tier's, so the
@@ -1117,12 +1117,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // closes it here. A layout effect, so the shell hears of it in the commit
   // that opened it.
   useLayoutEffect(() => {
-    if (placard === null || !drawnByShell || shellSurfaces === null || paneFrameEl === null) return;
+    if (placard === null || !drawnElsewhere || surfaceHost === null || paneFrameEl === null) return;
     const panel = paneFrameEl.querySelector<HTMLElement>(".tug-placard.tug-placard-drawn-elsewhere");
     const content = panel?.querySelector<HTMLElement>('[data-slot="tug-placard-body"]') ?? null;
     const statusBar = rowRef.current?.closest<HTMLElement>('[data-slot="session-card-status-bar"]') ?? null;
     if (content === null || statusBar === null) return;
-    return shellSurfaces.show(
+    return surfaceHost.show(
       content,
       () => {
         const frameRect = paneFrameEl.getBoundingClientRect();
@@ -1137,7 +1137,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       },
       closePlacard,
     );
-  }, [placard, drawnByShell, shellSurfaces, paneFrameEl, foldedForm, closePlacard]);
+  }, [placard, drawnElsewhere, surfaceHost, paneFrameEl, foldedForm, closePlacard]);
 
   // [P10] Escape ownership while a Z2 placard is open. The placard is
   // non-modal, focus-refusing chrome (it never pushes a focus mode of its
@@ -1671,7 +1671,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         // The visible canvas is what bounds an overhanging panel either way —
         // never the card, whose masthead the open form paints over ([B06]).
         boundEl={overhangForm && paneFrameEl !== null ? paneCanvasOf(paneFrameEl) : null}
-        className={drawnByShell ? "session-telemetry-status-placard tug-placard-drawn-elsewhere" : "session-telemetry-status-placard"}
+        className={drawnElsewhere ? "session-telemetry-status-placard tug-placard-drawn-elsewhere" : "session-telemetry-status-placard"}
         style={placardLineStyle}
         title={PLACARD_TITLES[placard.key]}
         aria-label={PLACARD_TITLES[placard.key]}

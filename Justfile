@@ -163,10 +163,10 @@ test-swift:
 # nobody reads until the gate is already red. Adding a new golden means adding
 # its line here — an unlisted golden is one nothing here can rebuild.
 golden:
-    @bash tugrust/scripts/report-phase.sh golden 0 "imposer solutions" --of "imposer solutions" "beat plan" "host parity" "session digest" "tugmark golden"
+    @bash tugrust/scripts/report-phase.sh golden 0 "imposer solutions" --of "imposer solutions" "card plan" "host parity" "session digest" "tugmark golden"
     cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test src/lib/__tests__/layout-imposer-solutions.test.ts
-    @bash tugrust/scripts/report-phase.sh golden 1 "beat plan"
-    cd tugdeck && BEAT_PLAN_GOLDEN_UPDATE=1 bun test src/lib/__tests__/body-beat-plan.test.ts
+    @bash tugrust/scripts/report-phase.sh golden 1 "card plan"
+    cd tugdeck && CARD_PLAN_GOLDEN_UPDATE=1 bun test src/lib/__tests__/card-plan.test.ts
     @bash tugrust/scripts/report-phase.sh golden 2 "host parity"
     cd tugdeck && HOST_PARITY_UPDATE=1 bun test src/host/__tests__/host-parity.test.ts
     @bash tugrust/scripts/report-phase.sh golden 3 "session digest"

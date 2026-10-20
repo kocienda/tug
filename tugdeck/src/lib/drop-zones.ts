@@ -219,7 +219,7 @@ export interface DropZoneMeasurements {
   /** Every pane's frame, by pane id — content and rail alike. */
   panes: ReadonlyMap<string, Rect>;
   /** Every other pane's tab bar, by pane id — the gesture's existing
-   *  `dragTabBarCache` snapshot, which already excludes the dragged pane. */
+   *  snapshot of the title bands, which already excludes the dragged pane. */
   tabBars: ReadonlyMap<string, Rect>;
   /** The rails standing on the deck's edges. */
   rails: readonly DropZoneRail[];

@@ -14,7 +14,9 @@
  *     left edge stands, and every later slot has already moved by the change.
  *  3. What the gesture drew is what the commit draws: every frame's rect while
  *     the hand held it equals its rect once the width is in the store and
- *     every settle has run out — nothing lands after the gesture ends.
+ *     every settle has run out — nothing lands after the gesture ends. Held,
+ *     each card is read where it shows: its view, which the host carries for
+ *     the card in hand and places for the later slots the shell moved.
  *  4. The card keeps its slot and its preset stamp is cleared.
  *
  * `tug-pane.tsx` and `layout-imposer.ts` are deliberately NOT named, for the
@@ -28,6 +30,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromePoint, heldRectOf } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -74,9 +77,16 @@ interface Rect {
 }
 
 const FRAME = (paneId: string) => `.tug-pane[data-pane-id="${paneId}"]`;
+/** Each pane's one card: its grips are drawn in that card's page. */
+const CARD_OF: Readonly<Record<string, string>> = { p1: "A", p2: "B", p3: "C" };
+
+/** In the shell: a stand-in's offered edges (`data-grips`). */
+const gripsScript = (paneId: string): string =>
+  `(document.querySelector(${JSON.stringify(FRAME(paneId))})?.getAttribute("data-grips") ?? "").split(" ").filter(function (g) { return g.length > 0; })`;
 
 /** Every pane's frame rect, keyed by pane id. */
 async function rects(app: App): Promise<Record<string, Rect>> {
+  // card-dom: shell — the arranged rects are the shell's stand-ins'.
   return app.evalJS<Record<string, Rect>>(
     `(function () {
       var out = {};
@@ -89,15 +99,9 @@ async function rects(app: App): Promise<Record<string, Rect>> {
   );
 }
 
-/** The edges this pane offers as handles, in DOM order. */
+/** The edges this pane offers as handles, in order, as its stand-in names them to the host. */
 async function handlesOf(app: App, paneId: string): Promise<string[]> {
-  return app.evalJS<string[]>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(`${FRAME(paneId)} > .tug-pane-resize`)}))
-      .map(function (el) {
-        var m = /tug-pane-resize-(\\w+)/.exec(el.className.replace("tug-pane-resize ", ""));
-        return m ? m[1] : "?";
-      })`,
-  );
+  return app.evalJS<string[]>(gripsScript(paneId));
 }
 
 async function storedPane(
@@ -113,17 +117,13 @@ async function storedPane(
 }
 
 async function gripOf(app: App, paneId: string): Promise<{ x: number; y: number }> {
-  return app.evalJS(
-    `(function () {
-      var r = document.querySelector(${JSON.stringify(`${FRAME(paneId)} > .tug-pane-resize-e`)}).getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    })()`,
-  );
+  return chromePoint(app, CARD_OF[paneId], ".tug-pane-resize-e");
 }
 
 /**
- * Drag `paneId`'s right edge by `dx`, reading every frame before, while the
- * hand holds it, and once settled after the release.
+ * Drag `paneId`'s right edge by `dx`, reading every frame before, every card
+ * where it shows while the hand holds the edge — its view — and every frame
+ * once settled after the release.
  */
 async function dragRightEdge(
   app: App,
@@ -139,7 +139,11 @@ async function dragRightEdge(
   const to = { x: grip.x + dx, y: grip.y };
   await app.nativeDragWithoutRelease(grip, to);
   await new Promise((r) => setTimeout(r, FRAME_MS));
-  const held = await rects(app);
+  const held: Record<string, Rect> = {};
+  for (const id of PANES) {
+    const view = (await heldRectOf(app, CARD_OF[id]))!;
+    held[id] = { left: view.left, right: view.right, top: view.top, bottom: view.bottom };
+  }
   await app.nativeMouseUp(to);
   await new Promise((r) => setTimeout(r, SETTLE_MS));
   const settled = await rects(app);
@@ -153,7 +157,7 @@ function expectSameRect(a: Rect, b: Rect, what: string): void {
   expect(Math.abs(a.bottom - b.bottom), `${what}: bottom`).toBeLessThanOrEqual(0.5);
 }
 
-/** The gesture's frames are the commit's, and the card and its followers
+/** The gesture's cards are the commit's, and the card and its followers
  *  moved as the strip says: left standing, right with the hand, later slots
  *  by the same change, earlier slots not at all. */
 function expectFlowResize(
@@ -188,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${FRAME("p3")} > .tug-pane-resize`)}) !== null`,
+            `${gripsScript("p3")}.length > 0`,
             { timeoutMs: 8_000 },
           );
 

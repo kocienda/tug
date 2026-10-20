@@ -1324,7 +1324,8 @@ export function bodies(caller: HarnessCaller): Promise<BodyViewSnapshot[]> {
 /**
  * The web views the window's accessibility tree reaches, in the order
  * VoiceOver reads them: `shell` for the deck's own view, a card id for a
- * body, `spare` for an unbound one (surface `1.18.0`).
+ * body, `overlay` for the overlay above every card, `spare` for an unbound
+ * body (surface `1.18.0`).
  */
 export function accessibilityOrder(caller: HarnessCaller): Promise<string[]> {
   return caller.rpcCall("accessibilityOrder", {});

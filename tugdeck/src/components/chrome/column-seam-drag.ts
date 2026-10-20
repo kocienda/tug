@@ -12,10 +12,30 @@
  * Keyed by slot and boundary: boundary `index` divides members `index` and
  * `index + 1`. Only the shown deck's columns mount seams, so one key names one
  * seam.
+ *
+ * A member draws its chrome in its own page and presses its edge there, and
+ * the host tracks the gesture and reports each step to the shell
+ * (`host-card-gesture.ts`). There is no pointer in the shell to capture, so
+ * the seam's drag is driven by those reports (`driveColumnSeam`): the same
+ * latch, bounds, pins and commit as a press on the seam itself, fed the
+ * pointer's height.
  */
 
-/** Begin the seam's drag for a press already in progress. */
-export type ColumnSeamDragStart = (pointerId: number, clientY: number) => void;
+/** A seam drag in progress, driven by the pointer's viewport `clientY`. */
+export interface ColumnSeamGesture {
+  move(clientY: number): void;
+  /** The release: commits the division the hand left, if it travelled. */
+  release(clientY: number): void;
+  /** Taken away: commits nothing, and the members stand where the record says. */
+  cancel(): void;
+}
+
+/**
+ * Begin the seam's drag for a press already in progress: under `pointerId`,
+ * whose events the seam then listens to, or, with `null`, driven through the
+ * gesture it answers. `null` when the seam has no division to move.
+ */
+export type ColumnSeamDragStart = (pointerId: number | null, clientY: number) => ColumnSeamGesture | null;
 
 const starts = new Map<string, ColumnSeamDragStart>();
 
@@ -41,18 +61,10 @@ export function registerColumnSeamDrag(
 }
 
 /**
- * Start column `slot`'s seam `index` dragging under the press `pointerId`.
- * `false` when no such seam is mounted, which leaves the press with nothing
- * to move — the honest answer for an edge whose seam is not there.
+ * Start column `slot`'s seam `index` dragging from a press at `clientY` that
+ * the host tracks, answering the gesture its reports drive; `null` when no
+ * such seam is mounted or it has nothing to move.
  */
-export function startColumnSeamDrag(
-  slot: number,
-  index: number,
-  pointerId: number,
-  clientY: number,
-): boolean {
-  const start = starts.get(keyOf(slot, index));
-  if (start === undefined) return false;
-  start(pointerId, clientY);
-  return true;
+export function driveColumnSeam(slot: number, index: number, clientY: number): ColumnSeamGesture | null {
+  return starts.get(keyOf(slot, index))?.(null, clientY) ?? null;
 }

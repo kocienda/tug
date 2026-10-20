@@ -472,76 +472,8 @@ export function initActionDispatch(
 
   registerEvalAction(connection);
 
-  // claude_auth_result: tugcast's answer to `check_auth` (probe) and
-  // `claude_sign_in` (login). Updates the app-level authStore that the
-  // app-wide sign-in sheet, the picker gate, and the per-card banner all read.
-  registerAction("claude_auth_result", (payload) => {
-    applyAuthResultPayload(payload);
-  });
-
-  // claude_install_result: outcome of a Tug-managed `install_claude` (the
-  // re-probe arrives separately as claude_auth_result).
-  registerAction("claude_install_result", (payload) => {
-    applyInstallResultPayload(payload);
-  });
-
-  // claude_install_progress: bytes of the Tug-managed download, published on
-  // a whole-percent change ([B06]). The row's bar and its detail line are
-  // painted from the store directly, so these frames cost no re-render.
-  registerAction("claude_install_progress", (payload) => {
-    applyDownloadProgressPayload(payload);
-  });
-
-  // claude_download_stopped: the download was paused (bytes kept, on disk) or
-  // cancelled (bytes gone). No install result follows a stop — the row is
-  // holding its place rather than finished.
-  registerAction("claude_download_stopped", (payload) => {
-    applyDownloadStoppedPayload(payload);
-  });
-
-  // claude_install_fallback: the release channel could not be read, so the
-  // official script is running instead ([B08]). No bytes will follow.
-  registerAction("claude_install_fallback", () => {
-    applyDownloadFallbackPayload();
-  });
-
-  // claude_version_result: tugcast's answer to `check_claude_version` — the
-  // installed version and the newest stable release. Also re-broadcast after an
-  // install or update, so the row settles on what actually landed.
-  registerAction("claude_version_result", (payload) => {
-    applyVersionResultPayload(payload);
-  });
-
-  // claude_update_result: outcome of a Tug-managed `update_claude` (the
-  // re-probe arrives separately as claude_version_result).
-  registerAction("claude_update_result", (payload) => {
-    applyUpdateResultPayload(payload);
-    // The update's transfer was the auth store's — it is the one that carries
-    // the bytes and the busy flag — and this frame is the only thing that ends
-    // it, because an update reports on the version store's frame instead.
-    applyDownloadEnded();
-  });
-
-  // host_tools_result: tugcast's answer to `check_host_tools` — whether this
-  // machine carries a git Tug can use. Also re-broadcast after an offer, and
-  // again when the Command Line Tools actually land on disk, so the row settles
-  // on what is really there rather than on what was asked for.
-  registerAction("host_tools_result", (payload) => {
-    applyHostToolsResultPayload(payload);
-  });
-
-  // host_tools_offer_result: outcome of `offer_host_tools`. Success only means
-  // Apple's installer started — the re-probe is what says git arrived.
-  registerAction("host_tools_offer_result", (payload) => {
-    applyHostToolsOfferResultPayload(payload);
-  });
-
-  // claude_logout_result: outcome of `claude_logout` (the re-probe arrives
-  // separately as claude_auth_result). On failure this carries the error the
-  // TugLogout orchestrator surfaces.
-  registerAction("claude_logout_result", (payload) => {
-    applyLogoutResultPayload(payload);
-  });
+  // The setup wizard's answers: auth, install, version, host tools, logout.
+  registerSetupActions();
 
   // logout: app-level "Log out…" trigger from the File menu (like show-card,
   // not the per-card run-card-command — logout must work with no card open).
@@ -1698,6 +1630,88 @@ export function initActionDispatch(
     for (const dispose of disposers) dispose();
     disposers.length = 0;
   };
+}
+
+/**
+ * The answers the setup wizard and the sign-in surfaces read: tugcast's
+ * auth, install, download, version, update, host-tools and logout results,
+ * each applied to its store.
+ *
+ * tugcast broadcasts these to every page, so every page that reads those
+ * stores registers these: the shell (from {@link initActionDispatch}) and the
+ * overlay page, where the setup wizard is mounted ([B07]).
+ */
+export function registerSetupActions(): void {
+  // claude_auth_result: tugcast's answer to `check_auth` (probe) and
+  // `claude_sign_in` (login). Updates the app-level authStore that the
+  // app-wide sign-in sheet, the picker gate, and the per-card banner all read.
+  registerAction("claude_auth_result", (payload) => {
+    applyAuthResultPayload(payload);
+  });
+
+  // claude_install_result: outcome of a Tug-managed `install_claude` (the
+  // re-probe arrives separately as claude_auth_result).
+  registerAction("claude_install_result", (payload) => {
+    applyInstallResultPayload(payload);
+  });
+
+  // claude_install_progress: bytes of the Tug-managed download, published on
+  // a whole-percent change ([B06]). The row's bar and its detail line are
+  // painted from the store directly, so these frames cost no re-render.
+  registerAction("claude_install_progress", (payload) => {
+    applyDownloadProgressPayload(payload);
+  });
+
+  // claude_download_stopped: the download was paused (bytes kept, on disk) or
+  // cancelled (bytes gone). No install result follows a stop — the row is
+  // holding its place rather than finished.
+  registerAction("claude_download_stopped", (payload) => {
+    applyDownloadStoppedPayload(payload);
+  });
+
+  // claude_install_fallback: the release channel could not be read, so the
+  // official script is running instead ([B08]). No bytes will follow.
+  registerAction("claude_install_fallback", () => {
+    applyDownloadFallbackPayload();
+  });
+
+  // claude_version_result: tugcast's answer to `check_claude_version` — the
+  // installed version and the newest stable release. Also re-broadcast after an
+  // install or update, so the row settles on what actually landed.
+  registerAction("claude_version_result", (payload) => {
+    applyVersionResultPayload(payload);
+  });
+
+  // claude_update_result: outcome of a Tug-managed `update_claude` (the
+  // re-probe arrives separately as claude_version_result).
+  registerAction("claude_update_result", (payload) => {
+    applyUpdateResultPayload(payload);
+    // The update's transfer was the auth store's — it is the one that carries
+    // the bytes and the busy flag — and this frame is the only thing that ends
+    // it, because an update reports on the version store's frame instead.
+    applyDownloadEnded();
+  });
+
+  // host_tools_result: tugcast's answer to `check_host_tools` — whether this
+  // machine carries a git Tug can use. Also re-broadcast after an offer, and
+  // again when the Command Line Tools actually land on disk, so the row settles
+  // on what is really there rather than on what was asked for.
+  registerAction("host_tools_result", (payload) => {
+    applyHostToolsResultPayload(payload);
+  });
+
+  // host_tools_offer_result: outcome of `offer_host_tools`. Success only means
+  // Apple's installer started — the re-probe is what says git arrived.
+  registerAction("host_tools_offer_result", (payload) => {
+    applyHostToolsOfferResultPayload(payload);
+  });
+
+  // claude_logout_result: outcome of `claude_logout` (the re-probe arrives
+  // separately as claude_auth_result). On failure this carries the error the
+  // TugLogout orchestrator surfaces.
+  registerAction("claude_logout_result", (payload) => {
+    applyLogoutResultPayload(payload);
+  });
 }
 
 /**

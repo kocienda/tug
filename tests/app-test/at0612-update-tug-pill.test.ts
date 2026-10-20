@@ -117,6 +117,7 @@ import {
   stepKeys,
   stepLabels,
   stepStatuses,
+  ui,
   waitForClickable,
   waitForPill,
   waitForWizard,
@@ -192,7 +193,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
             await waitForPill(app, stage);
             // One sentence, and it is the same sentence in every live stage:
             // which update exists, never what is happening to it [F08].
-            expect(await app.getElementText(PILL)).toContain(
+            expect(await ui(app).getElementText(PILL)).toContain(
               "Tug v0.9.0 is available",
             );
           } else {
@@ -237,7 +238,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
         // off the line-height, because what matters is whether any ink is
         // outside the box that clips it, and that is the thing a later change
         // to the font or the pill's metrics would break.
-        const labelOverflow = await app.evalJS<{
+        const labelOverflow = await ui(app).evalJS<{
           scrollHeight: number;
           clientHeight: number;
         }>(
@@ -257,7 +258,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
         // canvas had at that spot and reading as a second, unrelated object.
         // Measured as containment in the painted box, which is the fact the
         // eye is actually reporting.
-        const hideInside = await app.evalJS<{
+        const hideInside = await ui(app).evalJS<{
           fill: { left: number; right: number; top: number; bottom: number };
           hide: { left: number; right: number; top: number; bottom: number };
         }>(
@@ -291,7 +292,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
         // same thing and the wizard says it better.
         await clearPosted(app);
         await waitForClickable(app, PILL);
-        await app.click(PILL);
+        await ui(app).click(PILL);
         await waitForWizard(app, "available");
         expect(await elementCount(app, PILL_ANCHOR)).toBe(0);
         // Opening is not a decision: nothing crossed the bridge.
@@ -304,8 +305,8 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
         // untouched — so the pill comes straight back, still saying an update
         // is available.
         await waitForClickable(app, CLOSE);
-        expect(await app.getElementText(CLOSE)).toContain("Close");
-        await app.click(CLOSE);
+        expect(await ui(app).getElementText(CLOSE)).toContain("Close");
+        await ui(app).click(CLOSE);
         await waitForWizardGone(app);
         await waitForPill(app, "available");
         expect(await postedActions(app)).toEqual([]);
@@ -349,7 +350,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
         await push(app, snapshot("available", { revealCount: nextReveal() }));
         await waitForWizard(app, "available");
         await waitForClickable(app, CLOSE);
-        await app.click(CLOSE);
+        await ui(app).click(CLOSE);
         await waitForWizardGone(app);
         // No bump: `snapshot` carries the standing count, which is exactly the
         // number the deck has already acted on.
@@ -452,21 +453,21 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
         const beforeClose = await stepStatuses(app);
         await clearPosted(app);
         await waitForClickable(app, CLOSE);
-        await app.click(CLOSE);
+        await ui(app).click(CLOSE);
         await waitForWizardGone(app);
         // Paused, not dismissed: Sparkle was answered nothing and the pill is
         // back, so the update is exactly as live as it was.
         expect(await postedActions(app)).toEqual([]);
         await waitForPill(app, "readyToInstall");
         await waitForClickable(app, PILL);
-        await app.click(PILL);
+        await ui(app).click(PILL);
         await waitForWizard(app, "readyToInstall");
         expect(await stepStatuses(app)).toEqual(beforeClose);
         note("at0612 reopen", JSON.stringify(beforeClose));
 
         // And a stage that moved while the wizard was shut is where it lands.
         await waitForClickable(app, CLOSE);
-        await app.click(CLOSE);
+        await ui(app).click(CLOSE);
         await waitForWizardGone(app);
         await push(app, snapshot("installing", { revealCount: nextReveal() }));
         await waitForWizard(app, "installing");
@@ -483,8 +484,8 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
         await waitForPill(app, "available");
         await clearPosted(app);
         await waitForClickable(app, PILL_HIDE);
-        await app.click(PILL_HIDE);
-        await app.waitForCondition<boolean>(
+        await ui(app).click(PILL_HIDE);
+        await ui(app).waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PILL_ANCHOR)}) === null`,
           { timeoutMs: 10_000 },
         );
@@ -503,7 +504,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill, and what raises and lower
         await push(app, snapshot("readyToInstall", { revealCount: nextReveal() }));
         await waitForWizard(app, "readyToInstall");
         await waitForClickable(app, CLOSE);
-        await app.click(CLOSE);
+        await ui(app).click(CLOSE);
         await waitForWizardGone(app);
 
         // And the host saying there is nothing to say, then something new,

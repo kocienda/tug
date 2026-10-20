@@ -4,9 +4,22 @@ import WebKit
 
 /// The view every body container lives in: flipped, so a container's frame is
 /// the top-left viewport rect the shell measured, filling the window's
-/// container beneath the shell's web view and above the splash.
+/// container over the shell's web view and beneath the overlay's.
+///
+/// Held at opacity zero until the window reveals the shell, then faded in on
+/// the reveal's own clock: a card shown before the reveal would stand over
+/// the splash. Opacity, never `isHidden`, so every body keeps painting.
 final class BodyHostView: NSView {
     override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.opacity = 0
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
 
     /// Put the containers in their `order`, in place, and only when the
     /// order has changed. `sortSubviews` moves nothing out of the hierarchy,
@@ -33,20 +46,34 @@ final class BodyHostView: NSView {
         }, context: nil)
     }
 
-    /// Never a hit of its own: a point between bodies is the shell's, and a
-    /// point inside a container is answered by the container's web view.
+    /// The container a point in this view's coordinates — the viewport's —
+    /// belongs to, by the cards' hit shapes front to back, or nil when no
+    /// card claims it.
+    var containerAt: ((NSPoint) -> NSView?)?
+
+    /// Never a hit of its own, and never a container's but by the cards' hit
+    /// shapes: the shell's view lies beneath, so a point no card claims —
+    /// between cards, on a card's bare apron, on a seam the shell keeps over
+    /// a card, or under a claim the shell has posted — answers nil and
+    /// AppKit carries it on to the shell. A whole card's view reaches past
+    /// its pane by the apron, and two cards a gap apart overlap there, so
+    /// which card a point is is its hit shape's answer (`CardHitShape`), not
+    /// the frames': the band past a pane's edge is that card's only where it
+    /// offers a grip, and a press on a card's grip is never taken by the
+    /// bare apron of the card beside it.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let hit = super.hitTest(point)
-        return hit === self ? nil : hit
+        guard let containerAt, let container = containerAt(convert(point, from: superview)) else { return nil }
+        return container.hitTest(convert(point, from: superview))
     }
 }
 
-/// The window's content view, which holds the shell's web view, the bodies
-/// and the floor. Its accessibility children are the order VoiceOver reads
-/// the window in: subview order would put the bodies, beneath the shell,
-/// first and in stacking order. `accessibilityOrder` replaces that with the
-/// shell's view and then each showing body in the shell's pane order; nil
-/// leaves AppKit's own answer, as on a host that makes no bodies.
+/// The window's content view, which holds the shell's web view, the cards
+/// over it and the overlay over them. Its accessibility children are the
+/// order VoiceOver reads the window in: subview order would put the cards
+/// in stacking order. `accessibilityOrder` replaces that with the shell's
+/// view, then each showing card in the shell's pane order, then the
+/// overlay; nil leaves AppKit's own answer, as on a host that makes no
+/// bodies.
 final class DeckContainerView: NSView {
     var accessibilityOrder: [Any]? {
         didSet { NSAccessibility.post(element: self, notification: .layoutChanged) }
@@ -57,66 +84,8 @@ final class DeckContainerView: NSView {
     }
 }
 
-/// The deck's canvas beneath the bodies: the canvas colour and the grid,
-/// drawn by the host from the shell's `floorGrid` so the shell paints no
-/// floor of its own and cuts nothing for a body to show through. It sits
-/// above the splash and below the bodies, hidden until the shell's first
-/// `floorGrid` and the window's reveal — shown at window creation, its
-/// opaque canvas would cover the splash.
-final class DeckFloorView: NSView {
-    var grid = FloorGrid() {
-        didSet { if grid != oldValue { needsDisplay = true } }
-    }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .duringViewResize
-        isHidden = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
-
-    override var isFlipped: Bool { true }
-    override var isOpaque: Bool { true }
-
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        needsDisplay = true
-    }
-
-    /// The canvas, then the horizontal lines, then the vertical ones, each
-    /// composited over what is beneath — where two lines cross, the grid's
-    /// alpha lands twice, as the page's two gradients do. Filled rects from
-    /// `FloorGrid.lines`, never a pattern image, so no tile rounding is
-    /// invented here.
-    override func draw(_ dirtyRect: NSRect) {
-        nsColor(grid.canvas).setFill()
-        dirtyRect.fill()
-        let scale = window?.backingScaleFactor ?? 2
-        let lines = grid.lines(in: bounds.size, scale: scale)
-        nsColor(grid.grid).setFill()
-        let left = FloorGrid.roundToDevicePixel(CGFloat(grid.originX), scale: scale)
-        let top = FloorGrid.roundToDevicePixel(CGFloat(grid.originY), scale: scale)
-        for y in lines.ys {
-            NSRect(x: left, y: y, width: bounds.width - left, height: lines.width).fill(using: .sourceOver)
-        }
-        for x in lines.xs {
-            NSRect(x: x, y: top, width: lines.width, height: bounds.height - top).fill(using: .sourceOver)
-        }
-    }
-
-    /// Never a hit: the floor is paint, and a point on it is the shell's.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    private func nsColor(_ c: FloorGrid.RGBA) -> NSColor {
-        NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a)
-    }
-}
-
-/// A body's container: layer-backed, corner-clipped, carrying its stacking
-/// order and its creation serial for `BodyHostView.sortContainers`.
+/// A body's container: layer-backed and clipped to its bounds, carrying its
+/// stacking order and its creation serial for `BodyHostView.sortContainers`.
 ///
 /// Flipped, so the web view's top-left is its origin: while a crossing
 /// animates the container's bounds, the page stays pinned at the top and
@@ -168,39 +137,32 @@ final class BeatTrackDelegate: NSObject, CAAnimationDelegate {
 }
 
 /// Every body: a card's content in a WKWebView of its own, in its own
-/// WebContent process, placed by the host beneath the transparent shell.
+/// WebContent process, placed by the host over the shell's page.
 ///
 /// A body's life (`loading → connected → bound → ready → painted → visible /
 /// hidden → destroyed`, with `failed` from any state before ready at the
 /// deadline and on a second WebContent termination within ten seconds) is
 /// kept here, and the shell hears of every transition that matters to it
 /// through `window.__tugBridge.onBodyState`. The shell decides what each body
-/// is for (`bodyCreate`) and where it stands (`placeBodies`); this object
+/// is for (`bodyCreate`) and where it stands (`placeCards`); this object
 /// makes the views, binds them, places them, shows them, and tears them down.
 /// Its message handlers are `MainWindow`'s, which routes a message by the
 /// view that sent it.
 ///
-/// **Showing is the shell's reveal, not the host's.** A body is beneath the
-/// shell page, and what the shell paints over its rect is a lid in the pane's
-/// own surface colour until the body is on screen (`lib/body-placement.ts`).
-/// So the host does not fade a container in — a fade would be a fade from
-/// the floor beneath it, the canvas showing through — it shows a placed,
-/// painted body at once, under the lid, and reports `shown` to the shell,
-/// which lifts the lid in its own frame. `painted` is the body's word that
-/// its first frame of real content has gone to the compositor; `ready`
-/// alone is the card mounted and quiet, and a container shown on `ready`
-/// can be composited empty.
+/// **A card shows once it has painted.** The cards stand over the shell's
+/// page, which paints the canvas and its grid beneath them, so the host
+/// shows a placed card the moment its page says `painted` — its first chrome
+/// frame has gone to the compositor — and never before: `ready` alone is the
+/// card mounted and quiet, and a container shown on `ready` can be
+/// composited empty.
 ///
-/// **The floor is the host's.** The canvas colour and the grid beneath the
-/// bodies are a `DeckFloorView` this object shows from the shell's
-/// `floorGrid`, and the shell stands its own canvas down on `floorShown`.
-///
-/// **A body moves with its chrome.** A settle that moves a body's pane posts
-/// a `beatPlan`, and `runPlan` carries the container through each beat as
-/// Core Animation on the chrome's curve from the chrome's start: one track
-/// per property per body over the whole plan, the container's model at the
-/// landing. It reports `landed` when the track runs out, and
-/// `beatsCancelled` when a placement elsewhere or a newer plan takes it.
+/// **A card moves with its stand-in.** A settle that moves a card's stand-in
+/// posts a `cardPlan`, and `runPlan` carries the whole container through each
+/// beat as Core Animation on the chrome's curve from the chrome's start: one
+/// track per property per card over the whole plan, the container's model at
+/// the landing. It reports `landed` when the track runs out, and
+/// `beatsCancelled` when a placement that does not name the plan, or a newer
+/// plan, takes it.
 final class BodyViewController {
     enum State: String {
         case loading
@@ -236,8 +198,8 @@ final class BodyViewController {
         /// lidded in its own page.
         var canShow: Bool { painted && (state == .ready || state == .bound) }
         /// The card draws its pane's chrome in its own page: its container
-        /// is the pane's rect outset by the apron, clips no corner, wears no
-        /// surface, and answers a point by the card's hit shape.
+        /// is the pane's rect outset by the apron, wears no surface, and
+        /// answers a point by the card's hit shape. Every placed card is.
         var whole = false
         /// An inactive card of a whole card's pane, placed at the pane and
         /// hidden by opacity, never `isHidden`, so it keeps painting and a
@@ -247,13 +209,11 @@ final class BodyViewController {
         /// it: the apron plus what the view's growth to whole points added.
         /// Handed to the page, which lays its pane out at exactly these.
         var insets: CardInsets?
-        /// The shell has been told this showing (`shown`); cleared on hide.
-        var shownReported = false
         /// The frame the last placement gave it, viewport coordinates.
         var frame: CGRect = .zero
-        /// Its pane's resize handles from the last placement, viewport
-        /// coordinates: the shell's points over the body.
-        var grips: [CGRect] = []
+        /// The shell's own controls over the card from the last placement
+        /// (the place seams), viewport coordinates: the shell's points.
+        var shellControls: [CGRect] = []
         /// The stacking order the last placement gave it: the pane's
         /// `z-index`. Containers are kept in this order, so where two panes
         /// overlap the body in front is the pane in front.
@@ -271,7 +231,7 @@ final class BodyViewController {
         var surface: CGColor?
         var deadline: DispatchWorkItem?
         var lastTermination: Date?
-        /// The beat plan carrying the body now, until it lands or is
+        /// The card plan carrying the body now, until it lands or is
         /// cancelled: the plan's id, the rect it lands at, and how late the
         /// plan reached the host.
         var beats: (planId: Int, landing: CGRect, lateMs: Double)?
@@ -310,25 +270,16 @@ final class BodyViewController {
 
     private unowned let window: MainWindow
     let hostView: BodyHostView
-    /// The canvas beneath the bodies; nil on a host that makes none.
-    let floorView: DeckFloorView?
     /// When the window began revealing the shell over the splash, or nil
-    /// before it has: until then the floor may not show, or it would cover
-    /// the splash first.
+    /// before it has: until then the overlay is held transparent, or it
+    /// would stand over the splash.
     private var revealedAt: CFTimeInterval?
-    /// The window's reveal fade, which the floor joins on the same clock.
-    private var revealFade: CAAnimation?
-    /// The shell has posted a `floorGrid`, so the floor has something to draw.
-    private var floorDescribed = false
     private(set) var bodies: [Body] = []
-    private(set) var region = BodyHitRegion()
-    private var radius: CGFloat = 0
+    private(set) var region = CardHitRegion()
     /// The spare's pending creation, so a burst of readies makes one.
     private var pendingSpare: DispatchWorkItem?
     /// Creation order, for a stable stacking among bodies at one z.
     private var serials = 0
-    /// A `shown` report is pending for the bodies that turned showing.
-    private var shownReportScheduled = false
     #if DEBUG
     /// `TUG_BODY_FORCE_STALL=<n>` suppresses the first `n` bodies'
     /// `frontendReady`, so a test can watch the deadline fail them — once
@@ -336,10 +287,12 @@ final class BodyViewController {
     private var readiesToStall = Int(ProcessInfo.processInfo.environment["TUG_BODY_FORCE_STALL"] ?? "") ?? 0
     #endif
 
-    init(window: MainWindow, hostView: BodyHostView, floorView: DeckFloorView?) {
+    init(window: MainWindow, hostView: BodyHostView) {
         self.window = window
         self.hostView = hostView
-        self.floorView = floorView
+        hostView.containerAt = { [weak self] point in
+            self?.body(atViewportPoint: CGPoint(x: point.x, y: point.y))?.container
+        }
     }
 
     // MARK: - Lookup
@@ -362,7 +315,119 @@ final class BodyViewController {
     /// The web view of the card's body, whatever its state — what the
     /// harness evaluates and clicks in when a verb names a card.
     func view(for cardId: String) -> WKWebView? {
-        body(forCard: cardId)?.webView
+        if cardId == Self.overlayCardId { return overlayView }
+        return body(forCard: cardId)?.webView
+    }
+
+    // MARK: - The overlay
+
+    /// The card id the overlay page answers to — on the bus, and to the
+    /// harness's `card` — which no card of the deck ever takes
+    /// (`tugdeck/src/lib/overlay-card.ts`).
+    static let overlayCardId = "deck-overlay"
+
+    /// The overlay's view: above the shell and every card, transparent, and
+    /// passing every point outside its claim to the view beneath ([B07]).
+    private(set) var overlayView: ClickThroughWebView?
+    /// Where the overlay takes the pointer, as it last posted (`overlayClaim`).
+    private var overlayClaim: CardHitRegion.Claim = .none
+    /// What had the keyboard when a modal in the overlay took it, to give it back to.
+    private weak var keysBeforeOverlay: NSResponder?
+
+    /// `overlayCreate`: make the overlay's view and load its page. Idempotent.
+    ///
+    /// It draws no background, and until the window reveals the shell its
+    /// layer is transparent: a hidden view is a hidden page to WebKit, which
+    /// would stop painting it, so it is held by opacity as a body is. It
+    /// stands over every card, so every drag into the window reaches it, and
+    /// it hands each one on to the view a click there would reach.
+    func createOverlay() {
+        guard overlayView == nil else { return }
+        guard let origin = window.shellOrigin,
+              let url = URL(string: origin + "/?overlay=\(Self.overlayCardId)") else {
+            TugLog.error("bodies", "no shell origin to load the overlay from", [])
+            return
+        }
+        let config = window.makeWebViewConfiguration(forShell: false)
+        let view = ClickThroughWebView(frame: .zero, configuration: config)
+        view.setValue(false, forKey: "drawsBackground")
+        view.navigationDelegate = window
+        view.uiDelegate = window
+        view.allowsBackForwardNavigationGestures = false
+        view.passesThrough = { [weak self] point in
+            guard let self else { return true }
+            return !self.overlayClaims(self.window.viewportPoint(point))
+        }
+        view.dragTarget = { [weak self] locationInWindow in
+            guard let self, let container = self.hostView.superview else { return nil }
+            let point = container.convert(locationInWindow, from: nil)
+            if self.overlayClaims(self.window.viewportPoint(point)) { return nil }
+            return self.window.dragTargetBeneathOverlay(at: locationInWindow)
+        }
+        view.wantsLayer = true
+        if revealedAt == nil { view.layer?.opacity = 0 }
+        window.placeOverCards(view, above: hostView)
+        overlayView = view
+        refreshAccessibilityOrder(force: true)
+        view.load(URLRequest(url: url))
+    }
+
+    /// Whether the overlay takes the pointer at a viewport point.
+    func overlayClaims(_ point: CGPoint) -> Bool {
+        switch overlayClaim {
+        case .all: return true
+        case .rects(let rects): return rects.contains { $0.contains(point) }
+        case .none: return false
+        }
+    }
+
+    /// `overlayClaim`: where the overlay takes the pointer now. A claim of
+    /// the whole window is a modal standing, and the modal takes the
+    /// keyboard for its span; when it goes, the keyboard goes back to what
+    /// had it, or to whoever the shell last named.
+    func overlayClaimed(_ claim: CardHitRegion.Claim) {
+        let wasAll = overlayClaim == .all
+        overlayClaim = claim
+        guard let view = overlayView else { return }
+        let isAll = claim == .all
+        if isAll && !wasAll {
+            if window.firstResponder !== view { keysBeforeOverlay = window.firstResponder }
+            window.makeFirstResponder(view)
+        } else if wasAll && !isAll, window.firstResponder === view {
+            if let before = keysBeforeOverlay, (before as? NSView)?.window === window {
+                window.makeFirstResponder(before)
+            } else {
+                focus(cardId: keyboardCardId)
+            }
+            keysBeforeOverlay = nil
+        }
+    }
+
+    /// Take the overlay's view down: its handlers off, its page stopped.
+    private func removeOverlay() {
+        guard let view = overlayView else { return }
+        overlayView = nil
+        if overlayClaim == .all, window.firstResponder === view { window.focusWebView() }
+        overlayClaim = .none
+        keysBeforeOverlay = nil
+        HostChannel.unregister(from: view.configuration.userContentController)
+        view.navigationDelegate = nil
+        view.uiDelegate = nil
+        view.stopLoading()
+        view.removeFromSuperview()
+        refreshAccessibilityOrder(force: true)
+    }
+
+    /// The overlay and the cards are shown with the shell, on the reveal's
+    /// own clock.
+    private func revealOverlay(fade: CAAnimation) {
+        if let layer = hostView.layer, layer.opacity == 0 {
+            layer.add(fade, forKey: "revealFade")
+            layer.opacity = 1
+        }
+        guard let layer = overlayView?.layer, layer.opacity == 0 else { return }
+        layer.add(fade, forKey: "revealFade")
+        layer.opacity = 1
     }
 
     // MARK: - Create and bind
@@ -440,14 +505,6 @@ final class BodyViewController {
         let container = BodyContainerView(serial: serials)
         container.wantsLayer = true
         container.layer?.masksToBounds = true
-        container.layer?.cornerRadius = radius
-        // Only the two corners that meet the pane's own rounded corners: the
-        // content box's top corners stand under the masthead, square, and a
-        // radius there showed the floor through them. A layer's corners are
-        // named in its own geometry, which follows its view's: the container
-        // is flipped, so its max-Y corners are the bottom ones (an unflipped
-        // container rounded its top with this pair, read off the composite).
-        container.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         // Hidden by opacity until the first fade: a hidden view is a hidden
         // page to WebKit, which would stop painting it.
         container.layer?.opacity = 0
@@ -516,72 +573,12 @@ final class BodyViewController {
         TugLog.info("bodies", "painted", [TugLog.field("card", cardId)])
         notifyShell(BodyStateReport(cardId: cardId, state: .painted))
         applyVisibility(body)
-        reportShown()
     }
 
     // MARK: - Placement
 
-    /// `placeBodies`: every body's frame and whether it shows. A body the
-    /// placement does not name is hidden.
-    func place(_ placement: PlaceBodies) {
-        radius = CGFloat(placement.radius)
-        // Each named body with where the placement lists it: the shell's
-        // document order of its pane.
-        var named: [String: (entry: BodyPlacementEntry, deckIndex: Int)] = [:]
-        for (index, entry) in placement.bodies.enumerated() {
-            named[entry.cardId] = (entry, index)
-        }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for body in bodies {
-            // A card in the host's hand is the host's until its gesture ends:
-            // the placement that lands it is the shell's commit, after.
-            if let gesture, gesture.carriesView, gesture.body === body { continue }
-            // And so is one a press took from its beats, until the press
-            // becomes a gesture or comes up.
-            if body === pressedOutOfBeats { continue }
-            guard let cardId = body.cardId, let (entry, deckIndex) = named[cardId] else {
-                cancelBeats(body)
-                body.visible = false
-                body.sibling = false
-                applyVisibility(body)
-                continue
-            }
-            let frame = entry.frame
-            let visible = entry.visible
-            let whole = entry.whole == true
-            setWhole(body, whole)
-            body.sibling = entry.sibling == true
-            if whole, let insets = entry.insets, insets != body.insets {
-                body.insets = insets
-                send(.cardInsets(insets), to: body)
-            }
-            // A placement that names a carried body anywhere but its landing
-            // — a drag taking its frame mid-settle — takes it from its beats.
-            // The landing itself, which the shell adopts as posted, leaves
-            // the beats running.
-            if let beats = body.beats, !visible || !Self.near(frame, beats.landing) {
-                cancelBeats(body)
-            }
-            body.frame = frame
-            body.grips = entry.grips.map(\.cgRect)
-            body.container.frame = frame
-            body.visible = visible
-            body.z = Int(entry.z)
-            body.container.order = body.z
-            body.deckIndex = deckIndex
-            applyVisibility(body)
-        }
-        // The containers in the panes' order, back to front, moved in place.
-        hostView.sortContainers()
-        CATransaction.commit()
-        refreshRegion()
-        reportShown()
-    }
-
     /// Show a painted body placed visible, at once and in full; hide
-    /// anything else. The reveal the user sees is the shell's lid lifting
-    /// after `shown`, so nothing here animates.
+    /// anything else. Nothing here animates.
     private func applyVisibility(_ body: Body) {
         let showing = body.visible && body.canShow
         guard let layer = body.container.layer else { return }
@@ -608,49 +605,22 @@ final class BodyViewController {
                 body.container.isHidden = false
                 body.container.passesPointer = true
                 layer.opacity = 0
-                body.shownReported = false
                 refreshRegion()
                 return
             }
             // Shown before: hide it as any hidden page is, so WebKit
             // throttles a parked or folded body.
             body.container.isHidden = true
-            body.shownReported = false
         } else {
             body.container.passesPointer = true
             layer.opacity = 0
-            body.shownReported = false
         }
         refreshRegion()
     }
 
-    /// Tell the shell of every body that is showing and has not been told
-    /// of: on the next turn of the run loop, after the transaction that
-    /// showed it has gone to the render server, so the shell's lid never
-    /// lifts over a container the compositor has not yet drawn.
-    private func reportShown() {
-        if shownReportScheduled { return }
-        shownReportScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.shownReportScheduled = false
-            for body in self.bodies {
-                guard let cardId = body.cardId, !body.shownReported,
-                      body.visible, body.canShow else { continue }
-                body.shownReported = true
-                self.notifyShell(BodyStateReport(cardId: cardId, state: .shown))
-            }
-        }
-    }
-
-    /// `pointerClaim`: the shell's surfaces over the bodies.
-    func claim(_ claim: BodyHitRegion.Claim) {
-        region.claim = claim
-    }
-
     private func refreshRegion() {
         region.visibleFrames = visibleBodies.map(\.frame)
-        region.visibleGrips = visibleBodies.map(\.grips)
+        region.visibleGrips = visibleBodies.map(\.shellControls)
         region.visibleShapes = visibleBodies.map { body in
             guard body.whole, let cardId = body.cardId else { return nil }
             return CardHitShape(
@@ -673,12 +643,12 @@ final class BodyViewController {
     private var orderedAccessibility: [String] = []
 
     /// Hand the window its reading order, only when it changed.
-    private func refreshAccessibilityOrder() {
+    private func refreshAccessibilityOrder(force: Bool = false) {
         let ordered = bodiesInDeckOrder
         let ids = ordered.compactMap(\.cardId)
-        if ids == orderedAccessibility { return }
+        if !force && ids == orderedAccessibility { return }
         orderedAccessibility = ids
-        window.setAccessibilityOrder(bodies: ordered.map(\.webView))
+        window.setAccessibilityOrder(bodies: ordered.map(\.webView), overlay: overlayView)
     }
 
     private var visibleBodies: [Body] {
@@ -696,16 +666,11 @@ final class BodyViewController {
         return index < visible.count ? visible[index] : nil
     }
 
-    /// Whether a viewport point belongs to a body rather than to the shell.
-    func passesThrough(_ point: CGPoint) -> Bool {
-        regionNow.passesThrough(point)
-    }
-
     /// The hit region as the screen shows it now. A whole card a settle is
     /// carrying, or that a press has taken out of one, answers where it stands
     /// on screen, not at the landing its placement names: a press on its title
     /// bar mid-slide is a press on the card, as the user sees it there.
-    private var regionNow: BodyHitRegion {
+    private var regionNow: CardHitRegion {
         let visible = visibleBodies
         let shownElsewhere = { (body: Body) -> Bool in
             body.whole && (body.beats != nil || body === self.pressedOutOfBeats)
@@ -736,6 +701,8 @@ final class BodyViewController {
         var grips: Set<ResizeEdge>
         var free: Bool
         var min: CGSize
+        /// The resize ceiling, when the arrangement holds one (a slot's run).
+        var maxHeight: CGFloat?
     }
 
     /// The cards the last `placeCards` named, by card id. Read by the
@@ -809,17 +776,9 @@ final class BodyViewController {
         pressedOutOfBeats = body
     }
 
-    /// `cardLand`: a card the hand carried and dropped where the shell
-    /// committed nothing — back on its own place — goes back to the landing
-    /// its placement already names, since no new placement will come.
-    func landCard(cardId: String) {
-        guard let body = body(forCard: cardId), gesture?.body !== body else { return }
-        returnToLanding(body)
-    }
-
     /// Carry a card a press held, and nothing then moved, on to its landing.
     private func returnToLanding(_ body: Body) {
-        guard !Self.near(body.container.frame, body.frame) else { return }
+        guard body.container.frame != body.frame else { return }
         let landing = body.frame
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
@@ -828,15 +787,21 @@ final class BodyViewController {
         }
     }
 
-    /// `placeCards`: every card's pane rect and how its view is held. The
-    /// rect is the pane's; its view is outset from it by `apron`.
+    /// `placeCards`: every card's view, whether it shows, how it stacks, and
+    /// how the hand holds it. The rect is the pane's, which the gesture
+    /// carries; the view is the pane outset by `apron`, grown to whole
+    /// points. A body the placement does not name is hidden.
     func placeCards(_ placement: PlaceCards) {
         cardApron = CGFloat(placement.apron)
         // A canvas the shell does not show leaves the last one standing.
         if let canvas = placement.canvas { cardCanvas = canvas.cgRect }
         if placement.zoom > 0 { cardZoom = CGFloat(placement.zoom) }
         var placements: [String: CardPlacement] = [:]
-        for entry in placement.cards {
+        // Each named card with where the placement lists it: the deck's
+        // reading order, which is the window's VoiceOver order.
+        var named: [String: (entry: CardPlacementEntry, deckIndex: Int)] = [:]
+        for (index, entry) in placement.cards.enumerated() {
+            named[entry.cardId] = (entry, index)
             placements[entry.cardId] = CardPlacement(
                 rect: entry.rect,
                 visible: entry.visible,
@@ -844,10 +809,55 @@ final class BodyViewController {
                 z: Int(entry.z),
                 grips: Set(entry.grips),
                 free: entry.free,
-                min: CGSize(width: entry.min.width, height: entry.min.height)
+                min: CGSize(width: entry.min.width, height: entry.min.height),
+                maxHeight: entry.maxHeight.map { CGFloat($0) }
             )
         }
         cardPlacements = placements
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for body in bodies {
+            // A card in the host's hand is the host's until its gesture ends:
+            // the placement that lands it is the shell's commit, after.
+            if let gesture, gesture.carriesView, gesture.body === body { continue }
+            // And so is one a press took from its beats, until the press
+            // becomes a gesture or comes up.
+            if body === pressedOutOfBeats { continue }
+            guard let cardId = body.cardId, let (entry, deckIndex) = named[cardId] else {
+                cancelBeats(body)
+                body.visible = false
+                body.sibling = false
+                applyVisibility(body)
+                continue
+            }
+            let frame = entry.view.cgRect
+            let visible = entry.visible
+            setWhole(body, true)
+            body.sibling = entry.sibling == true
+            if entry.insets != body.insets {
+                body.insets = entry.insets
+                send(.cardInsets(entry.insets), to: body)
+            }
+            // A placement that names the plan carrying the card is its
+            // landing, which the shell adopted as posted: the beats run on.
+            // One that names no plan, or another — a drag taking its frame
+            // mid-settle, a measurement after the plan — takes the card from
+            // its beats. The id decides, never the rect ([B11]).
+            if let beats = body.beats, !visible || entry.planId != beats.planId {
+                cancelBeats(body)
+            }
+            body.frame = frame
+            body.shellControls = entry.shell.map(\.cgRect)
+            body.container.frame = frame
+            body.visible = visible
+            body.z = Int(entry.z)
+            body.container.order = body.z
+            body.deckIndex = deckIndex
+            applyVisibility(body)
+        }
+        // The containers in the panes' order, back to front, moved in place.
+        hostView.sortContainers()
+        CATransaction.commit()
         refreshRegion()
     }
 
@@ -860,6 +870,11 @@ final class BodyViewController {
         let kind = begin.kind
         let edge = begin.edge
         if kind != .move && edge == nil { return }
+        // The press brings its card forward at once, as the shell's
+        // activation of it will: until that placement arrives, a card pressed
+        // from under a neighbour would travel under it. A Cmd-press moves a
+        // card without raising it, as a background window moves.
+        if !begin.meta { raise(body) }
         let placement = cardPlacements[cardId]
         // A card a settle is carrying is taken where the user sees it: its
         // beats stop, its container holds the presented frame, and the hand
@@ -890,6 +905,9 @@ final class BodyViewController {
             canvas: cardCanvas ?? hostView.bounds,
             zoom: cardZoom,
             minSize: placement?.min ?? .zero,
+            // A card holding a height in its slot stops at its run's end,
+            // not the canvas's: held past it, the edge stands there.
+            maxSize: placement?.maxHeight.map { CGSize(width: CGFloat.greatestFiniteMagnitude, height: $0) },
             free: placement?.free ?? true,
             others: others
         )
@@ -907,6 +925,19 @@ final class BodyViewController {
             return
         }
         gesture = pressed
+    }
+
+    /// Stack `body`'s container in front of every other, ahead of the
+    /// placement that will say so: the next `placeCards` restores the
+    /// shell's order, which by then has this card in front.
+    private func raise(_ body: Body) {
+        let top = bodies.filter { $0 !== body }.map(\.container.order).max() ?? body.container.order
+        if body.container.order > top { return }
+        // Its stacking with it: a placement skips a card in the hand, so
+        // this is the card's order until the gesture's commit places it.
+        body.z = top + 1
+        body.container.order = body.z
+        hostView.sortContainers()
     }
 
     /// A mouse event while a gesture is live: a drag steps it, an up ends it.
@@ -1003,7 +1034,7 @@ final class BodyViewController {
     /// removing three keys.
     private static let beatKeys = ["beats-position", "beats-bounds", "beats-opacity"]
 
-    /// `beatPlan`: carry each named body through its beats as Core
+    /// `cardPlan`: carry each named card through its beats as Core
     /// Animation, on the chrome's clock. One anchor pair of the wall and
     /// media clocks is read for the whole plan, so every body's start is the
     /// shell's start moved onto the render server's clock.
@@ -1014,19 +1045,17 @@ final class BodyViewController {
     /// holds the first beat's opening rect from now until it begins
     /// (`fillMode = .backwards`), and the container's model is the landing,
     /// so when the track ends nothing moves.
-    func runPlan(_ plan: BeatPlan) {
+    func runPlan(_ plan: CardPlan) {
         let anchor = ClockAnchor(wallMs: Date().timeIntervalSince1970 * 1000, mediaTime: CACurrentMediaTime())
-        let offsetSec = window.bodyBeatOffsetPeriods * displayPeriodSec
-        var showsArrival = false
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for planned in plan.bodies {
+        for planned in plan.cards {
             guard let body = body(forCard: planned.cardId) else { continue }
             // A card in the host's hand is the hand's until the gesture ends.
             if let gesture, gesture.carriesView, gesture.body === body { continue }
             // An arrival rides its frame's arrive beat in: the shell posts it
-            // visible from the plan and has already lifted its lid, so it is
-            // shown here, in this transaction, at its landing. Its tracks
+            // visible from the plan, so it is shown here, in this
+            // transaction, at its landing. Its tracks
             // hold their opening values until they begin (`.backwards`), so
             // no frame shows it before the fade; and a plan the host cannot
             // run still leaves it shown where it lands.
@@ -1035,7 +1064,6 @@ final class BodyViewController {
                 body.frame = planned.landing.cgRect
                 body.container.frame = planned.landing.cgRect
                 applyVisibility(body)
-                showsArrival = true
             }
             guard body.visible, body.canShow,
                   let layer = body.container.layer,
@@ -1052,7 +1080,7 @@ final class BodyViewController {
                 continue
             }
             body.mapping = mapping
-            let begin = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: track.delayMs, offsetSec: offsetSec)
+            let begin = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: track.delayMs)
             let lateMs = max(0, anchor.mediaTime - begin) * 1000
             let localBegin = layer.convertTime(begin, from: nil)
             let position = Self.keyframes(
@@ -1082,7 +1110,7 @@ final class BodyViewController {
             // A reading of the window armed now samples this container under
             // its card id, over the beats that move it.
             let moving = planned.beats.filter { $0.from != $0.to }.map { beat in
-                let from = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: beat.delayMs, offsetSec: offsetSec)
+                let from = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: beat.delayMs)
                 return (from: from, to: from + beat.durationMs / 1000)
             }
             for meter in window.armedFrameMeters {
@@ -1093,7 +1121,7 @@ final class BodyViewController {
                 // a prepare beat ahead of it holds First, and the page at its
                 // final size is clipped there exactly as before the plan.
                 let firstMove = planned.beats.first { $0.from != $0.to }?.delayMs ?? track.delayMs
-                let moveBegin = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: firstMove, offsetSec: offsetSec)
+                let moveBegin = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: firstMove)
                 body.crossing = (crossing, moveBegin)
                 body.lastCrossing = CrossingAccount(planId: planId, size: crossing)
                 // Tell the body now, in this task, so it pins its scrollers
@@ -1107,7 +1135,6 @@ final class BodyViewController {
         }
         CATransaction.commit()
         refreshRegion()
-        if showsArrival { reportShown() }
     }
 
     /// Take a body's beats off, and tell the shell when a plan was carrying it.
@@ -1188,14 +1215,14 @@ final class BodyViewController {
     /// wears it already (`setSurface`), and the crossing re-reads it: a box
     /// that shrinks is larger than the page until its track lands, and the
     /// strip the page does not reach is the body's surface rather than the
-    /// floor beneath.
+    /// canvas beneath.
     func crossingReady(_ body: Body, surface: [Double]?) {
         guard let crossing = body.crossing else { return }
         let leadMs = (crossing.begin - CACurrentMediaTime()) * 1000
         body.lastCrossing?.readyLeadMs = leadMs
         // A whole card's page is the card, chrome and all, and it wears no
         // surface behind it: given its smaller landing size now, the card
-        // would stand at its landing for the whole motion over the floor the
+        // would stand at its landing for the whole motion over the canvas the
         // container still spans. So a whole card that shrinks keeps its page
         // and the container clips it as it travels; the page takes the
         // landing size at the land. One that grows takes it now, as any
@@ -1243,12 +1270,10 @@ final class BodyViewController {
         return CGColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: c[3])
     }
 
-    /// Hold the body's container as a whole card's view, or as a content box
-    /// under the shell's chrome: a whole card's page draws its own corners
-    /// and surface, and its apron must show what is beneath it.
+    /// Hold the body's container as a whole card's view: its page draws its
+    /// own corners and surface, and its apron must show what is beneath it.
     private func setWhole(_ body: Body, _ whole: Bool) {
         body.whole = whole
-        body.container.layer?.cornerRadius = whole ? 0 : radius
         body.container.surface = whole ? nil : body.surface
     }
 
@@ -1281,69 +1306,22 @@ final class BodyViewController {
         }
     }
 
-    /// The display period of the screen the window is on, seconds: the
-    /// unit the beat offset is counted in. 60 Hz when the window has no
+    /// The display period of the screen the window is on, seconds, which the
+    /// harness reads beside a body's frames. 60 Hz when the window has no
     /// screen yet.
     private var displayPeriodSec: Double {
         let fps = window.screen?.maximumFramesPerSecond ?? 60
         return 1 / Double(max(1, fps))
     }
 
-    /// Two rects within half a point of each other on every edge.
-    private static func near(_ a: CGRect, _ b: CGRect) -> Bool {
-        abs(a.minX - b.minX) < 0.5 && abs(a.minY - b.minY) < 0.5
-            && abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
-    }
-
-    // MARK: - The floor
-
-    /// `floorGrid`: the canvas and grid the floor draws. The floor shows
-    /// once the window reveals the shell; then the shell is told
-    /// `floorShown` on the next turn of the run loop, after the transaction
-    /// that showed it has gone to the render server, and only then stands
-    /// its own canvas down. Every `floorGrid` is answered, not only the one
-    /// that shows the floor: a reloaded shell paints its own canvas over a
-    /// floor already up, and waits for the answer like the first did.
-    func floor(_ grid: FloorGrid) {
-        guard let floorView else { return }
-        floorView.grid = grid
-        floorDescribed = true
-        guard revealedAt != nil else { return }
-        showFloor()
-    }
+    // MARK: - The reveal
 
     /// The window is revealing the shell over the splash with `fade`. The
-    /// floor fades in with it, on the fade's own clock, so the splash gives
-    /// way to the deck as one picture: a floor already described starts
-    /// with the fade, and one described while it runs — the shell posts its
-    /// grid when the deck mounts, which can land after the reveal begins —
-    /// joins it mid-way at the opacity the shell has reached. After the
-    /// fade a floor shows at once, beneath a shell already opaque.
+    /// cards and the overlay fade in with it, on the fade's own clock, so
+    /// the splash gives way to the deck as one picture.
     func shellDidReveal(fade: CAAnimation) {
         revealedAt = CACurrentMediaTime()
-        revealFade = fade
-        guard floorDescribed else { return }
-        showFloor()
-    }
-
-    /// `floorShown` carries how long after the reveal began the floor
-    /// showed, so a reading can tell that it never stood over the splash.
-    private func showFloor() {
-        guard let floorView, let revealedAt else { return }
-        var sinceRevealMs: Double?
-        if floorView.isHidden {
-            floorView.isHidden = false
-            let now = CACurrentMediaTime()
-            if let layer = floorView.layer, let fade = revealFade?.copy() as? CAAnimation,
-               now - revealedAt < fade.duration {
-                fade.beginTime = layer.convertTime(revealedAt, from: nil)
-                layer.add(fade, forKey: "revealFade")
-            }
-            sinceRevealMs = (now - revealedAt) * 1000
-        }
-        DispatchQueue.main.async { [weak self] in
-            self?.notifyShell(BodyStateReport(cardId: nil, state: .floorShown, sinceRevealMs: sinceRevealMs))
-        }
+        revealOverlay(fade: fade)
     }
 
     // MARK: - Focus
@@ -1352,6 +1330,9 @@ final class BodyViewController {
     /// does when the card has none.
     func focus(cardId: String?) {
         keyboardCardId = cardId
+        // A modal standing in the overlay keeps the keyboard: the card named
+        // now has it once the modal goes (`overlayClaimed`).
+        if overlayClaim == .all, overlayView != nil { return }
         if let cardId, let body = body(forCard: cardId) {
             window.makeFirstResponder(body.webView)
         } else {
@@ -1365,8 +1346,12 @@ final class BodyViewController {
     private(set) var keyboardCardId: String?
 
     /// Give the keyboard to whoever the shell last named: that card's
-    /// body, or the shell.
+    /// body, or the shell — or the overlay, while a modal stands in it.
     func focusKeyboardOwner() {
+        if overlayClaim == .all, let overlayView {
+            window.makeFirstResponder(overlayView)
+            return
+        }
         focus(cardId: keyboardCardId)
     }
 
@@ -1384,11 +1369,16 @@ final class BodyViewController {
         }
     }
 
-    /// Every body, at once. Used where the window's bridge is taken down.
+    /// Every body, at once, and the overlay with them. Used where the
+    /// window's bridge is taken down, and before the shell reloads: the
+    /// overlay is the shell's page's, and the reloaded shell asks for it
+    /// again (`overlayCreate`), so nothing it held in memory outlives the
+    /// deck it was drawn for.
     func destroyAll() {
         pendingSpare?.cancel()
         pendingSpare = nil
         for body in bodies { remove(body) }
+        removeOverlay()
     }
 
     /// Every body writes its card's state, then every body goes — the shell
@@ -1484,6 +1474,22 @@ final class BodyViewController {
     /// with a nil `url` ignores — once per window; a second death inside the
     /// window fails it. Returns false for a view that is not a body.
     func webContentProcessDidTerminate(_ webView: WKWebView) -> Bool {
+        // The overlay holds nothing a reload loses: its page asks the shell
+        // for everything it shows again when it says hello. Loaded afresh, as
+        // a body is, since a terminated view's `reload()` may find no URL;
+        // and a modal that held the keyboard is gone with the page, so the
+        // keyboard goes back to whoever the shell last named.
+        if let overlayView, webView === overlayView {
+            let heldKeys = overlayClaim == .all && window.firstResponder === overlayView
+            overlayClaim = .none
+            keysBeforeOverlay = nil
+            if heldKeys { focus(cardId: keyboardCardId) }
+            if let origin = window.shellOrigin,
+               let url = URL(string: origin + "/?overlay=\(Self.overlayCardId)") {
+                overlayView.load(URLRequest(url: url))
+            }
+            return true
+        }
         guard let body = body(for: webView) else { return false }
         let now = Date()
         if let previous = body.lastTermination,
@@ -1512,7 +1518,6 @@ final class BodyViewController {
         body.intent = JSONObject(["kind": .string(body.intent?["kind"] == .string("mount") ? "mount" : "restore")])
         body.warm = false
         body.painted = false
-        body.shownReported = false
         notifyShell(BodyStateReport(cardId: cardId, state: .terminated))
         armDeadline(body)
         webView.load(URLRequest(url: url))
@@ -1543,7 +1548,6 @@ final class BodyViewController {
             entry["pageSize"] = .object([
                 "width": .number(body.webView.frame.width), "height": .number(body.webView.frame.height),
             ])
-            entry["beatOffsetPeriods"] = .number(window.bodyBeatOffsetPeriods)
             entry["displayPeriodMs"] = .number(displayPeriodSec * 1000)
             entry["url"] = body.webView.url.map { .string($0.absoluteString) } ?? .null
             return .object(entry)

@@ -20,7 +20,7 @@
  * beside an unbound Session card.
  *
  * @foreground
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugapp/Sources/BodyViewController.swift
@@ -37,8 +37,8 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, showsBareHole, type FloorMeasure } from "./_frames";
-import { closeButtonOfPopover } from "./_bodies";
+import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, showsBareHole, type FloorMeasure } from "./_frames";
+import { closePopoverUp, pressCloseOfPopover } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 
@@ -61,6 +61,8 @@ const BURST_INTERVAL_MS = 33;
  * stop counting as grid, which the bare-hole rule reads as a hole.
  */
 const TOLERANCE = 4;
+/** How far a card's view reaches past its pane (`CARD_APRON_PX`). */
+const APRON_PX = 10;
 
 /** The body card above an unbound neighbour, one flow column. */
 const column = {
@@ -99,11 +101,14 @@ async function bodyOf(app: App, card: string): Promise<BodyViewSnapshot | null> 
 async function departLeg(app: App, card: string, measure: FloorMeasure = FLOOR_BY_CLASS): Promise<void> {
   const body = app.body(card);
   const frame = (await bodyOf(app, card))!.frame;
+  // The card's own rect: a card that draws its chrome is a view outset from
+  // its pane by the apron (`CARD_APRON_PX`), which shows what is beneath it
+  // by design, so the crop stands inside it.
   const crop = {
-    x: Math.ceil(frame.x) + 2,
-    y: Math.ceil(frame.y) + 2,
-    width: Math.floor(frame.width) - 4,
-    height: Math.floor(frame.height) - 4,
+    x: Math.ceil(frame.x) + APRON_PX + 2,
+    y: Math.ceil(frame.y) + APRON_PX + 2,
+    width: Math.floor(frame.width) - 2 * APRON_PX - 4,
+    height: Math.floor(frame.height) - 2 * APRON_PX - 4,
   };
   const probe = (await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop })) as { armed: true };
   expect(probe.armed).toBe(true);
@@ -127,13 +132,14 @@ async function departLeg(app: App, card: string, measure: FloorMeasure = FLOOR_B
   const closed = await app.performMenuItem("file.closeCard");
   note(`performMenuItem(file.closeCard): ${JSON.stringify(closed)}`);
   expect(closed.found && closed.enabled && closed.performed, "File › Close Card is found, enabled and performed").toBe(true);
-  // A card that asks before it closes asks in the confirm the shell draws over
-  // its chrome, and the close is that confirm's Close. A Session card with no
+  // A card that asks before it closes asks in the confirm over its chrome, in
+  // the page that draws it — the card's own, for a kind that carries its
+  // chrome — and the close is that confirm's Close. A Session card with no
   // turn running waives it; the Overview never does.
-  const asked = await pollFor(() => closeButtonOfPopover(app), (p) => p !== null, 600);
-  if (asked !== null) {
-    note(`the card asked before closing; answering Close at ${JSON.stringify(asked)}`);
-    await app.nativeClick(asked);
+  const asked = await pollFor(() => closePopoverUp(app, card), (up) => up, 600);
+  if (asked) {
+    note("the card asked before closing; answering Close");
+    expect(await pressCloseOfPopover(app, card), "the confirm's Close is pressed").toBe(true);
   }
   const gone = await pollFor(() => bodyOf(app, card), (b) => b === null, BODY_READY_MS);
   if (gone !== null) {
@@ -222,7 +228,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 3: departure", () => {
         await pollFor(() => app.getFocusedCardId(), (id) => id === BODY_CARD, PLACED_MS);
         await Bun.sleep(400);
 
-        await departLeg(app, BODY_CARD);
+        // By canvas, as on a rail: the Session card draws its own chrome, and
+        // its greys sit within a classifier's reach of the grid's colour.
+        await departLeg(app, BODY_CARD, FLOOR_BY_CANVAS);
       } finally {
         await app.close();
       }

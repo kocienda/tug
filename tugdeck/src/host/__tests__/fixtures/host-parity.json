@@ -1,105 +1,12 @@
 {
   "toHost": [
     {
-      "name": "placeBodies",
-      "from": "shell",
-      "typed": true,
-      "samples": [
-        {
-          "radius": 6,
-          "bodies": [
-            {
-              "cardId": "c1",
-              "x": 121,
-              "y": 96,
-              "width": 398,
-              "height": 483,
-              "visible": true,
-              "grips": [
-                {
-                  "x": 117,
-                  "y": 575,
-                  "width": 406,
-                  "height": 8
-                }
-              ],
-              "z": 1
-            },
-            {
-              "cardId": "c2",
-              "x": 121,
-              "y": 96,
-              "width": 398,
-              "height": 483,
-              "visible": true,
-              "grips": [],
-              "z": 2,
-              "whole": true,
-              "insets": {
-                "top": 6,
-                "right": 6.5,
-                "bottom": 6,
-                "left": 6
-              }
-            },
-            {
-              "cardId": "c3",
-              "x": 121,
-              "y": 96,
-              "width": 398,
-              "height": 483,
-              "visible": false,
-              "grips": [],
-              "z": 2,
-              "whole": true,
-              "sibling": true
-            }
-          ]
-        }
-      ],
-      "refused": [
-        "placeBodies",
-        {
-          "bodies": []
-        },
-        {
-          "radius": 6,
-          "bodies": [
-            {
-              "cardId": "c1",
-              "x": 121,
-              "y": 96,
-              "width": 398,
-              "height": 483,
-              "grips": [],
-              "z": 1
-            }
-          ]
-        },
-        {
-          "radius": 6,
-          "bodies": [
-            {
-              "cardId": "c1",
-              "x": 121,
-              "y": 96,
-              "width": 398,
-              "height": 483,
-              "visible": "yes",
-              "grips": [],
-              "z": 1
-            }
-          ]
-        }
-      ]
-    },
-    {
       "name": "placeCards",
       "from": "shell",
       "typed": true,
       "samples": [
         {
-          "apron": 6,
+          "apron": 10,
           "canvas": {
             "x": 0,
             "y": 28,
@@ -114,6 +21,26 @@
               "y": 96,
               "width": 398,
               "height": 483,
+              "view": {
+                "x": 111,
+                "y": 86,
+                "width": 418,
+                "height": 503
+              },
+              "insets": {
+                "top": 10,
+                "right": 10,
+                "bottom": 10,
+                "left": 10
+              },
+              "shell": [
+                {
+                  "x": 117,
+                  "y": 96,
+                  "width": 8,
+                  "height": 483
+                }
+              ],
               "visible": true,
               "z": 1,
               "grips": [
@@ -128,11 +55,57 @@
               }
             },
             {
+              "cardId": "c3",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "view": {
+                "x": 111,
+                "y": 86,
+                "width": 419,
+                "height": 503
+              },
+              "insets": {
+                "top": 10,
+                "right": 10.5,
+                "bottom": 10,
+                "left": 10
+              },
+              "shell": [],
+              "visible": true,
+              "z": 2,
+              "grips": [
+                "s",
+                "e"
+              ],
+              "free": false,
+              "min": {
+                "width": 400,
+                "height": 145
+              },
+              "maxHeight": 820,
+              "planId": 12
+            },
+            {
               "cardId": "c2",
               "x": 121,
               "y": 96,
               "width": 398,
               "height": 483,
+              "view": {
+                "x": 111,
+                "y": 86,
+                "width": 418,
+                "height": 503
+              },
+              "insets": {
+                "top": 10,
+                "right": 10,
+                "bottom": 10,
+                "left": 10
+              },
+              "shell": [],
               "visible": false,
               "sibling": true,
               "z": 1,
@@ -146,7 +119,7 @@
           ]
         },
         {
-          "apron": 6,
+          "apron": 10,
           "canvas": null,
           "zoom": 1.25,
           "cards": []
@@ -159,12 +132,12 @@
           }
         ],
         {
-          "apron": 6,
+          "apron": 10,
           "canvas": null,
           "zoom": 1
         },
         {
-          "apron": 6,
+          "apron": 10,
           "canvas": null,
           "zoom": 1,
           "cards": [
@@ -174,6 +147,19 @@
               "y": 96,
               "width": 398,
               "height": 483,
+              "view": {
+                "x": 121,
+                "y": 96,
+                "width": 398,
+                "height": 483
+              },
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              },
+              "shell": [],
               "visible": true,
               "z": 1,
               "grips": [
@@ -240,31 +226,14 @@
       ]
     },
     {
-      "name": "cardLand",
-      "from": "shell",
-      "typed": true,
-      "samples": [
-        {
-          "cardId": "c1"
-        }
-      ],
-      "refused": [
-        "c1",
-        {},
-        {
-          "cardId": 7
-        }
-      ]
-    },
-    {
-      "name": "beatPlan",
+      "name": "cardPlan",
       "from": "shell",
       "typed": true,
       "samples": [
         {
           "planId": 1,
           "startWallMs": 1760000000000.5,
-          "bodies": [
+          "cards": [
             {
               "cardId": "c1",
               "landing": {
@@ -351,16 +320,21 @@
         {
           "planId": "x",
           "startWallMs": 0,
-          "bodies": []
+          "cards": []
         },
         {
+          "startWallMs": 0,
+          "cards": []
+        },
+        {
+          "planId": 1,
           "startWallMs": 0,
           "bodies": []
         },
         {
           "planId": 1,
           "startWallMs": 0,
-          "bodies": [
+          "cards": [
             {
               "cardId": "c1",
               "landing": {
@@ -375,30 +349,45 @@
       ]
     },
     {
-      "name": "pointerClaim",
+      "name": "overlayCreate",
       "from": "shell",
       "typed": true,
       "samples": [
+        {}
+      ],
+      "refused": [
+        "now",
+        []
+      ]
+    },
+    {
+      "name": "overlayClaim",
+      "from": "overlay",
+      "typed": true,
+      "samples": [
         {
-          "rects": [
-            {
-              "x": 121,
-              "y": 96,
-              "width": 398,
-              "height": 483
-            }
-          ]
+          "all": true
         },
         {
           "rects": []
         },
         {
-          "all": true
+          "rects": [
+            {
+              "x": 1,
+              "y": 2,
+              "width": 3,
+              "height": 4
+            }
+          ]
         }
       ],
       "refused": [
         [],
         {},
+        {
+          "all": false
+        },
         {
           "rects": [
             {
@@ -408,45 +397,6 @@
               "height": 4
             }
           ]
-        },
-        {
-          "all": false
-        }
-      ]
-    },
-    {
-      "name": "floorGrid",
-      "from": "shell",
-      "typed": true,
-      "samples": [
-        {
-          "canvas": "#1c1e22",
-          "grid": "rgba(255, 255, 255, 0.04)",
-          "cellPx": 24,
-          "linePx": 1,
-          "zoom": 1,
-          "originX": 0,
-          "originY": 3.5
-        }
-      ],
-      "refused": [
-        0,
-        {
-          "canvas": "#1c1e22",
-          "grid": "#ffffff",
-          "cellPx": 24,
-          "linePx": 1,
-          "zoom": 1,
-          "originX": 0
-        },
-        {
-          "canvas": "oklch(0.2 0.02 280)",
-          "grid": "#ffffff",
-          "cellPx": 24,
-          "linePx": 1,
-          "zoom": 1,
-          "originX": 0,
-          "originY": 0
         }
       ]
     },
@@ -1193,13 +1143,6 @@
           "cardId": "c1",
           "state": "failed",
           "cause": "deadline"
-        },
-        {
-          "state": "floorShown",
-          "sinceRevealMs": 140
-        },
-        {
-          "state": "floorShown"
         }
       ],
       "refused": [
@@ -1212,6 +1155,9 @@
           "cardId": "c1",
           "state": "landed",
           "planId": "7"
+        },
+        {
+          "state": "ready"
         }
       ]
     },

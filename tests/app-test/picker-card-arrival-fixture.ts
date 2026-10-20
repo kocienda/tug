@@ -194,8 +194,8 @@ export interface Sample {
   inlineOpacity: Record<string, string>;
   /**
    * Per pane id, whether its card's body was on screen on this frame: the
-   * placeholder's lid lifted (`data-body-shown`), which the shell does only
-   * once the host has shown the body. The host shows a body only once it
+   * shell's last placement posts it shown (`lastPosted`), which it does only
+   * once the body has painted. The host shows a body only once it
    * reports ready, and an unbound Session card is ready once its picker has
    * mounted and gone quiet ([B16] of the bodies-migration brief). So a frame
    * that is visible with its body not yet shown is a frame whose reader sees
@@ -254,6 +254,13 @@ export async function census(
     `(function () {
       window.__at0571 = [];
       var t0 = performance.now();
+      var posted = function (cardId) {
+        var p = window.tugdeck.diag.getBodyPlacement();
+        var last = p && p.lastPosted;
+        if (!last) return false;
+        for (var b = 0; b < last.bodies.length; b += 1) if (last.bodies[b].cardId === cardId) return last.bodies[b].visible === true;
+        return false;
+      };
       var tick = function () {
         var canvas = document.querySelector("[data-imposer-settling]");
         var sample = {
@@ -291,7 +298,8 @@ export async function census(
           var cs = getComputedStyle(el);
           sample.opacity[id] = cs.visibility === "hidden" ? "0" : cs.opacity;
           sample.inlineOpacity[id] = el.style.opacity;
-          sample.bodyShown[id] = el.querySelector("[data-body-placeholder][data-body-shown]") !== null;
+          var ph = el.querySelector("[data-body-placeholder][data-card-id]");
+          sample.bodyShown[id] = ph !== null && posted(ph.getAttribute("data-card-id"));
         }
         window.__at0571.push(sample);
         if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);

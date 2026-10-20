@@ -16,8 +16,9 @@
  * `restore` once it holds the binding, never with the `new` again.
  *
  * **Placard.** A card whose second body stalls too stands as a placard in
- * the shell, saying so, with a Reload; the Reload asks once more, and the
- * card comes up in its body.
+ * the shell, saying so, with a Reload and a Close; the Reload asks once
+ * more, and the card comes up in its body. The Close closes the card: the
+ * placard is its only face, with no page to draw its title bar.
  *
  * @family at0738-body
  * @covers tugdeck/src/lib/body-shell.ts
@@ -25,6 +26,7 @@
  * @covers tugdeck/src/lib/body-cards-store.ts
  * @covers tugdeck/src/body/body-intent.ts
  * @covers tugdeck/src/components/chrome/card-host.tsx
+ * @covers tugdeck/src/components/chrome/tug-pane.tsx
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/BodyGeometry.swift
  */
@@ -124,6 +126,37 @@ describe.skipIf(!SHOULD_RUN)("at0738: a body that never says it is ready", () =>
         expect(await readyBody(app), "the Reload brings the card up in a body").toBe(true);
         const gone = await pollFor(() => app.evalJS<boolean>(`${placard} === null`), (v) => v, 3_000);
         expect(gone, "the placard is gone once the body is asked for").toBe(true);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "twice stands as a placard whose Close closes the card",
+    async () => {
+      const app = await launchTugApp({
+        testName: "at0738-body-fallback-close",
+        env: {
+          TUG_BODY_FORCE_STALL: "2",
+          TUG_BODY_READY_DEADLINE_MS: "1500",
+        },
+      });
+      try {
+        await app.seedDeckState({ state: column([STALLED]), focusCardId: STALLED });
+
+        const standing = await pollFor(() => app.evalJS<boolean>(`${placard} !== null`), (v) => v, BODY_READY_MS);
+        expect(standing, "the card stands as a placard once its second body fails").toBe(true);
+        await app.evalJS<null>(
+          `(Array.prototype.find.call(${placard}.querySelectorAll("button"), function (b) { return b.textContent.trim() === "Close"; }).click(), null)`,
+        );
+        const closed = await pollFor(
+          () => app.evalJS<boolean>(`!window.tugdeck.diag.getDeckState().cards.some(function (c) { return c.id === ${JSON.stringify(STALLED)}; })`),
+          (v) => v,
+          3_000,
+        );
+        expect(closed, "the Close closes the card, asking nothing of a card no page stands for").toBe(true);
       } finally {
         await app.close();
       }

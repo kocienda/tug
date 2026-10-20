@@ -42,6 +42,7 @@
  *
  * @motion
  * @covers tugdeck/src/lib/drop-zones.ts
+ * @covers tugdeck/src/overlay/overlay-indication.ts
  * @covers tugdeck/src/components/chrome/rail-vacancy.css
  */
 
@@ -54,6 +55,8 @@ import {
   type App,
 } from "./_harness";
 import { ZONE_INDICATOR_INSET_PX } from "../../tugdeck/src/lib/drop-zone-indicator";
+import { chromePoint } from "./card-chrome-fixture";
+import { overlayPage } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -72,7 +75,6 @@ const PANES: Record<string, string> = {
 };
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
-const titleBar = (paneId: string): string => `${frame(paneId)} .tug-pane-title-bar`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -189,12 +191,13 @@ describe.skipIf(!SHOULD_RUN)(
             x: Math.round(canvas.right - railWidth / 2),
             y: Math.round((canvas.top + canvas.bottom) / 2),
           };
-          await app.nativeDragElementWithoutRelease(titleBar(PANES.overview), target);
+          await app.nativeDragWithoutRelease(await chromePoint(app, "O", ".tug-pane-title-bar"), target);
           const tile = await rectOf(app, '.tug-rail-vacancy[data-vacant-rail="right"]');
           const carrying = await app.evalJS<boolean>(
             `document.querySelector("[data-deck-canvas-background]").hasAttribute("data-carrying")`,
           );
-          const drawn = await rectOf(app, ".tug-drop-zone-indicator");
+          // The outline is drawn in the overlay, above every card.
+          const drawn = await overlayPage(app).evalJS<Rect | null>(RECT_JS(".tug-drop-zone-indicator"));
           note(
             `carrying overview over the empty right edge: tile ${JSON.stringify(tile)}, outline ${JSON.stringify(drawn)}, canvas right ${canvas.right.toFixed(1)}, rail width ${railWidth.toFixed(1)}`,
           );

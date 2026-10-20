@@ -89,11 +89,20 @@ function deck(): Record<string, unknown> {
 /**
  * A point on the deck canvas no pane stands over, in the shell's
  * coordinates: a click there is the shell's own, and takes the keyboard
- * from every body.
+ * from every body. Clear of every pane by more than a card's apron: a card
+ * that draws its own chrome is a view outset from its pane, and the band
+ * along an edge its pane offers as a grip is the card's (`CardHitShape`),
+ * so a point just past a column's seam is a press on that card's grip.
  */
 const EMPTY_CANVAS = `(function () {
+  var CLEAR = 12;
+  var panes = Array.from(document.querySelectorAll(".tug-pane")).map(function (p) { return p.getBoundingClientRect(); });
+  var nearPane = function (x, y) {
+    return panes.some(function (r) { return x > r.left - CLEAR && x < r.right + CLEAR && y > r.top - CLEAR && y < r.bottom + CLEAR; });
+  };
   for (var y = window.innerHeight - 40; y > 40; y -= 40) {
     for (var x = 40; x < window.innerWidth - 40; x += 40) {
+      if (nearPane(x, y)) continue;
       var el = document.elementFromPoint(x, y);
       if (el !== null && el.closest(".tug-pane") === null && el.closest("[data-deck-canvas-background]") !== null) return { x: x, y: y };
     }

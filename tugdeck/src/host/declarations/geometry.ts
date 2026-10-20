@@ -14,10 +14,9 @@
 
 import { INVALID, arr, bool, literal, nullable, num, obj, opaque, optional, str, type Codec } from "../../bus/codec";
 import type { ResizeEdge } from "../../bus/declarations/pane";
-import type { BeatPlan } from "../../lib/body-beat-plan";
-import type { CardInsets, FloorGrid, PlaceBodies, PlaceCards } from "../../lib/body-placement";
+import type { CardPlan } from "../../lib/card-plan";
+import type { CardInsets, PlaceCards } from "../../lib/card-placement";
 import type { CardGestureReport } from "../../lib/host-card-gesture";
-import type { PointerClaim } from "../../lib/pointer-claim";
 import { defineToHost, defineToPage } from "../declare";
 
 const rect = obj({ x: num, y: num, width: num, height: num });
@@ -40,19 +39,12 @@ const pair: Codec<readonly [number, number]> = {
   sample: [0, 1],
 };
 
-/** `#rrggbb` or `rgba(r, g, b, a)`: the two colour forms the host's floor reads (`FloorGrid.color(from:)`). */
-const HOST_COLOR = /^\s*(#[0-9a-f]{6}|rgba\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*\))\s*$/i;
-const hostColor: Codec<string> = opaque(
-  (value: unknown): value is string => typeof value === "string" && HOST_COLOR.test(value),
-  "#000000",
-);
-
 const cardInsets: Codec<CardInsets> = obj({ top: num, right: num, bottom: num, left: num });
 
-const beatPlanCodec: Codec<BeatPlan> = obj({
+const cardPlanCodec: Codec<CardPlan> = obj({
   planId: num,
   startWallMs: num,
-  bodies: arr(
+  cards: arr(
     obj({
       cardId: str,
       landing: rect,
@@ -74,25 +66,6 @@ const beatPlanCodec: Codec<BeatPlan> = obj({
   ),
 });
 
-const placeBodiesCodec: Codec<PlaceBodies> = obj({
-  radius: num,
-  bodies: arr(
-    obj({
-      cardId: str,
-      x: num,
-      y: num,
-      width: num,
-      height: num,
-      visible: bool,
-      grips: arr(rect),
-      z: num,
-      whole: trueFlag,
-      sibling: trueFlag,
-      insets: optional(cardInsets),
-    }),
-  ),
-});
-
 const placeCardsCodec: Codec<PlaceCards> = obj({
   apron: num,
   canvas: nullable(rect),
@@ -104,33 +77,19 @@ const placeCardsCodec: Codec<PlaceCards> = obj({
       y: num,
       width: num,
       height: num,
+      view: rect,
+      insets: cardInsets,
+      shell: arr(rect),
       visible: bool,
       sibling: trueFlag,
       z: num,
       grips: arr(edge),
       free: bool,
       min: obj({ width: num, height: num }),
+      maxHeight: optional(num),
+      planId: optional(num),
     }),
   ),
-});
-
-/** `{all: true}`, or the rects the shell's surfaces cover. */
-const pointerClaimCodec: Codec<PointerClaim> = {
-  decode: (value) => {
-    if (typeof value === "object" && value !== null && (value as { all?: unknown }).all === true) return { all: true };
-    return obj({ rects: arr(rect) }).decode(value);
-  },
-  sample: { all: true },
-};
-
-const floorGridCodec: Codec<FloorGrid> = obj({
-  canvas: hostColor,
-  grid: hostColor,
-  cellPx: num,
-  linePx: num,
-  zoom: num,
-  originX: num,
-  originY: num,
 });
 
 /** A card's page has taken a title-bar or grip press for the host to carry (`body-chrome.ts`). */
@@ -158,43 +117,6 @@ const cardGestureBeginCodec: Codec<CardGestureBegin> = obj({
 
 const SAMPLE_RECT = { x: 121, y: 96, width: 398, height: 483 };
 
-export const placeBodiesToHost = defineToHost<PlaceBodies>({
-  name: "placeBodies",
-  from: "shell",
-  typed: true,
-  codec: placeBodiesCodec,
-  samples: [
-    {
-      radius: 6,
-      bodies: [
-        {
-          cardId: "c1",
-          ...SAMPLE_RECT,
-          visible: true,
-          grips: [{ x: 117, y: 575, width: 406, height: 8 }],
-          z: 1,
-        },
-        {
-          cardId: "c2",
-          ...SAMPLE_RECT,
-          visible: true,
-          grips: [],
-          z: 2,
-          whole: true,
-          insets: { top: 6, right: 6.5, bottom: 6, left: 6 },
-        },
-        { cardId: "c3", ...SAMPLE_RECT, visible: false, grips: [], z: 2, whole: true, sibling: true },
-      ],
-    },
-  ],
-  refused: [
-    "placeBodies",
-    { bodies: [] },
-    { radius: 6, bodies: [{ cardId: "c1", ...SAMPLE_RECT, grips: [], z: 1 }] },
-    { radius: 6, bodies: [{ cardId: "c1", ...SAMPLE_RECT, visible: "yes", grips: [], z: 1 }] },
-  ],
-});
-
 export const placeCardsToHost = defineToHost<PlaceCards>({
   name: "placeCards",
   from: "shell",
@@ -202,13 +124,16 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
   codec: placeCardsCodec,
   samples: [
     {
-      apron: 6,
+      apron: 10,
       canvas: { x: 0, y: 28, width: 1440, height: 872 },
       zoom: 1,
       cards: [
         {
           cardId: "c1",
           ...SAMPLE_RECT,
+          view: { x: 111, y: 86, width: 418, height: 503 },
+          insets: { top: 10, right: 10, bottom: 10, left: 10 },
+          shell: [{ x: 117, y: 96, width: 8, height: 483 }],
           visible: true,
           z: 1,
           grips: ["e", "s", "se"],
@@ -216,8 +141,25 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           min: { width: 240, height: 160 },
         },
         {
+          cardId: "c3",
+          ...SAMPLE_RECT,
+          view: { x: 111, y: 86, width: 419, height: 503 },
+          insets: { top: 10, right: 10.5, bottom: 10, left: 10 },
+          shell: [],
+          visible: true,
+          z: 2,
+          grips: ["s", "e"],
+          free: false,
+          min: { width: 400, height: 145 },
+          maxHeight: 820,
+          planId: 12,
+        },
+        {
           cardId: "c2",
           ...SAMPLE_RECT,
+          view: { x: 111, y: 86, width: 418, height: 503 },
+          insets: { top: 10, right: 10, bottom: 10, left: 10 },
+          shell: [],
           visible: false,
           sibling: true,
           z: 1,
@@ -227,16 +169,29 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
         },
       ],
     },
-    { apron: 6, canvas: null, zoom: 1.25, cards: [] },
+    { apron: 10, canvas: null, zoom: 1.25, cards: [] },
   ],
   refused: [
     [{ cardId: "c1" }],
-    { apron: 6, canvas: null, zoom: 1 },
+    { apron: 10, canvas: null, zoom: 1 },
     {
-      apron: 6,
+      apron: 10,
       canvas: null,
       zoom: 1,
-      cards: [{ cardId: "c1", ...SAMPLE_RECT, visible: true, z: 1, grips: ["middle"], free: true, min: { width: 0, height: 0 } }],
+      cards: [
+        {
+          cardId: "c1",
+          ...SAMPLE_RECT,
+          view: SAMPLE_RECT,
+          insets: { top: 0, right: 0, bottom: 0, left: 0 },
+          shell: [],
+          visible: true,
+          z: 1,
+          grips: ["middle"],
+          free: true,
+          min: { width: 0, height: 0 },
+        },
+      ],
     },
   ],
 });
@@ -258,30 +213,20 @@ export const cardGestureToHost = defineToHost<CardGestureBegin>({
   ],
 });
 
-/** A drop the shell committed nothing for: the card's view goes back to its own place. */
-export interface CardLand {
-  readonly cardId: string;
-}
-
-export const cardLandToHost = defineToHost<CardLand>({
-  name: "cardLand",
+/**
+ * A settle's whole-card plan: each carried card's view, beat by beat, on
+ * the clock both sides share (`lib/card-plan.ts`, the one producer).
+ */
+export const cardPlanToHost = defineToHost<CardPlan>({
+  name: "cardPlan",
   from: "shell",
   typed: true,
-  codec: obj({ cardId: str }),
-  samples: [{ cardId: "c1" }],
-  refused: ["c1", {}, { cardId: 7 }],
-});
-
-export const beatPlanToHost = defineToHost<BeatPlan>({
-  name: "beatPlan",
-  from: "shell",
-  typed: true,
-  codec: beatPlanCodec,
+  codec: cardPlanCodec,
   samples: [
     {
       planId: 1,
       startWallMs: 1760000000000.5,
-      bodies: [
+      cards: [
         {
           cardId: "c1",
           landing: SAMPLE_RECT,
@@ -318,41 +263,10 @@ export const beatPlanToHost = defineToHost<BeatPlan>({
     },
   ],
   refused: [
-    { planId: "x", startWallMs: 0, bodies: [] },
-    { startWallMs: 0, bodies: [] },
-    { planId: 1, startWallMs: 0, bodies: [{ cardId: "c1", landing: SAMPLE_RECT }] },
-  ],
-});
-
-export const pointerClaimToHost = defineToHost<PointerClaim>({
-  name: "pointerClaim",
-  from: "shell",
-  typed: true,
-  codec: pointerClaimCodec,
-  samples: [{ rects: [SAMPLE_RECT] }, { rects: [] }, { all: true }],
-  refused: [[], {}, { rects: [{ x: "bad", y: 2, width: 3, height: 4 }] }, { all: false }],
-});
-
-export const floorGridToHost = defineToHost<FloorGrid>({
-  name: "floorGrid",
-  from: "shell",
-  typed: true,
-  codec: floorGridCodec,
-  samples: [
-    {
-      canvas: "#1c1e22",
-      grid: "rgba(255, 255, 255, 0.04)",
-      cellPx: 24,
-      linePx: 1,
-      zoom: 1,
-      originX: 0,
-      originY: 3.5,
-    },
-  ],
-  refused: [
-    0,
-    { canvas: "#1c1e22", grid: "#ffffff", cellPx: 24, linePx: 1, zoom: 1, originX: 0 },
-    { canvas: "oklch(0.2 0.02 280)", grid: "#ffffff", cellPx: 24, linePx: 1, zoom: 1, originX: 0, originY: 0 },
+    { planId: "x", startWallMs: 0, cards: [] },
+    { startWallMs: 0, cards: [] },
+    { planId: 1, startWallMs: 0, bodies: [] },
+    { planId: 1, startWallMs: 0, cards: [{ cardId: "c1", landing: SAMPLE_RECT }] },
   ],
 });
 

@@ -185,7 +185,8 @@ export interface InstalledBodyPublisher {
  * responder chain, the modal-hold store, the chord capture, the close-guard
  * registry and the card's own close guard,
  * and on every `input` in the document.
- * A capture-phase `pointerdown` asks for activation (`card.activate`).
+ * A capture-phase `pointerdown` asks for activation (`card.activate`), unless
+ * ⌘ is held.
  */
 export function installBodyPublisher(
   cardId: string,
@@ -282,8 +283,17 @@ export function installBodyPublisher(
     followSession();
     publish();
   };
-  const onPointerDown = (event: PointerEvent): void =>
+  // A ⌘-press interacts with a background card without raising it, the Mac
+  // convention the shell's own press keeps (`gesture-interpreter.ts`): a
+  // ⌘-click on the chrome looks at the stack, a ⌘-drag moves the card.
+  // A secondary-button press raises a context menu without activating the
+  // card, the same convention the shell's press keeps (`button !== 0`,
+  // `gesture-interpreter.ts`): a right-click on a background card's content
+  // does not take the keyboard or move the deck's first responder.
+  const onPointerDown = (event: PointerEvent): void => {
+    if (event.metaKey || event.button !== 0) return;
     publisher.pointerDown(event.target instanceof Element && event.target.closest(CHROME_PRESS_SURFACES) !== null);
+  };
 
   const releases = [
     cardServicesStore.subscribe(onServices),

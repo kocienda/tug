@@ -51,6 +51,23 @@ export function requestConfigureTug(): void {
 
 /** Open the wizard on demand — called once the gate has cleared. */
 export function openConfigureTugOnDemand(): void {
+  if (onDemandSink !== null) onDemandSink();
+  else configureTugRequestStore.setOnDemand(true);
+}
+
+let onDemandSink: (() => void) | null = null;
+
+/**
+ * Open the wizard somewhere other than this page: where the host keeps an
+ * overlay, the wizard is the overlay's, and the shell's request opens it
+ * there (`overlay.openConfigure`). `null` opens it here again.
+ */
+export function setConfigureTugOnDemandSink(sink: (() => void) | null): void {
+  onDemandSink = sink;
+}
+
+/** Open the wizard in this page, whatever the sink: the overlay's answer to `overlay.openConfigure`. */
+export function showConfigureTugOnDemand(): void {
   configureTugRequestStore.setOnDemand(true);
 }
 

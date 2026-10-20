@@ -46,6 +46,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   createArc,
@@ -116,7 +117,8 @@ async function openWidget(app: App): Promise<void> {
      })()`,
     { timeoutMs: 15_000 },
   );
-  await app.waitForCondition<boolean>(
+  // The restore gate is the app-modal in the overlay page.
+  await (await overlayReady(app)).waitForCondition<boolean>(
     `document.querySelector('[data-slot="tug-restore-gate"]') === null`,
     { timeoutMs: 15_000 },
   );

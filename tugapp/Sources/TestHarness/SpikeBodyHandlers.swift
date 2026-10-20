@@ -6,8 +6,8 @@ import WebKit
 // MARK: - SpikeBodyHandlers
 //
 // The `spikeBody` harness verb: one child WKWebView, with a configuration of
-// its own, placed beneath the deck's view and shown through a hole the verb
-// cuts in the deck's paint. It exists to answer one question before any body
+// its own, placed over the deck's view where a card stands. It exists to
+// answer one question before any body
 // view is built — does a page in its own WebContent process keep its frames
 // while the deck's main thread is stalled — and the reading it returns is the
 // one the stage is gated on (at0737).
@@ -98,18 +98,10 @@ final class SpikeBodyHandlers: NSObject, WKScriptMessageHandler {
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
         host.addSubview(container)
-        window.insertBeneathShell(host)
+        window.insertAboveShell(host)
         self.host = host
         self.container = container
         self.webView = webView
-
-        window.setShellPassThrough { [weak self] point in
-            guard let self, let container = self.container, let host = self.host else { return false }
-            return host.convert(container.frame, to: shellContainer).contains(point)
-        }
-        window.evaluateJavaScript(Self.holeScript(Self.childFrame)) { _, error in
-            if let error { NSLog("spikeBody: cutting the deck's hole failed: %@", error.localizedDescription) }
-        }
 
         createdAt = CACurrentMediaTime()
         pendingCreate = completion
@@ -302,17 +294,6 @@ final class SpikeBodyHandlers: NSObject, WKScriptMessageHandler {
         return Insecure.MD5.hash(data: UnsafeRawBufferPointer(start: bytes, count: width * height * 4))
     }
 
-    /// The deck's paint, holed at `rect`: the page and its body clear, and the
-    /// body — the deck container and anything portalled beside it — clipped
-    /// out of the rect, so the child beneath shows.
-    private static func holeScript(_ rect: NSRect) -> String {
-        let path = "M0 0H100000V100000H0Z M\(Int(rect.minX)) \(Int(rect.minY))h\(Int(rect.width))v\(Int(rect.height))h-\(Int(rect.width))Z"
-        let css = "html,body{background:transparent!important}body{clip-path:path(evenodd,'\(path)')!important}"
-        return """
-        (()=>{let s=document.getElementById('tug-spike-hole');if(!s){s=document.createElement('style');s.id='tug-spike-hole';document.head.appendChild(s);}s.textContent="\(css)";return 1})()
-        """
-    }
-
     // MARK: destroy
 
     func destroy() {
@@ -329,14 +310,19 @@ final class SpikeBodyHandlers: NSObject, WKScriptMessageHandler {
         host = nil
         container = nil
         self.webView = nil
-        window?.setShellPassThrough(nil)
-        window?.evaluateJavaScript("document.getElementById('tug-spike-hole')?.remove()")
     }
 }
 
-/// Top-left origin, so the child's frame reads like the page's rects.
+/// Top-left origin, so the child's frame reads like the page's rects. It
+/// covers the window over the deck, so a point outside the child is no hit
+/// of its own and reaches the deck beneath.
 private final class SpikeHostView: NSView {
     override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
 }
 
 /// The child takes the first mouse: in harness pid mode the app is never

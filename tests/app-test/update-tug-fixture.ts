@@ -11,11 +11,22 @@
  * the wizard) and `at0612-update-tug-controls` (what every control posts, and
  * what progress says) to keep each under the 20 s budget. The claims both
  * files pin are listed in the pill file's header.
+ *
+ * Two pages. The pill and the wizard are drawn in the overlay page
+ * (`overlay-fixture.ts`), so every reading and press of them here is the
+ * overlay's ({@link ui}). The host's side stays the shell's: a snapshot is
+ * pushed to the shell's bridge, which relays it to the overlay, and an
+ * action the overlay asks for is posted by the shell, so the recorder stands
+ * in the shell's page.
  */
 
 import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { overlayPage, overlayReady } from "./overlay-fixture";
+
+/** The page the pill and the wizard are drawn in. */
+export const ui = (app: App) => overlayPage(app);
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 180_000;
@@ -104,6 +115,7 @@ export async function push(app: App, payload: Payload): Promise<void> {
  * nothing.
  */
 export async function installActionRecorder(app: App): Promise<string> {
+  // card-dom: shell — the recorder stands in the shell's page, where the update wizard posts.
   return app.evalJS<string>(
     `(function () {
        var w = window;
@@ -156,12 +168,22 @@ export async function postedActions(app: App): Promise<string[]> {
   return app.evalJS<string[]>(`window.__at0612.posted.slice()`);
 }
 
+/**
+ * The posted actions once `name` is among them. A press in the overlay posts
+ * through the shell, which records it, so the post lands a hop after the
+ * click rather than inside it.
+ */
+export async function postedOnceIncludes(app: App, name: string): Promise<string[]> {
+  await app.waitForCondition<boolean>(`window.__at0612.posted.indexOf(${JSON.stringify(name)}) !== -1`, { timeoutMs: 10_000 });
+  return postedActions(app);
+}
+
 export async function clearPosted(app: App): Promise<void> {
   await app.evalJS<null>(`(window.__at0612.posted.length = 0, null)`);
 }
 
 export async function elementCount(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+  return ui(app).evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 }
@@ -178,7 +200,7 @@ export interface AnchoredBox {
 
 /** Measure `selector`'s box against the window it is centred on. */
 export async function anchoredBox(app: App, selector: string): Promise<AnchoredBox> {
-  return app.evalJS<AnchoredBox>(
+  return ui(app).evalJS<AnchoredBox>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(selector)});
        if (el === null) return null;
@@ -210,8 +232,8 @@ export function centreX(b: AnchoredBox): number {
  * moving and nothing is over it.
  */
 export async function waitForClickable(app: App, selector: string): Promise<void> {
-  await app.evalJS<null>(`(window.__at0612.box = null, null)`);
-  await app.waitForCondition<boolean>(
+  await ui(app).evalJS<null>(`(window.__at0612 = window.__at0612 || {}, window.__at0612.box = null, null)`);
+  await ui(app).waitForCondition<boolean>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(selector)});
        if (el === null) { window.__at0612.box = null; return false; }
@@ -230,7 +252,7 @@ export async function waitForClickable(app: App, selector: string): Promise<void
 
 /** Wait until the wizard is up, on `stage`. */
 export async function waitForWizard(app: App, stage: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await ui(app).waitForCondition<boolean>(
     `(function () {
        var d = document.querySelector(${JSON.stringify(WIZARD)});
        return d !== null && d.getAttribute("data-stage") === ${JSON.stringify(stage)};
@@ -241,7 +263,7 @@ export async function waitForWizard(app: App, stage: string): Promise<void> {
 
 /** Wait until the wizard is gone. Radix animates the close, so this is a wait. */
 export async function waitForWizardGone(app: App): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await ui(app).waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(WIZARD)}) === null`,
     { timeoutMs: 10_000 },
   );
@@ -249,7 +271,7 @@ export async function waitForWizardGone(app: App): Promise<void> {
 
 /** Wait until the pill is up, on `stage`. */
 export async function waitForPill(app: App, stage: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await ui(app).waitForCondition<boolean>(
     `(function () {
        var p = document.querySelector(${JSON.stringify(PILL)});
        return p !== null && p.getAttribute("data-stage") === ${JSON.stringify(stage)};
@@ -260,7 +282,7 @@ export async function waitForPill(app: App, stage: string): Promise<void> {
 
 /** The rows' statuses, in layout order. */
 export async function stepStatuses(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return ui(app).evalJS<string[]>(
     `Array.prototype.map.call(
        document.querySelectorAll(${JSON.stringify(STEP_ROWS)}),
        function (r) { return r.getAttribute("data-status"); }
@@ -270,7 +292,7 @@ export async function stepStatuses(app: App): Promise<string[]> {
 
 /** The rows' step keys — Check / Download / Stop work / Relaunch. */
 export async function stepKeys(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return ui(app).evalJS<string[]>(
     `Array.prototype.map.call(
        document.querySelectorAll(${JSON.stringify(STEP_ROWS)}),
        function (r) { return r.getAttribute("data-step"); }
@@ -280,7 +302,7 @@ export async function stepKeys(app: App): Promise<string[]> {
 
 /** The check row's detail line — the one that names the versions. */
 export async function checkDetail(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return ui(app).evalJS<string>(
     `(function () {
        var row = document.querySelector(
          ${JSON.stringify(STEP_ROWS)} + '[data-step="check"]'
@@ -293,7 +315,7 @@ export async function checkDetail(app: App): Promise<string> {
 
 /** The rows' labels, which are the same four in every stage. */
 export async function stepLabels(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return ui(app).evalJS<string[]>(
     `Array.prototype.map.call(
        document.querySelectorAll(${JSON.stringify(STEP_ROWS)} + " .tug-step-row-label"),
        function (s) { return (s.textContent || "").trim(); }
@@ -309,16 +331,24 @@ export async function stepLabels(app: App): Promise<string[]> {
  * already standing on the snapshot this function pushes, so the push is a no-op
  * and the panel would still be there — which is exactly the state the reveal
  * loop below leaves behind. On the two terminal stages that close posts
- * `dismiss`, so every caller that reads the recorder clears it after this.
+ * `dismiss`, so every caller that reads the recorder clears it after this —
+ * and this waits for that `dismiss` to reach the recorder first: the overlay
+ * asks it of the shell, one page hop later than the click, and a clear that
+ * ran ahead of it would leave it to be read as the next gesture's.
  */
 export async function goIdle(app: App): Promise<void> {
   if ((await elementCount(app, WIZARD)) > 0) {
+    const stage = await ui(app).getElementAttribute(WIZARD, "data-stage");
+    await clearPosted(app);
     await waitForClickable(app, CLOSE);
-    await app.click(CLOSE);
+    await ui(app).click(CLOSE);
     await waitForWizardGone(app);
+    if (stage === "upToDate" || stage === "error") {
+      await app.waitForCondition<boolean>(`window.__at0612.posted.indexOf("dismiss") !== -1`, { timeoutMs: 10_000 });
+    }
   }
   await push(app, snapshot("idle"));
-  await app.waitForCondition<boolean>(
+  await ui(app).waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PILL_ANCHOR)}) === null
        && document.querySelector(${JSON.stringify(WIZARD)}) === null`,
     { timeoutMs: 10_000 },
@@ -379,6 +409,7 @@ export async function withUpdateDeck(testName: string, body: (app: App) => Promi
     const recorder = await installActionRecorder(app);
     note(`${testName} action recorder`, recorder);
     expect(recorder).not.toBe("FAILED");
+    await overlayReady(app);
 
     await body(app);
 

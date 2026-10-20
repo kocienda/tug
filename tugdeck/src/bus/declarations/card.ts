@@ -262,15 +262,17 @@ export const cardReservations = defineSharedStore<CardReservationsValue>({
 });
 
 /**
- * A surface a body asks the shell to draw over the deck: one that stands
+ * A surface a body asks to have drawn over the deck: one that stands
  * outside its card's content box, which is all a body's viewport is. The
- * body keeps rendering it, hidden, and the shell draws `html` — the
+ * body keeps rendering it, hidden, and the overlay draws `html` — the
  * surface's content as the body rendered it — in a panel of `className`
  * hung off the line at `lineY`, centred on `anchorX`. Coordinates are the
  * body's viewport points. `scroll` is where each scroller in the content
- * stood when it was first drawn, by its child-index path.
+ * stood when it was first drawn, by its child-index path. The shell hears it
+ * as `card.surface` and relays it, with the card's rest geometry, as
+ * `overlay.surfaces`.
  */
-export interface ShellSurface {
+export interface CardSurface {
   title: string;
   className: string;
   growth: "up" | "down";
@@ -280,23 +282,24 @@ export interface ShellSurface {
   scroll: Array<{ path: number[]; top: number }>;
 }
 
-/** What the card raises past its content box — the Z2 placard — for the shell to draw over the deck. */
-export const cardSurface = defineSharedStore<ShellSurface | null>({
+/** A {@link CardSurface} on the bus. */
+export const cardSurfaceCodec = obj({
+  title: str,
+  className: str,
+  growth: literal("up", "down"),
+  anchorX: num,
+  lineY: num,
+  html: str,
+  scroll: arr(obj({ path: arr(num), top: num })),
+});
+
+/** What the card raises past its content box — the Z2 placard — for the overlay to draw over the deck. */
+export const cardSurface = defineSharedStore<CardSurface | null>({
   key: "card.surface",
   owner: "card",
   scope: { card: true },
   clearOnDetach: true,
-  codec: nullable(
-    obj({
-      title: str,
-      className: str,
-      growth: literal("up", "down"),
-      anchorX: num,
-      lineY: num,
-      html: str,
-      scroll: arr(obj({ path: arr(num), top: num })),
-    }),
-  ),
+  codec: nullable(cardSurfaceCodec),
   initial: null,
 });
 

@@ -6,7 +6,7 @@
  * The shell decides which card is key and posts `bodyFocus`; the host makes
  * that body's web view the first responder; a settle that only moves frames
  * carries the body's container on the host as Core Animation
- * (`lib/body-beat-plan.ts`). None of that moves the deck's first responder,
+ * (`lib/card-plan.ts`). None of that moves the deck's first responder,
  * so nothing should take the keyboard from the body while it rides.
  *
  * A two-up holding two body cards, the mover key with its caret in the

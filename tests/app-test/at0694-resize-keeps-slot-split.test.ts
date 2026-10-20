@@ -21,12 +21,15 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromeRect } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 /** Long enough for any settle a commit could arm to have run out. */
 const SETTLE_MS = 900;
+/** A frame and some: the last report the hand's step sent has reached the seam. */
+const FRAME_MS = 150;
 
 function deckShape(): Record<string, unknown> {
   const pane = (id: string, slot: number, cardId: string) => ({
@@ -65,8 +68,15 @@ interface Rect {
 }
 
 const FRAME = (paneId: string) => `.tug-pane[data-pane-id="${paneId}"]`;
+/** Each pane's one card: its grips are drawn in that card's page. */
+const CARD_OF: Readonly<Record<string, string>> = { p1: "A", p2: "B", p3: "C" };
+
+/** In the shell: a stand-in's offered edges (`data-grips`). */
+const gripsScript = (paneId: string): string =>
+  `(document.querySelector(${JSON.stringify(FRAME(paneId))})?.getAttribute("data-grips") ?? "").split(" ").filter(function (g) { return g.length > 0; })`;
 
 async function rectOf(app: App, paneId: string): Promise<Rect> {
+  // card-dom: shell — the arranged rect is the shell's stand-in's.
   return app.evalJS<Rect>(
     `(function () {
       var r = document.querySelector(${JSON.stringify(FRAME(paneId))}).getBoundingClientRect();
@@ -75,38 +85,29 @@ async function rectOf(app: App, paneId: string): Promise<Rect> {
   );
 }
 
-/** The edges this pane offers as handles, in DOM order. */
+/** The edges this pane offers as handles, in order, as its stand-in names them to the host. */
 async function handlesOf(app: App, paneId: string): Promise<string[]> {
-  return app.evalJS<string[]>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(`${FRAME(paneId)} > .tug-pane-resize`)}))
-      .map(function (el) {
-        var m = /tug-pane-resize-(\\w+)/.exec(el.className.replace("tug-pane-resize ", ""));
-        return m ? m[1] : "?";
-      })`,
-  );
+  return app.evalJS<string[]>(gripsScript(paneId));
 }
 
 /**
- * A point on `paneId`'s `edge` handle that hits the handle itself rather than
- * the seam's hit strip lying over most of it — so the press is the member's
- * edge, and what moves the seam is the hand-off, not the seam's own handler.
+ * A point on `paneId`'s `edge` handle, in the shell's viewport points: on the
+ * handle in its card's page, a point inside the member's own pane — so the
+ * press is the member's edge, and what moves the seam is the hand-off, not
+ * the seam's own handler.
  */
 async function ownEdgePoint(
   app: App,
   paneId: string,
   edge: "n" | "s",
 ): Promise<{ x: number; y: number } | null> {
-  return app.evalJS<{ x: number; y: number } | null>(
-    `(function () {
-      var handle = document.querySelector(${JSON.stringify(`${FRAME(paneId)} > .tug-pane-resize-${edge}`)});
-      var r = handle.getBoundingClientRect();
-      var x = r.left + r.width / 2;
-      for (var y = Math.ceil(r.top); y < r.bottom; y += 0.5) {
-        if (document.elementFromPoint(x, y) === handle) return { x: x, y: y };
-      }
-      return null;
-    })()`,
-  );
+  // The edges are read off the shell's stand-in; the card's page draws them
+  // a paint or two later, so the handle is waited for there.
+  const handle = await chromeRect(app, CARD_OF[paneId], `.tug-pane-resize-${edge}`).catch(() => null);
+  const pane = await rectOf(app, paneId);
+  if (handle === null) return null;
+  const x = Math.round(handle.x + handle.width / 2);
+  return edge === "s" ? { x, y: Math.floor(Math.min(handle.bottom, pane.bottom) - 1) } : { x, y: Math.ceil(Math.max(handle.top, pane.top) + 1) };
 }
 
 async function slotOf(app: App, paneId: string): Promise<number | null> {
@@ -128,7 +129,10 @@ function expectSameRect(a: Rect, b: Rect, what: string): void {
   expect(Math.abs(a.bottom - b.bottom), `${what}: bottom`).toBeLessThanOrEqual(0.5);
 }
 
-/** Drag from `from` by `dy`, reading both members at pointer-up and settled. */
+/**
+ * Drag from `from` by `dy`, reading both members while the hand holds the
+ * edge — the seam pins their frames as it moves — and once settled.
+ */
 async function dragSeamFrom(
   app: App,
   from: { x: number; y: number },
@@ -139,13 +143,14 @@ async function dragSeamFrom(
 }> {
   const to = { x: from.x, y: from.y + dy };
   await app.nativeDragWithoutRelease(from, to);
+  await new Promise((r) => setTimeout(r, FRAME_MS));
+  const upperHeld = await rectOf(app, "p1");
+  const lowerHeld = await rectOf(app, "p2");
   await app.nativeMouseUp(to);
-  const upperUp = await rectOf(app, "p1");
-  const lowerUp = await rectOf(app, "p2");
   await new Promise((r) => setTimeout(r, SETTLE_MS));
   return {
-    upper: { atUp: upperUp, settled: await rectOf(app, "p1") },
-    lower: { atUp: lowerUp, settled: await rectOf(app, "p2") },
+    upper: { atUp: upperHeld, settled: await rectOf(app, "p1") },
+    lower: { atUp: lowerHeld, settled: await rectOf(app, "p2") },
   };
 }
 
@@ -155,8 +160,8 @@ function expectSeamMoved(
   dy: number,
   what: string,
 ): void {
-  expectSameRect(drag.upper.atUp, drag.upper.settled, `${what}: upper at pointer-up vs settled`);
-  expectSameRect(drag.lower.atUp, drag.lower.settled, `${what}: lower at pointer-up vs settled`);
+  expectSameRect(drag.upper.atUp, drag.upper.settled, `${what}: upper held vs settled`);
+  expectSameRect(drag.lower.atUp, drag.lower.settled, `${what}: lower held vs settled`);
   const upper = drag.upper.settled;
   const lower = drag.lower.settled;
   expect(Math.abs(upper.top - before.upper.top), `${what}: the column's top stands`).toBeLessThanOrEqual(0.5);
@@ -175,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${FRAME("p2")} > .tug-pane-resize-n`)}) !== null &&
+            `${gripsScript("p2")}.indexOf("n") >= 0 &&
              document.querySelector('[data-column-seam="0:0"]') !== null`,
             { timeoutMs: 8_000 },
           );

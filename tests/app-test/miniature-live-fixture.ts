@@ -14,6 +14,7 @@
 
 import { type App, type BodyApp } from "./_harness";
 import { cardPage, waitForBodyReady } from "./_harness/card-reach";
+import { chromePoint } from "./card-chrome-fixture";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 180_000;
@@ -149,5 +150,12 @@ export const describe_ = (box: Box | null): string =>
     ? "none"
     : `${Math.round(box.left)},${Math.round(box.top)} ${Math.round(box.width)}×${Math.round(box.height)}`;
 
-export const titleBar = (paneId: string): string =>
-  `.tug-pane[data-pane-id="${paneId}"] .tug-pane-title-bar`;
+/** The card `deckShape` stands in pane `p<n>`. */
+const cardOfPane = (paneId: string): string => ["A", "B", "C", "D", "E"][Number(paneId.slice(1)) - 1];
+
+/**
+ * The centre of pane `paneId`'s title bar, in the shell's viewport points: its
+ * card draws the bar in its own page.
+ */
+export const titleBarPoint = (app: App, paneId: string): Promise<{ x: number; y: number }> =>
+  chromePoint(app, cardOfPane(paneId), ".tug-pane-title-bar");

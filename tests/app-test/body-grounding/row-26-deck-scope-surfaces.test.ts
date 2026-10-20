@@ -1,30 +1,33 @@
 /**
  * row-26-deck-scope-surfaces.test.ts — what a body card raises past its
- * own content box, the shell draws.
+ * own content box, the overlay draws.
  *
  * A body's viewport is its card's content box, so the Z2 placard, built to
  * stand up off the status row over the masthead and the wall above the card,
  * had only the card to stand in there; and `/logout`'s confirm belongs to the
  * app-level `TugLogout`, which a body never mounts, so from a body it raised
- * nothing. Now the body keeps its placard rendered, hidden, and the shell
- * draws its content over the deck (`lib/shell-surface.ts`); and a body hands
- * its logout to the shell.
+ * nothing. Now the body keeps its placard rendered, hidden, and the overlay
+ * draws its content above every card at the card's rest rect
+ * (`overlay/overlay-surface-drawer.ts`); and a body hands its logout to the
+ * shell, which asks the overlay for its confirm.
  *
  * One body Session card split under two Text cards, with eight turns sent
  * through its composer, so the TIME placard is taller than the room above
  * its Z2 row. The TIME cell, clicked in the body, opens the placard; the
- * shell draws it, standing past the body's top edge, and the composite says
+ * overlay draws it, standing past the body's top edge, and the composite says
  * so: a column through it, from above the panel down to the body's top,
  * changes where the panel begins when it opens and comes back when it goes.
- * A turn button in the panel, over the body, is clicked: the shell takes it
+ * A turn button in the panel, over the body, is clicked: the overlay takes it
  * (its pointer claim) and the body's own button receives the click. A click
- * in the body outside the panel dismisses it there, and the shell's goes.
- * Then `/logout`, typed in the composer and sent, raises the shell's "Log Out
- * of Claude?" confirm, which is cancelled — guarded on the button's words,
+ * in the body outside the panel dismisses it there, and the drawn copy goes.
+ * Then `/logout`, typed in the composer and sent, raises the app's "Log Out
+ * of Claude?" confirm in the overlay, which is cancelled — guarded on the button's words,
  * the way at0598 guards it, so nothing ever logs the machine out.
  *
  * @foreground
- * @covers tugdeck/src/lib/shell-surface.ts
+ * @covers tugdeck/src/overlay/overlay-surface-drawer.ts
+ * @covers tugdeck/src/lib/surface-relay.ts
+ * @covers tugdeck/src/lib/surface-mirror.ts
  * @covers tugdeck/src/lib/logout-store.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  */
@@ -34,6 +37,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
+import { overlayReady } from "../overlay-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { bodyOf, focusBody, pollFor, promptPhase, sessionPane, SETTLE_MS, spawnStub, waitForBody } from "./_bodies";
 
@@ -47,7 +51,7 @@ const U = "r26-u";
 /** The turns committed before the placard opens. */
 const TURNS = 8;
 const TIME_CELL = '[data-slot="tug-status-cell"][data-priority="time"]';
-const DRAWN = `[data-shell-surface="${A}"]`;
+const DRAWN = `[data-overlay-surface="${A}"]`;
 const HIDDEN = ".tug-placard.tug-placard-drawn-elsewhere";
 const TURN_BUTTON = '[data-slot="session-popover-row-turn"]';
 const ALERT = '[data-slot="tug-alert"]';
@@ -97,7 +101,7 @@ function differing(a: number[][], b: number[][], scale: number, tolerance = 8): 
   return out;
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's deck-scope surfaces", () => {
+describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's deck-scope surfaces", () => {
   test(
     "the Z2 placard stands past the body card and takes the click; /logout raises the app's confirm",
     async () => {
@@ -154,18 +158,20 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's de
           await body.evalJS<null>("(window.__r26Phase.done = true, null)");
         }
         const frame = (await bodyOf(app, A))!.frame;
+        // The placard and the confirm are drawn in the overlay page.
+        const ui = await overlayReady(app);
 
         // ---- The placard ----
         await body.nativeClickAtElement(TIME_CELL);
-        const drawn = await pollFor(() => app.evalJS<Rect | null>(rectOf(DRAWN)), (r) => r !== null, SETTLE_MS);
-        expect(drawn, "the shell draws the placard the body opened").not.toBeNull();
+        const drawn = await pollFor(() => ui.evalJS<Rect | null>(rectOf(DRAWN)), (r) => r !== null, SETTLE_MS);
+        expect(drawn, "the overlay draws the placard the body opened").not.toBeNull();
         expect(await body.evalJS<boolean>(present(HIDDEN)), "the body keeps its own, hidden").toBe(true);
         // At rest: the entrance travels 4 pt.
         await Bun.sleep(300);
-        const panel = (await app.evalJS<Rect | null>(rectOf(DRAWN)))!;
+        const panel = (await ui.evalJS<Rect | null>(rectOf(DRAWN)))!;
         note(`panel ${JSON.stringify(panel)}; body frame ${JSON.stringify(frame)}`);
         note(
-          `drawn: ${JSON.stringify(await app.evalJS<unknown>(`(function () {
+          `drawn: ${JSON.stringify(await ui.evalJS<unknown>(`(function () {
             var p = document.querySelector(${JSON.stringify(DRAWN)});
             return { text: p.innerText.slice(0, 240), rows: p.querySelectorAll(${JSON.stringify(TURN_BUTTON)}).length, maxHeight: getComputedStyle(p).maxHeight, line: p.style.getPropertyValue("--tugx-placard-line"), avail: p.style.getPropertyValue("--radix-popover-content-available-height") };
           })()`))}; body: ${JSON.stringify(await body.evalJS<unknown>(`(function () {
@@ -185,7 +191,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's de
         const h = frame.y - y;
         const shown = await column(app, x, y, h);
 
-        // A press in the panel, over the body, is the shell's to take and
+        // A press in the panel, over the body, is the overlay's to take and
         // the body's button receives it.
         await body.evalJS<null>(`(function () {
           window.__r26Clicks = [];
@@ -195,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's de
           }, true);
           return null;
         })()`);
-        const buttons = await app.evalJS<Array<Rect & { text: string }>>(`Array.from(document.querySelectorAll(${JSON.stringify(`${DRAWN} ${TURN_BUTTON}`)})).map(function (b) {
+        const buttons = await ui.evalJS<Array<Rect & { text: string }>>(`Array.from(document.querySelectorAll(${JSON.stringify(`${DRAWN} ${TURN_BUTTON}`)})).map(function (b) {
           var r = b.getBoundingClientRect();
           return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, text: b.textContent };
         })`);
@@ -208,15 +214,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's de
         expect(clicks, "the body's own button received the press").toEqual([target.text]);
 
         // A click in the body outside the panel dismisses it there, and the
-        // shell's goes with it.
+        // drawn copy goes with it.
         const outside = { x: frame.x + frame.width - 30, y: frame.y + 30 };
         expect(
           outside.x > panel.right || outside.y < panel.top,
           "the dismissing click lands outside the panel",
         ).toBe(true);
         await app.nativeClick(outside);
-        const gone = await pollFor(() => app.evalJS<Rect | null>(rectOf(DRAWN)), (r) => r === null, SETTLE_MS);
-        expect(gone, "the shell takes the panel down").toBeNull();
+        const gone = await pollFor(() => ui.evalJS<Rect | null>(rectOf(DRAWN)), (r) => r === null, SETTLE_MS);
+        expect(gone, "the overlay takes the panel down").toBeNull();
         expect(await body.evalJS<boolean>(present(HIDDEN)), "the body's closed too").toBe(false);
         await Bun.sleep(250);
         const closed = await column(app, x, y, h);
@@ -232,17 +238,17 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's de
         await app.nativeKey("Escape");
         await Bun.sleep(200);
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(present(ALERT), { timeoutMs: 8_000 });
-        expect((await app.evalJS<string>(`document.querySelector(${JSON.stringify(ALERT_TITLE)}).textContent`)).trim()).toBe(
+        await ui.waitForCondition<boolean>(present(ALERT), { timeoutMs: 8_000 });
+        expect((await ui.evalJS<string>(`document.querySelector(${JSON.stringify(ALERT_TITLE)}).textContent`)).trim()).toBe(
           "Log Out of Claude?",
         );
         // Never press the confirm: guard the click on the button's own words.
-        const cancelLabel = (await app.evalJS<string>(`document.querySelector(${JSON.stringify(ALERT_CANCEL)}).textContent`)).trim();
+        const cancelLabel = (await ui.evalJS<string>(`document.querySelector(${JSON.stringify(ALERT_CANCEL)}).textContent`)).trim();
         if (cancelLabel !== "Cancel") {
           throw new Error(`refusing to click ${JSON.stringify(cancelLabel)} in the logout confirm`);
         }
-        await app.nativeClickAtElement(ALERT_CANCEL);
-        await app.waitForCondition<boolean>(`!(${present(ALERT)})`, { timeoutMs: 8_000 });
+        await ui.nativeClickAtElement(ALERT_CANCEL);
+        await ui.waitForCondition<boolean>(`!(${present(ALERT)})`, { timeoutMs: 8_000 });
       } finally {
         await app.close();
       }

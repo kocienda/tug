@@ -36,6 +36,10 @@ export const RAIL_WIDTH = 420;
 export const PANE_WIDTH = 420;
 
 export const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
+/** Each pane's one card in `deckShape`. */
+export const CARD_OF: Readonly<Record<string, string>> = { p1: "A", p2: "B", p3: "C", p4: "D", pRail: "L" };
+/** The page that draws a pane's chrome: its card's own. The shell's frame is a stand-in. */
+export const chromePage = (app: App, paneId: string): BodyApp => app.body(CARD_OF[paneId]);
 export const columnSeam = (slot: number, index: number): string =>
   `[data-column-seam="${slot}:${index}"]`;
 

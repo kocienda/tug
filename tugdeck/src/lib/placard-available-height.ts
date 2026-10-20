@@ -1,8 +1,9 @@
 /**
  * The placard's height guard: how far a placard may grow off its anchor
  * before it reaches the edge it grows toward. The component (`TugPlacard`)
- * and the shell's drawn surface (`shell-surface.ts`) both write it, so it
- * lives in `lib`, and `components/tugways/tug-placard.tsx` re-exports it.
+ * and the overlay's drawn surface (`overlay/overlay-surface-drawer.ts`) both
+ * write it, so it lives in `lib`, and `components/tugways/tug-placard.tsx`
+ * re-exports it.
  *
  * @module lib/placard-available-height
  */
@@ -24,13 +25,25 @@ export function applyAvailableHeight(
   growth: "up" | "down",
   boundEl: HTMLElement | null | undefined,
 ): void {
+  applyAvailableHeightWithin(panel, growth, boundEl == null ? null : layoutRectOf(boundEl));
+}
+
+/**
+ * {@link applyAvailableHeight} against a bound already measured, in layout
+ * px — the overlay's case, which is told where the canvas stands rather than
+ * holding it.
+ */
+export function applyAvailableHeightWithin(
+  panel: HTMLDivElement,
+  growth: "up" | "down",
+  bound: { top: number; bottom: number } | null,
+): void {
   // Layout px throughout: the value is a CSS length, and the window and the
   // rects are divided by the zoom to meet it.
   const box = layoutRectOf(panel);
   const windowBottom = layoutPxOf(window.innerHeight);
   // The bound's edge in the growth direction — but never past the window,
   // which the bound (a canvas taller than the window, scrolled) can be.
-  const bound = boundEl == null ? null : layoutRectOf(boundEl);
   const floor = bound === null ? windowBottom : Math.min(bound.bottom, windowBottom);
   const ceiling = bound === null ? 0 : Math.max(bound.top, 0);
   const available =

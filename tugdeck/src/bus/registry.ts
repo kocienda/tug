@@ -30,6 +30,25 @@ import {
   layoutSelection,
 } from "./declarations/arrangement";
 import {
+  overlayAlert,
+  overlayAppModal,
+  overlayCloseOpenQuickly,
+  overlayIndication,
+  overlayLiveTurns,
+  overlayMarginCaps,
+  overlayNetworkPath,
+  overlayOpenConfigure,
+  overlayOpenFile,
+  overlayOpenFirstSession,
+  overlayOpenQuickly,
+  overlayRestoreGate,
+  overlaySurfaceActivate,
+  overlaySurfaceDismissed,
+  overlaySurfaces,
+  overlayUpdateAction,
+  overlayUpdateState,
+} from "./declarations/overlay";
+import {
   cardContent,
   cardContext,
   cardCrossing,
@@ -55,6 +74,7 @@ import {
   paneMoveToSpace,
   paneReorderTabs,
   paneRevealCard,
+  paneRevealForQuestion,
   paneRevealStackEntry,
   paneSelectTab,
   paneSetWidth,
@@ -104,6 +124,14 @@ import type { SharedStore } from "./shared-store";
 export type AnySharedStore = SharedStore<any, any> | SharedStore<any, never>;
 
 export const SHARED_STORES: readonly AnySharedStore[] = [
+  overlayRestoreGate,
+  overlayLiveTurns,
+  overlaySurfaces,
+  overlayIndication,
+  overlayMarginCaps,
+  overlayOpenQuickly,
+  overlayNetworkPath,
+  overlayAppModal,
   deckFacts,
   deckMenu,
   deckFrontmostProject,
@@ -137,6 +165,14 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
 ];
 
 export const ROUTED_ACTIONS: readonly RoutedAction<any>[] = [
+  overlayUpdateAction,
+  overlayUpdateState,
+  overlayOpenFirstSession,
+  overlayOpenConfigure,
+  overlaySurfaceActivate,
+  overlaySurfaceDismissed,
+  overlayCloseOpenQuickly,
+  overlayOpenFile,
   deckActivateCard,
   deckSetFlowOffset,
   deckPreviewFlowOffset,
@@ -190,4 +226,6 @@ export const REQUESTS: readonly Request<any, any>[] = [
   cardCloseDecision,
   busPing,
   deckInterruptLiveSessions,
+  paneRevealForQuestion,
+  overlayAlert,
 ];

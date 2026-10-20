@@ -19,6 +19,12 @@
  * the keyboard, whose keyboard-focus paint the shell then wears. With none
  * installed the shell never yields.
  *
+ * The overlay page installs one too, and an installed predicate answers for
+ * its page whatever the page's role: the overlay is a body page with no card
+ * of its own in the deck, and it holds the keyboard exactly while it claims
+ * the whole window — the span the host makes its view the key one
+ * (`overlay/overlay-claim.ts`).
+ *
  * @module lib/keyboard-yield
  */
 
@@ -54,8 +60,9 @@ export function keyboardYieldedTo(): string | null {
 
 /** Whether this page has yielded the keyboard to another page. */
 export function keyboardYielded(): boolean {
+  if (keyboardYield !== null) return keyboardYield();
   if (page.isBody) return page.cardId === null || getCardDeck()?.getFirstResponderCardId() !== page.cardId;
-  return keyboardYield !== null && keyboardYield();
+  return false;
 }
 
 /** Tell the page a park was declined because it has yielded. */

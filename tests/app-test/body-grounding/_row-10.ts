@@ -47,7 +47,7 @@ import {
   edgeGap,
   expectAtRest,
   expectHidden,
-  placeholderOf,
+  hostShows,
   readSampler,
   regionRectOf,
   viewRectOf,
@@ -146,7 +146,7 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   for (const id of leg.departing) await expectHidden(app, id, `${leg.label}: ${id} departed`);
   const landed = new Map<string, Rect>();
   for (const id of leg.arriving) {
-    await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(placeholderOf(id))})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
+    await hostShows(app, id);
     landed.set(id, await restAt(app, id, `${leg.label}: ${id} arrived`));
   }
   // A card the workspace was made with arrives too, at the place its own
@@ -176,14 +176,14 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   expect(misplaced, `${leg.label}: no body the host shows stands anywhere but on its own card's placeholder`).toEqual([]);
   for (const [id, rect] of landed) places.set(id, rect);
 
-  // ---- The shell's record: the arriving card's placeholder has a box, and the lid lifts only once ----
+  // ---- The shell's record: the arriving card's placeholder has a box, and it is posted shown only once ----
   const samples = await readSampler(app);
   const withBox = samples.filter((s) => s.placeholder !== null && s.placeholder.width > 0 && s.placeholder.height > 0);
   const firstShown = withBox.findIndex((s) => s.shown);
   const liftedThenOn = withBox.some((s, i) => i > firstShown && firstShown >= 0 && !s.shown);
-  note(`${leg.label}: ${samples.length} shell samples of ${leg.watch}, ${withBox.length} with a box, lid on for the first ${firstShown < 0 ? withBox.length : firstShown} of those (the host can show a ready body before the shell's first frame paints)`);
+  note(`${leg.label}: ${samples.length} shell samples of ${leg.watch}, ${withBox.length} with a box, posted hidden for the first ${firstShown < 0 ? withBox.length : firstShown} of those (the host can show a ready body before the shell's first frame paints)`);
   expect(withBox.length, `${leg.label}: ${leg.watch}'s placeholder had a box after the switch`).toBeGreaterThan(0);
-  expect(liftedThenOn, `${leg.label}: once ${leg.watch}'s lid lifts it stays lifted`).toBe(false);
+  expect(liftedThenOn, `${leg.label}: once ${leg.watch} is posted shown it stays shown`).toBe(false);
 
   // ---- The composite: no bare hole on any frame ----
   const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
@@ -202,7 +202,7 @@ async function switchQuietly(app: App, toSpaceId: string, arriving: readonly str
   await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(toSpaceId)} }), null)`);
   await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id === toSpaceId, 5_000);
   for (const id of arriving) {
-    await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(placeholderOf(id))})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
+    await hostShows(app, id);
   }
   await Bun.sleep(600);
 }

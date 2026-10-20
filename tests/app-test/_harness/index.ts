@@ -984,7 +984,7 @@ export class App {
     return client.bodies(this as HarnessCaller);
   }
 
-  /** The window's accessibility reading order: `shell` and body card ids. */
+  /** The window's accessibility reading order: `shell`, body card ids, then `overlay`. */
   accessibilityOrder(): Promise<string[]> {
     return client.accessibilityOrder(this as HarnessCaller);
   }

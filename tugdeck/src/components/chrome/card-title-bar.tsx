@@ -1176,10 +1176,18 @@ function CardTitleBarBody({
   // still carrying. Cleared on unmount — a pane closed by another route
   // during the travel must not raise a question about itself afterwards.
   const openCloseTimerRef = useRef<number | null>(null);
+  // Set while a card's page waits on the shell to say how far its reveal
+  // travels; a second gesture in that wait is the same one arriving twice.
+  const revealPendingRef = useRef(false);
+  const mountedRef = useRef(true);
   useEffect(
-    () => () => {
-      if (openCloseTimerRef.current !== null)
-        window.clearTimeout(openCloseTimerRef.current);
+    () => {
+      mountedRef.current = true;
+      return () => {
+        mountedRef.current = false;
+        if (openCloseTimerRef.current !== null)
+          window.clearTimeout(openCloseTimerRef.current);
+      };
     },
     [],
   );
@@ -1212,13 +1220,38 @@ function CardTitleBarBody({
   // popover waits rather than anchoring in flight: Radix positions its content
   // once at open against the anchor's current rect, and the band's crossing is
   // a CSS transform it does not follow.
+  //
+  // In a card's own page the strip is the shell's to slide, and the settle is
+  // on the shell's canvas, which this page cannot see: the deck asks the shell
+  // to reveal the card and answers how long the travel runs
+  // (`revealForQuestion`), and the question waits that long, so it is still
+  // asked of a card the reader can see whole.
   const openCloseConfirm = useCallback(
     (intent: CloseIntent) => {
       // A second gesture while the deck is already travelling toward the
       // question is the same gesture arriving twice. Let the first one finish
       // rather than opening the popover onto a band still in flight.
-      if (openCloseTimerRef.current !== null) return;
+      if (openCloseTimerRef.current !== null || revealPendingRef.current) return;
       setCloseIntent(intent);
+      const openAfter = (ms: number): void => {
+        if (ms <= 0) {
+          setCloseOpen(true);
+          return;
+        }
+        openCloseTimerRef.current = window.setTimeout(() => {
+          openCloseTimerRef.current = null;
+          setCloseOpen(true);
+        }, ms);
+      };
+      if (deck !== null && activeCardId !== undefined && deck.revealForQuestion !== undefined) {
+        revealPendingRef.current = true;
+        void deck.revealForQuestion(activeCardId).then((travelMs) => {
+          revealPendingRef.current = false;
+          // A pane closed by another route during the wait raises no question.
+          if (mountedRef.current) openAfter(travelMs);
+        });
+        return;
+      }
       if (deck !== null && activeCardId !== undefined) {
         deck.revealCard(activeCardId);
       }
@@ -1233,11 +1266,7 @@ function CardTitleBarBody({
         setCloseOpen(true);
         return;
       }
-      const settleMs = readSettleMs(canvas) * getTugTiming();
-      openCloseTimerRef.current = window.setTimeout(() => {
-        openCloseTimerRef.current = null;
-        setCloseOpen(true);
-      }, settleMs);
+      openAfter(readSettleMs(canvas) * getTugTiming());
     },
     [deck, activeCardId],
   );

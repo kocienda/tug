@@ -46,9 +46,10 @@
  * - A destroyed card's body is destroyed with it, unsaved: its bag is about
  *   to be swept.
  * - A surface a body card raises past its content box — the Z2 placard —
- *   arrives as `card.surface` and is drawn here, over the deck, where the
- *   in-document card would have drawn it (`shell-surface.ts`); a press in it
- *   or its dismissal goes back as `surface.activate` / `surface.dismissed`.
+ *   arrives as `card.surface` and is relayed to the overlay with the card's
+ *   rest geometry, which draws it over every card where the in-document card
+ *   would have drawn it (`surface-relay.ts`); a press in it or its dismissal
+ *   goes back as `surface.activate` / `surface.dismissed`.
  * - A command whose owner is the key card goes to the key body when the key
  *   card is one and no shell surface holds the chain ahead of it: the shell's
  *   key-card route (`bus/command-route.ts`), which also takes the shell's
@@ -93,7 +94,8 @@
  * @module lib/body-shell
  */
 
-import type { ShellSurface } from "../bus/declarations/card";
+import type { CardSurface } from "../bus/declarations/card";
+import { overlaySurfaceActivate, overlaySurfaceDismissed } from "../bus/declarations/overlay";
 import type { TugConnection } from "../connection";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { DeckState } from "../layout-tree";
@@ -101,6 +103,7 @@ import { getResponderChainManager } from "../action-registry";
 import { answerBodyCommands } from "../command-dispatch";
 import { enterKeyViewWalk, getFocusManager } from "./active-focus-manager";
 import { TUG_ACTIONS } from "./action-vocabulary";
+import { OVERLAY_CARD_ID } from "./overlay-card";
 import { setKeyboardYield } from "./keyboard-yield";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
@@ -113,9 +116,10 @@ import { bodyCardsStore } from "./body-cards-store";
 import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfaceAhead } from "./body-command-route";
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
-import { bodyBeatsCancelled, bodyBeatsLanded, bodyPlacementDiag, bodyShown, floorShown } from "./body-placement";
+import { cardPlanCancelled, cardPlanLanded, cardPlacementDiag } from "./card-placement";
 import { mergeBandOf } from "./drop-zones";
-import { SHOWN_PANE_FRAMES } from "./pane-frame-selectors";
+import { CANVAS_BACKGROUND_ATTRIBUTE, paneCanvasOf, SHOWN_PANE_FRAMES } from "./pane-frame-selectors";
+import { getTugTiming } from "./scale-timing";
 import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
 import { cardSessionBindingStore, shareCardBinding } from "./card-session-binding-store";
@@ -123,7 +127,9 @@ import { cardTitleStore } from "./card-title-store";
 import { CARDS_CARD_ID } from "./cards-card-id";
 import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
 import { requestLogout } from "./logout-store";
-import { ShellSurfaceDrawer } from "./shell-surface";
+import { overlaySurfaceBook } from "./overlay-surfaces";
+import { createSurfaceRelay, overlayRectOf } from "./surface-relay";
+import { indicate } from "./drag-indication";
 import { askCloseDecision, withdrawCloseDecision } from "./close-decision";
 import { closeRefusalStore } from "./close-refusal-store";
 import { pageBus, type PageBus } from "../bus/page-bus";
@@ -170,6 +176,7 @@ import {
   paneReorderTabs,
   paneTabDrag,
   paneRevealCard,
+  paneRevealForQuestion,
   paneRevealStackEntry,
   paneSelectTab,
   paneSetWidth,
@@ -224,7 +231,7 @@ import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { getRegistration, isSidebarCard } from "../card-registry";
 import { cardIdentity, cardIdentityElsewhere, liveCardIdentity } from "./card-identity";
 import { paneTitleBarItemsStore } from "./pane-title-bar-items-store";
-import { isSidebarPinned, sidebarSide, type SidebarSide } from "./layout-imposer";
+import { isSidebarPinned, readSettleMs, sidebarSide, type SidebarSide } from "./layout-imposer";
 import {
   projectArrangementDeck,
   projectArrangementSpaces,
@@ -256,7 +263,6 @@ import { shareLayoutSelection } from "./cards-selection-store";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { cardModalHoldStore, isCardHeld, refuseCardModalHold } from "./card-modal-hold-store";
 import { closeGuardWalk } from "./close-guard-walk";
-import { chromeInBody } from "./chrome-placement";
 import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
 import { frontmostProjectBinding } from "./frontmost-project";
@@ -506,15 +512,15 @@ export function createBodyPaintGate(bus: PageBus, markPainted: (cardId: string) 
 
 /**
  * The pane whose title band holds `point` (viewport px), other than
- * `sourcePaneId`: where a tab dragged past its own bar would merge. Read off
- * the shown frames, so a stand-in's band is as much a target as a pane the
- * shell draws.
+ * `sourcePaneId`, and that band: where a tab dragged past its own bar would
+ * merge. Read off the shown frames, so a stand-in's band is as much a target
+ * as a pane the shell draws.
  */
 function tabMergeTargetAt(
   deck: IDeckManagerStore,
   point: { x: number; y: number },
   sourcePaneId: string,
-): { paneId: string; frame: HTMLElement } | null {
+): { paneId: string; band: { x: number; y: number; width: number; height: number } } | null {
   for (const frame of document.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
     const paneId = frame.dataset.paneId;
     if (paneId === undefined || paneId === sourcePaneId) continue;
@@ -522,7 +528,7 @@ function tabMergeTargetAt(
     const tabbed = (deck.getSnapshot().panes.find((p) => p.id === paneId)?.cardIds.length ?? 0) > 1;
     const band = mergeBandOf({ x: r.x, y: r.y, width: r.width, height: r.height }, frame.dataset.role === "sidebar" ? "sidebar" : "content", tabbed);
     if (point.x >= band.x && point.x < band.x + band.width && point.y >= band.y && point.y < band.y + band.height) {
-      return { paneId, frame };
+      return { paneId, band };
     }
   }
   return null;
@@ -572,12 +578,33 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   releases.push(closeRefusalStore.onRefuse((cardId) => flashCardPane(deck, cardId)));
   /** The member each card's sheet reservation was claimed under. */
   const reservedUnder = new Map<string, string>();
-  /** Each body card's deck-scope surface, drawn over the deck. */
-  const surfaces = new ShellSurfaceDrawer({
-    onActivate: (cardId, path) => surfaceActivate.dispatch({ path }, { card: cardId }),
-    onDismiss: (cardId) => surfaceDismissed.dispatch({}, { card: cardId }),
+  /** Each body card's deck-scope surface, relayed to the overlay at its card's rest rect. */
+  const surfaces = createSurfaceRelay({
+    book: overlaySurfaceBook,
+    measure: (cardId) => {
+      const placeholder = document.querySelector<HTMLElement>(
+        `[data-body-placeholder][data-card-id="${CSS.escape(cardId)}"]`,
+      );
+      if (placeholder === null) return null;
+      const pane = placeholder.closest<HTMLElement>(".tug-pane");
+      const canvas = pane === null ? null : paneCanvasOf(pane);
+      return {
+        body: overlayRectOf(placeholder.getBoundingClientRect()),
+        pane: pane === null ? null : overlayRectOf(pane.getBoundingClientRect()),
+        bound: canvas === null ? null : overlayRectOf(canvas.getBoundingClientRect()),
+      };
+    },
+    dismiss: (cardId) => surfaceDismissed.dispatch({}, { card: cardId }),
   });
   releases.push(() => surfaces.dispose());
+  releases.push(
+    overlaySurfaceActivate.handle(({ cardId, path }, from) => {
+      if (from.cardId === OVERLAY_CARD_ID) surfaceActivate.dispatch({ path }, { card: cardId });
+    }),
+    overlaySurfaceDismissed.handle(({ cardId }, from) => {
+      if (from.cardId === OVERLAY_CARD_ID) surfaces.dismissed(cardId);
+    }),
+  );
 
   /** The shell's close guard held for each body card whose guard spoke, with its release. */
   const closeGuards = new Map<string, () => void>();
@@ -1057,14 +1084,14 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       publishCards();
       publishArrangement();
       publishDeckFacts();
-      // A drawn surface hangs off its card, wherever the card now stands.
+      // A raised surface hangs off its card, wherever the card now rests.
       surfaces.placeAll();
       const fr = deck.getFirstResponderCardId();
       if (fr !== lastFirstResponder) {
         lastFirstResponder = fr;
         // A press in another body never reaches the shell, but it makes
         // that card the first responder: the keyboard leaving a card closes
-        // the surface drawn for it, as the press would have.
+        // the surface raised for it, as the press would have.
         surfaces.dismissAllBut(fr);
         postFocus(true);
       }
@@ -1308,7 +1335,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   });
   watchCardStore(cardHolds, applyHolds);
   watchCardStore(cardReservations, applyReservations);
-  watchCardStore(cardSurface, (cardId, surface: ShellSurface | null) => surfaces.draw(cardId, surface));
+  watchCardStore(cardSurface, (cardId, surface: CardSurface | null) => surfaces.set(cardId, surface));
 
   /** The body card a verb came from, when it is one this shell holds. */
   const fromBody = (from: { cardId: string | null }): string | null =>
@@ -1337,9 +1364,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       if (paneId !== null) deck.addCardToPane(paneId, componentId);
     }),
   );
-
-  /** The shell DOM a tab drag from a card's page is indicating onto, if any. */
-  let tabDragTarget: HTMLElement | null = null;
 
   /**
    * The pane a chrome verb from a body acts on, or null: the sender must be a
@@ -1395,21 +1419,23 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     // A tab dragged past its own bar in a card's page: the point is the
     // page's, offset here by where its view stands. The merge targets are the
     // other panes' title bands, read off their frames, so a stand-in is one
-    // as a pane the shell draws is; anywhere else, the drop detaches.
-    paneTabDrag.handle(({ phase, cardId, x, y }, from) => {
+    // as a pane the shell draws is; anywhere else, the drop detaches. The
+    // band and the tab's ghost are drawn in the overlay, above every card
+    // ([B08]).
+    paneTabDrag.handle(({ phase, cardId, x, y, ghost }, from) => {
       const paneId = pressedPane(from, cardId);
       const sender = fromBody(from);
-      tabDragTarget?.removeAttribute("data-drop-target");
-      tabDragTarget = null;
+      if (phase !== "move") indicate({ band: null, ghost: null });
       if (paneId === null || sender === null || phase === "cancel") return;
-      const view = bodyPlacementDiag()?.lastPosted?.bodies.find((b) => b.cardId === sender);
+      const view = cardPlacementDiag()?.lastPosted?.bodies.find((b) => b.cardId === sender);
       if (view === undefined) return;
       const point = { x: view.x + x, y: view.y + y };
       const target = tabMergeTargetAt(deck, point, paneId);
       if (phase === "move") {
-        tabDragTarget =
-          target?.frame.querySelector<HTMLElement>(`.tug-tab-bar[data-pane-id], .tug-pane-accessory[data-pane-id]`) ?? null;
-        tabDragTarget?.setAttribute("data-drop-target", "true");
+        indicate({
+          band: target?.band ?? null,
+          ghost: ghost === undefined ? null : { ...ghost, x: view.x + ghost.x, y: view.y + ghost.y },
+        });
         return;
       }
       if (target !== null) {
@@ -1451,6 +1477,16 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     paneRevealCard.handle(({ cardId }, from) => {
       if (pressedPane(from, cardId) !== null) deck.revealCard(cardId);
     }),
+    // The settle a reveal arms stands on the canvas the moment the store
+    // notifies, so the travel is read straight after it: the settle's length
+    // while one runs, none when the reveal moved nothing.
+    paneRevealForQuestion.handle(({ cardId }, from) => {
+      if (pressedPane(from, cardId) === null) return { travelMs: 0 };
+      deck.revealCard(cardId);
+      const canvas = document.querySelector<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
+      if (canvas === null || !canvas.hasAttribute("data-imposer-settling")) return { travelMs: 0 };
+      return { travelMs: readSettleMs(canvas) * getTugTiming() };
+    }),
   );
 
   releases.push(
@@ -1458,7 +1494,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     // back ([P04]: one front door, routed by the entry).
     answerBodyCommands(bus),
     appLogout.handle((_payload, from) => {
-      if (fromBody(from) === null) return;
+      // From a body card's page, or from the overlay's setup wizard, whose
+      // Log Out… is this same request ([B07]).
+      if (fromBody(from) === null && from.cardId !== OVERLAY_CARD_ID) return;
       requestLogout();
     }),
   );
@@ -1491,14 +1529,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // ---- What the host tells the shell ----
 
   const releaseBodyState = onHostMessage(bodyStateToPage, (report) => {
-    // The host's floor is on screen. It names no card, so it is taken
-    // before the card guard below, which would drop it.
-    if (report.state === "floorShown") {
-      floorShown(report.sinceRevealMs ?? null);
-      return;
-    }
     const cardId = report.cardId;
-    if (cardId === undefined || !bodyCardsStore.has(cardId)) return;
+    if (!bodyCardsStore.has(cardId)) return;
     switch (report.state) {
       case "ready":
         bodyCardsStore.setState(cardId, "ready");
@@ -1509,26 +1541,20 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       case "painted":
         // Its first frame of content is composited; the placer may show it
         // once the bus has said so too, and the facts the frame drew are in.
-        // A card that draws its own chrome says this at its first chrome
-        // frame, and shows from here; the gate still waits on `card.painted`.
-        if (chromeInBody(deck.getSnapshot().cards.find((c) => c.id === cardId)?.componentId)) {
-          bodyCardsStore.markChromeShown(cardId);
-        }
+        // A card says this at its first chrome frame, and shows from here;
+        // the gate still waits on `card.painted`.
+        bodyCardsStore.markChromeShown(cardId);
         paintGate.hostPainted(cardId);
-        return;
-      case "shown":
-        // The host's container is placed, opaque and drawn: the lid lifts.
-        bodyShown(cardId);
         return;
       case "landed":
         // The host ran the body's planned beats to their end.
         if (report.planId !== undefined) {
-          bodyBeatsLanded(cardId, report.planId, report.lateMs ?? null);
+          cardPlanLanded(cardId, report.planId, report.lateMs ?? null);
         }
         return;
       case "beatsCancelled":
         // A placement or a newer plan took the body before it landed.
-        if (report.planId !== undefined) bodyBeatsCancelled(cardId, report.planId);
+        if (report.planId !== undefined) cardPlanCancelled(cardId, report.planId);
         return;
       case "terminated":
         // Reloading under the same card: the card is detached until the new

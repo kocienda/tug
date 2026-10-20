@@ -34,7 +34,7 @@ import { controlFrame, encodeFrame } from "@/protocol";
 import { installDevLogSink } from "@/lib/dev-log-port";
 import { IngestHost } from "@/lib/ingest/ingest-host";
 import { Pacer } from "@/lib/ingest/pacer";
-import type { IngestWorkerFailure } from "@/lib/ingest/ingest-channel";
+import type { IngestTestConfig, IngestWorkerFailure } from "@/lib/ingest/ingest-channel";
 import type { SessionControl } from "@/lib/ingest/session-patch";
 
 /** Asks the Worker to prove it can hold the socket. */
@@ -138,10 +138,19 @@ installDevLogSink({
   lifecycle: (tag, fields) => host.log({ lifecycle: { tag, fields } }),
 });
 
-scope.onmessage = (event: MessageEvent<SessionControl | IngestSpikeRequest>) => {
+scope.onmessage = (event: MessageEvent<SessionControl | IngestSpikeRequest | IngestTestConfig>) => {
   const message = event.data;
   if (message.kind === "spike") {
     runSpike(message);
+    return;
+  }
+  if (message.kind === "test-config") {
+    // The reducer in this Worker reads these off its own realm; the page
+    // forwards them because a Worker inherits none of its injected globals.
+    const w = scope as unknown as { __tugTestMode?: boolean; __tugReplaySilenceDeadlineMs?: number };
+    w.__tugTestMode = message.testMode;
+    if (message.replaySilenceDeadlineMs === null) delete w.__tugReplaySilenceDeadlineMs;
+    else w.__tugReplaySilenceDeadlineMs = message.replaySilenceDeadlineMs;
     return;
   }
   try {

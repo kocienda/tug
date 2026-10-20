@@ -54,6 +54,7 @@ import {
   expectAtRest,
   expectHidden,
   frameOf,
+  hostShows,
   judge,
   judgeCarried,
   pollPresented,
@@ -142,11 +143,11 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
   note(`${label}: frame ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
   expect(Math.abs(after.height - before.height), `${label}: the gesture changed the frame's height`).toBeGreaterThan(40);
   if (carried) {
-    await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(`${frameOf(card)} [data-body-placeholder]`)})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
+    await hostShows(app, card);
     await Bun.sleep(400);
   } else if (toFolded) await expectHidden(app, card, `${label}: at the land`);
   else {
-    await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(`${frameOf(card)} [data-body-placeholder]`)})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
+    await hostShows(app, card);
     await Bun.sleep(400);
     await expectAtRest(app, card, `${label}: at the land`);
   }
@@ -164,7 +165,7 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
     expect(plan.last?.landed.some((l) => l.cardId === card) ?? false, `${label}: the host carried the body and landed it`).toBe(true);
     const v = judgeCarried(label, reading, samples, presented, gestureWall, boxBefore!, boxAfter, standing.palette, crop);
     expect(v.motion, `${label}: frames were captured while the chrome moved`).toBeGreaterThan(2);
-    expect(v.lidOnWhileMoving, `${label}: the lid stays lifted in every sample where the frame moved`).toBe(0);
+    expect(v.lidOnWhileMoving, `${label}: the card stays posted shown in every sample where the frame moved`).toBe(0);
     expect(v.bare, `${label}: no frame shows the bare window`).toBe(0);
     expect(v.floorOffenders.length, `${label}: on every frame where the chrome moves the body fills its content box`).toBe(0);
     expect(v.tracked, `${label}: the host was read while the chrome moved`).toBeGreaterThan(0);
@@ -178,7 +179,7 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
   if (worst !== undefined) copyFileSync(worst.path, join(keep, `${label.replace(/\s+/g, "-")}-worst-${Math.round(worst.frame.t)}ms.png`));
   expect(verdict.judged.length, `${label}: frames were captured across the gesture`).toBeGreaterThan(10);
   expect(verdict.movingSamples, `${label}: the sampler saw the frame move`).toBeGreaterThan(2);
-  expect(verdict.shownWhileMoving, `${label}: the lid is on in every sample where the frame moved`).toBe(0);
+  expect(verdict.shownWhileMoving, `${label}: the card is posted hidden in every sample where the frame moved`).toBe(0);
   expect(verdict.bare.length, `${label}: no frame shows the bare window through a hole the body left behind`).toBe(0);
   expect(verdict.motion.length, `${label}: frames were captured while the chrome moved`).toBeGreaterThan(2);
   expect(verdict.offenders.length, `${label}: on every frame where the chrome moves the content box is the lid`).toBe(0);

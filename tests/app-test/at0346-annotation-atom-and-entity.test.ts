@@ -75,8 +75,19 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
+import { restoreGateGone } from "./overlay-fixture";
+
+/**
+ * A trusted right-click in A's body, made once the resumed card's restore
+ * gate — the overlay's claim on the whole window while the replay reveals —
+ * has come down; before that the click is the gate's, not the span's.
+ */
+async function rightClickPastGate(app: App, selector: string): Promise<void> {
+  await restoreGateGone(app);
+  await app.body("A").nativeRightClickAtElement(selector);
+}
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -227,7 +238,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // --- one insert item, and it mints the chip --------------------
         await app.body("A").evalJS<boolean>(revealJS(SPAN));
-        await app.body("A").nativeRightClickAtElement(SPAN);
+        await rightClickPastGate(app, SPAN);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
@@ -312,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // The half a unit test cannot reach: the sidecar has to survive the
         // real pasteboard and come back through the paste side as a chip.
         await app.body("A").evalJS<boolean>(revealJS(SPAN));
-        await app.body("A").nativeRightClickAtElement(SPAN);
+        await rightClickPastGate(app, SPAN);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
           { timeoutMs: 4000 },
@@ -472,7 +483,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // And the menu is the file's own — the same four items a path in
         // prose offers, over the standard editing block.
         await app.body("A").evalJS<boolean>(revealJS(CHIP_HOST));
-        await app.body("A").nativeRightClickAtElement(CHIP_HOST);
+        await rightClickPastGate(app, CHIP_HOST);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
@@ -575,7 +586,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         await clearSelection();
         await app.body("A").evalJS<boolean>(revealJS(PLAIN_SPAN));
-        await app.body("A").nativeRightClickAtElement(PLAIN_SPAN);
+        await rightClickPastGate(app, PLAIN_SPAN);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy"]') !== null`,
           { timeoutMs: 4000 },
@@ -594,7 +605,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // --- the command: one entity, so the whole of it is taken -------
         await clearSelection();
         await app.body("A").evalJS<boolean>(revealJS(CMD_SPAN));
-        await app.body("A").nativeRightClickAtElement(CMD_SPAN);
+        await rightClickPastGate(app, CMD_SPAN);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-command"]') !== null`,
           { timeoutMs: 4000 },
@@ -790,7 +801,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // --- the insert mints a commit chip ----------------------------
         await app.body("A").evalJS<boolean>(revealJS(SPAN));
-        await app.body("A").nativeRightClickAtElement(SPAN);
+        await rightClickPastGate(app, SPAN);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
@@ -876,7 +887,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // --- and Copy as Atom puts that same object on the pasteboard ---
         await app.body("A").evalJS<boolean>(revealJS(SPAN));
-        await app.body("A").nativeRightClickAtElement(SPAN);
+        await rightClickPastGate(app, SPAN);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
           { timeoutMs: 4000 },

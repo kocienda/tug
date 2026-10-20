@@ -31,7 +31,7 @@
  * @foreground
  * @covers tugrust/crates/tugtool/src/commands/deck_motion_settle.rs
  * @covers tugrust/crates/tugtool/src/commands/deck_motion_settle.js
- * @covers tugdeck/src/lib/body-placement.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  */
 
 import { describe, expect, test } from "bun:test";
