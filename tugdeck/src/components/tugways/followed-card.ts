@@ -21,7 +21,7 @@ import {
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useFocusManager } from "@/components/tugways/use-focusable";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 
 /** The followed card id, or `null` when none has been focused. */
 export const FollowedCardContext = createContext<string | null>(null);
@@ -38,7 +38,7 @@ export const FollowedCardContext = createContext<string | null>(null);
  *  and says which card this one follows. */
 export function useTrackFollowedCard(selfCardId: string): string | null {
   const focusManager = useFocusManager();
-  const deck = getDeckStore();
+  const deck = getCardDeck();
   const bridged = deck?.getFollowedCardId;
   const lastRef = useRef<string | null>(null);
   const subscribe = useCallback(

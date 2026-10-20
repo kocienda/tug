@@ -23,17 +23,11 @@
  * @module lib/scroll-phase-bridge
  */
 
+import { installHostChannel, onHostMessage } from "@/host/channel";
+import { scrollPhaseToPage } from "@/host/declarations/services";
+
 /** One phase edge from the host. */
 export type ScrollPhaseEdge = "touched" | "lifted" | "momentum";
-
-/** The host→web bridge object; only the scroll-phase callback concerns us here. */
-interface TugBridge {
-  onScrollPhase?: (edge: unknown) => void;
-}
-
-interface WebkitHandles {
-  __tugBridge?: TugBridge;
-}
 
 const EDGES: readonly string[] = ["touched", "lifted", "momentum"];
 
@@ -50,18 +44,18 @@ export function subscribeScrollPhase(listener: (edge: ScrollPhaseEdge) => void):
   };
 }
 
+let installed = false;
+
 /**
- * Install `__tugBridge.onScrollPhase`. Called once from deck boot; safe to
- * call again (the receiver is installed only when absent). An edge this build
- * does not know is dropped.
+ * Take `__tugBridge.onScrollPhase` in this page. Called once from deck boot;
+ * safe to call again. An edge this build does not know is dropped.
  */
 export function installScrollPhaseBridge(): void {
-  const w = globalThis as unknown as WebkitHandles;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onScrollPhase !== undefined) return;
-
-  bridge.onScrollPhase = (edge) => {
-    if (typeof edge !== "string" || !EDGES.includes(edge)) return;
+  installHostChannel();
+  if (installed) return;
+  installed = true;
+  onHostMessage(scrollPhaseToPage, (edge) => {
+    if (!EDGES.includes(edge)) return;
     for (const listener of [...listeners]) listener(edge as ScrollPhaseEdge);
-  };
+  });
 }

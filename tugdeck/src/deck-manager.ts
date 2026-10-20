@@ -220,6 +220,7 @@ import {
   isTugMotionEnabled,
 } from "./lib/scale-timing";
 import { DeckManagerContext } from "./deck-manager-context";
+import { CardDeckContext, DeckViewContext } from "./card-deck-context";
 import { BASE_THEME_NAME } from "./theme-constants";
 import {
   CardLifecycle,
@@ -243,7 +244,7 @@ import {
   BannerLifecycleContext,
   registerBannerLifecycle,
 } from "./lib/banner-lifecycle";
-import { registerDeckStore } from "./lib/deck-store-registry";
+import { registerShellDeck } from "./lib/deck-store-registry";
 import { isDevEnv } from "./lib/dev-env";
 import {
   installLifecycleCascade,
@@ -2317,7 +2318,7 @@ export class DeckManager implements IDeckManagerStore {
     // which `ResponderChainProvider` attaches from a `useLayoutEffect`
     // that sits outside the `DeckManagerContext` provider and so cannot
     // reach the store through React context).
-    registerDeckStore(this);
+    registerShellDeck(this);
     this.releaseAppActivity = followAppActivity(this, this.appLifecycle);
     this.lifecycleCascade = installLifecycleCascade(
       this.cardLifecycle,
@@ -2394,6 +2395,8 @@ export class DeckManager implements IDeckManagerStore {
           [ErrorBoundary, null],
           [ResponderChainProvider, null],
           [DeckManagerContext.Provider, { value: this }],
+          [DeckViewContext.Provider, { value: this }],
+          [CardDeckContext.Provider, { value: this }],
           [UsageContext.Provider, { value: this.usageStore }],
           [CardLifecycleContext.Provider, { value: this.cardLifecycle }],
           [AppLifecycleContext.Provider, { value: this.appLifecycle }],
@@ -2725,6 +2728,12 @@ export class DeckManager implements IDeckManagerStore {
        * this call at its ordinary policy.
        */
       opening?: "bound";
+      /**
+       * The id the new card takes, minted by the caller so it holds the id
+       * before the card lands (a body page asking the shell to add a card).
+       * Omitted, the deck mints one. Under `defaultCards` it names the first.
+       */
+      cardId?: string;
     },
   ): string | null {
     const registration = getRegistration(componentId);
@@ -2789,9 +2798,9 @@ export class DeckManager implements IDeckManagerStore {
 
     const seededCards: CardState[] = [];
     if (registration.defaultCards && registration.defaultCards.length > 0) {
-      for (const template of registration.defaultCards) {
+      for (const [i, template] of registration.defaultCards.entries()) {
         seededCards.push({
-          id: crypto.randomUUID(),
+          id: (i === 0 ? options?.cardId : undefined) ?? crypto.randomUUID(),
           componentId: template.componentId,
           title: template.title,
           closable: template.closable,
@@ -2799,7 +2808,7 @@ export class DeckManager implements IDeckManagerStore {
       }
     } else {
       seededCards.push({
-        id: crypto.randomUUID(),
+        id: options?.cardId ?? crypto.randomUUID(),
         componentId,
         title: registration.defaultMeta.title,
         closable: registration.defaultMeta.closable !== false,

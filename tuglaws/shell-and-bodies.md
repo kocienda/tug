@@ -1,12 +1,12 @@
 # Shell and Bodies
 
-*The long form of [L37] and [L38]. The deck is one shell page and one body page per card, each in its own web view and its own process ([D214]). This document is how those pages talk: the three channels, the three things that may cross between shell and body, who owns each piece of state, and what a test may assume about which document it is in. The library that carries all of it is `tugdeck/src/bus/`.*
+*The long form of [L37], [L38] and [L39]. The deck is one shell page and one body page per card, each in its own web view and its own process ([D214]). This document is how those pages talk: the three channels, the three things that may cross between shell and body, who owns each piece of state, and what a test may assume about which document it is in. The library that carries all of it is `tugdeck/src/bus/`.*
 
 ## The three channels {#channels}
 
 Each channel has one job, and a message belongs to the channel whose job it is.
 
-- **Host ↔ page.** `WKScriptMessage` handlers on each view's content controller, with the view named by `message.webView`, and `evaluateJavaScript` into a named view (`window.__tugBridge`). This carries what the host owns: geometry, focus, a body's lifecycle (`bodyPlace`, `bodyDestroy`, `onBodyState`), the clipboard, lookup, dictation and zoom.
+- **Host ↔ page.** The host vocabulary ([L39]): every message declared once in `tugdeck/src/host/declarations/`, listed in `host/registry.ts`, and named again in `tugapp/Sources/HostMessages.swift`. A page posts the JSON string `postToHost` makes (`host/channel.ts`) to the declaration's `WKScriptMessage` handler, and `HostChannel.swift` decodes it once with `JSONDecoder`, naming the view by `message.webView` and refusing a payload that does not decode. The host answers by calling a `window.__tugBridge` member, which `installHostChannel` defines at boot for each host→page declaration; the member decodes its one payload and hands it to the one handler `onHostMessage` registered. A call the host awaits (`window.tugdeck`'s `saveState`, `prepareForTermination`, `reauthenticate`) is answered through `answerPageCall`. This carries what the host owns: geometry (`placeBodies`, `placeCards`, `cardGesture`), focus, a body's lifecycle (`bodyCreate`, `bodyDestroy`, `onBodyState`), the clipboard, lookup, dictation and zoom.
 - **Shell ↔ body.** `DECK_BUS` (0xD0) over tugcast, which every page already connects to. This carries everything one page of the deck tells another. It runs in bun with no host, so every crossing is testable without the app.
 - **Host → shell commands.** The control socket, delivered to the shell. A command a body owns goes on from the shell to the key card's body over the bus, so the host never needs to know which page a command ends in.
 
@@ -86,4 +86,12 @@ Every request ends in a named state: `ok`, or `timeout`, `detached`, `refused` (
 2. Register it in `tugdeck/src/bus/registry.ts`, in `SHARED_STORES`, `ROUTED_ACTIONS` or `REQUESTS`. The same test checks that every codec decodes its own `sample` and that every store's `initial` passes its codec.
 3. Test it on `createTestBus()`, as an exchange between the pages that own and read it.
 
-Nothing in `components/` learns whether it runs in a body. The primitives feed the same contexts a component already reads.
+Nothing in `components/` learns whether it runs in a body. The primitives feed the same contexts a component already reads, and a card reads its deck through `CardDeck` (an arrangement card through `DeckView`, `tugdeck/src/card-deck.ts`), which the shell's deck and a body's deck built from its replicas and verbs both implement.
+
+## Adding a host message {#adding-a-host-message}
+
+1. Declare it in a file under `tugdeck/src/host/declarations/` with `defineToHost`, `defineToPage` or `definePageCall`, beside its payload's codec, at least one of its `samples`, and the `refused` payloads a typed codec must refuse.
+2. Register it in `tugdeck/src/host/registry.ts`, in `TO_HOST`, `TO_PAGE` or `PAGE_CALLS`. `host/__tests__/registry.test.ts` checks that the file and the list agree and that every codec decodes its samples and refuses its refusals.
+3. Write its Swift twin in `tugapp/Sources/HostMessages.swift`: the name in `ToHostName`, `ToPageMember` or `PageCall`, and a `Decodable` payload a typed message decodes into. Handle it in `HostChannel.swift`'s dispatch, or send it with `HostChannel.send`.
+4. Regenerate the parity fixture with `HOST_PARITY_UPDATE=1 bun test src/host/__tests__/host-parity.test.ts` and review its diff; `TugTests/HostChannelTests.swift` holds the Swift side to the same fixture.
+5. Post it with `postToHost(decl, payload)` or handle it with `onHostMessage(decl, handler)`. Nothing else reaches `webkit.messageHandlers` or defines a `__tugBridge` member (`host/__tests__/no-hand-channel.test.ts`).

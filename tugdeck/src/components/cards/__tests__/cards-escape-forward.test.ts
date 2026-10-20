@@ -14,7 +14,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { setCardsFilterBinding, shrinkCardsState } from "../cards-escape";
 import { cardsSelectionStore } from "@/lib/cards-selection-store";
 import { bodyCardsStore } from "@/lib/body-cards-store";
-import { registerDeckStore } from "@/lib/deck-store-registry";
+import { registerShellDeck } from "@/lib/deck-store-registry";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import { cardsShrink } from "@/bus/declarations/verbs";
 import { createTestBus, type TestBus } from "@/bus/test-bus";
@@ -24,7 +24,7 @@ let bus: TestBus;
 
 afterEach(() => {
   bus?.dispose();
-  registerDeckStore(null);
+  registerShellDeck(null);
   bodyCardsStore._reset();
   setCardsFilterBinding(null);
   cardsSelectionStore.clear();
@@ -35,7 +35,7 @@ async function shellWithCardsCard(asBody: boolean): Promise<{ shrinks: () => num
   bus = createTestBus();
   const shell = bus.shell();
   bus.install(shell);
-  registerDeckStore({ getSnapshot: () => ({ cards: [{ id: "C", componentId: CARDS_CARD_ID }] }) } as unknown as IDeckManagerStore);
+  registerShellDeck({ getSnapshot: () => ({ cards: [{ id: "C", componentId: CARDS_CARD_ID }] }) } as unknown as IDeckManagerStore);
   let shrinks = 0;
   if (asBody) {
     bodyCardsStore.mark("C");

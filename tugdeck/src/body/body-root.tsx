@@ -4,7 +4,7 @@
  *
  * The stack is `DeckManager`'s root render without the members only a deck
  * has — the canvas, the banner, the bulletins, the app-wide gates — with the
- * bridge standing in as the deck. `CardHost` finds its content, root and
+ * page's card deck standing in as the deck. `CardHost` finds its content, root and
  * frame elements by its `hostStackId` in the pane registries rather than by
  * props, so this root renders the frame / root / content trio a pane would
  * and registers each under the body's pane id before the host reads them
@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { cardKindName, getRegistration, isEngineManagedCard } from "../card-registry";
+import { getRegistration, isEngineManagedCard } from "../card-registry";
 import { takeBiddenUnfold } from "../lib/card-fold";
 import { useCardFoldFocus } from "../components/chrome/card-fold-glyph";
 import { useFocusManager } from "../components/tugways/use-focusable";
@@ -25,7 +25,8 @@ import { TugTooltipProvider } from "../components/tugways/tug-tooltip";
 import { ErrorBoundary } from "../components/chrome/error-boundary";
 import { ResponderChainProvider } from "../components/tugways/responder-chain-provider";
 import { TugAlertProvider } from "../components/tugways/tug-alert";
-import { DeckManagerContext } from "../deck-manager-context";
+import { CardDeckContext, DeckViewContext } from "../card-deck-context";
+import type { DeckView } from "../card-deck";
 import { CardLifecycleContext } from "../lib/card-lifecycle";
 import { AppLifecycleContext, type AppLifecycle } from "../lib/app-lifecycle";
 import { SheetLifecycleContext, type SheetLifecycle } from "../lib/sheet-lifecycle";
@@ -41,10 +42,9 @@ import * as paneFrameRegistry from "../components/chrome/pane-frame-registry";
 import * as paneRootRegistry from "../components/chrome/pane-root-registry";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
 import { RAIL_TREATMENT, RAIL_TREATMENT_ATTRIBUTE } from "../lib/layout-imposer";
-import { bodyPaneId, type BodyDeckBridge } from "./body-deck-bridge";
+import { bodyPaneId, type BodyCardDeck } from "./body-card-deck";
 import { refuseCardModalHold } from "../lib/card-modal-hold-store";
 import { getCardCloseGuard } from "../lib/card-close-guard";
-import { cardWaivesCloseConfirm } from "../lib/card-close-advice";
 import { chromeInBody } from "../lib/chrome-placement";
 import { paneChrome, paneCloseCard, paneClosePane, paneSelectTab, type PaneChromeValue } from "../bus/declarations/pane";
 import type { CardTitleBarHandle } from "../components/chrome/card-title-bar";
@@ -59,7 +59,9 @@ const noPaneChrome = {
 };
 
 export interface BodyRootProps {
-  bridge: BodyDeckBridge;
+  deck: BodyCardDeck;
+  /** The deck an arrangement card lists (`createDeckView`), or null for any other card. */
+  view: DeckView | null;
   componentId: string;
   appLifecycle: AppLifecycle;
   sheetLifecycle: SheetLifecycle;
@@ -78,11 +80,11 @@ export interface BodyRootProps {
  * node's `data-responder-id` so the content scan finds them in the DOM.
  */
 function BodyPane({
-  bridge,
+  deck,
   cardId,
   componentId,
 }: {
-  bridge: BodyDeckBridge;
+  deck: BodyCardDeck;
   cardId: string;
   componentId: string;
 }): React.ReactElement {
@@ -110,7 +112,7 @@ function BodyPane({
     () => ({
       [TUG_ACTIONS.ADD_TAB]: (event: ActionEvent) => {
         if (typeof event.value !== "string") return;
-        bridge.addCardToPane(paneId, event.value);
+        deck.addCardToPane(paneId, event.value);
       },
       [TUG_ACTIONS.CLOSE_TAB]: (event: ActionEvent) => {
         if (typeof event.value !== "string") return;
@@ -122,11 +124,11 @@ function BodyPane({
         if (refuseCardModalHold(cardId)) return;
         const guard = getCardCloseGuard(cardId);
         if (guard === null) {
-          bridge.removeCard(paneId, cardId);
+          deck.removeCard(paneId, cardId);
           return;
         }
         void guard.run().then((answer) => {
-          if (answer === "close") bridge.removeCard(paneId, cardId);
+          if (answer === "close") deck.removeCard(paneId, cardId);
         });
       },
       // The chrome's verbs, where this page draws the chrome: a tab pressed,
@@ -137,31 +139,29 @@ function BodyPane({
             [TUG_ACTIONS.SELECT_TAB]: (event: ActionEvent) => {
               if (typeof event.value === "string" && event.value !== cardId) paneSelectTab.dispatch({ cardId: event.value });
             },
+            // Whether a close asks, and what, is the shell's rule over the
+            // whole pane (`closeAsksOf`), carried in `pane.chrome`.
             [TUG_ACTIONS.CLOSE]: (_event: ActionEvent) => {
-              const tabs = paneChrome.getSnapshot()?.tabs ?? [];
-              if (tabs.length <= 1) {
+              const chrome = paneChrome.getSnapshot();
+              if (chrome === null || chrome.tabs.length <= 1) {
                 titleBarRef.current?.requestClose();
                 return;
               }
-              const reg = getRegistration(componentId);
+              const ask = chrome.close.card;
               titleBarRef.current?.requestCloseWith({
-                needsConfirm: reg?.defaultMeta.confirmClose === true && !cardWaivesCloseConfirm(cardId),
-                message: `Close ${cardKindName(reg?.defaultMeta)}?`,
-                confirmLabel: "Close",
-                onConfirm: () => bridge.removeCard(paneId, cardId),
+                needsConfirm: ask.confirm,
+                message: ask.message,
+                confirmLabel: ask.label,
+                onConfirm: () => deck.removeCard(paneId, cardId),
               });
             },
             [TUG_ACTIONS.CLOSE_ALL]: (_event: ActionEvent) => {
-              const tabs = paneChrome.getSnapshot()?.tabs ?? [];
-              const count = Math.max(tabs.length, 1);
+              const ask = paneChrome.getSnapshot()?.close.all;
+              if (ask === undefined) return;
               titleBarRef.current?.requestCloseWith({
-                needsConfirm: tabs.some(
-                  (t) =>
-                    getRegistration(t.componentId)?.defaultMeta.confirmClose === true &&
-                    !(t.cardId === cardId && cardWaivesCloseConfirm(cardId)),
-                ),
-                message: count > 1 ? `Close ${count} Tabs?` : `Close ${cardKindName(getRegistration(componentId)?.defaultMeta)}?`,
-                confirmLabel: count > 1 ? "Close All" : "Close",
+                needsConfirm: ask.confirm,
+                message: ask.message,
+                confirmLabel: ask.label,
                 onConfirm: () => paneClosePane.dispatch({}),
                 guardScope: "pane",
               });
@@ -175,7 +175,7 @@ function BodyPane({
           }
         : {}),
     }),
-    [bridge, paneId, cardId, componentId, carriesChrome],
+    [deck, paneId, cardId, carriesChrome],
   );
   const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions });
   // The shell's rule for a focused pane (`pane-focus-controller.ts`): it is
@@ -183,8 +183,8 @@ function BodyPane({
   // pane is set exactly when the card is the whole deck's first responder.
   // Written as an attribute the recede's layers key on ([L02], [L06]).
   const focused = useSyncExternalStore(
-    bridge.subscribe,
-    () => bridge.getSnapshot().activePaneId !== undefined,
+    deck.subscribe,
+    () => deck.getSnapshot().activePaneId !== undefined,
   );
   useLayoutEffect(() => {
     for (const el of [frameEl, rootEl]) {
@@ -196,7 +196,7 @@ function BodyPane({
   // form (`holdFoldedBody`) watches the frame's `data-folded` to land
   // `data-card-fold` and `inert` on the card host ([L06]). The crossing the
   // shell relays is mirrored on the frame before the context reaches the
-  // bridge (`body-main.ts`), so the fold's end is heard here as there.
+  // deck (`body-main.ts`), so the fold's end is heard here as there.
   //
   // The unfold's keyboard hand-back is this page's too. The shell's
   // `useCardFoldFocus` hands the keyboard back to an open card's content, and
@@ -212,7 +212,7 @@ function BodyPane({
   // runs here whole — the fold onto the glyph and the unfold back — and the
   // shell's stands down.
   const focusManager = useFocusManager();
-  const folded = useSyncExternalStore(bridge.subscribe, () => bridge.getContext().folded === true);
+  const folded = useSyncExternalStore(deck.subscribe, () => deck.getContext().folded === true);
   const lastFoldedRef = useRef<boolean | null>(null);
   useLayoutEffect(() => {
     if (frameEl === null) return;
@@ -224,17 +224,17 @@ function BodyPane({
     const bidden = takeBiddenUnfold(cardId);
     if (bidden || focusManager === null || getRegistration(componentId)?.ownsFoldedForm === true) return;
     queueMicrotask(() => {
-      if (bridge.getContext().firstResponderCardId !== cardId) return;
+      if (deck.getContext().firstResponderCardId !== cardId) return;
       if (isEngineManagedCard(componentId)) {
         focusManager.place(cardId, { kind: "engine" }, { modality: "pointer" });
       } else {
         focusManager.adoptKeyCard(cardId);
       }
     });
-  }, [frameEl, folded, bridge, cardId, componentId, focusManager, carriesChrome]);
+  }, [frameEl, folded, deck, cardId, componentId, focusManager, carriesChrome]);
   // After the write above, so the unfold's placement queues behind the fold
   // observer's microtask that lifts the host's `inert`, as in the shell.
-  const readFirstResponderCardId = useCallback(() => bridge.getContext().firstResponderCardId, [bridge]);
+  const readFirstResponderCardId = useCallback(() => deck.getContext().firstResponderCardId, [deck]);
   useCardFoldFocus(
     carriesChrome ? cardId : null,
     componentId,
@@ -247,7 +247,7 @@ function BodyPane({
   // `body` is where its surface token resolves, so both are written here
   // ([L06]). The treatment is the shell's constant; the side is the shell's
   // word in the card's context.
-  const railSide = useSyncExternalStore(bridge.subscribe, bridge.getRailSide);
+  const railSide = useSyncExternalStore(deck.subscribe, deck.getRailSide);
   useLayoutEffect(() => {
     document.documentElement.setAttribute(RAIL_TREATMENT_ATTRIBUTE, RAIL_TREATMENT);
     if (railSide === null) delete document.body.dataset.bodyRailSide;
@@ -280,7 +280,7 @@ function BodyPane({
   if (carriesChrome) {
     return (
       <BodyChromeFrame
-        bridge={bridge}
+        deck={deck}
         cardId={cardId}
         componentId={componentId}
         paneId={paneId}
@@ -320,26 +320,27 @@ function BodyPane({
 }
 
 export function renderBodyRoot(props: BodyRootProps): React.ReactElement {
-  const { bridge, componentId } = props;
+  const { deck, view, componentId } = props;
   return composeProviders(
     [
       [TugThemeProvider, null],
       [TugTooltipProvider, null],
       [ErrorBoundary, null],
       [ResponderChainProvider, null],
-      [DeckManagerContext.Provider, { value: bridge }],
+      [CardDeckContext.Provider, { value: deck }],
+      [DeckViewContext.Provider, { value: view }],
       [UsageContext.Provider, { value: props.usageStore }],
-      [CardLifecycleContext.Provider, { value: bridge.cardLifecycle }],
+      [CardLifecycleContext.Provider, { value: deck.cardLifecycle }],
       [AppLifecycleContext.Provider, { value: props.appLifecycle }],
       [SheetLifecycleContext.Provider, { value: props.sheetLifecycle }],
       [BannerLifecycleContext.Provider, { value: props.bannerLifecycle }],
       [TugAlertProvider, null],
-      [SpaceLayerShownContext.Provider, { value: bridge.layerShownSource }],
+      [SpaceLayerShownContext.Provider, { value: deck.layerShownSource }],
     ],
     React.createElement(
       React.Fragment,
       null,
-      React.createElement(BodyPane, { bridge, cardId: bridge.cardId, componentId }),
+      React.createElement(BodyPane, { deck, cardId: deck.cardId, componentId }),
       React.createElement(CanvasOverlayRoot, {}),
     ),
   );

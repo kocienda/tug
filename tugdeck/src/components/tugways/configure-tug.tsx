@@ -130,7 +130,7 @@ import {
   closeConfigureTugOnDemand,
 } from "@/lib/configure-tug-request-store";
 import { requestLogout } from "@/lib/logout-store";
-import { useDeckManager } from "@/deck-manager-context";
+import { useCardDeck } from "@/card-deck-context";
 import { countWorkCards } from "@/deck-store-selectors";
 import {
   claudeVersionStore,
@@ -407,7 +407,7 @@ export function ConfigureTug(): ReactElement {
     updateError,
   } = useClaudeVersion();
   const transport = useAppTransportState();
-  const deck = useDeckManager();
+  const deck = useCardDeck();
   const deckState = useSyncExternalStore(deck.subscribe, deck.getSnapshot);
   // The rail stands at its pin on any restored deck, so it must not read as
   // "this deck already holds work" — count everything but the rail.

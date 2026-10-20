@@ -12,7 +12,7 @@
  * @foreground
  * @covers tugdeck/src/spikes/spike-home.tsx
  * @covers tugdeck/src/body/body-root.tsx
- * @covers tugdeck/src/body/body-deck-bridge.ts
+ * @covers tugdeck/src/body/body-card-deck.ts
  * @covers tugdeck/src/lib/body-shell.ts
  */
 

@@ -7,7 +7,7 @@
  * `validateMenuItem(_:)`). This module owns the frontend half of that
  * wire contract: it projects the deck store into the menu-relevant
  * shape, diffs, coalesces, and posts to
- * `webkit.messageHandlers.menuState`. Keep the payload fields in sync
+ * the host channel as `menuState`. Keep the payload fields in sync
  * with the Swift parser.
  *
  * Why an aggregator module rather than a push inside
@@ -28,7 +28,7 @@
  */
 
 import type { DeckState } from "../layout-tree";
-import { spaceThemesDiffer, type SpacesSnapshot } from "../spaces";
+import { NO_SPACES, spaceThemesDiffer, type SpacesSnapshot } from "../spaces";
 import { bullseyePaneIdOf, isSidebarStanding, slotStackOf } from "../deck-store-selectors";
 import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
@@ -68,6 +68,7 @@ import {
   subscribeLayoutCursorCard,
 } from "./cards-selection-store";
 import type { IDeckManagerStore } from "../deck-manager-store";
+import type { CardDeck, DeckView } from "../card-deck";
 import type {
   CommandEntry,
   CommandMenuFacts,
@@ -201,6 +202,8 @@ export function computeEditCapabilities(
  */
 import { mark as perfMark } from "@/lib/perf-marks";
 import type { ChordSpec } from "@/components/tugways/chord-format";
+import { postToHost } from "@/host/channel";
+import { menuStateToHost } from "@/host/declarations/services";
 export type { ChordSpec };
 
 /**
@@ -666,7 +669,7 @@ export interface MenuStateDeckProjection {
   sidebars: Record<string, SidebarMenuFact>;
 }
 
-/** The full wire payload posted to `webkit.messageHandlers.menuState`. */
+/** The full wire payload posted to the host as `menuState`. */
 export interface MenuStatePayload {
   panes: MenuStatePaneEntry[];
   /** Every workspace, active one marked (see {@link MenuStateDeckProjection.spaces}). */
@@ -929,7 +932,7 @@ function scheduleMicrotask(flush: () => void): CancelAfterPaint {
  * only when the serialized payload differs from the last one sent.
  *
  * The sink is injected so unit tests can observe posts directly; the
- * production sink is {@link postToHost}.
+ * production sink is {@link postMenuState}.
  */
 export class HostMenuStatePublisher {
   private readonly post: (payload: MenuStatePayload) => void;
@@ -1308,20 +1311,9 @@ export class HostMenuStatePublisher {
   }
 }
 
-/**
- * Production sink: post to the Swift host. No-op outside a WKWebView
- * (browser dev mode), same guard the old per-notify push used.
- */
-function postToHost(payload: MenuStatePayload): void {
-  const webkit = (globalThis as unknown as Record<string, unknown>).webkit as
-    | Record<string, unknown>
-    | undefined;
-  const messageHandlers = webkit?.messageHandlers as Record<string, unknown> | undefined;
-  const handler = messageHandlers?.menuState as
-    | { postMessage: (v: unknown) => void }
-    | undefined;
-  if (!handler) return;
-  handler.postMessage(payload);
+/** Production sink: post to the Swift host; nothing outside a WKWebView (browser dev mode). */
+function postMenuState(payload: MenuStatePayload): void {
+  postToHost(menuStateToHost, payload);
 }
 
 /** The boot-time singleton behind the module-level publish functions. */
@@ -1349,7 +1341,7 @@ export function commandValidationSource(): CommandValidationSource {
  * runs against a stale cache.
  */
 export function initHostMenuState(deck: IDeckManagerStore): void {
-  const publisher = new HostMenuStatePublisher(postToHost, scheduleAfterPaint);
+  const publisher = new HostMenuStatePublisher(postMenuState, scheduleAfterPaint);
   activePublisher = publisher;
   const push = (): void => {
     publisher.setDeckProjection(
@@ -1541,13 +1533,15 @@ export function applyShellMenuFacts(menu: DeckMenuValue): void {
 }
 
 /**
- * Wire the aggregator in a body page, over its bridge's one-card deck. The
- * card's surfaces publish their blocks through the same module functions they
- * call in the shell; what reaches the host is {@link bodyMenuPayload}.
+ * Wire the aggregator in a body page, over its one-card deck, and over the
+ * deck view when the page's card lists the deck (`view`; null otherwise, when
+ * the page knows no workspaces). The card's surfaces publish their blocks
+ * through the same module functions they call in the shell; what reaches the
+ * host is {@link bodyMenuPayload}.
  */
-export function initBodyHostMenuState(bridge: IDeckManagerStore): void {
+export function initBodyHostMenuState(deck: CardDeck, view: DeckView | null): void {
   const publisher = new HostMenuStatePublisher(
-    (payload) => postToHost(bodyMenuPayload(payload) as MenuStatePayload),
+    (payload) => postMenuState(bodyMenuPayload(payload) as MenuStatePayload),
     scheduleAfterPaint,
   );
   activePublisher = publisher;
@@ -1560,14 +1554,14 @@ export function initBodyHostMenuState(bridge: IDeckManagerStore): void {
   const push = (): void => {
     publisher.setDeckProjection(
       (shellMenuFacts?.projection as MenuStateDeckProjection | undefined) ??
-        projectDeckState(bridge.getSnapshot(), bridge.getSpacesSnapshot()),
+        projectDeckState(deck.getSnapshot(), view?.getSpacesSnapshot() ?? NO_SPACES),
     );
   };
   bodyPush = push;
   publisher.setFocusTravelFactSource(
     () => (shellMenuFacts?.focusTravel as CommandMenuFacts["focusTravel"] | undefined) ?? null,
   );
-  bridge.subscribe(push);
+  deck.subscribe(push);
   cardSessionBindingStore.subscribe(push);
   cardTitleStore.subscribe(push);
   keymapRegistry.subscribe(() => {

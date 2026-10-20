@@ -125,7 +125,7 @@ import {
 
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { appModalStore, usePublishAppModalOpen } from "@/lib/app-modal-store";
-import { useDeckManager } from "@/deck-manager-context";
+import { useCardDeck } from "@/card-deck-context";
 import { useLiveTurns } from "@/lib/live-turns-store";
 import {
   claimZoomRect,
@@ -307,7 +307,7 @@ export function UpdateTug(): ReactElement {
   const state = useUpdateState();
   const overlayRoot = useCanvasOverlay();
   const requestNonce = useUpdateTugRequest();
-  const deck = useDeckManager();
+  const deck = useCardDeck();
   // The deck's half of the rows ([B05]) — how many cards have a turn in
   // flight, and their titles, republished whenever that answer moves.
   const liveTurns = useLiveTurns();

@@ -93,6 +93,8 @@ import {
 } from "react";
 
 import type { IDeckManagerStore } from "@/deck-manager-store";
+import { railMembersOf } from "@/deck-store-selectors";
+import type { RailEdgeDriver } from "@/lib/host-card-gesture";
 import { computeResizeSnap } from "@/snap";
 import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { pageZoomFactor } from "@/lib/page-zoom-store";
@@ -842,4 +844,57 @@ export function useRailWidthDraft(
   );
   useLayoutEffect(() => () => draft.dispose(), [draft]);
   return draft;
+}
+
+/**
+ * The rail width drag a rail card's own page starts, for the pane `paneId`
+ * of `deck`, or null when that pane is not a pinned rail's or its frame is
+ * not in the document.
+ *
+ * The card takes the press on its edge grip in its own page and the host
+ * tracks the pointer (`lib/host-card-gesture.ts`). The drag is still
+ * `draft`'s, opened against the shell's frame for the pane (`frameOf`), so
+ * every member of the side moves with the hand and the release commits one
+ * width. The host owns the press and its Escape; this owns only the frame's
+ * `data-gesture` mark, and gives the draft back if the frame leaves the
+ * document mid-drag.
+ */
+export function railEdgeDriverFor(
+  deck: Pick<IDeckManagerStore, "getSnapshot">,
+  draft: RailWidthGesture,
+  paneId: string,
+  frameOf: (paneId: string) => HTMLElement | null,
+): RailEdgeDriver | null {
+  const state = deck.getSnapshot();
+  const side = (["left", "right"] as const).find((s) =>
+    railMembersOf(state, s).some((m) => m.paneId === paneId),
+  );
+  if (side === undefined) return null;
+  const frame = frameOf(paneId);
+  if (frame === null) return null;
+  const end = (): void => frame.removeAttribute("data-gesture");
+  const gone = (): boolean => {
+    if (frame.isConnected) return false;
+    end();
+    draft.cancel();
+    return true;
+  };
+  return {
+    begin: (clientX, clientY) => {
+      draft.begin({ side, frame, clientX, clientY });
+      frame.setAttribute("data-gesture", "resize");
+    },
+    change: (clientX, clientY, altKey) => {
+      if (!gone()) draft.change(clientX, clientY, altKey);
+    },
+    commit: (clientX, altKey) => {
+      if (gone()) return;
+      end();
+      draft.commit(clientX, altKey);
+    },
+    cancel: () => {
+      end();
+      draft.cancel();
+    },
+  };
 }

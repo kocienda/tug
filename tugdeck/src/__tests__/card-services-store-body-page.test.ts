@@ -2,13 +2,12 @@
  * `cardServicesStore` in a body page — a page builds a session store only
  * for the card it shows.
  *
- * A body page mirrors what the shell holds about *other* cards into its own
- * `cardSessionBindingStore` (`body-main.ts` `createCardFactsMirror`): an
- * arrangement body (Layout, Workspaces) mirrors every bound card's binding,
- * and a following body (Arcs, DevTools) mirrors the binding of the card it
- * follows — the last key card that is not it, which the shell resends on
- * every key-card change. A mirrored binding is a fact about another card,
- * never a session for this page to drive.
+ * A body page's `cardSessionBindingStore` answers for *other* cards too
+ * (read through the shell's `deck.cards`): an arrangement body (Layout,
+ * Workspaces) reads every bound card's binding, and a following body (Arcs,
+ * DevTools) the binding of the card it follows — the last key card that is
+ * not it, which the shell resends on every key-card change. Another card's
+ * binding is a fact about that card, never a session for this page to drive.
  *
  * On 2026-10-16 the Arcs body drove them anyway: each time the user focused
  * a Session card — which a prompt submission does — the shell moved the Arcs
@@ -122,7 +121,7 @@ function bindOwn(cardId: string, tugSessionId: string): void {
   });
 }
 
-/** What `createCardFactsMirror` writes for a card the shell listed. */
+/** Another card's binding, standing in this page's store as one the shell listed. */
 function mirror(cardId: string, tugSessionId: string): void {
   TOUCHED_CARD_IDS.add(cardId);
   cardSessionBindingStore.setBinding(cardId, bindingFor(tugSessionId));

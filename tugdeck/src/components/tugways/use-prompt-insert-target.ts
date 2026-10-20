@@ -19,7 +19,7 @@
 
 import { useContext, useMemo } from "react";
 
-import { DeckManagerContext } from "@/deck-manager-context";
+import { CardDeckContext } from "@/card-deck-context";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import {
@@ -36,7 +36,7 @@ export function useSessionPromptInsertTarget(
 export function useSessionPromptInsertTarget(
   codeSessionStore?: CodeSessionStore,
 ): PromptInsertTarget | undefined {
-  const deck = useContext(DeckManagerContext);
+  const deck = useContext(CardDeckContext);
   const cardId = useCardId();
   return useMemo(() => {
     if (codeSessionStore === undefined) return undefined;

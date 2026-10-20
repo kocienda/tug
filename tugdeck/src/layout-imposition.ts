@@ -86,6 +86,13 @@ export interface ImpositionDeps {
   ): void;
 }
 
+/** The shell's frame for the pane `paneId`, or null when it is not in the document. */
+export function paneFrameOf(paneId: string): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  const escaped = paneId.replace(/["\\]/g, "\\$&");
+  return document.querySelector<HTMLElement>(`.tug-pane[data-pane-id="${escaped}"]`);
+}
+
 /**
  * Read a pane frame's live on-screen rect in canvas coordinates, or `null`
  * when the frame is not in the DOM. An imposed pane's `position`/`size` hold
@@ -97,11 +104,7 @@ export interface ImpositionDeps {
 export function readPaneFrameRect(
   paneId: string,
 ): { x: number; y: number; width: number; height: number } | null {
-  if (typeof document === "undefined") return null;
-  const escaped = paneId.replace(/["\\]/g, "\\$&");
-  const frame = document.querySelector<HTMLElement>(
-    `.tug-pane[data-pane-id="${escaped}"]`,
-  );
+  const frame = paneFrameOf(paneId);
   if (!frame) return null;
   const canvas = paneCanvasOf(frame)?.getBoundingClientRect() ?? null;
   const zoom = pageZoomFactor();

@@ -36,7 +36,7 @@ import { registerFileViewCard } from "@/components/tugways/cards/file-view-card-
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
 import { registerHelloWorldCard } from "@/components/tugways/cards/hello-world-card";
 import { registerAboutCard } from "@/components/tugways/cards/about-card";
-import { registerDeckStore } from "@/lib/deck-store-registry";
+import { registerShellDeck } from "@/lib/deck-store-registry";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import type { DeckState } from "@/layout-tree";
 
@@ -75,7 +75,7 @@ function registerCardsAndStore(): void {
       { id: PLAIN_CARD_ID, componentId: PLAIN_COMPONENT },
     ],
   } as unknown as DeckState;
-  registerDeckStore({
+  registerShellDeck({
     getSnapshot: () => snapshot,
   } as unknown as IDeckManagerStore);
 }
@@ -96,7 +96,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  registerDeckStore(null);
+  registerShellDeck(null);
 });
 
 describe("KBF derivation (Spec S01)", () => {

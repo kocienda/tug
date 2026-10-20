@@ -127,6 +127,8 @@ import { cardServicesStore } from "./lib/card-services-store";
 import { mark as perfMark, marksEnabled } from "@/lib/perf-marks";
 import { pendingAskStore, showAskInBody } from "./lib/pending-ask-store";
 import { registerSessionControlActions } from "./lib/session-control-actions";
+import { hostAvailable, postToHost } from "./host/channel";
+import { sourceTreeToHost } from "./host/declarations/services";
 import {
   publishListSessionsOk,
   publishListSessionsProgress,
@@ -616,11 +618,8 @@ export function initActionDispatch(
   // source-tree: Call WKScriptMessageHandler bridge if available
   registerAction("source-tree", () => {
     console.info("source-tree: triggering source tree picker");
-
-    const webkit = (globalThis as unknown as Record<string, unknown>).webkit as Record<string, unknown> | undefined;
-    const messageHandlers = webkit?.messageHandlers as Record<string, unknown> | undefined;
-    if (messageHandlers?.sourceTree) {
-      (messageHandlers.sourceTree as { postMessage: (v: unknown) => void }).postMessage({});
+    if (hostAvailable(sourceTreeToHost)) {
+      postToHost(sourceTreeToHost, {});
     } else {
       console.info("source-tree: WKScriptMessageHandler bridge not available");
     }

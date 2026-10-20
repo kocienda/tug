@@ -11,7 +11,6 @@
 
 import {
   appInfo,
-  arrangementCardFacts,
   arrangementDeck,
   arrangementSpaces,
   cardFollowed,
@@ -19,14 +18,15 @@ import {
   cardsSpaceVerb,
   deckActivateCard,
   deckActivateSpace,
-  deckCardActivities,
-  deckCardBindings,
+  deckAddCard,
   deckChooseSpaceTheme,
+  deckInterruptLiveSessions,
   deckMoveCardToSpace,
   deckPreviewFlowOffset,
   deckRenameSpace,
   deckReorderSpaces,
   deckSetFlowOffset,
+  deckShowSingletonCard,
   layoutSelection,
 } from "./declarations/arrangement";
 import {
@@ -45,7 +45,7 @@ import {
   cardSurface,
   devtoolsInspection,
 } from "./declarations/card";
-import { deckFacts, deckFrontmostProject, deckMenu } from "./declarations/deck";
+import { deckCards, deckFacts, deckFrontmostProject, deckMenu } from "./declarations/deck";
 import {
   paneArrangePlace,
   paneChrome,
@@ -54,6 +54,7 @@ import {
   paneFillHeight,
   paneMoveToSpace,
   paneReorderTabs,
+  paneRevealCard,
   paneRevealStackEntry,
   paneSelectTab,
   paneSetWidth,
@@ -75,7 +76,6 @@ import {
   busPing,
   busProbe,
   cardContentAction,
-  cardGeometryChanged,
   cardRefuseHold,
   cardsShrink,
   appLogout,
@@ -107,6 +107,7 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
   deckFacts,
   deckMenu,
   deckFrontmostProject,
+  deckCards,
   cardCrossing,
   cardRailHold,
   cardContext,
@@ -122,11 +123,8 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
   cardInspection,
   cardInspected,
   devtoolsInspection,
-  deckCardBindings,
-  deckCardActivities,
   arrangementDeck,
   arrangementSpaces,
-  arrangementCardFacts,
   cardsLedgerBindings,
   layoutSelection,
   cardFollowed,
@@ -147,6 +145,8 @@ export const ROUTED_ACTIONS: readonly RoutedAction<any>[] = [
   deckChooseSpaceTheme,
   deckMoveCardToSpace,
   deckReorderSpaces,
+  deckAddCard,
+  deckShowSingletonCard,
   cardsSpaceVerb,
   miniatureOutline,
   miniatureCarry,
@@ -167,6 +167,7 @@ export const ROUTED_ACTIONS: readonly RoutedAction<any>[] = [
   paneToggleBullseye,
   paneMoveToSpace,
   paneRevealStackEntry,
+  paneRevealCard,
   appLogout,
   focusEnter,
   focusExit,
@@ -178,10 +179,15 @@ export const ROUTED_ACTIONS: readonly RoutedAction<any>[] = [
   jotsNewJot,
   sessionIntent,
   cardRefuseHold,
-  cardGeometryChanged,
   cardsShrink,
   devtoolsLogEntries,
   busNote,
 ];
 
-export const REQUESTS: readonly Request<any, any>[] = [miniatureZones, sessionAsk, cardCloseDecision, busPing];
+export const REQUESTS: readonly Request<any, any>[] = [
+  miniatureZones,
+  sessionAsk,
+  cardCloseDecision,
+  busPing,
+  deckInterruptLiveSessions,
+];

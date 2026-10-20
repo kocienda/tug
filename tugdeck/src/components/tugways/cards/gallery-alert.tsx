@@ -14,7 +14,7 @@ import type { TugAlertHandle } from "@/components/tugways/tug-alert";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
-import { useDeckManager } from "@/deck-manager-context";
+import { useCardDeck } from "@/card-deck-context";
 import { cardServicesStore } from "@/lib/card-services-store";
 
 const labelStyle: React.CSSProperties = {
@@ -53,7 +53,7 @@ function GalleryAlertInner() {
   // demos above invoke via a card button onClick, which is subtly different.
   // The reported outcome isolates whether a click resolves the confirm and
   // whether the interrupt loop throws — no guessing.
-  const deck = useDeckManager();
+  const deck = useCardDeck();
   const [reproNonce, setReproNonce] = React.useState(0);
   const [reproResult, setReproResult] = React.useState("none");
   React.useEffect(() => {

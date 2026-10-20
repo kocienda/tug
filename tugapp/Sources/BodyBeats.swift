@@ -16,7 +16,7 @@ import Foundation
 /// `CAKeyframeAnimation`s.
 
 /// A viewport rect as the plan carries it, `{x, y, width, height}` in px.
-struct PlanRect: Decodable, Equatable {
+struct PlanRect: Codable, Equatable {
     var x: Double
     var y: Double
     var width: Double
@@ -65,13 +65,6 @@ struct BeatPlan: Decodable, Equatable {
     /// The settle's t = 0 on the wall clock, ms since 1970.
     var startWallMs: Double
     var bodies: [PlannedBody]
-
-    /// Read a `beatPlan` body as WebKit hands it over, or nil when it does not decode.
-    static func from(payload: [String: Any]) -> BeatPlan? {
-        guard JSONSerialization.isValidJSONObject(payload),
-              let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
-        return try? JSONDecoder().decode(BeatPlan.self, from: data)
-    }
 }
 
 /// One pair of readings of the two clocks, taken together when a plan

@@ -111,6 +111,8 @@ import {
   sendCanvasColor,
 } from "./contexts/theme-provider";
 import { notifyThemeStyleEdit } from "./theme-tokens";
+import { postToHost } from "./host/channel";
+import { hmrUpdateToHost } from "./host/declarations/lifecycle";
 
 /**
  * One-shot arming window for the `tug:theme-changed` HMR signal.
@@ -215,16 +217,7 @@ export function installHmrBridge(deck: DeckManager): void {
       notifyThemeStyleEdit();
     }
 
-    const handler = (
-      window as unknown as {
-        webkit?: {
-          messageHandlers?: {
-            hmrUpdate?: { postMessage: (v: unknown) => void };
-          };
-        };
-      }
-    ).webkit?.messageHandlers?.hmrUpdate;
-    handler?.postMessage({});
+    postToHost(hmrUpdateToHost, {});
   });
 
   // Self-HMR: ask Vite to do a full page reload if THIS module is

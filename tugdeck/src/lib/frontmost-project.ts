@@ -21,7 +21,7 @@ import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createSubscribable } from "@/lib/subscribable";
 
-import { getDeckStore } from "./deck-store-registry";
+import { getCardDeck } from "./deck-store-registry";
 import {
   cardSessionBindingStore,
   type CardSessionBinding,
@@ -57,7 +57,7 @@ export function _resetRelayedFrontmostProjectForTest(): void {
  */
 export function frontmostProjectBinding(): CardSessionBinding | null {
   if (relayed !== undefined) return relayed;
-  const store = getDeckStore();
+  const store = getCardDeck();
   if (store === null) return null;
   const { panes } = store.getSnapshot();
   for (let i = panes.length - 1; i >= 0; i--) {
@@ -80,7 +80,7 @@ export function frontmostProjectBinding(): CardSessionBinding | null {
  */
 export function useFrontmostProjectBinding(): CardSessionBinding | null {
   const subscribe = useCallback((onChange: () => void): (() => void) => {
-    const deck = getDeckStore();
+    const deck = getCardDeck();
     const unDeck = deck ? deck.subscribe(onChange) : () => {};
     const unBind = cardSessionBindingStore.subscribe(onChange);
     const unRelay = relayedChanged.subscribe(onChange);

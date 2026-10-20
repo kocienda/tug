@@ -28,8 +28,8 @@
  * @module lib/open-commit-in-card
  */
 
-import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import { mayDeferCommitInView, transferFocusForActivation } from "@/focus-transfer";
+import type { CardDeck } from "@/card-deck";
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import {
@@ -66,7 +66,7 @@ export interface CommitCardSeed {
  * sha either way, as the registry matches.
  */
 export function findCommitCardInDeck(
-  store: Pick<IDeckManagerStore, "getSnapshot" | "getCardState">,
+  store: Pick<CardDeck, "getSnapshot" | "getCardState">,
   target: CommitCardTarget,
 ): string | null {
   for (const card of store.getSnapshot().cards) {
@@ -83,7 +83,7 @@ export function findCommitCardInDeck(
 }
 
 export function openCommitInCard(
-  store: IDeckManagerStore,
+  store: CardDeck,
   target: CommitCardTarget,
   hint?: CommitCardSeed["hint"],
   originCardId: string | null = null,
@@ -96,7 +96,7 @@ export function openCommitInCard(
       incomingCardId: existingId,
       store,
       commitMutation: () => store.activateCard(existingId),
-      deferCommit: mayDeferCommit(store, existingId),
+      deferCommit: mayDeferCommitInView(existingId),
     });
     // Re-point defensively — a same-commit open is a no-op re-request, which
     // is harmless and refreshes the record. A card mounted in its own page

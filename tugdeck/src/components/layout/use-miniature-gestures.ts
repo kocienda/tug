@@ -57,9 +57,9 @@ import {
   type MiniatureZoneParts,
 } from "@/components/layout/miniature-gestures";
 import { deckFlowStrip } from "@/deck-store-selectors";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import type { DeckView } from "@/card-deck";
 import { raiseCard } from "@/focus-transfer";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getDeckView } from "@/lib/deck-store-registry";
 import {
   getMiniatureDropHost,
   type MiniatureDropHost,
@@ -156,7 +156,7 @@ function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
  * is nowhere to travel (fit, or a strip nobody has measured) — the same answer
  * the numbered strip's press computes for the same slot.
  */
-function centerOffsetFor(store: IDeckManagerStore, slot: number): number | null {
+function centerOffsetFor(store: DeckView, slot: number): number | null {
   const strip = deckFlowStrip(store.getSnapshot());
   const band = store.getBandWidth();
   if (strip === null || band === null || band <= 0) return null;
@@ -256,7 +256,7 @@ export function useMiniatureGestures({
   // [P04] — anything but the armed pane or this card's own pane becoming
   // active ends the succession.
   useLayoutEffect(() => {
-    const store = getDeckStore();
+    const store = getDeckView();
     if (store === null) return;
     return store.subscribe(() => {
       const record = armed.current;
@@ -274,7 +274,7 @@ export function useMiniatureGestures({
 
   /** Run the press a target names (Table T01). */
   const press = useCallback((target: MiniatureTarget): void => {
-    const store = getDeckStore();
+    const store = getDeckView();
     if (store === null) return;
     if (target.kind === "block") {
       const state = store.getSnapshot();
@@ -449,7 +449,7 @@ export function useMiniatureGestures({
       const zone = drag.canvasZones.get(key);
       if (zone === undefined) return;
       if (!drag.host.commit(zone, drag.paneId)) {
-        const store = getDeckStore();
+        const store = getDeckView();
         if (store !== null) flashCardPane(store, drag.cardId);
       }
     },
@@ -465,7 +465,7 @@ export function useMiniatureGestures({
    */
   const latch = useCallback(
     (current: Gesture): void => {
-      const store = getDeckStore();
+      const store = getDeckView();
       const host = getMiniatureDropHost();
       if (store === null || host === null) return;
       const state = store.getSnapshot();

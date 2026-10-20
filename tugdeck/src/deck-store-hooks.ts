@@ -17,7 +17,7 @@
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
-import { useDeckManager } from "./deck-manager-context";
+import { useCardDeck } from "./card-deck-context";
 import { isFocusDestination } from "./deck-store-selectors";
 
 /**
@@ -44,7 +44,7 @@ import { isFocusDestination } from "./deck-store-selectors";
  * `deck-store-selectors.ts`.
  */
 export function useFocusDestination(cardId: string): boolean {
-  const store = useDeckManager();
+  const store = useCardDeck();
   return useSyncExternalStore(store.subscribe, () =>
     isFocusDestination(cardId, store.getSnapshot()),
   );

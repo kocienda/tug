@@ -145,7 +145,7 @@ export async function expectDragsAsOneView(app: App, body: BodyApp, d: OneViewDr
   await body.evalJS<null>(`(function () {
     var rec = (window.__oneView = []);
     var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cardGesture;
-    if (h) { var post = h.postMessage.bind(h); h.postMessage = function (v) { rec.push(v); post(v); }; }
+    if (h) { var post = h.postMessage.bind(h); h.postMessage = function (v) { rec.push(typeof v === "string" ? JSON.parse(v) : v); post(v); }; }
     return null;
   })()`);
   // card-dom: shell

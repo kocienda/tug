@@ -3,13 +3,13 @@
  *
  * A card whose registration says `bodyDeck: "arrangement"` — the Cards card,
  * the Layout card — reads more than its own card: every pane, every
- * workspace, the band's width, and the session identity and title of every
- * card it lists. In the shell those are the deck's and the app stores'; in a
- * body they are not there at all. So the shell projects them into the
- * arrangement stores (`bus/declarations/arrangement.ts`), one projector per
- * store, and the body's deck bridge answers the card's reads from the
- * replicas ({@link arrangementSnapshot} and the spaces fields). Every card's
- * binding and reported phase go to every body the same way.
+ * workspace, the band's width. In the shell those are the deck's; in a body
+ * they are not there at all. So the shell projects them into the arrangement
+ * stores (`bus/declarations/arrangement.ts`), one projector per store, and
+ * the body's deck answers the card's reads from the replicas
+ * ({@link arrangementSnapshot} and the spaces fields). What every page reads
+ * of a card it does not show — its kind, title, identity, phase, session —
+ * goes to every body as one record per card ({@link projectDeckCards}).
  *
  * Everything here is plain JSON over plain data.
  *
@@ -17,15 +17,9 @@
  */
 
 import type { DeckState } from "../layout-tree";
-import type { CardIdentityFacts } from "../card-registry";
 import type { IDeckManagerStore } from "../deck-manager-store";
-import type { CardSessionBinding } from "./card-session-binding-store";
-import type {
-  ArrangementCardFacts,
-  ArrangementDeckValue,
-  ArrangementSpaces,
-  ArrangementTitle,
-} from "../bus/declarations/arrangement";
+import type { ArrangementDeckValue, ArrangementSpaces } from "../bus/declarations/arrangement";
+import type { DeckCardFacts } from "../bus/declarations/deck";
 
 /** What the projectors read from the shell's deck. */
 export type ArrangementDeck = Pick<
@@ -40,10 +34,8 @@ export type ArrangementDeck = Pick<
   | "getRailRunHeight"
 >;
 
-/**
- * Every card the arrangement holds — every workspace's — in a stable order.
- */
-export function arrangementCardIds(deck: ArrangementDeck): string[] {
+/** Every card the arrangement holds — every workspace's — in a stable order, with its kind. */
+function arrangementCards(deck: ArrangementDeck): Array<{ id: string; componentId: string }> {
   const spacesSnapshot = deck.getSpacesSnapshot();
   const states: DeckState[] = [deck.getSnapshot()];
   for (const space of spacesSnapshot.spaces) {
@@ -51,39 +43,35 @@ export function arrangementCardIds(deck: ArrangementDeck): string[] {
     const parked = deck.getSpaceDeck(space.id);
     if (parked !== null) states.push(parked);
   }
-  const cardIds = new Set<string>();
-  for (const state of states) for (const card of state.cards) cardIds.add(card.id);
-  return [...cardIds];
+  const cards = new Map<string, string>();
+  for (const state of states) for (const card of state.cards) if (!cards.has(card.id)) cards.set(card.id, card.componentId);
+  return [...cards].map(([id, componentId]) => ({ id, componentId }));
 }
 
-/** Each of `cardIds` `read` answers non-null for, keyed by card. */
-function collect<T>(cardIds: readonly string[], read: (cardId: string) => T | null | undefined): Record<string, T> {
-  const out: Record<string, T> = {};
-  for (const cardId of cardIds) {
-    const value = read(cardId);
-    if (value !== null && value !== undefined) out[cardId] = value;
+/** Every card the arrangement holds — every workspace's — in a stable order. */
+export function arrangementCardIds(deck: ArrangementDeck): string[] {
+  return arrangementCards(deck).map((card) => card.id);
+}
+
+/** What {@link projectDeckCards} reads of each card beyond the deck. */
+export type DeckCardReaders = { [K in Exclude<keyof DeckCardFacts, "componentId">]: (cardId: string) => DeckCardFacts[K] };
+
+/** `deck.cards`: every card the arrangement holds, by id, with what the shell knows of it. */
+export function projectDeckCards(deck: ArrangementDeck, readers: DeckCardReaders): Record<string, DeckCardFacts> {
+  const out: Record<string, DeckCardFacts> = {};
+  for (const { id, componentId } of arrangementCards(deck)) {
+    out[id] = {
+      componentId,
+      title: readers.title(id),
+      masthead: readers.masthead(id),
+      identity: readers.identity(id),
+      activity: readers.activity(id),
+      binding: readers.binding(id),
+      parkedTitle: readers.parkedTitle(id),
+      waivesClose: readers.waivesClose(id),
+    };
   }
   return out;
-}
-
-/** `deck.cardBindings`: the binding of every card the arrangement holds that has one. */
-export function projectBindings(
-  deck: ArrangementDeck,
-  bindings: (cardId: string) => CardSessionBinding | undefined,
-): Record<string, CardSessionBinding> {
-  return collect(arrangementCardIds(deck), bindings);
-}
-
-/**
- * `deck.cardActivities`: the reported phase of every card the arrangement
- * holds that has one. A card whose body has not reported is absent, never
- * idle by assumption.
- */
-export function projectActivities(
-  deck: ArrangementDeck,
-  activities: (cardId: string) => string | null,
-): Record<string, string> {
-  return collect(arrangementCardIds(deck), activities);
 }
 
 /** `arrangement.deck`: the live deck and its band. */
@@ -121,16 +109,6 @@ export function projectArrangementSpaces(deck: ArrangementDeck): ArrangementSpac
     liveSessions,
     cardCounts,
   };
-}
-
-/** `arrangement.cardFacts`: the title and live identity of every card the arrangement holds, and of no other. */
-export function projectArrangementCardFacts(
-  deck: ArrangementDeck,
-  titles: (cardId: string) => ArrangementTitle | null,
-  identities: (cardId: string) => CardIdentityFacts | null,
-): ArrangementCardFacts {
-  const cardIds = arrangementCardIds(deck);
-  return { titles: collect(cardIds, titles), identities: collect(cardIds, identities) };
 }
 
 /**

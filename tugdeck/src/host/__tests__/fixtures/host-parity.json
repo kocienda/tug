@@ -1,0 +1,1523 @@
+{
+  "toHost": [
+    {
+      "name": "placeBodies",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "radius": 6,
+          "bodies": [
+            {
+              "cardId": "c1",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "visible": true,
+              "grips": [
+                {
+                  "x": 117,
+                  "y": 575,
+                  "width": 406,
+                  "height": 8
+                }
+              ],
+              "z": 1
+            },
+            {
+              "cardId": "c2",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "visible": true,
+              "grips": [],
+              "z": 2,
+              "whole": true,
+              "insets": {
+                "top": 6,
+                "right": 6.5,
+                "bottom": 6,
+                "left": 6
+              }
+            },
+            {
+              "cardId": "c3",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "visible": false,
+              "grips": [],
+              "z": 2,
+              "whole": true,
+              "sibling": true
+            }
+          ]
+        }
+      ],
+      "refused": [
+        "placeBodies",
+        {
+          "bodies": []
+        },
+        {
+          "radius": 6,
+          "bodies": [
+            {
+              "cardId": "c1",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "grips": [],
+              "z": 1
+            }
+          ]
+        },
+        {
+          "radius": 6,
+          "bodies": [
+            {
+              "cardId": "c1",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "visible": "yes",
+              "grips": [],
+              "z": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "placeCards",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "apron": 6,
+          "canvas": {
+            "x": 0,
+            "y": 28,
+            "width": 1440,
+            "height": 872
+          },
+          "zoom": 1,
+          "cards": [
+            {
+              "cardId": "c1",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "visible": true,
+              "z": 1,
+              "grips": [
+                "e",
+                "s",
+                "se"
+              ],
+              "free": true,
+              "min": {
+                "width": 240,
+                "height": 160
+              }
+            },
+            {
+              "cardId": "c2",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "visible": false,
+              "sibling": true,
+              "z": 1,
+              "grips": [],
+              "free": false,
+              "min": {
+                "width": 0,
+                "height": 0
+              }
+            }
+          ]
+        },
+        {
+          "apron": 6,
+          "canvas": null,
+          "zoom": 1.25,
+          "cards": []
+        }
+      ],
+      "refused": [
+        [
+          {
+            "cardId": "c1"
+          }
+        ],
+        {
+          "apron": 6,
+          "canvas": null,
+          "zoom": 1
+        },
+        {
+          "apron": 6,
+          "canvas": null,
+          "zoom": 1,
+          "cards": [
+            {
+              "cardId": "c1",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "visible": true,
+              "z": 1,
+              "grips": [
+                "middle"
+              ],
+              "free": true,
+              "min": {
+                "width": 0,
+                "height": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cardGesture",
+      "from": "body",
+      "typed": true,
+      "samples": [
+        {
+          "phase": "begin",
+          "kind": "move",
+          "x": 140,
+          "y": 12,
+          "meta": false,
+          "alt": false
+        },
+        {
+          "phase": "begin",
+          "kind": "resize",
+          "edge": "e",
+          "x": 518,
+          "y": 300,
+          "meta": false,
+          "alt": true
+        },
+        {
+          "phase": "begin",
+          "kind": "rail",
+          "edge": "e",
+          "x": 300,
+          "y": 400,
+          "meta": false,
+          "alt": false
+        }
+      ],
+      "refused": [
+        null,
+        {
+          "phase": "begin",
+          "kind": "move",
+          "meta": false,
+          "alt": false
+        },
+        {
+          "phase": "begin",
+          "kind": "fling",
+          "x": 1,
+          "y": 2,
+          "meta": false,
+          "alt": false
+        }
+      ]
+    },
+    {
+      "name": "cardLand",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "cardId": "c1"
+        }
+      ],
+      "refused": [
+        "c1",
+        {},
+        {
+          "cardId": 7
+        }
+      ]
+    },
+    {
+      "name": "beatPlan",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "planId": 1,
+          "startWallMs": 1760000000000.5,
+          "bodies": [
+            {
+              "cardId": "c1",
+              "landing": {
+                "x": 121,
+                "y": 96,
+                "width": 398,
+                "height": 483
+              },
+              "beats": [
+                {
+                  "kind": "move",
+                  "delayMs": 0,
+                  "durationMs": 300,
+                  "from": {
+                    "x": 421,
+                    "y": 96,
+                    "width": 398,
+                    "height": 483
+                  },
+                  "to": {
+                    "x": 121,
+                    "y": 96,
+                    "width": 398,
+                    "height": 483
+                  },
+                  "progress": [
+                    0,
+                    0.32,
+                    0.71,
+                    0.93,
+                    1.03,
+                    1.01,
+                    1
+                  ]
+                }
+              ]
+            },
+            {
+              "cardId": "c2",
+              "landing": {
+                "x": 121,
+                "y": 96,
+                "width": 398,
+                "height": 483
+              },
+              "crossing": {
+                "width": 398,
+                "height": 483
+              },
+              "arrives": true,
+              "beats": [
+                {
+                  "kind": "arrive",
+                  "delayMs": 0,
+                  "durationMs": 120,
+                  "from": {
+                    "x": 121,
+                    "y": 96,
+                    "width": 398,
+                    "height": 483
+                  },
+                  "to": {
+                    "x": 121,
+                    "y": 96,
+                    "width": 398,
+                    "height": 483
+                  },
+                  "opacity": [
+                    0,
+                    1
+                  ],
+                  "progress": [
+                    0,
+                    1
+                  ],
+                  "easing": "ease-out"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "refused": [
+        {
+          "planId": "x",
+          "startWallMs": 0,
+          "bodies": []
+        },
+        {
+          "startWallMs": 0,
+          "bodies": []
+        },
+        {
+          "planId": 1,
+          "startWallMs": 0,
+          "bodies": [
+            {
+              "cardId": "c1",
+              "landing": {
+                "x": 121,
+                "y": 96,
+                "width": 398,
+                "height": 483
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pointerClaim",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "rects": [
+            {
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483
+            }
+          ]
+        },
+        {
+          "rects": []
+        },
+        {
+          "all": true
+        }
+      ],
+      "refused": [
+        [],
+        {},
+        {
+          "rects": [
+            {
+              "x": "bad",
+              "y": 2,
+              "width": 3,
+              "height": 4
+            }
+          ]
+        },
+        {
+          "all": false
+        }
+      ]
+    },
+    {
+      "name": "floorGrid",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "canvas": "#1c1e22",
+          "grid": "rgba(255, 255, 255, 0.04)",
+          "cellPx": 24,
+          "linePx": 1,
+          "zoom": 1,
+          "originX": 0,
+          "originY": 3.5
+        }
+      ],
+      "refused": [
+        0,
+        {
+          "canvas": "#1c1e22",
+          "grid": "#ffffff",
+          "cellPx": 24,
+          "linePx": 1,
+          "zoom": 1,
+          "originX": 0
+        },
+        {
+          "canvas": "oklch(0.2 0.02 280)",
+          "grid": "#ffffff",
+          "cellPx": 24,
+          "linePx": 1,
+          "zoom": 1,
+          "originX": 0,
+          "originY": 0
+        }
+      ]
+    },
+    {
+      "name": "bodyHello",
+      "from": "body",
+      "typed": true,
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "name": "painted",
+      "from": "body",
+      "typed": true,
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "name": "frontendReady",
+      "from": "any",
+      "typed": true,
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "name": "frontendLaunchStalled",
+      "from": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "waitingOn": "wasm"
+        }
+      ],
+      "refused": [
+        "wasm"
+      ]
+    },
+    {
+      "name": "pageFault",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "kind": "error",
+          "message": "TypeError: x is undefined",
+          "source": "main.tsx:12"
+        }
+      ],
+      "refused": [
+        "fault"
+      ]
+    },
+    {
+      "name": "crossingReady",
+      "from": "body",
+      "typed": true,
+      "samples": [
+        {
+          "surface": [
+            28,
+            30,
+            34,
+            255
+          ]
+        },
+        {
+          "surface": null
+        }
+      ],
+      "refused": [
+        [
+          28,
+          30,
+          34,
+          255
+        ],
+        {},
+        {
+          "surface": [
+            28,
+            30,
+            34
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bodySurface",
+      "from": "body",
+      "typed": true,
+      "samples": [
+        {
+          "surface": [
+            28,
+            30,
+            34,
+            255
+          ]
+        },
+        {
+          "surface": null
+        }
+      ],
+      "refused": [
+        [
+          28,
+          30,
+          34,
+          255
+        ],
+        {
+          "surface": [
+            28,
+            30,
+            34,
+            256
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bodyCreate",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "cardId": "c1",
+          "componentId": "text",
+          "intent": {
+            "kind": "mount"
+          }
+        }
+      ],
+      "refused": [
+        "c1",
+        {
+          "cardId": "c1",
+          "intent": {
+            "kind": "mount"
+          }
+        },
+        {
+          "cardId": "c1",
+          "componentId": "text",
+          "intent": "mount"
+        }
+      ]
+    },
+    {
+      "name": "bodyDestroy",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "cardId": "c1",
+          "save": false
+        }
+      ],
+      "refused": [
+        "c1",
+        {
+          "cardId": "c1"
+        }
+      ]
+    },
+    {
+      "name": "bodyFocus",
+      "from": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "cardId": "c1"
+        },
+        {
+          "cardId": null
+        }
+      ],
+      "refused": [
+        null,
+        {
+          "cardId": 7
+        }
+      ]
+    },
+    {
+      "name": "hmrUpdate",
+      "from": "shell",
+      "typed": false,
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "name": "sourceTree",
+      "from": "shell",
+      "typed": false,
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "name": "choosePath",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "id": "path-1",
+          "kind": "directory",
+          "initialPath": "~/src",
+          "suggestedName": null
+        },
+        {
+          "id": "path-2",
+          "kind": "file",
+          "initialPath": null,
+          "suggestedName": null
+        }
+      ],
+      "refused": [
+        "path-1"
+      ]
+    },
+    {
+      "name": "getSettings",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "name": "setTheme",
+      "from": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "color": "#1c1e22"
+        }
+      ],
+      "refused": [
+        "#1c1e22"
+      ]
+    },
+    {
+      "name": "devBadge",
+      "from": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "backend": true,
+          "app": false
+        }
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "name": "clipboardRead",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "clip-1"
+        }
+      ],
+      "refused": [
+        "clip-1"
+      ]
+    },
+    {
+      "name": "clipboardWrite",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "text": "hello",
+          "atoms": "",
+          "html": "<p>hello</p>"
+        }
+      ],
+      "refused": [
+        "hello"
+      ]
+    },
+    {
+      "name": "clipboardWriteImage",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "base64": "iVBORw0KGgo="
+        }
+      ],
+      "refused": [
+        "iVBORw0KGgo="
+      ]
+    },
+    {
+      "name": "menuState",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "canUndo": false,
+          "canRedo": false,
+          "enabled": {
+            "close-card": true
+          }
+        }
+      ],
+      "refused": [
+        []
+      ]
+    },
+    {
+      "name": "openPath",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "path": "~/CLAUDE.md",
+          "kind": "file"
+        },
+        {
+          "path": "/tmp/shots/one.png",
+          "kind": "reveal"
+        }
+      ],
+      "refused": [
+        "~/CLAUDE.md"
+      ]
+    },
+    {
+      "name": "lookUpInDictionary",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "text": "lexicon",
+          "x": 120,
+          "y": 340,
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "bold": false,
+          "italic": false
+        }
+      ],
+      "refused": [
+        "lexicon"
+      ]
+    },
+    {
+      "name": "trashPath",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "trash-1",
+          "path": "~/Desktop/a.png"
+        }
+      ],
+      "refused": [
+        "~/Desktop/a.png"
+      ]
+    },
+    {
+      "name": "restorePath",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "trash-2",
+          "trashedPath": "~/.Trash/a.png",
+          "destination": "~/Desktop/a.png"
+        }
+      ],
+      "refused": [
+        "~/.Trash/a.png"
+      ]
+    },
+    {
+      "name": "thumbnailPath",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "thumb-1",
+          "path": "~/Documents/report.pdf",
+          "size": 64
+        }
+      ],
+      "refused": [
+        "~/Documents/report.pdf"
+      ]
+    },
+    {
+      "name": "exportSession",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "id": "export-1",
+          "baseName": "tug-session",
+          "markdown": "# Session",
+          "jsonl": "{}\n"
+        }
+      ],
+      "refused": [
+        "export-1"
+      ]
+    },
+    {
+      "name": "updateAction",
+      "from": "shell",
+      "typed": false,
+      "samples": [
+        "install",
+        "later"
+      ],
+      "refused": [
+        {
+          "action": "install"
+        }
+      ]
+    },
+    {
+      "name": "dictation",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "id": "d1",
+          "verb": "start"
+        },
+        {
+          "id": "d1",
+          "verb": "finish"
+        }
+      ],
+      "refused": [
+        "start"
+      ]
+    },
+    {
+      "name": "pageZoom",
+      "from": "any",
+      "typed": false,
+      "samples": [
+        {
+          "factor": 1.25
+        }
+      ],
+      "refused": [
+        1.25
+      ]
+    },
+    {
+      "name": "hostFrames",
+      "from": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "frames-1",
+          "windowMs": 2000
+        }
+      ],
+      "refused": [
+        "frames-1"
+      ]
+    }
+  ],
+  "toPage": [
+    {
+      "member": "onCardGesture",
+      "to": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "cardId": "c1",
+          "kind": "move",
+          "phase": "move",
+          "rect": {
+            "x": 40,
+            "y": 60,
+            "width": 480,
+            "height": 320
+          },
+          "pointer": {
+            "x": 200,
+            "y": 80
+          },
+          "start": {
+            "x": 180,
+            "y": 70
+          },
+          "moved": true,
+          "meta": false,
+          "alt": false
+        },
+        {
+          "cardId": "c1",
+          "kind": "resize",
+          "phase": "end",
+          "rect": {
+            "x": 40,
+            "y": 60,
+            "width": 480,
+            "height": 320
+          },
+          "pointer": {
+            "x": 200,
+            "y": 80
+          },
+          "start": {
+            "x": 180,
+            "y": 70
+          },
+          "moved": true,
+          "meta": false,
+          "alt": false,
+          "edge": "se",
+          "snap": {
+            "x": 40,
+            "y": null
+          }
+        },
+        {
+          "cardId": "c1",
+          "kind": "move",
+          "phase": "cancel",
+          "rect": {
+            "x": 40,
+            "y": 60,
+            "width": 480,
+            "height": 320
+          },
+          "pointer": {
+            "x": 200,
+            "y": 80
+          },
+          "start": {
+            "x": 180,
+            "y": 70
+          },
+          "moved": false,
+          "meta": false,
+          "alt": false
+        }
+      ],
+      "refused": [
+        "move",
+        {
+          "cardId": "c1",
+          "kind": "move",
+          "phase": "begin",
+          "rect": {
+            "x": 40,
+            "y": 60,
+            "width": 480,
+            "height": 320
+          },
+          "pointer": {
+            "x": 200,
+            "y": 80
+          },
+          "start": {
+            "x": 180,
+            "y": 70
+          },
+          "moved": true,
+          "meta": false,
+          "alt": false
+        },
+        {
+          "cardId": "c1",
+          "kind": "move",
+          "phase": "move",
+          "rect": {
+            "x": 40,
+            "y": 60,
+            "width": 480,
+            "height": 320
+          },
+          "pointer": {
+            "x": 200,
+            "y": 80
+          },
+          "moved": true,
+          "meta": false,
+          "alt": false
+        }
+      ]
+    },
+    {
+      "member": "onCardInsets",
+      "to": "body",
+      "typed": true,
+      "samples": [
+        {
+          "top": 6,
+          "right": 6.5,
+          "bottom": 6,
+          "left": 6
+        }
+      ],
+      "refused": [
+        28,
+        {
+          "top": 6,
+          "right": 6,
+          "bottom": 6
+        }
+      ]
+    },
+    {
+      "member": "onBodyCrossing",
+      "to": "body",
+      "typed": true,
+      "samples": [
+        {
+          "phase": "begin",
+          "width": 480,
+          "height": 320,
+          "durationMs": 240
+        },
+        {
+          "phase": "land"
+        }
+      ],
+      "refused": [
+        "land",
+        {
+          "phase": "pause"
+        },
+        {
+          "phase": "begin",
+          "width": "wide"
+        }
+      ]
+    },
+    {
+      "member": "onBodyBind",
+      "to": "body",
+      "typed": true,
+      "samples": [
+        {
+          "cardId": "c1",
+          "componentId": "text",
+          "intent": {
+            "kind": "mount"
+          },
+          "facts": {
+            "theme": "ironclad",
+            "zoom": 1,
+            "keyboardAccess": false,
+            "appActive": true
+          }
+        },
+        {
+          "cardId": "c1",
+          "componentId": "text",
+          "intent": {
+            "kind": "restore"
+          },
+          "facts": {
+            "theme": "",
+            "zoom": 1.25,
+            "keyboardAccess": false,
+            "appActive": true
+          }
+        }
+      ],
+      "refused": [
+        "c1",
+        {
+          "cardId": "c1",
+          "componentId": "text",
+          "intent": {
+            "kind": "mount"
+          }
+        },
+        {
+          "cardId": "c1",
+          "componentId": "text",
+          "intent": null,
+          "facts": {
+            "theme": "ironclad",
+            "zoom": 1,
+            "keyboardAccess": false,
+            "appActive": true
+          }
+        }
+      ]
+    },
+    {
+      "member": "onBodyState",
+      "to": "shell",
+      "typed": true,
+      "samples": [
+        {
+          "cardId": "c1",
+          "state": "ready",
+          "readyMs": 412,
+          "start": "warm"
+        },
+        {
+          "cardId": "c1",
+          "state": "painted"
+        },
+        {
+          "cardId": "c1",
+          "state": "landed",
+          "planId": 7,
+          "lateMs": 3.5
+        },
+        {
+          "cardId": "c1",
+          "state": "beatsCancelled",
+          "planId": 7
+        },
+        {
+          "cardId": "c1",
+          "state": "failed",
+          "cause": "deadline"
+        },
+        {
+          "state": "floorShown",
+          "sinceRevealMs": 140
+        },
+        {
+          "state": "floorShown"
+        }
+      ],
+      "refused": [
+        "ready",
+        {
+          "cardId": "c1",
+          "state": "asleep"
+        },
+        {
+          "cardId": "c1",
+          "state": "landed",
+          "planId": "7"
+        }
+      ]
+    },
+    {
+      "member": "onSettingsLoaded",
+      "to": "any",
+      "typed": false,
+      "samples": [
+        {
+          "makerMode": true,
+          "sourceTree": "/Users/me/src/tug"
+        },
+        {
+          "makerMode": false,
+          "sourceTree": null
+        }
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "member": "onDevModeError",
+      "to": "shell",
+      "typed": false,
+      "samples": [
+        "the source tree has no tugdeck",
+        "it's \"broken\"\nagain"
+      ],
+      "refused": [
+        {
+          "message": "x"
+        }
+      ]
+    },
+    {
+      "member": "onSourceTreeSelected",
+      "to": "shell",
+      "typed": false,
+      "samples": [
+        "/Users/me/src/tug"
+      ],
+      "refused": [
+        null
+      ]
+    },
+    {
+      "member": "onSourceTreeCancelled",
+      "to": "shell",
+      "typed": false,
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "member": "onPathChosen",
+      "to": "any",
+      "typed": false,
+      "samples": [
+        {
+          "id": "tug-path-1",
+          "path": "/Users/me/notes.md"
+        },
+        {
+          "id": "tug-path-2",
+          "path": null
+        }
+      ],
+      "refused": [
+        "tug-path-1"
+      ]
+    },
+    {
+      "member": "onExportDone",
+      "to": "any",
+      "typed": false,
+      "samples": [
+        {
+          "id": "tug-export-1",
+          "result": "saved"
+        },
+        {
+          "id": "tug-export-2",
+          "result": "canceled"
+        }
+      ],
+      "refused": [
+        "saved"
+      ]
+    },
+    {
+      "member": "onClipboardRead",
+      "to": "any",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "clip-1",
+          "text": "it's \"quoted\" and split",
+          "html": "<b>x</b>",
+          "atoms": ""
+        }
+      ],
+      "refused": [
+        "clip-1"
+      ]
+    },
+    {
+      "member": "onTrashResult",
+      "to": "any",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "trash-1",
+          "ok": true,
+          "trashedPath": "/Users/me/.Trash/a.png"
+        },
+        {
+          "requestId": "trash-2",
+          "ok": false,
+          "error": "outside the project"
+        }
+      ],
+      "refused": [
+        false
+      ]
+    },
+    {
+      "member": "onThumbnail",
+      "to": "any",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "thumb-1",
+          "dataUrl": "data:image/png;base64,iVBORw0KGgo="
+        },
+        {
+          "requestId": "thumb-2",
+          "dataUrl": null
+        }
+      ],
+      "refused": [
+        null
+      ]
+    },
+    {
+      "member": "onHostFrames",
+      "to": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "requestId": "frames-1",
+          "reading": {
+            "windowMs": 2000,
+            "frames": 120,
+            "worstGapMs": 17.2
+          }
+        }
+      ],
+      "refused": [
+        "frames-1"
+      ]
+    },
+    {
+      "member": "onDictation",
+      "to": "any",
+      "typed": false,
+      "samples": [
+        {
+          "id": "d1",
+          "kind": "ready"
+        },
+        {
+          "id": "d1",
+          "kind": "volatile",
+          "text": "hello \"there\""
+        },
+        {
+          "id": "d1",
+          "kind": "ended",
+          "reason": "finished"
+        }
+      ],
+      "refused": [
+        "ready"
+      ]
+    },
+    {
+      "member": "onUpdateState",
+      "to": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "stage": "available",
+          "version": "1.4.0",
+          "build": "140",
+          "currentVersion": "1.3.2",
+          "releaseNotes": null,
+          "releaseNotesFailed": false,
+          "userInitiated": true,
+          "percent": null,
+          "receivedBytes": 0,
+          "expectedBytes": 0,
+          "message": "",
+          "cancellable": false,
+          "revealCount": 1
+        }
+      ],
+      "refused": [
+        "available"
+      ]
+    },
+    {
+      "member": "onPageZoom",
+      "to": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "factor": 1.25
+        }
+      ],
+      "refused": [
+        1.25
+      ]
+    },
+    {
+      "member": "onActivationClick",
+      "to": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "x": 412.5,
+          "y": 96
+        }
+      ],
+      "refused": [
+        [
+          412.5,
+          96
+        ]
+      ]
+    },
+    {
+      "member": "onNetworkPath",
+      "to": "shell",
+      "typed": false,
+      "samples": [
+        {
+          "status": "unsatisfied",
+          "isExpensive": false,
+          "isConstrained": true
+        }
+      ],
+      "refused": [
+        "satisfied"
+      ]
+    },
+    {
+      "member": "onScrollPhase",
+      "to": "any",
+      "typed": false,
+      "samples": [
+        "touched",
+        "lifted",
+        "momentum"
+      ],
+      "refused": [
+        {
+          "edge": "touched"
+        }
+      ]
+    }
+  ],
+  "pageCalls": [
+    {
+      "receiver": "tugdeck",
+      "member": "saveState",
+      "samples": [
+        {}
+      ]
+    },
+    {
+      "receiver": "tugdeck",
+      "member": "prepareForTermination",
+      "samples": [
+        {}
+      ]
+    },
+    {
+      "receiver": "tugdeck",
+      "member": "reauthenticate",
+      "samples": [
+        {
+          "token": "t0k3n"
+        }
+      ]
+    },
+    {
+      "receiver": "bridge",
+      "member": "onPageZoomApply",
+      "samples": [
+        1.25,
+        0.5
+      ]
+    }
+  ]
+}

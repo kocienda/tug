@@ -19,9 +19,10 @@
  * - a resize's `end` writes the slot height, the slot-keeping width, or the
  *   free rect, as the pane's standing says;
  * - a rail's edge drag (`kind: "rail"`) is the rail's width draft: the host
- *   moves no view, and each report drives the driver the rail's stand-in
- *   registered (`rail-edge-registry.ts`), which moves every member of the
- *   side and commits one width at the release;
+ *   moves no view, and each report drives the driver the draft's owner
+ *   hands this module for the rail's pane (`railEdgeDriverFor` in
+ *   `rail-width-draft.ts`), which moves every member of the side and commits
+ *   one width at the release;
  * - `cancel` takes the indication back and commits nothing.
  *
  * Rects and points arrive in the shell's viewport points and are taken into
@@ -34,7 +35,9 @@ import { commandForCard } from "../bus/declarations/verbs";
 import { getRegistration } from "../card-registry";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { Rect } from "../snap";
-import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
+import { onHostMessage } from "../host/channel";
+import { cardGestureToPage } from "../host/declarations/geometry";
+import { TUG_ACTIONS } from "./action-vocabulary";
 import {
   commitFreeMove,
   commitResizeEnd,
@@ -52,11 +55,10 @@ import { pageZoomFactor } from "./page-zoom-store";
 import { paneStandingOf } from "./pane-chrome-projection";
 import { CANVAS_BACKGROUND_ATTRIBUTE, SHOWN_PANE_FRAMES } from "./pane-frame-selectors";
 import type { ResizeEdge } from "../bus/declarations/pane";
-import { railEdgeDriverOf, type RailEdgeDriver } from "./rail-edge-registry";
 import { landAfterPlacement } from "./body-placement";
 import { createDragAutoscroll, type DragAutoscroll } from "./drag-autoscroll";
 
-/** One step of a gesture the host tracks, as it reports it. */
+/** One step of a gesture the host tracks, as it reports it (`onCardGesture`, decoded by its codec). */
 export interface CardGestureReport {
   cardId: string;
   kind: "move" | "resize" | "rail";
@@ -65,13 +67,15 @@ export interface CardGestureReport {
   rect: Rect;
   pointer: { x: number; y: number };
   /** Where the press landed, in viewport points. */
-  start?: { x: number; y: number };
+  start: { x: number; y: number };
   /** Whether the pointer has travelled past the move threshold. */
   moved: boolean;
   meta: boolean;
   alt: boolean;
   /** The edge or corner a resize is from. */
   edge?: ResizeEdge;
+  /** The guides the host snapped this step to, viewport points; absent when it snapped to none. */
+  snap?: { x: number | null; y: number | null };
 }
 
 /** Where the canvas stands in the viewport, and the page zoom its layout is at. */
@@ -79,6 +83,16 @@ export interface CanvasFrame {
   left: number;
   top: number;
   zoom: number;
+}
+
+/** The four calls of a rail width drag, addressed by viewport points. */
+export interface RailEdgeDriver {
+  /** The press, at the point it landed. */
+  begin(clientX: number, clientY: number): void;
+  change(clientX: number, clientY: number, altKey: boolean): void;
+  commit(clientX: number, altKey: boolean): void;
+  /** A no-op when no drag is open. */
+  cancel(): void;
 }
 
 /** What the gesture reads beyond the deck. */
@@ -99,21 +113,15 @@ export interface HostGestureReaders {
   requestFrame: (step: () => void) => void;
 }
 
-function report(value: unknown): CardGestureReport | null {
-  if (typeof value !== "object" || value === null) return null;
-  const r = value as Partial<CardGestureReport>;
-  if (typeof r.cardId !== "string" || (r.kind !== "move" && r.kind !== "resize" && r.kind !== "rail")) return null;
-  if (r.phase !== "move" && r.phase !== "end" && r.phase !== "cancel") return null;
-  if (typeof r.rect !== "object" || r.rect === null || typeof r.pointer !== "object" || r.pointer === null) return null;
-  return r as CardGestureReport;
-}
-
 /**
  * The gesture's handler: one gesture at a time, its zone drag latched at the
  * first `move` that has travelled. Returned for `installHostCardGesture` and
  * for a reader that drives it with its own readers.
  */
-export function createHostCardGesture(deck: IDeckManagerStore, readers: HostGestureReaders): (value: unknown) => void {
+export function createHostCardGesture(
+  deck: IDeckManagerStore,
+  readers: HostGestureReaders,
+): (r: CardGestureReport) => void {
   let live: {
     cardId: string;
     paneId: string;
@@ -293,8 +301,7 @@ export function createHostCardGesture(deck: IDeckManagerStore, readers: HostGest
         const paneId = paneOf(r.cardId)?.id;
         const driver = paneId === undefined ? null : readers.railEdge(paneId);
         if (driver === null) return;
-        const start = r.start ?? r.pointer;
-        driver.begin(start.x, start.y);
+        driver.begin(r.start.x, r.start.y);
         rail = { cardId: r.cardId, driver };
       }
       rail.driver.change(r.pointer.x, r.pointer.y, r.alt);
@@ -308,8 +315,7 @@ export function createHostCardGesture(deck: IDeckManagerStore, readers: HostGest
       const paneId = paneOf(r.cardId)?.id;
       const driver = paneId === undefined ? null : readers.railEdge(paneId);
       if (driver !== null) {
-        const start = r.start ?? r.pointer;
-        driver.begin(start.x, start.y);
+        driver.begin(r.start.x, r.start.y);
         held = { cardId: r.cardId, driver };
       }
     }
@@ -318,14 +324,13 @@ export function createHostCardGesture(deck: IDeckManagerStore, readers: HostGest
     else held.driver.cancel();
   };
 
-  return (value: unknown): void => {
-    const r = report(value);
-    if (r?.kind === "rail") {
+  return (r: CardGestureReport): void => {
+    if (r.kind === "rail") {
       stepRail(r);
       return;
     }
     const canvas = readers.canvas();
-    if (r === null || canvas === null) return;
+    if (canvas === null) return;
     if (live !== null && live.cardId !== r.cardId) return;
     if (r.phase === "move") {
       if (!r.moved) return;
@@ -364,7 +369,7 @@ export function createHostCardGesture(deck: IDeckManagerStore, readers: HostGest
 }
 
 /** The canvas and the shown panes as the shell's document has them. */
-const DOCUMENT_READERS: HostGestureReaders = {
+const DOCUMENT_READERS: Omit<HostGestureReaders, "railEdge"> = {
   canvas: () => {
     const el = document.querySelector<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
     if (el === null) return null;
@@ -390,19 +395,19 @@ const DOCUMENT_READERS: HostGestureReaders = {
     return rects;
   },
   revealStack: (cardId) => commandForCard.dispatch({ id: TUG_ACTIONS.REVEAL_STACK }, { card: cardId }),
-  railEdge: railEdgeDriverOf,
   land: landAfterPlacement,
   requestFrame: (step) => {
     requestAnimationFrame(step);
   },
 };
 
-/** Take the host's gesture reports in this page: `window.__tugBridge.onCardGesture`. */
-export function installHostCardGesture(deck: IDeckManagerStore): () => void {
-  const bridge = ((window as unknown as { __tugBridge?: Record<string, unknown> }).__tugBridge ??= {});
-  const handle = createHostCardGesture(deck, DOCUMENT_READERS);
-  bridge.onCardGesture = handle;
-  return () => {
-    if (bridge.onCardGesture === handle) delete bridge.onCardGesture;
-  };
+/**
+ * Take the host's gesture reports in this page: `window.__tugBridge.onCardGesture`.
+ * `readers.railEdge` is the rail width draft's, which its owner supplies.
+ */
+export function installHostCardGesture(
+  deck: IDeckManagerStore,
+  readers: Pick<HostGestureReaders, "railEdge">,
+): () => void {
+  return onHostMessage(cardGestureToPage, createHostCardGesture(deck, { ...DOCUMENT_READERS, ...readers }));
 }

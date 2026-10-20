@@ -40,6 +40,8 @@ import { registerThemeSetter, registerThemeGetter } from "../action-dispatch";
 import { publishActiveTheme } from "../lib/host-menu-state";
 import { notifyThemeChange } from "../theme-tokens";
 import { BASE_THEME_NAME } from "../theme-constants";
+import { postToHost } from "../host/channel";
+import { setThemeToHost } from "../host/declarations/services";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,8 +83,7 @@ export function readHostCanvasColorFromAppliedCss(): string | null {
 export function sendCanvasColor(hex: string): void {
   const normalized = normalizeColorToHex(hex);
   if (!normalized) return;
-  (window as unknown as { webkit?: { messageHandlers?: { setTheme?: { postMessage: (v: unknown) => void } } } })
-    .webkit?.messageHandlers?.setTheme?.postMessage({ color: normalized });
+  postToHost(setThemeToHost, { color: normalized });
 }
 
 // ---------------------------------------------------------------------------

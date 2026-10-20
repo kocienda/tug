@@ -3,7 +3,8 @@
  * publishes to each card's body as `pane.chrome`. Each case is one of the
  * arrangements a title bar draws differently — a two-tab content pane, a
  * pinned rail, a split column's members, a free pane — read as `TugPane`
- * reads the same pane from its props.
+ * reads the same pane from its props. A tab carries only its card: the page
+ * names it from `deck.cards` (`deck-cards.test.ts`).
  *
  * @covers tugdeck/src/lib/pane-chrome-projection.ts
  */
@@ -33,7 +34,7 @@ registerCard({
 
 const READERS: PaneChromeReaders = {
   titleOf: (id) => (id === "named" ? "notes.md" : null),
-  identityOf: () => null,
+  waives: () => false,
   spaces: {
     list: [
       { id: "w1", name: "Main" },
@@ -61,7 +62,7 @@ function card(id: string, componentId: string) {
 }
 
 describe("paneChromeFor", () => {
-  test("a two-tab content pane lists both tabs, asks before its × closes them, and gives each card the chrome it shows in front", () => {
+  test("a two-tab content pane lists both tabs by card, asks before its × closes them, and gives each card the chrome it shows in front", () => {
     const deck: DeckState = {
       cards: [card("named", "chrome-proj-doc"), card("b", "chrome-proj-confirm")],
       panes: [pane("p1", ["named", "b"], { title: "Group" })],
@@ -71,17 +72,14 @@ describe("paneChromeFor", () => {
     const chrome = paneChromeFor(deck, "b", READERS);
     expect(chrome).not.toBeNull();
     expect(chrome!.paneId).toBe("p1");
-    expect(chrome!.tabs).toEqual([
-      { cardId: "named", componentId: "chrome-proj-doc", title: "notes.md", icon: "FileText" },
-      { cardId: "b", componentId: "chrome-proj-confirm", title: "Confirm", icon: null },
-    ]);
+    expect(chrome!.tabs).toEqual([{ cardId: "named" }, { cardId: "b" }]);
     // The card's own chrome, as it shows in front: its own tab active, its
     // own title under the group's name, its own icon.
     expect(chrome!.activeCardId).toBe("b");
     expect(chrome!.title).toBe("Group : Confirm");
     expect(chrome!.icon).toBeNull();
     expect(chrome!.closable).toBe(true);
-    expect(chrome!.confirmClose).toBe(true);
+    expect(chrome!.close.pane).toEqual({ confirm: true, message: "Close 2 Tabs?", label: "Close All" });
     expect(chrome!.role).toBe("content");
     expect(chrome!.acceptedFamilies).toEqual(["standard"]);
     expect(chrome!.width).toEqual({ preset: null });
@@ -93,7 +91,15 @@ describe("paneChromeFor", () => {
     expect(chrome!.cardFold).toBe(true);
     // The other card reads the same pane, with its own front.
     const named = paneChromeFor(deck, "named", READERS);
-    expect(named).toEqual({ ...chrome!, activeCardId: "named", title: "Group : notes.md", icon: "FileText" });
+    // …and ⌘W asks about its own card: the Doc in front asks nothing.
+    expect(chrome!.close.card).toEqual({ confirm: true, message: "Close Confirm?", label: "Close" });
+    expect(named).toEqual({
+      ...chrome!,
+      activeCardId: "named",
+      title: "Group : notes.md",
+      icon: "FileText",
+      close: { ...chrome!.close, card: { confirm: false, message: "Close Doc?", label: "Close" } },
+    });
   });
 
   test("a pinned right rail offers its one deck-facing edge and neither bullseye nor the move control", () => {
@@ -111,7 +117,7 @@ describe("paneChromeFor", () => {
     expect(chrome.width).toBeNull();
     expect(chrome.fillHeight).toBeNull();
     // A rail always asks before it closes, and draws no fold glyph.
-    expect(chrome.confirmClose).toBe(true);
+    expect(chrome.close.pane.confirm).toBe(true);
     expect(chrome.cardFold).toBe(false);
     // A rail of one divides nothing: its badge reads the count.
     expect(chrome.placeArrangement).toEqual({ mode: "stack", kind: "rail", index: 0, band: null, count: 1 });

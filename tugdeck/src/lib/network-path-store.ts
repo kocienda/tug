@@ -52,6 +52,8 @@
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Subscribable } from "@/lib/subscribable";
+import { installHostChannel, onHostMessage } from "@/host/channel";
+import { networkPathToPage } from "@/host/declarations/services";
 
 
 /**
@@ -154,31 +156,21 @@ export function networkPathFromPayload(
   };
 }
 
-/** The host→web bridge object; only the path callback concerns us here. */
-interface TugBridge {
-  onNetworkPath?: (report: Record<string, unknown>) => void;
-}
-
-interface BridgeHost {
-  __tugBridge?: TugBridge;
-}
+let installed = false;
 
 /**
- * Install `__tugBridge.onNetworkPath`. Called once from deck boot; safe to
- * call again (the receiver is installed only when absent).
- *
- * The `__tugBridge` object is shared with other host callbacks, so the
- * receiver is merged in with `??=` — never replace the object wholesale.
+ * Take `__tugBridge.onNetworkPath` in this page. Called once from deck boot;
+ * safe to call again.
  *
  * Outside Tug.app nothing ever calls it, and the store stays at `status:
  * null` for the life of the page. That is correct rather than degraded: a
  * browser tab genuinely has no host to ask, and `null` says exactly that.
  */
 export function installNetworkPathBridge(): void {
-  const w = globalThis as unknown as BridgeHost;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onNetworkPath !== undefined) return;
-  bridge.onNetworkPath = (report) => {
-    networkPathStore.apply(networkPathFromPayload(report ?? {}));
-  };
+  installHostChannel();
+  if (installed) return;
+  installed = true;
+  onHostMessage(networkPathToPage, (report) => {
+    networkPathStore.apply(networkPathFromPayload(report as Record<string, unknown>));
+  });
 }

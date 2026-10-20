@@ -3,7 +3,8 @@
  * parked card's fold is its parked record's, and the card a warm workspace's
  * first visit will make key is told so (`parkedKey`) — only in a workspace
  * nobody has shown, so a visited workspace's key card is deactivated when it
- * parks, as ever.
+ * parks, as ever. It carries the moves and resizes the shell counted for the
+ * card, which its body fires its own events from.
  *
  * @covers tugdeck/src/lib/body-shell.ts
  */
@@ -11,7 +12,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { DeckState, TugPaneState } from "../../layout-tree";
-import { cardContextFor, crossingForBody } from "../body-shell";
+import { cardContextFor, createCardGeometryCounts, crossingForBody } from "../body-shell";
 import type { CrossingMirror } from "../fold-crossing";
 
 function pane(id: string, cardId: string, folded = false): TugPaneState {
@@ -70,6 +71,7 @@ describe("cardContextFor", () => {
       layerShown: false,
       spaceId: "two",
       parkedKey: true,
+      geometry: { moves: 0, resizes: 0 },
     });
     expect(cardContextFor(deck, "n").parkedKey).toBeUndefined();
     expect(cardContextFor(deck, "a").parkedKey).toBeUndefined();
@@ -81,6 +83,25 @@ describe("cardContextFor", () => {
 
   test("a parked card's fold is its own deck's", () => {
     expect(cardContextFor(shell({ folded: ["n"] }), "n").folded).toBe(true);
+  });
+
+  test("a committed move bumps the moves the card's published context carries, and a resize its resizes", () => {
+    const deck = shell();
+    const published: Array<{ cardId: string; moves: number; resizes: number }> = [];
+    const counts = createCardGeometryCounts((cardId) => {
+      published.push({ cardId, ...cardContextFor(deck, cardId, counts.of(cardId)).geometry });
+    });
+    expect(cardContextFor(deck, "a", counts.of("a")).geometry).toEqual({ moves: 0, resizes: 0 });
+    counts.count("a", "moves");
+    counts.count("a", "resizes");
+    counts.count("k", "moves");
+    expect(published).toEqual([
+      { cardId: "a", moves: 1, resizes: 0 },
+      { cardId: "a", moves: 1, resizes: 1 },
+      { cardId: "k", moves: 1, resizes: 0 },
+    ]);
+    counts.forget("a");
+    expect(counts.of("a")).toEqual({ moves: 0, resizes: 0 });
   });
 });
 

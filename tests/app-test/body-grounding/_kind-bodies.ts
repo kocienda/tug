@@ -169,17 +169,6 @@ export function landedFrom(samples: readonly PlaceholderSample[], cardId: string
 }
 
 /**
- * `cardId`'s body asked nothing of the deck that only the shell answers: a
- * call the body's deck bridge does not answer is a read the shell must send
- * it, and its kind's move is not done until there is none.
- */
-export async function expectNoShellReads(app: App, cardId: string): Promise<void> {
-  const reads = await app.body(cardId).evalJS<string[]>("window.tugdeck.diag.shellReads()");
-  note(`${cardId}: shell-only calls from its body ${JSON.stringify(reads)}`);
-  expect(reads, `${cardId}: its body asked the deck for nothing only the shell answers`).toEqual([]);
-}
-
-/**
  * `cardId`'s body paints the surface a pinned rail's pane paints: the sunken
  * surface the shell's panel treatment gives a rail, not a content card's.
  * Read by composite colour — one burst frame of the window, inside the body's

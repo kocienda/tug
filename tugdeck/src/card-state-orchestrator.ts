@@ -54,7 +54,7 @@ export interface CardAssembler {
 /**
  * Minimal shape the orchestrator needs for registry lookups. Keeping
  * this to a function parameter keeps the orchestrator free of a
- * concrete `IDeckManagerStore` dependency so tests can inject a plain
+ * concrete `CardDeck` dependency so tests can inject a plain
  * `Map`-backed lookup.
  */
 export type ComponentStatePreservationRegistryLookup = (

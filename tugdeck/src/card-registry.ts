@@ -186,9 +186,10 @@ export interface CardMeta {
   closable?: boolean;
   /**
    * Whether closing the pane requires user confirmation through the
-   * close-confirm popover. Drives single-card panes only — a multi-card
-   * pane always confirms regardless of any per-card value (the host
-   * resolves the rule as `cards.length > 1 || activeMeta.confirmClose`).
+   * close-confirm popover. The pane's × reads it for a single-card pane
+   * only — a multi-card pane always confirms regardless of any per-card
+   * value — and ⌘W and Close All Card Tabs read it per card. The rules are
+   * `closeAsksOf` (`lib/close-asks.ts`), the one reader of this field.
    *
    * Defaults to `false`: a single-card pane's X-button click and Cmd-W
    * close the pane immediately. Card types whose contents are not

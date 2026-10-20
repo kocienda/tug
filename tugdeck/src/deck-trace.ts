@@ -79,7 +79,7 @@
  * @module deck-trace
  */
 
-import { getDeckStore } from "./lib/deck-store-registry";
+import { getCardDeck } from "./lib/deck-store-registry";
 import type { BeatKind } from "./lib/pane-flip";
 import type { BeatRow } from "./components/tugways/tug-animator";
 import type { LandReading, MotionEvents } from "./lib/land-frame-record";
@@ -274,7 +274,7 @@ export type MacrotaskFocusClaimDelegate =
  * destination-flip fire while the store still thought A was active?")
  * does not require inferring state transitions from adjacent events.
  *
- * Null when `getDeckStore()` returns null — i.e. the trace module
+ * Null when `getCardDeck()` returns null — i.e. the trace module
  * recorded an event before the `DeckManager` constructor ran and
  * registered its store. This is a transient pre-registration state
  * during boot; once any pane is mounted, the snapshot is populated
@@ -1232,7 +1232,7 @@ function captureCallerLoc(): string {
  * focus destination at record time?" from the snapshot alone.
  */
 function captureStoreSnapshot(): DeckTraceStoreSnapshot | null {
-  const store = getDeckStore();
+  const store = getCardDeck();
   if (store === null) return null;
   try {
     const state = store.getSnapshot();
@@ -1620,7 +1620,7 @@ let focusObserverDispose: (() => void) | null = null;
  */
 function snapshotDestinations(): Map<string, boolean> {
   const readings = new Map<string, boolean>();
-  const store = getDeckStore();
+  const store = getCardDeck();
   if (!store) return readings;
   const state = store.getSnapshot();
   for (const card of state.cards) {
@@ -1631,7 +1631,7 @@ function snapshotDestinations(): Map<string, boolean> {
 
 function installDestinationFlipObserver(): void {
   if (destinationFlipDispose !== null) return;
-  const store = getDeckStore();
+  const store = getCardDeck();
   if (!store) return;
   const prevReadings = snapshotDestinations();
   const onCommit = (): void => {

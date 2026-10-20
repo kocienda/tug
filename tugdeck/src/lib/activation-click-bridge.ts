@@ -7,7 +7,7 @@
  * sees no `pointerdown` at all and the card the user aimed at never becomes
  * active. `MainWindow.sendEvent` recognizes that first click, converts its
  * location into viewport (CSS) coordinates, and calls
- * `window.__tugBridge.onActivationClick(x, y)` (emit site:
+ * `window.__tugBridge.onActivationClick({x, y})` (emit site:
  * `MainWindow.forwardActivationClick` — keep the callback name in lockstep).
  *
  * The point is handed to the gesture interpreter, which classifies it exactly
@@ -19,28 +19,23 @@
  */
 
 import { activateAtViewportPoint } from "@/gesture-interpreter";
+import { installHostChannel, onHostMessage } from "@/host/channel";
+import { activationClickToPage } from "@/host/declarations/services";
 
-/** The host→web bridge object; only the activation callback concerns us here. */
-interface TugBridge {
-  onActivationClick?: (x: unknown, y: unknown) => void;
-}
-
-interface WebkitHandles {
-  __tugBridge?: TugBridge;
-}
+let installed = false;
 
 /**
- * Install `__tugBridge.onActivationClick`. Called once from deck boot; safe to
- * call again (the receiver is installed only when absent).
+ * Take `__tugBridge.onActivationClick({x, y})` in this page. Called once from
+ * deck boot; safe to call again.
  */
 export function installActivationClickBridge(): void {
-  const w = globalThis as unknown as WebkitHandles;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onActivationClick !== undefined) return;
-
-  bridge.onActivationClick = (x, y) => {
+  installHostChannel();
+  if (installed) return;
+  installed = true;
+  onHostMessage(activationClickToPage, (payload) => {
+    const { x, y } = payload as { x?: unknown; y?: unknown };
     if (typeof x !== "number" || typeof y !== "number") return;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     activateAtViewportPoint(x, y);
-  };
+  });
 }

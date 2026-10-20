@@ -41,7 +41,7 @@
  * @module lib/opening-bid
  */
 
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { sheetReservationMemberIdOf } from "@/lib/sheet-reservation";
 
 /**
@@ -137,7 +137,7 @@ export function openingBidForCard(
   height: number | null,
 ): void {
   if (cardId === null) return;
-  const deckStore = getDeckStore();
+  const deckStore = getCardDeck();
   if (deckStore === null) return;
   const standing = sheetReservationMemberIdOf(deckStore.getSnapshot(), cardId);
   if (height === null) {

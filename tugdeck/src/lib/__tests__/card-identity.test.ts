@@ -22,7 +22,7 @@ import {
 } from "@/card-registry";
 import type { CardState, DeckState } from "@/layout-tree";
 import type { IDeckManagerStore } from "@/deck-manager-store";
-import { registerDeckStore } from "@/lib/deck-store-registry";
+import { registerShellDeck } from "@/lib/deck-store-registry";
 import { cardIdentity, cardIdentityElsewhere, ownLiveCardIdentity, parkedBagPath, parkedCardBag } from "@/lib/card-identity";
 import { registerCommitCard } from "@/components/tugways/cards/commit-card";
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
@@ -50,7 +50,7 @@ function installDeckStore(
     getCardState: (cardId: string) =>
       cardId in bags ? { content: bags[cardId] } : undefined,
   } as unknown as IDeckManagerStore;
-  registerDeckStore(store);
+  registerShellDeck(store);
 }
 
 beforeEach(() => {
@@ -58,7 +58,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  registerDeckStore(null);
+  registerShellDeck(null);
   _resetForTest();
 });
 
@@ -191,7 +191,7 @@ describe("totality", () => {
   });
 
   test("with no deck store registered at all", () => {
-    registerDeckStore(null);
+    registerShellDeck(null);
     const identity = cardIdentity("c1");
     expect(identity.componentId).toBeNull();
     expect(identity.title).toBe("c1");

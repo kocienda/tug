@@ -16,6 +16,9 @@
  * @module lib/os-open
  */
 
+import { hostAvailable, postToHost } from "../host/channel";
+import { openPathToHost } from "../host/declarations/services";
+
 /**
  * How the host opens `path`: `file` opens it in the default editor,
  * `folder` opens it in Finder, `reveal` opens Finder with the file
@@ -31,15 +34,8 @@ export type OsOpenKind = "file" | "folder" | "reveal";
  * unavailable.
  */
 export function openPathInOS(path: string, kind: OsOpenKind = "file"): void {
-  const webkit = (globalThis as unknown as Record<string, unknown>).webkit as
-    | Record<string, unknown>
-    | undefined;
-  const handlers = webkit?.messageHandlers as Record<string, unknown> | undefined;
-  const handler = handlers?.openPath as
-    | { postMessage: (v: unknown) => void }
-    | undefined;
-  if (handler) {
-    handler.postMessage({ path, kind });
+  if (hostAvailable(openPathToHost)) {
+    postToHost(openPathToHost, { path, kind });
   } else {
     console.info(`os-open: host bridge unavailable, cannot open ${path}`);
   }

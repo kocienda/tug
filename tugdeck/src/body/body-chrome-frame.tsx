@@ -32,12 +32,15 @@ import { CardHost } from "../components/chrome/card-host";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
 import { CARD_APRON_PX, CHROME_IN_BODY_ATTRIBUTE } from "../lib/chrome-placement";
 import { pageZoomStore } from "../lib/page-zoom-store";
-import { postToHost } from "../lib/body-handoff";
+import { onHostMessage, postToHost } from "../host/channel";
+import { paintedToHost } from "../host/declarations/lifecycle";
+import { cardInsetsToPage } from "../host/declarations/geometry";
 import { getCardCloseGuard } from "../lib/card-close-guard";
 import { cardModalHoldStore, isCardHeld } from "../lib/card-modal-hold-store";
 import { readCardCloseAdvice } from "../lib/card-close-advice";
-import { bodyChromeVerbs, chromeModelOf, soleCardCloseAdvice } from "./body-chrome";
-import type { BodyDeckBridge } from "./body-deck-bridge";
+import { deckCards } from "../bus/declarations/deck";
+import { bodyChromeVerbs, chromeCardsKey, chromeModelOf, soleCardCloseAdvice } from "./body-chrome";
+import type { BodyCardDeck } from "./body-card-deck";
 
 /** On the frame once the card's own content has painted: the content lid lifts. */
 export const CONTENT_PAINTED_ATTRIBUTE = "data-content-painted";
@@ -64,17 +67,16 @@ type Insets = Record<keyof typeof INSET_PROPERTIES, number>;
  */
 let cardInsets: Insets = { top: CARD_APRON_PX, left: CARD_APRON_PX, bottom: CARD_APRON_PX, right: CARD_APRON_PX };
 const insetListeners = new Set<() => void>();
-{
-  const bridge = ((window as unknown as { __tugBridge?: Record<string, unknown> }).__tugBridge ??= {});
-  bridge.onCardInsets = (next: Partial<Insets>): void => {
-    const read = (side: keyof Insets): number => (typeof next[side] === "number" ? next[side] : CARD_APRON_PX);
-    cardInsets = { top: read("top"), left: read("left"), bottom: read("bottom"), right: read("right") };
-    for (const listener of [...insetListeners]) listener();
-  };
-}
+onHostMessage(cardInsetsToPage, (next) => {
+  cardInsets = { top: next.top, left: next.left, bottom: next.bottom, right: next.right };
+  for (const listener of [...insetListeners]) listener();
+});
 
 /** Whether this page has told the host its first chrome frame is on screen. */
 let chromePaintPosted = false;
+
+const NO_ASK = { confirm: false, message: "", label: "" };
+const NO_CLOSE_ASKS = { pane: NO_ASK, card: NO_ASK, all: NO_ASK };
 
 /** The facts a card's chrome draws before the shell's have arrived: its kind's own title, nothing to press. */
 function fallbackChrome(cardId: string, componentId: string): PaneChromeValue {
@@ -86,7 +88,7 @@ function fallbackChrome(cardId: string, componentId: string): PaneChromeValue {
     title: meta?.title ?? "",
     icon: meta?.icon ?? null,
     closable: false,
-    confirmClose: false,
+    close: NO_CLOSE_ASKS,
     role: getRegistration(componentId)?.layoutRole === "sidebar" ? "sidebar" : "content",
     grips: [],
     acceptedFamilies: [],
@@ -103,7 +105,7 @@ function fallbackChrome(cardId: string, componentId: string): PaneChromeValue {
 }
 
 export interface BodyChromeFrameProps {
-  bridge: BodyDeckBridge;
+  deck: BodyCardDeck;
   cardId: string;
   componentId: string;
   /** The pane this page's one-card deck holds the card in (`bodyPaneId`). */
@@ -121,7 +123,7 @@ export interface BodyChromeFrameProps {
 }
 
 export function BodyChromeFrame({
-  bridge,
+  deck,
   cardId,
   componentId,
   paneId,
@@ -137,10 +139,13 @@ export function BodyChromeFrame({
 }: BodyChromeFrameProps): React.ReactElement {
   const value = chrome ?? fallbackChrome(cardId, componentId);
   const cardKind = cardKindName(getRegistration(componentId)?.defaultMeta);
-  const model = chromeModelOf(value, paneId, cardKind, folded);
+  // The names the chrome draws come from `deck.cards`; read through a key so
+  // the frame re-renders when one moved and not on every phase tick.
+  useSyncExternalStore(deckCards.subscribe, () => chromeCardsKey(value, deckCards.getSnapshot()));
+  const model = chromeModelOf(value, deckCards.getSnapshot(), paneId, cardKind, folded);
   const masthead = useSyncExternalStore(cardTitleStore.subscribe, () => cardTitleStore.getMasthead(cardId));
   const contentPainted = useSyncExternalStore(cardPainted.subscribe, () => cardPainted.getSnapshot() === true);
-  const railSide = useSyncExternalStore(bridge.subscribe, bridge.getRailSide);
+  const railSide = useSyncExternalStore(deck.subscribe, deck.getRailSide);
 
   // The close's live answers are this page's: the card's own guard, hold and
   // advice. The pane's other cards are the shell's to ask, on `pane.closePane`.
@@ -203,7 +208,7 @@ export function BodyChromeFrame({
   // A tab drag in this page: a reorder inside the bar is the pane's verb, and
   // past the bar the shell hit-tests the other panes and commits.
   useLayoutEffect(() => {
-    cardDragCoordinator.init(bridge);
+    cardDragCoordinator.init(deck);
     cardDragCoordinator.initRemote({
       reorder: (dragged, insertIndex) => {
         const tabs = paneChrome.getSnapshot()?.tabs ?? [];
@@ -215,7 +220,7 @@ export function BodyChromeFrame({
       away: (phase, dragged, x, y) => paneTabDrag.dispatch({ phase, cardId: dragged, x, y }),
     });
     return () => cardDragCoordinator.initRemote(null);
-  }, [bridge]);
+  }, [deck]);
 
   // The first frame with the shell's chrome facts: the host may show the
   // view now. Two frames on, so the frame carrying the chrome has gone to the
@@ -225,7 +230,7 @@ export function BodyChromeFrame({
     if (!hasChrome || chromePaintPosted) return;
     chromePaintPosted = true;
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => postToHost("painted", {}));
+      requestAnimationFrame(() => postToHost(paintedToHost, {}));
     });
   }, [hasChrome]);
 

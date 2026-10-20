@@ -40,7 +40,7 @@ import {
   type CardsSelectionStore,
 } from "@/lib/cards-selection-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import type { CardDeck } from "@/card-deck";
 
 /**
  * The card ids the next layout verb applies to, in selection order.
@@ -49,7 +49,7 @@ import type { IDeckManagerStore } from "@/deck-manager-store";
  * resolves *which cards*, not *which cards may*.
  */
 export function resolveLayoutSelection(
-  deck: IDeckManagerStore,
+  deck: CardDeck,
   selection: CardsSelectionStore = cardsSelectionStore,
 ): readonly string[] {
   const live = new Set(deck.getSnapshot().cards.map((c) => c.id));
@@ -66,7 +66,7 @@ export function resolveLayoutSelection(
 
 /** The cards of `ids` a geometry verb can place — rails drop out. */
 function contentCardsAmong(
-  deck: IDeckManagerStore,
+  deck: CardDeck,
   ids: readonly string[],
 ): readonly string[] {
   const cards = deck.getSnapshot().cards;
@@ -91,7 +91,7 @@ function contentCardsAmong(
  * resting state rather than an event.
  */
 export function resolveColumnMenuFact(
-  deck: IDeckManagerStore,
+  deck: CardDeck,
   selection: CardsSelectionStore = cardsSelectionStore,
 ): { mode: ColumnMode; canMoveUp: boolean; canMoveDown: boolean } | null {
   const cardIds = contentCardsAmong(deck, resolveLayoutSelection(deck, selection));
@@ -128,7 +128,7 @@ export function resolveColumnMenuFact(
  * told apart from a chord that never arrived.
  */
 export function contentCardsInLayoutSelection(
-  deck: IDeckManagerStore,
+  deck: CardDeck,
   selection: CardsSelectionStore = cardsSelectionStore,
 ): readonly string[] {
   const resolved = resolveLayoutSelection(deck, selection);

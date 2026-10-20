@@ -63,7 +63,7 @@ import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { classifyFrame, describeFrames, floorMeasure } from "./_frames";
-import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import {
   BURST_INTERVAL_MS,
@@ -380,7 +380,6 @@ export async function withKind(launch: Launch, kind: CardKind, name: string, leg
     await Bun.sleep(600);
     const { standing: s, crop } = await standing(app, card, undefined, kind);
     await legs({ app, card, s, crop });
-    await expectNoShellReads(app, card);
   } finally {
     await app.close();
   }

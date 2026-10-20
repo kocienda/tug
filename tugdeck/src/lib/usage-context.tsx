@@ -5,7 +5,7 @@
  * machine), so a single `UsageStore` is constructed once at deck-manager boot
  * and shared by every card's `/usage` sheet through this context — the same
  * shape as {@link RateLimitContext}, and for the same reason (not a per-card
- * store, and not worth bloating `IDeckManagerStore`).
+ * store, and not worth bloating `CardDeck`).
  *
  * The value is nullable so a card rendered outside the provider (some unit
  * tests) gets `null` and the sheet degrades to its empty state.

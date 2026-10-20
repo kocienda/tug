@@ -28,10 +28,6 @@
     "kind": "unknown"
   },
   {
-    "file": "at0612-update-tug-wizard.test.ts",
-    "kind": "gallery-input"
-  },
-  {
     "file": "at0632-step-row-holds-its-height.test.ts",
     "kind": "gallery-input"
   },
@@ -70,5 +66,9 @@
   {
     "file": "settle-frames-fixture.ts",
     "kind": "unknown"
+  },
+  {
+    "file": "update-tug-fixture.ts",
+    "kind": "gallery-input"
   }
 ]

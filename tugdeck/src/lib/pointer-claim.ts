@@ -27,7 +27,9 @@
  */
 
 import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
-import { hostCapabilitiesStore, postToHost } from "./body-handoff";
+import { hostCapabilitiesStore } from "./body-handoff";
+import { postToHost } from "../host/channel";
+import { pointerClaimToHost } from "../host/declarations/geometry";
 import * as canvasOverlayRegistry from "./canvas-overlay-registry";
 
 // ---------------------------------------------------------------------------
@@ -212,7 +214,7 @@ export class PointerClaimTracker {
       return;
     }
     this.last = claim;
-    postToHost("pointerClaim", claim);
+    postToHost(pointerClaimToHost, claim);
   }
 
   /** Watch each surface's size, which can change with no mutation the observers see. */

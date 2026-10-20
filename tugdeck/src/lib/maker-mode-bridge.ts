@@ -23,24 +23,15 @@
  * @module lib/maker-mode-bridge
  */
 
+import { hostAvailable, onHostMessage, postToHost } from "../host/channel";
+import { getSettingsToHost, settingsLoadedToPage } from "../host/declarations/services";
+
 /** The host's reply to a `getSettings` request. */
 export interface HostSettings {
   /** The maker-mode gate (Maker menu + dev serving). */
   makerMode: boolean;
   /** Configured source-tree path, or null when unset. */
   sourceTree: string | null;
-}
-
-/** The host→web bridge object; only the settings callback concerns us here. */
-interface TugBridge {
-  onSettingsLoaded?: (settings: { makerMode?: unknown; sourceTree?: unknown }) => void;
-}
-
-interface WebkitHandles {
-  webkit?: {
-    messageHandlers?: Record<string, { postMessage: (value: unknown) => void } | undefined>;
-  };
-  __tugBridge?: TugBridge;
 }
 
 /** FIFO resolvers awaiting `onSettingsLoaded`. */
@@ -60,29 +51,22 @@ export function lastKnownMakerMode(): boolean | null {
   return knownMakerMode;
 }
 
-function handler(
-  name: "getSettings",
-): { postMessage: (value: unknown) => void } | undefined {
-  const w = globalThis as unknown as WebkitHandles;
-  return w.webkit?.messageHandlers?.[name] ?? undefined;
-}
+let receiving = false;
 
-/** Install the settings callback once, preserving sibling bridge keys. */
+/** Take `__tugBridge.onSettingsLoaded` in this page, once. */
 function ensureBridge(): void {
-  const w = globalThis as unknown as WebkitHandles;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onSettingsLoaded === undefined) {
-    bridge.onSettingsLoaded = (settings) => {
-      knownMakerMode = settings?.makerMode === true;
-      const resolve = pendingSettings.shift();
-      if (resolve === undefined) return;
-      resolve({
-        makerMode: settings?.makerMode === true,
-        sourceTree:
-          typeof settings?.sourceTree === "string" ? settings.sourceTree : null,
-      });
-    };
-  }
+  if (receiving) return;
+  receiving = true;
+  onHostMessage(settingsLoadedToPage, (payload) => {
+    const settings = payload as { makerMode?: unknown; sourceTree?: unknown };
+    knownMakerMode = settings.makerMode === true;
+    const resolve = pendingSettings.shift();
+    if (resolve === undefined) return;
+    resolve({
+      makerMode: settings.makerMode === true,
+      sourceTree: typeof settings.sourceTree === "string" ? settings.sourceTree : null,
+    });
+  });
 }
 
 /**
@@ -90,11 +74,10 @@ function ensureBridge(): void {
  * unavailable (browser dev).
  */
 export function getSettings(): Promise<HostSettings | null> {
-  const h = handler("getSettings");
-  if (h === undefined) return Promise.resolve(null);
+  if (!hostAvailable(getSettingsToHost)) return Promise.resolve(null);
   ensureBridge();
   return new Promise<HostSettings | null>((resolve) => {
     pendingSettings.push(resolve as (settings: HostSettings) => void);
-    h.postMessage({});
+    postToHost(getSettingsToHost, {});
   });
 }

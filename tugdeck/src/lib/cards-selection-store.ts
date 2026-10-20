@@ -32,7 +32,7 @@
 
 import { createSubscribable, Subscribable } from "@/lib/subscribable";
 import { isSidebarCard } from "@/card-registry";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import type { CardDeck } from "@/card-deck";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { isTugMotionEnabled } from "@/lib/scale-timing";
 import { layoutSelection } from "@/bus/declarations/arrangement";
@@ -374,7 +374,7 @@ export function shareLayoutSelection(
  * deferral opened, closed at the write.
  */
 export function attachLayoutSelectionToDeck(
-  deck: IDeckManagerStore,
+  deck: CardDeck,
   selection: CardsSelectionStore = cardsSelectionStore,
 ): () => void {
   let lastFirstResponder = deck.getFirstResponderCardId();

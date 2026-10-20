@@ -56,7 +56,7 @@ import React, { useMemo } from "react";
 
 import "./card-slot-badge.css";
 
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck, getDeckView } from "@/lib/deck-store-registry";
 import { layoutRectOf } from "@/lib/page-zoom-store";
 import { useStoreDerived } from "@/lib/use-store-derived";
 import type { DeckState } from "@/layout-tree";
@@ -109,7 +109,8 @@ export const CardSlotBadge = React.memo(function CardSlotBadge({
 });
 
 function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts | null | undefined }): React.ReactElement | null {
-  const deckStore = getDeckStore();
+  const deckStore = getCardDeck();
+  const deckView = getDeckView();
   // The two facts the chip draws, derived rather than read whole. The badge
   // used to take the entire deck snapshot, and a whole snapshot changes on
   // every commit — so every pane's badge re-rendered its popover, tooltip and
@@ -140,10 +141,10 @@ function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts 
   // the parked records, so this is its own subscription ([L02]).
   const spacesStore = useMemo(
     () =>
-      deckStore === null
+      deckView === null
         ? null
-        : { subscribe: deckStore.subscribeSpaces, getSnapshot: deckStore.getSpacesSnapshot },
-    [deckStore],
+        : { subscribe: deckView.subscribeSpaces, getSnapshot: deckView.getSpacesSnapshot },
+    [deckView],
   );
   // A card id is unique across decks, so the first parked deck that holds it
   // is the only one.

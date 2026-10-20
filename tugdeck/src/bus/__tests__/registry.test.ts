@@ -4,12 +4,15 @@
  * `bus/registry.ts`, and every codec round-trips its sample.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { INVALID } from "../codec";
 import { jsonEqual } from "../equal";
 import { REQUESTS, ROUTED_ACTIONS, SHARED_STORES } from "../registry";
+import { createTestBus, type TestBus } from "../test-bus";
+import { deckAddCard, deckInterruptLiveSessions, deckShowSingletonCard } from "../declarations/arrangement";
+import { paneRevealCard } from "../declarations/pane";
 
 const SRC = join(import.meta.dir, "..", "..");
 const DECLARATIONS = join(SRC, "bus", "declarations");
@@ -101,5 +104,55 @@ describe("the bus registry", () => {
     const afterOf = (key: string) => SHARED_STORES.find((s) => s.key === key)?.declaration.after?.map((a) => a.key);
     expect(afterOf("card.painted")).toEqual(["card.facts"]);
     expect(afterOf("card.context")).toEqual(["card.crossing"]);
+  });
+});
+
+describe("deck.cards", () => {
+  test("is the one deck-wide card-facts store: listed, and the three it replaced are gone", () => {
+    const keys = registered.map((r) => r.key);
+    expect(keys).toContain("deck.cards");
+    for (const gone of ["deck.cardBindings", "deck.cardActivities", "arrangement.cardFacts"]) {
+      expect(keys).not.toContain(gone);
+    }
+  });
+});
+
+describe("the deck verbs any card makes", () => {
+  let testBus: TestBus | undefined;
+  afterEach(() => {
+    testBus?.dispose();
+    testBus = undefined;
+  });
+
+  test("are registered", () => {
+    const keys = registered.map((r) => r.key);
+    for (const key of ["deck.addCard", "deck.showSingletonCard", "deck.interruptLiveSessions", "pane.revealCard"]) {
+      expect(keys).toContain(key);
+    }
+  });
+
+  test("each reaches the shell from a body, and the request's reply comes back", async () => {
+    testBus = createTestBus();
+    const shell = testBus.shell();
+    const body = testBus.body("c-asker", "session");
+    const heard: Array<[string, unknown, string | null]> = [];
+    deckAddCard.on(shell.bus).handle((p, from) => heard.push(["deck.addCard", p, from.cardId]));
+    deckShowSingletonCard.on(shell.bus).handle((p, from) => heard.push(["deck.showSingletonCard", p, from.cardId]));
+    paneRevealCard.on(shell.bus).handle((p, from) => heard.push(["pane.revealCard", p, from.cardId]));
+    deckInterruptLiveSessions.on(shell.bus).handle(() => ({ interrupted: ["s1"], unacknowledged: ["s2"] }));
+    await testBus.flush();
+
+    deckAddCard.on(body.bus).dispatch({ cardId: "c-new", componentId: "text", initialContent: { path: "/a" }, origin: "c-asker", opening: undefined });
+    deckShowSingletonCard.on(body.bus).dispatch({ componentId: "settings" });
+    paneRevealCard.on(body.bus).dispatch({ cardId: "c-asker" });
+    const asked = deckInterruptLiveSessions.on(body.bus).ask({}, { horizon: { ms: 1_000 } });
+    await testBus.flush();
+
+    expect(heard).toEqual([
+      ["deck.addCard", { cardId: "c-new", componentId: "text", initialContent: { path: "/a" }, origin: "c-asker" }, "c-asker"],
+      ["deck.showSingletonCard", { componentId: "settings" }, "c-asker"],
+      ["pane.revealCard", { cardId: "c-asker" }, "c-asker"],
+    ]);
+    expect(await asked).toEqual({ ok: true, value: { interrupted: ["s1"], unacknowledged: ["s2"] } });
   });
 });

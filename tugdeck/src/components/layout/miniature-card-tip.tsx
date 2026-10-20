@@ -49,7 +49,7 @@ import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { SESSION_PHASE_LABELS } from "@/lib/code-session-store/session-phase-visual";
 import { useSessionPhase } from "@/lib/code-session-store/use-session-phase";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getDeckView } from "@/lib/deck-store-registry";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   sessionCitation,
@@ -261,7 +261,7 @@ export function MiniatureCardTip({
 }: {
   target: MiniatureTarget;
 }): React.ReactElement | null {
-  const place = useStoreDerived(getDeckStore(), (deck) => placeOf(deck, target));
+  const place = useStoreDerived(getDeckView(), (deck) => placeOf(deck, target));
   // A card's name is published by the card itself and its session is
   // re-addressed on every rotation, so the tip listens to both while it is
   // open and re-reads `cardIdentity` — the one door to what a card holds —

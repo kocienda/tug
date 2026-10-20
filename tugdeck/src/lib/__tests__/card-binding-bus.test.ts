@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { CardSessionBindingStore, shareCardBinding, type CardSessionBinding } from "../card-session-binding-store";
 import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
 import { cardBinding } from "../../bus/declarations/relays";
-import { deckCardBindings } from "../../bus/declarations/arrangement";
+import { deckCards, type DeckCardFacts } from "../../bus/declarations/deck";
 
 const X: CardSessionBinding = { tugSessionId: "seg-x", lineId: "line", workspaceKey: "wk", projectDir: "/p", sessionMode: "resume" };
 const Y: CardSessionBinding = { ...X, tugSessionId: "seg-y" };
@@ -39,13 +39,27 @@ function share(page: TestPage): Shared {
   return { page, store };
 }
 
-/** The shell, projecting every binding to `deck.cardBindings` as `body-shell.ts` does. */
+/** A card's `deck.cards` record carrying only its binding. */
+const recordOf = (binding: CardSessionBinding): DeckCardFacts => ({
+  componentId: "session",
+  title: null,
+  masthead: null,
+  identity: null,
+  activity: null,
+  binding,
+  parkedTitle: null,
+  waivesClose: false,
+});
+
+/** The shell, projecting every binding to `deck.cards` as `body-shell.ts` does. */
 function shellPage(): Shared & { history: Array<string | null> } {
   const shell = share(bus.shell());
   const history: Array<string | null> = [];
   shell.store.subscribe(() => {
     history.push(shell.store.getBinding("A")?.tugSessionId ?? null);
-    deckCardBindings.on(shell.page.bus).set(Object.fromEntries(shell.store.getSnapshot()));
+    deckCards.on(shell.page.bus).set(
+      Object.fromEntries([...shell.store.getSnapshot()].map(([id, binding]) => [id, recordOf(binding)])),
+    );
   });
   return { ...shell, history };
 }
@@ -67,7 +81,7 @@ describe("a body card's binding", () => {
     await bus.flush();
     expect(shell.store.getBinding("A")).toEqual(X);
     expect(cardBinding.on(shell.page.bus).getFor("A")).toEqual(X);
-    expect(deckCardBindings.on(b.bus).getSnapshot()).toEqual({ A: X });
+    expect(deckCards.on(b.bus).getSnapshot()).toEqual({ A: recordOf(X) });
   });
 
   test("a resume onto another segment moves the shell's binding with no gap", async () => {

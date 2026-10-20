@@ -276,6 +276,12 @@ A body addresses the shell, and the shell addresses a body by its card. A body t
 
 The test: *does any body's code name another card as the target of a bus message?* If it does, it fails. [L02, L27, L33]
 
+### L39. A host↔page message is declared in the host vocabulary or it does not exist. {#l39}
+
+What crosses between the Swift host and a page — a post the page makes, a `window.__tugBridge` member the host calls, a `window.tugdeck` call the host awaits — is declared once in `tugdeck/src/host/declarations/`, beside its payload's codec and samples, listed in `host/registry.ts`, and named again in its Swift twin, `tugapp/Sources/HostMessages.swift`. A fixture the page's registry writes holds the two sides to one list and one set of samples. Each side has one dispatcher: `host/channel.ts` is the only page code that reaches `webkit.messageHandlers` or defines a bridge member, and `HostChannel.swift` is the only host code that reads a message's body or evaluates script into a page to deliver one. A payload that does not decode is refused whole and logged by name, never read field by field with a default. Three things are not messages, by name: a script the host evaluates only to read a page (marked `// host-channel: diagnostic read` within the three lines above the call), the harness's evaluations (`TestHarness/`), and the DEBUG spike (`body/spike-page.ts`, `SpikeBodyHandlers.swift`). The host channel is not the bus: its peer is Swift and its carrier is `WKScriptMessage` and `evaluateJavaScript`, so it is its own law beside [L37]. The long form is [shell-and-bodies.md](shell-and-bodies.md#adding-a-host-message).
+
+The test: *is this crossing a declaration in the host registry?* If it is anything else, it fails; `host/__tests__/no-hand-channel.test.ts` is the guard. [L37, L38]
+
 ---
 
 ## Licensing

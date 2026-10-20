@@ -47,9 +47,11 @@ import type { BodyIntent } from "../body/body-intent";
 import { getRegistration } from "../card-registry";
 import type { DeckState } from "../layout-tree";
 import { bodyCardsStore } from "./body-cards-store";
-import { getDeckStore } from "./deck-store-registry";
+import { getShellDeck } from "./deck-store-registry";
 import { installedPageBus } from "../bus/page-bus";
 import { sessionIntent } from "../bus/declarations/verbs";
+import { postToHost } from "../host/channel";
+import { bodyCreateToHost } from "../host/declarations/lifecycle";
 
 // ---------------------------------------------------------------------------
 // Capability
@@ -124,21 +126,11 @@ export function _resetHandOffForTest(): void {
  * card has its body while parked, and is asked for again there.
  */
 function cardInItsSpace(cardId: string): DeckState["cards"][number] | undefined {
-  const deck = getDeckStore();
+  const deck = getShellDeck();
   if (deck === null) return undefined;
   const spaceId = deck.spaceOf(cardId);
   const own = spaceId === null ? deck.getSnapshot() : (deck.getSpaceDeck(spaceId) ?? deck.getSnapshot());
   return own.cards.find((c) => c.id === cardId);
-}
-
-/** Post `body` to the host's `name` handler; nothing without a host. */
-export function postToHost(name: string, body: unknown): void {
-  const handlers = (
-    globalThis as {
-      webkit?: { messageHandlers?: Record<string, { postMessage: (v: unknown) => void } | undefined> };
-    }
-  ).webkit?.messageHandlers;
-  handlers?.[name]?.postMessage(body);
 }
 
 /**
@@ -151,7 +143,7 @@ export function askForBodyAgain(cardId: string, intent: BodyIntent): void {
   if (card === undefined || !bodyCardsStore.has(cardId)) return;
   intents.set(cardId, intent);
   bodyCardsStore.setState(cardId, "creating");
-  postToHost("bodyCreate", { cardId, componentId: card.componentId, intent });
+  postToHost(bodyCreateToHost, { cardId, componentId: card.componentId, intent });
 }
 
 /** How a failed card's Reload asks for its body: the shell's, once it is installed. */
@@ -187,7 +179,7 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
     sessionIntent.dispatch(made as unknown as Record<string, unknown> & { kind: string }, { card: cardId });
     return true;
   }
-  const deck = getDeckStore();
+  const deck = getShellDeck();
   if (deck === null) return false;
   const card = cardInItsSpace(cardId);
   if (card === undefined || !isBodyKind(card.componentId)) return false;
@@ -197,7 +189,7 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
   const bag = asked.bag ?? deck.getCardState(cardId);
   const made = bag === undefined ? asked : { ...asked, bag };
   intents.set(cardId, made);
-  postToHost("bodyCreate", { cardId, componentId: card.componentId, intent: made });
+  postToHost(bodyCreateToHost, { cardId, componentId: card.componentId, intent: made });
   return true;
 }
 

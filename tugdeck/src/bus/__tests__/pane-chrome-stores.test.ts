@@ -43,7 +43,7 @@ function deckOf(panes: Array<{ id: string; cardIds: string[] }>): DeckState {
   };
 }
 
-const READERS = { titleOf: () => null, identityOf: () => null, spaces: { list: [], ownSpaceId: null } };
+const READERS = { titleOf: () => null, waives: () => false, spaces: { list: [], ownSpaceId: null } };
 
 describe("pane.chrome", () => {
   test("a body that attaches after a tab is added reads both tabs, and its context before them", async () => {

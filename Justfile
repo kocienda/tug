@@ -163,15 +163,17 @@ test-swift:
 # nobody reads until the gate is already red. Adding a new golden means adding
 # its line here — an unlisted golden is one nothing here can rebuild.
 golden:
-    @bash tugrust/scripts/report-phase.sh golden 0 "imposer solutions" --of "imposer solutions" "beat plan" "session digest" "tugmark golden"
+    @bash tugrust/scripts/report-phase.sh golden 0 "imposer solutions" --of "imposer solutions" "beat plan" "host parity" "session digest" "tugmark golden"
     cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test src/lib/__tests__/layout-imposer-solutions.test.ts
     @bash tugrust/scripts/report-phase.sh golden 1 "beat plan"
     cd tugdeck && BEAT_PLAN_GOLDEN_UPDATE=1 bun test src/lib/__tests__/body-beat-plan.test.ts
-    @bash tugrust/scripts/report-phase.sh golden 2 "session digest"
+    @bash tugrust/scripts/report-phase.sh golden 2 "host parity"
+    cd tugdeck && HOST_PARITY_UPDATE=1 bun test src/host/__tests__/host-parity.test.ts
+    @bash tugrust/scripts/report-phase.sh golden 3 "session digest"
     cd tugrust && TUG_DIGEST_GOLDEN_UPDATE=1 cargo nextest run -p tugcast session_digest
-    @bash tugrust/scripts/report-phase.sh golden 3 "tugmark golden"
+    @bash tugrust/scripts/report-phase.sh golden 4 "tugmark golden"
     just tugmark-golden
-    @bash tugrust/scripts/report-phase.sh golden 4
+    @bash tugrust/scripts/report-phase.sh golden 5
 
 # Regenerate the tugmark drift golden (tugdeck/crates/tugmark/corpus/golden.json)
 # from the corpus and the newest stream-json catalog, then hold the page's

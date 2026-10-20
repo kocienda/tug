@@ -115,6 +115,15 @@ export interface SpacesSnapshot {
   mountedDecks: ReadonlyMap<string, DeckState>;
 }
 
+/** No workspaces: what a page that holds only one card's deck knows of them. */
+export const NO_SPACES: SpacesSnapshot = {
+  spaces: [],
+  activeSpaceId: "",
+  mountedSpaceIds: [],
+  warmSpaceIds: [],
+  mountedDecks: new Map(),
+};
+
 /**
  * Strip the session-only fields from a deck about to be parked (List L01).
  *

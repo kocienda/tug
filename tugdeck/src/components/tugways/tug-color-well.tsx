@@ -23,7 +23,7 @@ import type { FocusPolicy } from "./focus-manager";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { COLOR_PICKER_COMPONENT_ID, useActiveColorTarget } from "./active-color-target";
 import { formatTugColorText, swatchOklch, type TugColorSpec } from "./tugcolor";
-import { DeckManagerContext } from "@/deck-manager-context";
+import { CardDeckContext } from "@/card-deck-context";
 import "./tug-color-well.css";
 
 export interface TugColorWellProps {
@@ -63,7 +63,7 @@ export function TugColorWell({
   const active = useActiveColorTarget();
   const isActive = !readOnly && active?.senderId === id;
   // Tolerant of standalone/preview mounts with no deck (context null).
-  const deck = useContext(DeckManagerContext);
+  const deck = useContext(CardDeckContext);
   const { focusableRef } = useFocusable({
     id: `${id}-focusable`,
     group: focusGroup ?? "",

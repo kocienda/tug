@@ -51,7 +51,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App, type BodyApp } from "./_harness";
+import { launchTugApp, note, type BodyApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,

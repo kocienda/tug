@@ -5,13 +5,19 @@
  * scalars a body renders against, `deck.menu` is the arrangement projected
  * for the key card's menu gates (it moves with every commit), and
  * `deck.frontmostProject` moves only when the frontmost bound card does.
+ * `deck.cards` is every card the arrangement holds, as other pages read
+ * it: its kind, title, identity, phase and session, crossing once for every
+ * page that names a card it does not show.
  *
  * @module bus/declarations/deck
  */
 
+import type { CardIdentityFacts } from "../../card-registry";
 import type { CardSessionBinding } from "../../lib/card-session-binding-store";
-import { arr, bool, literal, nullable, num, obj, opaque, str, type Codec } from "../codec";
+import type { CardMastheadPayload } from "../../lib/card-title-store";
+import { arr, bool, literal, nullable, num, obj, opaque, rec, str, type Codec } from "../codec";
 import { defineSharedStore } from "../shared-store";
+import { cardIdentity, cardMasthead } from "./card";
 
 /** A value the bus carries without reading: anything but absent. */
 const carried: Codec<unknown> = opaque((v: unknown): v is unknown => v !== undefined, null);
@@ -108,4 +114,46 @@ export const deckFrontmostProject = defineSharedStore<{ binding: CardSessionBind
     binding: nullable(sessionBinding),
   }),
   initial: { binding: null },
+});
+
+/** What every page reads of a card the arrangement holds. */
+export interface DeckCardFacts {
+  componentId: string;
+  /** The card's live title override, or null (`cardTitleStore.get`). */
+  title: string | null;
+  masthead: CardMastheadPayload | null;
+  /** What the card holds, as the page that shows it resolved it live (`liveCardIdentity`), or null. */
+  identity: CardIdentityFacts | null;
+  /** The session phase key the card's body last reported (`card.facts` `activity`), or null. */
+  activity: string | null;
+  binding: CardSessionBinding | null;
+  /** A parked workspace card's title from its bindings ledger (`cardIdentity`'s `parked` source), else null. */
+  parkedTitle: string | null;
+  /** Whether the card waives its type's close confirm now (`card.holds` `waive`). */
+  waivesClose: boolean;
+}
+
+/**
+ * Every card the arrangement holds — every workspace's — by id. A page reads
+ * a card it does not show here and nowhere else: its own page stores answer
+ * another card's id from this replica, so nothing about a card crosses
+ * twice.
+ */
+export const deckCards = defineSharedStore<Record<string, DeckCardFacts>>({
+  key: "deck.cards",
+  owner: "shell",
+  scope: { deck: true },
+  codec: rec(
+    obj({
+      componentId: str,
+      title: nullable(str),
+      masthead: nullable(cardMasthead),
+      identity: nullable(cardIdentity),
+      activity: nullable(str),
+      binding: nullable(sessionBinding),
+      parkedTitle: nullable(str),
+      waivesClose: bool,
+    }),
+  ),
+  initial: {},
 });

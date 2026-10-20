@@ -1002,18 +1002,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     func forwardActivationClick(at locationInWindow: NSPoint) {
         let viewLocal = webView.convert(locationInWindow, from: nil)
         guard webView.bounds.contains(viewLocal) else { return }
-        let x = viewLocal.x
-        let y = viewLocal.y
-        webView.evaluateJavaScript(
-            "window.__tugBridge?.onActivationClick?.(\(x), \(y))",
-        ) { _, error in
-            if let error = error {
-                NSLog(
-                    "MainWindow: evaluateJavaScript failed for onActivationClick: %@",
-                    error.localizedDescription,
-                )
-            }
-        }
+        hostChannel.send(.onActivationClick, ["x": Double(viewLocal.x), "y": Double(viewLocal.y)], to: webView)
     }
 
     /// Load URL in webview
@@ -1025,8 +1014,12 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         webView.load(request)
     }
 
-    /// Evaluate JavaScript in the current page context.
+    /// Evaluate JavaScript in the current page context: the harness's door,
+    /// and the frame burst's read of the page. A message to the page goes
+    /// through `hostChannel` instead.
+    // host-channel: diagnostic read
     func evaluateJavaScript(_ script: String, completionHandler: ((Any?, Error?) -> Void)? = nil) {
+        // host-channel: diagnostic read
         webView.evaluateJavaScript(script, completionHandler: completionHandler)
     }
 
@@ -1038,10 +1031,12 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// `fetch` with a status check, a bounded wait on a session — and the
     /// host still learns the outcome. The quit path is the reason this
     /// exists: it needs the deck's verdict, not just "the call returned".
+    // host-channel: diagnostic read
     func callAsyncJavaScript(
         _ body: String,
         completionHandler: @escaping @MainActor @Sendable (Result<Any, Error>) -> Void
     ) {
+        // host-channel: diagnostic read
         webView.callAsyncJavaScript(
             body,
             arguments: [:],
@@ -1171,15 +1166,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             return zoomFactor
         }
         zoomFactor = clamped
-        webView.callAsyncJavaScript(
-            "return await window.__tugBridge?.onPageZoomApply?.(factor);",
-            arguments: ["factor": Double(clamped)],
-            in: nil,
-            in: .page
-        ) { result in
-            if case .failure(let error) = result {
-                NSLog("MainWindow: onPageZoomApply failed: %@", error.localizedDescription)
-            }
+        hostChannel.call(.pageZoomApply(factor: Double(clamped)), in: webView) { _ in
             completion?()
         }
         return clamped
@@ -1190,13 +1177,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// before the view is unhidden — so a deck that loads or reloads at a
     /// persisted zoom is never seen at 100 %.
     func bridgePageZoom() {
-        webView.evaluateJavaScript(
-            "window.__tugBridge?.onPageZoom?.({factor: \(Double(zoomFactor))})"
-        ) { _, error in
-            if let error = error {
-                NSLog("MainWindow: onPageZoom failed: %@", error.localizedDescription)
-            }
-        }
+        hostChannel.send(.onPageZoom, ["factor": Double(zoomFactor)], to: webView)
     }
 
     /// Reset to 100%.
@@ -1286,6 +1267,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
           });
         })()
         """
+        // host-channel: diagnostic read
         evaluateJavaScript(rectsScript) { result, error in
             if let json = result as? String {
                 try? json.write(to: dir.appendingPathComponent("rects.json"), atomically: true, encoding: .utf8)
@@ -1391,31 +1373,12 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: - Bodies
 
-    /// Every handler name a page may post to. The shell's configuration and
-    /// every body's register all of them with this window, so a body speaks
-    /// the same bridge as the shell; the dispatch reads which view sent a
-    /// message and refuses the shell-only names from a body.
-    static let bridgeHandlerNames = [
-        "sourceTree", "choosePath", "getSettings", "frontendReady",
-        "frontendLaunchStalled", "pageFault", "setTheme", "devBadge",
-        "clipboardRead", "clipboardWrite", "clipboardWriteImage", "menuState",
-        "hmrUpdate", "openPath", "lookUpInDictionary", "trashPath",
-        "restorePath", "thumbnailPath", "exportSession", "updateAction",
-        "dictation", "pageZoom", "hostFrames",
-        "bodyHello", "painted", "bodyCreate", "placeBodies", "bodyDestroy",
-        "bodyFocus", "pointerClaim", "floorGrid", "beatPlan", "crossingReady", "bodySurface",
-        "placeCards", "cardGesture", "cardLand",
-    ]
-
-    /// Names only the shell may post: the deck's own chrome, the window's
-    /// settings, and the commands that direct bodies. `pageZoom` is not one:
-    /// the Layout card's Zoom row asks for a level from the Layout card's own
-    /// body, and the answer is the window's whole zoom either way.
-    static let shellOnlyHandlerNames: Set<String> = [
-        "sourceTree", "setTheme", "devBadge", "updateAction",
-        "frontendLaunchStalled", "hmrUpdate", "bodyCreate", "placeBodies",
-        "bodyDestroy", "bodyFocus", "pointerClaim", "hostFrames", "floorGrid", "beatPlan", "placeCards", "cardLand",
-    ]
+    /// The one handler every page's content controller carries. The shell's
+    /// configuration and every body's register every `ToHostName` with it,
+    /// so a body speaks the same channel as the shell; it reads which view
+    /// sent a message, refuses the shell-only names from a body, and hands
+    /// the decoded message to `receive(_:from:)`.
+    private(set) lazy var hostChannel = HostChannel(window: self)
 
     /// One page's configuration: a fresh content controller carrying every
     /// bridge handler, the WebKit feature overrides, the page-fault forwarder
@@ -1428,9 +1391,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// frontend's own inspector is the DevTools card (⌥⌘/).
     func makeWebViewConfiguration(forShell: Bool) -> WKWebViewConfiguration {
         let controller = WKUserContentController()
-        for name in MainWindow.bridgeHandlerNames {
-            controller.add(self, name: name)
-        }
+        hostChannel.register(on: controller)
         let config = WKWebViewConfiguration()
         applyWebKitFeatureOverrides(to: config.preferences)
         config.userContentController = controller
@@ -1456,30 +1417,23 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     /// What a body is told about the deck when it is bound, before the
     /// shell's own facts reach it over the bus.
-    func bodyFacts() -> [String: Any] {
-        [
-            "theme": (NSApp.delegate as? AppDelegate)?.menuState.activeTheme ?? "",
-            "zoom": Double(zoomFactor),
-            "keyboardAccess": NSApp.isFullKeyboardAccessEnabled,
-            "appActive": NSApp.isActive,
-        ]
+    func bodyFacts() -> BindFacts {
+        BindFacts(
+            theme: (NSApp.delegate as? AppDelegate)?.menuState.activeTheme ?? "",
+            zoom: Double(zoomFactor),
+            keyboardAccess: NSApp.isFullKeyboardAccessEnabled,
+            appActive: NSApp.isActive
+        )
     }
 
-    /// Call `function` in the shell with `payload` as its one argument.
-    func evaluateInShell(call function: String, payload: [String: Any]) {
-        guard let script = BodyViewController.script(calling: function, with: payload) else { return }
-        webView.evaluateJavaScript(script) { _, error in
-            if let error {
-                NSLog("MainWindow: evaluateJavaScript failed for %@: %@", function, error.localizedDescription)
-            }
-        }
+    /// Send the shell `message`.
+    func sendToShell(_ message: ToPage) {
+        hostChannel.send(message, to: webView)
     }
 
-    /// Evaluate `script` in every body.
-    func evaluateInBodies(_ script: String) {
-        for view in bodies?.webViews ?? [] {
-            view.evaluateJavaScript(script, completionHandler: nil)
-        }
+    /// Every view that holds a page: the shell, then each body.
+    var pageViews: [WKWebView] {
+        [webView] + (bodies?.webViews ?? [])
     }
 
     /// A body is gone: whatever the host kept for its card goes with it.
@@ -1722,38 +1676,23 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    /// Deliver a trash/restore result to JavaScript. Same double-serialization
-    /// as `clipboardRead`: JSON for the payload, then JSON again to produce a
-    /// valid JS string literal (U+2028 / U+2029 are legal in JSON and not in
-    /// JS source text).
+    /// Deliver a trash/restore result to the view that asked (`onTrashResult`).
     func replyToTrashRequest(_ payload: [String: Any], in target: WKWebView? = nil) {
-        replyToBridgeRequest(payload, callback: "__tugTrashCallback", in: target)
+        replyToBridgeRequest(.onTrashResult, payload, in: target)
     }
 
-    /// Deliver a QuickLook thumbnail result to JavaScript. See `os-thumbnail.ts`.
+    /// Deliver a QuickLook thumbnail result to the view that asked
+    /// (`onThumbnail`). See `os-thumbnail-store.ts`.
     func replyToThumbnailRequest(_ payload: [String: Any], in target: WKWebView? = nil) {
-        replyToBridgeRequest(payload, callback: "__tugThumbnailCallback", in: target)
+        replyToBridgeRequest(.onThumbnail, payload, in: target)
     }
 
-    /// Deliver a request/reply bridge result to the named JS callback, in the
-    /// view that asked (the shell when none is named).
-    private func replyToBridgeRequest(_ payload: [String: Any], callback: String, in target: WKWebView? = nil) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []),
-              let jsonString = String(data: jsonData, encoding: .utf8),
-              let quotedData = try? JSONSerialization.data(withJSONObject: jsonString,
-                                                          options: [.fragmentsAllowed]),
-              let quotedString = String(data: quotedData, encoding: .utf8) else {
-            NSLog("MainWindow: JSON serialization failed for %@ reply", callback)
-            return
-        }
-        let script = "window.\(callback)?.(JSON.parse(\(quotedString)))"
+    /// Deliver a request/reply result through `member`, in the view that
+    /// asked (the shell when none is named), on the next main-queue turn.
+    private func replyToBridgeRequest(_ member: ToPageMember, _ payload: [String: Any], in target: WKWebView? = nil) {
         DispatchQueue.main.async { [weak self] in
-            (target ?? self?.webView)?.evaluateJavaScript(script) { _, error in
-                if let error = error {
-                    NSLog("MainWindow: evaluateJavaScript failed for %@ reply: %@",
-                          callback, error.localizedDescription)
-                }
-            }
+            guard let self else { return }
+            self.hostChannel.send(member, payload, to: target ?? self.webView)
         }
     }
 
@@ -1806,9 +1745,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// Clean up WKScriptMessageHandler registrations to break retain cycle
     func cleanupBridge() {
         guard !bridgeCleaned else { return }
-        for name in MainWindow.bridgeHandlerNames {
-            contentController.removeScriptMessageHandler(forName: name)
-        }
+        HostChannel.unregister(from: contentController)
         // Every body's controller holds this window too.
         bodies?.destroyAll()
         for meter in pageFrameMeters.values { meter.stop() }
@@ -1830,13 +1767,6 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         cleanupBridge()
     }
 
-    /// Escape a string for safe embedding in JavaScript
-    private func escapeForJS(_ str: String) -> String {
-        str.replacingOccurrences(of: "\\", with: "\\\\")
-           .replacingOccurrences(of: "'", with: "\\'")
-           .replacingOccurrences(of: "\n", with: "\\n")
-    }
-
     /// Hand the deck the current update state.
     ///
     /// Called on every transition, and again on `bridgeFrontendReady` — which
@@ -1845,29 +1775,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// replay is indistinguishable from the transition that produced it, and
     /// a snapshot delivered twice costs nothing.
     ///
-    /// Serialized through JSON rather than interpolated: release notes are
-    /// arbitrary HTML or Markdown, and `escapeForJS` handles three characters.
+    /// Release notes are arbitrary HTML or Markdown; the channel serializes
+    /// the snapshot so any text survives.
     func bridgeUpdateState(_ snapshot: UpdateSnapshot) {
-        guard
-            let jsonData = try? JSONSerialization.data(withJSONObject: snapshot.jsonObject),
-            let jsonString = String(data: jsonData, encoding: .utf8),
-            let quotedData = try? JSONSerialization.data(
-                withJSONObject: jsonString, options: [.fragmentsAllowed]),
-            let quotedString = String(data: quotedData, encoding: .utf8)
-        else {
-            NSLog("MainWindow: JSON serialization failed for onUpdateState")
-            return
-        }
-        webView.evaluateJavaScript(
-            "window.__tugBridge?.onUpdateState?.(JSON.parse(\(quotedString)))"
-        ) { _, error in
-            if let error = error {
-                NSLog(
-                    "MainWindow: evaluateJavaScript failed for onUpdateState: %@",
-                    error.localizedDescription
-                )
-            }
-        }
+        hostChannel.send(.onUpdateState, snapshot.jsonObject, to: webView)
     }
 
     /// Push one dictation event to the deck.
@@ -1878,30 +1789,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// does is claim the mic again with a fresh id. Spec S03's ordering is the
     /// engine's to keep; this is only the wire.
     ///
-    /// Serialized through JSON rather than interpolated, because the payload
-    /// carries recognised speech — arbitrary text, quotes and all.
+    /// The payload carries recognised speech — arbitrary text, quotes and
+    /// all — which the channel serializes.
     func bridgeDictationEvent(_ event: DictationEvent) {
-        guard
-            let jsonData = try? JSONSerialization.data(withJSONObject: event.jsonObject),
-            let jsonString = String(data: jsonData, encoding: .utf8),
-            let quotedData = try? JSONSerialization.data(
-                withJSONObject: jsonString, options: [.fragmentsAllowed]),
-            let quotedString = String(data: quotedData, encoding: .utf8)
-        else {
-            NSLog("MainWindow: JSON serialization failed for onDictation")
-            return
-        }
-        let target: WKWebView = dictationTarget ?? webView
-        target.evaluateJavaScript(
-            "window.__tugBridge?.onDictation?.(JSON.parse(\(quotedString)))"
-        ) { _, error in
-            if let error = error {
-                NSLog(
-                    "MainWindow: evaluateJavaScript failed for onDictation: %@",
-                    error.localizedDescription
-                )
-            }
-        }
+        hostChannel.send(.onDictation, event.jsonObject, to: dictationTarget ?? webView)
     }
 
     /// Push a trackpad scroll's phase edge to the deck.
@@ -1930,14 +1821,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         let inContainer = containerView.convert(event.locationInWindow, from: nil)
         let viewport = BodyGeometry.flipped(inContainer, inHeight: containerView.bounds.height)
         let target: WKWebView = bodies?.body(atViewportPoint: viewport)?.webView ?? webView
-        target.evaluateJavaScript("window.__tugBridge?.onScrollPhase?.('\(edge)')") { _, error in
-            if let error = error {
-                NSLog(
-                    "MainWindow: evaluateJavaScript failed for onScrollPhase: %@",
-                    error.localizedDescription
-                )
-            }
-        }
+        hostChannel.send(.text(.onScrollPhase, edge), to: target)
     }
 
     /// Hand the deck the host's network-path report.
@@ -1948,25 +1832,18 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// line worth repeating here: `satisfied` is not an assurance, because
     /// captive wifi reports it while nothing gets through.
     func bridgeNetworkPath(status: String, isExpensive: Bool, isConstrained: Bool) {
-        let statusArg = escapeForJS(status)
-        webView.evaluateJavaScript(
-            "window.__tugBridge?.onNetworkPath?.({status: '\(statusArg)', "
-                + "isExpensive: \(isExpensive), isConstrained: \(isConstrained)})"
-        ) { _, error in
-            if let error = error {
-                NSLog(
-                    "MainWindow: evaluateJavaScript failed for onNetworkPath: %@",
-                    error.localizedDescription
-                )
-            }
-        }
+        hostChannel.send(
+            .onNetworkPath,
+            ["status": status, "isExpensive": isExpensive, "isConstrained": isConstrained],
+            to: webView
+        )
     }
 
     /// Present the `/export` save panel ([#step-13c]) as a sheet on this
     /// window. The accessory File Format popup selects which content
     /// (markdown / JSON Lines) is written; the popup index — not the typed
     /// extension — is authoritative at write time. Calls back
-    /// `onExportDone(id, "saved" | "canceled")`.
+    /// `onExportDone({id, result: "saved" | "canceled"})`.
     private func presentExportPanel(requestId: String, baseName: String,
                                     markdown: String, jsonl: String,
                                     replyTo target: WKWebView) {
@@ -2000,14 +1877,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
                     NSLog("MainWindow: export write failed: %@", error.localizedDescription)
                 }
             }
-            let idArg = self.escapeForJS(requestId)
-            target.evaluateJavaScript(
-                "window.__tugBridge?.onExportDone?.('\(idArg)', '\(result)')"
-            ) { _, error in
-                if let error = error {
-                    NSLog("MainWindow: evaluateJavaScript failed for exportSession: %@", error.localizedDescription)
-                }
-            }
+            self.hostChannel.send(.onExportDone, ["id": requestId, "result": result], to: target)
         }
     }
 
@@ -2022,12 +1892,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     /// Send dev mode error to frontend
     func bridgeDevModeError(message: String) {
-        let escaped = escapeForJS(message)
-        webView.evaluateJavaScript("window.__tugBridge?.onDevModeError?.('\(escaped)')") { _, error in
-            if let error = error {
-                NSLog("MainWindow: evaluateJavaScript failed for bridgeDevModeError: %@", error.localizedDescription)
-            }
-        }
+        hostChannel.send(.text(.onDevModeError, message), to: webView)
     }
 
     // MARK: - WKNavigationDelegate
@@ -2225,7 +2090,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
                 // Every body saves its card and goes first: the reloaded
                 // shell's restore pass makes them again through its funnels.
                 self?.bodies.saveAndDestroyAll { [weak self] in
-                    self?.webView.evaluateJavaScript("window.tugdeck?.saveState?.()") { [weak self] _, _ in
+                    guard let self else { return }
+                    self.hostChannel.call(.saveState, in: self.webView) { [weak self] _ in
                         if let url = self?.webView.url {
                             self?.webView.load(URLRequest(url: url))
                         }
@@ -2394,87 +2260,54 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     }
 }
 
-// MARK: - WKScriptMessageHandler
+// MARK: - Host messages
 
-extension MainWindow: WKScriptMessageHandler {
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        // Every page posts to the same names; which page it was decides where
-        // the answer goes. A message from a view that is neither the shell nor
-        // a body (one already torn down) is dropped.
-        let fromBody = message.webView === webView ? nil : bodies?.body(for: message.webView)
-        guard message.webView === webView || fromBody != nil else {
-            NSLog("MainWindow: script message %@ from an unknown view; ignoring", message.name)
-            return
-        }
-        let replyView: WKWebView = fromBody?.webView ?? webView
-        if let fromBody, MainWindow.shellOnlyHandlerNames.contains(message.name) {
-            TugLog.warn("bodies", "shell-only message from a body", [
-                TugLog.field("name", message.name),
-                TugLog.field("card", fromBody.cardId ?? "spare"),
-            ])
-            return
-        }
-        switch message.name {
-        case "sourceTree":
+extension MainWindow {
+    /// The page `view` is — the shell, or a live body — or nil for a view
+    /// already torn down.
+    func hostSender(for view: WKWebView?) -> HostSender? {
+        if view === webView { return .shell(webView) }
+        return bodies?.body(for: view).map { .body($0) }
+    }
+
+    /// One message a page posted, decoded by `HostChannel`, from `sender`.
+    func receive(_ message: ToHost, from sender: HostSender) {
+        let fromBody = sender.body
+        let replyView = sender.replyView
+        switch message {
+        case .sourceTree:
             bridgeDelegate?.bridgeChooseSourceTree { [weak self] path in
                 guard let self = self else { return }
                 if let path = path {
-                    let escaped = self.escapeForJS(path)
-                    self.webView.evaluateJavaScript("window.__tugBridge?.onSourceTreeSelected?.('\(escaped)')") { _, error in
-                        if let error = error {
-                            NSLog("MainWindow: evaluateJavaScript failed for sourceTree (selected): %@", error.localizedDescription)
-                        }
-                    }
+                    self.hostChannel.send(.text(.onSourceTreeSelected, path), to: self.webView)
                 } else {
-                    self.webView.evaluateJavaScript("window.__tugBridge?.onSourceTreeCancelled?.()") { _, error in
-                        if let error = error {
-                            NSLog("MainWindow: evaluateJavaScript failed for sourceTree (cancelled): %@", error.localizedDescription)
-                        }
-                    }
+                    self.hostChannel.send(.loose(.onSourceTreeCancelled, .object([:])), to: self.webView)
                 }
             }
-        case "choosePath":
+        case .choosePath(let body):
             // TugFileChooser "Browse…" picker. The web layer sends a request
             // id, an optional starting path, and a `kind` ("directory"|"file");
             // we open an NSOpenPanel and call back
-            // window.__tugBridge.onPathChosen(id, path|null). The id lets
+            // window.__tugBridge.onPathChosen({id, path|null}). The id lets
             // concurrent pickers resolve independently.
-            guard let body = message.body as? [String: Any],
-                  let requestId = body["id"] as? String else { return }
+            guard let requestId = body["id"] as? String else { return }
             let initialPath = body["initialPath"] as? String
             let suggestedName = body["suggestedName"] as? String
             let kind = (body["kind"] as? String) ?? "directory"
             bridgeDelegate?.bridgeChoosePath(kind: kind, initialPath: initialPath, suggestedName: suggestedName) { [weak self] path in
                 guard let self = self else { return }
-                let idArg = self.escapeForJS(requestId)
-                let pathArg: String
-                if let path = path {
-                    pathArg = "'\(self.escapeForJS(path))'"
-                } else {
-                    pathArg = "null"
-                }
-                replyView.evaluateJavaScript("window.__tugBridge?.onPathChosen?.('\(idArg)', \(pathArg))") { _, error in
-                    if let error = error {
-                        NSLog("MainWindow: evaluateJavaScript failed for choosePath: %@", error.localizedDescription)
-                    }
-                }
+                self.hostChannel.send(.onPathChosen, ["id": requestId, "path": path.map { $0 as Any } ?? NSNull()], to: replyView)
             }
-        case "getSettings":
+        case .getSettings:
             bridgeDelegate?.bridgeGetSettings { [weak self] makerMode, sourceTree in
                 guard let self = self else { return }
-                let stValue: String
-                if let st = sourceTree {
-                    stValue = "'\(self.escapeForJS(st))'"
-                } else {
-                    stValue = "null"
-                }
-                replyView.evaluateJavaScript("window.__tugBridge?.onSettingsLoaded?.({makerMode: \(makerMode), sourceTree: \(stValue)})") { _, error in
-                    if let error = error {
-                        NSLog("MainWindow: evaluateJavaScript failed for getSettings: %@", error.localizedDescription)
-                    }
-                }
+                self.hostChannel.send(
+                    .onSettingsLoaded,
+                    ["makerMode": makerMode, "sourceTree": sourceTree.map { $0 as Any } ?? NSNull()],
+                    to: replyView
+                )
             }
-        case "lookUpInDictionary":
+        case .lookUpInDictionary(let body):
             // Look Up in Dictionary. The web layer sends the selected text and
             // the viewport (CSS) point its panel should anchor to; AppKit's
             // `showDefinition(for:at:)` puts up the system definition panel —
@@ -2494,8 +2327,7 @@ extension MainWindow: WKScriptMessageHandler {
             // measured in, with View › Zoom's transform already applied. Only
             // the font size is scaled: it is the computed style, in layout px,
             // and the callout is redrawn over glyphs drawn at the zoom factor.
-            guard let body = message.body as? [String: Any],
-                  let text = body["text"] as? String, !text.isEmpty else { return }
+            guard let text = body["text"] as? String, !text.isEmpty else { return }
             let anchor = NSPoint(
                 x: (body["x"] as? Double) ?? 0,
                 y: (body["y"] as? Double) ?? 0
@@ -2508,7 +2340,7 @@ extension MainWindow: WKScriptMessageHandler {
             )
             let defined = NSAttributedString(string: text, attributes: [.font: font])
             replyView.showDefinition(for: defined, at: anchor)
-        case "openPath":
+        case .openPath(let body):
             // `/memory` ([#step-12a]) — hand a memory path to the OS. The web
             // layer sends a `~`-relative or absolute path plus a `kind`; we
             // expand the tilde (the web layer has no home dir) and route via
@@ -2524,8 +2356,7 @@ extension MainWindow: WKScriptMessageHandler {
             // is only created in the user's own space (`BridgePathGuard`);
             // Claude Code's memory files under `~/.claude/` are why the root
             // is not narrower.
-            guard let body = message.body as? [String: Any],
-                  let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
+            guard let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
             let kind = (body["kind"] as? String) ?? "file"
             let url: URL
             switch BridgePathGuard.user.forOpening(rawPath) {
@@ -2572,7 +2403,7 @@ extension MainWindow: WKScriptMessageHandler {
                 }
                 NSWorkspace.shared.open(url)
             }
-        case "trashPath":
+        case .trashPath(let body):
             // Move an attachment to the macOS Trash. `NSWorkspace.recycle`
             // reports the destination URL, and that URL is the entire restore
             // mechanism — `restorePath` moves the file back from it, so undo
@@ -2587,8 +2418,7 @@ extension MainWindow: WKScriptMessageHandler {
             // Only a path in the user's own space is recycled
             // (`BridgePathGuard`); a refusal replies `ok: false` so the deck
             // settles rather than timing out.
-            guard let body = message.body as? [String: Any],
-                  let requestId = body["requestId"] as? String,
+            guard let requestId = body["requestId"] as? String,
                   let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
             let url: URL
             switch BridgePathGuard.user.forTrashing(rawPath) {
@@ -2613,15 +2443,14 @@ extension MainWindow: WKScriptMessageHandler {
                 self.replyToTrashRequest(["requestId": requestId, "ok": true,
                                           "trashedPath": trashed.path], in: replyView)
             }
-        case "restorePath":
+        case .restorePath(let body):
             // The symmetric half of `trashPath`, and it has to live here: the
             // fs route family has no move verb, and /api/fs/write is a text
             // writer that would corrupt binary bytes. The host already holds
             // the trashed URL it minted, so the restore is one moveItem.
             // The source must be in the user's Trash and the destination in
             // the user's own space (`BridgePathGuard`).
-            guard let body = message.body as? [String: Any],
-                  let requestId = body["requestId"] as? String,
+            guard let requestId = body["requestId"] as? String,
                   let trashedPath = body["trashedPath"] as? String, !trashedPath.isEmpty,
                   let destinationPath = body["destination"] as? String, !destinationPath.isEmpty
             else { return }
@@ -2649,7 +2478,7 @@ extension MainWindow: WKScriptMessageHandler {
                 replyToTrashRequest(["requestId": requestId, "ok": false,
                                      "error": error.localizedDescription], in: replyView)
             }
-        case "thumbnailPath":
+        case .thumbnailPath(let body):
             // A QuickLook thumbnail for a non-image attachment. A .txt, a .pdf,
             // a .key — the system already knows how to draw a preview of each,
             // and QuickLook is the only way to ask: it runs the owning app's
@@ -2665,8 +2494,7 @@ extension MainWindow: WKScriptMessageHandler {
             // window.__tugThumbnailCallback({requestId, dataUrl}). A file with
             // no thumbnail at all replies with a null dataUrl rather than
             // staying silent, so the caller settles instead of timing out.
-            guard let body = message.body as? [String: Any],
-                  let requestId = body["requestId"] as? String,
+            guard let requestId = body["requestId"] as? String,
                   let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
             let points = (body["size"] as? Double) ?? 64
             let url = URL(fileURLWithPath: (rawPath as NSString).expandingTildeInPath)
@@ -2687,20 +2515,19 @@ extension MainWindow: WKScriptMessageHandler {
                     "dataUrl": dataUrl ?? NSNull(),
                 ], in: replyView)
             }
-        case "updateAction":
+        case .updateAction(let name):
             // The deck's one way to answer the update flow — the pill's and
             // the popover's controls all arrive here [B03]. The host maps the
             // name onto whichever Sparkle reply closure the current state
             // holds, and ignores one the state has no closure for, so a stale
             // click from a deck that reloaded mid-flow does nothing rather
             // than replying twice.
-            guard let name = message.body as? String,
-                  let action = UpdateAction(rawValue: name) else {
+            guard let action = UpdateAction(rawValue: name) else {
                 // To `tugapp.log` rather than `NSLog`: a press that vanishes
                 // here is indistinguishable from a dead button, and the line
                 // that says otherwise has to be in the log somebody reads.
-                TugLog.warn("update", "updateAction with an unreadable body; ignoring", [
-                    TugLog.field("body", String(describing: message.body)),
+                TugLog.warn("update", "updateAction names no action; ignoring", [
+                    TugLog.field("body", name),
                 ])
                 return
             }
@@ -2708,17 +2535,16 @@ extension MainWindow: WKScriptMessageHandler {
                 appDelegate.performUpdateAction(action)
             }
 
-        case "dictation":
+        case .dictation(let body):
             // Spec S01: `{ id, verb }`, and the engine owns everything after
             // that — which session is live, whether a second start supersedes
             // the first, and every refusal the machine can hand back. The host
             // is where "one composer holds the mic" is enforced, so a deck
             // that lost track cannot leave two taps on the input node.
-            guard let body = message.body as? [String: Any],
-                  let id = body["id"] as? String,
+            guard let id = body["id"] as? String,
                   let verb = body["verb"] as? String else {
                 TugLog.warn("dictation", "dictation with an unreadable body; ignoring", [
-                    TugLog.field("body", String(describing: message.body)),
+                    TugLog.field("body", String(describing: body.fields)),
                 ])
                 return
             }
@@ -2726,7 +2552,7 @@ extension MainWindow: WKScriptMessageHandler {
             if verb == "start" { dictationTarget = replyView }
             dictationEngine.handle(verb: verb, id: id)
 
-        case "exportSession":
+        case .exportSession(let body):
             // `/export` ([#step-13c]) — save the session transcript to a
             // user-chosen file. The web layer builds BOTH renderings
             // (markdown + JSON Lines) and sends them with a default base
@@ -2734,14 +2560,13 @@ extension MainWindow: WKScriptMessageHandler {
             // chooses which content is written. Sibling of `openPath` (the
             // host owns the panel + file write; the content is the web
             // layer's). Calls back `onExportDone(id, "saved" | "canceled")`.
-            guard let body = message.body as? [String: Any],
-                  let requestId = body["id"] as? String else { return }
+            guard let requestId = body["id"] as? String else { return }
             let baseName = (body["baseName"] as? String) ?? "tug-session"
             let markdown = (body["markdown"] as? String) ?? ""
             let jsonl = (body["jsonl"] as? String) ?? ""
             presentExportPanel(requestId: requestId, baseName: baseName,
                                markdown: markdown, jsonl: jsonl, replyTo: replyView)
-        case "frontendReady":
+        case .frontendReady:
             // A body's ready is its own: it has painted its card. The
             // launch's reveal and lifecycle replay are the shell's.
             if let fromBody {
@@ -2761,14 +2586,14 @@ extension MainWindow: WKScriptMessageHandler {
             // The spare is made a beat after the shell has painted, so the
             // first card the user opens can bind a body already warm.
             bodies.scheduleSpare()
-        case "pageFault":
-            PageFaultScript.log(message.body)
-        case "frontendLaunchStalled":
+        case .pageFault(let body):
+            PageFaultScript.log(body.fields)
+        case .frontendLaunchStalled(let body):
             // The deck bounded its own boot awaits and one of them ran past
             // its horizon. It has not given up — the await is still running
             // — so this only names the wait, which is more than the splash
             // could say on its own.
-            let waitingOn = (message.body as? [String: Any])?["waitingOn"] as? String
+            let waitingOn = body["waitingOn"] as? String
             TugLog.warn("launch", "frontend boot await ran past its horizon", [
                 TugLog.field("waiting_on", waitingOn ?? "unknown"),
             ])
@@ -2776,23 +2601,20 @@ extension MainWindow: WKScriptMessageHandler {
                 stage: "\(LaunchStage.waitingForInterface.rawValue): \(waitingOn ?? "unknown")",
                 reason: "The interface loaded but has not finished starting up."
             )
-        case "setTheme":
-            guard let body = message.body as? [String: Any],
-                  let color = body["color"] as? String else { return }
+        case .setTheme(let body):
+            guard let color = body["color"] as? String else { return }
             bridgeDelegate?.bridgeSetTheme(color: color)
-        case "pageZoom":
+        case .pageZoom(let body):
             // The Layout card's Zoom row: a level, chosen directly. The same
             // path as the View menu's, so it persists and is remembered for
             // Toggle Actual Size exactly as a chord would be.
-            guard let body = message.body as? [String: Any],
-                  let factor = body["factor"] as? Double else { return }
+            guard let factor = body["factor"] as? Double else { return }
             setPageZoom(CGFloat(factor))
-        case "devBadge":
-            guard let body = message.body as? [String: Any] else { return }
+        case .devBadge(let body):
             let backend = body["backend"] as? Bool ?? false
             let app = body["app"] as? Bool ?? false
             bridgeDelegate?.bridgeDevBadge(backend: backend, app: app)
-        case "clipboardRead":
+        case .clipboardRead(let body):
             // Native clipboard bridge. Read NSPasteboard directly and call
             // back to JavaScript with the contents. This exists because
             // Safari's JavaScript Clipboard API (navigator.clipboard.readText /
@@ -2811,42 +2633,20 @@ extension MainWindow: WKScriptMessageHandler {
             // empty otherwise. This is the robust Tug-to-Tug channel — it
             // bypasses WebKit's HTML sanitizer and custom-MIME repacking
             // entirely.
-            guard let body = message.body as? [String: Any],
-                  let requestId = body["requestId"] as? String else { return }
+            guard let requestId = body["requestId"] as? String else { return }
             let pasteboard = NSPasteboard.general
             let text = pasteboard.string(forType: .string) ?? ""
             let html = pasteboard.string(forType: .html) ?? ""
             let atoms = pasteboard.string(forType: tugAtomsPasteboardType) ?? ""
-            // Use JSON to pass arbitrary clipboard contents through the
-            // evaluateJavaScript string safely — the text may contain
-            // quotes, backslashes, control chars, and line separators
-            // that would otherwise break a manually-escaped JS literal.
-            let payload: [String: Any] = [
-                "requestId": requestId,
-                "text": text,
-                "html": html,
-                "atoms": atoms
-            ]
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: []),
-                  let jsonString = String(data: jsonData, encoding: .utf8) else {
-                NSLog("MainWindow: JSON serialization failed for clipboardRead")
-                return
-            }
-            // JSON-serialize the JSON once more to produce a valid JS
-            // string literal (handles \u2028 / \u2029 which JSON allows
-            // but JS does not in source text).
-            guard let quotedJsonData = try? JSONSerialization.data(withJSONObject: jsonString, options: [.fragmentsAllowed]),
-                  let quotedJsonString = String(data: quotedJsonData, encoding: .utf8) else {
-                NSLog("MainWindow: JSON quoting failed for clipboardRead")
-                return
-            }
-            let script = "window.__tugNativeClipboardCallback?.(JSON.parse(\(quotedJsonString)))"
-            replyView.evaluateJavaScript(script) { _, error in
-                if let error = error {
-                    NSLog("MainWindow: evaluateJavaScript failed for clipboardRead: %@", error.localizedDescription)
-                }
-            }
-        case "clipboardWrite":
+            // The text may carry quotes, backslashes, control characters and
+            // line separators; the channel serializes it so all of them
+            // survive.
+            hostChannel.send(
+                .onClipboardRead,
+                ["requestId": requestId, "text": text, "html": html, "atoms": atoms],
+                to: replyView
+            )
+        case .clipboardWrite(let body):
             // Native clipboard-write bridge for Tug prompt copy/cut. The
             // web layer never writes atom-bearing selections through the
             // DOM copy event (WebKit's pasteboard normalization swallows
@@ -2863,8 +2663,7 @@ extension MainWindow: WKScriptMessageHandler {
             // sidecar, and a write that carried only `.string` would silently
             // strip formatting an external paste used to get.
             // See tug-native-clipboard.ts.
-            guard let body = message.body as? [String: Any],
-                  let text = body["text"] as? String else {
+            guard let text = body["text"] as? String else {
                 NSLog("MainWindow: clipboardWrite invalid payload")
                 return
             }
@@ -2885,7 +2684,7 @@ extension MainWindow: WKScriptMessageHandler {
             if !atoms.isEmpty {
                 pasteboard.setString(atoms, forType: tugAtomsPasteboardType)
             }
-        case "clipboardWriteImage":
+        case .clipboardWriteImage(let body):
             // Native image-clipboard bridge. The WKWebView's JS Clipboard
             // image write (navigator.clipboard.write + ClipboardItem) is
             // unreliable in this app — the same reason clipboardRead is
@@ -2894,8 +2693,7 @@ extension MainWindow: WKScriptMessageHandler {
             // base64-encoded image bytes; the host decodes and writes an
             // NSImage to the general pasteboard so any app can paste it.
             // JS-side contract: post {base64}. See tug-native-clipboard.ts.
-            guard let body = message.body as? [String: Any],
-                  let base64 = body["base64"] as? String,
+            guard let base64 = body["base64"] as? String,
                   let data = Data(base64Encoded: base64),
                   let image = NSImage(data: data) else {
                 NSLog("MainWindow: clipboardWriteImage invalid payload")
@@ -2904,12 +2702,12 @@ extension MainWindow: WKScriptMessageHandler {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.writeObjects([image])
-        case "menuState":
+        case .menuState(let body):
             // Menu-relevant state pushed from a page's host-menu-state
             // aggregator. AppDelegate keeps the shell's and each body's, and
             // merges the key card's body into the shell's.
-            guard let payload = message.body as? [String: Any],
-                  let appDelegate = NSApp.delegate as? AppDelegate else { return }
+            let payload = body.fields
+            guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
             if let fromBody {
                 if let cardId = fromBody.cardId {
                     appDelegate.updateBodyMenuState(cardId: cardId, payload: payload)
@@ -2917,90 +2715,71 @@ extension MainWindow: WKScriptMessageHandler {
             } else {
                 appDelegate.updateMenuState(payload)
             }
-        case "hmrUpdate":
+        case .hmrUpdate:
             bridgeDelegate?.bridgeHmrUpdate()
-        case "hostFrames":
+        case .hostFrames(let body):
             // `window.__tugMotion.hostFrames(windowMs)`: the window's frames
             // over the next `windowMs`, read by the host's display link, so a
             // page can ask what was shown while it was itself busy. Each
             // request gets its own meter; the reply goes to
-            // `__tugHostFramesCallback` when its window closes.
-            guard let body = message.body as? [String: Any],
-                  let requestId = body["requestId"] as? String else { return }
+            // `__tugBridge.onHostFrames` when its window closes.
+            guard let requestId = body["requestId"] as? String else { return }
             let windowMs = (body["windowMs"] as? NSNumber)?.intValue ?? 2000
             let meter = HostFrameMeter(view: containerView)
             pageFrameMeters[requestId] = meter
             meter.arm(windowMs: windowMs)
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(windowMs + 50)) { [weak self] in
                 guard let self, let meter = self.pageFrameMeters.removeValue(forKey: requestId) else { return }
-                self.replyToBridgeRequest(
-                    ["requestId": requestId, "reading": meter.read()],
-                    callback: "__tugHostFramesCallback"
-                )
+                self.replyToBridgeRequest(.onHostFrames, ["requestId": requestId, "reading": meter.read()])
             }
-        case "bodyHello":
+        case .bodyHello:
             // A body's page is connected; it waits to be told its card.
             if let fromBody { bodies.didSayHello(fromBody) }
-        case "painted":
+        case .painted:
             // A body's first frame of real content has gone to the
             // compositor: it may be shown. The shell never posts this.
             if let fromBody { bodies.didPaint(fromBody) }
-        case "bodyCreate":
-            guard let body = message.body as? [String: Any],
-                  let cardId = body["cardId"] as? String,
-                  let intent = body["intent"] as? [String: Any] else { return }
+        case .bodyCreate(let create):
             // The shell always names the kind: a body is bound to mount it.
-            guard let componentId = body["componentId"] as? String, !componentId.isEmpty else {
+            guard !create.componentId.isEmpty else {
                 TugLog.error("bodies", "bodyCreate named no componentId; refusing", [
-                    TugLog.field("card", cardId),
+                    TugLog.field("card", create.cardId),
                 ])
                 return
             }
-            bodies.create(cardId: cardId, componentId: componentId, intent: intent)
-        case "placeBodies":
-            guard let body = message.body as? [String: Any] else { return }
-            bodies.place(body)
-        case "placeCards":
+            bodies.create(cardId: create.cardId, componentId: create.componentId, intent: create.intent)
+        case .placeBodies(let placement):
+            bodies.place(placement)
+        case .placeCards(let placement):
             // The shell's placement of every card's pane rect.
-            guard let body = message.body as? [String: Any] else { return }
-            bodies.placeCards(body)
-        case "cardGesture":
+            bodies.placeCards(placement)
+        case .cardGesture(let begin):
             // A card's page has taken a title-bar or grip press for the host
             // to carry. The shell never posts this.
-            guard let fromBody, let body = message.body as? [String: Any] else { return }
-            bodies.claimGesture(from: fromBody, payload: body)
-        case "cardLand":
+            guard let fromBody else { return }
+            bodies.claimGesture(from: fromBody, begin: begin)
+        case .cardLand(let land):
             // A drop the shell committed nothing for: the card goes back to
             // the place it already holds, which no placement will name.
-            guard let body = message.body as? [String: Any],
-                  let cardId = body["cardId"] as? String else { return }
-            bodies.landCard(cardId: cardId)
-        case "bodyDestroy":
-            guard let body = message.body as? [String: Any],
-                  let cardId = body["cardId"] as? String else { return }
-            bodies.destroy(cardId: cardId, save: body["save"] as? Bool ?? false)
-        case "bodyFocus":
-            let body = message.body as? [String: Any]
-            bodies.focus(cardId: body?["cardId"] as? String)
-        case "pointerClaim":
-            guard let body = message.body as? [String: Any] else { return }
-            bodies.claim(body)
-        case "floorGrid":
-            guard let body = message.body as? [String: Any] else { return }
-            bodies.floor(body)
-        case "beatPlan":
-            guard let body = message.body as? [String: Any] else { return }
-            bodies.runPlan(body)
-        case "crossingReady":
+            bodies.landCard(cardId: land.cardId)
+        case .bodyDestroy(let destroy):
+            bodies.destroy(cardId: destroy.cardId, save: destroy.save)
+        case .bodyFocus(let focus):
+            bodies.focus(cardId: focus.cardId)
+        case .pointerClaim(let claim):
+            bodies.claim(claim)
+        case .floorGrid(let grid):
+            bodies.floor(grid)
+        case .beatPlan(let plan):
+            bodies.runPlan(plan)
+        case .crossingReady(let ready):
             // A body has pinned its scrollers for its crossing: its page
             // may take its final size. The shell never posts this.
-            if let fromBody { bodies.crossingReady(fromBody, surface: (message.body as? [String: Any])?["surface"] as? [NSNumber]) }
-        case "bodySurface":
+            if let fromBody { bodies.crossingReady(fromBody, surface: ready.surface) }
+        case .bodySurface(let surface):
             // A body's page background, for its container to wear behind
             // the web view. The shell never posts this.
-            if let fromBody { bodies.setSurface(fromBody, surface: (message.body as? [String: Any])?["surface"] as? [NSNumber]) }
-        default:
-            NSLog("MainWindow: unknown script message: %@", message.name)
+            if let fromBody { bodies.setSurface(fromBody, surface: surface.surface) }
         }
     }
 }

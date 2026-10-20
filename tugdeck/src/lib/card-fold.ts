@@ -26,7 +26,7 @@ import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { cardFoldedOf } from "@/deck-store-selectors";
 import { cardModalHoldAdmitsFold, cardModalHoldStore, isCardHeld } from "@/lib/card-modal-hold-store";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { openFoldedBody } from "@/lib/folded-body";
 
 /**
@@ -38,7 +38,7 @@ import { openFoldedBody } from "@/lib/folded-body";
  */
 export function isCardFolded(cardId: string | null): boolean {
   if (cardId === null) return false;
-  const deckStore = getDeckStore();
+  const deckStore = getCardDeck();
   if (deckStore === null) return false;
   return cardFoldedOf(deckStore.getSnapshot(), cardId);
 }
@@ -149,14 +149,14 @@ export function toggleCardFold(cardId: string): void {
  * at gesture time: an unbidden sheet that stood down while the card was folded
  * and is owed its presentation the moment the card opens.
  *
- * `getDeckStore()` is read inside both callbacks rather than closed over,
+ * `getCardDeck()` is read inside both callbacks rather than closed over,
  * because a Session card renders in the gallery and in tests that bootstrap no
  * DeckManager — the honest answer there is not-folded rather than a crash
  * ([L02]).
  */
 export function useIsCardFolded(cardId: string | null): boolean {
   const subscribe = useCallback((onStoreChange: () => void) => {
-    const deckStore = getDeckStore();
+    const deckStore = getCardDeck();
     if (deckStore === null) return () => {};
     return deckStore.subscribe(onStoreChange);
   }, []);

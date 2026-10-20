@@ -105,7 +105,7 @@ import { CardDirtyContext, TugPaneFrameContext, TugPanePortalContext } from "./t
 import { useResponder } from "../tugways/use-responder";
 import type { ActionEvent } from "../tugways/responder-chain";
 import { TUG_ACTIONS } from "../tugways/action-vocabulary";
-import { useDeckManager } from "../../deck-manager-context";
+import { useCardDeck } from "../../card-deck-context";
 import { getRegistration } from "../../card-registry";
 import { useSelectionBoundary } from "../tugways/hooks/use-selection-boundary";
 import { nodeToPath, selectionGuard } from "../tugways/selection-guard";
@@ -737,7 +737,7 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
 }
 
 function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: CardHostProps): React.ReactElement | null {
-  const store = useDeckManager();
+  const store = useCardDeck();
   const registration = getRegistration(componentId);
   const hostContentEl = useHostContentElement(hostStackId);
   const hostCardRootEl = useHostStackRootElement(hostStackId);

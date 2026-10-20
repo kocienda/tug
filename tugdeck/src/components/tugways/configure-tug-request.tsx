@@ -22,12 +22,12 @@ import { useEffect, useRef } from "react";
 import { useConfigureTugRequest, openConfigureTugOnDemand } from "@/lib/configure-tug-request-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { cardServicesStore } from "@/lib/card-services-store";
-import { useDeckManager } from "@/deck-manager-context";
+import { useCardDeck } from "@/card-deck-context";
 import { useTugAlert } from "./tug-alert";
 
 export function ConfigureTugRequest(): null {
   const nonce = useConfigureTugRequest();
-  const deck = useDeckManager();
+  const deck = useCardDeck();
   const showAlert = useTugAlert();
   const handledRef = useRef(0);
 

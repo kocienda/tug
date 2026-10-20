@@ -68,7 +68,7 @@ import {
 import { getAppLifecycle } from "@/lib/app-lifecycle";
 import { getConnection } from "@/lib/connection-singleton";
 import { parseFileLocationQuery } from "@/lib/file-location-query";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { frontmostProjectBinding } from "@/lib/frontmost-project";
 import { openFileInCard } from "@/lib/open-file-in-card";
 import { useHostFacts } from "@/lib/host-facts-store";
@@ -444,7 +444,7 @@ function OpenQuicklyBody(): React.ReactElement {
 
   const commit = (item: CompletionItem): void => {
     const relative = item.atom.value;
-    const store = getDeckStore();
+    const store = getCardDeck();
     if (
       store !== null &&
       projectDir !== null &&

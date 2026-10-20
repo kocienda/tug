@@ -26,7 +26,7 @@
  * to call — so the table is testable without a DOM or a deck.
  */
 
-import { getDeckStore } from "./deck-store-registry";
+import { getCardDeck } from "./deck-store-registry";
 import { gestureScope, type GestureScope } from "./gesture-scope";
 
 /** The gestures, in the order the settle verb lists them. */
@@ -237,7 +237,7 @@ export function driveGesture(
     gesture === "bullseye" ||
     gesture === "appear" ||
     gesture === "slide";
-  const store = needsStore ? getDeckStore() : null;
+  const store = needsStore ? getCardDeck() : null;
   if (needsStore && !store) {
     return { error: `${gesture}: no deck store is registered` };
   }

@@ -54,7 +54,7 @@ import { registerFixtureCards } from "@/fixtures/fixture-registrations";
 
 import type { CardState, DeckState } from "@/layout-tree";
 import type { IDeckManagerStore } from "@/deck-manager-store";
-import { registerDeckStore } from "@/lib/deck-store-registry";
+import { registerShellDeck } from "@/lib/deck-store-registry";
 import { publishListCardBindingsOk } from "@/lib/session-ledger-events";
 import { spaceBindingsLedgerStore } from "@/lib/space-bindings-ledger-store";
 import { cardIdentity, type ResolvedCardIdentity } from "@/lib/card-identity";
@@ -92,7 +92,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  registerDeckStore(null);
+  registerShellDeck(null);
   // The ledger cache is a module singleton shared with every other file, so
   // it is emptied by REPLACING its rows the way a later frame would, never by
   // dropping its bus subscription — that reset is process-wide and leaves the
@@ -204,7 +204,7 @@ function parkOneCard(
     closable: true,
   };
   const deck = { cards: [card] } as unknown as DeckState;
-  registerDeckStore({
+  registerShellDeck({
     spaceOf: (cardId: string) => (cardId === CARD_ID ? "space-1" : null),
     getSpaceDeck: (spaceId: string) => (spaceId === "space-1" ? deck : null),
     getSpacesSnapshot: () => ({ activeSpaceId: "space-1" }),
@@ -249,7 +249,7 @@ describe("every kind that answers for a parked card", () => {
         registryTitle,
       );
 
-      registerDeckStore(null);
+      registerShellDeck(null);
       publishListCardBindingsOk({ bindings: [] });
     });
   }
@@ -272,7 +272,7 @@ describe("every kind that deliberately answers nothing", () => {
       expect(identity.title).toBe(
         registration!.defaultMeta.title || pin.componentId,
       );
-      registerDeckStore(null);
+      registerShellDeck(null);
     });
   }
 });
@@ -316,13 +316,13 @@ describe("closure over the registration list", () => {
         registration.defaultMeta.title || registration.componentId,
       );
     }
-    registerDeckStore(null);
+    registerShellDeck(null);
   });
 
   test("an id no workspace holds resolves without a registration at all", () => {
     // Totality's other end: the guarantee callers rely on is that there is no
     // null to handle, whatever id they were given.
-    registerDeckStore(null);
+    registerShellDeck(null);
     expect(cardIdentity("nobody-holds-this").title).toBe("nobody-holds-this");
   });
 });
@@ -355,7 +355,7 @@ describe("the Workspaces list names a standing card by what it holds", () => {
       );
     } finally {
       unregisterOpenCommitCard(CARD_ID);
-      registerDeckStore(null);
+      registerShellDeck(null);
     }
   });
 
@@ -366,7 +366,7 @@ describe("the Workspaces list names a standing card by what it holds", () => {
     try {
       expect(DEFAULT_RESOLVERS.resolvedIdentity(CARD_ID)).toBeNull();
     } finally {
-      registerDeckStore(null);
+      registerShellDeck(null);
     }
   });
 });

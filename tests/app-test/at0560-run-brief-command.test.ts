@@ -440,13 +440,13 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
             if (w.__at0560Clip !== undefined) return w.__at0560Clip !== null;
             w.__at0560Clip = null;
             var id = "at0560-" + Math.random().toString(36).slice(2);
-            var prior = w.__tugNativeClipboardCallback;
-            w.__tugNativeClipboardCallback = function(data){
+            var prior = w.__tugBridge.onClipboardRead;
+            w.__tugBridge.onClipboardRead = function(data){
               if (!data || data.requestId !== id) {
                 if (typeof prior === "function") prior(data);
                 return;
               }
-              w.__tugNativeClipboardCallback = prior;
+              w.__tugBridge.onClipboardRead = prior;
               w.__at0560Clip = typeof data.text === "string" ? data.text : "";
             };
             bridge.postMessage({ requestId: id });

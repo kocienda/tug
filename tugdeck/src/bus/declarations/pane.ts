@@ -3,7 +3,8 @@
  * the gestures a card's chrome asks of the shell.
  *
  * The shell's: `pane.chrome` is the pane as its chrome draws it — the tab
- * set, the composed title, the grips the arrangement offers, the title-bar
+ * set by card id (each tab named from its card's `deck.cards` record), the
+ * composed title, the grips the arrangement offers, the title-bar
  * menus' facts (`paneChromeFor` in `lib/pane-chrome-projection.ts`). Every
  * card of a pane is sent the same value, sibling or active, so a tab switch
  * shows a page that has already drawn its new chrome. The card's own
@@ -20,6 +21,7 @@
  * @module bus/declarations/pane
  */
 
+import type { CloseAsks } from "../../lib/close-asks";
 import type { ColumnMode, ContentWidth } from "../../lib/layout-imposer";
 import { arr, bool, empty, literal, nullable, num, obj, str } from "../codec";
 import { defineAction } from "../routed-action";
@@ -31,21 +33,15 @@ export type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
 const resizeEdge = literal("n", "s", "e", "w", "nw", "ne", "sw", "se");
 
-/** One tab of a pane. */
+/** One tab of a pane: its card, named in the page from the card's `deck.cards` record. */
 export interface PaneChromeTab {
   cardId: string;
-  componentId: string;
-  /** The tab's label, composed as `cardTitleTextFor` composes it. */
-  title: string;
-  icon: string | null;
 }
 
-/** One row of the place badge's picker: a pane sharing this pane's place. */
+/** One row of the place badge's picker: a pane sharing this pane's place, named from its active card's record. */
 export interface PaneChromeStackEntry {
   paneId: string;
   cardId: string;
-  title: string;
-  icon: string | null;
   selected: boolean;
 }
 
@@ -71,8 +67,8 @@ export interface PaneChromeValue {
   title: string;
   icon: string | null;
   closable: boolean;
-  /** Whether the title bar's × asks before it closes the pane. */
-  confirmClose: boolean;
+  /** Whether each close gesture asks first, and what it asks (`closeAsksOf`). */
+  close: CloseAsks;
   role: "content" | "sidebar";
   /** The edges the arrangement lets the hand resize the pane from. */
   grips: ResizeEdge[];
@@ -98,6 +94,8 @@ export interface PaneChromeValue {
   slot: { count: number; held: number } | null;
 }
 
+const closeAsk = obj({ confirm: bool, message: str, label: str });
+
 export const paneChrome = defineSharedStore<PaneChromeValue | null>({
   key: "pane.chrome",
   owner: "shell",
@@ -106,12 +104,12 @@ export const paneChrome = defineSharedStore<PaneChromeValue | null>({
   codec: nullable(
     obj({
       paneId: str,
-      tabs: arr(obj({ cardId: str, componentId: str, title: str, icon: nullable(str) })),
+      tabs: arr(obj({ cardId: str })),
       activeCardId: str,
       title: str,
       icon: nullable(str),
       closable: bool,
-      confirmClose: bool,
+      close: obj({ pane: closeAsk, card: closeAsk, all: closeAsk }),
       role: literal("content", "sidebar"),
       grips: arr(resizeEdge),
       acceptedFamilies: arr(str),
@@ -129,7 +127,7 @@ export const paneChrome = defineSharedStore<PaneChromeValue | null>({
       bullseye: nullable(bool),
       spaces: arr(obj({ id: str, name: str })),
       ownSpaceId: nullable(str),
-      slotStack: arr(obj({ paneId: str, cardId: str, title: str, icon: nullable(str), selected: bool })),
+      slotStack: arr(obj({ paneId: str, cardId: str, selected: bool })),
       cardFold: bool,
       slot: nullable(obj({ count: num, held: num })),
     }),
@@ -214,4 +212,11 @@ export const paneRevealStackEntry = defineAction({
   id: "pane.revealStackEntry",
   owner: "shell",
   codec: obj({ paneId: str }),
+});
+
+/** Slide the strip `cardId`, a card of the sender's pane, rides until its pane is fully in: a title-bar click's release. */
+export const paneRevealCard = defineAction({
+  id: "pane.revealCard",
+  owner: "shell",
+  codec: obj({ cardId: str }),
 });

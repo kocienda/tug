@@ -66,7 +66,7 @@ import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { dispatchCommand } from "@/command-dispatch";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getDeckView } from "@/lib/deck-store-registry";
 import { slotCount } from "@/lib/layout-imposer";
 import { findSidebarPanes } from "@/deck-store-selectors";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
@@ -100,7 +100,7 @@ const JUMP_SLOT_FOCUS_GROUP = "cards-slot-jump";
  * deck has no active imposition.
  */
 export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement | null {
-  const deckStore = getDeckStore();
+  const deckStore = getDeckView();
   const deck = useSyncExternalStore(
     deckStore?.subscribe ?? (() => () => {}),
     deckStore !== null ? deckStore.getSnapshot : () => null,

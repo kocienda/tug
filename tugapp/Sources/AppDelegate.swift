@@ -451,14 +451,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 // `connectionDidOpen` — the post-reconnect frontendReady
                 // is the first moment a subscribed client exists.
                 NSLog("AppDelegate: tugcast restarted, re-authenticating silently (no page reload)")
-                self.window.evaluateJavaScript(
-                    "fetch('/auth?token=\(token)',{credentials:'include'}).then(function(){window.tugdeck?.reconnect?.()}).catch(function(){})"
-                )
-                // Every body holds a socket of its own to the restarted
-                // tugcast; each re-authenticates and reconnects the same way.
-                self.window.evaluateInBodies(
-                    "fetch('/auth?token=\(token)',{credentials:'include'}).then(function(){window.tugdeck?.reconnect?.()}).catch(function(){})"
-                )
+                // The shell and every body hold a socket of their own to the
+                // restarted tugcast; each re-authenticates and reconnects.
+                for view in self.window.pageViews {
+                    self.window.hostChannel.call(.reauthenticate(token: token), in: view)
+                }
                 // Maker mode is the user-facing name; the tugcast wire
                 // verb stays `dev_mode` — it genuinely is the
                 // dev-*serving* switch (Vite, watchers, allowlist).
@@ -613,10 +610,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         func settle() {
             guard !settled else { return }
             settled = true
-            NSLog(
-                "AppDelegate: termination verdicts — %@",
-                views.map { "\($0.label): \(verdicts[$0.label] ?? "no answer")" }.joined(separator: " | ")
-            )
+            let line = views.map { "\($0.label): \(verdicts[$0.label] ?? "no answer")" }.joined(separator: " | ")
+            NSLog("AppDelegate: termination verdicts — %@", line)
+            // The instance's own log keeps it too, beside the run it ends.
+            TugLog.info("app", "termination verdicts", [TugLog.field("views", line)])
             completion()
         }
 
@@ -624,7 +621,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // worse than what shipped before the pipeline, and the only thing
         // left when that view's bridge is broken.
         func fallbackSave(_ webView: WKWebView) {
-            webView.evaluateJavaScript("window.tugdeck?.saveState?.()", completionHandler: nil)
+            window.hostChannel.call(.saveState, in: webView)
         }
 
         let deadline = DispatchWorkItem {
@@ -644,14 +641,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         NSLog("AppDelegate: applicationShouldTerminate — running the deck termination pipeline in %d view(s)", views.count)
         for view in views {
-            view.webView.callAsyncJavaScript(
-                "return await window.tugdeck.prepareForTermination();",
-                arguments: [:],
-                in: nil,
-                in: .page
-            ) { result in
+            window.hostChannel.call(.prepareForTermination, in: view.webView) { result in
                 guard !settled else { return }
                 switch result {
+                case .success(.null):
+                    // The page has no `prepareForTermination` to answer with.
+                    verdicts[view.label] = "no answer from the page — saved synchronously"
+                    fallbackSave(view.webView)
                 case .success(let value):
                     verdicts[view.label] = Self.describeVerdict(value)
                 case .failure(let error):
@@ -669,18 +665,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Render the deck's verdict as one log line. Unknown or malformed
     /// shapes are logged verbatim rather than dropped — the point of the
     /// verdict is that a bad quit leaves a named trace.
-    private static func describeVerdict(_ value: Any?) -> String {
-        guard let verdict = value as? [String: Any] else {
-            return "unreadable: \(String(describing: value))"
+    private static func describeVerdict(_ value: JSONValue) -> String {
+        guard case .object(let verdict) = value else {
+            return "unreadable: \(value)"
         }
         func ids(_ key: String) -> String {
-            let list = verdict[key] as? [String] ?? []
+            guard case .array(let entries)? = verdict[key] else { return "none" }
+            let list = entries.compactMap { entry -> String? in
+                if case .string(let id) = entry { return id }
+                return nil
+            }
             return list.isEmpty ? "none" : list.joined(separator: ",")
         }
-        let ok = verdict["ok"] as? Bool ?? false
-        let flushed = verdict["flushedCards"] as? Int ?? -1
-        let layoutSaved = verdict["layoutSaved"] as? Bool ?? false
-        let elapsed = verdict["elapsedMs"] as? Int ?? -1
+        func flag(_ key: String) -> Bool {
+            if case .bool(let value)? = verdict[key] { return value }
+            return false
+        }
+        func count(_ key: String) -> Int {
+            if case .number(let value)? = verdict[key] { return Int(value) }
+            return -1
+        }
+        let ok = flag("ok")
+        let flushed = count("flushedCards")
+        let layoutSaved = flag("layoutSaved")
+        let elapsed = count("elapsedMs")
         return "ok=\(ok) interrupted=\(ids("interrupted")) unacknowledged=\(ids("unacknowledged")) "
             + "flushedCards=\(flushed) failedCards=\(ids("failedCards")) "
             + "layoutSaved=\(layoutSaved) elapsedMs=\(elapsed)"

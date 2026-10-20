@@ -168,9 +168,9 @@ import type { TugSlotState } from "@/components/tugways/tug-slot";
 import type { LayoutPlace } from "@/components/layout/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
 import { getAllRegistrations, getRegistration } from "@/card-registry";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getDeckView } from "@/lib/deck-store-registry";
 import { useStoreDerived } from "@/lib/use-store-derived";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import type { DeckView } from "@/card-deck";
 import {
   CONTENT_WIDTH_LABELS,
   CONTENT_WIDTH_PRESETS,
@@ -465,9 +465,9 @@ function railsFor(
  * card drew before it went.
  */
 function useDeckDerived<T>(
-  derive: (deck: DeckState | null, store: IDeckManagerStore | null) => T,
+  derive: (deck: DeckState | null, store: DeckView | null) => T,
 ): T {
-  const store = getDeckStore();
+  const store = getDeckView();
   const standing = useRef<{ value: T } | null>(null);
   return useStoreDerived<DeckState, T>(store, (deck) => {
     const held = standing.current;
@@ -1180,7 +1180,7 @@ export function LayoutContent(
   // drawing. Both go through the store's own one writer ([P11]), so this card's
   // strip and the canvas's wheel cannot come to different answers.
   const previewFlow = useCallback((offset: number): void => {
-    getDeckStore()?.previewFlowOffset(offset);
+    getDeckView()?.previewFlowOffset(offset);
   }, []);
 
   // Go to slot N — one verb, two arrangements, and the arrangement decides
@@ -1212,7 +1212,7 @@ export function LayoutContent(
       center: number | null,
       options?: { raiseCardId?: string | null },
     ): void => {
-      const store = getDeckStore();
+      const store = getDeckView();
       if (store === null) return;
       if (options !== undefined && options.raiseCardId !== undefined) {
         if (center !== null) store.setFlowOffset(center);

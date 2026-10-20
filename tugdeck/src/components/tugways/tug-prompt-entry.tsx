@@ -146,10 +146,10 @@ import {
 } from "@/lib/slash-supported";
 import { useCardStatePreservation, useCardId } from "./use-card-state-preservation";
 import { useCardDirty } from "../chrome/tug-pane";
-import { DeckManagerContext } from "@/deck-manager-context";
+import { CardDeckContext } from "@/card-deck-context";
 import { selectionGuard } from "./selection-guard";
 import { deckTrace } from "@/deck-trace";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { HistoryEntry } from "@/lib/prompt-history-store";
@@ -2280,7 +2280,7 @@ export const TugPromptEntry = React.forwardRef<
   // refs so the `performSubmit` closure never goes stale [L07]. Both are
   // absent in the gallery / unit-test mounts, where submit just skips the
   // forced flush.
-  const deckStore = useContext(DeckManagerContext);
+  const deckStore = useContext(CardDeckContext);
   const deckStoreRef = useRef(deckStore);
   deckStoreRef.current = deckStore;
 
@@ -3528,7 +3528,7 @@ export const TugPromptEntry = React.forwardRef<
   // the only path that calls `paintMirrorAsActive`.
   useLayoutEffect(() => {
     if (cardIdForTrace === null) return;
-    const store = getDeckStore();
+    const store = getCardDeck();
     if (store === null) return;
     const unregister = store.registerEngineHooks(cardIdForTrace, {
       paintMirrorAsActive: () => {

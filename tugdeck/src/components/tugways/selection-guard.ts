@@ -38,7 +38,7 @@
  * See tuglaws/card-state-model.md for the full system documentation.
  */
 
-import { getDeckStore } from "../../lib/deck-store-registry";
+import { getCardDeck } from "../../lib/deck-store-registry";
 import { isDevEnv } from "../../lib/dev-env";
 import type { DomSelectionSnapshot } from "../../layout-tree";
 
@@ -259,7 +259,7 @@ const MAX_SCROLL_SPEED = 20;
  *     deactivation hand-off needed the publish.
  *   - `windowHasFocus`: flipped by the app-lifecycle observer on
  *     `applicationDidResignActive` / `applicationDidBecomeActive`.
- *   - `getDeckStore().getSnapshot().activePaneId → pane.activeCardId`:
+ *   - `getCardDeck().getSnapshot().activePaneId → pane.activeCardId`:
  *     the focused card.
  *
  * `updatePaint()` is the pure function of those inputs that mutates the
@@ -601,7 +601,7 @@ class SelectionGuard {
    * behavior read {@link windowHasFocus} alongside.
    */
   private getFocusedCardId(): string | null {
-    const store = getDeckStore();
+    const store = getCardDeck();
     if (store === null) return null;
     const state = store.getSnapshot();
     if (state.activePaneId === undefined) return null;
@@ -798,7 +798,7 @@ class SelectionGuard {
     // restoration to the click point. If the newly-focused card has
     // no saved Range (fresh card, never selected), no interceptor is
     // installed — the click's caret-placement proceeds normally.
-    const deckStore = getDeckStore();
+    const deckStore = getCardDeck();
     if (deckStore !== null) {
       const onCommit = (): void => {
         const newFocused = this.getFocusedCardId();

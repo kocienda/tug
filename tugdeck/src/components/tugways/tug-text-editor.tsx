@@ -202,7 +202,7 @@ import {
 } from "./tug-text-editor/state-preservation";
 import type { PendingEditRestore } from "./tug-text-editor/state-preservation";
 import { deckTrace } from "@/deck-trace";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { selectionGuard } from "./selection-guard";
 import { useTextSurfaceContextMenu } from "./use-text-surface-context-menu";
 import { useAnnotationMenu } from "./use-annotation-menu";
@@ -1555,7 +1555,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     // the dispatcher to invoke through this channel.
     useLayoutEffect(() => {
       if (cardId === null || suppressCardEngineHooks) return;
-      const store = getDeckStore();
+      const store = getCardDeck();
       if (store === null) return;
       const unregister = store.registerEngineHooks(cardId, {
         paintMirrorAsActive: () => {

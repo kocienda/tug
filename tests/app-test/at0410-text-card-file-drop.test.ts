@@ -301,7 +301,7 @@ async function captureOpenPathRequests(app: App): Promise<void> {
   const installed = await app.body("A").evalJS<boolean>(
     `(function(){
       window.__at0410OpenPath = [];
-      var recorder = function(payload){ window.__at0410OpenPath.push(payload); };
+      var recorder = function(payload){ window.__at0410OpenPath.push(typeof payload === "string" ? JSON.parse(payload) : payload); };
       var ns = window.webkit;
       var real = ns.messageHandlers;
       var handler = real.openPath;

@@ -425,7 +425,7 @@ describe("update-store: the bridge and the action", () => {
     const posted: unknown[] = [];
     w.webkit = {
       messageHandlers: {
-        updateAction: { postMessage: (v: unknown) => posted.push(v) },
+        updateAction: { postMessage: (v: unknown) => posted.push(JSON.parse(v as string)) },
       },
     };
     const actions: readonly UpdateAction[] = [

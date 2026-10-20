@@ -19,7 +19,7 @@ import Foundation
 /// CoreGraphics only, so `TugTests` compiles it.
 
 /// An edge or corner a pane can be resized from: the shell's `ResizeEdge`.
-enum ResizeEdge: String, CaseIterable {
+enum ResizeEdge: String, CaseIterable, Codable {
     case n, s, e, w, nw, ne, sw, se
 
     var movesTop: Bool { rawValue.contains("n") }

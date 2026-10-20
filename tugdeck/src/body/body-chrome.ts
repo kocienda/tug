@@ -4,7 +4,8 @@
  *
  * The shell publishes the pane's facts to every card of the pane as
  * `pane.chrome` (`bus/declarations/pane.ts`); {@link chromeModelOf} turns the
- * replica into the model `PaneChrome` renders. Every gesture that changes the
+ * replica into the model `PaneChrome` renders, naming each tab and picker row
+ * from its card's `deck.cards` record. Every gesture that changes the
  * arrangement leaves as a declared action the shell owns ([L37]), and a
  * title-bar drag or a grip press asks the host to carry the card
  * (`cardGesture`): the host moves the view, and the shell commits what it
@@ -17,6 +18,9 @@ import type React from "react";
 import type { CardState } from "../layout-tree";
 import type { SlotStackEntry } from "../deck-store-selectors";
 import type { PaneChromeValue } from "../bus/declarations/pane";
+import type { DeckCardFacts } from "../bus/declarations/deck";
+import { getRegistration } from "../card-registry";
+import { deckCardIcon, deckCardTabTitle } from "../lib/deck-cards";
 import {
   paneArrangePlace,
   paneChrome,
@@ -28,31 +32,48 @@ import {
   paneToggleBullseye,
 } from "../bus/declarations/pane";
 import type { PaneChromeModel, PaneChromeVerbs } from "../components/chrome/pane-chrome";
-import { postToHost } from "../lib/body-handoff";
+import { postToHost } from "../host/channel";
+import { cardGestureToHost } from "../host/declarations/geometry";
 import type { ResizeEdge } from "../lib/pane-chrome-projection";
 import { GESTURE_EPISODE_WINDOW_MS, beginResizeEpisode } from "../lib/resize-episode";
 import { deckRootElement } from "../lib/page-zoom-store";
 
-/** The tab bar's cards, as the bar reads them, from the replica's tabs. */
-function tabsOf(value: PaneChromeValue): CardState[] {
-  return value.tabs.map((t) => ({
-    id: t.cardId,
-    componentId: t.componentId,
-    title: t.title,
-    closable: true,
-    ...(t.icon === null ? {} : { icon: t.icon }),
-  }));
+/** A card's tab label and icon, from its `deck.cards` record; a card the record has not reached yet has neither. */
+function namedCard(cards: Record<string, DeckCardFacts>, cardId: string): { componentId: string; title: string; icon: string | null } {
+  const entry = cards[cardId];
+  if (entry === undefined) return { componentId: "", title: "", icon: null };
+  const registration = getRegistration(entry.componentId);
+  return {
+    componentId: entry.componentId,
+    title: deckCardTabTitle(entry, registration),
+    icon: deckCardIcon(entry, registration),
+  };
 }
 
-/** The place badge's picker rows, from the replica's stack. */
-export function slotStackOf(value: PaneChromeValue): SlotStackEntry[] {
-  return value.slotStack.map((e) => ({
-    paneId: e.paneId,
-    cardId: e.cardId,
-    title: e.title,
-    ...(e.icon === null ? {} : { icon: e.icon }),
-    selected: e.selected,
-  }));
+/** The tab bar's cards, as the bar reads them, from the replica's tabs and each card's record. */
+function tabsOf(value: PaneChromeValue, cards: Record<string, DeckCardFacts>): CardState[] {
+  return value.tabs.map((t) => {
+    const { componentId, title, icon } = namedCard(cards, t.cardId);
+    return { id: t.cardId, componentId, title, closable: true, ...(icon === null ? {} : { icon }) };
+  });
+}
+
+/** The place badge's picker rows, from the replica's stack and each row's card's record. */
+export function slotStackOf(value: PaneChromeValue, cards: Record<string, DeckCardFacts>): SlotStackEntry[] {
+  return value.slotStack.map((e) => {
+    const { title, icon } = namedCard(cards, e.cardId);
+    return { paneId: e.paneId, cardId: e.cardId, title, ...(icon === null ? {} : { icon }), selected: e.selected };
+  });
+}
+
+/**
+ * What the chrome reads of `deck.cards`, as one string: each tab's and
+ * picker row's record, so a frame re-renders when a name it draws moved and
+ * not on every phase tick.
+ */
+export function chromeCardsKey(value: PaneChromeValue, cards: Record<string, DeckCardFacts>): string {
+  const ids = [...value.tabs.map((t) => t.cardId), ...value.slotStack.map((e) => e.cardId)];
+  return JSON.stringify(ids.map((id) => namedCard(cards, id)));
 }
 
 /**
@@ -62,15 +83,21 @@ export function slotStackOf(value: PaneChromeValue): SlotStackEntry[] {
  * card's context. No `placePaneId`: this page's deck cannot answer a place,
  * so the badge draws from the replica.
  */
-export function chromeModelOf(value: PaneChromeValue, paneId: string, cardKind: string, folded: boolean): PaneChromeModel {
+export function chromeModelOf(
+  value: PaneChromeValue,
+  cards: Record<string, DeckCardFacts>,
+  paneId: string,
+  cardKind: string,
+  folded: boolean,
+): PaneChromeModel {
   return {
     paneId,
     title: value.title,
     icon: value.icon ?? undefined,
     closable: value.closable,
-    confirmClose: value.confirmClose,
+    confirmClose: value.close.pane.confirm,
     role: value.role,
-    tabs: tabsOf(value),
+    tabs: tabsOf(value, cards),
     activeCardId: value.activeCardId,
     acceptedFamilies: value.acceptedFamilies,
     cardCount: Math.max(value.tabs.length, 1),
@@ -91,7 +118,7 @@ export function chromeModelOf(value: PaneChromeValue, paneId: string, cardKind: 
     bullseye: value.bullseye,
     folded: value.cardFold && folded,
     cardFold: value.cardFold,
-    slotStack: slotStackOf(value),
+    slotStack: slotStackOf(value, cards),
     slot: value.slot,
     spaces: { spaces: value.spaces, ownSpaceId: value.ownSpaceId ?? undefined },
   };
@@ -105,7 +132,7 @@ export function chromeModelOf(value: PaneChromeValue, paneId: string, cardKind: 
 function beginHostGesture(event: React.PointerEvent, kind: "move" | "resize" | "rail", edge?: ResizeEdge): void {
   if (event.button !== 0) return;
   if (kind === "move") markCarried(event);
-  postToHost("cardGesture", {
+  postToHost(cardGestureToHost, {
     phase: "begin",
     kind,
     ...(edge === undefined ? {} : { edge }),

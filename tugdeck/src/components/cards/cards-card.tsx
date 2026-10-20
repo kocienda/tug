@@ -114,7 +114,7 @@ import {
 import { renderIcon } from "@/components/tugways/tug-tab-bar";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useChangesetAll } from "@/lib/changeset-all-store";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getDeckView } from "@/lib/deck-store-registry";
 import { classifyFileKind } from "@/lib/file-kinds";
 import { cardsStore } from "@/components/cards/cards-store/cards-store";
 import { sessionNameStore } from "@/lib/session-name-store";
@@ -978,7 +978,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         if (from === undefined || from.spaceId === spaceId) return;
         const cardId = dataSource.cardIdForOrderKey(orderKey);
         if (cardId === null) return;
-        getDeckStore()?.moveCardToSpace(cardId, spaceId);
+        getDeckView()?.moveCardToSpace(cardId, spaceId);
       },
     },
     landKeyboard: (orderKey) =>
@@ -1060,7 +1060,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     caretRef,
     getVisibleOrder: () => dataSource.visibleSpaceOrder(),
     commit: (order) => {
-      getDeckStore()?.reorderSpaces([...order]);
+      getDeckView()?.reorderSpaces([...order]);
     },
     selector: SPACE_RUN_SELECTOR,
     kindAttr: SPACE_RUN_ATTR,
@@ -1136,7 +1136,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       setRenamingSpaceId(null);
       // An empty or unchanged name is the store's refusal, not this card's:
       // one definition of what a workspace may be called ([P05]).
-      getDeckStore()?.renameSpace(spaceId, name);
+      getDeckView()?.renameSpace(spaceId, name);
     },
     [],
   );
@@ -1145,7 +1145,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     (spaceId: string, theme: string): void => {
       // Whether the pick repaints is the store's to decide: it does for the
       // workspace on screen and does not for a parked one.
-      getDeckStore()?.chooseSpaceTheme(spaceId, theme);
+      getDeckView()?.chooseSpaceTheme(spaceId, theme);
     },
     [],
   );
@@ -1235,7 +1235,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       setRenamingSpaceId(spaceId);
       return;
     }
-    const store = getDeckStore();
+    const store = getDeckView();
     if (store === null) return;
     // EVERY delete confirms ([P06]). The old gate — confirm only when the
     // workspace holds live sessions — meant a workspace of ten Text cards,

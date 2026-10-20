@@ -6,7 +6,7 @@
  * Both are keyed by card id and hold closures a mounted component handed in,
  * so both share one lifetime rule: an entry never outlives the card, and a
  * re-registration from the same card wins. The `DeckManager` owns one of each
- * and answers the `IDeckManagerStore` methods by delegating here; the
+ * and answers the `CardDeck` methods by delegating here; the
  * `CardStateOrchestrator` reads the preservation registries at capture time
  * through {@link ComponentStateRegistries.peek}.
  */

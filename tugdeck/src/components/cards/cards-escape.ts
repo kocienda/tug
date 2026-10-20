@@ -28,7 +28,7 @@ import type { AttachedFilterBinding } from "@/components/tugways/attached-filter
 import { cardsSelectionStore } from "@/lib/cards-selection-store";
 import { bodyCardsStore } from "@/lib/body-cards-store";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getDeckView } from "@/lib/deck-store-registry";
 import { cardsShrink } from "@/bus/declarations/verbs";
 import { page } from "@/bus/page";
 
@@ -77,6 +77,6 @@ export function shrinkCardsState(): CardsEscapeRung {
 
 /** The Cards card of the workspace on screen, when it is a body card: the one whose table a shrink runs. */
 function shownCardsBody(): string | null {
-  const card = getDeckStore()?.getSnapshot().cards.find((c) => c.componentId === CARDS_CARD_ID);
+  const card = getDeckView()?.getSnapshot().cards.find((c) => c.componentId === CARDS_CARD_ID);
   return card !== undefined && bodyCardsStore.has(card.id) ? card.id : null;
 }

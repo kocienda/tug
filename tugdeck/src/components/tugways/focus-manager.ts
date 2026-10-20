@@ -54,7 +54,7 @@ import { resolveSpatial, type SpatialDirection, type SpatialOrder } from "./spat
 import { revealFocusTarget } from "./focus-reveal";
 import { KEY_CURSOR_ATTRIBUTE } from "./use-focus-cursor";
 import { resolveDefaultFocusTarget } from "@/default-focus";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { getRegistration } from "@/card-registry";
 import { mark as perfMark } from "@/lib/perf-marks";
 import { isFocusDestination } from "@/deck-store-selectors";
@@ -1590,7 +1590,7 @@ export class FocusContext {
         // editor as the key view with the placement's modality (pointer —
         // the caret is the focus mark; engine restores never ring).
         if (this.cardId === null) return "unrealized";
-        const store = getDeckStore();
+        const store = getCardDeck();
         if (store === null || !store.hasEngineHooks(this.cardId)) {
           return "unrealized";
         }
@@ -4387,7 +4387,7 @@ export class FocusManager extends Subscribable {
    */
   private keyCardComponentId(): string | null {
     if (this.keyCardId === null) return null;
-    const store = getDeckStore();
+    const store = getCardDeck();
     if (store === null) return null;
     const cardId = this.keyCardId;
     return (

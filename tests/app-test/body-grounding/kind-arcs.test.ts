@@ -16,7 +16,6 @@
  *   offers Bind.
  * - **Its surface** — the body paints the rail's sunken surface, read off the
  *   composite.
- * - **No shell reads** — its deck bridge answered every call it made.
  *
  * @foreground
  * @covers tugdeck/src/components/arcs/arcs-card-registration.tsx
@@ -33,7 +32,7 @@ import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "../_harness/
 import { createArc, makeArcScratchRepo, rmArcScratchRepo, type ArcScratchRepo } from "../arc-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
 import { pollFor, sessionPane, waitForBody } from "./_bodies";
-import { expectNoShellReads, expectRailSurface } from "./_kind-bodies";
+import { expectRailSurface } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-kind-arcs";
@@ -122,9 +121,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Arcs", () => {
         expect(menu, "the row's menu opens in the Arcs body and offers Bind").toBe(true);
         await app.nativeKey("Escape");
 
-        // ── Surface and shell reads ─────────────────────────────────────
+        // ── Surface ─────────────────────────────────────────────────────
         await expectRailSurface(app, arcsId);
-        await expectNoShellReads(app, arcsId);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

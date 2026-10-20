@@ -28,14 +28,8 @@
  */
 
 import { createSubscribable } from "./subscribable";
-
-interface ThumbnailBridgeMessageHandlers {
-  thumbnailPath?: { postMessage: (v: unknown) => void };
-}
-
-interface ThumbnailWebkit {
-  messageHandlers?: ThumbnailBridgeMessageHandlers;
-}
+import { hostAvailable, onHostMessage, postToHost } from "../host/channel";
+import { thumbnailPathToHost, thumbnailToPage } from "../host/declarations/services";
 
 /** What the host reports back. `dataUrl` is null when QuickLook had nothing. */
 interface ThumbnailCallbackData {
@@ -72,16 +66,9 @@ export function osThumbnailFor(path: string): string | null {
   return thumbnails.get(path) ?? null;
 }
 
-/** The host handler, or null outside Tug.app. */
-function bridge(): { postMessage: (v: unknown) => void } | null {
-  const webkit = (globalThis as unknown as { webkit?: ThumbnailWebkit }).webkit;
-  const handler = webkit?.messageHandlers?.thumbnailPath;
-  return handler && typeof handler.postMessage === "function" ? handler : null;
-}
-
 /** True when the page is running inside Tug.app with the handler registered. */
 export function hasOSThumbnailBridge(): boolean {
-  return bridge() !== null;
+  return hostAvailable(thumbnailPathToHost);
 }
 
 /**
@@ -99,13 +86,12 @@ let requestSeq = 0;
 function installCallback(): void {
   if (callbackInstalled) return;
   callbackInstalled = true;
-  (globalThis as Record<string, unknown>).__tugThumbnailCallback = (
-    data: ThumbnailCallbackData,
-  ) => {
-    if (!data || typeof data.requestId !== "string") return;
+  onHostMessage(thumbnailToPage, (payload) => {
+    const data = payload as ThumbnailCallbackData;
+    if (typeof data.requestId !== "string") return;
     const settle = pending.get(data.requestId);
     if (settle) settle(data);
-  };
+  });
 }
 
 /**
@@ -121,8 +107,7 @@ function installCallback(): void {
 export function requestOSThumbnail(path: string, size: number): void {
   if (path.length === 0) return;
   if (thumbnails.has(path) || inFlight.has(path)) return;
-  const handler = bridge();
-  if (handler === null) return;
+  if (!hostAvailable(thumbnailPathToHost)) return;
 
   installCallback();
   inFlight.add(path);
@@ -148,5 +133,5 @@ export function requestOSThumbnail(path: string, size: number): void {
   pending.set(requestId, (data) => {
     settle(typeof data.dataUrl === "string" ? data.dataUrl : null);
   });
-  handler.postMessage({ requestId, path, size });
+  postToHost(thumbnailPathToHost, { requestId, path, size });
 }

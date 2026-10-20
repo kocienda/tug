@@ -30,8 +30,9 @@ import type {
   ResizeEdge,
 } from "../bus/declarations/pane";
 import { getRegistration, getStackSizePolicy, type CardMeta } from "../card-registry";
-import { panePlaceFactsOf } from "../components/chrome/pane-place-facts";
-import { columnBadgeCharacter } from "../components/tugways/tug-column-badge";
+import { closeAsksOf } from "./close-asks";
+import { panePlaceFactsOf } from "./pane-place-facts";
+import { columnBadgeCharacter } from "./column-badge";
 import {
   bullseyePaneIdOf,
   columnDrawsSplit,
@@ -65,16 +66,6 @@ export const ALL_RESIZE_EDGES: readonly ResizeEdge[] = ["n", "s", "e", "w", "nw"
 /** Whether a pane whose active card has `meta` draws a close box. */
 export function paneClosableOf(meta: CardMeta): boolean {
   return meta.closable !== false;
-}
-
-/**
- * Whether a pane's × asks before it closes. A multi-card pane always does,
- * since the close discards every tab at once; a single-card pane asks when
- * its card opts in; a rail card always does, since it is a singleton the deck
- * keeps one of and the × sits beside its resize edge.
- */
-export function paneConfirmsCloseOf(args: { cardCount: number; meta: CardMeta; isRail: boolean }): boolean {
-  return args.cardCount > 1 || args.meta.confirmClose === true || args.isRail;
 }
 
 /** Whether a pane's bar draws the fold glyph: a content card that does not author its own folded form. */
@@ -128,12 +119,12 @@ export function railGripsOf(side: SidebarSide, bullseye: boolean): ResizeEdge[] 
 
 // ---- The projection ----
 
-/** What the projection reads beyond the deck. */
+/** What the projection reads beyond the deck. A tab carries only its card: the page names it from `deck.cards`. */
 export interface PaneChromeReaders {
-  /** The live title override a standing card published, or null. */
+  /** The live title override a standing card published, or null: the pane's title composes the active card's. */
   titleOf: (cardId: string) => string | null;
-  /** What the durable record says a card holds, when nothing of it is up to answer; null otherwise. */
-  identityOf: (cardId: string) => string | null;
+  /** Whether a card says it holds nothing a close would lose: what its body published. */
+  waives: (cardId: string) => boolean;
   /** The workspace list, and the one this deck's layer shows. */
   spaces: { list: ReadonlyArray<{ id: string; name: string }>; ownSpaceId: string | null };
   /** The place runs, when the caller has measured them. */
@@ -259,18 +250,7 @@ export function paneChromeFor(deck: DeckState, cardId: string, readers: PaneChro
   const meta: CardMeta = registration?.defaultMeta ?? { title: "" };
   const isRail = registration?.layoutRole === "sidebar";
 
-  const tabs: PaneChromeTab[] = paneCards.map((card) => {
-    const tabMeta = getRegistration(card.componentId)?.defaultMeta;
-    return {
-      cardId: card.id,
-      componentId: card.componentId,
-      title: composePaneTitleBarText({
-        metaTitle: tabMeta?.title ?? "",
-        titleOverride: readers.titleOf(card.id) ?? readers.identityOf(card.id),
-      }),
-      icon: tabMeta?.icon ?? null,
-    };
-  });
+  const tabs: PaneChromeTab[] = paneCards.map((card) => ({ cardId: card.id }));
 
   const title = composePaneTitleBarText({
     metaTitle: meta.title,
@@ -306,8 +286,6 @@ export function paneChromeFor(deck: DeckState, cardId: string, readers: PaneChro
   const slotStack: PaneChromeStackEntry[] = place.slotStack.map((entry) => ({
     paneId: entry.paneId,
     cardId: entry.cardId,
-    title: entry.title,
-    icon: entry.icon ?? null,
     selected: entry.selected,
   }));
 
@@ -318,7 +296,11 @@ export function paneChromeFor(deck: DeckState, cardId: string, readers: PaneChro
     title,
     icon: meta.icon ?? null,
     closable: paneClosableOf(meta),
-    confirmClose: paneConfirmsCloseOf({ cardCount: paneCards.length, meta, isRail }),
+    close: closeAsksOf({
+      cards: paneCards.map((card) => ({ cardId: card.id, componentId: card.componentId, waives: readers.waives(card.id) })),
+      activeCardId: activeCard?.id ?? pane.activeCardId,
+      isRail,
+    }),
     role: isRail ? "sidebar" : "content",
     grips,
     acceptedFamilies: [...pane.acceptsFamilies],

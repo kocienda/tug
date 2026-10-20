@@ -134,7 +134,8 @@ import { mayClaimActivationFocus } from "./components/tugways/focus-manager";
 
 import type { FocusModality, FocusTarget } from "./components/tugways/focus-manager";
 import { mark as perfMark } from "@/lib/perf-marks";
-import type { IDeckManagerStore } from "./deck-manager-store";
+import type { CardDeck, DeckView } from "./card-deck";
+import { getDeckView } from "./lib/deck-store-registry";
 import type { FocusSnapshot } from "./layout-tree";
 
 /**
@@ -304,14 +305,14 @@ function measureFocusClaim(
 }
 
 /**
- * Narrow subset of `IDeckManagerStore` that this module reads. Kept
+ * Narrow subset of `CardDeck` that this module reads. Kept
  * narrow so tests (and future refactors) do not need to hand in the
  * full deck store — a handful of methods is enough. Downstream
  * side-effecting entries will expand this list
  * as they wire in the mutation and dispatch paths.
  */
 export type FocusTransferStore = Pick<
-  IDeckManagerStore,
+  CardDeck,
   | "getCardState"
   | "peekCardHostRoot"
   | "getSnapshot"
@@ -794,7 +795,7 @@ export interface TransferFocusForActivationOptions {
   /** The card becoming first responder. */
   incomingCardId: string;
   /** The deck store used for bag reads, host-root lookup, and dispatch. */
-  store: IDeckManagerStore;
+  store: CardDeck;
   /**
    * Closure the helper invokes (inside `flushSync`) to commit the
    * React-visible state change that drives the activation (e.g.
@@ -1064,7 +1065,7 @@ export interface CaptureFocusForDragStartOptions {
   /** The card whose drag gesture is starting. */
   sourceCardId: string;
   /** The deck store used for bag reads and save invocation. */
-  store: IDeckManagerStore;
+  store: CardDeck;
 }
 
 /**
@@ -1100,7 +1101,7 @@ export interface TransferFocusAfterMoveOptions {
   /** The card whose drag gesture just committed. */
   sourceCardId: string;
   /** The deck store used for bag reads and host-root lookup. */
-  store: IDeckManagerStore;
+  store: CardDeck;
 }
 
 /**
@@ -1196,7 +1197,7 @@ export function transferFocusAfterMove(
  * by the time the helper runs, so `flushSync` would be redundant.
  */
 export function reactivateCurrentFocusDestination(
-  store: IDeckManagerStore,
+  store: CardDeck,
 ): void {
   const cardId = store.getFirstResponderCardId();
   if (cardId === null) return;
@@ -1278,7 +1279,7 @@ export function reactivateCurrentFocusDestination(
  * hand-off, a move or a freshly added card never asks: its commit is what
  * puts the card on screen.
  */
-export function mayDeferCommit(store: IDeckManagerStore, cardId: string): boolean {
+export function mayDeferCommit(store: DeckView, cardId: string): boolean {
   const pane = store
     .getSnapshot()
     .panes.find((p) => p.cardIds.includes(cardId));
@@ -1288,6 +1289,17 @@ export function mayDeferCommit(store: IDeckManagerStore, cardId: string): boolea
   }
   const root = store.peekCardHostRoot(cardId);
   return root !== null && hiddenClaimReason(root) === null;
+}
+
+/**
+ * {@link mayDeferCommit} for a caller that holds only the card's deck — the
+ * re-raise of an already-open file, diff or commit card. Whether the card is
+ * on screen is a fact of the whole deck, so it is read off the page's deck
+ * view; a page that holds none (a card's own page) commits at once.
+ */
+export function mayDeferCommitInView(cardId: string): boolean {
+  const view = getDeckView();
+  return view !== null && mayDeferCommit(view, cardId);
 }
 
 /**
@@ -1302,7 +1314,7 @@ export function mayDeferCommit(store: IDeckManagerStore, cardId: string): boolea
  * "go to this card" comes here rather than assembling that pair again.
  */
 export function raiseCard(
-  store: IDeckManagerStore,
+  store: DeckView,
   cardId: string,
   modality?: FocusModality,
 ): void {

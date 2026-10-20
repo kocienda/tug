@@ -15,12 +15,12 @@
  * @module lib/pane-verbs
  */
 
-import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "./action-vocabulary";
 import { dispatchCommand } from "../command-dispatch";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import { mayDeferCommit, transferFocusForActivation } from "../focus-transfer";
 import type { DeckState } from "../layout-tree";
-import { panePlaceFactsOf } from "../components/chrome/pane-place-facts";
+import { panePlaceFactsOf } from "./pane-place-facts";
 import { getCardCloseGuard } from "./card-close-guard";
 import { refuseCardModalHold } from "./card-modal-hold-store";
 import { resolvePlacement, type ContentWidth } from "./layout-imposer";

@@ -51,26 +51,22 @@ final class BodyBeatsTests: XCTestCase {
         check("and fades in", arrival.beats[0].opacity == [0, 1], "\(String(describing: arrival.beats[0].opacity))")
     }
 
-    func testAPlanArrivesAsWebKitHandsItOver() throws {
-        let payload: [String: Any] = [
-            "planId": 7,
-            "startWallMs": 1_760_000_000_000.5,
-            "bodies": [[
-                "cardId": "c",
-                "landing": ["x": 1, "y": 2, "width": 3, "height": 4],
-                "beats": [[
-                    "kind": "arrive", "delayMs": 0, "durationMs": 120,
-                    "from": ["x": 1, "y": 2, "width": 3, "height": 4],
-                    "to": ["x": 1, "y": 2, "width": 3, "height": 4],
-                    "opacity": [0, 1], "progress": [0, 1], "easing": "ease-out",
-                ]],
-            ]],
-        ]
-        let plan = try XCTUnwrap(BeatPlan.from(payload: payload))
+    func testAPlanDecodesFromThePagesJSON() throws {
+        let json = Data(#"""
+            {"planId":7,"startWallMs":1760000000000.5,"bodies":[{"cardId":"c",
+             "landing":{"x":1,"y":2,"width":3,"height":4},
+             "beats":[{"kind":"arrive","delayMs":0,"durationMs":120,
+                       "from":{"x":1,"y":2,"width":3,"height":4},"to":{"x":1,"y":2,"width":3,"height":4},
+                       "opacity":[0,1],"progress":[0,1],"easing":"ease-out"}]}]}
+            """#.utf8)
+        guard case .success(.beatPlan(let plan)) = ToHost.decode(name: "beatPlan", data: json) else {
+            return XCTFail("the plan does not decode")
+        }
         check("the plan id", plan.planId == 7)
         check("the start keeps its fraction", plan.startWallMs == 1_760_000_000_000.5)
         check("the fade's easing", plan.bodies[0].beats[0].easing == "ease-out")
-        check("a malformed plan is nil", BeatPlan.from(payload: ["planId": "x"]) == nil)
+        let malformed = ToHost.decode(name: "beatPlan", data: Data(#"{"planId":"x"}"#.utf8))
+        check("a malformed plan is refused", { if case .failure = malformed { return true } else { return false } }())
     }
 
     func testBeginTimeMovesTheStartOntoTheMediaClock() {

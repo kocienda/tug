@@ -20,7 +20,7 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { MenuItemSnapshot } from "../_harness/types";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { SETTLE_MS, bodyOf, focusBody, foldedOf, pollFor, popoverPresent, responders, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
 
 export const TEST_NAME = "body-grounding-row-06-menus";
@@ -255,7 +255,6 @@ export function describeKindsSweep(launch: Launch, part: Part, what: string): vo
         () =>
           withKind(launch, kind, part, async (app, card) => {
             await sweepMenu(app, card, part, ownItemsOf(kind));
-            await expectNoShellReads(app, card);
           }),
         TEST_TIMEOUT_MS,
       );

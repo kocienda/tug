@@ -51,7 +51,7 @@ import { createPortal } from "react-dom";
 import { TugPaneFrameContext } from "@/components/chrome/tug-pane";
 import { paneCanvasOf } from "@/components/chrome/space-layer";
 import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import {
   compactionProgressStore,
   useIsCompactingCard,
@@ -917,7 +917,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // in an open pane, `folded` when the pane is folded and it is the tab on
   // show ([B01]). Deck state, so it enters React through
   // `useSyncExternalStore` ([L02]), read off the process-wide registry rather
-  // than `useDeckManager()` — a Session card renders in the gallery and in
+  // than `useCardDeck()` — a Session card renders in the gallery and in
   // tests that bootstrap no DeckManager, and the honest answer there is
   // hidden rather than a crash.
   //
@@ -928,12 +928,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const cardId = useContext(CardIdContext);
   const paneFrameEl = useContext(TugPaneFrameContext);
   const subscribeToDeck = useCallback((onStoreChange: () => void) => {
-    const store = getDeckStore();
+    const store = getCardDeck();
     if (store === null) return () => {};
     return store.subscribe(onStoreChange);
   }, []);
   const cardForm = useSyncExternalStore(subscribeToDeck, (): "hidden" | "open" | "folded" => {
-    const store = getDeckStore();
+    const store = getCardDeck();
     // No card identity (the gallery, a fixture) is the same honest answer as
     // no deck: this card is not a pane's showing tab.
     if (store === null || cardId === null) return "hidden";

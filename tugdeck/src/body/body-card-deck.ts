@@ -1,36 +1,38 @@
 /**
- * The deck a body page's one card sees.
+ * The deck a body page's one card sees, and the deck a listing card sees.
  *
  * A card mounted in a body runs the same code it runs in the shell: it reads
- * the deck through `useDeckManager()` and `getDeckStore()`, observes its own
+ * the deck through `useCardDeck()` and `getCardDeck()`, observes its own
  * activation, keeps its state bag through the save callbacks and assemblers,
- * and asks the deck to reserve sheet height or close it. Nothing in the card
- * learns it is in a body. This class answers that whole surface for one card:
+ * and asks the deck to reserve sheet height, add a card or close it. Nothing
+ * in the card learns it is in a body. {@link createBodyCardDeck} answers that
+ * whole surface (`CardDeck`) for one card, and every member acts:
  *
- * - **Real, here.** The snapshot is a synthesized one-pane deck holding the
- *   card, folded and arriving as the shell's `card.context` says, with
- *   the pane active when the deck's first responder is this card. Card state,
- *   component state, assemblers, save callbacks, activation callbacks, host
- *   roots, engine hooks and lifecycle observers are the deck's own machinery,
- *   run here over this card alone. The card's bag is read and written by this
- *   page — the shell never writes a body card's bag.
- * - **Forwarded.** What a card asks of the deck's arrangement — a sheet
- *   reservation, an opening bid, activation, its own close, a sibling added
- *   to its pane — goes to the shell: the reservations as `card.reservations`,
- *   the rest as `card.activate`, `card.close` and `card.addSibling`.
- * - **Inert.** Every layout, rail, flow, column, space and add verb is the
- *   shell's. Here it does nothing, answers null or false, and says so once.
+ * - **A read** answers from a replica or from the page's own state. The
+ *   snapshot is a synthesized one-pane deck holding the card, folded and
+ *   arriving as the shell's `card.context` says, with the pane active when
+ *   the deck's first responder is this card.
+ * - **The page's own machinery.** Card state, component state, assemblers,
+ *   save callbacks, activation callbacks, host roots, engine hooks and
+ *   lifecycle observers are the deck's own, run here over this card alone.
+ *   The card's bag is read and written by this page; the shell never writes
+ *   a body card's bag.
+ * - **An ask of the arrangement** is a declared action or request to the
+ *   shell: the reservations as `card.reservations`; activation, its own close
+ *   and a sibling as `card.activate`, `card.close` and `card.addSibling`; a
+ *   reveal as `pane.revealCard`; a card added, a singleton shown and the live
+ *   sessions interrupted as `deck.addCard`, `deck.showSingletonCard` and
+ *   `deck.interruptLiveSessions`. A card added takes an id minted here, so
+ *   the caller holds it before the card lands.
  *
  * A card that lists or moves the whole deck — a registration with
- * `bodyDeck: "arrangement"` — gets an **arrangement** bridge instead: its
- * snapshot, workspaces and band facts are the shell's own, read from the
- * arrangement stores ({@link BodyDeckBridge.applyArrangement}), and the
- * deck calls it makes go to the shell as the `deck.*` actions. A card that
- * follows another (`bodyFollows`) reads the followed card the shell names
- * ({@link BodyDeckBridge.applyFollowed}), through
- * {@link BodyDeckBridge.getFollowedCardId}.
+ * `bodyDeck: "arrangement"` — also gets {@link createDeckView}: its snapshot,
+ * workspaces and band facts are the shell's own, read from the arrangement
+ * replicas, and the deck calls it makes go to the shell as the `deck.*`
+ * actions. A card that follows another (`bodyFollows`) reads the followed
+ * card the shell names ({@link BodyCardDeck.applyFollowed}).
  *
- * @module body/body-deck-bridge
+ * @module body/body-card-deck
  */
 
 import { cardActivate, cardAddSibling, cardClose } from "../bus/declarations/verbs";
@@ -38,18 +40,24 @@ import { NO_CARD_CONTEXT, type CardContextValue, type CardReservationsValue } fr
 import {
   deckActivateCard,
   deckActivateSpace,
+  deckAddCard,
   deckChooseSpaceTheme,
+  deckInterruptLiveSessions,
   deckMoveCardToSpace,
   deckPreviewFlowOffset,
   deckRenameSpace,
   deckReorderSpaces,
   deckSetFlowOffset,
+  deckShowSingletonCard,
   type ArrangementDeckValue,
   type ArrangementSpaces,
 } from "../bus/declarations/arrangement";
-import type { EngineHooks, IDeckManagerStore, MovePaneOptions } from "../deck-manager-store";
+import { paneRevealCard } from "../bus/declarations/pane";
+import type { StoreView } from "../bus/shared-store";
+import type { EngineHooks } from "../deck-manager-store";
+import type { CardDeck, DeckView } from "../card-deck";
 import type { CardStateBag, DeckState, TugPaneState } from "../layout-tree";
-import type { SpacesSnapshot } from "../spaces";
+import { NO_SPACES, type SpacesSnapshot } from "../spaces";
 import type { CommitLanding, SaveCallbackSource } from "../deck-trace";
 import type { CardAssembler } from "../card-state-orchestrator";
 import { CardStateOrchestrator } from "../card-state-orchestrator";
@@ -58,26 +66,21 @@ import { ComponentStateRegistries, EngineHookRegistry } from "../engine-hooks";
 import type { ComponentStatePreservationRegistry } from "../components/tugways/component-state-preservation-registry";
 import { CardLifecycle, type CardLifecycleObserver } from "../lib/card-lifecycle";
 import type { SpaceLayerShownSource } from "../components/chrome/space-layer";
-import type { SlotAssignment } from "../layout-imposition";
-import type { RailWidthLimits } from "../lib/rail-width";
-import type {
-  ColumnMoveTarget,
-  ContentWidth,
-  FlowBandEdges,
-  SidebarSide,
-} from "../lib/layout-imposer";
 import { DEFAULT_SIDEBAR_SIDE } from "../lib/layout-imposer";
 import { applyBagFocus } from "../focus-transfer";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { arrangementSnapshot } from "../lib/body-arrangement";
+
+/** How long a body waits for the shell to say which live sessions it interrupted ([L33]). */
+export const INTERRUPT_LIVE_SESSIONS_HORIZON_MS = 10_000;
 
 /** The pane id a body's card stands in — also its `CardHost`'s `hostStackId`. */
 export function bodyPaneId(cardId: string): string {
   return `body-pane-${cardId}`;
 }
 
-/** What the bridge needs from the page it runs in. */
-export interface BodyDeckBridgeOptions {
+/** What the card deck needs from the page it runs in. */
+export interface BodyCardDeckOptions {
   cardId: string;
   /** The card's registry component id. */
   componentId: string;
@@ -87,36 +90,35 @@ export interface BodyDeckBridgeOptions {
   putCardState: CardStateCacheDeps["putCardState"];
   /** The card's bag as tugbank holds it at boot, if any. */
   initialBag?: CardStateBag;
-  /** What of the deck the card reads: its own card (the default) or the shell's arrangement. */
-  deckMode?: "card" | "arrangement";
 }
 
-const NO_SPACES: SpacesSnapshot = {
-  spaces: [],
-  activeSpaceId: "",
-  mountedSpaceIds: [],
-  warmSpaceIds: [],
-  mountedDecks: new Map(),
-};
-
 /** The shell's arrangement as an arrangement card reads it: the live deck and band, and the workspaces. */
-interface BodyArrangement extends ArrangementDeckValue {
+export interface BodyArrangement extends ArrangementDeckValue {
   spaces: ArrangementSpaces;
 }
 
-export class BodyDeckBridge implements IDeckManagerStore {
+/** Build the deck this page's card sees. */
+export function createBodyCardDeck(options: BodyCardDeckOptions): BodyCardDeck {
+  return new BodyCardDeck(options);
+}
+
+/**
+ * The card deck, with the page's own handles beside it: `applyContext`,
+ * `applyFollowed`, `revealLayer`, `setHasFocus`, `saveNow`, `cardLifecycle`
+ * and `layerShownSource` belong to `body-main.ts`, not to the card.
+ */
+export class BodyCardDeck implements CardDeck {
   readonly cardId: string;
   private readonly componentId: string;
   private readonly reserve: (reservations: CardReservationsValue) => void;
   private reservations: CardReservationsValue = { sheetPx: null, openingBidPx: null };
-  private readonly deckMode: "card" | "arrangement";
   private context: CardContextValue = NO_CARD_CONTEXT;
+  /** Whether a context from the shell has arrived: the first one sets the geometry baseline. */
+  private contextArrived = false;
   /** The card a following card follows, as the shell names it. */
   private followedCardId: string | null = null;
-  /** The shell's arrangement, in arrangement mode, once its deck has arrived. */
+  /** The shell's arrangement, for an arrangement card, once its deck has arrived ({@link createDeckView}). */
   private arrangement: BodyArrangement | null = null;
-  private spacesSnapshot: SpacesSnapshot = NO_SPACES;
-  private readonly spacesListeners = new Set<() => void>();
   private deckState: DeckState;
   private version = 0;
   private readonly listeners = new Set<(landing: CommitLanding) => void>();
@@ -129,7 +131,6 @@ export class BodyDeckBridge implements IDeckManagerStore {
   private readonly activationCallbacks = new Map<string, () => void>();
   private readonly deactivationCallbacks = new Map<string, () => void>();
   private readonly cardHostRoots = new Map<string, HTMLElement>();
-  private readonly warned = new Set<string>();
   readonly cardLifecycle: CardLifecycle;
 
   /**
@@ -142,11 +143,10 @@ export class BodyDeckBridge implements IDeckManagerStore {
   private readonly layerListeners = new Set<() => void>();
   readonly layerShownSource: SpaceLayerShownSource;
 
-  constructor(options: BodyDeckBridgeOptions) {
+  constructor(options: BodyCardDeckOptions) {
     this.cardId = options.cardId;
     this.componentId = options.componentId;
     this.reserve = options.reserve ?? (() => {});
-    this.deckMode = options.deckMode ?? "card";
     this.cardStates = new CardStateCache(
       { putCardState: options.putCardState },
       options.initialBag === undefined
@@ -171,10 +171,13 @@ export class BodyDeckBridge implements IDeckManagerStore {
   /**
    * Take the shell's latest word on this card. Re-synthesizes the deck when a
    * fact the snapshot carries moved, and fires the card's activation or
-   * deactivation when the deck's first responder turned to or from it.
+   * deactivation when the deck's first responder turned to or from it, and
+   * its resize, then its move, when the shell's count of either rose.
    */
   applyContext(next: CardContextValue): void {
     const prev = this.context;
+    const baseline = !this.contextArrived;
+    this.contextArrived = true;
     this.context = next;
     if (
       prev.folded !== next.folded ||
@@ -201,6 +204,13 @@ export class BodyDeckBridge implements IDeckManagerStore {
       this.cardLifecycle.notifyCardDidDeactivate(this.cardId);
     }
     if (isFirst && !wasFirst) applyBagFocus(this.cardId, this);
+    // The shell counts the moves and resizes its deck commits for the card,
+    // which its delegates hear here, where its content is. The first context
+    // a page reads is the baseline: what moved before it is not news.
+    if (!baseline) {
+      if (next.geometry.resizes > prev.geometry.resizes) this.cardLifecycle.notifyCardDidResize(this.cardId);
+      if (next.geometry.moves > prev.geometry.moves) this.cardLifecycle.notifyCardDidMove(this.cardId);
+    }
     if (this.layerShown || prev.layerShown !== next.layerShown) {
       this.setLayerShown(next.layerShown);
     }
@@ -223,38 +233,14 @@ export class BodyDeckBridge implements IDeckManagerStore {
   }
 
   /**
-   * Take the shell's arrangement, in arrangement mode: its live deck and band
-   * (null until they have arrived) and its workspaces. A replica keeps its
-   * object until its value moves, so identity is the change. Re-synthesizes
-   * the deck when the deck moved, and rebuilds the spaces snapshot when the
-   * workspaces did.
+   * Take the shell's arrangement, for an arrangement card: the deck view
+   * hands it over whenever a replica moved, and the snapshot becomes the
+   * shell's deck with this card's pane re-keyed.
    */
-  applyArrangement(deck: ArrangementDeckValue | null, spaces: ArrangementSpaces): void {
-    if (this.deckMode !== "arrangement" || deck === null) return;
-    const prev = this.arrangement;
-    if (prev !== null && prev.spaces === spaces && prev.deck === deck.deck && prev.bandWidth === deck.bandWidth &&
-      prev.columnRunHeight === deck.columnRunHeight && prev.railRunHeight === deck.railRunHeight) {
-      return;
-    }
-    this.arrangement = { ...deck, spaces };
-    if (prev?.spaces !== spaces) {
-      this.spacesSnapshot = {
-        spaces: spaces.spaces,
-        activeSpaceId: spaces.activeSpaceId,
-        mountedSpaceIds: spaces.mountedSpaceIds,
-        warmSpaceIds: [],
-        mountedDecks: new Map(
-          spaces.mountedSpaceIds
-            .filter((id) => id !== spaces.activeSpaceId && spaces.decks[id] !== undefined)
-            .map((id) => [id, spaces.decks[id]]),
-        ),
-      };
-    }
+  showArrangement(arrangement: BodyArrangement): void {
+    this.arrangement = arrangement;
     this.deckState = this.synthesize();
     this.notify();
-    if (prev?.spaces !== spaces) {
-      for (const listener of [...this.spacesListeners]) listener();
-    }
   }
 
   /** Take the card the shell says this following card follows. */
@@ -263,15 +249,6 @@ export class BodyDeckBridge implements IDeckManagerStore {
     this.followedCardId = cardId;
     this.deckState = this.synthesize();
     this.notify();
-  }
-
-  /** Run `call` on the shell for an arrangement card; says `method` is the shell's, once, in card mode. */
-  private deckCall(method: string, call: () => void): void {
-    if (this.arrangement === null) {
-      this.inert(method);
-      return;
-    }
-    call();
   }
 
   private synthesize(): DeckState {
@@ -307,22 +284,7 @@ export class BodyDeckBridge implements IDeckManagerStore {
     for (const listener of [...this.listeners]) listener(landing);
   }
 
-  private inert(method: string): void {
-    if (this.warned.has(method)) return;
-    this.warned.add(method);
-    tugDevLogStore.warn("body", `${method} is the shell's`);
-  }
-
-  /**
-   * The shell-only methods this card has called, each once: a read or a
-   * move the bridge does not answer in this page. A kind that is a body
-   * should call none; one that does reads something the shell must send it.
-   */
-  shellReads(): string[] {
-    return [...this.warned];
-  }
-
-  // ---- Real, local: the snapshot ----
+  // ---- The snapshot ----
 
   subscribe = (callback: (landing: CommitLanding) => void): (() => void) => {
     this.listeners.add(callback);
@@ -330,12 +292,15 @@ export class BodyDeckBridge implements IDeckManagerStore {
       this.listeners.delete(callback);
     };
   };
+  // A body's deck tells its subscribers on the commit's own task, so the
+  // sync door and the deferred one are the same door, and nothing is ever
+  // pending for a flush to deliver.
   subscribeSync = (callback: (landing: CommitLanding) => void): (() => void) =>
     this.subscribe(callback);
   flushPendingNotify = (): void => {};
   getSnapshot = (): DeckState => this.deckState;
+  // Nothing departs from a one-card deck, so its picture is its snapshot.
   getPicture = (): DeckState => this.deckState;
-  batchGesture = <T,>(fn: () => T): T => fn();
   getVersion = (): number => this.version;
   getFirstResponderCardId = (): string | null => this.context.firstResponderCardId;
   /** The card is a warm workspace's that its first visit will make key ({@link applyContext}). */
@@ -362,8 +327,23 @@ export class BodyDeckBridge implements IDeckManagerStore {
    * null for a content card or a rail dragged loose.
    */
   getRailSide = (): "left" | "right" | null => this.context.railSide ?? null;
+  /**
+   * The workspace holding `cardId`. A card's own is its context's; an
+   * arrangement card lists every workspace's, so a card of a parked one is
+   * found in that workspace's deck — the read that lets the Cards card draw a
+   * parked Session card from the bindings ledger (`cardIdentity`'s `parked`).
+   */
+  spaceOf = (cardId: string): string | null => {
+    const arrangement = this.arrangement;
+    if (arrangement === null || cardId === this.cardId) return this.context.spaceId;
+    if (arrangement.deck.cards.some((c) => c.id === cardId)) return arrangement.spaces.activeSpaceId;
+    for (const [spaceId, deck] of Object.entries(arrangement.spaces.decks)) {
+      if (deck.cards.some((c) => c.id === cardId)) return spaceId;
+    }
+    return null;
+  };
 
-  // ---- Real, local: lifecycle ----
+  // ---- Lifecycle ----
 
   observeCardDidFinishConstruction = (cardId: string | null, callback: CardLifecycleObserver) =>
     this.cardLifecycle.observeCardDidFinishConstruction(cardId, callback);
@@ -377,20 +357,13 @@ export class BodyDeckBridge implements IDeckManagerStore {
     this.cardLifecycle.observeCardDidMove(cardId, callback);
   observeCardDidResize = (cardId: string | null, callback: CardLifecycleObserver) =>
     this.cardLifecycle.observeCardDidResize(cardId, callback);
-  /** The shell committed a new position or size for this card's pane: the same events, here. */
-  noteGeometryChanged = (moved: boolean, resized: boolean): void => {
-    if (moved) this.cardLifecycle.notifyCardDidMove(this.cardId);
-    if (resized) this.cardLifecycle.notifyCardDidResize(this.cardId);
-  };
-  noteCardWillLand = (cardId: string): void => this.cardLifecycle.notifyCardWillLand(cardId);
-  noteCardDidLand = (cardId: string): void => this.cardLifecycle.notifyCardDidLand(cardId);
   setHasFocus = (value: boolean): void => {
     if (this.deckState.hasFocus === value) return;
     this.deckState = { ...this.deckState, hasFocus: value };
     this.notify();
   };
 
-  // ---- Real, local: card state ----
+  // ---- Card state ----
 
   getCardState = (cardId: string): CardStateBag | undefined => this.cardStates.get(cardId);
   setCardState = (cardId: string, bag: CardStateBag): void => this.cardStates.set(cardId, bag);
@@ -424,7 +397,7 @@ export class BodyDeckBridge implements IDeckManagerStore {
     return results.every((r) => r.ok);
   }
 
-  // ---- Real, local: focus channels ----
+  // ---- Focus channels ----
 
   registerActivationCallback = (cardId: string, callback: () => void): (() => void) => {
     this.activationCallbacks.set(cardId, callback);
@@ -459,7 +432,7 @@ export class BodyDeckBridge implements IDeckManagerStore {
   subscribeEngineHooksChange = (cardId: string, listener: () => void): (() => void) =>
     this.engineHooks.subscribeChange(cardId, listener);
 
-  // ---- Forwarded to the shell ----
+  // ---- Asks of the arrangement, which is the shell's ----
 
   setSheetReservation = (_memberId: string, height: number | null): void => {
     this.reservations = { ...this.reservations, sheetPx: height };
@@ -487,139 +460,129 @@ export class BodyDeckBridge implements IDeckManagerStore {
   addCardToPane = (_paneId: string, componentId: string, _initialContent?: unknown): string | null => (
     cardAddSibling.dispatch({ componentId }), null
   );
-
-  // ---- Inert: the deck's arrangement is the shell's ----
-
-  getBandWidth = (): number | null =>
-    this.arrangement !== null
-      ? this.arrangement.bandWidth
-      : // An arrangement card reading before its first context arrives is
-        // early, not asking the shell for something it will not send.
-        this.deckMode === "arrangement"
-        ? null
-        : (this.inert("getBandWidth"), null);
-  getDrawnFlowOffset = (): number | null => null;
-  getDrawnFlowVelocity = (): number | null => null;
-  setDrawnFlowVelocity = (_v: number | null): void => this.inert("setDrawnFlowVelocity");
-  getBandEdges = (): FlowBandEdges | null => null;
-  getBandSpan = (): number => 0;
-  getColumnRunHeight = (): number | null => this.arrangement?.columnRunHeight ?? null;
-  getRailRunHeight = (): number | null => this.arrangement?.railRunHeight ?? null;
-  getSpaceSwitchStartedAt = (): number | null => null;
-  getImpositionGestureAt = (): number | null => null;
-  setColumnOffset = (_slot: number, _offset: number, _landing?: CommitLanding): void =>
-    this.inert("setColumnOffset");
-  setRailOffset = (_side: SidebarSide, _offset: number, _landing?: CommitLanding): void =>
-    this.inert("setRailOffset");
-  setFlowOffset = (offset: number, landing?: CommitLanding): void =>
-    this.deckCall("setFlowOffset", () => deckSetFlowOffset.dispatch({ offset, landing }));
-  railWidthLimits = (_side: SidebarSide): RailWidthLimits | null => null;
-  setRailWidth = (_side: SidebarSide, _width: number): void => this.inert("setRailWidth");
-  previewFlowOffset = (offset: number): void =>
-    this.deckCall("previewFlowOffset", () => deckPreviewFlowOffset.dispatch({ offset }));
-  handlePaneMoved = (
-    _paneId: string,
-    _position: { x: number; y: number },
-    _size: { width: number; height: number },
-    _opts?: MovePaneOptions,
-  ): void => this.inert("handlePaneMoved");
-  deselectActiveCard = (): void => this.inert("deselectActiveCard");
-  revealCard = (_cardId: string): void => this.inert("revealCard");
+  /** The shell slides the strip this card's pane rides; it answers only for a card of the sender's pane. */
+  revealCard = (cardId: string): void => paneRevealCard.dispatch({ cardId });
+  /**
+   * Mint the new card's id here and hand it to the shell with the ask, so
+   * the caller can act on the card at once — spawn its session, flash its
+   * pane — as it does in the shell.
+   */
   addCard = (
-    _componentId: string,
-    _initialContent?: unknown,
-    _options?: { origin?: string | null; opening?: "bound" },
-  ): string | null => (this.inert("addCard"), null);
-  showSingletonCard = (_componentId: string): string | null => (this.inert("showSingletonCard"), null);
-  centerPane = (_cardId: string): void => this.inert("centerPane");
-  sendPaneBehind = (_paneId: string, _belowPaneId: string): void => this.inert("sendPaneBehind");
-  showSidebarPane = (_componentId: string): string | null => (this.inert("showSidebarPane"), null);
-  hideSidebarPane = (_componentId: string): void => this.inert("hideSidebarPane");
-  showSidebarRail = (_side: SidebarSide): string | null => (this.inert("showSidebarRail"), null);
-  hideSidebarRail = (_side: SidebarSide): void => this.inert("hideSidebarRail");
-  retuneSidebarAllocation = (): void => this.inert("retuneSidebarAllocation");
-  setRailShares = (_side: SidebarSide, _shares: Record<string, number>): void =>
-    this.inert("setRailShares");
-  setRailOrder = (_side: SidebarSide, _order: readonly string[]): void => this.inert("setRailOrder");
-  moveSidebarToRail = (_componentId: string, _side: SidebarSide, _index: number): void =>
-    this.inert("moveSidebarToRail");
-  setColumnShares = (_slot: number, _shares: Record<string, number>): void =>
-    this.inert("setColumnShares");
-  setColumnOrder = (_slot: number, _order: readonly string[], _movedPaneId?: string): void =>
-    this.inert("setColumnOrder");
-  movePaneToSlot = (_paneId: string, _slot: number, _index?: number): SlotAssignment => (
-    this.inert("movePaneToSlot"), { ok: false }
-  );
-  assignCardToSlot = (_cardId: string, _slot: number): SlotAssignment => (
-    this.inert("assignCardToSlot"), { ok: false }
-  );
-  moveInColumn = (_paneId: string, _where: ColumnMoveTarget): boolean => (
-    this.inert("moveInColumn"), false
-  );
-  setActiveCardInPane = (_paneId: string, _cardId: string): void => this.inert("setActiveCardInPane");
-  reorderCardInPane = (_paneId: string, _from: number, _to: number): void =>
-    this.inert("reorderCardInPane");
-  detachCard = (_paneId: string, _cardId: string, _position: { x: number; y: number }): string | null => (
-    this.inert("detachCard"), null
-  );
-  moveCardToPane = (_source: string, _cardId: string, _target: string, _index: number): void =>
-    this.inert("moveCardToPane");
-  subscribeSpaces = (callback: () => void): (() => void) => {
-    this.spacesListeners.add(callback);
-    return () => {
-      this.spacesListeners.delete(callback);
-    };
+    componentId: string,
+    initialContent?: unknown,
+    options?: { origin?: string | null; opening?: "bound"; cardId?: string },
+  ): string | null => {
+    const cardId = options?.cardId ?? crypto.randomUUID();
+    deckAddCard.dispatch({
+      cardId,
+      componentId,
+      initialContent,
+      origin: options?.origin,
+      opening: options?.opening,
+    });
+    return cardId;
   };
-  getSpacesSnapshot = (): SpacesSnapshot => this.spacesSnapshot;
-  /**
-   * The workspace holding `cardId`. A card-mode body holds only its own card;
-   * an arrangement body lists every workspace's, so a card of a parked one is
-   * found in that workspace's deck — the read that lets the Cards card draw a
-   * parked Session card from the bindings ledger (`cardIdentity`'s `parked`).
-   */
-  spaceOf = (cardId: string): string | null => {
-    const arrangement = this.arrangement;
-    if (arrangement === null || cardId === this.cardId) return this.context.spaceId;
-    if (arrangement.deck.cards.some((c) => c.id === cardId)) return arrangement.spaces.activeSpaceId;
-    for (const [spaceId, deck] of Object.entries(arrangement.spaces.decks)) {
-      if (deck.cards.some((c) => c.id === cardId)) return spaceId;
+  // The reused card's id is the shell's, and no caller reads it.
+  showSingletonCard = (componentId: string): string | null => (
+    deckShowSingletonCard.dispatch({ componentId }), null
+  );
+  interruptLiveSessions = async (): Promise<{ interrupted: string[]; unacknowledged: string[] }> => {
+    const result = await deckInterruptLiveSessions.ask({}, { horizon: { ms: INTERRUPT_LIVE_SESSIONS_HORIZON_MS } });
+    if (result.ok) return result.value;
+    tugDevLogStore.warn("body", `deck.interruptLiveSessions: ${result.reason}`);
+    return { interrupted: [], unacknowledged: [] };
+  };
+}
+
+/** A replica as the deck view reads it. */
+type Replica<T> = Pick<StoreView<T>, "getSnapshot" | "subscribe">;
+
+/** The arrangement replicas an arrangement card's page follows. */
+export interface ArrangementReplicas {
+  deck: Replica<ArrangementDeckValue | null>;
+  spaces: Replica<ArrangementSpaces>;
+}
+
+/**
+ * The deck an arrangement card sees: the card deck's own members, read live
+ * from it, and the spaces, bands and run heights from the replicas, which it
+ * follows from here on. A replica keeps its object until its value moves, so
+ * identity is the change: a moved deck or band re-synthesizes the card
+ * deck's snapshot, and moved workspaces rebuild the spaces snapshot too.
+ */
+export function createDeckView(cardDeck: BodyCardDeck, replicas: ArrangementReplicas): DeckView {
+  let arrangement: BodyArrangement | null = null;
+  let spacesSnapshot: SpacesSnapshot = NO_SPACES;
+  const spacesListeners = new Set<() => void>();
+
+  const apply = (): void => {
+    const deck = replicas.deck.getSnapshot();
+    const spaces = replicas.spaces.getSnapshot();
+    if (deck === null) return;
+    const prev = arrangement;
+    if (prev !== null && prev.spaces === spaces && prev.deck === deck.deck && prev.bandWidth === deck.bandWidth &&
+      prev.columnRunHeight === deck.columnRunHeight && prev.railRunHeight === deck.railRunHeight) {
+      return;
     }
-    return null;
+    arrangement = { ...deck, spaces };
+    const spacesMoved = prev?.spaces !== spaces;
+    if (spacesMoved) {
+      spacesSnapshot = {
+        spaces: spaces.spaces,
+        activeSpaceId: spaces.activeSpaceId,
+        mountedSpaceIds: spaces.mountedSpaceIds,
+        warmSpaceIds: [],
+        mountedDecks: new Map(
+          spaces.mountedSpaceIds
+            .filter((id) => id !== spaces.activeSpaceId && spaces.decks[id] !== undefined)
+            .map((id) => [id, spaces.decks[id]]),
+        ),
+      };
+    }
+    cardDeck.showArrangement(arrangement);
+    if (spacesMoved) {
+      for (const listener of [...spacesListeners]) listener();
+    }
   };
-  getSpaceDeck = (spaceId: string): DeckState | null => {
-    if (this.arrangement === null) return null;
-    if (spaceId === this.arrangement.spaces.activeSpaceId) return this.deckState;
-    return this.arrangement.spaces.decks[spaceId] ?? null;
-  };
-  activateSpace = (spaceId: string): void => this.deckCall("activateSpace", () => deckActivateSpace.dispatch({ spaceId }));
-  createSpace = (_name?: string): string => (this.inert("createSpace"), "");
-  renameSpace = (spaceId: string, name: string): void =>
-    this.deckCall("renameSpace", () => deckRenameSpace.dispatch({ spaceId, name }));
-  chooseSpaceTheme = (spaceId: string, theme: string): void =>
-    this.deckCall("chooseSpaceTheme", () => deckChooseSpaceTheme.dispatch({ spaceId, theme }));
-  duplicateSpace = (_spaceId: string): string | null => (this.inert("duplicateSpace"), null);
-  spaceHoldsLiveSessions = (spaceId: string): number =>
-    this.arrangement?.spaces.liveSessions[spaceId] ?? 0;
-  spaceCardCount = (spaceId: string): number => this.arrangement?.spaces.cardCounts[spaceId] ?? 0;
-  deleteSpace = (_spaceId: string): boolean => (this.inert("deleteSpace"), false);
-  reorderSpaces = (order: readonly string[]): void =>
-    this.deckCall("reorderSpaces", () => deckReorderSpaces.dispatch({ order: [...order] }));
-  /**
-   * The move is the shell's to make or refuse; a body hands it over and
-   * answers whether it could: true once handed to the shell, which reports
-   * a refusal itself.
-   */
-  moveCardToSpace = (cardId: string, spaceId: string): boolean => {
-    this.deckCall("moveCardToSpace", () => deckMoveCardToSpace.dispatch({ cardId, spaceId }));
-    return this.arrangement !== null;
-  };
-  setPaneWidth = (_paneId: string, _preset: ContentWidth): void => this.inert("setPaneWidth");
-  setContentWidth = (_preset: ContentWidth): void => this.inert("setContentWidth");
-  toggleBullseye = (_paneId: string): void => this.inert("toggleBullseye");
-  getBullseyePaneId = (): string | null => null;
-  interruptLiveSessions = async (): Promise<{ interrupted: string[]; unacknowledged: string[] }> => (
-    this.inert("interruptLiveSessions"), { interrupted: [], unacknowledged: [] }
-  );
-  registerDepartureHost = (): (() => void) => () => {};
-  landDepartures = (_paneIds?: readonly string[]): void => {};
+
+  // The card deck's members are its own arrow properties, bound to it, so a
+  // view whose prototype is the card deck reads every one of them live.
+  const view: DeckView = Object.assign(Object.create(cardDeck) as CardDeck, {
+    getBandWidth: (): number | null => arrangement?.bandWidth ?? null,
+    getColumnRunHeight: (): number | null => arrangement?.columnRunHeight ?? null,
+    getRailRunHeight: (): number | null => arrangement?.railRunHeight ?? null,
+    setFlowOffset: (offset: number, landing?: CommitLanding): void => deckSetFlowOffset.dispatch({ offset, landing }),
+    previewFlowOffset: (offset: number): void => deckPreviewFlowOffset.dispatch({ offset }),
+    subscribeSpaces: (callback: () => void): (() => void) => {
+      spacesListeners.add(callback);
+      return () => {
+        spacesListeners.delete(callback);
+      };
+    },
+    getSpacesSnapshot: (): SpacesSnapshot => spacesSnapshot,
+    getSpaceDeck: (spaceId: string): DeckState | null => {
+      if (arrangement === null) return null;
+      if (spaceId === arrangement.spaces.activeSpaceId) return cardDeck.getSnapshot();
+      return arrangement.spaces.decks[spaceId] ?? null;
+    },
+    activateSpace: (spaceId: string): void => deckActivateSpace.dispatch({ spaceId }),
+    renameSpace: (spaceId: string, name: string): void => deckRenameSpace.dispatch({ spaceId, name }),
+    chooseSpaceTheme: (spaceId: string, theme: string): void => deckChooseSpaceTheme.dispatch({ spaceId, theme }),
+    spaceHoldsLiveSessions: (spaceId: string): number => arrangement?.spaces.liveSessions[spaceId] ?? 0,
+    spaceCardCount: (spaceId: string): number => arrangement?.spaces.cardCounts[spaceId] ?? 0,
+    reorderSpaces: (order: readonly string[]): void => deckReorderSpaces.dispatch({ order: [...order] }),
+    /**
+     * The move is the shell's to make or refuse; a body hands it over and
+     * answers that it did, and the shell reports a refusal itself.
+     */
+    moveCardToSpace: (cardId: string, spaceId: string): boolean => {
+      deckMoveCardToSpace.dispatch({ cardId, spaceId });
+      return true;
+    },
+  });
+
+  replicas.deck.subscribe(apply);
+  replicas.spaces.subscribe(apply);
+  apply();
+  return view;
 }

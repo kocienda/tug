@@ -2,15 +2,12 @@
  * What a body reads of the deck beyond its own card, and the deck verbs it
  * may ask of the shell.
  *
- * Every body reads other cards' sessions and phases — a Session card's
- * identity menu names the card a session is open in, the Overview's dots
- * pulse for every live one — so those two projections are deck-wide
- * (`deck.cardBindings`, `deck.cardActivities`). A card that lists or moves
- * the whole deck (`bodyDeck: "arrangement"`, the Cards and Layout cards)
- * reads the shell's arrangement as well, split by how often each part moves:
- * the live deck and its band (`arrangement.deck`, every commit), the
- * workspaces (`arrangement.spaces`), and the title and live identity of every
- * card it lists (`arrangement.cardFacts`). The Cards card also reads the
+ * Every body reads other cards' titles, sessions and phases through
+ * `deck.cards` (`declarations/deck.ts`). A card that lists or moves the
+ * whole deck (`bodyDeck: "arrangement"`, the Cards and Layout cards) reads
+ * the shell's arrangement as well, split by how often each part moves: the
+ * live deck and its band (`arrangement.deck`, every commit) and the
+ * workspaces (`arrangement.spaces`). The Cards card also reads the
  * server's card bindings (`cards.ledgerBindings`) and holds the layout
  * selection with the shell (`layout.selection`, which it proposes to). A
  * following card (`bodyFollows`) reads the card it follows (`card.followed`),
@@ -22,22 +19,23 @@
  * asked the Cards card to answer is `cards.spaceVerb`, sent to the shown
  * workspace's Cards card.
  *
+ * Three deck verbs any card makes: a card added (its id minted by the page
+ * that asks, so the asker holds it before the card lands), a singleton
+ * shown, and the live sessions interrupted, a request the update wizard
+ * waits on.
+ *
  * @module bus/declarations/arrangement
  */
 
-import type { CardIdentityFacts } from "../../card-registry";
 import { getRegistration } from "../../card-registry";
 import type { DeckState } from "../../layout-tree";
-import type { CardSessionBinding } from "../../lib/card-session-binding-store";
-import type { CardMastheadPayload } from "../../lib/card-title-store";
 import type { AppInfo } from "../../lib/app-info-store";
 import type { CardBinding } from "../../protocol";
 import { CARDS_CARD_ID } from "../../lib/cards-card-id";
-import { arr, bool, literal, nullable, num, obj, opaque, optional, rec, str } from "../codec";
+import { arr, bool, empty, literal, nullable, num, obj, opaque, optional, rec, str } from "../codec";
+import { defineRequest } from "../request";
 import { defineAction } from "../routed-action";
 import { defineSharedStore } from "../shared-store";
-import { cardIdentity, cardMasthead } from "./card";
-import { sessionBinding } from "./deck";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,31 +50,6 @@ const deckState = opaque(
   (v: unknown): v is DeckState => isRecord(v) && Array.isArray(v.cards) && Array.isArray(v.panes),
   { cards: [], panes: [], imposition: { sidebars: {} }, hasFocus: true } as DeckState,
 );
-
-// ---- Every body ----
-
-/** The shell's session binding for every card the arrangement holds — every workspace's. */
-export const deckCardBindings = defineSharedStore<Record<string, CardSessionBinding>>({
-  key: "deck.cardBindings",
-  owner: "shell",
-  scope: { deck: true },
-  codec: rec(sessionBinding),
-  initial: {},
-});
-
-/**
- * The session phase key each card's body last reported (`card.facts`
- * `activity`), for every card the arrangement holds whose body has reported
- * one. A page builds no session store for any card but its own, so this is
- * where a body reads the live dot for every other card.
- */
-export const deckCardActivities = defineSharedStore<Record<string, string>>({
-  key: "deck.cardActivities",
-  owner: "shell",
-  scope: { deck: true },
-  codec: rec(str),
-  initial: {},
-});
 
 // ---- A card that lists or moves the whole deck ----
 
@@ -133,33 +106,6 @@ export const arrangementSpaces = defineSharedStore<ArrangementSpaces>({
     cardCounts: rec(num),
   }),
   initial: NO_ARRANGEMENT_SPACES,
-});
-
-/** A card's title override and masthead, as the shell's title store holds them. */
-export interface ArrangementTitle {
-  title: string | null;
-  masthead: CardMastheadPayload | null;
-}
-
-/**
- * The shell's title and masthead, and the live identity, of each card the
- * arrangement holds: its own open registries for a card it draws, a body's
- * published facts for a body card.
- */
-export interface ArrangementCardFacts {
-  titles: Record<string, ArrangementTitle>;
-  identities: Record<string, CardIdentityFacts>;
-}
-
-export const arrangementCardFacts = defineSharedStore<ArrangementCardFacts>({
-  key: "arrangement.cardFacts",
-  owner: "shell",
-  scope: { kinds: isArrangementKind },
-  codec: obj({
-    titles: rec(obj({ title: nullable(str), masthead: nullable(cardMasthead) })),
-    identities: rec(cardIdentity),
-  }),
-  initial: { titles: {}, identities: {} },
 });
 
 // ---- The Cards card ----
@@ -296,6 +242,40 @@ export const deckReorderSpaces = defineAction({
   id: "deck.reorderSpaces",
   owner: "shell",
   codec: obj({ order: arr(str) }),
+});
+
+// ---- The deck verbs any card makes ----
+
+/** What a card hands a new card to open on (`addCard`'s `initialContent`), as the new card's bag will hold it. */
+const initialContent = opaque((_v: unknown): _v is unknown => true, { path: "/tmp/sample.txt" } as unknown);
+
+/** Add a card of `componentId` under the id `cardId` the asking page minted. */
+export const deckAddCard = defineAction({
+  id: "deck.addCard",
+  owner: "shell",
+  codec: obj({
+    cardId: str,
+    componentId: str,
+    initialContent: optional(initialContent),
+    origin: optional(nullable(str)),
+    opening: optional(literal("bound")),
+  }),
+});
+
+/** Show the card of `componentId` as a singleton: raise the one the deck holds, or add it. */
+export const deckShowSingletonCard = defineAction({
+  id: "deck.showSingletonCard",
+  owner: "shell",
+  codec: obj({ componentId: str }),
+});
+
+/** Interrupt every session with a turn in flight, and say which acknowledged. */
+export const deckInterruptLiveSessions = defineRequest({
+  id: "deck.interruptLiveSessions",
+  owner: "shell",
+  codec: empty,
+  replyCodec: obj({ interrupted: arr(str), unacknowledged: arr(str) }),
+  onDetach: "fail",
 });
 
 /** A workspace verb the shell's menu or a chord asked the Cards card to answer, in its page. */

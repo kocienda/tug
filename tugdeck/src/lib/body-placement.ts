@@ -107,7 +107,15 @@
 import type { IDeckManagerStore } from "../deck-manager-store";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
 import { bodyCardsStore } from "./body-cards-store";
-import { hostCapabilitiesStore, postToHost } from "./body-handoff";
+import { hostCapabilitiesStore } from "./body-handoff";
+import { postToHost } from "../host/channel";
+import {
+  beatPlanToHost,
+  cardLandToHost,
+  floorGridToHost,
+  placeBodiesToHost,
+  placeCardsToHost,
+} from "../host/declarations/geometry";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
 import { getRegistration } from "../card-registry";
 import { subscribeOnScreenTheme } from "../contexts/theme-provider";
@@ -754,7 +762,7 @@ export function hiddenSince(
  * placement beacon with the canvas container it measures under.
  */
 export class BodyPlacer {
-  private readonly poster = new PlacementPoster((p) => postToHost("placeBodies", p));
+  private readonly poster = new PlacementPoster((p) => postToHost(placeBodiesToHost, p));
   /** The last `placeCards` posted, as its JSON, so a re-post that says nothing new is not sent. */
   private lastCards: string | null = null;
   private container: HTMLElement | null = null;
@@ -882,7 +890,7 @@ export class BodyPlacer {
     this.noteRestInsets();
     this.poster.offer(placement);
     this.offerCards(placement, container);
-    for (const cardId of this.landing) postToHost("cardLand", { cardId });
+    for (const cardId of this.landing) postToHost(cardLandToHost, { cardId });
     this.landing.clear();
     // A measurement is the whole truth: a body it shows is no longer one a
     // pending hide may take back after the paint, and `shown` may lift its lid.
@@ -903,7 +911,7 @@ export class BodyPlacer {
     const json = JSON.stringify(cards);
     if (json === this.lastCards) return;
     this.lastCards = json;
-    postToHost("placeCards", cards);
+    postToHost(placeCardsToHost, cards);
   }
 
   /** Keep each measured body's insets where it and its pane both have room ({@link restInsets}). No layout: the rects are this measurement's. */
@@ -1133,7 +1141,7 @@ export class BodyPlacer {
     if (out.plan.length > 0) {
       planId = ++this.planSerial;
       const plan: BeatPlan = { planId, startWallMs: shellWallMs(input.startTime), bodies: out.plan };
-      postToHost("beatPlan", plan);
+      postToHost(beatPlanToHost, plan);
       for (const b of out.plan) {
         deckTrace.record({
           kind: "body-beat",
@@ -1368,7 +1376,7 @@ export class BodyPlacer {
     };
     if (sameFloorGrid(this.floorGrid, next)) return;
     this.floorGrid = next;
-    postToHost("floorGrid", next);
+    postToHost(floorGridToHost, next);
   }
 
   /** The key {@link postFloor} defers under, apart from the measurement's. */

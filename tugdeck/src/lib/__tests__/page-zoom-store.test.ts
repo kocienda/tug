@@ -251,7 +251,7 @@ describe("the zoom levels", () => {
     try {
       delete g.webkit;
       expect(() => requestPageZoom(0.8)).not.toThrow();
-      g.webkit = { messageHandlers: { pageZoom: { postMessage: (v: unknown) => posted.push(v) } } };
+      g.webkit = { messageHandlers: { pageZoom: { postMessage: (v: unknown) => posted.push(JSON.parse(v as string)) } } };
       requestPageZoom(0.8);
       expect(posted).toEqual([{ factor: 0.8 }]);
     } finally {

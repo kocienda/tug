@@ -17,7 +17,7 @@ import {
 import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { cardTitleStore } from "../card-title-store";
 import { registerCard } from "../../card-registry";
-import { registerDeckStore } from "../deck-store-registry";
+import { registerShellDeck } from "../deck-store-registry";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 import type { SpacesSnapshot } from "../../spaces";
@@ -176,7 +176,7 @@ describe("projectDeckState", () => {
     // bare "Commit", which every Commit card would wear identically.
     const cards = [card("a", { componentId: "menu-state-parked" })];
     const state = deck(cards, [pane("p1", ["a"])]);
-    registerDeckStore({
+    registerShellDeck({
       spaceOf: () => "space-1",
       getSpaceDeck: (spaceId: string) =>
         spaceId === "space-1" ? state : null,
@@ -189,7 +189,7 @@ describe("projectDeckState", () => {
       expect(entry.title).not.toBe("Commit");
       expect(entry.title).toBe("Commit abcdef012");
     } finally {
-      registerDeckStore(null);
+      registerShellDeck(null);
     }
   });
 

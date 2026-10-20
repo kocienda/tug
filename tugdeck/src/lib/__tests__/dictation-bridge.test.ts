@@ -205,7 +205,7 @@ describe("the host handler", () => {
 
   it("posts start, stop and finish in the shape the host parses", () => {
     const posted: unknown[] = [];
-    w.webkit = { messageHandlers: { dictation: { postMessage: (v: unknown) => posted.push(v) } } };
+    w.webkit = { messageHandlers: { dictation: { postMessage: (v: unknown) => posted.push(JSON.parse(v as string)) } } };
     startDictation("dict-4");
     stopDictation("dict-4");
     finishDictation("dict-4");

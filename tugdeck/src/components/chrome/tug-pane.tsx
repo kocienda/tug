@@ -138,7 +138,6 @@ import {
   keepSlotGripsOf,
   paneCardFoldOf,
   paneClosableOf,
-  paneConfirmsCloseOf,
   railGripsOf,
   type ResizeEdge,
 } from "@/lib/pane-chrome-projection";
@@ -151,6 +150,7 @@ import {
   type CardCloseDecision,
 } from "@/lib/card-close-guard";
 import { closeGuardWalk } from "@/lib/close-guard-walk";
+import { closeAsksOf, type CloseAskCard } from "@/lib/close-asks";
 import {
   cardWaivesCloseConfirm,
   readCardCloseAdvice,
@@ -178,7 +178,6 @@ import {
 } from "@/components/chrome/snap-guides";
 import { useRailWidthGesture } from "@/components/chrome/rail-width-draft";
 import { holdShellKeyboard } from "@/lib/shell-keyboard-hold";
-import { registerRailEdgeDriver } from "@/lib/rail-edge-registry";
 import { takeFrameFromSettle } from "@/lib/settle-take";
 import {
   RAIL_REFLOW_ATTR,
@@ -347,6 +346,26 @@ const DEFAULT_MIN_CONTENT: { width: number; height: number } = { width: 100, hei
 // hands `PaneChrome` the same identity every render.
 const NO_TABS: readonly CardState[] = [];
 const NO_GRIPS: readonly ResizeEdge[] = [];
+
+/**
+ * A pane's cards as the close rule reads them (`closeAsksOf`), each with
+ * `waives(id)`. A pane handed no tab set holds the one card its caller
+ * resolved.
+ */
+function closeCardsOf(
+  cards: readonly CardState[] | undefined,
+  lone: { cardId: string | undefined; componentId: string | undefined },
+  waives: (cardId: string) => boolean,
+): CloseAskCard[] {
+  if (cards !== undefined && cards.length > 0) {
+    return cards.map((c) => ({ cardId: c.id, componentId: c.componentId, waives: waives(c.id) }));
+  }
+  if (lone.componentId === undefined) return [];
+  const cardId = lone.cardId ?? "";
+  return [{ cardId, componentId: lone.componentId, waives: waives(cardId) }];
+}
+
+const NO_WAIVE = (_cardId: string): boolean => false;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -872,6 +891,8 @@ function TugPaneImpl({
   cardsRef.current = cards;
   const activeCardIdRef = useRef(activeCardId);
   activeCardIdRef.current = activeCardId;
+  const activeComponentIdRef = useRef(activeComponentId);
+  activeComponentIdRef.current = activeComponentId;
 
   const performSelectCard = useCallback(
     (newCardId: string) => {
@@ -933,33 +954,29 @@ function TugPaneImpl({
   const titleBarRef = useRef<CardTitleBarHandle>(null);
 
   // Chain-action close (Cmd-W via TUG_ACTIONS.CLOSE). Browser-standard
-  // "close the active tab" semantics: multi-tab → remove the active
-  // card with no confirm (one of N tabs is recoverable). Single-tab →
-  // delegate to the title bar's `requestClose()`, which honours the
-  // pane's `confirmClose` policy: opens the popover when the active
-  // card opts in, closes immediately otherwise. This keeps Cmd-W and
-  // the X button symmetric: a pane that confirms on click also
-  // confirms on key, and a pane that doesn't never traps Cmd-W behind
-  // a guard.
+  // "close the active tab" semantics: multi-tab → remove the active card,
+  // asking first as the close rule's `card` ask says (`closeAsksOf`, with
+  // each card's live waive). Single-tab → delegate to the title bar's
+  // `requestClose()`, whose `confirmClose` and close advice compose to the
+  // same rule's `pane` ask. This keeps Cmd-W and the X button symmetric: a
+  // pane that confirms on click also confirms on key, and a pane that
+  // doesn't never traps Cmd-W behind a guard.
   const handleChromeClose = useCallback(() => {
     const currentCards = cardsRef.current;
     const currentActiveId = activeCardIdRef.current;
     if (currentCards && currentCards.length > 1 && currentActiveId) {
-      // Multi-tab: Cmd-W removes only the active card. Honour that
-      // card's own `confirmClose` policy — pop a single-card confirm
-      // before discarding an opt-in card (e.g. the Session card), remove
-      // immediately otherwise. (The whole-pane "Close N Tabs?" guard
-      // belongs to the X button and the close-all command, not to the
-      // single-tab close Cmd-W performs here.)
-      const activeCard = currentCards.find((c) => c.id === currentActiveId);
-      const reg = activeCard ? getRegistration(activeCard.componentId) : undefined;
-      const needsConfirm =
-        reg?.defaultMeta.confirmClose === true &&
-        !cardWaivesCloseConfirm(currentActiveId);
+      // Multi-tab: Cmd-W removes only the active card. (The whole-pane
+      // "Close N Tabs?" guard belongs to the X button and the close-all
+      // command, not to the single-tab close Cmd-W performs here.)
+      const ask = closeAsksOf({
+        cards: closeCardsOf(currentCards, { cardId: currentActiveId, componentId: undefined }, cardWaivesCloseConfirm),
+        activeCardId: currentActiveId,
+        isRail: false,
+      }).card;
       titleBarRef.current?.requestCloseWith({
-        needsConfirm,
-        message: `Close ${cardKindName(reg?.defaultMeta)}?`,
-        confirmLabel: "Close",
+        needsConfirm: ask.confirm,
+        message: ask.message,
+        confirmLabel: ask.label,
         onConfirm: () => store.removeCard(stackId, currentActiveId),
       });
     } else {
@@ -977,32 +994,27 @@ function TugPaneImpl({
 
   // Close All Card Tabs (TUG_ACTIONS.CLOSE_ALL — File ▸ Close All Card Tabs,
   // ⌥⌘W). Closes the entire focused pane (every hosted tab). The
-  // confirm rule is per-card: pop the "Close N Tabs?" guard only when at
-  // least one hosted card opts into `confirmClose`, close immediately
-  // otherwise. This differs from the X button, whose multi-tab close
-  // always confirms — the menu command is a deliberate gesture, the X a
-  // single stray-click target. The Swift menu enables the item only for
-  // a multi-card focused pane; the `count > 1` copy guards the rare
-  // stray dispatch onto a single-card pane.
+  // confirm is the close rule's `all` ask: per-card, popping the "Close N
+  // Tabs?" guard only when at least one hosted card opts into
+  // `confirmClose` and does not waive it. This differs from the X button,
+  // whose multi-tab close always confirms — the menu command is a
+  // deliberate gesture, the X a single stray-click target. The Swift menu
+  // enables the item only for a multi-card focused pane; the rule's
+  // single-card copy guards the rare stray dispatch onto one.
   const handleCloseAll = useCallback(() => {
-    const currentCards = cardsRef.current;
-    const count = currentCards?.length ?? 1;
-    const anyConfirms = !!currentCards?.some(
-      (c) =>
-        getRegistration(c.componentId)?.defaultMeta.confirmClose === true &&
-        !cardWaivesCloseConfirm(c.id),
-    );
+    const ask = closeAsksOf({
+      cards: closeCardsOf(
+        cardsRef.current,
+        { cardId: activeCardIdRef.current, componentId: activeComponentIdRef.current },
+        cardWaivesCloseConfirm,
+      ),
+      activeCardId: activeCardIdRef.current ?? null,
+      isRail: false,
+    }).all;
     titleBarRef.current?.requestCloseWith({
-      needsConfirm: anyConfirms,
-      message:
-        count > 1
-          ? `Close ${count} Tabs?`
-          : `Close ${cardKindName(
-              currentCards?.[0]
-                ? getRegistration(currentCards[0].componentId)?.defaultMeta
-                : undefined,
-            )}?`,
-      confirmLabel: count > 1 ? "Close All" : "Close",
+      needsConfirm: ask.confirm,
+      message: ask.message,
+      confirmLabel: ask.label,
       onConfirm: () => onClose?.(),
       // Every hosted card dies with the pane — visit each dirty one.
       guardScope: "pane",
@@ -3002,7 +3014,7 @@ function TugPaneImpl({
       frame.addEventListener("pointerup", onPointerUp);
     },
     // minSizeRef.current is always current; position/size are start values read at resize-start.
-    [id, onCardMoved, position.x, position.y, size.width, size.height, store],
+    [id, onCardMoved, position, size, store],
   );
 
   // Deck-facing-edge resize for a pinned rail: the EMITTER half of the rail
@@ -3104,45 +3116,6 @@ function TugPaneImpl({
     },
     [sidebarSide, railWidthGesture],
   );
-
-  // The same drag, pressed in a rail card's own page: the host tracks the
-  // pointer and the shell's gesture handler drives the draft through this
-  // driver, opened against this stand-in's frame (`rail-edge-registry.ts`).
-  // The host owns the press and its Escape, so this owns only the frame's
-  // `data-gesture` mark, and gives the draft back if the pane goes mid-drag.
-  useLayoutEffect(() => {
-    if (sidebarSide === undefined || railWidthGesture === null) return;
-    let open = false;
-    const end = (): void => {
-      open = false;
-      frameRef.current?.removeAttribute("data-gesture");
-    };
-    const release = registerRailEdgeDriver(id, {
-      begin: (clientX, clientY) => {
-        const frame = frameRef.current;
-        if (frame === null) return;
-        railWidthGesture.begin({ side: sidebarSide, frame, clientX, clientY });
-        open = true;
-        frame.setAttribute("data-gesture", "resize");
-      },
-      change: (clientX, clientY, altKey) => railWidthGesture.change(clientX, clientY, altKey),
-      commit: (clientX, altKey) => {
-        end();
-        railWidthGesture.commit(clientX, altKey);
-      },
-      cancel: () => {
-        end();
-        railWidthGesture.cancel();
-      },
-    });
-    return () => {
-      release();
-      if (open) {
-        end();
-        railWidthGesture.cancel();
-      }
-    };
-  }, [id, sidebarSide, railWidthGesture]);
 
 
   // ---------------------------------------------------------------------------
@@ -3302,11 +3275,11 @@ function TugPaneImpl({
   // one whose closing is least visible afterwards. Rail-ness follows the
   // active card's `layoutRole`, so a rail card released from its pin still
   // asks (`isRail`) — it is the same tool wherever it stands.
-  const paneConfirmClose = paneConfirmsCloseOf({
-    cardCount: cards?.length ?? 1,
-    meta: effectiveMeta,
+  const paneConfirmClose = closeAsksOf({
+    cards: closeCardsOf(cards, { cardId: activeCardId, componentId: activeComponentId }, NO_WAIVE),
+    activeCardId: activeCardId ?? null,
     isRail,
-  });
+  }).pane.confirm;
 
   // …unless the one card in a single-card pane says it is holding nothing
   // (an empty Session card). Resolved at close time, not here: the card

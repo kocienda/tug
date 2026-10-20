@@ -27,6 +27,9 @@
  * @module lib/dictation-bridge
  */
 
+import { hostAvailable, installHostChannel, onHostMessage, postToHost } from "../host/channel";
+import { dictationToHost, dictationToPage } from "../host/declarations/services";
+
 /** Why a session never started. The button speaks each of these (Table T01). */
 export type DictationRefusalReason =
   | "microphone-permission"
@@ -61,18 +64,6 @@ export type DictationEvent =
   | { id: string; kind: "ended"; reason: DictationEndReason; message?: string }
   | { id: string; kind: "refused"; reason: DictationRefusalReason; message?: string };
 
-/** The host→web bridge object; only the dictation callback concerns us here. */
-interface TugBridge {
-  onDictation?: (event: unknown) => void;
-}
-
-interface WebkitHandles {
-  webkit?: {
-    messageHandlers?: Record<string, { postMessage: (value: unknown) => void } | undefined>;
-  };
-  __tugBridge?: TugBridge;
-}
-
 const END_REASONS: readonly string[] = ["stopped", "superseded", "device-lost", "error"];
 
 const REFUSAL_REASONS: readonly string[] = [
@@ -90,15 +81,9 @@ let nextId = 0;
 /** The one listener, or `null`. The store registers it; nothing else may. */
 let listener: ((event: DictationEvent) => void) | null = null;
 
-/** The `dictation` message handler, or `undefined` outside the host. */
-function dictationHandler(): { postMessage: (value: unknown) => void } | undefined {
-  const w = globalThis as unknown as WebkitHandles;
-  return w.webkit?.messageHandlers?.dictation ?? undefined;
-}
-
 /** Whether the host's microphone is reachable (running inside Tug.app). */
 export function isDictationAvailable(): boolean {
-  return dictationHandler() !== undefined;
+  return hostAvailable(dictationToHost);
 }
 
 /** A fresh session id. Unique per `start`, which is what the host keys on. */
@@ -154,7 +139,7 @@ export function dictationEventFromPayload(payload: unknown): DictationEvent | nu
 
 /** Ask the host to start listening for `id`. A no-op outside the host. */
 export function startDictation(id: string): void {
-  dictationHandler()?.postMessage({ id, verb: "start" });
+  postToHost(dictationToHost, { id, verb: "start" });
 }
 
 /**
@@ -166,7 +151,7 @@ export function startDictation(id: string): void {
  * the user saying they are done talking is {@link finishDictation}.
  */
 export function stopDictation(id: string): void {
-  dictationHandler()?.postMessage({ id, verb: "stop" });
+  postToHost(dictationToHost, { id, verb: "stop" });
 }
 
 /**
@@ -181,7 +166,7 @@ export function stopDictation(id: string): void {
  * for a session that is not live, on the same terms as a stale stop.
  */
 export function finishDictation(id: string): void {
-  dictationHandler()?.postMessage({ id, verb: "finish" });
+  postToHost(dictationToHost, { id, verb: "finish" });
 }
 
 /** Register the one listener, or clear it with `null`. */
@@ -189,8 +174,10 @@ export function setDictationListener(next: ((event: DictationEvent) => void) | n
   listener = next;
 }
 
+let installed = false;
+
 /**
- * Install the `onDictation` receiver once, preserving any sibling bridge keys.
+ * Take `__tugBridge.onDictation` in this page. Safe to call again.
  *
  * Unlike the update bridge there is nothing to replay: what crosses here is an
  * event and not state, and a deck that reloads mid-session has thrown away the
@@ -198,12 +185,12 @@ export function setDictationListener(next: ((event: DictationEvent) => void) | n
  * with a fresh id, so the host's in-flight session is simply superseded.
  */
 export function installDictationBridge(): void {
-  const w = globalThis as unknown as WebkitHandles;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onDictation !== undefined) return;
-  bridge.onDictation = (payload) => {
+  installHostChannel();
+  if (installed) return;
+  installed = true;
+  onHostMessage(dictationToPage, (payload) => {
     const event = dictationEventFromPayload(payload);
     if (event === null) return;
     listener?.(event);
-  };
+  });
 }

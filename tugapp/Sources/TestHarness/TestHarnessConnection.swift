@@ -358,7 +358,7 @@ final class TestHarnessConnection {
                 self.respondError(id: id, name: "WindowError", message: "no window")
                 return
             }
-            self.respond(id: id, ok: true, payload: ["value": bodies.snapshot()])
+            self.respond(id: id, ok: true, payload: ["value": bodies.snapshot().map(\.foundation)])
         }
     }
 

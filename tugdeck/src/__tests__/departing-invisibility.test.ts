@@ -31,7 +31,7 @@ import { join, relative, resolve } from "node:path";
 import { registerCard } from "../card-registry";
 import type { CardState, DeckState, TugPaneState } from "../layout-tree";
 import { composeDeparting, type DepartingEntry } from "../lib/departing";
-import { panePlaceFactsOf } from "../components/chrome/pane-place-facts";
+import { panePlaceFactsOf } from "../lib/pane-place-facts";
 
 const SRC = resolve(import.meta.dir, "..");
 
@@ -43,10 +43,10 @@ const PICTURE_READERS: Record<string, number> = {
   // The door itself, its interface, and `spaceOf`: a departing card's own
   // content still answers to the workspace it is leaving.
   "deck-manager.ts": 2,
-  "deck-manager-store.ts": 1,
+  "card-deck.ts": 1,
   // A body's deck answers the door; nothing departs from a one-card deck,
   // so its picture is its snapshot.
-  "body/body-deck-bridge.ts": 1,
+  "body/body-card-deck.ts": 1,
   // Draws every frame, departing ones included.
   "components/chrome/deck-canvas.tsx": 1,
   // Carries the departing frame out and lands it.
@@ -56,7 +56,7 @@ const PICTURE_READERS: Record<string, number> = {
   // Occludes against what is on screen, departing frames included.
   "components/chrome/pane-occlusion-controller.ts": 1,
   // A departing card's place facts, slot badge and identity.
-  "components/chrome/pane-place-facts.ts": 2,
+  "lib/pane-place-facts.ts": 2,
   "components/tugways/card-slot-badge.tsx": 1,
   "lib/card-identity.ts": 1,
 };

@@ -7,8 +7,7 @@
  * the deck goes back as a command the shell answers or a deck call the shell
  * runs. One leg per card, each also its kind check: it mounts as a body, shows
  * the shell's arrangement, its gestures reach the shell's deck and come back,
- * it paints the rail's surface, and its deck bridge was asked nothing only the
- * shell answers.
+ * and it paints the rail's surface.
  *
  * - **Layout.** A press on the Layout row's Fit lands in the shell's
  *   imposition and comes back to the body's miniature; the time from the
@@ -33,7 +32,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { expectNoShellReads, expectRailSurface, standUpKind } from "./_kind-bodies";
+import { expectRailSurface, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -119,6 +118,20 @@ function layoutDeck(layout: "flow" | "fit"): Record<string, unknown> {
     hasFocus: true,
   };
 }
+
+/**
+ * In the shell: whether the Layout rail has landed — no settle on the canvas,
+ * and its pane drawn at the width its deck state holds. A layout commit
+ * retunes the rails, so the rail's pane, and the body's view with it, moves
+ * on after the miniature has already read the commit back.
+ */
+const RAIL_LANDED = `(function () {
+  if (document.querySelector("[data-deck-canvas-background]")?.hasAttribute("data-imposer-settling")) return false;
+  var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) { return p.id === ${JSON.stringify(`${LAYOUT}-pane`)}; });
+  var el = document.querySelector('.tug-pane[data-pane-id=' + JSON.stringify(${JSON.stringify(`${LAYOUT}-pane`)}) + ']');
+  if (pane === undefined || el === null) return false;
+  return Math.abs(el.getBoundingClientRect().width - pane.size.width) < 1;
+})()`;
 
 /** In the body: stamp the wall time of the next click (the press a row answers), and of the miniature's first `data-layout="fit"`. */
 const ARM_ROUND_TRIP = `(function () {
@@ -223,6 +236,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         );
 
         // ── The window grip: a drag moves the shell's flow offset ───────
+        // The press is made where the hand would make it, on a rail that
+        // has stopped moving: a press while the body's view is still being
+        // carried to its new frame takes its down and its up at two points of
+        // the page, and lands on neither.
+        const settled = await pollFor(() => app.evalJS<boolean>(RAIL_LANDED), (v) => v, READ_MS);
+        expect(settled, "the rail lands after the Fit commit").toBe(true);
         await clickIn(body, FLOW);
         await pollFor(() => deckState(app), (d) => d.imposition?.layout === "flow", READ_MS);
         // The miniature redraws the window when flow comes back; the grip is
@@ -244,7 +263,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         expect(after.flowOffset ?? 0, "the drag moved the shell's flow offset").not.toBe(before);
 
         await expectRailSurface(app, LAYOUT);
-        await expectNoShellReads(app, LAYOUT);
       } finally {
         await app.close();
       }
@@ -314,7 +332,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         expect(gone.spaces.some((x) => x.id === createdId), "the confirmed delete removed the workspace in the shell").toBe(false);
 
         await expectRailSurface(app, CARDS);
-        await expectNoShellReads(app, CARDS);
       } finally {
         await app.close();
       }

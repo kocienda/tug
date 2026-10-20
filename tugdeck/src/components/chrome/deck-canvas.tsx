@@ -36,6 +36,8 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import { closePane, moveActiveCardToSpace, revealStackEntry } from "@/lib/pane-verbs";
 import { mergePaneInto } from "@/lib/card-gesture-commit";
+import { installHostCardGesture } from "@/lib/host-card-gesture";
+import { paneFrameOf } from "@/layout-imposition";
 import {
   deckTrace,
   type SpaceEpochReason,
@@ -77,6 +79,7 @@ import {
 import { useSettleEngine } from "./settle-engine";
 import {
   RailWidthGestureContext,
+  railEdgeDriverFor,
   useRailWidthDraft,
 } from "./rail-width-draft";
 import {
@@ -2250,6 +2253,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       : { offset: Math.round(flowOffset), strip: flowStrip.width };
   const readFlowTerms = useCallback(() => flowTermsRef.current, []);
   const railWidthDraft = useRailWidthDraft(containerRef, store, readFlowTerms);
+  // The host's card gesture reports, taken in this page. A rail's edge drag
+  // pressed in its card's own page is this canvas's draft, opened against the
+  // rail pane's frame here (`railEdgeDriverFor`).
+  useLayoutEffect(
+    () =>
+      installHostCardGesture(store, {
+        railEdge: (paneId) => railEdgeDriverFor(store, railWidthDraft, paneId, paneFrameOf),
+      }),
+    [store, railWidthDraft],
+  );
 
   // Hook order: useDeckManager -> useSyncExternalStore -> useRef ->
   //             usePaneFocusController -> useRequiredResponderChain ->
@@ -3071,7 +3084,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // tab drag can be attempted. Re-initialization is safe: init() only
   // overwrites the stored IDeckManagerStore reference; no cleanup needed.
   useEffect(() => {
-    cardDragCoordinator.init(store);
+    cardDragCoordinator.init(store, store);
   }, [store]);
 
   // Phase 5f: Focused card restoration after app reload ([D03]).

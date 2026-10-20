@@ -60,6 +60,8 @@
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Subscribable } from "@/lib/subscribable";
+import { installHostChannel, onHostMessage, postToHost } from "@/host/channel";
+import { updateActionToHost, updateStateToPage } from "@/host/declarations/services";
 
 
 /**
@@ -362,43 +364,26 @@ export function updateFromPayload(
   };
 }
 
-/** The host→web bridge object; only the update callback concerns us here. */
-interface TugBridge {
-  onUpdateState?: (snapshot: Record<string, unknown>) => void;
-}
-
-interface BridgeHost {
-  webkit?: {
-    messageHandlers?: Record<
-      string,
-      { postMessage: (value: unknown) => void } | undefined
-    >;
-  };
-  __tugBridge?: TugBridge;
-}
-
 /**
  * Ask the host for something. A no-op outside Tug.app, and a no-op inside it
  * when the current state holds no reply for the action — the host decides
  * that, and its refusal is silent by design [B03].
  */
 export function postUpdateAction(action: UpdateAction): void {
-  const w = globalThis as unknown as BridgeHost;
-  w.webkit?.messageHandlers?.updateAction?.postMessage(action);
+  postToHost(updateActionToHost, action);
 }
 
+let installed = false;
+
 /**
- * Install `__tugBridge.onUpdateState`. Called once from deck boot; safe to
- * call again (the receiver is installed only when absent).
- *
- * The `__tugBridge` object is shared with other host callbacks, so the
- * receiver is merged in with `??=` — never replace the object wholesale.
+ * Take `__tugBridge.onUpdateState` in this page. Called once from deck boot;
+ * safe to call again.
  */
 export function installUpdateBridge(): void {
-  const w = globalThis as unknown as BridgeHost;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onUpdateState !== undefined) return;
-  bridge.onUpdateState = (snapshot) => {
-    updateStore.apply(updateFromPayload(snapshot ?? {}));
-  };
+  installHostChannel();
+  if (installed) return;
+  installed = true;
+  onHostMessage(updateStateToPage, (snapshot) => {
+    updateStore.apply(updateFromPayload(snapshot as Record<string, unknown>));
+  });
 }

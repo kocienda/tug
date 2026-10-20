@@ -22,7 +22,7 @@ import { authStore, useAuth } from "@/lib/auth-store";
 import { useLogoutRequest } from "@/lib/logout-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { cardServicesStore } from "@/lib/card-services-store";
-import { useDeckManager } from "@/deck-manager-context";
+import { useCardDeck } from "@/card-deck-context";
 import { useTugAlert } from "./tug-alert";
 
 /**
@@ -35,7 +35,7 @@ const LOGOUT_TIMEOUT_MS = 30_000;
 export function TugLogout(): null {
   const nonce = useLogoutRequest();
   const { loggingOut, logoutError } = useAuth();
-  const deck = useDeckManager();
+  const deck = useCardDeck();
   const showAlert = useTugAlert();
   const handledRef = useRef(0);
 

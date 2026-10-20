@@ -177,7 +177,7 @@ import {
 import { useOptionalResponder } from "./use-responder";
 import { useFocusable } from "./use-focusable";
 import { useCardId } from "./use-card-state-preservation";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { useSpaceLayerShown } from "@/components/chrome/space-layer";
 import { TUG_ACTIONS, type TugAction } from "./action-vocabulary";
 import type { ActionHandler, ActionHandlerResult } from "./responder-chain";
@@ -778,7 +778,7 @@ export const TugTextCardEditor = React.forwardRef<
   const engineCardId = useCardId();
   useLayoutEffect(() => {
     if (engineCardId === null) return;
-    const store = getDeckStore();
+    const store = getCardDeck();
     if (store === null) return;
     return store.registerEngineHooks(engineCardId, {
       paintMirrorAsActive: () => {

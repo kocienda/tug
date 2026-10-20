@@ -23,6 +23,7 @@
 import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Subscribable } from "@/lib/subscribable";
+import { otherDeckCards, otherDeckCard } from "@/lib/other-deck-cards";
 
 import { cardBinding } from "@/bus/declarations/relays";
 import { pageBus, type PageBus } from "@/bus/page-bus";
@@ -89,11 +90,34 @@ export interface CardSessionBinding {
 
 export class CardSessionBindingStore extends Subscribable {
   private _bindings: Map<string, CardSessionBinding> = new Map();
+  /** The last merge of this page's bindings with the other cards' a body reads from `deck.cards`. */
+  private _merged: { local: Map<string, CardSessionBinding>; others: string; map: Map<string, CardSessionBinding> } | null =
+    null;
 
-  getSnapshot = (): Map<string, CardSessionBinding> => this._bindings;
+  /**
+   * Every binding this page reads: its own, and in a body every other
+   * card's from `deck.cards` ({@link otherDeckCard}), merged into one map
+   * that stays the same object while neither moves.
+   */
+  getSnapshot = (): Map<string, CardSessionBinding> => {
+    const others = Object.entries(otherDeckCards()).filter(
+      ([id, entry]) => entry.binding !== null && otherDeckCard(id) !== null,
+    );
+    if (others.length === 0) return this._bindings;
+    const key = JSON.stringify(others.map(([id, entry]) => [id, entry.binding]));
+    if (this._merged?.local === this._bindings && this._merged.others === key) return this._merged.map;
+    const map = new Map(this._bindings);
+    for (const [id, entry] of others) map.set(id, entry.binding as CardSessionBinding);
+    this._merged = { local: this._bindings, others: key, map };
+    return map;
+  };
 
-  getBinding = (cardId: string): CardSessionBinding | undefined =>
-    this._bindings.get(cardId);
+  /** `cardId`'s binding: in a body, another card's is the shell's, read from `deck.cards`. */
+  getBinding = (cardId: string): CardSessionBinding | undefined => {
+    const other = otherDeckCard(cardId);
+    if (other !== null) return other.binding ?? undefined;
+    return this._bindings.get(cardId);
+  };
 
   setBinding = (cardId: string, binding: CardSessionBinding): void => {
     const next = new Map(this._bindings);

@@ -18,7 +18,7 @@
  * ## Protocol
  *
  * Both verbs follow the request/response shape `clipboardRead` established:
- * post a `requestId`, receive `window.__tugTrashCallback({requestId, ok, …})`.
+ * post a `requestId`, receive `window.__tugBridge.onTrashResult({requestId, ok, …})`.
  * Handlers are `trashPath` and `restorePath` in `tugapp/Sources/MainWindow.swift`.
  *
  * Outside Tug.app (browser development) the bridge is absent and both verbs
@@ -27,14 +27,9 @@
  * cannot bring the file back is worse than a removal that refused.
  */
 
-interface TrashBridgeMessageHandlers {
-  trashPath?: { postMessage: (v: unknown) => void };
-  restorePath?: { postMessage: (v: unknown) => void };
-}
-
-interface TrashWebkit {
-  messageHandlers?: TrashBridgeMessageHandlers;
-}
+import type { ToHost } from "../host/declare";
+import { hostAvailable, onHostMessage, postToHost } from "../host/channel";
+import { restorePathToHost, trashPathToHost, trashResultToPage } from "../host/declarations/services";
 
 /** What the host reports back for either verb. */
 interface TrashCallbackData {
@@ -53,11 +48,12 @@ let callbackInstalled = false;
 function installCallback(): void {
   if (callbackInstalled) return;
   callbackInstalled = true;
-  (globalThis as Record<string, unknown>).__tugTrashCallback = (data: TrashCallbackData) => {
-    if (!data || typeof data.requestId !== "string") return;
+  onHostMessage(trashResultToPage, (payload) => {
+    const data = payload as TrashCallbackData;
+    if (typeof data.requestId !== "string") return;
     const settle = pendingCallbacks.get(data.requestId);
     if (settle) settle(data);
-  };
+  });
 }
 
 /**
@@ -66,8 +62,7 @@ function installCallback(): void {
  * honor its undo contract at all.
  */
 export function hasTrashBridge(): boolean {
-  const webkit = (globalThis as unknown as { webkit?: TrashWebkit }).webkit;
-  return typeof webkit?.messageHandlers?.trashPath?.postMessage === "function";
+  return hostAvailable(trashPathToHost);
 }
 
 /**
@@ -80,9 +75,9 @@ const TRASH_TIMEOUT_MS = 10_000;
 
 let requestSeq = 0;
 
-/** Post `payload` to `handler` and settle on the host's reply. */
+/** Post `payload` as `decl` and settle on the host's reply. */
 function request(
-  handler: { postMessage: (v: unknown) => void },
+  decl: ToHost<object>,
   payload: Record<string, unknown>,
 ): Promise<TrashCallbackData | null> {
   installCallback();
@@ -101,7 +96,7 @@ function request(
       console.warn(`os-trash: host callback timed out after ${TRASH_TIMEOUT_MS}ms`);
       settle(null);
     }, TRASH_TIMEOUT_MS);
-    handler.postMessage({ requestId, ...payload });
+    postToHost(decl, { requestId, ...payload });
   });
 }
 
@@ -114,11 +109,9 @@ function request(
  * means *nothing was moved*, so the caller must not proceed as if it had been.
  */
 export async function trashPathInOS(path: string): Promise<string | null> {
-  const webkit = (globalThis as unknown as { webkit?: TrashWebkit }).webkit;
-  const handler = webkit?.messageHandlers?.trashPath;
-  if (!handler || typeof handler.postMessage !== "function") return null;
+  if (!hostAvailable(trashPathToHost)) return null;
   if (path.length === 0) return null;
-  const data = await request(handler, { path });
+  const data = await request(trashPathToHost, { path });
   if (!data || !data.ok || typeof data.trashedPath !== "string") {
     if (data?.error) console.warn(`os-trash: trash failed — ${data.error}`);
     return null;
@@ -139,11 +132,9 @@ export async function restoreTrashedPathInOS(
   trashedPath: string,
   destination: string,
 ): Promise<string | null> {
-  const webkit = (globalThis as unknown as { webkit?: TrashWebkit }).webkit;
-  const handler = webkit?.messageHandlers?.restorePath;
-  if (!handler || typeof handler.postMessage !== "function") return null;
+  if (!hostAvailable(restorePathToHost)) return null;
   if (trashedPath.length === 0 || destination.length === 0) return null;
-  const data = await request(handler, { trashedPath, destination });
+  const data = await request(restorePathToHost, { trashedPath, destination });
   if (!data || !data.ok || typeof data.restoredPath !== "string") {
     if (data?.error) console.warn(`os-trash: restore failed — ${data.error}`);
     return null;

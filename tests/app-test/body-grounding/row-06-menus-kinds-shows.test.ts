@@ -23,7 +23,6 @@ import { describe, expect, test } from "bun:test";
 
 import { note } from "../_harness";
 import { SETTLE_MS, bodyOf, pollFor, popoverPresent } from "./_bodies";
-import { expectNoShellReads } from "./_kind-bodies";
 import { kindsUnderTest } from "./_kinds";
 import { SHOULD_RUN, TEST_TIMEOUT_MS, withKind } from "./_row-06";
 
@@ -43,7 +42,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what the body of every other
           expect(zoomed?.frame.width, "the body's placed width changes").not.toBe(widthBefore);
           await app.performMenuItem("view.actualSize");
           await pollFor(() => bodyOf(app, card), (x) => x !== null && x.frame.width === widthBefore, SETTLE_MS);
-          await expectNoShellReads(app, card);
 
           await app.dispatchControlAction("focus-session-card", { cardId: card });
           await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);

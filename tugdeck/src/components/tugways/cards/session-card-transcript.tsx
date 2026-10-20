@@ -111,7 +111,7 @@ import {
   type TugListRevealOutcome,
   type TugListViewHandle,
 } from "@/components/tugways/tug-list-view";
-import { useDeckManager } from "@/deck-manager-context";
+import { useCardDeck } from "@/card-deck-context";
 import {
   SessionThinkingBlock,
   thinkingCollapseKey,
@@ -2433,7 +2433,7 @@ export const SessionTranscriptHost = forwardRef<
   // the replay window would otherwise fire its flush ungated after the gate
   // (held only across the settle) released. The dirty state persists on the
   // next ungated `setCardState` or the will-phase sync flush.
-  const deck = useDeckManager();
+  const deck = useCardDeck();
   const cardSaveGateActive = isReplaying || batchLoading;
   useLayoutEffect(() => {
     if (!cardSaveGateActive) return;

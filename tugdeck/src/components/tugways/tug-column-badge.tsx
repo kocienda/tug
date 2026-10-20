@@ -69,13 +69,13 @@ import "./tug-column-badge.css";
 import React from "react";
 
 import { cn } from "@/lib/utils";
+import { columnBadgeCharacter, type TugColumnBadgeKind } from "@/lib/column-badge";
+
+export { columnBadgeCharacter, type TugColumnBadgeKind };
 
 /* ---------------------------------------------------------------------------
  * Types
  * ---------------------------------------------------------------------------*/
-
-/** Which kind of place the badge describes. */
-export type TugColumnBadgeKind = "stack" | "split";
 
 /** Which end of the glyph's run is lit — the region, not the ordinal. */
 export type TugColumnBadgeLit = "top" | "middle" | "bottom";
@@ -86,18 +86,6 @@ export type TugColumnBadgeLit = "top" | "middle" | "bottom";
  * These ARE the rendered `data-` attributes, so they are the whole of the
  * badge's logic and the only part of it a unit test can reach.
  * ---------------------------------------------------------------------------*/
-
-/**
- * The character the badge draws: a stack's member count, or a split band's
- * letter counting from A at the topmost band.
- */
-export function columnBadgeCharacter(
-  kind: TugColumnBadgeKind,
-  count: number,
-  index = 0,
-): string {
-  return kind === "stack" ? String(count) : String.fromCharCode(65 + index);
-}
 
 /**
  * Which element of the glyph the card occupies: the end of the run its index

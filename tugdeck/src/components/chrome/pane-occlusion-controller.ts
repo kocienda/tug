@@ -76,7 +76,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { afterGesture, gestureScope } from "@/lib/gesture-scope";
 import { useStoreDerived } from "@/lib/use-store-derived";
 
-import { useDeckManager } from "@/deck-manager-context";
+import { useCardDeck } from "@/card-deck-context";
 import { SHOWN_PANE_FRAMES } from "./space-layer";
 import { canvasDeck, canvasDeckEqual } from "./canvas-deck-fields";
 
@@ -347,7 +347,7 @@ export function revealPaneFrame(frame: HTMLElement): void {
 export function usePaneOcclusionController(
   deckRootRef: React.RefObject<HTMLDivElement | null>,
 ): void {
-  const store = useDeckManager();
+  const store = useCardDeck();
   // The canvas's own narrowed read: every geometry-changing commit reaches the
   // reactive pass below, which is how a reveal shares the paint with the
   // change that exposed the pane. Only a commit that moves nothing the canvas

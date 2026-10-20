@@ -37,8 +37,8 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 
 import { windowDragOffset } from "@/components/layout/miniature-gestures";
 import { deckFlowStrip } from "@/deck-store-selectors";
-import { getDeckStore } from "@/lib/deck-store-registry";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import { getDeckView } from "@/lib/deck-store-registry";
+import type { DeckView } from "@/card-deck";
 
 /** A stamp waiting on the commit's notification to come off. */
 interface PendingUnstamp {
@@ -69,7 +69,7 @@ export const COMMIT_ANSWER_MS = 1000;
  * record once the stamp is off by either path.
  */
 export function commitUnderStamp(
-  store: Pick<IDeckManagerStore, "getSnapshot" | "subscribe" | "setFlowOffset">,
+  store: Pick<DeckView, "getSnapshot" | "subscribe" | "setFlowOffset">,
   figure: HTMLElement,
   offset: number,
   done: (pending: PendingUnstamp) => void,
@@ -148,7 +148,7 @@ export function useMiniatureWindowDrag(): {
         current.edge.releasePointerCapture(current.pointerId);
       }
       current.grip?.removeAttribute("data-dragging");
-      const store = getDeckStore();
+      const store = getDeckView();
       const moved = current.offset !== current.startOffset && store !== null;
       const figure = current.figure;
       clearStamp();
@@ -176,7 +176,7 @@ export function useMiniatureWindowDrag(): {
   const onWindowPointerDown = useCallback(
     (event: React.PointerEvent<HTMLElement>): void => {
       if (event.button !== 0) return;
-      const store = getDeckStore();
+      const store = getDeckView();
       if (store === null) return;
       const strip = deckFlowStrip(store.getSnapshot());
       const bandPx = store.getBandWidth();
@@ -206,7 +206,7 @@ export function useMiniatureWindowDrag(): {
         });
         if (next === current.offset) return;
         current.offset = next;
-        getDeckStore()?.previewFlowOffset(next);
+        getDeckView()?.previewFlowOffset(next);
       };
       const onEnd = (e: PointerEvent): void => {
         const current = gesture.current;

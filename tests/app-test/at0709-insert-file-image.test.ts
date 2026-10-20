@@ -159,9 +159,10 @@ describe.skipIf(!SHOULD_RUN)(
           await app.body("A").evalJS<void>(
             `(function(){
               var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.choosePath;
-              var answer = function(m){
+              var answer = function(posted){
+                var m = typeof posted === "string" ? JSON.parse(posted) : posted;
                 window.__at0709Asked = m;
-                setTimeout(function(){ window.__tugBridge.onPathChosen(m.id, ${JSON.stringify(pngPath)}); }, 0);
+                setTimeout(function(){ window.__tugBridge.onPathChosen({ id: m.id, path: ${JSON.stringify(pngPath)} }); }, 0);
               };
               Object.defineProperty(h, "postMessage", { value: answer, configurable: true, writable: true });
               var target = document.activeElement || document.body;

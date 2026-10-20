@@ -17,7 +17,7 @@
 
 import React, { createContext, useContext, useLayoutEffect, useRef } from "react";
 
-import { DeckManagerContext } from "../../deck-manager-context";
+import { CardDeckContext } from "../../card-deck-context";
 import type { SaveCallbackSource } from "../../deck-trace";
 
 // ---------------------------------------------------------------------------
@@ -268,7 +268,7 @@ export function useCardStatePreservation<T>(options: UseCardStatePreservationOpt
   // dispatch through `store.invokeActivationCallback`. When absent,
   // the store-channel registration is skipped; the record-channel
   // registration still happens below.
-  const store = useContext(DeckManagerContext);
+  const store = useContext(CardDeckContext);
 
   // Store the caller's options in refs so the registered wrappers never go
   // stale when options change on re-renders (Rule 5).

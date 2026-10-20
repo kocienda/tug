@@ -42,7 +42,7 @@ import { join, resolve } from "node:path";
 import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { paneOf, pollFor } from "./_bodies";
 import { heldRectOf } from "../card-chrome-fixture";
-import { expectContentSurface, expectNoShellReads, standUpKind } from "./_kind-bodies";
+import { expectContentSurface, standUpKind } from "./_kind-bodies";
 import { cardKind, kindPane, kindSidebars } from "./_kinds";
 
 const TEST_NAME = "body-grounding-kind-documents";
@@ -293,7 +293,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         await Bun.sleep(1_500);
         expect(await app.evalJS<number>(textCards), "opening the same file again reuses its body card").toBe(2);
 
-        // ── Surfaces and shell reads ─────────────────────────────────────
+        // ── Surfaces ─────────────────────────────────────────────────────
         mark("commit done");
         // The Text card paints its editing well, in the shell as in its body.
         const WELL = "--tug7-surface-card-primary-normal-well-rest";
@@ -301,8 +301,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
           await bringIntoView(app, id);
           await expectContentSurface(app, id, share, token);
         }
-        for (const id of [T, F, D, C]) await expectNoShellReads(app, id);
-        mark("surfaces and shell reads done");
+        mark("surfaces done");
       } finally {
         await app.close();
         rmSync(scratch, { recursive: true, force: true });

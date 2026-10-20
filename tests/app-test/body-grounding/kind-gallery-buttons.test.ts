@@ -13,7 +13,6 @@
  *   the body, flips its label there.
  * - **Its surface** — the body paints the content pane's surface, read off
  *   the composite.
- * - **No shell reads** — its deck bridge answered every call it made.
  *
  * @foreground
  * @covers tugdeck/src/components/tugways/cards/gallery-registrations.tsx
@@ -26,7 +25,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
 import { pollFor } from "./_bodies";
-import { expectContentSurface, expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
+import { expectContentSurface, kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-kind-gallery-buttons";
@@ -84,9 +83,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the maker kinds, by the
         const back = await pollFor(() => body.evalJS<string>(textOf(TOGGLE_LABEL)), (t) => t === VIEW_PRIMARY, READ_MS);
         expect(back, "a second click flips it back").toBe(VIEW_PRIMARY);
 
-        // ── Its surface, and no shell reads ──────────────────────────────
+        // ── Its surface ──────────────────────────────────────────────────
         await expectContentSurface(app, GB, 0.3);
-        await expectNoShellReads(app, GB);
       } finally {
         await app.close();
       }

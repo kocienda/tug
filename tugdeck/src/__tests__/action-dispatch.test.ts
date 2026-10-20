@@ -260,7 +260,7 @@ describe("initActionDispatch: source-tree", () => {
     const posted: unknown[] = [];
     (globalThis as Record<string, unknown>).webkit = {
       messageHandlers: {
-        sourceTree: { postMessage: (v: unknown) => posted.push(v) },
+        sourceTree: { postMessage: (v: unknown) => posted.push(JSON.parse(v as string)) },
       },
     };
 

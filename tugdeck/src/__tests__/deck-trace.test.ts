@@ -22,7 +22,7 @@ import {
   DECK_TRACE_CAPACITY,
   type DeckTraceEvent,
 } from "../deck-trace";
-import { registerDeckStore } from "../lib/deck-store-registry";
+import { registerShellDeck } from "../lib/deck-store-registry";
 
 /**
  * Record `n` `commit-tick` events with increasing `count`, returning
@@ -305,7 +305,7 @@ describe("deckTrace.record stamps store snapshot", () => {
     // NOT register a store — so the registry sits at its default
     // null. captureStoreSnapshot must tolerate this rather than
     // crashing the record call.
-    registerDeckStore(null);
+    registerShellDeck(null);
     deckTrace.record({ kind: "commit-tick", count: 0 });
     const events = deckTrace.dump();
     expect(events).toHaveLength(1);
@@ -334,10 +334,10 @@ describe("deckTrace.record stamps store snapshot", () => {
     } as const;
     const fakeStore = {
       subscribe: () => () => {},
-      getSnapshot: () => fakeState as unknown as ReturnType<NonNullable<Parameters<typeof registerDeckStore>[0]>["getSnapshot"]>,
+      getSnapshot: () => fakeState as unknown as ReturnType<NonNullable<Parameters<typeof registerShellDeck>[0]>["getSnapshot"]>,
       getVersion: () => 0,
-    } as unknown as Parameters<typeof registerDeckStore>[0];
-    registerDeckStore(fakeStore);
+    } as unknown as Parameters<typeof registerShellDeck>[0];
+    registerShellDeck(fakeStore);
     try {
       deckTrace.record({
         kind: "fr-flip",
@@ -354,7 +354,7 @@ describe("deckTrace.record stamps store snapshot", () => {
       expect(store!.hasFocus).toBe(true);
     } finally {
       // Reset the singleton so later tests see the default null state.
-      registerDeckStore(null);
+      registerShellDeck(null);
     }
   });
 
@@ -367,10 +367,10 @@ describe("deckTrace.record stamps store snapshot", () => {
     } as const;
     const fakeStore = {
       subscribe: () => () => {},
-      getSnapshot: () => fakeState as unknown as ReturnType<NonNullable<Parameters<typeof registerDeckStore>[0]>["getSnapshot"]>,
+      getSnapshot: () => fakeState as unknown as ReturnType<NonNullable<Parameters<typeof registerShellDeck>[0]>["getSnapshot"]>,
       getVersion: () => 0,
-    } as unknown as Parameters<typeof registerDeckStore>[0];
-    registerDeckStore(fakeStore);
+    } as unknown as Parameters<typeof registerShellDeck>[0];
+    registerShellDeck(fakeStore);
     try {
       deckTrace.record({ kind: "commit-tick", count: 0 });
       const events = deckTrace.dump();
@@ -381,7 +381,7 @@ describe("deckTrace.record stamps store snapshot", () => {
       expect(store!.activeCardId).toBeNull();
       expect(store!.hasFocus).toBe(false);
     } finally {
-      registerDeckStore(null);
+      registerShellDeck(null);
     }
   });
 
@@ -392,15 +392,15 @@ describe("deckTrace.record stamps store snapshot", () => {
         throw new Error("deliberate failure for test");
       },
       getVersion: () => 0,
-    } as unknown as Parameters<typeof registerDeckStore>[0];
-    registerDeckStore(fakeStore);
+    } as unknown as Parameters<typeof registerShellDeck>[0];
+    registerShellDeck(fakeStore);
     try {
       deckTrace.record({ kind: "commit-tick", count: 0 });
       const events = deckTrace.dump();
       expect(events).toHaveLength(1);
       expect(events[0]!.store).toBeNull();
     } finally {
-      registerDeckStore(null);
+      registerShellDeck(null);
     }
   });
 });

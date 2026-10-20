@@ -21,7 +21,7 @@
 
 import { page } from "../bus/page";
 import type { DropZone, DropZoneHost, DropZoneSet } from "./drop-zones";
-import { getDeckStore } from "./deck-store-registry";
+import { getCardDeck } from "./deck-store-registry";
 import { bodyMiniatureHost } from "./miniature-bus";
 
 let dropZoneHostRef: DropZoneHost | null = null;
@@ -59,7 +59,7 @@ export function getMiniatureDropHost(): MiniatureDropHost | null {
   if (dropZoneHostRef !== null) return dropZoneHostRef;
   if (!page.isBody) return null;
   bodyHostRef ??= bodyMiniatureHost(
-    (paneId) => getDeckStore()?.getSnapshot().panes.find((p) => p.id === paneId)?.activeCardId ?? null,
+    (paneId) => getCardDeck()?.getSnapshot().panes.find((p) => p.id === paneId)?.activeCardId ?? null,
   );
   return bodyHostRef;
 }

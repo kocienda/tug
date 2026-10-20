@@ -21,23 +21,11 @@
  * @module lib/os-export
  */
 
+import { hostAvailable, onHostMessage, postToHost } from "../host/channel";
+import { exportDoneToPage, exportSessionToHost } from "../host/declarations/services";
+
 /** Outcome of an export attempt. */
 export type ExportResult = "saved" | "canceled" | "unavailable";
-
-/** The host→web bridge object; only the export callback concerns us here. */
-interface TugBridge {
-  onExportDone?: (id: string, result: string) => void;
-}
-
-interface WebkitHandles {
-  webkit?: {
-    messageHandlers?: Record<
-      string,
-      { postMessage: (value: unknown) => void } | undefined
-    >;
-  };
-  __tugBridge?: TugBridge;
-}
 
 /** Resolvers awaiting a native callback, keyed by request id. */
 const pending = new Map<string, (result: ExportResult) => void>();
@@ -45,30 +33,26 @@ const pending = new Map<string, (result: ExportResult) => void>();
 /** Monotonic request-id counter (no Date/random — resume-safe and unique enough). */
 let nextId = 0;
 
-/** The `exportSession` message handler, or `undefined` outside the host. */
-function exportHandler(): { postMessage: (value: unknown) => void } | undefined {
-  const w = globalThis as unknown as WebkitHandles;
-  return w.webkit?.messageHandlers?.exportSession ?? undefined;
-}
+let receiving = false;
 
-/** Install the `onExportDone` callback once, preserving sibling bridge keys. */
+/** Take `__tugBridge.onExportDone({id, result})` in this page, once. */
 function ensureBridge(): void {
-  const w = globalThis as unknown as WebkitHandles;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onExportDone === undefined) {
-    bridge.onExportDone = (id, result) => {
-      const resolve = pending.get(id);
-      if (resolve !== undefined) {
-        pending.delete(id);
-        resolve(result === "saved" ? "saved" : "canceled");
-      }
-    };
-  }
+  if (receiving) return;
+  receiving = true;
+  onHostMessage(exportDoneToPage, (payload) => {
+    const { id, result } = payload as { id?: unknown; result?: unknown };
+    if (typeof id !== "string") return;
+    const resolve = pending.get(id);
+    if (resolve !== undefined) {
+      pending.delete(id);
+      resolve(result === "saved" ? "saved" : "canceled");
+    }
+  });
 }
 
 /** Whether the native export panel is reachable (running inside Tug.app). */
 export function isExportAvailable(): boolean {
-  return exportHandler() !== undefined;
+  return hostAvailable(exportSessionToHost);
 }
 
 /** Content + default filename for a session export. */
@@ -87,13 +71,12 @@ export interface ExportRequest {
  * when not running inside the host.
  */
 export function exportSession(request: ExportRequest): Promise<ExportResult> {
-  const handler = exportHandler();
-  if (handler === undefined) return Promise.resolve("unavailable");
+  if (!hostAvailable(exportSessionToHost)) return Promise.resolve("unavailable");
   ensureBridge();
   const id = `export-${(nextId += 1)}`;
   return new Promise<ExportResult>((resolve) => {
     pending.set(id, resolve);
-    handler.postMessage({
+    postToHost(exportSessionToHost, {
       id,
       baseName: request.baseName,
       markdown: request.markdown,

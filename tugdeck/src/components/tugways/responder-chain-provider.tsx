@@ -43,7 +43,7 @@ import { installModifierLatch } from "./modifier-latch";
 import { registerResponderChainManager } from "../../action-registry";
 import { getCardLifecycle } from "../../lib/card-lifecycle";
 import { getAppLifecycle } from "../../lib/app-lifecycle";
-import { getDeckStore } from "../../lib/deck-store-registry";
+import { getCardDeck } from "../../lib/deck-store-registry";
 import {
   computeEditCapabilities,
   editUndoLabelsWithin,
@@ -370,7 +370,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
     // focus *claim* (landing DOM focus on the card's destination, incl. a pending
     // card-modal dialog [P20], and the re-projection on window blur→focus) stays
     // with `applyBagFocus`'s `adoptKeyCard`; this seam only names the key card.
-    const deckStore = getDeckStore();
+    const deckStore = getCardDeck();
     let lastKeyCard: string | null | undefined;
     const syncKeyCard = (): void => {
       const next = deckStore?.getFirstResponderCardId() ?? null;

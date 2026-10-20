@@ -16,6 +16,9 @@
  * @module lib/native-path-picker
  */
 
+import { hostAvailable, onHostMessage, postToHost } from "../host/channel";
+import { choosePathToHost, pathChosenToPage } from "../host/declarations/services";
+
 /**
  * What the picker selects. `directory` / `file` run an NSOpenPanel;
  * `save` runs an NSSavePanel choosing a NEW file path (Move To… /
@@ -25,48 +28,32 @@
  */
 export type PathPickerKind = "directory" | "file" | "save" | "insert";
 
-/** The host→web bridge object; only the path callback concerns us here. */
-interface TugBridge {
-  onPathChosen?: (id: string, path: string | null) => void;
-}
-
-interface WebkitHandles {
-  webkit?: {
-    messageHandlers?: Record<string, { postMessage: (value: unknown) => void } | undefined>;
-  };
-  __tugBridge?: TugBridge;
-}
-
 /** Resolvers awaiting a native callback, keyed by request id. */
 const pending = new Map<string, (path: string | null) => void>();
 
 /** Monotonic request-id counter (no Date/random — resume-safe and unique enough). */
 let nextId = 0;
 
-/** The `choosePath` message handler, or `undefined` outside the host. */
-function pathHandler(): { postMessage: (value: unknown) => void } | undefined {
-  const w = globalThis as unknown as WebkitHandles;
-  return w.webkit?.messageHandlers?.choosePath ?? undefined;
-}
+let receiving = false;
 
-/** Install the `onPathChosen` callback once, preserving any sibling bridge keys. */
+/** Take `__tugBridge.onPathChosen({id, path})` in this page, once. */
 function ensureBridge(): void {
-  const w = globalThis as unknown as WebkitHandles;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onPathChosen === undefined) {
-    bridge.onPathChosen = (id, path) => {
-      const resolve = pending.get(id);
-      if (resolve !== undefined) {
-        pending.delete(id);
-        resolve(path);
-      }
-    };
-  }
+  if (receiving) return;
+  receiving = true;
+  onHostMessage(pathChosenToPage, (payload) => {
+    const { id, path } = payload as { id?: unknown; path?: unknown };
+    if (typeof id !== "string") return;
+    const resolve = pending.get(id);
+    if (resolve !== undefined) {
+      pending.delete(id);
+      resolve(typeof path === "string" ? path : null);
+    }
+  });
 }
 
 /** Whether the native picker is reachable (running inside Tug.app). */
 export function isPathPickerAvailable(): boolean {
-  return pathHandler() !== undefined;
+  return hostAvailable(choosePathToHost);
 }
 
 /**
@@ -80,13 +67,12 @@ export function pickPath(
   initialPath?: string,
   suggestedName?: string,
 ): Promise<string | null> {
-  const handler = pathHandler();
-  if (handler === undefined) return Promise.resolve(null);
+  if (!hostAvailable(choosePathToHost)) return Promise.resolve(null);
   ensureBridge();
   const id = `path-${(nextId += 1)}`;
   return new Promise<string | null>((resolve) => {
     pending.set(id, resolve);
-    handler.postMessage({
+    postToHost(choosePathToHost, {
       id,
       kind,
       initialPath: initialPath ?? null,

@@ -43,7 +43,7 @@ async function shellAndBody(cardId: string): Promise<TestPage> {
 
 function answeringBody(cardId: string): TestPage {
   const body = bus.body(cardId, "session");
-  releases.push(answerBodyVerbs(body.bus, { cardId, componentId: "session", replayIntent: () => {}, noteGeometryChanged: () => {} }));
+  releases.push(answerBodyVerbs(body.bus, { cardId, componentId: "session", replayIntent: () => {} }));
   return body;
 }
 

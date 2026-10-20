@@ -24,7 +24,7 @@
  *    `{ requestId }` to the Swift handler.
  * 3. Swift reads `NSPasteboard.general.string(forType: .string)` and
  *    `.html`, JSON-encodes them, and calls
- *    `window.__tugNativeClipboardCallback({ requestId, text, html })`.
+ *    `window.__tugBridge.onClipboardRead({ requestId, text, html })`.
  * 4. This module's callback looks up the resolver by `requestId`, deletes
  *    the entry, and resolves with `{ text, html }`.
  *
@@ -43,6 +43,14 @@
  * Safari popup if the user is on Safari.
  */
 
+import { hostAvailable, inHost, onHostMessage, postToHost } from "../host/channel";
+import {
+  clipboardReadToHost,
+  clipboardReadToPage,
+  clipboardWriteImageToHost,
+  clipboardWriteToHost,
+} from "../host/declarations/services";
+
 /** Shape of the clipboard payload returned by the native bridge. */
 export interface NativeClipboardReadResult {
   /** Plain text contents of NSPasteboard (.string type). Empty string if none. */
@@ -60,32 +68,18 @@ export interface NativeClipboardReadResult {
   atoms: string;
 }
 
-interface ClipboardBridgeMessageHandlers {
-  clipboardRead?: { postMessage: (v: unknown) => void };
-  clipboardWrite?: { postMessage: (v: unknown) => void };
-  clipboardWriteImage?: { postMessage: (v: unknown) => void };
-}
-
-interface ClipboardWebkit {
-  messageHandlers?: ClipboardBridgeMessageHandlers;
-}
-
 /** Map of pending requestId → resolver. */
 const pendingCallbacks = new Map<string, (result: NativeClipboardReadResult) => void>();
 
 let callbackInstalled = false;
 
-/**
- * Install the JS callback that Swift invokes via evaluateJavaScript.
- * Idempotent — safe to call multiple times.
- */
+/** Take `__tugBridge.onClipboardRead` in this page. Idempotent. */
 function installCallback(): void {
   if (callbackInstalled) return;
   callbackInstalled = true;
-  (globalThis as Record<string, unknown>).__tugNativeClipboardCallback = (
-    data: { requestId: string; text: string; html: string; atoms?: string },
-  ) => {
-    if (!data || typeof data.requestId !== "string") return;
+  onHostMessage(clipboardReadToPage, (payload) => {
+    const data = payload as { requestId?: unknown; text?: unknown; html?: unknown; atoms?: unknown };
+    if (typeof data.requestId !== "string") return;
     const resolver = pendingCallbacks.get(data.requestId);
     if (resolver) {
       pendingCallbacks.delete(data.requestId);
@@ -95,7 +89,7 @@ function installCallback(): void {
         atoms: typeof data.atoms === "string" ? data.atoms : "",
       });
     }
-  };
+  });
 }
 
 /**
@@ -108,15 +102,14 @@ function installCallback(): void {
  * API when it's absent (normal browser development).
  */
 export function hasNativeClipboardBridge(): boolean {
-  const webkit = (globalThis as unknown as { webkit?: ClipboardWebkit }).webkit;
-  return typeof webkit?.messageHandlers?.clipboardRead?.postMessage === "function";
+  return hostAvailable(clipboardReadToHost);
 }
 
 /**
  * True if the page is running inside a WKWebView, independent of
  * whether the clipboard bridge is installed.
  *
- * Detects WKWebView by checking for `window.webkit.messageHandlers`
+ * Detects WKWebView by asking the host channel whether the page has a host
  * — a surface that only exists in WKWebView contexts, never in plain
  * Safari web content. Used to distinguish "no native bridge because
  * we're in a normal browser" (legitimate — fall through to JS APIs
@@ -130,8 +123,7 @@ export function hasNativeClipboardBridge(): boolean {
  * {@link warnIfWKWebViewRace} to make it audible.
  */
 export function isInsideWKWebView(): boolean {
-  const webkit = (globalThis as unknown as { webkit?: { messageHandlers?: unknown } }).webkit;
-  return webkit?.messageHandlers !== undefined;
+  return inHost();
 }
 
 // ---- WKWebView race diagnostic ----
@@ -200,11 +192,9 @@ export function __resetWKWebViewRaceWarningForTest(): void {
  * Clipboard API. Mirrors {@link hasNativeClipboardBridge}'s detection.
  */
 export function writeImageToNativeClipboard(base64: string): boolean {
-  const webkit = (globalThis as unknown as { webkit?: ClipboardWebkit }).webkit;
-  const handler = webkit?.messageHandlers?.clipboardWriteImage;
-  if (!handler || typeof handler.postMessage !== "function") return false;
+  if (!hostAvailable(clipboardWriteImageToHost)) return false;
   if (base64.length === 0) return false;
-  handler.postMessage({ base64 });
+  postToHost(clipboardWriteImageToHost, { base64 });
   return true;
 }
 
@@ -242,10 +232,8 @@ export function writeClipboardViaNative(
   atoms: string,
   html?: string,
 ): boolean {
-  const webkit = (globalThis as unknown as { webkit?: ClipboardWebkit }).webkit;
-  const handler = webkit?.messageHandlers?.clipboardWrite;
-  if (!handler || typeof handler.postMessage !== "function") return false;
-  handler.postMessage({ text, atoms, html: html ?? "" });
+  if (!hostAvailable(clipboardWriteToHost)) return false;
+  postToHost(clipboardWriteToHost, { text, atoms, html: html ?? "" });
   return true;
 }
 
@@ -266,9 +254,7 @@ const NATIVE_CLIPBOARD_TIMEOUT_MS = 1000;
  * forever.
  */
 export function readClipboardViaNative(): Promise<NativeClipboardReadResult> {
-  const webkit = (globalThis as unknown as { webkit?: ClipboardWebkit }).webkit;
-  const handler = webkit?.messageHandlers?.clipboardRead;
-  if (!handler || typeof handler.postMessage !== "function") {
+  if (!hostAvailable(clipboardReadToHost)) {
     return Promise.resolve({ text: "", html: "", atoms: "" });
   }
   installCallback();
@@ -293,6 +279,6 @@ export function readClipboardViaNative(): Promise<NativeClipboardReadResult> {
         settle({ text: "", html: "", atoms: "" });
       }
     }, NATIVE_CLIPBOARD_TIMEOUT_MS);
-    handler.postMessage({ requestId });
+    postToHost(clipboardReadToHost, { requestId });
   });
 }

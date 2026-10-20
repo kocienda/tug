@@ -33,8 +33,8 @@
  * @module lib/open-file-in-card
  */
 
-import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import { mayDeferCommitInView, transferFocusForActivation } from "@/focus-transfer";
+import type { CardDeck } from "@/card-deck";
 import { getTugbankClient } from "./tugbank-singleton";
 import {
   TEXT_CARD_DEFAULTS_DOMAIN,
@@ -56,7 +56,7 @@ import { page } from "../bus/page";
  * page — a body card — found among the active deck's cards by the path its
  * page published. The open registries are per page and hold none of these.
  */
-function bodyCardByPath(store: IDeckManagerStore, componentId: string, path: string): string | null {
+function bodyCardByPath(store: CardDeck, componentId: string, path: string): string | null {
   for (const card of store.getSnapshot().cards) {
     if (card.componentId === componentId && cardIdentityElsewhere.get(card.id)?.path === path) return card.id;
   }
@@ -81,7 +81,7 @@ export function readSaveMode(): SaveMode {
  * card. `line` has no meaning for a viewer, so the reveal channel is absent.
  */
 function openFileInViewerCard(
-  store: IDeckManagerStore,
+  store: CardDeck,
   path: string,
   originCardId: string | null,
 ): void {
@@ -92,7 +92,7 @@ function openFileInViewerCard(
       incomingCardId: existingId,
       store,
       commitMutation: () => store.activateCard(existingId),
-      deferCommit: mayDeferCommit(store, existingId),
+      deferCommit: mayDeferCommitInView(existingId),
     });
     flashCardPane(store, existingId);
     return;
@@ -110,7 +110,7 @@ function openFileInViewerCard(
 }
 
 export function openFileInCard(
-  store: IDeckManagerStore,
+  store: CardDeck,
   path: string,
   line?: number,
   endLine?: number,
@@ -136,7 +136,7 @@ export function openFileInCard(
       incomingCardId: existingId,
       store,
       commitMutation: () => store.activateCard(existingId),
-      deferCommit: mayDeferCommit(store, existingId),
+      deferCommit: mayDeferCommitInView(existingId),
     });
     if (line !== undefined) {
       if (local !== null) local.entry.revealLine(line, endLine, columns);

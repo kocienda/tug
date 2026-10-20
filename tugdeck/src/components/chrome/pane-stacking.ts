@@ -19,7 +19,7 @@
 
 import { type RefObject, useLayoutEffect } from "react";
 import { findSidebarPanes } from "@/deck-store-selectors";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import type { CardDeck } from "@/card-deck";
 import type { DeckState } from "@/layout-tree";
 import { withDepartingStanding } from "@/lib/departing";
 import { revealPaneFrame } from "./pane-occlusion-controller";
@@ -164,7 +164,7 @@ export function paneZIndexMap(deck: DeckState): Map<string, number> {
  */
 export function usePaneRaise(
   deckRootRef: RefObject<HTMLDivElement | null>,
-  store: IDeckManagerStore,
+  store: CardDeck,
 ): void {
   useLayoutEffect(() => {
     const raise = (): void => {

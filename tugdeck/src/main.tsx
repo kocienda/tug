@@ -102,6 +102,15 @@ import { FONT_STACKS } from "./lib/editor-settings-store";
 import { deserialize } from "./serialization";
 import { installHmrBridge } from "./hmr-bridge";
 import { installDevErrorOverlay } from "./dev-error-overlay";
+import { answerPageCall, installHostChannel, postToHost, tugdeckPageCalls, type TugdeckPageCalls } from "./host/channel";
+import {
+  frontendLaunchStalledToHost,
+  frontendReadyToHost,
+  prepareForTerminationCall,
+  reauthenticateCall,
+  saveStateCall,
+} from "./host/declarations/lifecycle";
+import { reauthenticate } from "./lib/reauthenticate";
 
 // Replace Vite's built-in HMR error overlay (disabled via
 // `server.hmr.overlay = false`) with a viewport-fitting one. Installed
@@ -109,32 +118,22 @@ import { installDevErrorOverlay } from "./dev-error-overlay";
 // fires during startup is still reported. No-op in production.
 installDevErrorOverlay();
 
+// The host's `__tugBridge` members, before any receiver below registers.
+installHostChannel();
+
 /**
- * `window.tugdeck` — the single namespace the native Swift host uses
- * for its direct JavaScript entry points: the synchronous
- * `evaluateJavaScript` ones and the awaited `prepareForTermination`,
- * which the host calls through `callAsyncJavaScript` at quit. Only the
- * methods installed below live here. Typed via `declare global` so
- * consumers get IDE autocomplete and so the assignment below is a
- * straightforward `window.tugdeck = { ... }` rather than a cast
- * through `Record<string, unknown>`.
+ * `window.tugdeck` — the page's namespace for the native Swift host's calls
+ * into it, and for the diagnostic and lab surfaces beside them. The host's
+ * calls (`saveState`, `prepareForTermination`, `reauthenticate`) are the host
+ * vocabulary's page calls (`host/declarations/lifecycle.ts`): each member
+ * decodes its payload and runs the one handler `answerPageCall` registered.
+ * Typed via `declare global` so consumers get IDE autocomplete and so the
+ * assignment below is a straightforward `window.tugdeck = { ... }` rather
+ * than a cast through `Record<string, unknown>`.
  */
 declare global {
   interface Window {
-    tugdeck?: {
-      saveState(): void;
-      /**
-       * The deck's half of an application quit: interrupt live turns and
-       * wait for them, capture and persist every card (including text held
-       * outside the composer), retry rejected writes, and resolve a verdict
-       * describing what actually landed. The host awaits this before it
-       * signals any child process, and logs the verdict.
-       *
-       * `saveState` remains as the degraded fallback for a host that
-       * cannot make this call.
-       */
-      prepareForTermination(): Promise<TerminationVerdict>;
-      reconnect(): void;
+    tugdeck?: TugdeckPageCalls & {
       /**
        * Diagnostic surface — always available, no test-mode gate. Lets
        * a developer paste one-liners into DevTools without knowing the
@@ -316,14 +315,7 @@ const BOOT_AWAIT_HORIZON_MS = 10_000;
  * is no message handler and this is a no-op.
  */
 function reportBootStall(waitingOn: string): void {
-  const webkit = (window as unknown as {
-    webkit?: {
-      messageHandlers?: {
-        frontendLaunchStalled?: { postMessage: (v: unknown) => void };
-      };
-    };
-  }).webkit;
-  webkit?.messageHandlers?.frontendLaunchStalled?.postMessage({ waitingOn });
+  postToHost(frontendLaunchStalledToHost, { waitingOn });
 }
 
 /**
@@ -881,30 +873,34 @@ async function loadTestSurface(
     }
   });
 
-  // `window.tugdeck` — the single namespace the native app (Swift) uses
-  // for synchronous evaluateJavaScript entry points. Only two methods
-  // live here, both driven from the Swift host:
+  // The host's three calls into the shell, all driven from the Swift host:
   //
-  //   - `saveState()` — triggers `DeckManager.saveAndFlushSync()` before
-  //     WebView teardown on app quit. Synchronous XHR so all writes
-  //     complete before evaluateJavaScript returns. Called from
-  //     `applicationShouldTerminate` — WKWebView doesn't fire
-  //     visibilitychange or beforeunload on quit, so this is the only
-  //     reliable save-on-quit path.
-  //   - `reconnect()` — forces a WebSocket reconnection. Called after
-  //     silent re-authentication when tugcast restarts.
+  //   - `saveState` — `DeckManager.saveAndFlushSync()`, synchronous XHR, so
+  //     every write completes before the call returns. The reload's save,
+  //     and the quit's degraded fallback when `prepareForTermination`
+  //     cannot answer.
+  //   - `prepareForTermination` — the deck's half of a quit: interrupt live
+  //     turns and wait for them, capture and persist every card, retry
+  //     rejected writes, and resolve a verdict describing what landed. The
+  //     host awaits it before it signals any child process, and logs the
+  //     verdict. WKWebView fires no visibilitychange or beforeunload on
+  //     quit, so this is the only reliable save-on-quit path.
+  //   - `reauthenticate` — tugcast restarted: take its new cookie and force
+  //     the WebSocket to reconnect.
   //
   // App lifecycle events (become-active / resign-active / hide / unhide)
   // ride the `app-lifecycle` control frame instead, routed through
-  // `action-dispatch.ts` to the `AppLifecycle` singleton. The
-  // control-frame path is preferred; only these stay as
-  // evaluateJavaScript entry points because they're synchronous
-  // Swift-initiated RPCs where a WebSocket round-trip is the wrong
-  // timing.
+  // `action-dispatch.ts` to the `AppLifecycle` singleton. Only these stay
+  // host calls because they're Swift-initiated RPCs where a WebSocket
+  // round trip is the wrong timing.
+  answerPageCall(saveStateCall, () => {
+    deck.saveAndFlushSync();
+    return null;
+  });
+  answerPageCall(prepareForTerminationCall, (): Promise<TerminationVerdict> => deck.prepareForTermination());
+  answerPageCall(reauthenticateCall, (payload) => reauthenticate(payload, connection));
   window.tugdeck = {
-    saveState: () => deck.saveAndFlushSync(),
-    prepareForTermination: () => deck.prepareForTermination(),
-    reconnect: () => connection.forceReconnect(),
+    ...tugdeckPageCalls(),
 
     /**
      * Diagnostic surface — always available, no test-mode gate. Lets
@@ -1065,14 +1061,7 @@ async function loadTestSurface(
   // signalReady should also re-fire on every reconnect — the WebView host
   // tracks readiness per-connection.
   const signalReady = () => {
-    const webkit = (window as unknown as {
-      webkit?: {
-        messageHandlers?: {
-          frontendReady?: { postMessage: (v: unknown) => void };
-        };
-      };
-    }).webkit;
-    webkit?.messageHandlers?.frontendReady?.postMessage({});
+    postToHost(frontendReadyToHost, {});
   };
   signalReady();
   connectionLifecycle.observeConnectionDidOpen(signalReady);

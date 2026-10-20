@@ -110,6 +110,11 @@ describe("no legacy bus", () => {
     expect(hits(/["'`](card-facts|card-command|card-advice|deck-facts|card-context|deck-call)["'`]/)).toEqual([]);
   });
 
+  test("no source names a retired verb", () => {
+    // A card's move and resize reach its body as counts in `card.context`.
+    expect(hits(/["'`]card\.geometryChanged["'`]|\bcardGeometryChanged\b|\bnoteGeometryChanged\b/)).toEqual([]);
+  });
+
   test("nothing sends or listens the old way", () => {
     expect(hits(/\b(onBus|sendBus|onLegacy|sendLegacy|isLegacyKind|LEGACY_KINDS|BUS_KINDS|BusMessage)\b/)).toEqual([]);
   });
@@ -135,6 +140,8 @@ describe("no legacy bus", () => {
       "ask-forwarder",
       "jot-capture",
       "cycle-focus-forwarder",
+      "body-deck-bridge",
+      "rail-edge-registry",
     ];
     const standing = ALL.map(({ path }) => path).filter((path) => relays.includes(basename(path).replace(/\.tsx?$/, "")));
     expect(standing.map((path) => relative(CHECKOUT, path))).toEqual([]);
@@ -162,6 +169,7 @@ describe("no legacy bus", () => {
       "installOverviewDraftShellHolder",
       "setCardsShrinkForwarder",
       "registerMiniatureDropHost",
+      "registerRailEdgeDriver",
     ];
     expect(exportsOf(gone)).toEqual([]);
     // A module singleton a boot installs is allowed only when it never

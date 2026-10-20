@@ -22,7 +22,7 @@
  */
 
 import { isSidebarCard } from "@/card-registry";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { IMPOSITION_GAP_PX, isSidebarPinned } from "@/lib/layout-imposer";
 import type { DeckState } from "@/layout-tree";
 
@@ -137,7 +137,7 @@ export function reserveSheetHeightForCard(
   panelNaturalPx: number | null,
 ): void {
   if (cardId === null) return;
-  const deckStore = getDeckStore();
+  const deckStore = getCardDeck();
   if (deckStore === null) return;
   const standing = sheetReservationMemberIdOf(deckStore.getSnapshot(), cardId);
   if (panelNaturalPx === null) {

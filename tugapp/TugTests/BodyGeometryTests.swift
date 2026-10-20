@@ -74,13 +74,18 @@ final class BodyGeometryTests: XCTestCase {
         check("a hidden body's point is the shell's", !region.passesThrough(CGPoint(x: 300, y: 200)))
     }
 
+    private func claim(_ json: String) -> BodyHitRegion.Claim? {
+        try? JSONDecoder().decode(BodyHitRegion.Claim.self, from: Data(json.utf8))
+    }
+
     func testTheClaimPayloadReadsItsThreeForms() {
-        check("all", BodyHitRegion.claim(fromPayload: ["all": true]) == .all)
-        check("an empty list is no claim", BodyHitRegion.claim(fromPayload: ["rects": [] as [Any]]) == .none)
-        let rects = BodyHitRegion.claim(fromPayload: [
-            "rects": [["x": 1, "y": 2, "width": 3, "height": 4], ["x": "bad"]],
-        ])
-        check("rects, an unreadable one dropped", rects == .rects([CGRect(x: 1, y: 2, width: 3, height: 4)]))
+        check("all", claim(#"{"all":true}"#) == .all)
+        check("an empty list is no claim", claim(#"{"rects":[]}"#) == BodyHitRegion.Claim.none)
+        check("rects", claim(#"{"rects":[{"x":1,"y":2,"width":3,"height":4}]}"#) == .rects([CGRect(x: 1, y: 2, width: 3, height: 4)]))
+        // A claim is refused whole rather than read in part: a rect the host
+        // dropped would be a surface the pointer passed through.
+        check("an unreadable rect refuses the claim", claim(#"{"rects":[{"x":1,"y":2,"width":3,"height":4},{"x":"bad"}]}"#) == nil)
+        check("neither form is refused", claim(#"{"all":false}"#) == nil)
     }
 
     func testTheFlipRoundTrips() {
@@ -178,17 +183,21 @@ final class BodyGeometryTests: XCTestCase {
     }
 
     func testAFloorGridBodyIsRead() {
-        let grid = FloorGrid.from(payload: [
-            "canvas": "#16181d", "grid": "rgba(51, 102, 153, 0.784)",
-            "cellPx": 24, "linePx": 1, "zoom": 1.25, "originX": 0, "originY": 3.5,
-        ])
+        func floor(_ json: String) -> FloorGrid? {
+            try? JSONDecoder().decode(FloorGrid.self, from: Data(json.utf8))
+        }
+        let grid = floor(#"""
+            {"canvas":"#16181d","grid":"rgba(51, 102, 153, 0.784)","cellPx":24,"linePx":1,"zoom":1.25,"originX":0,"originY":3.5}
+            """#)
         check("it parses", grid != nil)
         check("the canvas is opaque sRGB", grid?.canvas == FloorGrid.RGBA(r: 0x16 / 255.0, g: 0x18 / 255.0, b: 0x1d / 255.0, a: 1))
         check("the grid keeps its alpha", grid?.grid == FloorGrid.RGBA(r: 51 / 255.0, g: 102 / 255.0, b: 153 / 255.0, a: 0.784))
         check("zoom and origin", grid?.zoom == 1.25 && grid?.originY == 3.5)
-        check("a colour it cannot read is no grid", FloorGrid.from(payload: [
-            "canvas": "oklch(0.2 0.02 280)", "grid": "#ffffff",
-            "cellPx": 24, "linePx": 1, "zoom": 1, "originX": 0, "originY": 0,
-        ]) == nil)
+        check("a colour it cannot read is no grid", floor(#"""
+            {"canvas":"oklch(0.2 0.02 280)","grid":"#ffffff","cellPx":24,"linePx":1,"zoom":1,"originX":0,"originY":0}
+            """#) == nil)
+        check("a missing field is no grid", floor(#"""
+            {"canvas":"#16181d","grid":"#ffffff","cellPx":24,"linePx":1,"zoom":1,"originX":0}
+            """#) == nil)
     }
 }

@@ -23,7 +23,7 @@
  */
 
 import { page } from "../bus/page";
-import { getDeckStore } from "./deck-store-registry";
+import { getCardDeck } from "./deck-store-registry";
 
 let keyboardYield: (() => boolean) | null = null;
 let onKeyboardYield: (() => void) | null = null;
@@ -54,7 +54,7 @@ export function keyboardYieldedTo(): string | null {
 
 /** Whether this page has yielded the keyboard to another page. */
 export function keyboardYielded(): boolean {
-  if (page.isBody) return page.cardId === null || getDeckStore()?.getFirstResponderCardId() !== page.cardId;
+  if (page.isBody) return page.cardId === null || getCardDeck()?.getFirstResponderCardId() !== page.cardId;
   return keyboardYield !== null && keyboardYield();
 }
 

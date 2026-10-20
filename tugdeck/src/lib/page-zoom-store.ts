@@ -57,6 +57,8 @@
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Subscribable } from "@/lib/subscribable";
+import { answerPageCall, installHostChannel, onHostMessage, postToHost } from "@/host/channel";
+import { pageZoomApplyCall, pageZoomToHost, pageZoomToPage } from "@/host/declarations/services";
 
 export interface PageZoomSnapshot {
   /** The factor the deck is at, or is going to while `zooming`. */
@@ -336,14 +338,6 @@ export function pageZoomLevelOf(factor: number): number | null {
   return PAGE_ZOOM_LEVELS.find((level) => Math.abs(level - factor) < 0.005) ?? null;
 }
 
-interface PageZoomMessageHost {
-  webkit?: {
-    messageHandlers?: {
-      pageZoom?: { postMessage: (value: unknown) => void };
-    };
-  };
-}
-
 /**
  * Ask the host for a level. The host owns the factor and its persistence, so
  * this is a request: the factor arrives back through `onPageZoomApply`, which
@@ -351,29 +345,29 @@ interface PageZoomMessageHost {
  * deck with no host (a browser tab) has nothing to ask, and nothing happens.
  */
 export function requestPageZoom(factor: number): void {
-  const w = globalThis as unknown as PageZoomMessageHost;
-  w.webkit?.messageHandlers?.pageZoom?.postMessage({ factor });
+  postToHost(pageZoomToHost, { factor });
 }
 
-/** The host→web bridge object; only the zoom callbacks concern us here. */
-interface TugBridge {
-  onPageZoom?: (report: Record<string, unknown>) => void;
-  onPageZoomApply?: (factor: unknown) => Promise<void>;
-}
-
-interface BridgeHost {
-  __tugBridge?: TugBridge;
-}
+/** The store the zoom receivers feed, and how to take them back. */
+let installedZoom: { store: PageZoomStore; release: () => void } | null = null;
 
 /**
- * Install the zoom receivers on `__tugBridge`. Called once from deck boot;
- * safe to call again. The bridge object is shared with other host callbacks,
- * so it is merged into with `??=`, never replaced.
+ * Take the host's zoom in this page: `onPageZoom`, the standing factor with
+ * no transition, and `onPageZoomApply`, the awaited change. Called once from
+ * deck boot; safe to call again, and a call naming another store moves the
+ * receivers to it.
  */
 export function installPageZoomBridge(store: PageZoomStore = pageZoomStore): void {
-  const w = globalThis as unknown as BridgeHost;
-  const bridge = (w.__tugBridge ??= {});
-  if (bridge.onPageZoomApply !== undefined) return;
-  bridge.onPageZoom = (report) => store.report(report?.factor);
-  bridge.onPageZoomApply = (factor) => store.apply(factor);
+  installHostChannel();
+  if (installedZoom?.store === store) return;
+  installedZoom?.release();
+  const releaseReport = onHostMessage(pageZoomToPage, (report) => store.report((report as { factor?: unknown }).factor));
+  const releaseApply = answerPageCall(pageZoomApplyCall, (factor) => store.apply(factor));
+  installedZoom = {
+    store,
+    release: () => {
+      releaseReport();
+      releaseApply();
+    },
+  };
 }

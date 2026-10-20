@@ -256,7 +256,7 @@ import {
   sessionSpawnErrorStore,
 } from "@/lib/session-spawn-error-store";
 import { cardTitleStore } from "@/lib/card-title-store";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck } from "@/lib/deck-store-registry";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { cardArrivingOf, cardFoldedOf } from "@/deck-store-selectors";
 import {
@@ -1344,7 +1344,7 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
     // ([B06]) — every precondition the stack would have read is read again on
     // the far side of the frame the deferral inserted.
     return cardLifecycle.observeCardDidActivate(cardId, () => {
-      const store = getDeckStore();
+      const store = getCardDeck();
       const arriving =
         store !== null && cardArrivingOf(store.getSnapshot(), cardId);
       if (arriving || !isTugMotionEnabled()) {
@@ -1366,7 +1366,7 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
         // deferral invisible: a present the stack would have made is still
         // made, and one the stack would have made WRONG is not made at all.
         // A warm workspace's key card is presented to while parked, as key.
-        const deck = getDeckStore();
+        const deck = getCardDeck();
         if (deck?.getFirstResponderCardId() !== cardId && deck?.isParkedKey?.(cardId) !== true) return;
         presentSheet();
       });
@@ -1706,17 +1706,17 @@ export function SessionCardBody({
   // `data-folded` instead, and this value is only for what CSS cannot do —
   // here, the popup row's checkmark.
   //
-  // Read off the process-wide registry rather than `useDeckManager()`, which
+  // Read off the process-wide registry rather than `useCardDeck()`, which
   // throws without a provider: a Session card renders in the gallery and in
   // tests that bootstrap no DeckManager, and the honest answer there is
   // not-folded rather than a crash.
   const subscribeToDeck = useCallback((onStoreChange: () => void) => {
-    const store = getDeckStore();
+    const store = getCardDeck();
     if (store === null) return () => {};
     return store.subscribe(onStoreChange);
   }, []);
   const folded = useSyncExternalStore(subscribeToDeck, () => {
-    const store = getDeckStore();
+    const store = getCardDeck();
     return store === null ? false : cardFoldedOf(store.getSnapshot(), cardId);
   });
 

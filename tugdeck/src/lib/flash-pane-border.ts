@@ -50,7 +50,7 @@
  */
 
 import { paneCanvasOf } from "@/lib/pane-frame-selectors";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import type { CardDeck } from "@/card-deck";
 import { afterGesture } from "@/lib/gesture-scope";
 import { scheduleAfterPaint } from "@/lib/after-paint";
 import { IMPOSER_SETTLE_END } from "./settle-notice";
@@ -304,7 +304,7 @@ export function flashPaneBorderOnSettle(paneId: string, allowRetry = true): void
  * what catches it after React commits. A card that reaches no pane at all is
  * silence, not a warning: nothing appeared, so nothing flashes.
  */
-export function flashCardPane(store: IDeckManagerStore, cardId: string): void {
+export function flashCardPane(store: CardDeck, cardId: string): void {
   const pane = store.getSnapshot().panes.find((p) => p.cardIds.includes(cardId));
   if (pane !== undefined) flashPaneBorder(pane.id);
 }
@@ -354,7 +354,7 @@ export function flashVacantSlot(slot: number): void {
  * its room, so answering only for occupied ones would make the same gesture
  * silent for reasons the user never asked about.
  */
-export function flashSlot(store: IDeckManagerStore, slot: number): void {
+export function flashSlot(store: CardDeck, slot: number): void {
   const pane = store.getSnapshot().panes.find((p) => p.slot === slot);
   if (pane !== undefined) flashPaneBorder(pane.id);
   else flashVacantSlot(slot);

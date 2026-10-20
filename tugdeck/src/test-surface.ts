@@ -47,7 +47,7 @@ import { deckTrace, type DeckTraceEvent } from "./deck-trace";
 import { labFlags } from "./lib/lab-flags";
 import { listViewProbeForScroller } from "./components/tugways/tug-list-view";
 import { smartScrollForElement } from "./lib/smart-scroll";
-import { getDeckStore } from "./lib/deck-store-registry";
+import { getShellDeck } from "./lib/deck-store-registry";
 import { raiseCard } from "./focus-transfer";
 import { getFocusManager } from "./components/tugways/focus-manager";
 import { currentGesture } from "./gesture-interpreter";
@@ -2160,7 +2160,7 @@ function readSelectionDirection(
 /**
  * The store the view methods read — a card's bag and the cards a view holds,
  * and nothing of the deck's arrangement. The shell's `DeckManager` and a
- * body's bridge both answer it.
+ * body's card deck both answer it.
  */
 type ViewSurfaceStore = Pick<
   IDeckManagerStore,
@@ -3518,7 +3518,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // same path a real activation click takes through
       // `pane-focus-controller`. `DeckManager.activateCard` alone would
       // flip the responder and leave the pane buried.
-      const store = getDeckStore();
+      const store = getShellDeck();
       if (store === null) return;
       raiseCard(store, cardId);
     },
@@ -3557,7 +3557,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       offset: number,
       landing: "cross" | "cut",
     ): void {
-      const store = getDeckStore();
+      const store = getShellDeck();
       if (store === null) return;
       if (landing === "cut") {
         // The per-frame half, exactly as `applyScroll` writes it. Without this
@@ -3581,7 +3581,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
     probeBatchGesture(
       shape: "single" | "nested" | "throws" | "empty",
     ): { notifies: number; threw: boolean } {
-      const store = getDeckStore();
+      const store = getShellDeck();
       if (store === null) return { notifies: -1, threw: false };
       const paneId = store.getSnapshot().panes[0]?.id;
       if (paneId === undefined) return { notifies: -1, threw: false };
@@ -3787,7 +3787,7 @@ export type BodyTestSurface = { version: typeof SURFACE_VERSION } & ReturnType<
 
 /**
  * Install a body page's `window.__tug` — the same gate as
- * {@link attachTugTestSurface}, over the body's bridge instead of a deck.
+ * {@link attachTugTestSurface}, over the body's card deck instead of the shell's.
  */
 /**
  * The Overview store's verbs: deliver a feed frame or a tail page as the
@@ -3941,7 +3941,7 @@ function pageStoreSurfaceMethods() {
   };
 }
 
-export function attachBodyTestSurface(bridge: ViewSurfaceStore, stores: { usageStore?: UsageStore } = {}): void {
+export function attachBodyTestSurface(deck: ViewSurfaceStore, stores: { usageStore?: UsageStore } = {}): void {
   if (typeof window === "undefined" || window.__tugTestMode !== true) return;
   // The Overview's store is the page's own: a body holding the Overview is
   // fed and read here, as the shell's document was. So is the usage store: a
@@ -3949,7 +3949,7 @@ export function attachBodyTestSurface(bridge: ViewSurfaceStore, stores: { usageS
   // so are the draft store, the ledger's pushes and the card's session store.
   window.__tug = {
     version: SURFACE_VERSION,
-    ...createViewSurfaceMethods(bridge),
+    ...createViewSurfaceMethods(deck),
     ...overviewSurfaceMethods(),
     ...pageStoreSurfaceMethods(),
     ingestUsage(payload: unknown): void {

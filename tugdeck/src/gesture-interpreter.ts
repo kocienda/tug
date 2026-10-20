@@ -40,7 +40,7 @@
  */
 
 import { getFocusManager } from "@/components/tugways/focus-manager";
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import type { CardDeck } from "@/card-deck";
 import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/lib/pane-frame-selectors";
@@ -114,7 +114,7 @@ export interface GestureClassification {
 /** What the interpreter needs from its host, and what it hands back. */
 export interface GestureInterpreterHost {
   deckRoot: () => HTMLElement | null;
-  store: IDeckManagerStore;
+  store: CardDeck;
   /** Run the activation transfer. Called synchronously for `activate`, at pointerup for `deferred`. */
   activate: (transfer: {
     outgoingCardId: string | null;

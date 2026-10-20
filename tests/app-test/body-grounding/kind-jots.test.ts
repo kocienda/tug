@@ -15,7 +15,6 @@
  *   file, which is what a reload reads back.
  * - **Its surface** — the body paints the rail's sunken surface, read off the
  *   composite.
- * - **No shell reads** — its deck bridge answered every call it made.
  *
  * @foreground
  * @covers tugdeck/src/components/jots/jots-card-registration.tsx
@@ -29,7 +28,7 @@ import { join } from "node:path";
 
 import { launchTugApp, note } from "../_harness";
 import { pollFor } from "./_bodies";
-import { expectNoShellReads, expectRailSurface, kindDeck, standUpKind } from "./_kind-bodies";
+import { expectRailSurface, kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-kind-jots";
@@ -114,9 +113,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Jots", () => {
         note(`jots: before ${JSON.stringify(order)}; on disk after the drag ${JSON.stringify(reordered)}`);
         expect(reordered[0], "the dragged jot is first in the file, which a reload reads back").toBe(last);
 
-        // ── Surface and shell reads ─────────────────────────────────────
+        // ── Surface ─────────────────────────────────────────────────────
         await expectRailSurface(app, JOTS);
-        await expectNoShellReads(app, JOTS);
       } finally {
         await app.close();
         rmSync(scratch, { recursive: true, force: true });

@@ -39,6 +39,8 @@
  */
 
 import { viewportPxOf } from "@/lib/page-zoom-store";
+import { hostAvailable, postToHost } from "@/host/channel";
+import { lookUpInDictionaryToHost } from "@/host/declarations/services";
 
 /**
  * The payload a Look Up in Dictionary menu item carries as its
@@ -247,15 +249,8 @@ export function isDictionaryLookupRequest(
 export function lookUpInDictionary(request: DictionaryLookupRequest): void {
   const text = request.text.trim().slice(0, MAX_LOOKUP_LENGTH);
   if (text === "") return;
-  const webkit = (globalThis as unknown as Record<string, unknown>).webkit as
-    | Record<string, unknown>
-    | undefined;
-  const handlers = webkit?.messageHandlers as Record<string, unknown> | undefined;
-  const handler = handlers?.lookUpInDictionary as
-    | { postMessage: (v: unknown) => void }
-    | undefined;
-  if (handler) {
-    handler.postMessage({ ...request, text });
+  if (hostAvailable(lookUpInDictionaryToHost)) {
+    postToHost(lookUpInDictionaryToHost, { ...request, text });
   } else {
     console.info(
       `dictionary-lookup: host bridge unavailable, cannot define "${text}"`,

@@ -12,15 +12,13 @@ import { registerCard } from "../../card-registry";
 import type { DeckState } from "../../layout-tree";
 import type { CardSessionBinding } from "../../lib/card-session-binding-store";
 import {
-  arrangementCardFacts,
   arrangementDeck,
   arrangementSpaces,
   cardsSpaceVerb,
-  deckCardActivities,
-  deckCardBindings,
   deckRenameSpace,
 } from "../declarations/arrangement";
 import { cardContext, NO_CARD_CONTEXT } from "../declarations/card";
+import { deckCards, type DeckCardFacts } from "../declarations/deck";
 import { ROUTED_ACTIONS } from "../registry";
 import { createTestBus, type TestBus } from "../test-bus";
 
@@ -46,25 +44,30 @@ const BINDING: CardSessionBinding = {
 };
 
 describe("the arrangement stores", () => {
-  test("every body reads every card's binding and phase; only an arrangement card reads the arrangement", async () => {
+  test("every body reads every card's record; only an arrangement card reads the arrangement", async () => {
     bus = createTestBus();
     const shell = bus.shell();
-    deckCardBindings.on(shell.bus).set({ a: BINDING });
-    deckCardActivities.on(shell.bus).set({ a: "streaming" });
+    const a: DeckCardFacts = {
+      componentId: "session",
+      title: "a",
+      masthead: null,
+      identity: null,
+      activity: "streaming",
+      binding: BINDING,
+      parkedTitle: null,
+      waivesClose: false,
+    };
+    deckCards.on(shell.bus).set({ a });
     arrangementDeck.on(shell.bus).set({ deck: DECK, bandWidth: 1600, columnRunHeight: null, railRunHeight: null });
-    arrangementCardFacts.on(shell.bus).set({ titles: { a: { title: "a", masthead: null } }, identities: {} });
     const session = bus.body("s1", "session");
     const lister = bus.body("l1", LISTER);
     await bus.flush();
 
-    expect(deckCardBindings.on(session.bus).getSnapshot()).toEqual({ a: BINDING });
-    expect(deckCardActivities.on(session.bus).getSnapshot()).toEqual({ a: "streaming" });
+    expect(deckCards.on(session.bus).getSnapshot()).toEqual({ a });
     expect(arrangementDeck.on(session.bus).arrived()).toBe(false);
-    expect(arrangementCardFacts.on(session.bus).arrived()).toBe(false);
 
-    expect(deckCardBindings.on(lister.bus).getSnapshot()).toEqual({ a: BINDING });
+    expect(deckCards.on(lister.bus).getSnapshot()).toEqual({ a });
     expect(arrangementDeck.on(lister.bus).getSnapshot()?.bandWidth).toBe(1600);
-    expect(arrangementCardFacts.on(lister.bus).getSnapshot().titles).toEqual({ a: { title: "a", masthead: null } });
 
     // A move reaches the arrangement card and nobody else.
     const before = bus.frames().length;
@@ -110,7 +113,7 @@ describe("the arrangement stores", () => {
     expect(seen).toEqual([{ verb: "rename", contextArrived: true }]);
   });
 
-  test("the deck verbs a body may ask are exactly the eight moves, and never a workspace delete", () => {
+  test("the deck verbs a body may ask are exactly the eight moves and the two any card makes, and never a workspace delete", () => {
     const deckVerbs = ROUTED_ACTIONS.map((a) => a.key).filter((key) => key.startsWith("deck."));
     expect(deckVerbs.sort()).toEqual(
       [
@@ -122,6 +125,8 @@ describe("the arrangement stores", () => {
         "deck.renameSpace",
         "deck.reorderSpaces",
         "deck.setFlowOffset",
+        "deck.addCard",
+        "deck.showSingletonCard",
       ].sort(),
     );
   });

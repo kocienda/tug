@@ -50,7 +50,7 @@ import { bodyOfKind } from "../_harness/card-reach";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead, tugbankWrite } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, sessionPane, waitForBody } from "./_bodies";
-import { expectContentSurface, expectNoShellReads } from "./_kind-bodies";
+import { expectContentSurface } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-kind-singletons";
@@ -148,11 +148,6 @@ async function openedKind(app: App, kind: string): Promise<{ body: BodyApp; card
   return { body, cardId };
 }
 
-async function readSurfaceAndShellReads(app: App, kind: string, cardId: string, share: number): Promise<void> {
-  await expectContentSurface(app, cardId, share);
-  await expectNoShellReads(app, cardId);
-}
-
 describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Keyboard Shortcuts, About and Hello", () => {
   test(
     "each opens the user's way as a body over its real data, and its own gestures and relays work there",
@@ -219,7 +214,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         await app.dispatchControlAction("reveal-settings", { section: "viewerCard" });
         const revealed = await pollFor(() => settings.body.evalJS<string | null>(showingSection), (s) => s === "viewerCard", READ_MS);
         expect(revealed, "reveal-settings shows the named section in the Settings body").toBe("viewerCard");
-        await readSurfaceAndShellReads(app, "settings", settings.cardId, 0.15);
+        await expectContentSurface(app, settings.cardId, 0.15);
         await closeCard(app, settings.cardId);
 
         // ── Keyboard Shortcuts: the keymap, and its filter ───────────────
@@ -234,7 +229,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         expect(narrowed.length, "typing in the filter narrows the rows").toBeLessThan(rows);
         expect(narrowed, "to the ones it names").toContain("Zoom In");
         expect(narrowed, "to the ones it names").toContain("Zoom Out");
-        await readSurfaceAndShellReads(app, "keyboard", keyboard.cardId, 0.15);
+        await expectContentSurface(app, keyboard.cardId, 0.15);
         await closeCard(app, keyboard.cardId);
 
         // ── About: the host's identity, relayed through the shell ─────────
@@ -252,14 +247,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
           READ_MS,
         );
         expect(paneTitle, "the shell's title bar wears the title the About body published").toContain("About");
-        await readSurfaceAndShellReads(app, "about", about.cardId, 0.3);
+        await expectContentSurface(app, about.cardId, 0.3);
         await closeCard(app, about.cardId);
 
         // ── Hello ────────────────────────────────────────────────────────
         await app.dispatchControlAction("show-card", { component: "hello" });
         const hello = await openedKind(app, "hello");
         expect((await hello.body.evalJS<string>(textOf(HELLO_TITLE))).trim(), "the Hello body shows its line").toBe("Hello, World!");
-        await readSurfaceAndShellReads(app, "hello", hello.cardId, 0.5);
+        await expectContentSurface(app, hello.cardId, 0.5);
         await closeCard(app, hello.cardId);
 
         // ── Devtools: follows the Session body; the inspection and the log relays ──
@@ -283,7 +278,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         expect(logged.some((m) => m.includes("hello from the shell")), "the Log tab shows an entry the shell logged").toBe(true);
         const sources = await devtools.body.evalJS<string[]>(textsOf(LOG_SOURCES));
         expect(sources.some((s) => s.includes("shell/kind-check")), "under the shell's name").toBe(true);
-        await readSurfaceAndShellReads(app, "devtools", devtools.cardId, 0.15);
+        await expectContentSurface(app, devtools.cardId, 0.15);
         await closeCard(app, devtools.cardId);
         const stopped = await pollFor(() => a.evalJS<boolean>("window.tugdeck.diag.inspecting()"), (v) => !v, READ_MS);
         expect(stopped, "closing the devtools card stops the Session body's publishing").toBe(false);

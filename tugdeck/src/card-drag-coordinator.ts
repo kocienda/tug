@@ -19,7 +19,7 @@
  * - [D07] Coordinator is a module-scope singleton
  */
 
-import type { IDeckManagerStore } from "./deck-manager-store";
+import type { CardDeck } from "./card-deck";
 import { SHOWN_PANE_FRAMES } from "./components/chrome/space-layer";
 import { layoutPxOf } from "./lib/page-zoom-store";
 import {
@@ -82,6 +82,17 @@ export interface RemoteTabDrag {
   away(phase: "move" | "end" | "cancel", cardId: string, x: number, y: number): void;
 }
 
+/**
+ * The deck a drop commits to, in the page that holds the arrangement: the
+ * shell's deck. A card's own page holds none and hands its drop to a
+ * {@link RemoteTabDrag} instead.
+ */
+export interface TabDropCommit {
+  reorderCardInPane(paneId: string, fromIndex: number, toIndex: number): void;
+  detachCard(paneId: string, cardId: string, position: { x: number; y: number }): unknown;
+  moveCardToPane(sourcePaneId: string, cardId: string, targetPaneId: string, insertIndex: number): void;
+}
+
 // ---- CardDragCoordinator class ----
 
 /**
@@ -96,7 +107,9 @@ export interface RemoteTabDrag {
  */
 class CardDragCoordinator {
   // ---- Store reference (set once via init) ----
-  private store: IDeckManagerStore | null = null;
+  private store: CardDeck | null = null;
+  /** Where a drop commits, in the shell; null in a card's own page. */
+  private commit: TabDropCommit | null = null;
   /** Where a drag past the bar goes in a card's own page; null in the shell. */
   private remote: RemoteTabDrag | null = null;
   /** Whether the shell has been told of a drag past the bar it has not been told has ended. */
@@ -175,11 +188,13 @@ class CardDragCoordinator {
   // ---------------------------------------------------------------------------
 
   /**
-   * Initialize with store reference. Called once from DeckCanvas useEffect.
-   * Safe to call multiple times -- only updates the stored reference.
+   * Initialize with store reference, and with the deck a drop commits to in
+   * the page that holds the arrangement. Called once from DeckCanvas
+   * useEffect. Safe to call multiple times -- only updates the references.
    */
-  init(store: IDeckManagerStore): void {
+  init(store: CardDeck, commit: TabDropCommit | null = null): void {
     this.store = store;
+    this.commit = commit;
   }
 
   /** Hand a drag past the source bar to `remote`, in a page that draws one card's chrome; null hands it back. */
@@ -525,7 +540,8 @@ class CardDragCoordinator {
 
     // Commit the drop to DeckManager. [D03]
     const store = this.store;
-    if (!store) return;
+    const commit = this.commit;
+    if (!store || !commit) return;
 
     if (mode === "reorder") {
       // Find the original index of the dragged card in the source stack.
@@ -540,7 +556,7 @@ class CardDragCoordinator {
           if (reorderIndex > fromIndex) {
             toIndex = reorderIndex - 1;
           }
-          store.reorderCardInPane(sourcePaneId, fromIndex, toIndex);
+          commit.reorderCardInPane(sourcePaneId, fromIndex, toIndex);
         }
       }
     } else if (mode === "detach") {
@@ -552,9 +568,9 @@ class CardDragCoordinator {
         x = dropX - containerRect.left;
         y = dropY - containerRect.top;
       }
-      store.detachCard(sourcePaneId, sourceCardId, { x: layoutPxOf(x), y: layoutPxOf(y) });
+      commit.detachCard(sourcePaneId, sourceCardId, { x: layoutPxOf(x), y: layoutPxOf(y) });
     } else if (mode === "merge" && mergeTarget) {
-      store.moveCardToPane(sourcePaneId, sourceCardId, mergeTarget.paneId, mergeTarget.insertIndex);
+      commit.moveCardToPane(sourcePaneId, sourceCardId, mergeTarget.paneId, mergeTarget.insertIndex);
     }
   }
 

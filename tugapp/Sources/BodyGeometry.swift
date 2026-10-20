@@ -66,23 +66,22 @@ struct BodyHitRegion: Equatable {
         }
         return nil
     }
+}
 
-    /// Read a `pointerClaim` body: `{all: true}`, `{rects: [...]}`; anything
-    /// else (an empty list included) is no claim.
-    static func claim(fromPayload payload: [String: Any]) -> Claim {
-        if payload["all"] as? Bool == true { return .all }
-        let rects = (payload["rects"] as? [[String: Any]] ?? []).compactMap(rect(fromPayload:))
-        return rects.isEmpty ? .none : .rects(rects)
-    }
+/// A `pointerClaim` body: `{all: true}`, or `{rects: [...]}`, where an empty
+/// list is no claim. Anything else — a rect that is not one, neither field —
+/// is refused whole.
+extension BodyHitRegion.Claim: Decodable {
+    private enum CodingKeys: String, CodingKey { case all, rects }
 
-    /// A `{x, y, width, height}` dictionary as a rect, or nil when a field is
-    /// missing or not a number.
-    static func rect(fromPayload payload: [String: Any]) -> CGRect? {
-        guard let x = (payload["x"] as? NSNumber)?.doubleValue,
-              let y = (payload["y"] as? NSNumber)?.doubleValue,
-              let width = (payload["width"] as? NSNumber)?.doubleValue,
-              let height = (payload["height"] as? NSNumber)?.doubleValue else { return nil }
-        return CGRect(x: x, y: y, width: width, height: height)
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if try container.decodeIfPresent(Bool.self, forKey: .all) == true {
+            self = .all
+            return
+        }
+        let rects = try container.decode([PlanRect].self, forKey: .rects).map(\.cgRect)
+        self = rects.isEmpty ? .none : .rects(rects)
     }
 }
 
@@ -203,22 +202,6 @@ struct FloorGrid: Equatable {
         )
     }
 
-    /// Read a `floorGrid` body, or nil when a field is missing or a colour
-    /// does not parse.
-    static func from(payload: [String: Any]) -> FloorGrid? {
-        guard let canvas = (payload["canvas"] as? String).flatMap(color(from:)),
-              let grid = (payload["grid"] as? String).flatMap(color(from:)),
-              let cellPx = (payload["cellPx"] as? NSNumber)?.doubleValue,
-              let linePx = (payload["linePx"] as? NSNumber)?.doubleValue,
-              let zoom = (payload["zoom"] as? NSNumber)?.doubleValue,
-              let originX = (payload["originX"] as? NSNumber)?.doubleValue,
-              let originY = (payload["originY"] as? NSNumber)?.doubleValue else { return nil }
-        return FloorGrid(
-            canvas: canvas, grid: grid, cellPx: cellPx, linePx: linePx,
-            zoom: zoom, originX: originX, originY: originY
-        )
-    }
-
     /// `#rrggbb` or `rgba(r, g, b, a)` — the two forms the shell posts — as
     /// components, or nil.
     static func color(from text: String) -> RGBA? {
@@ -239,5 +222,32 @@ struct FloorGrid: Equatable {
             return nil
         }
         return RGBA(r: r / 255, g: g / 255, b: b / 255, a: a)
+    }
+}
+
+/// A `floorGrid` body. A field missing, or a colour in neither form the
+/// shell posts, refuses it whole.
+extension FloorGrid: Decodable {
+    private enum CodingKeys: String, CodingKey { case canvas, grid, cellPx, linePx, zoom, originX, originY }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func color(_ key: CodingKeys) throws -> RGBA {
+            guard let rgba = FloorGrid.color(from: try container.decode(String.self, forKey: key)) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key, in: container, debugDescription: "not #rrggbb or rgba(r, g, b, a)"
+                )
+            }
+            return rgba
+        }
+        self.init(
+            canvas: try color(.canvas),
+            grid: try color(.grid),
+            cellPx: try container.decode(Double.self, forKey: .cellPx),
+            linePx: try container.decode(Double.self, forKey: .linePx),
+            zoom: try container.decode(Double.self, forKey: .zoom),
+            originX: try container.decode(Double.self, forKey: .originX),
+            originY: try container.decode(Double.self, forKey: .originY)
+        )
     }
 }

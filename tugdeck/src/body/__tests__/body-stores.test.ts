@@ -93,7 +93,7 @@ describe("the chrome a body draws", () => {
   test("a body reads pane.chrome before its first chrome render is published", () => {
     // The post to the host waits on the shell's facts, never on the fallback.
     const gate = "if (!hasChrome || chromePaintPosted) return;";
-    const post = 'postToHost("painted", {})';
+    const post = "postToHost(paintedToHost, {})";
     expect(frame).toContain("const hasChrome = chrome !== null;");
     expect(frame).toContain(gate);
     expect(frame).toContain(post);

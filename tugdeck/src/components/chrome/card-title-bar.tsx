@@ -40,7 +40,7 @@ import {
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import { getTugTiming } from "@/lib/scale-timing";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { DeckManagerContext } from "@/deck-manager-context";
+import { CardDeckContext, useDeckView } from "@/card-deck-context";
 import { dispatchCommand, sendToCardContent } from "@/command-dispatch";
 import {
   type ColumnMode,
@@ -654,7 +654,9 @@ const CardPlaceBadge = memo(function CardPlaceBadge({
   onOpenChange,
 }: CardPlaceBadgeProps) {
   const placeArrangement = useContext(PlaceArrangementContext);
-  const deck = useContext(DeckManagerContext);
+  // The place is a fact of the whole deck, so it is read off the deck a
+  // listing card sees; a page that provides none has no place to draw.
+  const deck = useDeckView();
   const source = useMemo(
     () => (deck === null || placePaneId === undefined ? null : placeSource(deck)),
     [deck, placePaneId],
@@ -982,7 +984,10 @@ function CardTitleBarBody({
   // throws when there is no provider — `spike-card-chrome` mounts real title
   // bars outside any deck, and a bar with no deck behind it simply has no
   // reveal to ask for.
-  const deck = useContext(DeckManagerContext);
+  const deck = useContext(CardDeckContext);
+  // The workspaces and the place are facts of the whole deck, read off the
+  // deck a listing card sees; a page that provides none has neither.
+  const view = useDeckView();
 
   // The workspace list, for the move control alone ([L02]). Off the same
   // snapshot the canvas reads, DERIVED to the two facts the control draws:
@@ -999,10 +1004,10 @@ function CardTitleBarBody({
   const ownSpaceId = useSpaceLayerShownSource().spaceId;
   const spacesStore = useMemo(
     () =>
-      deck === null
+      view === null
         ? null
-        : { subscribe: deck.subscribeSpaces, getSnapshot: deck.getSpacesSnapshot },
-    [deck],
+        : { subscribe: view.subscribeSpaces, getSnapshot: view.getSpacesSnapshot },
+    [view],
   );
   const spacesView = useStoreDerived<SpacesSnapshot, SpacesView>(
     spacesStore,
@@ -1402,8 +1407,8 @@ function CardTitleBarBody({
       // The depth is read at the press, from the deck when the bar has one —
       // the bar does not render from it ([L02]).
       const depth =
-        deck !== null && placePaneId !== undefined
-          ? placeFactsFor(placeSource(deck).getSnapshot(), placePaneId).slotStack.length
+        view !== null && placePaneId !== undefined
+          ? placeFactsFor(placeSource(view).getSnapshot(), placePaneId).slotStack.length
           : slotStack.length;
       if (depth <= 1) return;
       // Toggle, not set. The chord that reaches here travels the responder
@@ -1417,7 +1422,7 @@ function CardTitleBarBody({
       // pointer callers, where "again" ought to dismiss.
       setStackMenuOpen((prev) => !prev);
     },
-  }), [confirmsClose, onClose, openCloseConfirm, paneCloseIntent, withCloseDecision, slotStack.length, deck, placePaneId]);
+  }), [confirmsClose, onClose, openCloseConfirm, paneCloseIntent, withCloseDecision, slotStack.length, view, placePaneId]);
 
   const IconComponent =
     icon && icons[icon as keyof typeof icons]

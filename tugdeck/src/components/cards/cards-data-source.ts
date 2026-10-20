@@ -52,7 +52,7 @@ import {
   arcSessionIndex,
   type ArcSessionFact,
 } from "@/lib/arc-session-index";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getDeckView } from "@/lib/deck-store-registry";
 import { cardIdentity, cardIdentityElsewhere } from "@/lib/card-identity";
 import { spaceBindingsLedgerStore } from "@/lib/space-bindings-ledger-store";
 import {
@@ -1337,7 +1337,7 @@ const EMPTY_SPACES: SpacesSnapshot = {
 export function useCardsDataSource(
   inputs: Omit<LensCardsInputs, "spaces" | "registryVersion" | "bindingsCache">,
 ): CardsDataSource {
-  const deckStore = getDeckStore();
+  const deckStore = getDeckView();
   const deck = useSyncExternalStore(
     deckStore?.subscribe ?? NOOP_SUBSCRIBE,
     deckStore !== null ? deckStore.getSnapshot : () => null,

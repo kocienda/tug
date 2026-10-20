@@ -25,6 +25,10 @@
  * facts besides), and `card.context` goes after `card.crossing`, so a body
  * reads its crossing before its context.
  *
+ * A card's move and resize reach its body as counts in its context
+ * (`geometry`), which the body's deck fires its lifecycle events from as
+ * they rise: the same place the card learns its fold and its key state.
+ *
  * @module bus/declarations/card
  */
 
@@ -58,7 +62,23 @@ export interface CardContextValue {
    * Absent for every other card.
    */
   parkedKey?: true;
+  /**
+   * How many moves and resizes the shell's deck has committed for the card
+   * since its body attached. A body fires `cardDidResize`, then `cardDidMove`,
+   * for each that rose over the context before; the first context a page
+   * reads sets the baseline and fires nothing.
+   */
+  geometry: CardGeometryCounts;
 }
+
+/** The counts of a card's committed moves and resizes, as `card.context` carries them. */
+export interface CardGeometryCounts {
+  moves: number;
+  resizes: number;
+}
+
+/** No move and no resize yet. */
+export const NO_CARD_GEOMETRY: CardGeometryCounts = { moves: 0, resizes: 0 };
 
 /**
  * A rail width drag's hold on a card whose content cannot reflow in a frame
@@ -87,6 +107,7 @@ export const NO_CARD_CONTEXT: CardContextValue = {
   firstResponderCardId: null,
   layerShown: false,
   spaceId: null,
+  geometry: NO_CARD_GEOMETRY,
 };
 
 /**
@@ -125,6 +146,7 @@ export const cardContext = defineSharedStore<CardContextValue>({
     spaceId: nullable(str),
     railSide: optional(literal("left", "right")),
     parkedKey: optional(opaque((v: unknown): v is true => v === true, true)),
+    geometry: obj({ moves: num, resizes: num }),
   }),
   initial: NO_CARD_CONTEXT,
 });

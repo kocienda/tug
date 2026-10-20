@@ -34,7 +34,7 @@ import {
 } from "../body-handoff";
 import { createTestBus, type TestBus } from "../../bus/test-bus";
 import { sessionIntent } from "../../bus/declarations/verbs";
-import { registerDeckStore } from "../deck-store-registry";
+import { registerShellDeck } from "../deck-store-registry";
 import { registerCard } from "../../card-registry";
 import {
   drainOpeningCommand,
@@ -120,10 +120,10 @@ beforeEach(() => {
   posted = [];
   priorWebkit = g.webkit;
   const handler = (name: string) => ({
-    postMessage: (body: unknown) => posted.push({ name, body }),
+    postMessage: (body: unknown) => posted.push({ name, body: JSON.parse(body as string) }),
   });
   g.webkit = { messageHandlers: { bodyCreate: handler("bodyCreate") } };
-  registerDeckStore(deck);
+  registerShellDeck(deck);
   _resetHandOffForTest();
 });
 
@@ -131,7 +131,7 @@ afterEach(() => {
   cardStates.clear();
   for (const id of ["s1", "s2", "g1", "m1"]) sessionRestoreRegistry._clear(id);
   g.webkit = priorWebkit;
-  registerDeckStore(null);
+  registerShellDeck(null);
   bus?.dispose();
   bus = null;
   _setHostCapabilitiesForTest({ bodyViews: false });

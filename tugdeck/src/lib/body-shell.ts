@@ -133,7 +133,6 @@ import {
   cardActivate,
   cardAddSibling,
   cardClose,
-  cardGeometryChanged,
   cardRefuseHold,
   commandForCard,
   devtoolsLogEntries,
@@ -154,7 +153,9 @@ import {
   cardReservations,
   cardSurface,
   devtoolsInspection,
+  NO_CARD_GEOMETRY,
   type CardContextValue,
+  type CardGeometryCounts,
   type CardFactsValue,
   type CardHoldsValue,
   type CardReservationsValue,
@@ -168,6 +169,7 @@ import {
   paneMoveToSpace,
   paneReorderTabs,
   paneTabDrag,
+  paneRevealCard,
   paneRevealStackEntry,
   paneSelectTab,
   paneSetWidth,
@@ -176,7 +178,6 @@ import {
 } from "../bus/declarations/pane";
 import type { SharedStore } from "../bus/shared-store";
 import { paneChromeFor } from "./pane-chrome-projection";
-import { installHostCardGesture } from "./host-card-gesture";
 import {
   arrangePlace,
   closePane,
@@ -192,6 +193,7 @@ import {
   togglePaneBullseye,
 } from "./pane-verbs";
 import {
+  deckCards,
   deckFacts,
   deckFrontmostProject,
   deckMenu,
@@ -208,9 +210,10 @@ import {
   hostCapabilitiesStore,
   isBodyKind,
   isMountBodyKind,
-  postToHost,
   setBodyReloader,
 } from "./body-handoff";
+import { onHostMessage, postToHost } from "../host/channel";
+import { bodyDestroyToHost, bodyFocusToHost, bodyStateToPage } from "../host/declarations/lifecycle";
 import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { openingBidForCard } from "./opening-bid";
@@ -223,15 +226,12 @@ import { cardIdentity, cardIdentityElsewhere, liveCardIdentity } from "./card-id
 import { paneTitleBarItemsStore } from "./pane-title-bar-items-store";
 import { isSidebarPinned, sidebarSide, type SidebarSide } from "./layout-imposer";
 import {
-  projectActivities,
-  projectArrangementCardFacts,
   projectArrangementDeck,
   projectArrangementSpaces,
-  projectBindings,
+  projectDeckCards,
 } from "./body-arrangement";
 import {
   appInfo,
-  arrangementCardFacts,
   arrangementDeck,
   arrangementSpaces,
   cardFollowed,
@@ -239,14 +239,15 @@ import {
   cardsSpaceVerb,
   deckActivateCard,
   deckActivateSpace,
-  deckCardActivities,
-  deckCardBindings,
+  deckAddCard,
   deckChooseSpaceTheme,
+  deckInterruptLiveSessions,
   deckMoveCardToSpace,
   deckPreviewFlowOffset,
   deckRenameSpace,
   deckReorderSpaces,
   deckSetFlowOffset,
+  deckShowSingletonCard,
 } from "../bus/declarations/arrangement";
 import { answerMiniature } from "./miniature-bus";
 import { getDropZoneHost } from "./drop-zone-host-registry";
@@ -288,20 +289,6 @@ function relayableLogEntry(entry: TugDevLogEntry): Omit<TugDevLogEntry, "id"> {
     message: entry.message,
     ...(data !== undefined ? { data } : {}),
   };
-}
-
-/** What the host reports about a body (`window.__tugBridge.onBodyState`). */
-interface BodyStateReport {
-  cardId?: unknown;
-  state?: unknown;
-  readyMs?: unknown;
-  cause?: unknown;
-  /** `floorShown`: how long after the window's reveal began the floor showed. */
-  sinceRevealMs?: unknown;
-  /** `landed` / `beatsCancelled`: the beat plan the report is about. */
-  planId?: unknown;
-  /** `landed`: how far past its start the plan reached the host, ms. */
-  lateMs?: unknown;
 }
 
 function paneOf(state: DeckState, cardId: string): string | null {
@@ -357,8 +344,15 @@ export function crossingForBody(
   return worn;
 }
 
-/** The `card.context` the shell owes `cardId`'s body now. */
-export function cardContextFor(deck: IDeckManagerStore, cardId: string): CardContextValue {
+/**
+ * The `card.context` the shell owes `cardId`'s body now, carrying `geometry`:
+ * the moves and resizes the shell has counted for the card since it attached.
+ */
+export function cardContextFor(
+  deck: IDeckManagerStore,
+  cardId: string,
+  geometry: CardGeometryCounts = NO_CARD_GEOMETRY,
+): CardContextValue {
   const spaceId = deck.spaceOf(cardId);
   const spaces = deck.getSpacesSnapshot();
   const layerShown = spaceId === null || spaceId === spaces.activeSpaceId;
@@ -377,6 +371,33 @@ export function cardContextFor(deck: IDeckManagerStore, cardId: string): CardCon
     spaceId,
     ...(railSide !== null ? { railSide } : {}),
     ...(parkedKey ? { parkedKey: true as const } : {}),
+    geometry,
+  };
+}
+
+/** The shell's count of each body card's committed moves and resizes, which its `card.context` carries. */
+export interface CardGeometryCountsStore {
+  /** `cardId`'s counts: none before its first move or resize. */
+  of(cardId: string): CardGeometryCounts;
+  /** Count a move or resize the deck committed for `cardId`, and publish the card's context. */
+  count(cardId: string, counted: keyof CardGeometryCounts): void;
+  /** Drop `cardId`'s counts: its card is going. */
+  forget(cardId: string): void;
+}
+
+/** Hold the counts, calling `publish` with the card whose count rose. */
+export function createCardGeometryCounts(publish: (cardId: string) => void): CardGeometryCountsStore {
+  const counts = new Map<string, CardGeometryCounts>();
+  return {
+    of: (cardId) => counts.get(cardId) ?? NO_CARD_GEOMETRY,
+    count: (cardId, counted) => {
+      const prev = counts.get(cardId) ?? NO_CARD_GEOMETRY;
+      counts.set(cardId, { ...prev, [counted]: prev[counted] + 1 });
+      publish(cardId);
+    },
+    forget: (cardId) => {
+      counts.delete(cardId);
+    },
   };
 }
 
@@ -388,10 +409,7 @@ export function paneChromeOf(deck: IDeckManagerStore, cardId: string): PaneChrom
   const state = layerShown ? deck.getSnapshot() : ownDeckOf(deck, cardId);
   return paneChromeFor(state, cardId, {
     titleOf: (id) => cardTitleStore.get(id),
-    identityOf: (id) => {
-      const identity = cardIdentity(id);
-      return identity.source === "parked" ? identity.title : null;
-    },
+    waives: (id) => bodyFactsStore.waives(id),
     spaces: { list: spaces.spaces, ownSpaceId: spaceId ?? spaces.activeSpaceId },
   });
 }
@@ -575,6 +593,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   });
   /** The card each following body card follows, by the shell's focus manager. */
   const followedOf = new Map<string, string>();
+  /** The moves and resizes the deck has committed for each body card since it attached. */
+  const geometry = createCardGeometryCounts((cardId) => cardContext.setFor(cardId, contextOf(cardId)));
+  /** The `card.context` `cardId`'s body is owed now, with its counts. */
+  const contextOf = (cardId: string): CardContextValue => cardContextFor(deck, cardId, geometry.of(cardId));
   /** The reveal consumer held for a Settings body, with its release. */
   const settingsReveals = new Map<string, () => void>();
   /** The dev-log relay to each devtools body: its release. */
@@ -737,12 +759,14 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       registerCardCloseAdvice(cardId, () => ({ waive: bodyFactsStore.waives(cardId) })),
       registerCardFoldGuard(cardId, () => bodyFactsStore.guarded(cardId)),
       // A move or resize the deck commits is the card's to hear in its page,
-      // where its delegates are.
-      deck.observeCardDidMove(cardId, () => cardGeometryChanged.dispatch({ moved: true, resized: false }, { card: cardId })),
-      deck.observeCardDidResize(cardId, () => cardGeometryChanged.dispatch({ moved: false, resized: true }, { card: cardId })),
+      // where its delegates are: its context counts them, and the page's deck
+      // fires the events as the counts rise.
+      deck.observeCardDidMove(cardId, () => geometry.count(cardId, "moves")),
+      deck.observeCardDidResize(cardId, () => geometry.count(cardId, "resizes")),
       deck.observeCardWillBeginDestruction(cardId, () => {
-        postToHost("bodyDestroy", { cardId, save: false });
+        postToHost(bodyDestroyToHost, { cardId, save: false });
         forget(cardId);
+        geometry.forget(cardId);
         bus.forgetCard(cardId);
         failures.delete(cardId);
         forgetBodyIntent(cardId);
@@ -758,7 +782,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   /** Set the shell's stores for `cardId`, which its page is sent at hello: current from the start. */
   const seedCard = (cardId: string): void => {
     cardCrossing.setFor(cardId, crossingOf(cardId));
-    cardContext.setFor(cardId, cardContextFor(deck, cardId));
+    cardContext.setFor(cardId, contextOf(cardId));
     paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
     const followed = followedOf.get(cardId);
     if (followed !== undefined) cardFollowed.setFor(cardId, { cardId: followed });
@@ -922,7 +946,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const publishCards = (): void => {
     for (const cardId of bodyCardsStore.cardIds()) {
       cardCrossing.setFor(cardId, crossingOf(cardId));
-      cardContext.setFor(cardId, cardContextFor(deck, cardId));
+      cardContext.setFor(cardId, contextOf(cardId));
       paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
     }
   };
@@ -931,25 +955,24 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     for (const cardId of bodyCardsStore.cardIds()) paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
   };
 
-  // What a body reads of the deck beyond its own card. Each store sends only
-  // what moved, so these are set on every change they might follow.
-  const publishBindings = (): void => {
-    deckCardBindings.set(projectBindings(deck, (id) => cardSessionBindingStore.getBinding(id)));
-  };
-  const publishActivities = (): void => {
-    deckCardActivities.set(projectActivities(deck, bodyFactsStore.activityOf));
-  };
-  const publishCardFacts = (): void => {
-    arrangementCardFacts.set(
-      projectArrangementCardFacts(
-        deck,
-        (id) => {
-          const title = cardTitleStore.get(id);
-          const masthead = cardTitleStore.getMasthead(id);
-          return title === null && masthead === null ? null : { title, masthead };
+  // What a body reads of every card beyond its own, as one record per card.
+  // The store sends only what moved, so it is set on every change it might
+  // follow: the arrangement, a binding, a title, an identity, a body's facts,
+  // and the bindings ledger a parked card's title resolves through.
+  const publishDeckCards = (): void => {
+    deckCards.set(
+      projectDeckCards(deck, {
+        title: (id) => cardTitleStore.get(id),
+        masthead: (id) => cardTitleStore.getMasthead(id),
+        identity: liveCardIdentity,
+        activity: bodyFactsStore.activityOf,
+        binding: (id) => cardSessionBindingStore.getBinding(id) ?? null,
+        parkedTitle: (id) => {
+          const identity = cardIdentity(id);
+          return identity.source === "parked" ? identity.title : null;
         },
-        liveCardIdentity,
-      ),
+        waivesClose: (id) => bodyFactsStore.waives(id),
+      }),
     );
   };
   const publishLedgerBindings = (): void => {
@@ -962,9 +985,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const publishArrangement = (): void => {
     arrangementDeck.set(projectArrangementDeck(deck));
     arrangementSpaces.set(projectArrangementSpaces(deck));
-    publishCardFacts();
-    publishBindings();
-    publishActivities();
+    publishDeckCards();
   };
   publishArrangement();
   publishLedgerBindings();
@@ -994,7 +1015,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     const target = keyboardBody();
     if (!force && target === focusedBody) return;
     focusedBody = target;
-    postToHost("bodyFocus", { cardId: target });
+    postToHost(bodyFocusToHost, { cardId: target });
   };
   // A stop the shell takes or lets go of in a body card's walk moves the
   // keyboard without moving the deck's first responder. The engine mounts
@@ -1069,25 +1090,27 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const publishSpaces = (): void => arrangementSpaces.set(projectArrangementSpaces(deck));
   releases.push(
     cardSessionBindingStore.subscribe(() => {
-      publishBindings();
+      publishDeckCards();
       publishSpaces();
     }),
     cardTitleStore.subscribe(() => {
-      publishCardFacts();
+      publishDeckCards();
       publishPaneChrome();
     }),
-    cardIdentityElsewhere.subscribe(() => {
-      publishCardFacts();
-      publishPaneChrome();
-    }),
+    cardIdentityElsewhere.subscribe(publishDeckCards),
     appInfoStore.subscribe(publishAppInfo),
     spaceBindingsLedgerStore.subscribe(() => {
       publishLedgerBindings();
       publishSpaces();
+      publishDeckCards();
     }),
     // A body publishes on every telemetry tick; the store sends only when
-    // some card's phase moved.
-    bodyFactsStore.subscribe(publishActivities),
+    // some card's phase or waive moved. A waive is also its pane's close
+    // asks (`closeAsksOf`), so the chrome follows it.
+    bodyFactsStore.subscribe(() => {
+      publishDeckCards();
+      publishPaneChrome();
+    }),
     // The layout selection is the shell's, and the Cards list proposes to it.
     shareLayoutSelection(bus),
     // A body card's binding is the shell's, and its body proposes each change.
@@ -1155,6 +1178,18 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     deckChooseSpaceTheme.handle(({ spaceId, theme }) => deck.chooseSpaceTheme(spaceId, theme)),
     deckMoveCardToSpace.handle(({ cardId, spaceId }) => void deck.moveCardToSpace(cardId, spaceId)),
     deckReorderSpaces.handle(({ order }) => deck.reorderSpaces(order)),
+  );
+  // The deck verbs any card makes. A card added from a body takes the id its
+  // page minted, which the page has already handed on (a fresh spawn, a
+  // flash), so a refusal for an unregistered kind is said here.
+  releases.push(
+    deckAddCard.handle(({ cardId, componentId, initialContent, origin, opening }) => {
+      if (deck.addCard(componentId, initialContent, { origin, opening, cardId }) === null) {
+        tugDevLogStore.warn("body", `deck.addCard: no registration for ${componentId}`, { cardId });
+      }
+    }),
+    deckShowSingletonCard.handle(({ componentId }) => void deck.showSingletonCard(componentId)),
+    deckInterruptLiveSessions.handle(() => deck.interruptLiveSessions()),
   );
   // ---- A body's page says hello ----
 
@@ -1413,6 +1448,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       const cardId = stackEntryCardOf(deck.getSnapshot(), paneId, entryPaneId);
       if (cardId !== null) revealStackEntry(deck, cardId);
     }),
+    paneRevealCard.handle(({ cardId }, from) => {
+      if (pressedPane(from, cardId) !== null) deck.revealCard(cardId);
+    }),
   );
 
   releases.push(
@@ -1452,20 +1490,15 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   // ---- What the host tells the shell ----
 
-  // A card drag or resize the host tracks, reported step by step.
-  releases.push(installHostCardGesture(deck));
-
-  const bridge = ((window as unknown as { __tugBridge?: Record<string, unknown> }).__tugBridge ??=
-    {});
-  bridge.onBodyState = (report: BodyStateReport): void => {
+  const releaseBodyState = onHostMessage(bodyStateToPage, (report) => {
     // The host's floor is on screen. It names no card, so it is taken
     // before the card guard below, which would drop it.
-    if (report?.state === "floorShown") {
-      floorShown(typeof report.sinceRevealMs === "number" ? report.sinceRevealMs : null);
+    if (report.state === "floorShown") {
+      floorShown(report.sinceRevealMs ?? null);
       return;
     }
-    const cardId = typeof report?.cardId === "string" ? report.cardId : null;
-    if (cardId === null || !bodyCardsStore.has(cardId)) return;
+    const cardId = report.cardId;
+    if (cardId === undefined || !bodyCardsStore.has(cardId)) return;
     switch (report.state) {
       case "ready":
         bodyCardsStore.setState(cardId, "ready");
@@ -1489,13 +1522,13 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         return;
       case "landed":
         // The host ran the body's planned beats to their end.
-        if (typeof report.planId === "number") {
-          bodyBeatsLanded(cardId, report.planId, typeof report.lateMs === "number" ? report.lateMs : null);
+        if (report.planId !== undefined) {
+          bodyBeatsLanded(cardId, report.planId, report.lateMs ?? null);
         }
         return;
       case "beatsCancelled":
         // A placement or a newer plan took the body before it landed.
-        if (typeof report.planId === "number") bodyBeatsCancelled(cardId, report.planId);
+        if (report.planId !== undefined) bodyBeatsCancelled(cardId, report.planId);
         return;
       case "terminated":
         // Reloading under the same card: the card is detached until the new
@@ -1544,10 +1577,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         return;
       }
     }
-  };
-  releases.push(() => {
-    delete bridge.onBodyState;
   });
+  releases.push(releaseBodyState);
 
   // A failed card's Reload, from its placard.
   setBodyReloader(askAgain);

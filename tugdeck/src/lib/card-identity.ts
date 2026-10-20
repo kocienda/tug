@@ -49,8 +49,9 @@ import {
   type CardIdentityFacts,
   type CardIdentityResolution,
 } from "@/card-registry";
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getCardDeck, getDeckView } from "@/lib/deck-store-registry";
 import type { CardState } from "@/layout-tree";
+import { otherDeckCard } from "./other-deck-cards";
 import { Subscribable } from "./subscribable";
 
 export type { CardIdentityFacts, CardIdentityResolution };
@@ -58,9 +59,9 @@ export type { CardIdentityFacts, CardIdentityResolution };
 /**
  * Live identities this page cannot resolve itself, because the card is
  * mounted in another page. A body card's page resolves its card's identity
- * and publishes it (`card.facts`), and the shell keeps it here; an
- * arrangement body keeps here what the shell resolved live for every card it
- * lists. The open registries and stores behind a registration's `live`
+ * and publishes it (`card.facts`), and the shell keeps it here; a
+ * body answers from `deck.cards` what the shell resolved live for every
+ * other card. The open registries and stores behind a registration's `live`
  * resolver are per page, so without this a body card would resolve from its
  * bag alone everywhere but its own page.
  */
@@ -72,9 +73,9 @@ class ElsewhereIdentities extends Subscribable {
   /** Moves on every change, for a reader that folds it into a recompute key. */
   getVersion = (): number => this.version;
 
-  /** What another page published for `cardId`, or null. */
+  /** What another page published for `cardId`, or null: in a body, the shell's `deck.cards` entry. */
   get(cardId: string): CardIdentityFacts | null {
-    return this.entries.get(cardId) ?? null;
+    return otherDeckCard(cardId)?.identity ?? this.entries.get(cardId) ?? null;
   }
 
   /** Take `cardId`'s published identity; null forgets it. Notifies only on a change. */
@@ -88,8 +89,13 @@ class ElsewhereIdentities extends Subscribable {
       this.entries.set(cardId, facts);
       this.encoded.set(cardId, json);
     }
-    this.version += 1;
     this.notify();
+  }
+
+  /** Tell the readers, and move the version a recompute key folds in: a body's `deck.cards` moving is a change too. */
+  override notify(): void {
+    this.version += 1;
+    super.notify();
   }
 }
 
@@ -104,7 +110,7 @@ export const cardIdentityElsewhere = new ElsewhereIdentities();
 export function ownLiveCardIdentity(cardId: string): CardIdentityFacts | null {
   const componentId =
     cardStateOf(cardId)?.componentId ??
-    getDeckStore()?.getSnapshot().cards.find((card) => card.id === cardId)?.componentId ??
+    getCardDeck()?.getSnapshot().cards.find((card) => card.id === cardId)?.componentId ??
     null;
   const reg = componentId === null ? undefined : getRegistration(componentId);
   return reg?.identity?.live?.(cardId) ?? null;
@@ -151,7 +157,10 @@ export interface ResolvedCardIdentity {
  * subset of the deck) or when no workspace holds the id.
  */
 function cardStateOf(cardId: string): CardState | null {
-  const store = getDeckStore();
+  // Which workspace holds a card, and that workspace's deck, are facts of the
+  // whole deck: read off the deck view, which a card's own page holds only
+  // for a listing card.
+  const store = getDeckView();
   if (store === null) return null;
   const spaceId = store.spaceOf(cardId);
   if (spaceId === null) return null;
@@ -174,7 +183,7 @@ function cardStateOf(cardId: string): CardState | null {
  * written or when it is not an object.
  */
 export function parkedCardBag(cardId: string): Record<string, unknown> | null {
-  const content = getDeckStore()?.getCardState(cardId)?.content;
+  const content = getCardDeck()?.getCardState(cardId)?.content;
   if (typeof content !== "object" || content === null) return null;
   return content as Record<string, unknown>;
 }

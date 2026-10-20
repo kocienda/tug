@@ -53,6 +53,7 @@
  * @module lib/card-title-store
  */
 
+import { otherDeckCard } from "./other-deck-cards";
 import { Subscribable } from "./subscribable";
 
 /**
@@ -262,9 +263,14 @@ class CardTitleStore extends Subscribable {
     this.notify();
   }
 
-  /** Read the title override for `cardId`, or `null` when none. */
+  /**
+   * Read the title override for `cardId`, or `null` when none. In a body,
+   * another card's is the shell's, read from `deck.cards`.
+   */
   get(cardId: string | null): string | null {
     if (cardId === null) return null;
+    const other = otherDeckCard(cardId);
+    if (other !== null) return other.title;
     return this._overrides.get(cardId) ?? null;
   }
 
@@ -275,6 +281,8 @@ class CardTitleStore extends Subscribable {
    */
   getMasthead(cardId: string | null): CardMastheadPayload | null {
     if (cardId === null) return null;
+    const other = otherDeckCard(cardId);
+    if (other !== null) return other.masthead;
     return this._mastheads.get(cardId) ?? null;
   }
 

@@ -23,7 +23,7 @@ import "./cards-column-badge.css";
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { getDeckStore } from "@/lib/deck-store-registry";
+import { getDeckView } from "@/lib/deck-store-registry";
 import { columnBadgeFactsOf } from "@/deck-store-selectors";
 import { TugColumnBadge } from "@/components/tugways/tug-column-badge";
 
@@ -32,7 +32,7 @@ export function CardsColumnBadge({
 }: {
   cardId: string;
 }): React.ReactElement | null {
-  const deckStore = getDeckStore();
+  const deckStore = getDeckView();
   const deck = useSyncExternalStore(
     deckStore?.subscribe ?? (() => () => {}),
     deckStore !== null ? deckStore.getSnapshot : () => null,

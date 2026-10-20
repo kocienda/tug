@@ -24,7 +24,7 @@ import { dispatchCommand } from "../command-dispatch";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { getCardCloseGuard } from "./card-close-guard";
 import { closeGuardWalk } from "./close-guard-walk";
-import { getDeckStore } from "./deck-store-registry";
+import { getShellDeck } from "./deck-store-registry";
 
 /**
  * Whether closing this card will stop and ask rather than just close — the
@@ -105,7 +105,7 @@ export function closeCard(cardId: string, spaceId: string): void {
     if (askedBeforeClosing(cardId)) dispatchCommand("focus-session-card", { cardId });
     chain.sendToTarget(cardId, { action: TUG_ACTIONS.CLOSE_TAB, value: cardId, phase: "discrete" });
   };
-  const store = getDeckStore();
+  const store = getShellDeck();
   const elsewhere = store !== null && store.getSpacesSnapshot().activeSpaceId !== spaceId;
 
   // The card is STANDING — in the workspace on screen, or in one left mounted
@@ -153,7 +153,7 @@ export function closeCard(cardId: string, spaceId: string): void {
 export function closePane(paneId: string, activeCardId: string, spaceId: string): void {
   const chain = getResponderChainManager();
   if (chain === null) return;
-  const store = getDeckStore();
+  const store = getShellDeck();
   const send = (): void => {
     if (!chain.hasResponder(paneId)) return;
     dispatchCommand("focus-session-card", { cardId: activeCardId });
@@ -205,7 +205,7 @@ let deleteWalkRunning = false;
  */
 export async function deleteSpace(spaceId: string): Promise<void> {
   if (deleteWalkRunning) return;
-  const store = getDeckStore();
+  const store = getShellDeck();
   if (store === null) return;
   deleteWalkRunning = true;
   try {

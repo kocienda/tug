@@ -552,6 +552,7 @@ describe("pages on the deck's own connection", () => {
         firstResponderCardId: "c-deck",
         layerShown: false,
         spaceId: null,
+        geometry: { moves: 0, resizes: 0 },
       });
       bodyBus.announce();
       await until(() => (shellBus.isAttached({ card: "c-deck" }) ? true : undefined), "the shell attaching the body");

@@ -45,7 +45,7 @@ import { join } from "node:path";
 import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { classifyFrame, describeFrames, edgeNearOnRow, fillOnRow, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, showsBareHole, type FloorMeasure, type FrameClasses } from "./_frames";
-import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { chromeInBody } from "../../../tugdeck/src/lib/chrome-placement";
 import { expectDragsAsOneView } from "../one-view-drag";
@@ -417,14 +417,12 @@ export async function dragKind(launch: Launch, kind: CardKind): Promise<void> {
         reading: kind.rail ? "edges" : "bands",
         standIn: `.tug-pane[data-chrome-in-body][data-pane-id="${card}-pane"]`,
       });
-      await expectNoShellReads(app, card);
       return;
     }
     const handle = await pollFor(() => rectOf(app, handleSel(card, kind.rail)), (r) => r !== null && r.width > 0, PLACED_MS);
     expect(handle, `the ${kind.componentId} card's chrome offers a drag surface`).not.toBeNull();
     await Bun.sleep(400);
     await dragLeg(app, card, handle!, floorMeasure(kind.rail), kind.rail);
-    await expectNoShellReads(app, card);
   } finally {
     await app.close();
   }
