@@ -34,6 +34,8 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
+import { closePane, moveActiveCardToSpace, revealStackEntry } from "@/lib/pane-verbs";
+import { mergePaneInto } from "@/lib/card-gesture-commit";
 import {
   deckTrace,
   type SpaceEpochReason,
@@ -1888,32 +1890,16 @@ const LayerPanes = memo(function LayerPanes({
       entry = {
         onClose: () => {
           if (!shownRef.current) return;
-          store.handlePaneClosed(stackId);
+          closePane(store, stackId);
         },
         // The pane's ACTIVE card is what moves — the one the title bar is
         // naming. [B04]: the move does not follow the card, so nothing here
         // touches the active workspace.
-        onMoveToSpace: (spaceId) => {
-          const stack = store
-            .getSnapshot()
-            .panes.find((s) => s.id === stackId);
-          if (stack === undefined) return;
-          store.moveCardToSpace(stack.activeCardId, spaceId);
-        },
+        onMoveToSpace: (spaceId) => moveActiveCardToSpace(store, stackId, spaceId),
         onCardMerged: (sourceStackId, targetStackId, insertIndex) => {
           if (!shownRef.current) return;
-          // Resolve the active card id from the source stack at commit time.
-          const snapshot = store.getSnapshot();
-          const sourceStack = snapshot.panes.find(
-            (s) => s.id === sourceStackId,
-          );
-          if (!sourceStack) return;
-          store.moveCardToPane(
-            sourceStackId,
-            sourceStack.activeCardId,
-            targetStackId,
-            insertIndex,
-          );
+          // The source stack's active card, resolved at commit time.
+          mergePaneInto(store, sourceStackId, targetStackId, insertIndex);
         },
       };
       stackCallbacks.set(stackId, entry);
@@ -3420,15 +3406,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // already front is a same-bit refresh, which `activateCard` treats as a
   // no-op that still refreshes the persisted pointer; no special case needed.
   const handleRevealPane = useCallback(
-    (entry: SlotStackEntry) => {
-      transferFocusForActivation({
-        outgoingCardId: store.getFirstResponderCardId(),
-        incomingCardId: entry.cardId,
-        store,
-        commitMutation: () => store.activateCard(entry.cardId),
-        deferCommit: mayDeferCommit(store, entry.cardId),
-      });
-    },
+    (entry: SlotStackEntry) => revealStackEntry(store, entry.cardId),
     [store],
   );
 
@@ -3775,6 +3753,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
 
       carry,
+
+      gaugeDragRect(rect, kind) {
+        publishDragFrame(canvasFractionOf(rect));
+        carry(rect === null ? null : kind);
+      },
 
       commit(zone, draggedPaneId) {
         const state = store.getSnapshot();

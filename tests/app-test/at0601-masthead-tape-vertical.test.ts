@@ -55,7 +55,11 @@ const TEST_TIMEOUT_MS = 120_000;
 // UUID-shaped so the bound session reads as a real one.
 const SID = "a7c0d1ea-0000-4000-8000-000000000601";
 const PANE_ID = "p1";
-const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
+/**
+ * Card A's pane in its own page: a Session card draws its pane's chrome,
+ * masthead and all, there, and the page holds that one pane.
+ */
+const PANE = ".body-chrome-frame";
 const TITLE_BAR = `${PANE} .tug-pane-title-bar[data-masthead="true"]`;
 const ROW = `${PANE} .session-masthead-row`;
 /** The ACCOUNT run — the box that is one line or two. */
@@ -123,7 +127,7 @@ interface TapeStand {
 }
 
 async function readStand(app: App): Promise<TapeStand> {
-  return app.evalJS(
+  return app.body("A").evalJS(
     `(function () {
       var bar = document.querySelector(${JSON.stringify(TITLE_BAR)});
       var run = document.querySelector(${JSON.stringify(ACCOUNT)});
@@ -163,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)("AT0601: the masthead tape stands in one place", ()
           { timeoutMs: 30_000 },
         );
         await app.bindSession("A", { tugSessionId: SID });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SPARK)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -178,7 +182,7 @@ describe.skipIf(!SHOULD_RUN)("AT0601: the masthead tape stands in one place", ()
         ).toBeLessThan(atRest.accountBand * 1.5);
 
         // ── 2. A long ask opens a turn, and the run wraps to two ─────────
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `window.__tug.publishDigestFrame(${JSON.stringify(
             digestFrame(`asked: ${LONG_ASK}`, 1, "ask"),
           )})`,
@@ -187,7 +191,7 @@ describe.skipIf(!SHOULD_RUN)("AT0601: the masthead tape stands in one place", ()
         // lines rather than for the text to arrive — the line has a dwell,
         // and a rect read while the previous sentence is still on screen is
         // a rect of the state this reading is supposed to leave behind.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function () {
              var run = document.querySelector(${JSON.stringify(ACCOUNT)});
              if (run === null) return false;
@@ -216,12 +220,12 @@ describe.skipIf(!SHOULD_RUN)("AT0601: the masthead tape stands in one place", ()
         ).toBeCloseTo(atRest.height, 1);
 
         // ── 3. The turn ends: one line again, same place ─────────────────
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `window.__tug.publishDigestFrame(${JSON.stringify(
             digestFrame("Done", 2, "turn"),
           )})`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function () {
              var run = document.querySelector(${JSON.stringify(ACCOUNT)});
              if (run === null) return false;

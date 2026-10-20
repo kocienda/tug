@@ -51,6 +51,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { RAIL_GUTTER_PX } from "../../tugdeck/src/lib/layout-imposer";
+import { chromePoint } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -239,7 +240,8 @@ describe.skipIf(!SHOULD_RUN)(
           const before = await flowOffsetDrawn(app);
           expect(before, "the re-seeded strip is at rest again").toBe(0);
 
-          await app.nativeDragElementWithoutRelease(titleBar(RAIL_PANE), railEdge);
+          // A rail card draws its title bar in its own page.
+          await app.nativeDragWithoutRelease(await chromePoint(app, "L", ".tug-pane-title-bar"), railEdge);
           await wait(HOLD_MS);
           const withRail = await carryReading(app);
           const railOffset = await flowOffsetDrawn(app);

@@ -68,7 +68,19 @@ interface PaneFrameEntry {
   accessoryElement: HTMLElement;
 }
 
-type DragMode = "reorder" | "detach" | "merge";
+type DragMode = "reorder" | "detach" | "merge" | "away";
+
+/**
+ * Where a tab drag goes in a card's own page, which holds no other pane's
+ * bar: a reorder inside the source bar commits as the card's pane verb, and
+ * once the pointer leaves the bar the drag is the shell's to hit-test,
+ * indicate and commit, at the page's viewport point (`pane.reorderTabs`,
+ * `pane.tabDrag`).
+ */
+export interface RemoteTabDrag {
+  reorder(cardId: string, insertIndex: number): void;
+  away(phase: "move" | "end" | "cancel", cardId: string, x: number, y: number): void;
+}
 
 // ---- CardDragCoordinator class ----
 
@@ -85,6 +97,10 @@ type DragMode = "reorder" | "detach" | "merge";
 class CardDragCoordinator {
   // ---- Store reference (set once via init) ----
   private store: IDeckManagerStore | null = null;
+  /** Where a drag past the bar goes in a card's own page; null in the shell. */
+  private remote: RemoteTabDrag | null = null;
+  /** Whether the shell has been told of a drag past the bar it has not been told has ended. */
+  private awaySent = false;
 
   // ---- Per-drag state (valid only while dragActive is true) ----
   private dragActive: boolean = false;
@@ -164,6 +180,11 @@ class CardDragCoordinator {
    */
   init(store: IDeckManagerStore): void {
     this.store = store;
+  }
+
+  /** Hand a drag past the source bar to `remote`, in a page that draws one card's chrome; null hands it back. */
+  initRemote(remote: RemoteTabDrag | null): void {
+    this.remote = remote;
   }
 
   /**
@@ -257,7 +278,8 @@ class CardDragCoordinator {
     this.grabOffsetY = event.clientY - tabRect.top;
 
     // Build two-tier hit-test cache. []
-    this.buildHitTestCache(paneId);
+    // A card's own page has no other pane to hit: past the bar is the shell's.
+    if (this.remote === null) this.buildHitTestCache(paneId);
 
     // Create ghost element. [D02]
     this.ghostElement = this.createGhost(tabElement, event.clientX, event.clientY);
@@ -413,6 +435,7 @@ class CardDragCoordinator {
     // Snapshot before cleanup so the post-cleanup refocus knows
     // which card to target.
     const sourceCardId = this.sourceCardId;
+    this.cancelAway();
 
     // cleanup() removes all visual artifacts and listeners; no DeckManager call.
     this.cleanup();
@@ -447,6 +470,7 @@ class CardDragCoordinator {
     }
 
     const sourceCardId = this.sourceCardId;
+    this.cancelAway();
     this.cleanup();
     this.fireDragCancel(sourceCardId);
   }
@@ -491,6 +515,13 @@ class CardDragCoordinator {
     // (4) THEN commit to DeckManager. This prevents stale event routing if
     // React synchronously unmounts the tab element during notify().
     this.cleanup();
+
+    const remote = this.remote;
+    if (remote !== null) {
+      if (mode === "reorder") remote.reorder(sourceCardId, reorderIndex);
+      else if (mode === "away") remote.away("end", sourceCardId, dropX, dropY);
+      return;
+    }
 
     // Commit the drop to DeckManager. [D03]
     const store = this.store;
@@ -545,6 +576,7 @@ class CardDragCoordinator {
   private updateDragMode(cx: number, cy: number): void {
     // Check if pointer is inside the source bar. [D04]
     if (this.sourceBarRect && this.pointInRect(cx, cy, this.sourceBarRect)) {
+      this.cancelAway();
       this.setMode("reorder");
       this.clearDropTarget();
 
@@ -554,6 +586,17 @@ class CardDragCoordinator {
         this.currentReorderIndex = this.computeReorderIndex(sourceBar, cx);
         this.updateInsertionIndicator(sourceBar, this.currentReorderIndex);
       }
+      return;
+    }
+
+    // Past the bar in a card's own page: the shell's to hit-test.
+    if (this.remote !== null) {
+      this.setMode("away");
+      this.clearDropTarget();
+      this.removeInsertionIndicator();
+      this.currentMergeTarget = null;
+      this.awaySent = true;
+      this.remote.away("move", this.sourceCardId, cx, cy);
       return;
     }
 
@@ -591,6 +634,13 @@ class CardDragCoordinator {
     this.clearDropTarget();
     this.removeInsertionIndicator();
     this.currentMergeTarget = null;
+  }
+
+  /** Take back what the shell was told of a drag past the bar: it came back in, or was cancelled. */
+  private cancelAway(): void {
+    if (!this.awaySent || this.remote === null) return;
+    this.awaySent = false;
+    this.remote.away("cancel", this.sourceCardId, this.latestPointerX, this.latestPointerY);
   }
 
   private setMode(mode: DragMode): void {
@@ -869,6 +919,7 @@ class CardDragCoordinator {
     this.currentDropTargetElement = null;
     this.currentMode = "reorder";
     this.currentReorderIndex = 0;
+    this.awaySent = false;
   }
 }
 

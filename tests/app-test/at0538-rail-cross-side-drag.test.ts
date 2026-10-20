@@ -44,6 +44,7 @@ import {
   summarizeMotionCensus,
   type App,
 } from "./_harness";
+import { chromePoint } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -64,8 +65,9 @@ const PANES: Record<string, string> = {
   jots: "pJots",
 };
 
-const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
-const titleBar = (paneId: string): string => `${frame(paneId)} .tug-pane-title-bar`;
+/** The card each pane holds: a rail card draws its title bar in its own page. */
+const CARD_OF: Record<string, string> = { pOverview: "O", pDashes: "T", pLayout: "L", pJots: "J" };
+const titleBar = (app: App, paneId: string) => chromePoint(app, CARD_OF[paneId], ".tug-pane-title-bar");
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -123,6 +125,7 @@ function deckShape() {
 
 /** Every pinned rail member's live rect, keyed by pane id. */
 async function railRects(app: App): Promise<Record<string, Rect>> {
+  // card-dom: shell — the stand-in frames are the arrangement's model, laid out in the shell.
   return app.evalJS<Record<string, Rect>>(
     `(function () {
       var out = {};
@@ -139,6 +142,7 @@ async function railRects(app: App): Promise<Record<string, Rect>> {
 
 /** A side's split members' componentIds, top to bottom, read off the frames. */
 function railOrderOnScreen(app: App, side: "left" | "right"): Promise<string[]> {
+  // card-dom: shell — the stand-in frames are the arrangement's model, laid out in the shell.
   return app.evalJS<string[]>(
     `Array.from(document.querySelectorAll('.tug-pane[data-rail-split][data-rail-side="${side}"]'))
       .sort(function (a, b) {
@@ -168,6 +172,7 @@ function sidebarSideOf(app: App, componentId: string): Promise<string | null> {
 }
 
 async function indicator(app: App): Promise<Rect | null> {
+  // card-dom: shell — the drop-zone indicator is the shell canvas's.
   return app.evalJS<Rect | null>(
     `(function () {
       var el = document.querySelector(".tug-drop-zone-indicator");
@@ -221,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)(
             x: Math.round(rightRail.left + rightRail.width / 2),
             y: Math.round((rightRail.top + rightRail.bottom) / 2),
           };
-          await app.nativeDragElementWithoutRelease(titleBar(PANES.overview), target);
+          await app.nativeDragWithoutRelease(await titleBar(app, PANES.overview), target);
           const drawn = await indicator(app);
           note(
             `carrying overview over the right rail: outline ${JSON.stringify(drawn)}, rail left ${rightRail.left.toFixed(1)}`,
@@ -265,6 +270,7 @@ describe.skipIf(!SHOULD_RUN)(
           // A lone member is not a split frame, so the left side is read by
           // its pinned frames: exactly dashes, standing alone.
           expect(
+            // card-dom: shell — the stand-in frames are the arrangement's model.
             await app.evalJS<string[]>(
               `Array.from(document.querySelectorAll('.tug-pane[data-rail-side="left"]'))
                 .map(function (el) { return el.getAttribute("data-pane-id"); })`,

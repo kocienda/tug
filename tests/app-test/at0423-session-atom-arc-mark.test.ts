@@ -104,8 +104,25 @@ afterAll(() => {
  * `pointer-events: none` overlay and lands a drag on the bar instead.
  */
 async function openWidget(app: App): Promise<void> {
-  await app.revealPaneControls();
-  await app.nativeClickAtElement(WIDGET);
+  // The chrome shows before the content has restored, and the shell's
+  // restore gate takes every press until the restore is on screen — the gate
+  // doing its job. Press once it has let go: the gate rises with the replay,
+  // so it is read only once the replay is done, when it can only fall.
+  await app.body("A").waitForCondition<boolean>(
+    `(function(){
+       var perf = window.__tug.getSessionPerf("A");
+       var replay = perf.lastReplay || perf.replay;
+       return replay !== null && replay.completedAtMs !== null;
+     })()`,
+    { timeoutMs: 15_000 },
+  );
+  await app.waitForCondition<boolean>(
+    `document.querySelector('[data-slot="tug-restore-gate"]') === null`,
+    { timeoutMs: 15_000 },
+  );
+  // The pane's chrome is the Session card's own, in its page.
+  await app.body("A").revealPaneControls(".body-chrome-frame");
+  await app.body("A").nativeClickAtElement(WIDGET);
 }
 
 /** Open the telemetry panel and read the atom's text and the citation row's. */
@@ -113,11 +130,11 @@ async function readPanel(
   app: App,
 ): Promise<{ atom: string; citation: string; marks: number }> {
   await openWidget(app);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
     { timeoutMs: 10_000 },
   );
-  const read = await app.evalJS<{
+  const read = await app.body("A").evalJS<{
     atom: string;
     citation: string;
     marks: number;
@@ -137,7 +154,7 @@ async function readPanel(
      })()`,
   );
   await app.nativeKey("Escape");
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PANEL)}) === null`,
     { timeoutMs: 10_000 },
   );
@@ -163,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
         // bind verb resolves the owning instance through.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WIDGET)}) !== null`,
           { timeoutMs: 15_000 },
         );
@@ -175,17 +192,17 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
 
         // ── Bind, for real ────────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`, 0);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-arc"]') !== null`,
           { timeoutMs: 15000 },
         );
 
         await openWidget(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ATOM_ARC)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        const mark = await app.evalJS<{
+        const mark = await app.body("A").evalJS<{
           hasGlyph: boolean;
           hasName: boolean;
           title: string | null;
@@ -207,7 +224,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
         note("at0423 atom mark", JSON.stringify(mark));
         note("at0423 bound panel", (await app.screenshot()).path);
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PANEL)}) === null`,
           { timeoutMs: 10_000 },
         );
@@ -322,7 +339,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-arc"]') === null`,
           { timeoutMs: 15000 },
         );

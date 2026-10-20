@@ -5,19 +5,22 @@
  *
  * ## What this gates
  *
- * The tab bar's × asks a body card's own guard (`card.closeDecision`)
- * whatever it says it needs. A clean Text card's guard says it will not ask,
- * so the shell waits on the body's page with a deadline ([L33]); a page that
- * is busy past it is not answering. Before, that ended in a dev-log line and
- * a close that did not happen: the person pressed the × and nothing visible
- * came of it.
+ * A close the shell carries out asks a body card's own guard
+ * (`card.closeDecision`) whatever it says it needs. A clean Text card's guard
+ * says it will not ask, so the shell waits on the body's page with a deadline
+ * ([L33]); a page that is busy past it is not answering. Before, that ended
+ * in a dev-log line and a close that did not happen: the person pressed the ×
+ * and nothing visible came of it.
  *
- * So the body's page is held busy (a main-thread loop longer than the
- * deadline), its tab's × is pressed, and the shell is read: the card still
- * stands, and a status banner on its pane says the card did not answer,
- * naming Option-click on the close box — which closes without asking — as
- * the way out. The banner is the card's, not the pane's: fronting the
- * other tab takes it down.
+ * The front card draws its pane's tab bar in its own page, and a × pressed
+ * there on its own tab is decided in that page; the × on a sibling's tab is
+ * the shell's close, which asks the sibling's page. So B's page is held busy
+ * (a main-thread loop longer than the deadline), B's × is pressed in A's
+ * page, and B is fronted so its banner can stand. Then the shell is read: B
+ * still stands, and a status banner on its pane says the card did not
+ * answer, naming Option-click on the close box — which closes without
+ * asking — as the way out. The banner is the card's, not the pane's:
+ * fronting the other tab takes it down.
  *
  * @covers tugdeck/src/lib/close-decision.ts
  * @covers tugdeck/src/lib/close-refusal-store.ts
@@ -37,7 +40,7 @@ const BANNER = '[data-pane-id="p1"] [data-slot="tug-pane-banner"][data-visible="
 
 describe.skipIf(!SHOULD_RUN)("at0743: a body card that does not answer its close", () => {
   test(
-    "the tab × on a busy body card leaves the card standing under a banner that says it did not answer",
+    "the tab × on a busy body card's tab leaves the card standing under a banner that says it did not answer",
     async () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0743-"));
       const fileA = path.join(dir, "a.txt");
@@ -74,13 +77,24 @@ describe.skipIf(!SHOULD_RUN)("at0743: a body card that does not answer its close
           focusCardId: "A",
         });
         await waitForEditor(app.body("A"), "alpha");
+        await app.body("B").waitForCondition<boolean>(
+          `(function(){
+            var el = document.querySelector('[data-card-id="B"] [data-slot="tug-text-card-editor"] .cm-content');
+            return el !== null && el.innerText.indexOf("other") !== -1;
+          })()`,
+          { timeoutMs: 15000 },
+        );
 
-        // Hold the body's page busy past the shell's 2 s close deadline. The
-        // loop starts after this eval returns, so the eval itself answers.
+        // Hold B's page busy past the shell's 2 s close deadline. The loop
+        // starts after this eval returns, so the eval itself answers.
         await app
-          .body("A")
+          .body("B")
           .evalJS<boolean>(`(setTimeout(function(){var t=Date.now();while(Date.now()-t<4000){}},0), true)`);
-        await app.click(`[data-testid="tug-tab-close-A"]`);
+        // B's × on the tab bar A's page draws: the shell's close, which asks
+        // B's busy page. Then B is fronted, from the same bar, so the banner
+        // the refusal raises is the tab shown.
+        await app.body("A").click(`[data-testid="tug-tab-close-B"]`);
+        await app.body("A").click(`[data-testid="tug-tab-B"]`);
 
         // card-dom: shell — the banner is pane chrome, drawn by the shell over the body.
         try {
@@ -105,12 +119,13 @@ describe.skipIf(!SHOULD_RUN)("at0743: a body card that does not answer its close
         const cards = await app.evalJS<string[]>(
           `Array.from(document.querySelectorAll('[data-body-placeholder]')).map(function(e){return e.getAttribute('data-card-id')})`,
         );
-        expect(cards).toContain("A");
-        expect((await app.bodies()).some((b) => b.cardId === "A")).toBe(true);
+        expect(cards).toContain("B");
+        expect((await app.bodies()).some((b) => b.cardId === "B")).toBe(true);
 
         // The banner says this card did not answer, so it does not stand over
-        // the card beside it: fronting B takes it down.
-        await app.click(`[data-testid="tug-tab-B"]`);
+        // the card beside it: fronting A takes it down. The tab bar is the
+        // front card's page's, B's, which answers again once its loop is done.
+        await app.body("B").click(`[data-testid="tug-tab-A"]`);
         // card-dom: shell — the banner is pane chrome.
         await app.waitForCondition<boolean>(`document.querySelector('${BANNER}') === null`, { timeoutMs: 3000 });
       } finally {

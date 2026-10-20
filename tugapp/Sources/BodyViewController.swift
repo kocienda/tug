@@ -139,6 +139,14 @@ final class BodyContainerView: NSView {
     override func updateLayer() {
         layer?.backgroundColor = surface
     }
+    /// Set while the container shows nothing but stays in the tree — a
+    /// sibling behind its pane's active card, or a body not yet shown, each
+    /// at opacity zero. Such a view stands where a showing one does, so a
+    /// point there must reach the card that is seen, never the one that is not.
+    var passesPointer = false
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        passesPointer ? nil : super.hitTest(point)
+    }
     init(serial: Int) {
         self.serial = serial
         super.init(frame: .zero)
@@ -222,6 +230,23 @@ final class BodyViewController {
         /// The body has posted `painted`: its first frame of real content
         /// has gone to the compositor. Cleared when its page is reloaded.
         var painted = false
+        /// Whether the body may be shown: it has painted, and its card is
+        /// bound or ready. A card that draws its own chrome paints its first
+        /// chrome frame before it is ready, and shows from there, its content
+        /// lidded in its own page.
+        var canShow: Bool { painted && (state == .ready || state == .bound) }
+        /// The card draws its pane's chrome in its own page: its container
+        /// is the pane's rect outset by the apron, clips no corner, wears no
+        /// surface, and answers a point by the card's hit shape.
+        var whole = false
+        /// An inactive card of a whole card's pane, placed at the pane and
+        /// hidden by opacity, never `isHidden`, so it keeps painting and a
+        /// tab switch shows a page that has drawn its new chrome.
+        var sibling = false
+        /// A whole card's pane within its view, as the last placement said
+        /// it: the apron plus what the view's growth to whole points added.
+        /// Handed to the page, which lays its pane out at exactly these.
+        var insets: [String: Double]?
         /// The shell has been told this showing (`shown`); cleared on hide.
         var shownReported = false
         /// The frame the last placement gave it, viewport coordinates.
@@ -241,6 +266,9 @@ final class BodyViewController {
         /// is hidden by layer opacity, never `isHidden`, so WebKit keeps
         /// painting the frame the showing will reveal.
         var shownOnce = false
+        /// The page's surface as it last posted it, which the container wears
+        /// behind a content box, never behind a whole card.
+        var surface: CGColor?
         var deadline: DispatchWorkItem?
         var lastTermination: Date?
         /// The beat plan carrying the body now, until it lands or is
@@ -452,6 +480,11 @@ final class BodyViewController {
             "facts": window.bodyFacts(),
         ]
         evaluate(call: "window.__tugBridge?.onBodyBind?.", payload: payload, in: body.webView)
+        // A page bound afresh — a reload, a spare taking a card — has not
+        // been told where its pane stands in its view.
+        if let insets = body.insets {
+            evaluate(call: "window.__tugBridge?.onCardInsets?.", payload: insets, in: body.webView)
+        }
     }
 
     /// A body posted `frontendReady`: its card is mounted and quiet. It is
@@ -484,7 +517,7 @@ final class BodyViewController {
     /// gone to the compositor. From here a placement that names it visible
     /// shows it.
     func didPaint(_ body: Body) {
-        guard let cardId = body.cardId, body.state == .ready, !body.painted else { return }
+        guard let cardId = body.cardId, body.state == .ready || body.state == .bound, !body.painted else { return }
         body.painted = true
         TugLog.info("bodies", "painted", [TugLog.field("card", cardId)])
         notifyShell(["cardId": cardId, "state": "painted"])
@@ -498,22 +531,41 @@ final class BodyViewController {
     /// placement does not name is hidden.
     func place(_ payload: [String: Any]) {
         if let r = (payload["radius"] as? NSNumber)?.doubleValue { radius = CGFloat(r) }
-        var named: [String: (CGRect, [CGRect], Bool, Int, Int)] = [:]
+        var named: [String: (CGRect, [CGRect], Bool, Int, Int, Bool, Bool)] = [:]
+        var insetsByCard: [String: [String: Double]] = [:]
         for (index, entry) in (payload["bodies"] as? [[String: Any]] ?? []).enumerated() {
             guard let cardId = entry["cardId"] as? String,
                   let frame = BodyHitRegion.rect(fromPayload: entry) else { continue }
             let grips = (entry["grips"] as? [[String: Any]] ?? []).compactMap(BodyHitRegion.rect(fromPayload:))
-            named[cardId] = (frame, grips, entry["visible"] as? Bool ?? false, (entry["z"] as? NSNumber)?.intValue ?? 0, index)
+            named[cardId] = (
+                frame, grips, entry["visible"] as? Bool ?? false, (entry["z"] as? NSNumber)?.intValue ?? 0, index,
+                entry["whole"] as? Bool ?? false, entry["sibling"] as? Bool ?? false
+            )
+            if let insets = entry["insets"] as? [String: Any] {
+                insetsByCard[cardId] = insets.compactMapValues { ($0 as? NSNumber)?.doubleValue }
+            }
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for body in bodies {
-            body.container.layer?.cornerRadius = radius
-            guard let cardId = body.cardId, let (frame, grips, visible, z, deckIndex) = named[cardId] else {
+            // A card in the host's hand is the host's until its gesture ends:
+            // the placement that lands it is the shell's commit, after.
+            if let gesture, gesture.carriesView, gesture.body === body { continue }
+            // And so is one a press took from its beats, until the press
+            // becomes a gesture or comes up.
+            if body === pressedOutOfBeats { continue }
+            guard let cardId = body.cardId, let (frame, grips, visible, z, deckIndex, whole, sibling) = named[cardId] else {
                 cancelBeats(body)
                 body.visible = false
+                body.sibling = false
                 applyVisibility(body)
                 continue
+            }
+            setWhole(body, whole)
+            body.sibling = sibling
+            if whole, let insets = insetsByCard[cardId], insets != body.insets {
+                body.insets = insets
+                evaluate(call: "window.__tugBridge?.onCardInsets?.", payload: insets, in: body.webView)
             }
             // A placement that names a carried body anywhere but its landing
             // — a drag taking its frame mid-settle — takes it from its beats.
@@ -542,11 +594,12 @@ final class BodyViewController {
     /// anything else. The reveal the user sees is the shell's lid lifting
     /// after `shown`, so nothing here animates.
     private func applyVisibility(_ body: Body) {
-        let showing = body.visible && body.state == .ready && body.painted
+        let showing = body.visible && body.canShow
         guard let layer = body.container.layer else { return }
         if showing {
             let wasHidden = body.container.isHidden
             body.container.isHidden = false
+            body.container.passesPointer = false
             body.shownOnce = true
             layer.opacity = 1
             // Hiding a view that held the keyboard made AppKit hand it to
@@ -560,11 +613,22 @@ final class BodyViewController {
                 window.makeFirstResponder(body.webView)
             }
         } else if body.shownOnce {
+            if body.sibling {
+                // A sibling behind the pane's active card: transparent, still
+                // painting, never a hidden page.
+                body.container.isHidden = false
+                body.container.passesPointer = true
+                layer.opacity = 0
+                body.shownReported = false
+                refreshRegion()
+                return
+            }
             // Shown before: hide it as any hidden page is, so WebKit
             // throttles a parked or folded body.
             body.container.isHidden = true
             body.shownReported = false
         } else {
+            body.container.passesPointer = true
             layer.opacity = 0
             body.shownReported = false
         }
@@ -583,7 +647,7 @@ final class BodyViewController {
             self.shownReportScheduled = false
             for body in self.bodies {
                 guard let cardId = body.cardId, !body.shownReported,
-                      body.visible, body.state == .ready, body.painted else { continue }
+                      body.visible, body.canShow else { continue }
                 body.shownReported = true
                 self.notifyShell(["cardId": cardId, "state": "shown"])
             }
@@ -598,6 +662,14 @@ final class BodyViewController {
     private func refreshRegion() {
         region.visibleFrames = visibleBodies.map(\.frame)
         region.visibleGrips = visibleBodies.map(\.grips)
+        region.visibleShapes = visibleBodies.map { body in
+            guard body.whole, let cardId = body.cardId else { return nil }
+            return CardHitShape(
+                paneRect: body.frame.insetBy(dx: cardApron, dy: cardApron),
+                apron: cardApron,
+                grips: cardPlacements[cardId]?.grips ?? []
+            )
+        }
         refreshAccessibilityOrder()
     }
 
@@ -605,7 +677,7 @@ final class BodyViewController {
     /// reading order — which the window reads after the shell's own view.
     var bodiesInDeckOrder: [Body] {
         bodies
-            .filter { $0.visible && $0.state == .ready && $0.painted }
+            .filter { $0.visible && $0.canShow }
             .sorted { $0.deckIndex < $1.deckIndex }
     }
 
@@ -623,16 +695,337 @@ final class BodyViewController {
     private var visibleBodies: [Body] {
         // Front to back, so a point over two bodies answers the one in front.
         bodies.enumerated()
-            .filter { $0.element.visible && $0.element.state == .ready && $0.element.painted }
+            .filter { $0.element.visible && $0.element.canShow }
             .sorted { a, b in a.element.z != b.element.z ? a.element.z > b.element.z : a.offset > b.offset }
             .map(\.element)
     }
 
     /// The body a viewport point passes through to, if any.
     func body(atViewportPoint point: CGPoint) -> Body? {
-        guard let index = region.frameIndex(at: point) else { return nil }
+        guard let index = regionNow.frameIndex(at: point) else { return nil }
         let visible = visibleBodies
         return index < visible.count ? visible[index] : nil
+    }
+
+    /// Whether a viewport point belongs to a body rather than to the shell.
+    func passesThrough(_ point: CGPoint) -> Bool {
+        regionNow.passesThrough(point)
+    }
+
+    /// The hit region as the screen shows it now. A whole card a settle is
+    /// carrying, or that a press has taken out of one, answers where it stands
+    /// on screen, not at the landing its placement names: a press on its title
+    /// bar mid-slide is a press on the card, as the user sees it there.
+    private var regionNow: BodyHitRegion {
+        let visible = visibleBodies
+        let shownElsewhere = { (body: Body) -> Bool in
+            body.whole && (body.beats != nil || body === self.pressedOutOfBeats)
+        }
+        guard visible.contains(where: shownElsewhere) else { return region }
+        var now = region
+        for (index, body) in visible.enumerated() where shownElsewhere(body) {
+            let shown = presentedRect(body)
+            if index < now.visibleFrames.count { now.visibleFrames[index] = shown }
+            if index < now.visibleShapes.count, var shape = now.visibleShapes[index] {
+                shape.paneRect = shown.insetBy(dx: cardApron, dy: cardApron)
+                now.visibleShapes[index] = shape
+            }
+        }
+        return now
+    }
+
+    // MARK: - Cards in hand
+
+    /// What the last `placeCards` said of one card: its pane rect, whether
+    /// it shows, its stacking, the edges its pane offers as grips, whether
+    /// the pane is free, its resize floor, and the plan that lands it.
+    struct CardPlacement: Equatable {
+        var rect: CGRect
+        var visible: Bool
+        var sibling: Bool
+        var z: Int
+        var grips: Set<ResizeEdge>
+        var free: Bool
+        var min: CGSize
+        var planId: Int?
+    }
+
+    /// The cards the last `placeCards` named, by card id. Read by the
+    /// gesture tracker for its envelope; nothing is shown from it yet.
+    private(set) var cardPlacements: [String: CardPlacement] = [:]
+    /// The canvas the cards stand on, viewport points, and the zoom its
+    /// layout is drawn at; nil before the shell has said.
+    private(set) var cardCanvas: CGRect?
+    private var cardZoom: CGFloat = 1
+    private(set) var cardApron: CGFloat = CardGeometry.apron
+
+    /// The gesture the host is tracking now, one at a time.
+    private struct Gesture {
+        let body: Body
+        let cardId: String
+        let kind: String
+        let edge: ResizeEdge?
+        var tracker: CardGestureTracker
+        /// The container's frame at the press, which every step moves by the
+        /// pane rect's own travel.
+        let containerStart: CGRect
+        var meta: Bool
+        var alt: Bool
+        var last: CardGestureTracker.Step
+        var pointer: CGPoint
+        /// Whether the host moves the card's view. A rail's edge drag
+        /// (`rail`) is the shell's draft: the host reports the pointer, and
+        /// the shell's placements move every member of the rail.
+        var carriesView: Bool { kind != "rail" }
+    }
+    private var gesture: Gesture?
+
+    /// Whether the host is tracking a card's drag or resize.
+    var gestureLive: Bool { gesture != nil }
+
+    /// Whether the left button is down, as the window last saw it: every
+    /// press and release passes `MainWindow.sendEvent`, whatever posted it,
+    /// where `NSEvent.pressedMouseButtons` reads only the hardware's state.
+    private var leftButtonDown = false
+
+    func noteLeftButton(down: Bool, atViewport point: CGPoint? = nil) {
+        leftButtonDown = down
+        if down, let point {
+            takeFromBeats(at: point)
+        } else if !down, let body = pressedOutOfBeats, gesture?.body !== body {
+            // The press never became a gesture (a click in the content, or a
+            // title-bar click whose `begin` has yet to arrive): the card goes
+            // on to the landing its settle was bound for.
+            pressedOutOfBeats = nil
+            returnToLanding(body)
+        }
+    }
+
+    /// A whole card a press took out of its beats, held where the press
+    /// found it until a gesture claims it or the mouse comes up.
+    private weak var pressedOutOfBeats: Body?
+
+    /// A press on a whole card a settle is carrying stops it where the user
+    /// sees it, before the press is dispatched: AppKit routes the press by
+    /// the view's frame, which a beat leaves at the landing while only the
+    /// layer moves, so a card left in its beats would not get the press that
+    /// lands on it.
+    private func takeFromBeats(at point: CGPoint) {
+        guard let body = body(atViewportPoint: point), body.whole, body.beats != nil else { return }
+        let shown = presentedRect(body)
+        cancelBeats(body)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        body.container.frame = shown
+        CATransaction.commit()
+        pressedOutOfBeats = body
+    }
+
+    /// `cardLand`: a card the hand carried and dropped where the shell
+    /// committed nothing — back on its own place — goes back to the landing
+    /// its placement already names, since no new placement will come.
+    func landCard(cardId: String) {
+        guard let body = body(forCard: cardId), gesture?.body !== body else { return }
+        returnToLanding(body)
+    }
+
+    /// Carry a card a press held, and nothing then moved, on to its landing.
+    private func returnToLanding(_ body: Body) {
+        guard !Self.near(body.container.frame, body.frame) else { return }
+        let landing = body.frame
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            body.container.animator().frame = landing
+        }
+    }
+
+    /// `placeCards`: every card's pane rect and how its view is held. The
+    /// rect is the pane's; its view is outset from it by `apron`.
+    func placeCards(_ payload: [String: Any]) {
+        if let apron = (payload["apron"] as? NSNumber)?.doubleValue { cardApron = CGFloat(apron) }
+        if let canvas = (payload["canvas"] as? [String: Any]).flatMap(BodyHitRegion.rect(fromPayload:)) {
+            cardCanvas = canvas
+        }
+        if let zoom = (payload["zoom"] as? NSNumber)?.doubleValue, zoom > 0 { cardZoom = CGFloat(zoom) }
+        var placements: [String: CardPlacement] = [:]
+        for entry in payload["cards"] as? [[String: Any]] ?? [] {
+            guard let cardId = entry["cardId"] as? String,
+                  let rect = BodyHitRegion.rect(fromPayload: entry) else { continue }
+            let min = entry["min"] as? [String: Any]
+            placements[cardId] = CardPlacement(
+                rect: rect,
+                visible: entry["visible"] as? Bool ?? false,
+                sibling: entry["sibling"] as? Bool ?? false,
+                z: (entry["z"] as? NSNumber)?.intValue ?? 0,
+                grips: Set((entry["grips"] as? [String] ?? []).compactMap(ResizeEdge.init(rawValue:))),
+                free: entry["free"] as? Bool ?? false,
+                min: CGSize(
+                    width: (min?["width"] as? NSNumber)?.doubleValue ?? 0,
+                    height: (min?["height"] as? NSNumber)?.doubleValue ?? 0
+                ),
+                planId: (entry["planId"] as? NSNumber)?.intValue
+            )
+        }
+        cardPlacements = placements
+        refreshRegion()
+    }
+
+    /// The pointer where the window last saw it, in viewport points.
+    private var pointerInViewport: CGPoint {
+        hostView.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+    }
+
+    /// `cardGesture` `begin`: a card's page has taken a title-bar or grip
+    /// press, and the host is to carry the card until the mouse comes up. A
+    /// press whose mouse-up beat the message here ends at once, as a click,
+    /// so no gesture is left open waiting for an up that has already passed.
+    func claimGesture(from body: Body, payload: [String: Any]) {
+        guard payload["phase"] as? String == "begin", let cardId = body.cardId, gesture == nil else { return }
+        let named = payload["kind"] as? String
+        let kind = named == "resize" || named == "rail" ? named! : "move"
+        let edge = (payload["edge"] as? String).flatMap(ResizeEdge.init(rawValue:))
+        if kind != "move" && edge == nil { return }
+        let placement = cardPlacements[cardId]
+        // A card a settle is carrying is taken where the user sees it: its
+        // beats stop, its container holds the presented frame, and the hand
+        // moves it from there rather than from the landing it was bound for.
+        var containerStart = body.container.frame
+        if body.beats != nil {
+            containerStart = presentedRect(body)
+            cancelBeats(body)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            body.container.frame = containerStart
+            CATransaction.commit()
+        }
+        let startRect = body.whole
+            ? containerStart.insetBy(dx: cardApron, dy: cardApron)
+            : (placement?.rect ?? body.frame)
+        // Where the press landed, as the page saw it: the window's mouse
+        // location has moved on by the time `begin` arrives, and a press the
+        // window was sent rather than the hand made never moves it at all.
+        var pointer = pointerInViewport
+        if let x = (payload["x"] as? NSNumber)?.doubleValue, let y = (payload["y"] as? NSNumber)?.doubleValue {
+            pointer = body.webView.convert(CGPoint(x: x, y: y), to: hostView)
+        }
+        let others = cardPlacements
+            .filter { $0.key != cardId && $0.value.visible && !$0.value.sibling }
+            .map(\.value.rect)
+        let tracker = CardGestureTracker(
+            kind: kind == "resize" ? edge.map { .resize($0) } ?? .move : .move,
+            startRect: startRect,
+            startPointer: pointer,
+            canvas: cardCanvas ?? hostView.bounds,
+            zoom: cardZoom,
+            minSize: placement?.min ?? .zero,
+            free: placement?.free ?? true,
+            others: others
+        )
+        let meta = payload["meta"] as? Bool ?? false
+        let alt = payload["alt"] as? Bool ?? false
+        let pressed = Gesture(
+            body: body, cardId: cardId, kind: kind, edge: edge, tracker: tracker,
+            containerStart: containerStart, meta: meta, alt: alt,
+            last: CardGestureTracker.Step(rect: startRect, moved: false), pointer: pointer
+        )
+        guard leftButtonDown else {
+            report(pressed, phase: "end")
+            if pressedOutOfBeats === body {
+                pressedOutOfBeats = nil
+                returnToLanding(body)
+            }
+            return
+        }
+        gesture = pressed
+    }
+
+    /// A mouse event while a gesture is live: a drag steps it, an up ends it.
+    func track(_ event: NSEvent) {
+        guard var live = gesture else { return }
+        switch event.type {
+        case .leftMouseDragged:
+            live.pointer = hostView.convert(event.locationInWindow, from: nil)
+            live.meta = event.modifierFlags.contains(.command)
+            live.alt = event.modifierFlags.contains(.option)
+            live.last = live.tracker.step(pointer: live.pointer, alt: live.alt)
+            gesture = live
+            if live.carriesView { move(live) }
+            report(live, phase: "move")
+        case .leftMouseUp:
+            // The release is where the hand let go, which a quick drag's
+            // merged moves may never have reported: step to it first, so a
+            // press and a release apart with nothing between them is a drag.
+            live.pointer = hostView.convert(event.locationInWindow, from: nil)
+            live.last = live.tracker.step(pointer: live.pointer, alt: live.alt)
+            if live.carriesView { move(live) }
+            gesture = nil
+            report(live, phase: "end")
+            if pressedOutOfBeats === live.body {
+                pressedOutOfBeats = nil
+                // A hold that went nowhere commits nothing, so no placement
+                // will come to land the card: it lands itself.
+                if !live.last.moved { returnToLanding(live.body) }
+            }
+        default:
+            break
+        }
+    }
+
+    /// End the gesture with nothing committed: Escape, or the window losing
+    /// the mouse. The card goes back where the press found it.
+    func cancelGesture() {
+        guard let live = gesture else { return }
+        gesture = nil
+        if live.carriesView {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            live.body.container.frame = live.containerStart
+            CATransaction.commit()
+        }
+        report(live, phase: "cancel")
+        if pressedOutOfBeats === live.body {
+            pressedOutOfBeats = nil
+            returnToLanding(live.body)
+        }
+    }
+
+    /// Carry the card's container by the pane rect's travel, in one
+    /// transaction with nothing animating.
+    private func move(_ live: Gesture) {
+        let start = live.tracker.startRect
+        let rect = live.last.rect
+        let from = live.containerStart
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        live.body.container.frame = CGRect(
+            x: from.minX + (rect.minX - start.minX),
+            y: from.minY + (rect.minY - start.minY),
+            width: from.width + (rect.width - start.width),
+            height: from.height + (rect.height - start.height)
+        )
+        CATransaction.commit()
+    }
+
+    /// Tell the shell where the gesture stands (`__tugBridge.onCardGesture`).
+    private func report(_ live: Gesture, phase: String) {
+        let r = live.last.rect
+        var payload: [String: Any] = [
+            "cardId": live.cardId,
+            "kind": live.kind,
+            "phase": phase,
+            "rect": ["x": r.minX, "y": r.minY, "width": r.width, "height": r.height],
+            "pointer": ["x": live.pointer.x, "y": live.pointer.y],
+            "start": ["x": live.tracker.startPointer.x, "y": live.tracker.startPointer.y],
+            "moved": live.last.moved,
+            "meta": live.meta,
+            "alt": live.alt,
+        ]
+        if let edge = live.edge { payload["edge"] = edge.rawValue }
+        if live.last.snapX != nil || live.last.snapY != nil {
+            payload["snap"] = ["x": live.last.snapX.map { $0 as Any } ?? NSNull(), "y": live.last.snapY.map { $0 as Any } ?? NSNull()]
+        }
+        window.evaluateInShell(call: "window.__tugBridge?.onCardGesture?.", payload: payload)
     }
 
     // MARK: - Beats
@@ -662,20 +1055,22 @@ final class BodyViewController {
         CATransaction.setDisableActions(true)
         for planned in plan.bodies {
             guard let body = body(forCard: planned.cardId) else { continue }
+            // A card in the host's hand is the hand's until the gesture ends.
+            if let gesture, gesture.carriesView, gesture.body === body { continue }
             // An arrival rides its frame's arrive beat in: the shell posts it
             // visible from the plan and has already lifted its lid, so it is
             // shown here, in this transaction, at its landing. Its tracks
             // hold their opening values until they begin (`.backwards`), so
             // no frame shows it before the fade; and a plan the host cannot
             // run still leaves it shown where it lands.
-            if planned.arrives == true, !body.visible, body.state == .ready, body.painted {
+            if planned.arrives == true, !body.visible, body.canShow {
                 body.visible = true
                 body.frame = planned.landing.cgRect
                 body.container.frame = planned.landing.cgRect
                 applyVisibility(body)
                 showsArrival = true
             }
-            guard body.visible, body.state == .ready, body.painted,
+            guard body.visible, body.canShow,
                   let layer = body.container.layer,
                   let track = BodyBeats.planTrack(planned.beats), track.durationMs > 0 else {
                 decline(body, planId: plan.planId, landing: planned.landing.cgRect)
@@ -834,9 +1229,21 @@ final class BodyViewController {
         guard let crossing = body.crossing else { return }
         let leadMs = (crossing.begin - CACurrentMediaTime()) * 1000
         body.lastCrossing?["readyLeadMs"] = leadMs
+        // A whole card's page is the card, chrome and all, and it wears no
+        // surface behind it: given its smaller landing size now, the card
+        // would stand at its landing for the whole motion over the floor the
+        // container still spans. So a whole card that shrinks keeps its page
+        // and the container clips it as it travels; the page takes the
+        // landing size at the land. One that grows takes it now, as any
+        // body does, and the container reveals it.
+        let page = body.webView.frame.size
+        if body.whole, crossing.size.width < page.width - 0.5 || crossing.size.height < page.height - 0.5 {
+            body.lastCrossing?["heldToLand"] = true
+            return
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if let surface, surface.count == 4 {
+        if let surface, surface.count == 4, !body.whole {
             let c = surface.map { CGFloat($0.doubleValue) / 255 }
             body.container.surface = CGColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: c[3])
             body.container.displayIfNeeded()
@@ -864,7 +1271,17 @@ final class BodyViewController {
     func setSurface(_ body: Body, surface: [NSNumber]?) {
         guard let surface, surface.count == 4 else { return }
         let c = surface.map { CGFloat($0.doubleValue) / 255 }
-        body.container.surface = CGColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: c[3])
+        body.surface = CGColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: c[3])
+        if !body.whole { body.container.surface = body.surface }
+    }
+
+    /// Hold the body's container as a whole card's view, or as a content box
+    /// under the shell's chrome: a whole card's page draws its own corners
+    /// and surface, and its apron must show what is beneath it.
+    private func setWhole(_ body: Body, _ whole: Bool) {
+        body.whole = whole
+        body.container.layer?.cornerRadius = whole ? 0 : radius
+        body.container.surface = whole ? nil : body.surface
     }
 
     private static func keyframes(_ keyPath: String, values: [Any], track: BodyBeats.Track, begin: CFTimeInterval) -> CAKeyframeAnimation {
@@ -1051,6 +1468,8 @@ final class BodyViewController {
     private func remove(_ body: Body) {
         body.deadline?.cancel()
         body.deadline = nil
+        // A card going away mid-gesture takes its gesture with it.
+        if gesture?.body === body { gesture = nil }
         bodies.removeAll { $0 === body }
         let controller = body.webView.configuration.userContentController
         for name in MainWindow.bridgeHandlerNames {
@@ -1148,7 +1567,7 @@ final class BodyViewController {
                     "x": body.frame.minX, "y": body.frame.minY,
                     "width": body.frame.width, "height": body.frame.height,
                 ],
-                "visible": body.visible && body.state == .ready && body.painted,
+                "visible": body.visible && body.canShow,
                 "painted": body.painted,
                 "z": body.z,
                 "firstResponder": window.firstResponder === body.webView,
@@ -1175,11 +1594,22 @@ final class BodyViewController {
     /// coordinates: its presentation layer read back through the mapping
     /// its last plan solved; its placed frame when it has never been planned.
     private func presentedFrame(_ body: Body) -> [String: Double] {
-        var rect = body.frame
+        let rect = presentedRect(body)
+        return ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height]
+    }
+
+    /// The container where the user sees it: its live frame, which a card in
+    /// the host's hand holds away from its last placement, or its
+    /// presentation layer's read through the mapping a plan solved.
+    private func presentedRect(_ body: Body) -> CGRect {
+        // The container as it stands, which a card in the host's hand holds
+        // away from its last placement; the presentation layer's, mapped,
+        // once a plan has solved the mapping.
+        var rect = body.container.frame
         if let mapping = body.mapping, let presented = body.container.layer?.presentation() {
             rect = mapping.frame(position: presented.position, bounds: presented.bounds)
         }
-        return ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height]
+        return rect
     }
 
     // MARK: - Calls into pages

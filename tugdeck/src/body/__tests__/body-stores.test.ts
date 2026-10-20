@@ -16,7 +16,14 @@
  * the other tail acknowledgements too, or it holds the live frames and never
  * the page before them.
  *
+ * A card that draws its own chrome reads the pane's facts as `pane.chrome`,
+ * and its page tells the host its first chrome frame is on screen only once
+ * those facts have arrived: before them the frame draws a stand-in title and
+ * nothing to press, which the host must not show.
+ *
  * @covers tugdeck/src/body/body-main.ts
+ * @covers tugdeck/src/body/body-root.tsx
+ * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugdeck/src/action-dispatch.ts
  */
 import { describe, expect, test } from "bun:test";
@@ -72,5 +79,24 @@ describe("the answers a body's stores wait on", () => {
   test("the body's boot and the shell's both make it", () => {
     expect(readFileSync(join(SRC, "body", "body-main.ts"), "utf8")).toMatch(/\bregisterStoreTailActions\(\)/);
     expect(readFileSync(join(SRC, "action-dispatch.ts"), "utf8")).toMatch(/^ {2}registerStoreTailActions\(\);$/m);
+  });
+});
+
+describe("the chrome a body draws", () => {
+  const root = readFileSync(join(SRC, "body", "body-root.tsx"), "utf8");
+  const frame = readFileSync(join(SRC, "body", "body-chrome-frame.tsx"), "utf8");
+
+  test("a card that draws its chrome reads pane.chrome through the store's own subscription", () => {
+    expect(root).toMatch(/useSyncExternalStore\(\s*carriesChrome \? paneChrome\.subscribe : \w+\.subscribe,\s*carriesChrome \? paneChrome\.getSnapshot : \w+\.getSnapshot,?\s*\)/);
+  });
+
+  test("a body reads pane.chrome before its first chrome render is published", () => {
+    // The post to the host waits on the shell's facts, never on the fallback.
+    const gate = "if (!hasChrome || chromePaintPosted) return;";
+    const post = 'postToHost("painted", {})';
+    expect(frame).toContain("const hasChrome = chrome !== null;");
+    expect(frame).toContain(gate);
+    expect(frame).toContain(post);
+    expect(frame.indexOf(gate)).toBeLessThan(frame.indexOf(post));
   });
 });

@@ -168,6 +168,7 @@ const PROBE_REMOVE = `(function () {
 })()`;
 
 async function activate(app: App, spaceId: string): Promise<void> {
+  // card-dom: shell — the workspace switch is the shell's verb, and the probe rides the shell's pane frame.
   await app.evalJS<null>(
     `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(spaceId)} }), null)`,
   );

@@ -134,11 +134,20 @@ async function settleAfter(app: App, card: string): Promise<{ handedBack: boolea
   if (holder?.firstResponder === true) return { handedBack: true, facts: "" };
   const facts = await keyboardFacts(app, card);
   // Put the keyboard back the way a click on the card would, so the sweep goes on.
-  const bar = `.tug-pane[data-pane-id="${card}-pane"] [data-testid="tug-pane-title-bar"]`;
-  if (!(await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(bar)}) !== null`))) {
+  // A card that draws its own chrome has its title bar in its own page, and
+  // the shell holds only its stand-in.
+  const pane = `.tug-pane[data-pane-id="${card}-pane"]`;
+  // card-dom: shell — whether the pane stands, and whether it is a stand-in.
+  const standing = await app.evalJS<"gone" | "stand-in" | "chrome">(
+    `(function () { var p = document.querySelector(${JSON.stringify(pane)}); return p === null ? "gone" : p.hasAttribute("data-chrome-in-body") ? "stand-in" : "chrome"; })()`,
+  );
+  if (standing === "gone") {
     return { handedBack: false, facts: `the card's pane is gone: ${facts}` };
   }
-  await app.nativeClickAtElement(bar);
+  const bar = '[data-testid="tug-pane-title-bar"]';
+  if (standing === "stand-in") await app.body(card).nativeClickAtElement(bar);
+  // card-dom: shell — a card that keeps its chrome in the shell is clicked there.
+  else await app.nativeClickAtElement(`${pane} ${bar}`);
   await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
   return { handedBack: false, facts };
 }

@@ -192,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
           { timeoutMs: 8000 },
         );
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(CHIP)}).length`,
           ),
         ).toBe(0);
@@ -211,11 +211,11 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         await app.nativeKey("Return");
         // The chip moves on `bind_arc_ok`, never on the click — so this
         // assertion is about the round trip, not about the handler.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
           { timeoutMs: 15000 },
         );
-        const bound = await app.evalJS<string>(
+        const bound = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(CHIP)})?.textContent ?? "").trim()`,
         );
         // The picker lists bare arc names; the masthead spells the binding in

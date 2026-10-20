@@ -77,11 +77,15 @@ export const commandForShell = defineAction<CommandPayload>({
 
 // ---- What a body asks of the shell's deck ----
 
-/** Make the sending body's card the key card. */
+/**
+ * Make the sending body's card the key card. `reveal: false` is the
+ * pointer's activation, which slides no strip under the hand
+ * (`IDeckManagerStore.activateCard`); absent, the activation reveals.
+ */
 export const cardActivate = defineAction({
   id: "card.activate",
   owner: "shell",
-  codec: empty,
+  codec: obj({ reveal: optional(bool) }),
 });
 
 /** Close the sending body's card, through the deck's close guards. */
@@ -244,6 +248,18 @@ export const cardRefuseHold = defineAction({
   id: "card.refuseHold",
   owner: "card",
   codec: empty,
+});
+
+/**
+ * The card's pane moved or changed size in the shell's arrangement: the page
+ * fires the same lifecycle event there, which a card's delegate answers by
+ * taking back its focus destination after a press on the chrome its page
+ * draws pulled the page's first responder onto the pane.
+ */
+export const cardGeometryChanged = defineAction({
+  id: "card.geometryChanged",
+  owner: "card",
+  codec: obj({ moved: bool, resized: bool }),
 });
 
 /** Escape's shrink met a layout selection: the Cards table runs where its filter is. */

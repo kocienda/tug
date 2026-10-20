@@ -124,6 +124,7 @@ const seamCentre = (app: App): Promise<number> =>
 /** Start the heartbeat. Every tick reads the seam's mark, the members' marks
  *  and each member's box against its pin, and nothing else. */
 async function arm(app: App): Promise<void> {
+  // card-dom: shell — the seam and the stand-in frames are the shell's: the members' pins and boxes.
   await app.evalJS<null>(
     `(function () {
       var prior = window.__at0632;
@@ -157,6 +158,7 @@ async function arm(app: App): Promise<void> {
 }
 
 async function harvest(app: App): Promise<Tick[]> {
+  // card-dom: shell — the heartbeat ran in the shell's page.
   return app.evalJS<Tick[]>(
     `(function () {
       var state = window.__at0632;

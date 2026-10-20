@@ -212,6 +212,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
           `document.querySelector(${JSON.stringify(ARC_TRACK)}) !== null`,
           { timeoutMs: 10_000 },
         );
+        // card-dom: shell — the placard is a popover, and it rises in the shell.
         const stopNote = await app.evalJS<string>(
           `(document.querySelector(${JSON.stringify(ARC_NOTE)})?.textContent ?? "").trim()`,
         );

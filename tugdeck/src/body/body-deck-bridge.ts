@@ -373,6 +373,15 @@ export class BodyDeckBridge implements IDeckManagerStore {
     this.cardLifecycle.observeCardDidDeactivate(cardId, callback);
   observeCardWillBeginDestruction = (cardId: string | null, callback: CardLifecycleObserver) =>
     this.cardLifecycle.observeCardWillBeginDestruction(cardId, callback);
+  observeCardDidMove = (cardId: string | null, callback: CardLifecycleObserver) =>
+    this.cardLifecycle.observeCardDidMove(cardId, callback);
+  observeCardDidResize = (cardId: string | null, callback: CardLifecycleObserver) =>
+    this.cardLifecycle.observeCardDidResize(cardId, callback);
+  /** The shell committed a new position or size for this card's pane: the same events, here. */
+  noteGeometryChanged = (moved: boolean, resized: boolean): void => {
+    if (moved) this.cardLifecycle.notifyCardDidMove(this.cardId);
+    if (resized) this.cardLifecycle.notifyCardDidResize(this.cardId);
+  };
   noteCardWillLand = (cardId: string): void => this.cardLifecycle.notifyCardWillLand(cardId);
   noteCardDidLand = (cardId: string): void => this.cardLifecycle.notifyCardDidLand(cardId);
   setHasFocus = (value: boolean): void => {
@@ -468,9 +477,9 @@ export class BodyDeckBridge implements IDeckManagerStore {
       deckActivateCard.dispatch({ cardId, reveal: opts?.reveal });
       return;
     }
-    cardActivate.dispatch({});
+    cardActivate.dispatch({ reveal: opts?.reveal === false ? false : undefined });
   };
-  focusCard = (_cardId: string): void => cardActivate.dispatch({});
+  focusCard = (_cardId: string): void => cardActivate.dispatch({ reveal: undefined });
   removeCard = (_paneId: string, _cardId: string): void => cardClose.dispatch({});
   handlePaneClosed = (_paneId: string): void => cardClose.dispatch({});
   // The new card is the shell's; its id is not known here, and the pane's

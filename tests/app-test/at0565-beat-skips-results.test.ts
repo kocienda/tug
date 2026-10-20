@@ -52,7 +52,9 @@ const TEST_TIMEOUT_MS = 120_000;
 // UUID-shaped so the bound session reads as a real one.
 const SID = "a7c0d1ea-0000-4000-8000-000000000565";
 
-const PANE = '.tug-pane[data-pane-id="p1"]';
+// The masthead is pane chrome, which a Session card draws in its own page;
+// the page holds that one pane, and the beat history rises there beside it.
+const PANE = ".body-chrome-frame";
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const STAGE = `${MASTHEAD} .session-masthead-stage`;
 /** The account run's text — the activity primitive's full reading. */
@@ -116,22 +118,22 @@ describe.skipIf(!SHOULD_RUN)("AT0565: a tool's result is evidence, not a beat", 
           { timeoutMs: 30_000 },
         );
         await app.bindSession("A", { tugSessionId: SID, projectDir });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LINE_TEXT)}) !== null`,
           { timeoutMs: 20_000 },
         );
 
         const publish = async (text: string, beat: number, kind: string) => {
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame(text, beat, kind))})`,
           );
         };
 
         // The run at rest, before any frame: the rest sentence.
-        await app.waitForCondition<boolean>(`${lineTextJS}.endsWith("Ready.")`, {
+        await app.body("A").waitForCondition<boolean>(`${lineTextJS}.endsWith("Ready.")`, {
           timeoutMs: 20_000,
         });
-        const atRest = await app.evalJS<string>(lineTextJS);
+        const atRest = await app.body("A").evalJS<string>(lineTextJS);
         note("at0565 account run at rest", atRest);
 
         // 1. Six frames — a call, its result, an error, a second call, a wait
@@ -147,28 +149,28 @@ describe.skipIf(!SHOULD_RUN)("AT0565: a tool's result is evidence, not a beat", 
         await publish(RUN_WAIT, 5, "wait");
         await publish(RUN_RESULT, 6, "result");
         await new Promise((r) => setTimeout(r, 2_500));
-        const during = await app.evalJS<string>(lineTextJS);
+        const during = await app.body("A").evalJS<string>(lineTextJS);
         note("at0565 account run mid-turn", during);
         expect(during, "the account run holds the rest sentence through the turn").toBe(atRest);
         for (const beat of [SEARCH_BEAT, SEARCH_RESULT, LINT_ERROR, RUN_BEAT, RUN_WAIT, RUN_RESULT]) {
           expect(during, `no beat reaches the account run: ${beat}`).not.toContain(beat);
         }
         expect(
-          await app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(LINE_BEAT)}).length`),
+          await app.body("A").evalJS<number>(`document.querySelectorAll(${JSON.stringify(LINE_BEAT)}).length`),
           "no beat is rendered as a beat anywhere on the masthead",
         ).toBe(0);
 
         // 2. The history is where the beat went. One click on the run opens
         //    it, and the call, the error and the wait are rows in it.
-        await app.click(STAGE);
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(STAGE);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(HISTORY)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        await app.waitForCondition<boolean>(historyHasJS(RUN_WAIT), { timeoutMs: 10_000 });
+        await app.body("A").waitForCondition<boolean>(historyHasJS(RUN_WAIT), { timeoutMs: 10_000 });
         for (const beat of [SEARCH_BEAT, LINT_ERROR, RUN_BEAT]) {
           expect(
-            await app.evalJS<boolean>(historyHasJS(beat)),
+            await app.body("A").evalJS<boolean>(historyHasJS(beat)),
             `the history carries the beat: ${beat}`,
           ).toBe(true);
         }

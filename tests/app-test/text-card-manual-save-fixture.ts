@@ -18,11 +18,11 @@ export const TEST_TIMEOUT_MS = 120_000;
 
 export const CARD = '[data-card-id="A"]';
 export const EDITOR_CONTENT = `${CARD} [data-slot="tug-text-card-editor"] .cm-content`;
-// The save state rides the PANE's document masthead, not a cell inside the
-// card — the title bar is not a descendant of the card element, so this is
-// pane-scoped on purpose. Chrome follows the frontmost tab, so in the
-// two-card cases below this selector reads whichever card is active.
-export const SAVE_LINE = `[data-pane-id="p1"] [data-testid="card-masthead-detail"]`;
+// The save state rides the pane's document masthead, not a cell inside the
+// card — the title bar is not a descendant of the card element. The card
+// draws its pane's chrome in its own page, which holds the one pane, so it is
+// read there unscoped: in a two-card pane each card's page draws its own.
+export const SAVE_LINE = `[data-testid="card-masthead-detail"]`;
 export const CLOSE_BUTTON = `[data-testid="tug-pane-close-button"]`;
 
 export const ORIGINAL = "alpha\nbeta\ngamma\n";
@@ -94,8 +94,9 @@ export async function typeIntoEditor(page: App | BodyApp, text: string): Promise
   if (!ok) throw new Error("[at0212] typeIntoEditor: insertText not handled");
 }
 
-export async function waitForSaveCell(app: App, want: string, timeoutMs = 15000): Promise<void> {
-  await app.waitForCondition<boolean>(
+/** `page` is the page of the card whose masthead is read — `app.body(cardId)`. */
+export async function waitForSaveCell(page: BodyApp, want: string, timeoutMs = 15000): Promise<void> {
+  await page.waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${SAVE_LINE}');
       return el !== null && el.innerText.indexOf(${JSON.stringify(want)}) === 0;
@@ -104,8 +105,8 @@ export async function waitForSaveCell(app: App, want: string, timeoutMs = 15000)
   );
 }
 
-export async function saveCell(app: App): Promise<string> {
-  return app.evalJS<string>(`document.querySelector('${SAVE_LINE}').innerText`);
+export async function saveCell(page: BodyApp): Promise<string> {
+  return page.evalJS<string>(`document.querySelector('${SAVE_LINE}').innerText`);
 }
 
 /**

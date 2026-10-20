@@ -66,6 +66,13 @@
  * isolates the field's paint from every other thing a pointer entering a card
  * also does.
  *
+ * ── Two pages ──
+ * A Session card draws its pane's chrome, masthead and all, in its own page,
+ * so the session tier is read there and every other tier in the shell's; a
+ * fixture that forces a style is laid in both. The drag that proves only the
+ * handle begins a gesture is pressed on the Text card's bar, whose chrome is
+ * still the shell's: a Session card's drag is the host's (`at0744` reads it).
+ *
  * ── The absence is half the subject ──
  * A rail is pinned to a deck edge and is not dragged by its bar, so a drag
  * affordance on one would advertise a gesture that does not exist. The rail's
@@ -201,9 +208,10 @@ const READ = `(function (hostSel) {
   };
 })`;
 
-async function readLine(app: App, hostSel: string): Promise<Line | null> {
-  // card-dom: shell — title bars and mastheads are pane chrome, the shell's.
-  return app.evalJS<Line | null>(`${READ}(${JSON.stringify(hostSel)})`);
+/** The field on `hostSel`, in the page that draws that tier's chrome. */
+async function readLine(page: Pick<App, "evalJS">, hostSel: string): Promise<Line | null> {
+  // card-dom: shell — in whichever page the caller names, the shell's included.
+  return page.evalJS<Line | null>(`${READ}(${JSON.stringify(hostSel)})`);
 }
 
 /**
@@ -213,10 +221,10 @@ async function readLine(app: App, hostSel: string): Promise<Line | null> {
  * from the thing that replaced them elsewhere.
  */
 async function readRailPseudo(
-  app: App,
+  page: Pick<App, "evalJS">,
   hostSel: string,
 ): Promise<{ blockSize: string; mask: string; cursor: string } | null> {
-  return app.evalJS<{ blockSize: string; mask: string; cursor: string } | null>(
+  return page.evalJS<{ blockSize: string; mask: string; cursor: string } | null>(
     `(function (sel) {
        var el = document.querySelector(sel);
        if (el === null) return null;
@@ -231,14 +239,26 @@ async function readRailPseudo(
 }
 
 /**
+ * The pages that draw this deck's chrome: the shell's, for the utility card,
+ * and the pages of the Session card, the Text card and the Cards rail, each of
+ * which draws its pane's chrome in its own.
+ */
+function chromePages(app: App): Array<Pick<App, "evalJS">> {
+  return [app, app.body("A"), app.body("B"), app.body("L")];
+}
+
+/** The Session card's pane, in its own page. */
+const SESSION_PANE = ".body-chrome-frame";
+
+/**
  * Force the field up.
  *
  * The one property the trigger changes, and nothing else — so what is measured
  * afterwards differs from the rest state by exactly the field being painted.
  */
 async function forceFieldVisible(app: App): Promise<void> {
-  // card-dom: shell — the field is on pane chrome.
-  await app.evalJS<null>(
+  // card-dom: shell — in every page that draws this deck's chrome.
+  for (const page of chromePages(app)) await page.evalJS<null>(
     `(function () {
        var st = document.createElement("style");
        st.id = "at0628-force";
@@ -259,8 +279,8 @@ async function forceFieldVisible(app: App): Promise<void> {
  * timeline that would advance it. See the call site.
  */
 async function freezeFieldFade(app: App): Promise<void> {
-  // card-dom: shell — the field is on pane chrome.
-  await app.evalJS<null>(
+  // card-dom: shell — in every page that draws this deck's chrome.
+  for (const page of chromePages(app)) await page.evalJS<null>(
     `(function () {
        var st = document.createElement("style");
        st.id = "at0628-no-fade";
@@ -273,8 +293,8 @@ async function freezeFieldFade(app: App): Promise<void> {
 
 /** Take the forcing fixture back off, so a later step reads the real cascade. */
 async function unforceFieldVisible(app: App): Promise<void> {
-  // card-dom: shell — the field is on pane chrome.
-  await app.evalJS<null>(
+  // card-dom: shell — in every page that draws this deck's chrome.
+  for (const page of chromePages(app)) await page.evalJS<null>(
     `(function () {
        var st = document.getElementById("at0628-force");
        if (st !== null && st.parentNode !== null) st.parentNode.removeChild(st);
@@ -364,9 +384,13 @@ const DECK = {
 };
 
 const UTILITY_BAR = '.tug-pane[data-pane-id="p3"] .tug-pane-title-bar';
-/** The session tier's bar, the one content bar this deck leaves unoccluded. */
-const SESSION_BAR = '.tug-pane[data-pane-id="p1"] .tug-pane-title-bar';
-const RAIL_BAR = '.tug-pane[data-pane-id="pCards"] .tug-pane-title-bar';
+/**
+ * The document tier's bar, in the Text card's own page: a content bar this
+ * deck leaves unoccluded, so a drag from it is the card's to begin.
+ */
+const DOC_BAR = ".body-chrome-frame .tug-pane-title-bar";
+/** The Cards rail's bar, in its own page. */
+const RAIL_BAR = ".body-chrome-frame .tug-pane-title-bar";
 
 describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
   test(
@@ -381,14 +405,20 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
           tugSessionId: "at0628-A",
           projectDir: "/tmp/at0628",
         });
-        // card-dom: shell — mastheads and title bars are pane chrome.
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null` +
-            ` && document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null` +
-            ` && document.querySelector(${JSON.stringify(UTILITY_BAR)}) !== null` +
-            ` && document.querySelector(${JSON.stringify(RAIL_BAR)}) !== null`,
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null`,
           { timeoutMs: 15_000 },
         );
+        // card-dom: shell — the utility card's chrome is the shell's.
+        await app.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(UTILITY_BAR)}) !== null`, {
+          timeoutMs: 15_000,
+        });
+        await app.body("B").waitForCondition<boolean>(`document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null`, {
+          timeoutMs: 15_000,
+        });
+        await app.body("L").waitForCondition<boolean>(`document.querySelector(${JSON.stringify(RAIL_BAR)}) !== null`, {
+          timeoutMs: 15_000,
+        });
         await wait(AFTER_LAND_MS);
 
         // ---- 1. The utility tier: the field is a flex item in the bar itself.
@@ -429,8 +459,8 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
 
         // ---- 2. The masthead tiers: the field is on the LEAD LINE, because
         // the bar's own run there belongs to the masthead frame.
-        const session = await readLine(app, `${SESSION_FRAME} .tug-session-row-name-line`);
-        const doc = await readLine(app, `${DOC_FRAME} .tug-session-row-name-line`);
+        const session = await readLine(app.body("A"), `${SESSION_FRAME} .tug-session-row-name-line`);
+        const doc = await readLine(app.body("B"), `${DOC_FRAME} .tug-session-row-name-line`);
         note(`session tier: ${JSON.stringify(session)}`);
         note(`document tier: ${JSON.stringify(doc)}`);
         expectTheField("the session tier", session);
@@ -446,10 +476,9 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // the lead line, and a second copy on the bar would draw over the frame.
         // Read as a DIRECT child, because the lead line's handle is a descendant
         // of this bar and would otherwise answer for it.
-        // card-dom: shell — pane chrome.
-        const mastheadBarOwn = await app.evalJS<number>(
+        const mastheadBarOwn = await app.body("A").evalJS<number>(
           `document.querySelectorAll(
-             '.tug-pane[data-pane-id="p1"] .tug-pane-title-bar > .tug-pane-grab-handle'
+             '${SESSION_PANE} .tug-pane-title-bar > .tug-pane-grab-handle'
            ).length`,
         );
         expect(mastheadBarOwn, "the masthead's own bar mounts no handle").toBe(0);
@@ -458,19 +487,15 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // along its whole run, which is exactly the claim that is no longer
         // true: a press anywhere but the dots does not move a content card, so
         // nothing but the dots may say it does.
-        // card-dom: shell — pane chrome.
-        const barCursors = await app.evalJS<Record<string, string>>(
-          `(function () {
-             function cur(sel) {
-               var el = document.querySelector(sel);
-               return el === null ? "" : getComputedStyle(el).cursor;
-             }
-             return {
-               utilityBar: cur(${JSON.stringify(UTILITY_BAR)}),
-               mastheadBar: cur('.tug-pane[data-pane-id="p1"] .tug-pane-title-bar'),
-               railBar: cur(${JSON.stringify(RAIL_BAR)})
-             };
-           })()`,
+        const cursorOf = (sel: string): string =>
+          `(function () { var el = document.querySelector(${JSON.stringify(sel)}); return el === null ? "" : getComputedStyle(el).cursor; })()`;
+        const barCursors: Record<string, string> = {
+          // card-dom: shell — the utility card's chrome is the shell's.
+          utilityBar: await app.evalJS<string>(cursorOf(UTILITY_BAR)),
+          railBar: await app.body("L").evalJS<string>(cursorOf(RAIL_BAR)),
+        };
+        barCursors.mastheadBar = await app.body("A").evalJS<string>(
+          `(function () { var el = document.querySelector('${SESSION_PANE} .tug-pane-title-bar'); return el === null ? "" : getComputedStyle(el).cursor; })()`,
         );
         note(`bar cursors: ${JSON.stringify(barCursors)}`);
         expect(barCursors.utilityBar, "a content bar no longer says grab").not.toBe("grab");
@@ -480,7 +505,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         expect(barCursors.railBar, "a rail's whole bar still says grab").toBe("grab");
 
         // ---- 3. The rail: its `::after` is still the racing stripes.
-        const rail = await readRailPseudo(app, RAIL_BAR);
+        const rail = await readRailPseudo(app.body("L"), RAIL_BAR);
         note(`rail bar: ${JSON.stringify(rail)}`);
         expect(rail, "the rail is mounted").not.toBeNull();
         expect(rail?.blockSize, "the rail keeps its 7px stripe band").toBe(STRIPE_BLOCK_SIZE);
@@ -490,8 +515,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         ).toBe(false);
 
         // And no handle reached it either — the exclusion's first face.
-        // card-dom: shell — pane chrome.
-        const railHandles = await app.evalJS<number>(
+        const railHandles = await app.body("L").evalJS<number>(
           `document.querySelectorAll(
              ${JSON.stringify(RAIL_BAR)} + ' .tug-pane-grab-handle'
            ).length`,
@@ -536,9 +560,9 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // is really the compositor asleep. Stood down, the resolved value is
         // the cascade's own, which is what this step is about.
         await freezeFieldFade(app);
-        await app.revealPaneControls('.tug-pane[data-pane-id="p1"]');
+        await app.body("A").revealPaneControls(SESSION_PANE);
         await wait(200);
-        const revealed = await readLine(app, SESSION_LINE);
+        const revealed = await readLine(app.body("A"), SESSION_LINE);
         note(`pointer within the bar: opacity ${revealed?.opacity}`);
         expect(revealed?.opacity, "the pointer lights the field").toBe("1");
 
@@ -555,7 +579,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
           `(function () { window.__tug.activateCard("A"); return null; })()`,
         );
         await wait(300);
-        const afterActivate = await readLine(app, SESSION_LINE);
+        const afterActivate = await readLine(app.body("A"), SESSION_LINE);
         note(`after re-activating the card: opacity ${afterActivate?.opacity}`);
         expect(
           afterActivate?.opacity,
@@ -564,9 +588,9 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
 
         // Off the bar again, so the rest state the next step measures from is
         // the real one — and so the trigger is read in both directions.
-        await app.concealPaneControls('.tug-pane[data-pane-id="p1"]');
+        await app.body("A").concealPaneControls(SESSION_PANE);
         await wait(200);
-        const concealed = await readLine(app, SESSION_LINE);
+        const concealed = await readLine(app.body("A"), SESSION_LINE);
         expect(concealed?.opacity, "and leaving the bar puts it out").toBe("0");
 
         // ---- 4. The measure does not move when the field is drawn.
@@ -574,8 +598,8 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         await wait(300);
 
         const shownUtility = await readLine(app, UTILITY_BAR);
-        const shownSession = await readLine(app, `${SESSION_FRAME} .tug-session-row-name-line`);
-        const shownDoc = await readLine(app, `${DOC_FRAME} .tug-session-row-name-line`);
+        const shownSession = await readLine(app.body("A"), `${SESSION_FRAME} .tug-session-row-name-line`);
+        const shownDoc = await readLine(app.body("B"), `${DOC_FRAME} .tug-session-row-name-line`);
         note(
           `forced visible — utility ${shownUtility?.opacity}, session ${shownSession?.opacity}, doc ${shownDoc?.opacity}`,
         );
@@ -601,8 +625,8 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // longest name there could be, and every tier's handle must still hold
         // the floor, its field must still fill it, and it must still stop
         // short of the line's reserved trailing run.
-        // card-dom: shell — the titles are pane chrome.
-        await app.evalJS<null>(
+        // card-dom: shell — in every page that draws this deck's chrome.
+        for (const page of chromePages(app)) await page.evalJS<null>(
           `(function () {
              var st = document.createElement("style");
              st.id = "at0628-long-title";
@@ -614,10 +638,9 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
            })()`,
         );
         await wait(200);
-        // card-dom: shell — title bars and mastheads are pane chrome.
-        const floors = await app.evalJS<
-          Array<{ what: string; handle: number; dots: number; overrun: number } | null>
-        >(
+        type Floor = { what: string; handle: number; dots: number; overrun: number } | null;
+        const floorsIn = (page: Pick<App, "evalJS">, hosts: Array<[string, string]>): Promise<Floor[]> =>
+          page.evalJS<Floor[]>(
           `(function (hosts) {
              return hosts.map(function (h) {
                var host = document.querySelector(h[1]);
@@ -635,12 +658,14 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
                  overrun: +(hb.right - contentRight).toFixed(2)
                };
              });
-           })(${JSON.stringify([
-             ["the utility tier", UTILITY_BAR],
-             ["the session tier", `${SESSION_FRAME} .tug-session-row-name-line`],
-             ["the document tier", `${DOC_FRAME} .tug-session-row-name-line`],
-           ])})`,
-        );
+           })(${JSON.stringify(hosts)})`,
+          );
+        const floors = [
+          // card-dom: shell — the utility tier's chrome is the shell's.
+          ...(await floorsIn(app, [["the utility tier", UTILITY_BAR]])),
+          ...(await floorsIn(app.body("B"), [["the document tier", `${DOC_FRAME} .tug-session-row-name-line`]])),
+          ...(await floorsIn(app.body("A"), [["the session tier", `${SESSION_FRAME} .tug-session-row-name-line`]])),
+        ];
         note(`under a too-long title: ${JSON.stringify(floors)}`);
         for (const f of floors) {
           expect(f, "the handle is mounted under a long title").not.toBeNull();
@@ -653,8 +678,8 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
             0.5,
           );
         }
-        // card-dom: shell — the titles are pane chrome.
-        await app.evalJS<null>(
+        // card-dom: shell — in every page that draws this deck's chrome.
+        for (const page of chromePages(app)) await page.evalJS<null>(
           `(function () {
              var st = document.getElementById("at0628-long-title");
              if (st !== null && st.parentNode !== null) st.parentNode.removeChild(st);
@@ -666,9 +691,11 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // ---- 5. Only the handle DRAGS, which is the claim the rest of this
         // file only describes.
         //
-        // `data-gesture` on the FRAME is the observable: the drag writes it at
-        // pointer-down, before any travel, so the attribute says whether the
-        // gesture was allowed to begin rather than how far it got.
+        // The Text card draws its chrome in its own page, and the host carries
+        // its view while the hand holds it: the observable is the view's
+        // presented frame standing off its placed one mid-drag, which says
+        // whether the gesture was allowed to begin. The press and the travel
+        // are the window's, at the page's points through the view's origin.
         //
         // A short DRAG rather than a bare press, and that is not a stylistic
         // choice: these tests run in a background, non-key window, where a
@@ -678,13 +705,13 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // is no use either — its made-up `pointerId` dies inside
         // `setPointerCapture` before proving anything about the gate above it.
         //
-        // Driven against the SESSION pane rather than the utility one, and the
+        // Driven against the DOCUMENT pane rather than the utility one, and the
         // reason is the fixture rather than the feature: this deck imposes
         // three-up with the Cards rail on the right, so p3's title bar runs from
         // x≈1374 to the window's edge — behind the rail, whose own bar is still a
         // whole-bar drag surface. A press computed off p3's boxes lands on the
         // rail and starts the rail's gesture, which says nothing about this gate.
-        // p1 stands clear at the left.
+        // p2 stands clear in the middle.
         //
         // Pressed a few pixels INSIDE the leading edge rather than at the centre,
         // because the handle runs out to the control cluster and its centre can
@@ -697,32 +724,32 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         await wait(120);
 
         /** The field's state, read while a gesture is in flight or after it. */
-        const fieldNow = async (): Promise<{ opacity: string; within: boolean }> =>
-          // card-dom: shell — the bar and its field are pane chrome.
-          app.evalJS<{ opacity: string; within: boolean }>(
+        const fieldNow = async (): Promise<{ opacity: string; within: boolean; gesture: string | null }> =>
+          app.body("B").evalJS<{ opacity: string; within: boolean; gesture: string | null }>(
             `(function () {
-               var bar = document.querySelector('.tug-pane[data-pane-id="p1"] [data-testid="tug-pane-title-bar"]');
-               var dots = document.querySelector(
-                 '.tug-pane[data-pane-id="p1"] .tug-pane-grab-dots'
-               );
+               var bar = document.querySelector('.body-chrome-frame [data-testid="tug-pane-title-bar"]');
+               var dots = document.querySelector('.body-chrome-frame .tug-pane-grab-dots');
+               var frame = document.querySelector('.body-chrome-frame');
                return {
                  opacity: dots === null ? "" : getComputedStyle(dots).opacity,
-                 within: bar !== null && bar.hasAttribute("data-pointer-within")
+                 within: bar !== null && bar.hasAttribute("data-pointer-within"),
+                 gesture: frame === null ? null : frame.getAttribute("data-gesture")
                };
              })()`,
           );
 
         interface Gesture {
-          /** Which panes wore `data-gesture`, mid-flight. */
+          /** `"carried"` when the host held the card's view off its place mid-flight, else null. */
           held: string | null;
           /** The field, mid-flight. */
-          mid: { opacity: string; within: boolean };
+          mid: { opacity: string; within: boolean; gesture: string | null };
           /** The field, once the gesture has landed and the button is up. */
-          after: { opacity: string; within: boolean };
+          after: { opacity: string; within: boolean; gesture: string | null };
         }
 
         const gestureAfterDragFrom = async (sel: string): Promise<Gesture> => {
-          const at = await app.evalJS<{ x: number; y: number } | null>(
+          const view = (await app.bodies()).find((b) => b.cardId === "B")!;
+          const inPage = await app.body("B").evalJS<{ x: number; y: number } | null>(
             `(function (s) {
                var el = document.querySelector(s);
                if (el === null) return null;
@@ -730,10 +757,11 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
                return { x: b.left + Math.min(6, b.width / 2), y: b.top + b.height / 2 };
              })(${JSON.stringify(sel)})`,
           );
-          expect(at, `${sel} is on screen to be pressed`).not.toBeNull();
-          if (at === null) throw new Error(`${sel} is not on screen`);
+          expect(inPage, `${sel} is on screen to be pressed`).not.toBeNull();
+          if (inPage === null) throw new Error(`${sel} is not on screen`);
+          const at = { x: view.frame.x + inPage.x, y: view.frame.y + inPage.y };
           const to = { x: at.x + 24, y: at.y };
-          const under = await app.evalJS<string>(
+          const under = await app.body("B").evalJS<string>(
             `(function (x, y) {
                var el = document.elementFromPoint(x, y);
                if (el === null) return "(nothing)";
@@ -742,20 +770,13 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
                  chain.push(String(n.className || n.tagName).split(" ")[0]);
                }
                return chain.join(" < ");
-             })(${at.x}, ${at.y})`,
+             })(${inPage.x}, ${inPage.y})`,
           );
           note(`press point ${at.x.toFixed(0)},${at.y.toFixed(0)} hits: ${under}`);
           await app.nativeDragWithoutRelease(at, to);
           await wait(120);
-          const held = await app.evalJS<string | null>(
-            `(function () {
-               var all = document.querySelectorAll(".tug-pane[data-gesture]");
-               if (all.length === 0) return null;
-               return Array.prototype.map.call(all, function (p) {
-                 return p.getAttribute("data-pane-id") + "=" + p.getAttribute("data-gesture");
-               }).join(",");
-             })()`,
-          );
+          const carried = (await app.bodies()).find((b) => b.cardId === "B")!;
+          const held = carried.presentedFrame.x !== carried.frame.x || carried.presentedFrame.y !== carried.frame.y ? "carried" : null;
           const mid = await fieldNow();
           note(`mid-gesture from ${sel}: ${JSON.stringify(mid)}`);
           await app.nativeMouseUp(to);
@@ -767,34 +788,25 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
 
         // The TITLE, a few pixels from the dots and squarely on the bar: the old
         // behaviour would have taken this press and moved the card.
-        const onTitle = await gestureAfterDragFrom(`${SESSION_BAR} .tug-list-row-title`);
-        note(`drag from the title: data-gesture=${JSON.stringify(onTitle.held)}`);
+        const onTitle = await gestureAfterDragFrom(`${DOC_BAR} .tug-list-row-title`);
+        note(`drag from the title: ${JSON.stringify(onTitle.held)}`);
         expect(onTitle.held, "a drag from the title never begins").toBeNull();
 
         // The HANDLE: the one surface that does.
-        const onHandle = await gestureAfterDragFrom(`${SESSION_BAR} .tug-pane-grab-handle`);
-        note(`drag from the handle: data-gesture=${JSON.stringify(onHandle.held)}`);
-        expect(onHandle.held, "a drag from the handle does").toBe("p1=true");
+        const onHandle = await gestureAfterDragFrom(`${DOC_BAR} .tug-pane-grab-handle`);
+        note(`drag from the handle: ${JSON.stringify(onHandle.held)}`);
+        expect(onHandle.held, "a drag from the handle does").toBe("carried");
 
         // ---- 6. THE MARK THE HAND IS HOLDING STAYS LIT.
         //
-        // A press on the handle takes POINTER CAPTURE on the frame, and capture
-        // retargets the pointer's whole stream — so the bar's own
-        // `pointerleave` fires as the capture is taken and no `pointerenter`
-        // follows while the gesture runs. The reading below is the proof, and it
-        // is why the pin is a second rule rather than a wider trigger: the
-        // attribute the trigger reads is GONE mid-drag, and the field is up
-        // anyway, off the frame's `data-gesture`.
-        expect(onHandle.mid.within, "capture takes the bar's pointer-within away").toBe(
-          false,
-        );
-        expect(onHandle.mid.opacity, "and the dots stay lit through the drag").toBe("1");
+        // The view travels under the hand while the host carries it, so the
+        // bar's own trigger flickers off at every step; the frame's
+        // `data-gesture`, written at the press, is what holds the dots lit.
+        expect(onHandle.mid.opacity, "the dots stay lit through the drag").toBe("1");
 
-        // And the release hands the trigger back: the pointer is still on the
-        // bar it was dragging, so the field stays up as the pin lets go rather
-        // than blinking out at the drop.
-        expect(onHandle.after.within, "the release restores pointer-within").toBe(true);
-        expect(onHandle.after.opacity, "and the dots do not blink out at the drop").toBe(
+        // And the drop does not put them out: the pin holds until the page
+        // hears the hand again, and the bar's own trigger answers from there.
+        expect(onHandle.after.opacity, "the dots do not blink out at the drop").toBe(
           "1",
         );
       } finally {
@@ -845,21 +857,19 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
             },
             focusCardId: "C",
           });
-          // The commit card is in its own body; its masthead is pane chrome,
-          // in the shell.
+          // The commit card is in its own body, and draws its masthead there.
           await app.body("C").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMMIT_CARD)}) !== null`,
             { timeoutMs: 15_000 },
           );
-          // card-dom: shell — the masthead is pane chrome.
-          await app.waitForCondition<boolean>(
+          await app.body("C").waitForCondition<boolean>(
             `document.querySelector('.commit-masthead-row .tug-session-row-name-line') !== null`,
             { timeoutMs: 15_000 },
           );
           await wait(AFTER_LAND_MS);
 
           const commit = await readLine(
-            app,
+            app.body("C"),
             ".commit-masthead-row .tug-session-row-name-line",
           );
           note(`commit tier: ${JSON.stringify(commit)}`);
@@ -888,26 +898,29 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
           tugSessionId: "at0628-ink-A",
           projectDir: "/tmp/at0628",
         });
-        // card-dom: shell — mastheads and panes are the shell's.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null` +
-            ` && document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null` +
-            ` && document.querySelector('.tug-pane[data-pane-id="p1"]')` +
+            ` && document.querySelector(${JSON.stringify(SESSION_PANE)})` +
             `.getAttribute("data-focused") === "true"`,
           { timeoutMs: 15_000 },
         );
+        await app.body("B").waitForCondition<boolean>(`document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null`, {
+          timeoutMs: 15_000,
+        });
         await wait(AFTER_LAND_MS);
 
         // Every element of the two content panes, the pane included, and what
         // each resolves `--tugx-pane-dot-ink` to. Read off the browser, so a
         // declaration anywhere above the field — on the pane, the bar, a
-        // masthead frame — shows up as an element that resolves it.
-        const read = (): Promise<InkReading> =>
-          app.evalJS<InkReading>(
-            `(function () {
+        // masthead frame — shows up as an element that resolves it. Each pane
+        // in the page that draws its chrome: each card's own.
+        const inkIn = (page: Pick<App, "evalJS">, panes: Array<[string, string]>): Promise<InkReading> =>
+          page.evalJS<InkReading>(
+            `(function (panes) {
               var out = { holders: [], fields: {}, count: 0 };
-              ["p1", "p2"].forEach(function (id) {
-                var pane = document.querySelector('.tug-pane[data-pane-id="' + id + '"]');
+              panes.forEach(function (entry) {
+                var id = entry[0];
+                var pane = document.querySelector(entry[1]);
                 if (pane === null) return;
                 var els = [pane].concat(Array.prototype.slice.call(pane.querySelectorAll("*")));
                 out.count += els.length;
@@ -921,8 +934,17 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
                 });
               });
               return out;
-            })()`,
+            })(${JSON.stringify(panes)})`,
           );
+        const read = async (): Promise<InkReading> => {
+          const own = await inkIn(app.body("A"), [["p1", SESSION_PANE]]);
+          const shell = await inkIn(app.body("B"), [["p2", ".body-chrome-frame"]]);
+          return {
+            holders: [...own.holders, ...shell.holders],
+            fields: { ...own.fields, ...shell.fields },
+            count: own.count + shell.count,
+          };
+        };
 
         const before = await read();
         note(
@@ -944,8 +966,8 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         await app.evalJS<null>(
           `(function () { window.__tug.activateCard("B"); return null; })()`,
         );
-        await app.waitForCondition<boolean>(
-          `document.querySelector('.tug-pane[data-pane-id="p2"]')` +
+        await app.body("B").waitForCondition<boolean>(
+          `document.querySelector(".body-chrome-frame")` +
             `.getAttribute("data-focused") === "true"`,
           { timeoutMs: 5_000 },
         );

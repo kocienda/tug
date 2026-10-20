@@ -8,7 +8,7 @@
  */
 
 import React, { useId, useState } from "react";
-import { CardTitleBar } from "@/components/chrome/tug-pane";
+import { CardTitleBar } from "@/components/chrome/card-title-bar";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugPopupButton } from "@/components/tugways/tug-popup-button";
 import { useResponderForm } from "@/components/tugways/use-responder-form";

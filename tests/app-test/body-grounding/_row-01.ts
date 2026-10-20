@@ -49,6 +49,7 @@ import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, pollFor, r
 import { armPlaceholderSampler, landedFrom, openKind, placeholderAt, readPlaceholderSampler } from "./_kind-bodies";
 import { planDiag } from "./_motion";
 import type { CardKind } from "./_kinds";
+import { chromeInBody } from "../../../tugdeck/src/lib/chrome-placement";
 
 const TEST_NAME = "body-grounding-row-01-arrival";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -101,6 +102,7 @@ interface Rect {
 }
 
 const placeholderRect = (app: App, cardId: string): Promise<Rect | null> =>
+  // card-dom: shell — the placeholder is the shell's.
   app.evalJS<Rect | null>(
     `(function () {
       var el = document.querySelector('[data-body-placeholder][data-card-id="${cardId}"]');
@@ -310,7 +312,11 @@ export async function arrivalOfKind(launch: Launch, kind: CardKind): Promise<voi
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === null && b.state === "connected"), BODY_READY_MS);
-    const arrival = await arriveOpened(app, kind.componentId, kind.componentId, () => openKind(app, kind));
+    // A card that draws its own chrome carries its lid in its own page and
+    // arrives whole under its pane's arrive beat, as a Session card does: it
+    // is read from the landing, where no shell lid stands over the rect.
+    const from = chromeInBody(kind.componentId) ? "landing" : "hand-off";
+    const arrival = await arriveOpened(app, kind.componentId, kind.componentId, () => openKind(app, kind), from);
     judge(kind.componentId, arrival, floorMeasure(kind.rail));
   } finally {
     await app.close();

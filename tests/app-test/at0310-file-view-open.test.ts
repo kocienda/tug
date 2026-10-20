@@ -46,7 +46,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { deflateSync } from "node:zlib";
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { kindBody, waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -69,15 +69,12 @@ const IMAGE_HEIGHT = 32;
 /**
  * A masthead line on the pane hosting the viewer card.
  *
- * Pane-scoped by construction rather than by id: the card is opened by
- * `open-file`, so its pane is whichever one the deck minted. The masthead
- * lives in the PANE's title bar, which is the shell's — the card itself is
- * its own body — so the pane is found from the deck's state: the one whose
- * cards include the file-view card.
+ * The masthead lives in the pane's title bar, which the viewer draws in its
+ * own page beside the card, so it is read there (`page` is the viewer's
+ * body) inside the page's one pane.
  */
-async function mastheadLine(app: App, testid: string): Promise<string | null> {
-  // card-dom: shell — the masthead is the pane's title bar, drawn by the shell.
-  return app.evalJS<string | null>(
+async function mastheadLine(page: BodyApp, testid: string): Promise<string | null> {
+  return page.evalJS<string | null>(
     `(() => {
        const pane = ${VIEWER_PANE};
        const el = pane === null
@@ -89,9 +86,8 @@ async function mastheadLine(app: App, testid: string): Promise<string | null> {
 }
 
 /** The title bar's tier, less the 1px divider that sits below it. */
-async function paneTier(app: App): Promise<number> {
-  // card-dom: shell — the title bar is the pane's, drawn by the shell.
-  return app.evalJS<number>(
+async function paneTier(page: BodyApp): Promise<number> {
+  return page.evalJS<number>(
     `(() => {
        const bar = ${VIEWER_PANE}.querySelector(".tug-pane-title-bar");
        const border = parseFloat(getComputedStyle(bar).borderBottomWidth) || 0;
@@ -101,19 +97,13 @@ async function paneTier(app: App): Promise<number> {
 }
 
 /**
- * Expression, in the shell: the `.tug-pane` holding the deck's file-view
- * card, or null. Read from the deck's state rather than from the card's DOM,
- * which is in the card's own body.
+ * Expression, in the viewer's page: the pane it draws, or null.
  */
-const VIEWER_PANE = `(function () {
-  var deck = window.tugdeck.diag.getDeckState();
-  var card = deck.cards.find(function (c) { return c.componentId === "file-view"; });
-  var pane = card === undefined ? undefined : deck.panes.find(function (p) { return p.cardIds.indexOf(card.id) >= 0; });
-  return pane === undefined ? null : document.querySelector('.tug-pane[data-pane-id="' + CSS.escape(pane.id) + '"]');
-})()`;
+const VIEWER_PANE = `document.querySelector(".body-chrome-frame")`;
 
 /** The deck's one file-view card id, read from the deck's state in the shell. */
 async function viewerCardId(app: App): Promise<string> {
+  // card-dom: shell — the deck's card list is the shell's.
   return app.evalJS<string>(
     `window.tugdeck.diag.getDeckState().cards.find(
       (c) => c.componentId === "file-view",
@@ -247,6 +237,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
       try {
         // ---- The image routes to a viewer card, not a Text card.
         await app.dispatchControlAction("open-file", { path: file });
+        // card-dom: shell — the deck's card list is the shell's.
         await app.waitForCondition<boolean>(
           `${countByComponent("file-view")} === 1`,
           { timeoutMs: 15_000 },
@@ -282,12 +273,12 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // already displayed, the full path it is bound to, and a kind label
         // composed from the classifier's coarse answer plus the extension —
         // "image" is not what a reader calls a PNG.
-        expect(await paneTier(app)).toBeCloseTo(72, 0);
-        expect(await mastheadLine(app, "card-masthead-title")).toBe("gradient.png");
-        expect(await mastheadLine(app, "card-masthead-description")).toContain(
+        expect(await paneTier(viewer)).toBeCloseTo(72, 0);
+        expect(await mastheadLine(viewer, "card-masthead-title")).toBe("gradient.png");
+        expect(await mastheadLine(viewer, "card-masthead-description")).toContain(
           "gradient.png",
         );
-        expect(await mastheadLine(app, "card-masthead-detail")).toBe("PNG image");
+        expect(await mastheadLine(viewer, "card-masthead-detail")).toBe("PNG image");
 
         // ---- …and the path truncates in the MIDDLE.
         //
@@ -303,13 +294,12 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // measured at its natural width, then again capped narrow — the same
         // constraint a narrower pane imposes, since the cap is on the run's
         // own box — and restored.
-        const truncation = await app.evalJS<{
+        const truncation = await viewer.evalJS<{
           head: string;
           tail: string;
           natural: { headClipped: boolean; tailWhole: boolean; withinLine: boolean };
           squeezed: { headClipped: boolean; tailWhole: boolean; withinLine: boolean };
         }>(
-          // card-dom: shell — the masthead path is the pane's, drawn by the shell.
           `(() => {
            const pane = ${VIEWER_PANE};
            const path = pane.querySelector('[data-testid="card-masthead-description"]');
@@ -356,8 +346,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // button. Membership is the card's to publish; the control's label
         // and enablement are the command table's.
         expect(
-          // card-dom: shell — title-bar items are the pane's, drawn by the shell.
-          await app.evalJS<number>(
+          await viewer.evalJS<number>(
             `document.querySelectorAll(
                '[data-testid="tug-pane-title-bar-item-reveal-card-file"]').length`,
           ),
@@ -365,6 +354,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
 
         // ---- Opening the same path again fronts that card, never a second.
         await app.dispatchControlAction("open-file", { path: file });
+        // card-dom: shell — the deck's card list is the shell's.
         expect(await app.evalJS<number>(countByComponent("file-view"))).toBe(1);
         expect(await app.getActiveCardId()).toBe(viewerId);
 
@@ -398,6 +388,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         await kindBody(app, "cards").evalJS<null>(
           `(document.querySelector('${ROW_CLOSE}').click(), null)`,
         );
+        // card-dom: shell — the deck's card list is the shell's.
         await app.waitForCondition<boolean>(
           `${countByComponent("file-view")} === 0`,
           { timeoutMs: 8_000 },
@@ -424,6 +415,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
       });
       try {
         await app.dispatchControlAction("open-file", { path: file });
+        // card-dom: shell — the deck's card list is the shell's.
         await app.waitForCondition<boolean>(
           `${countByComponent("file-view")} === 1`,
           { timeoutMs: 15_000 },
@@ -441,6 +433,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // publishes and a viewer regression would show up here first. The
         // fetch parks its result on a global: `evalJS` marshals values, not
         // promises, so the await happens on this side as a poll.
+        // card-dom: shell — the blob route is fetched from the shell's page.
         await app.evalJS<null>(
           `(window.__at0310Probe = null,
             fetch(${JSON.stringify(blobHref)}).then(function (r) {
@@ -488,9 +481,8 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // equality-guarded `set`. Waited for rather than read, because the
         // count arrives after the tier does — which is the point of [P11]:
         // the height was already 72 before this line had anything to say.
-        expect(await paneTier(app)).toBeCloseTo(72, 0);
-        // card-dom: shell — the masthead is the pane's title bar, drawn by the shell.
-        await app.waitForCondition<boolean>(
+        expect(await paneTier(viewer)).toBeCloseTo(72, 0);
+        await viewer.waitForCondition<boolean>(
           `(() => {
              const pane = ${VIEWER_PANE};
              const el = pane === null
@@ -500,7 +492,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
            })()`,
           { timeoutMs: 15_000 },
         );
-        expect(await mastheadLine(app, "card-masthead-title")).toBe("two-pages.pdf");
+        expect(await mastheadLine(viewer, "card-masthead-title")).toBe("two-pages.pdf");
 
         // pdf.js's text layer is what makes the rendering selectable rather
         // than a picture of a document. Selecting across its spans and

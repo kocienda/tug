@@ -109,7 +109,9 @@ const TEST_TIMEOUT_MS = 120_000;
 // UUID-shaped so the bound session reads as a real one.
 const SID = "a7c0d1ea-0000-4000-8000-000000000561";
 
-const PANE = '.tug-pane[data-pane-id="p1"]';
+// The masthead is pane chrome, which a Session card draws in its own page;
+// the page holds that one pane, and its feeds and bubbles are the page's.
+const PANE = ".body-chrome-frame";
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 /** The ACCOUNT run — the narration line, which the post takes during a turn. */
 const LINE = `${PANE} .session-masthead-row [data-slot="tug-activity-line-activity"]`;
@@ -263,18 +265,18 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 30_000 },
           );
           await app.bindSession("A", { tugSessionId: SID, projectDir });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MASTHEAD)}) !== null`,
             { timeoutMs: 20_000 },
           );
 
           // A turn in flight, then the post that takes the account run.
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishDigestFrame(${JSON.stringify(
               digestFrame(BEAT_TEXT, 1, "tool"),
             )})`,
           );
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(
               observerPost(POST_BODY, 1),
             )})`,
@@ -284,7 +286,7 @@ describe.skipIf(!SHOULD_RUN)(
           //    the host a beat after the ink is painted, so the wait is for the
           //    CONFIRMED mark rather than merely for the line to carry the
           //    sentence.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
                var el = document.querySelector(${JSON.stringify(LINE_REF)});
                return el !== null && el.getAttribute('data-path') === ${JSON.stringify(filePath)};
@@ -292,7 +294,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20_000 },
           );
           const ref = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector(${JSON.stringify(LINE_REF)});
               var line = document.querySelector(${JSON.stringify(LINE)});
               return {
@@ -330,7 +332,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Hover the run. Its `pointermove` bubbles to the account run's
           // own tooltip trigger too, arming both open timers in one tick.
-          await app.evalJS<null>(
+          await app.body("A").evalJS<null>(
             `(function () {
               var host = document.querySelector(${JSON.stringify(LINE_REF)});
               // The portal put the run's words back inside a span of its own,
@@ -346,11 +348,11 @@ describe.skipIf(!SHOULD_RUN)(
           // 2. One bubble, and it is the run's — the specificity rule, met
           //    here rather than built here.
           expect(
-            await app.evalJS<number>(OPEN_BUBBLES),
+            await app.body("A").evalJS<number>(OPEN_BUBBLES),
             "bubbles standing after hovering the path in the narration line",
           ).toBe(1);
           const bubble = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var host = document.querySelector(${JSON.stringify(LINE_REF)});
               var run = host.firstElementChild || host;
               var id = run.getAttribute("aria-describedby");
@@ -370,7 +372,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(bubble.text).toContain(filePath);
 
           // 3. A primary click opens what the run names.
-          await app.click(LINE_REF);
+          await app.body("A").click(LINE_REF);
           await kindBody(app, "text").waitForCondition<boolean>(
             textCardShowsJS("the-narration-target-body"),
             { timeoutMs: 20_000 },
@@ -404,7 +406,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Bound to THIS repository, where the sha below is a commit rather
           // than a hex word the resolver declines.
           await app.bindSession("A", { tugSessionId: SID, projectDir: CHECKOUT });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MASTHEAD)}) !== null`,
             { timeoutMs: 20_000 },
           );
@@ -412,12 +414,12 @@ describe.skipIf(!SHOULD_RUN)(
           // The beat carries the escapes; the post carries the sha. One frame
           // each, and the turn the beat puts in flight is what lets the post
           // take the account run.
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishDigestFrame(${JSON.stringify(
               digestFrame(ESC_BEAT, 1, "tool"),
             )})`,
           );
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(
               observerPost(COMMIT_POST, 1),
             )})`,
@@ -428,7 +430,7 @@ describe.skipIf(!SHOULD_RUN)(
           //    the portal then puts the run's own words back inside a span of
           //    its own, which is the tooltip's trigger. Waiting for that child
           //    waits for both.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
                var host = document.querySelector(${JSON.stringify(LINE_SHA)});
                return host !== null && host.firstElementChild !== null;
@@ -436,7 +438,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20_000 },
           );
           const mention = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var line = document.querySelector(${JSON.stringify(LINE)});
               var host = document.querySelector(${JSON.stringify(LINE_SHA)});
               var run = host.firstElementChild || host;
@@ -483,7 +485,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // 4b. And the hover is the commit's own bubble, exactly as the path
           //     run's is under claim 2 — the mark lost the pill, not the tip.
-          await app.evalJS<null>(
+          await app.body("A").evalJS<null>(
             `(function () {
               var host = document.querySelector(${JSON.stringify(LINE_SHA)});
               var run = host.firstElementChild || host;
@@ -494,7 +496,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(PAST_THE_DELAY_MS);
           const shaBubble = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var host = document.querySelector(${JSON.stringify(LINE_SHA)});
               var run = host.firstElementChild || host;
               var id = run.getAttribute("aria-describedby");
@@ -516,7 +518,7 @@ describe.skipIf(!SHOULD_RUN)(
           // production `resolve_sessions_ok` handler — at0368's door. A
           // citation is only a citation once the ledger has held the session;
           // the card's own binding is not that answer.
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.dispatchControlAction("resolve_sessions_ok", ${JSON.stringify(
               {
                 sessions: [
@@ -550,7 +552,7 @@ describe.skipIf(!SHOULD_RUN)(
           //     through the resting underline of the path in the sentence
           //     before it. The height reads the arithmetic claim 4 reads, on
           //     the other mark: it stands in the band, not across it.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
                var host = document.querySelector(${JSON.stringify(LINE_SESSION)});
                return host !== null && host.firstElementChild !== null;
@@ -558,7 +560,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20_000 },
           );
           const citation = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var line = document.querySelector(${JSON.stringify(LINE)});
               var host = document.querySelector(${JSON.stringify(LINE_SESSION)});
               var mark = host.querySelector('.tug-session-identity');
@@ -590,22 +592,22 @@ describe.skipIf(!SHOULD_RUN)(
           //    first — which puts the rest sentence on the account run, with
           //    no reference in it for the click to drill through — and the
           //    history the run opens is read for the line the frame became.
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishDigestFrame(${JSON.stringify(
               digestFrame("Done", 2, "turn"),
             )})`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(LINE)})?.textContent || "").trim().endsWith("Ready.")`,
             { timeoutMs: 20_000 },
           );
-          await app.click(STAGE);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(STAGE);
+          await app.body("A").waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(HISTORY_ROW)}))
               .some(function(el){ return (el.textContent || "").indexOf("cargo nextest run") !== -1; })`,
             { timeoutMs: 20_000 },
           );
-          const beat = await app.evalJS<string>(
+          const beat = await app.body("A").evalJS<string>(
             `(function(){
               var rows = Array.from(document.querySelectorAll(${JSON.stringify(HISTORY_ROW)}));
               var hit = rows.filter(function(el){

@@ -40,6 +40,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromeRect } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -127,17 +128,22 @@ async function railOffset(app: App): Promise<number> {
 }
 
 async function top(app: App, paneId: string): Promise<number> {
+  // card-dom: shell — the stand-in frame is the arrangement's model, laid out in the shell.
   return app.evalJS<number>(
     `document.querySelector('${frame(paneId)}').getBoundingClientRect().top`,
   );
 }
 
-/** The chrome's four border widths, as the browser resolves them. */
+/** The card a rail pane holds: its kind's id, upper-cased. */
+const cardOf = (paneId: string): string =>
+  (Object.keys(PANES).find((c) => PANES[c] === paneId) as string).toUpperCase();
+
+/** The chrome's four border widths, as the browser resolves them in the card's own page, which draws it. */
 async function chromeBorders(app: App, paneId: string): Promise<number[]> {
-  return app.evalJS<number[]>(
+  return app.body(cardOf(paneId)).evalJS<number[]>(
     `(function () {
       var s = getComputedStyle(
-        document.querySelector('${frame(paneId)} .tug-pane-chrome'),
+        document.querySelector('.body-chrome-frame .tug-pane-chrome'),
       );
       return [
         parseFloat(s.borderTopWidth),
@@ -149,16 +155,10 @@ async function chromeBorders(app: App, paneId: string): Promise<number[]> {
   );
 }
 
-/** Where the card's own content starts, inside the chrome's borders. */
+/** Where the card's own content starts, inside the chrome's borders, in window points. */
 async function barOrigin(app: App, paneId: string): Promise<{ x: number; y: number }> {
-  return app.evalJS<{ x: number; y: number }>(
-    `(function () {
-      var r = document
-        .querySelector('${frame(paneId)} .tug-pane-title-bar')
-        .getBoundingClientRect();
-      return { x: r.left, y: r.top };
-    })()`,
-  );
+  const r = await chromeRect(app, cardOf(paneId), ".tug-pane-title-bar");
+  return { x: r.left, y: r.top };
 }
 
 describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves nothing", () => {
@@ -183,6 +183,7 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
         // WHICH member that is follows from the members' own heights now rather
         // than from a constant, so it is read off the live frames — the deck's
         // answer to the same question the pointer would ask.
+        // card-dom: shell — the stand-in frames are the arrangement's model.
         const lastPane = await app.evalJS<string>(
           `(function () {
             var frames = Array.prototype.slice.call(
@@ -208,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
         expect(restTop, "the last member is clipped past the foot at rest").toBeGreaterThan(vh * 0.6);
 
         // ── The press. ──
-        const bar = await app.getElementBounds(`${frame(lastPane)} .tug-pane-title-bar`);
+        const bar = await chromeRect(app, cardOf(lastPane), ".tug-pane-title-bar");
         const pt = { x: Math.round(bar.x + 40), y: Math.round(bar.y + bar.height / 2) };
         await app.nativeMouseDown(pt);
         await wait(AFTER_LAND_MS);
@@ -222,19 +223,20 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
         expect(heldOffset, "and slid nothing").toBe(0);
         expect(Math.abs(heldTop - restTop), "the title bar is where the mouse pressed it").toBeLessThanOrEqual(EPSILON);
         // Sample the frame across the release so a cut and a crossing can be
-        // told apart — both land in the same place.
+        // told apart — both land in the same place. The press is the card's
+        // page's, so the shell hears no pointerup: the sampler runs from just
+        // before the release, and frames before it stand at rest, which the
+        // reading below does not count.
+        // card-dom: shell — the stand-in frame is the arrangement's model.
         await app.evalJS<boolean>(`(() => {
           window.__tops = [];
           const el = document.querySelector('${frame(lastPane)}');
-          document.addEventListener('pointerup', () => {
-            const t0 = performance.now();
-            const tick = () => {
-              window.__tops.push(el.getBoundingClientRect().top);
-              if (performance.now() - t0 < 500) requestAnimationFrame(tick);
-            };
+          const t0 = performance.now();
+          const tick = () => {
             window.__tops.push(el.getBoundingClientRect().top);
-            requestAnimationFrame(tick);
-          }, { capture: true, once: true });
+            if (performance.now() - t0 < 800) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
           return true;
         })()`);
         await app.nativeMouseUp(pt);
@@ -245,6 +247,7 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
         note(`released without travel: offset ${clickedOffset.toFixed(1)}, top ${clickedTop.toFixed(1)}`);
         expect(clickedOffset, "the click's release reveals the member").toBeGreaterThan(0);
         expect(clickedTop, "which brings it up the run").toBeLessThan(restTop - EPSILON);
+        // card-dom: shell — the stand-in frame is the arrangement's model.
         const clickedBottom = await app.evalJS<number>(
           `document.querySelector('${frame(lastPane)}').getBoundingClientRect().bottom`,
         );
@@ -282,24 +285,21 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
         note(`at rest: borders ${JSON.stringify(restBorders)}, bar origin ${restOrigin.x.toFixed(1)},${restOrigin.y.toFixed(1)}`);
         expect(restBorders[0], "a panel draws no top rule").toBe(0);
 
-        const bar = await app.getElementBounds(`${frame(paneId)} .tug-pane-title-bar`);
+        const bar = await chromeRect(app, cardOf(paneId), ".tug-pane-title-bar");
         const pt = { x: Math.round(bar.x + 40), y: Math.round(bar.y + bar.height / 2) };
         await app.nativeMouseDown(pt);
         await wait(AFTER_LAND_MS);
         const heldBorders = await chromeBorders(app, paneId);
         const heldOrigin = await barOrigin(app, paneId);
         note(`held: borders ${JSON.stringify(heldBorders)}, bar origin ${heldOrigin.x.toFixed(1)},${heldOrigin.y.toFixed(1)}`);
-        expect(
-          await app.evalJS<string | null>(
-            `document.querySelector('${frame(paneId)}').getAttribute('data-gesture')`,
-          ),
-          "the press is a gesture the frame knows about",
-        ).toBe("true");
+        // The press is the host's to carry from the card's own page, and it
+        // latches nothing until the hand travels: the stand-in is never the
+        // pointer's.
         expect(
           await app.evalJS<boolean>(
             `document.querySelector('${frame(paneId)}').hasAttribute('data-pointer-owned')`,
           ),
-          "but one that never latched",
+          "a press that never latched",
         ).toBe(false);
         expect(heldBorders, "so the panel keeps its borders under the hand").toEqual(restBorders);
         expect(Math.abs(heldOrigin.y - restOrigin.y), "and nothing in the card moved down").toBeLessThanOrEqual(SUBPIXEL);

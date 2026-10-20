@@ -43,6 +43,30 @@ final class BodyGeometryTests: XCTestCase {
         check("nothing passes through", !region.passesThrough(CGPoint(x: 300, y: 200)))
     }
 
+    func testAWholeCardAnswersByItsHitShapeAndLetsTheUngrippedApronFallThrough() {
+        // A whole card's view: the pane at (100, 100, 300, 200), outset by 6.
+        let view = CGRect(x: 94, y: 94, width: 312, height: 212)
+        let shape = CardHitShape(paneRect: view.insetBy(dx: 6, dy: 6), apron: 6, grips: [.e])
+        let behind = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let region = BodyHitRegion(visibleFrames: [view, behind], visibleShapes: [shape, nil], claim: .none)
+        // Inside the pane: the card's.
+        XCTAssertEqual(region.frameIndex(at: CGPoint(x: 200, y: 200)), 0)
+        // The gripped east apron: the card's, its grip its own page's DOM.
+        XCTAssertEqual(region.frameIndex(at: CGPoint(x: 403, y: 200)), 0)
+        // The ungripped north apron: whatever is beneath the view.
+        XCTAssertEqual(region.frameIndex(at: CGPoint(x: 200, y: 97)), 1)
+    }
+
+    func testAShellSeamOverAWholeCardIsTheShells() {
+        // A rail member's view, and the shell's seam lying across its foot.
+        let view = CGRect(x: 94, y: 94, width: 312, height: 212)
+        let shape = CardHitShape(paneRect: view.insetBy(dx: 6, dy: 6), apron: 6, grips: [.e])
+        let seam = CGRect(x: 100, y: 296, width: 300, height: 8)
+        let region = BodyHitRegion(visibleFrames: [view], visibleGrips: [[seam]], visibleShapes: [shape], claim: .none)
+        XCTAssertNil(region.frameIndex(at: CGPoint(x: 200, y: 298)), "a point on the seam is the shell's")
+        XCTAssertEqual(region.frameIndex(at: CGPoint(x: 200, y: 200)), 0, "the card keeps the rest of its pane")
+    }
+
     func testAHiddenFrameNeverPassesThrough() {
         // A hidden body is not in `visibleFrames`; that is the whole of how
         // the region knows it is hidden.

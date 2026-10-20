@@ -58,7 +58,9 @@ const PROMPT =
   "Bring the masthead's right-click menu back for a Control-click, which is " +
   "the gesture the button guard never covered";
 
-const PANE = '.tug-pane[data-pane-id="p1"]';
+// The masthead is pane chrome, which a Session card draws in its own page;
+// the page holds that one pane, and the menu rises there beside it.
+const PANE = ".body-chrome-frame";
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const TITLE = `${MASTHEAD} .session-masthead-title`;
 const DESCRIPTION = `${MASTHEAD} .tug-session-row-description`;
@@ -148,12 +150,13 @@ describe.skipIf(!SHOULD_RUN)("at0556 — the masthead under a Control-click", ()
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD)}) !== null`,
           { timeoutMs: 15_000 },
         );
         expect(await app.evalJS<boolean>(publishSession())).toBe(true);
-        await app.waitForCondition<boolean>(
+        expect(await app.body("S").evalJS<boolean>(publishSession())).toBe(true);
+        await app.body("S").waitForCondition<boolean>(
           `(function(){
              var el = document.querySelector(${JSON.stringify(DESCRIPTION)});
              return el !== null && (el.textContent || "").indexOf("Control-click") !== -1;
@@ -161,7 +164,7 @@ describe.skipIf(!SHOULD_RUN)("at0556 — the masthead under a Control-click", ()
           { timeoutMs: 10_000 },
         );
 
-        const before = await app.evalJS<{
+        const before = await app.body("S").evalJS<{
           left: number;
           top: number;
           gesture: string | null;
@@ -173,20 +176,20 @@ describe.skipIf(!SHOULD_RUN)("at0556 — the masthead under a Control-click", ()
         // is button 0 plus `ctrlKey` at the DOM — the press the old guard read
         // as a drag.
         await app.withModifiersHeld(["ctrl"], async () => {
-          await app.nativeClickAtElement(DESCRIPTION);
+          await app.body("S").nativeClickAtElement(DESCRIPTION);
         });
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
         // And nothing else answered the same press.
         expect(
-          await app.evalJS<number>(
+          await app.body("S").evalJS<number>(
             `document.querySelectorAll('.tug-menu-content').length`,
           ),
         ).toBe(1);
 
-        const rows = await app.evalJS<
+        const rows = await app.body("S").evalJS<
           ReadonlyArray<{ action: string; disabled: boolean }>
         >(menuRows());
         note("at0556 menu", JSON.stringify(rows));
@@ -203,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)("at0556 — the masthead under a Control-click", ()
         ]);
 
         // ---- …and the card did not move under it. -------------------------
-        const during = await app.evalJS<{
+        const during = await app.body("S").evalJS<{
           left: number;
           top: number;
           gesture: string | null;
@@ -216,8 +219,8 @@ describe.skipIf(!SHOULD_RUN)("at0556 — the masthead under a Control-click", ()
         // never wrote it.
         expect(during.gesture).toBe(null);
 
-        await app.evalJS<null>(closeMenu());
-        await app.waitForCondition<boolean>(
+        await app.body("S").evalJS<null>(closeMenu());
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) === null`,
           { timeoutMs: 8_000 },
         );
@@ -229,13 +232,13 @@ describe.skipIf(!SHOULD_RUN)("at0556 — the masthead under a Control-click", ()
         // the row's capture handler is what keeps one menu over this point
         // rather than the label's Cut/Copy/Paste.
         await app.withModifiersHeld(["ctrl"], async () => {
-          await app.nativeClickAtElement(TITLE);
+          await app.body("S").nativeClickAtElement(TITLE);
         });
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
-        const titleRows = await app.evalJS<
+        const titleRows = await app.body("S").evalJS<
           ReadonlyArray<{ action: string; disabled: boolean }>
         >(menuRows());
         note("at0556 title menu", JSON.stringify(titleRows));

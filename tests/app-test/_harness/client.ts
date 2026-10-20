@@ -1293,6 +1293,12 @@ export interface BodyViewSnapshot {
   state: "loading" | "connected" | "bound" | "ready" | "failed";
   /** The body's frame in shell viewport points, top-left origin. */
   frame: { x: number; y: number; width: number; height: number };
+  /**
+   * Where the container stands now: its live frame, which a card in the
+   * host's hand holds away from `frame`, or its presentation layer's read
+   * through the last plan's mapping while a plan carries it.
+   */
+  presentedFrame: { x: number; y: number; width: number; height: number };
   /** Placed visible and ready — what the user can see. */
   visible: boolean;
   /** The pane's stacking order the last placement gave it. */

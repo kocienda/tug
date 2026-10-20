@@ -1,6 +1,6 @@
 /**
  * at0738-body-placement.test.ts — a Session card whose content is a body: its
- * own web view, placed by the host under the shell's placeholder.
+ * own web view, placed by the host where the shell's pane stands.
  *
  * Part of the gate for the body path, which was one file
  * (`at0738-session-body`) and is now one file per leg, each its own launch:
@@ -10,14 +10,16 @@
  *
  * **Placement and the pointer.** Both Session cards are body cards from the
  * moment the deck holds them, unbound, and the spawn onto a stub session is
- * sent to the first card's body, which binds it. Its body's frame must equal the shell
- * placeholder's viewport rect within a point after every commit — at zoom
+ * sent to the first card's body, which binds it. A Session card draws its own
+ * pane's chrome, so its body's frame is its whole card: the shell's stand-in
+ * frame outset by the apron, within a point, after every commit — at zoom
  * 1.0, at 0.8, and after a column split, a settle, has landed (a body snaps
  * at the land). A native click inside the body's rect must reach the body —
  * its composer takes focus — and make the card the shell's first responder;
- * a click on a deck popover the shell raises over the body must reach the
- * shell instead. And a card-scoped command fired through the shell's menu
- * path (`focus-prompt`) must act in the key body.
+ * a click on a popover the shell raises over a body (a hello card's, whose
+ * chrome the shell still draws) must reach the shell instead. And a
+ * card-scoped command fired through the shell's menu path (`focus-prompt`)
+ * must act in the key body.
  *
  * @family at0738-body
  * @covers tugdeck/src/lib/body-placement.ts
@@ -64,13 +66,20 @@ const TEST_TIMEOUT_MS = 180_000;
 /** The spawned body card, and the unbound neighbour (a body too) sharing its column. */
 const BODY_CARD = "at0738-a";
 const NEIGHBOUR = "at0738-b";
+/**
+ * A card whose pane's chrome the shell still draws, in the next slot: its
+ * width popover is a surface the shell raises over a body (its own), which a
+ * Session card's no longer is — that card draws its chrome in its own page.
+ */
+const SHELL_CHROMED = "at0738-c";
 
 const twoInAColumn = {
   cards: [
     { id: BODY_CARD, componentId: "session", title: "Body", closable: true },
     { id: NEIGHBOUR, componentId: "session", title: "Neighbour", closable: true },
+    { id: SHELL_CHROMED, componentId: "hello", title: "Hello", closable: true },
   ],
-  panes: [BODY_CARD, NEIGHBOUR].map((cardId) => ({
+  panes: [BODY_CARD, NEIGHBOUR, SHELL_CHROMED].map((cardId) => ({
     id: `${cardId}-pane`,
     position: { x: 40, y: 40 },
     size: { width: 640, height: 480 },
@@ -78,20 +87,29 @@ const twoInAColumn = {
     activeCardId: cardId,
     title: "",
     acceptsFamilies: ["maker"],
-    slot: 0,
+    slot: cardId === SHELL_CHROMED ? 1 : 0,
   })),
   activePaneId: `${BODY_CARD}-pane`,
   imposition: { kind: "four-up", layout: "flow", sidebars: {} },
   hasFocus: true,
 };
 
+/**
+ * Where the body card's view should stand: its placeholder's rect, which for a
+ * card that draws its own chrome is its stand-in frame, outset by the apron —
+ * the card's view is the whole pane.
+ */
 const placeholderRect = (app: App): Promise<Rect | null> =>
+  // card-dom: shell — the placeholder is the shell's.
   app.evalJS<Rect | null>(
     `(function () {
       var el = document.querySelector('[data-body-placeholder][data-card-id="${BODY_CARD}"]');
       if (el === null) return null;
-      var r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width, height: r.height };
+      var frame = el.closest(".tug-pane");
+      var whole = frame !== null && frame.hasAttribute("data-chrome-in-body");
+      var r = (whole ? frame : el).getBoundingClientRect();
+      var a = whole ? 6 : 0;
+      return { x: r.x - a, y: r.y - a, width: r.width + 2 * a, height: r.height + 2 * a };
     })()`,
   );
 
@@ -276,10 +294,12 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         const focused = await pollFor(() => app.getFocusedCardId(), (id) => id === BODY_CARD, PLACED_MS);
         expect(focused, "the click in the body made its card the shell's first responder").toBe(BODY_CARD);
 
-        // ---- A shell popover over the body keeps the pointer ----
+        // ---- A shell popover over a body keeps the pointer ----
 
+        // The shell-chromed card's width popover, over that card's own body.
+        const shellChromed = app.body(SHELL_CHROMED);
         await app.evalJS(armMenuRecorder);
-        const bodyPane = `.tug-pane[data-pane-id="${BODY_CARD}-pane"]`;
+        const bodyPane = `.tug-pane[data-pane-id="${SHELL_CHROMED}-pane"]`;
         await app.revealPaneControls(bodyPane);
         await app.nativeClickAtElement(`${bodyPane} ${WIDTH_BUTTON}`);
         try {
@@ -298,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
             return { x: r.x, y: r.y, width: r.width, height: r.height };
           })()`,
         );
-        const frame = (await bodyOf(app))!.frame;
+        const frame = (await app.bodies()).find((b) => b.cardId === SHELL_CHROMED)!.frame;
         const left = Math.max(menu.x, frame.x);
         const top = Math.max(menu.y, frame.y);
         const right = Math.min(menu.x + menu.width, frame.x + frame.width);
@@ -306,7 +326,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         note(`width menu ${JSON.stringify(menu)} over body ${JSON.stringify(frame)}`);
         expect(right > left && bottom > top, "the width menu stands over the body").toBe(true);
         await app.evalJS(armDownRecorder);
-        await body.evalJS(armDownRecorder);
+        await shellChromed.evalJS(armDownRecorder);
         await app.nativeClick({ x: (left + right) / 2, y: (top + bottom) / 2 });
         const shellDowns = await pollFor(
           () => app.evalJS<string[]>(`(window.__at0738Downs || []).slice()`),
@@ -314,7 +334,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
           PLACED_MS,
         );
         const shellSaw = await app.evalJS<string[]>(readDowns);
-        const bodySaw = await body.evalJS<string[]>(readDowns);
+        const bodySaw = await shellChromed.evalJS<string[]>(readDowns);
         note(`popover click: shell saw ${JSON.stringify(shellSaw)}, body saw ${JSON.stringify(bodySaw)}`);
         expect(shellDowns.length, "the click on the popover reached the shell").toBeGreaterThan(0);
         expect(bodySaw, "the click on the popover never reached the body").toEqual([]);
@@ -325,6 +345,10 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
 
         // ---- A card-scoped menu command acts in the key body ----
 
+        // The width button's press made the shell-chromed card key: hand the
+        // keyboard back to the body card the command is read in.
+        await app.dispatchControlAction("focus-session-card", { cardId: BODY_CARD });
+        await pollFor(() => app.getFocusedCardId(), (id) => id === BODY_CARD, PLACED_MS);
         await body.evalJS(`(document.activeElement && document.activeElement.blur(), null)`);
         expect(await body.evalJS<boolean>(composerFocused), "the composer is blurred").toBe(false);
         expect(await app.getFocusedCardId(), "the body card is still first responder").toBe(BODY_CARD);

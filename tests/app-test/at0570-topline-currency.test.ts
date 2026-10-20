@@ -61,7 +61,9 @@ const TEST_TIMEOUT_MS = 120_000;
 // UUID-shaped so the bound session reads as a real one.
 const SID = "a7c0d1ea-0000-4000-8000-000000000570";
 
-const PANE = '.tug-pane[data-pane-id="p1"]';
+// The masthead is pane chrome, which a Session card draws in its own page;
+// the page holds that one pane, and reads its feeds there.
+const PANE = ".body-chrome-frame";
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const DESCRIPTION = `${MASTHEAD} .tug-session-row-description`;
 
@@ -131,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("AT0570: the topline answers a new ask at once", ()
           { timeoutMs: 30_000 },
         );
         await app.bindSession("A", { tugSessionId: SID, projectDir });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DESCRIPTION)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -140,31 +142,31 @@ describe.skipIf(!SHOULD_RUN)("AT0570: the topline answers a new ask at once", ()
         // written by the Observer's own wake — so the line under the name is
         // an identity line before any turn starts.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishSessionUpdated(${JSON.stringify(
               sessionUpdated({ synopsis: SYNOPSIS }),
             )})`,
           ),
         ).toBe(true);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `JSON.parse(${describedJS}).text === ${JSON.stringify(SYNOPSIS)}`,
           { timeoutMs: 20_000 },
         );
-        const atRest = JSON.parse(await app.evalJS<string>(describedJS));
+        const atRest = JSON.parse(await app.body("A").evalJS<string>(describedJS));
         note("at0570 at rest", JSON.stringify(atRest));
         expect(atRest.standIn, "a written sentence is not a stand-in").toBe(false);
 
         // 1. The ask opens the turn, and with no line written for it yet the
         //    topline reads the ask — marked, because it is a fact standing in
         //    for a sentence nobody has written.
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame(`asked: ${ASK}`, 1, "ask"))})`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `JSON.parse(${describedJS}).text.indexOf(${JSON.stringify(ASK)}) !== -1`,
           { timeoutMs: 20_000 },
         );
-        const onAsk = JSON.parse(await app.evalJS<string>(describedJS));
+        const onAsk = JSON.parse(await app.body("A").evalJS<string>(describedJS));
         note("at0570 ask standing in", JSON.stringify(onAsk));
         expect(onAsk.text, "the previous turn's sentence is gone from the line").not.toContain(
           SYNOPSIS,
@@ -174,29 +176,29 @@ describe.skipIf(!SHOULD_RUN)("AT0570: the topline answers a new ask at once", ()
         // 2. The Observer's line lands and takes the top, unmarked. Same feed
         //    as a post, told apart by its tag.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(currentLineFrame(CURRENT))})`,
           ),
         ).toBe(true);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `JSON.parse(${describedJS}).text === ${JSON.stringify(CURRENT)}`,
           { timeoutMs: 20_000 },
         );
-        const onCurrent = JSON.parse(await app.evalJS<string>(describedJS));
+        const onCurrent = JSON.parse(await app.body("A").evalJS<string>(describedJS));
         note("at0570 current line", JSON.stringify(onCurrent));
         expect(onCurrent.standIn, "a written sentence is not a stand-in").toBe(false);
 
         // 3. The turn ends and the identity line returns, untouched by any of
         //    it. This is what the split protects: a list of sessions reads the
         //    same sentence before and after a turn.
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame("Done", 2, "turn"))})`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `JSON.parse(${describedJS}).text === ${JSON.stringify(SYNOPSIS)}`,
           { timeoutMs: 20_000 },
         );
-        const afterTurn = JSON.parse(await app.evalJS<string>(describedJS));
+        const afterTurn = JSON.parse(await app.body("A").evalJS<string>(describedJS));
         note("at0570 at turn end", JSON.stringify(afterTurn));
         expect(afterTurn, "the line at turn end is the line before the turn").toEqual(atRest);
 

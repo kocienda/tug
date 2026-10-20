@@ -53,11 +53,13 @@ const SID = "at0608-session";
 /** The second binding, for the claim a rebound card makes all over again. */
 const SID2 = "at0608-session-two";
 /**
- * The masthead's tape, addressed without naming a pane — the deck holds one
- * Session card, and following it across the move is the point. A pane-scoped
- * selector would stop matching at the moment the assertion starts to matter.
+ * The masthead's tape, read in the Session card's own page, where it draws
+ * its chrome: the page holds that one pane wherever the deck puts the card,
+ * and following it across the move is the point. A selector naming the
+ * deck's pane would stop matching at the moment the assertion starts to
+ * matter.
  */
-const SPARK = `.session-masthead-row [data-slot="tug-sparkline"]`;
+const SPARK = `.body-chrome-frame .session-masthead-row [data-slot="tug-sparkline"]`;
 
 function tabSelectorFor(cardId: string): string {
   return `[data-testid="tug-tab-${cardId}"]`;
@@ -110,7 +112,7 @@ interface Reading {
 }
 
 async function readInstrument(app: App): Promise<Reading> {
-  return app.evalJS<Reading>(
+  return app.body("A").evalJS<Reading>(
     `(function () {
        var box = document.querySelector(${JSON.stringify(SPARK)});
        var canvas = box === null ? null : box.querySelector("canvas");
@@ -129,7 +131,7 @@ async function readInstrument(app: App): Promise<Reading> {
 /** Drive real units through the store, the way a working session would. */
 async function driveActivity(app: App, times: number, session = SID): Promise<void> {
   for (let i = 0; i < times; i++) {
-    await app.evalJS<boolean>(
+    await app.body("A").evalJS<boolean>(
       `window.__tug.recordActivity(${JSON.stringify(session)}, "tools", 900)`,
     );
     await new Promise<void>((r) => setTimeout(r, 120));
@@ -143,7 +145,7 @@ async function driveActivity(app: App, times: number, session = SID): Promise<vo
  * `atRest` false means a value stands somewhere in the picture.
  */
 async function waitForTicking(app: App): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function () {
        var box = document.querySelector(${JSON.stringify(SPARK)});
        if (box === null) return false;
@@ -170,7 +172,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 30_000 },
           );
           await app.bindSession("A", { tugSessionId: SID });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SPARK)}) !== null`,
             { timeoutMs: 20_000 },
           );
@@ -181,13 +183,17 @@ describe.skipIf(!SHOULD_RUN)(
           note("at0608 instrument before the move", JSON.stringify(before));
 
           // The move itself — the same path a user's tab drag commits.
-          await app.nativeDragElement(tabSelectorFor("A"), {
-            selector: tabBarSelectorFor("p2"),
-          });
+          // The card draws its own tab bar, so its tab is pressed in its own
+          // page, at window points, and dropped on the other pane's bar in
+          // the shell.
+          const view = (await app.bodies()).find((b) => b.cardId === "A")!.frame;
+          const centre = `(function (s) { var r = document.querySelector(s).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })`;
+          const tab = await app.body("A").evalJS<{ x: number; y: number }>(`${centre}(${JSON.stringify(tabSelectorFor("A"))})`);
+          // card-dom: shell — the other pane's tab bar is the shell's.
+          const bar = await app.evalJS<{ x: number; y: number }>(`${centre}(${JSON.stringify(tabBarSelectorFor("p2"))})`);
+          await app.nativeDrag({ x: view.x + tab.x, y: view.y + tab.y }, bar);
           await app.waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(tabSelectorFor("A"))})
-                ?.closest('.tug-pane[data-pane-id]')
-                ?.getAttribute('data-pane-id')) === "p2"`,
+            `window.tugdeck.diag.getDeckState().panes.some(function (p) { return p.id === "p2" && p.cardIds.indexOf("A") !== -1; })`,
             { timeoutMs: 15_000 },
           );
 

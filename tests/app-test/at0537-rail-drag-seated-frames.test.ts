@@ -47,6 +47,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { ZONE_INDICATOR_INSET_PX } from "../../tugdeck/src/lib/drop-zone-indicator";
+import { chromePoint, heldRectOf } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -70,8 +71,8 @@ const PANES: Record<string, string> = {
   dashes: "pDashes",
 };
 
-const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
-const titleBar = (paneId: string): string => `${frame(paneId)} .tug-pane-title-bar`;
+/** The card each pane holds: a rail card draws its title bar in its own page. */
+const CARD_OF: Record<string, string> = { pLayout: "L", pJots: "J", pOverview: "O", pCards: "C", pDashes: "R" };
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -142,6 +143,7 @@ function deckShape() {
 
 /** Every right-rail member's live rect, keyed by pane id. */
 async function railRects(app: App): Promise<Record<string, Rect>> {
+  // card-dom: shell — the stand-in frames are the arrangement's model, laid out in the shell.
   return app.evalJS<Record<string, Rect>>(
     `(function () {
       var out = {};
@@ -158,6 +160,7 @@ async function railRects(app: App): Promise<Record<string, Rect>> {
 
 /** The rail members' componentIds in vertical order, read off the frames. */
 function railOrderOnScreen(app: App): Promise<string[]> {
+  // card-dom: shell — the stand-in frames are the arrangement's model, laid out in the shell.
   return app.evalJS<string[]>(
     `Array.from(document.querySelectorAll('.tug-pane[data-rail-split]'))
       .sort(function (a, b) {
@@ -176,6 +179,7 @@ function railOrderInStore(app: App): Promise<string[]> {
 
 /** The drop-zone indicator's rect, or null when nothing is indicated. */
 async function indicator(app: App): Promise<Rect | null> {
+  // card-dom: shell — the drop-zone indicator is the shell canvas's.
   return app.evalJS<Rect | null>(
     `(function () {
       var el = document.querySelector(".tug-drop-zone-indicator");
@@ -241,16 +245,19 @@ describe.skipIf(!SHOULD_RUN)(
             x: Math.round(before[topPane].left + before[topPane].width / 2 - INWARD_PX),
             y: Math.round(canvas.bottom - 30),
           };
-          await app.nativeDragElementWithoutRelease(titleBar(topPane), edge);
+          await app.nativeDragWithoutRelease(await chromePoint(app, CARD_OF[topPane], ".tug-pane-title-bar"), edge);
           // Hold: the strip advances on the gesture's own clock while the hand
           // does nothing, and the engine re-enumerates on every frame it does.
           await wait(400);
 
           const drawn = await indicator(app);
           const live = await railRects(app);
+          // The card under the hand is where the host holds its view; its
+          // stand-in stays seated in the shell.
+          const held = (await heldRectOf(app, CARD_OF[topPane]))!;
           const offset = await railOffsetDrawn(app);
           note(
-            `held at the edge: strip offset ${offset.toFixed(1)}px; dragged card left ${live[topPane].left.toFixed(1)}, seated left ${live[seatedPanes[0]].left.toFixed(1)}`,
+            `held at the edge: strip offset ${offset.toFixed(1)}px; dragged card left ${held.left.toFixed(1)}, seated left ${live[seatedPanes[0]].left.toFixed(1)}`,
           );
           expect(drawn, "a zone is indicated while the hand holds").not.toBeNull();
           expect(offset, "the strip advanced under the hold").toBeGreaterThan(0);
@@ -271,7 +278,7 @@ describe.skipIf(!SHOULD_RUN)(
             "and its right edge is the seated strip's",
           ).toBeLessThanOrEqual(slack);
           expect(
-            Math.abs(drawn!.left - live[topPane].left),
+            Math.abs(drawn!.left - held.left),
             "which is nowhere near the card under the hand",
           ).toBeGreaterThan(INWARD_PX / 2);
 
@@ -293,10 +300,10 @@ describe.skipIf(!SHOULD_RUN)(
           // releasing and checking that the card landed where the outline
           // said, which is the claim that needs no tolerance at all.
           note(
-            `outline ${drawn!.top.toFixed(1)}..${drawn!.bottom.toFixed(1)} (h ${drawn!.height.toFixed(1)}) vs card h ${live[topPane].height.toFixed(1)}, run ${canvas.top.toFixed(1)}..${canvas.bottom.toFixed(1)}`,
+            `outline ${drawn!.top.toFixed(1)}..${drawn!.bottom.toFixed(1)} (h ${drawn!.height.toFixed(1)}) vs card h ${held.height.toFixed(1)}, run ${canvas.top.toFixed(1)}..${canvas.bottom.toFixed(1)}`,
           );
           expect(
-            Math.abs(drawn!.height - live[topPane].height),
+            Math.abs(drawn!.height - held.height),
             "the outline is the size of the card that would land there",
           ).toBeLessThanOrEqual(slack);
           expect(

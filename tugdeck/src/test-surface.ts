@@ -544,8 +544,14 @@ import {
  * page holds it. The list moves it in the Cards card's page and the deck's
  * verbs read it in the shell, so a test can say which page has heard it.
  * Additive; major stays `2`.
+ *
+ * `2.47.0`: `publishDigestFrame`, `recordActivity` and
+ * `sparklineInstrumentState` are on a body's surface too, over the body's own
+ * digest and activity stores and its own DOM: a Session card draws its
+ * masthead in its own page, and the masthead reads them there. Additive;
+ * major stays `2`.
  */
-export const SURFACE_VERSION = "2.46.0" as const;
+export const SURFACE_VERSION = "2.47.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -3241,35 +3247,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       };
     },
 
-    publishDigestFrame(payloadJson: string): boolean {
-      if (getDigestStore() === null) return false;
-      try {
-        _ingestDigestFrameForTest(JSON.parse(payloadJson));
-      } catch {
-        return false;
-      }
-      return true;
-    },
-
     ...pageStoreSurfaceMethods(),
-
-    recordActivity(session: string, channel: string, units: number): boolean {
-      const store = getSessionActivityStore();
-      if (store === null) return false;
-      if (!(channel in ACTIVITY_DESCRIPTORS)) return false;
-      // `Date.now()`, deliberately, and NOT `performance.now()`: the meters bin
-      // on ABSOLUTE wall-clock indices, and this has to stamp the same clock
-      // the live frame handler stamps or the units land in a bin the series
-      // never reaches — the recording would silently do nothing.
-      store.record(session, channel as ActivityChannel, units, Date.now());
-      return true;
-    },
-
-    sparklineInstrumentState(selector: string): SparklineInstrumentState | null {
-      const container = document.querySelector(selector);
-      if (container === null) return null;
-      return peekSparklineHost(container)?.state() ?? null;
-    },
 
     dictionaryLookupProbe(): DictionaryLookupProbe | null {
       const selection = window.getSelection();
@@ -3857,10 +3835,10 @@ function overviewSurfaceMethods() {
 
 /**
  * The verbs over stores every page holds a copy of, each fed from that page's
- * own connection: the changeset draft store, the session ledger's pushes,
- * a card's session store. On the shell's surface and on a body's, since a
- * card reads the copy in its own page — a frame delivered in the shell never
- * reaches a body card.
+ * own connection: the changeset draft store, the digest, the activity
+ * meters, the session ledger's pushes, a card's session store. On the
+ * shell's surface and on a body's, since a card reads the copy in its own
+ * page — a frame delivered in the shell never reaches a body card.
  */
 function pageStoreSurfaceMethods() {
   return {
@@ -3875,6 +3853,34 @@ function pageStoreSurfaceMethods() {
         return false;
       }
       return true;
+    },
+
+    publishDigestFrame(payloadJson: string): boolean {
+      if (getDigestStore() === null) return false;
+      try {
+        _ingestDigestFrameForTest(JSON.parse(payloadJson));
+      } catch {
+        return false;
+      }
+      return true;
+    },
+
+    recordActivity(session: string, channel: string, units: number): boolean {
+      const store = getSessionActivityStore();
+      if (store === null) return false;
+      if (!(channel in ACTIVITY_DESCRIPTORS)) return false;
+      // `Date.now()`, deliberately, and NOT `performance.now()`: the meters bin
+      // on ABSOLUTE wall-clock indices, and this has to stamp the same clock
+      // the live frame handler stamps or the units land in a bin the series
+      // never reaches — the recording would silently do nothing.
+      store.record(session, channel as ActivityChannel, units, Date.now());
+      return true;
+    },
+
+    sparklineInstrumentState(selector: string): SparklineInstrumentState | null {
+      const container = document.querySelector(selector);
+      if (container === null) return null;
+      return peekSparklineHost(container)?.state() ?? null;
     },
 
     publishSessionUpdated(payloadJson: string): boolean {

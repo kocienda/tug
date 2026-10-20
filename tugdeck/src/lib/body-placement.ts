@@ -15,10 +15,11 @@
  * A body shows when its body has said it is painted — its first frame of
  * real content has gone to the compositor, after `ready` — and its card is
  * shown: the active card of its pane, not arriving, in the shown workspace,
- * and not folded — unless its kind authors its own folded form (the Session
- * card's Z2 band, `ownsFoldedForm`), which it draws in its body, so that body
- * stays shown at the folded content box. Everything else posts
- * `visible: false`, and the host hides it.
+ * and not folded — unless it draws its folded form in its body: its kind
+ * authors its own (the Session card's Z2 band, `ownsFoldedForm`), or it
+ * carries its chrome, whose bar is the generic folded form. That body stays
+ * shown at the folded rect. Everything else posts `visible: false`, and the
+ * host hides it.
  *
  * **The lid.** A body is beneath the shell page, so whatever the shell paints
  * over a body's rect is what the user sees there; and until the body is on
@@ -134,6 +135,8 @@ import {
 import type { Beat, BeatOptions, BeatRow } from "../components/tugways/tug-animator";
 import { getTugTiming } from "./scale-timing";
 import { deckTrace } from "../deck-trace";
+import { CARD_APRON_PX, CHROME_IN_BODY_ATTRIBUTE, chromeInBody } from "./chrome-placement";
+import { CANVAS_BACKGROUND_ATTRIBUTE } from "./pane-frame-selectors";
 
 // ---------------------------------------------------------------------------
 // The rule
@@ -146,8 +149,11 @@ export interface BodyShownFacts {
   /** The card is its pane's active card. */
   readonly active: boolean;
   readonly folded: boolean;
-  /** The card's kind draws its own folded form, in its body. */
-  readonly ownsFoldedForm: boolean;
+  /**
+   * The card draws its folded form in its body: its kind authors its own, or
+   * the card carries its chrome and folds to the bar its page draws.
+   */
+  readonly foldsInBody: boolean;
   readonly arriving: boolean;
   /** The card's workspace is the shown one. */
   readonly layerShown: boolean;
@@ -155,7 +161,7 @@ export interface BodyShownFacts {
 
 /** Whether a body with these facts is placed visible. */
 export function bodyVisible(facts: BodyShownFacts): boolean {
-  return facts.painted && facts.active && (!facts.folded || facts.ownsFoldedForm) && !facts.arriving && facts.layerShown;
+  return facts.painted && facts.active && (!facts.folded || facts.foldsInBody) && !facts.arriving && facts.layerShown;
 }
 
 /** One body's entry in `placeBodies`: a viewport rect and whether it shows. */
@@ -170,7 +176,8 @@ export interface BodyPlacement {
    * The pane's resize handles, viewport rects grown to whole points. Each
    * lies half over the body, and in a document the handle is above the
    * content, so a point on one is the shell's: the host keeps it from the
-   * body ({@link BodyHitRegion}, `BodyGeometry.swift`).
+   * body ({@link BodyHitRegion}, `BodyGeometry.swift`). A whole card's are
+   * the shell's controls over its view instead ({@link shellControlRects}).
    */
   readonly grips: readonly Rect[];
   /**
@@ -179,6 +186,29 @@ export interface BodyPlacement {
    * one in front is in front.
    */
   readonly z: number;
+  /**
+   * The card draws its pane's chrome in its own page (`chrome-placement.ts`):
+   * the rect is its stand-in frame outset by the apron, and the host clips
+   * no corner, fills no surface, and answers a point by the card's hit shape.
+   */
+  readonly whole?: true;
+  /** An inactive card of a pane whose cards are whole: placed at the pane, hidden by opacity so it keeps painting. */
+  readonly sibling?: true;
+  /**
+   * A whole card's pane, inset within its view: the apron plus whatever the
+   * view's growth to whole points added on each side. The card's page lays
+   * its pane out at exactly these, so it stands where the stand-in does to
+   * the sub-point, whatever fraction of a point the stand-in stands on.
+   */
+  readonly insets?: CardInsets;
+}
+
+/** A whole card's pane within its view, points per side. */
+export interface CardInsets {
+  readonly top: number;
+  readonly left: number;
+  readonly bottom: number;
+  readonly right: number;
 }
 
 /** The `placeBodies` message body. */
@@ -186,6 +216,74 @@ export interface PlaceBodies {
   /** The pane's corner radius in px, which the host clips each body to. */
   readonly radius: number;
   readonly bodies: readonly BodyPlacement[];
+}
+
+/**
+ * One whole card in `placeCards`: its PANE rect (the view is that outset by
+ * the apron), whether it shows, and what the host carries it in its hand by.
+ */
+export interface CardPlacementEntry {
+  readonly cardId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly visible: boolean;
+  readonly sibling?: true;
+  readonly z: number;
+  /** The edges the arrangement lets the hand resize the pane from. */
+  readonly grips: readonly string[];
+  /** The pane holds no slot, pin or bullseye: a drag may snap it. */
+  readonly free: boolean;
+  /** The pane's resize floor, layout px. */
+  readonly min: { readonly width: number; readonly height: number };
+}
+
+/** The `placeCards` message body: the whole cards, and the canvas they stand on. */
+export interface PlaceCards {
+  readonly apron: number;
+  /** The canvas's viewport rect, which a drag clamps to; null when the shell shows none. */
+  readonly canvas: Rect | null;
+  /** The page zoom the canvas's layout is drawn at. */
+  readonly zoom: number;
+  readonly cards: readonly CardPlacementEntry[];
+}
+
+/**
+ * The whole cards of `placement`, with the facts their stand-in frames carry
+ * (`data-grips`, `data-free`, `data-min-*`, written by `TugPane`), or an
+ * empty list. Reads the frames' attributes and the canvas's rect.
+ */
+export function measureCardPlacements(placement: PlaceBodies, root: ParentNode): PlaceCards {
+  const cards: CardPlacementEntry[] = [];
+  for (const b of placement.bodies) {
+    if (b.whole !== true) continue;
+    const frame = root
+      .querySelector(`[data-body-placeholder][data-card-id="${CSS.escape(b.cardId)}"]`)
+      ?.closest<HTMLElement>(".tug-pane");
+    const pane = paneRectOf(b);
+    cards.push({
+      cardId: b.cardId,
+      ...pane,
+      visible: b.visible,
+      ...(b.sibling === true ? { sibling: true as const } : {}),
+      z: b.z,
+      grips: (frame?.dataset.grips ?? "").split(" ").filter((g) => g.length > 0),
+      free: frame?.hasAttribute("data-free") ?? false,
+      min: {
+        width: Number(frame?.dataset.minWidth ?? 0) || 0,
+        height: Number(frame?.dataset.minHeight ?? 0) || 0,
+      },
+    });
+  }
+  const canvasEl = document.querySelector<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
+  const c = canvasEl?.getBoundingClientRect();
+  return {
+    apron: CARD_APRON_PX,
+    canvas: c === undefined ? null : { x: c.x, y: c.y, width: c.width, height: c.height },
+    zoom: pageZoomStore.getFactor(),
+    cards,
+  };
 }
 
 /** Whether two placements say the same thing to the host. */
@@ -203,12 +301,36 @@ export function samePlacement(a: PlaceBodies | null, b: PlaceBodies): boolean {
       p.height !== q.height ||
       p.visible !== q.visible ||
       p.z !== q.z ||
+      p.whole !== q.whole ||
+      p.sibling !== q.sibling ||
+      !sameInsets(p.insets, q.insets) ||
       !sameRects(p.grips, q.grips)
     ) {
       return false;
     }
   }
   return true;
+}
+
+function sameInsets(a: CardInsets | undefined, b: CardInsets | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.top === b.top && a.left === b.left && a.bottom === b.bottom && a.right === b.right;
+}
+
+/** `pane`'s insets within `view`, to the thousandth of a point. */
+function insetsOf(pane: Rect, view: Rect): CardInsets {
+  const r = (n: number): number => Math.round(n * 1000) / 1000;
+  return {
+    top: r(pane.y - view.y),
+    left: r(pane.x - view.x),
+    bottom: r(view.y + view.height - (pane.y + pane.height)),
+    right: r(view.x + view.width - (pane.x + pane.width)),
+  };
+}
+
+/** A whole card's pane rect: its measured view rect, the apron taken back off. */
+function paneOfView(view: Rect): Rect {
+  return { x: view.x + CARD_APRON_PX, y: view.y + CARD_APRON_PX, width: view.width - 2 * CARD_APRON_PX, height: view.height - 2 * CARD_APRON_PX };
 }
 
 function sameRects(a: readonly Rect[], b: readonly Rect[]): boolean {
@@ -226,6 +348,24 @@ export function gripRects(frame: Element | null): Rect[] {
   for (const handle of frame.querySelectorAll(":scope > .tug-pane-resize")) {
     const r = wholePoints(handle.getBoundingClientRect());
     if (r.width > 0 && r.height > 0) out.push(r);
+  }
+  return out;
+}
+
+/**
+ * The shell's own controls standing over a whole card's view — the place
+ * seams, which stand between the members they divide and over their edges —
+ * as viewport rects grown to whole points. A whole card's grips are its own
+ * page's, but a point on a seam is the shell's, so its placement carries
+ * these as the points the host keeps for the shell.
+ */
+export function shellControlRects(view: Rect): Rect[] {
+  const out: Rect[] = [];
+  for (const seam of document.querySelectorAll(".tug-place-seam")) {
+    const r = wholePoints(seam.getBoundingClientRect());
+    if (r.width <= 0 || r.height <= 0) continue;
+    const meets = r.x < view.x + view.width && view.x < r.x + r.width && r.y < view.y + view.height && view.y < r.y + r.height;
+    if (meets) out.push(r);
   }
   return out;
 }
@@ -348,6 +488,40 @@ export function sameFloorGrid(a: FloorGrid | null, b: FloorGrid): boolean {
   );
 }
 
+/**
+ * The part of a body's rect that is its card: a whole card's view reaches
+ * the apron past its pane, where its page paints only its shadow and grips,
+ * so a pane behind it is cut at the pane rect alone — cut at the view, the
+ * back pane would show the floor through a ring around the card.
+ */
+function paneRectOf(b: BodyPlacement): Rect {
+  if (b.whole !== true) return b;
+  return { x: b.x + CARD_APRON_PX, y: b.y + CARD_APRON_PX, width: b.width - 2 * CARD_APRON_PX, height: b.height - 2 * CARD_APRON_PX };
+}
+
+function meets(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+/**
+ * Where `el`'s body stands, in viewport px before it is grown to whole points:
+ * its placeholder's rect, or, for a card whose pane is its stand-in
+ * (`chrome-placement.ts`), the stand-in frame outset by the apron. A whole
+ * card's inactive siblings stand at the same rect, which their hidden
+ * placeholders cannot say.
+ */
+function measuredRectOf(el: HTMLElement, frame: HTMLElement | null, whole: boolean): Rect {
+  const r = whole && frame !== null ? frame.getBoundingClientRect() : el.getBoundingClientRect();
+  if (!whole) return { x: r.x, y: r.y, width: r.width, height: r.height };
+  return { x: r.x - CARD_APRON_PX, y: r.y - CARD_APRON_PX, width: r.width + 2 * CARD_APRON_PX, height: r.height + 2 * CARD_APRON_PX };
+}
+
+/** Whether `cardId`'s body is a whole card in `frame`: the frame is a stand-in and the card's kind draws its chrome. */
+function isWhole(deck: IDeckManagerStore, frame: HTMLElement | null, cardId: string): boolean {
+  if (frame === null || !frame.hasAttribute(CHROME_IN_BODY_ATTRIBUTE)) return false;
+  return chromeInBody(deck.getSnapshot().cards.find((c) => c.id === cardId)?.componentId);
+}
+
 /** A hole a body cuts in a pane behind it, in the pane's own px. */
 export interface BodyHole {
   readonly x: number;
@@ -396,6 +570,7 @@ function evenOddClip(holes: readonly BodyHole[], x0: number, y0: number, x1: num
 export function bodyHoles(placement: PlaceBodies): BodyHole[] {
   const rects = placement.bodies
     .filter((b) => b.visible && b.width > 0 && b.height > 0)
+    .map(paneRectOf)
     .map((b) => ({ x1: b.x, y1: b.y, x2: b.x + b.width, y2: b.y + b.height }));
   if (rects.length === 0) return [];
   const xs = [...new Set(rects.flatMap((r) => [r.x1, r.x2]))].sort((a, b) => a - b);
@@ -442,10 +617,7 @@ export function paneHoles(placement: PlaceBodies, pane: PaneBox): BodyHole[] {
       b.z > pane.z &&
       b.width > 0 &&
       b.height > 0 &&
-      b.x < pane.x + pane.width &&
-      b.x + b.width > pane.x &&
-      b.y < pane.y + pane.height &&
-      b.y + b.height > pane.y,
+      meets(paneRectOf(b), pane),
   );
   return bodyHoles({ radius: placement.radius, bodies: fronts }).map((h) => ({
     x: (h.x - pane.x) / scale,
@@ -479,10 +651,15 @@ function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShownFacts |
   const spaceId = deck.spaceOf(cardId);
   const activeSpaceId = deck.getSpacesSnapshot().activeSpaceId;
   return {
-    painted: bodyCardsStore.stateOf(cardId) === "painted",
+    // A card that draws its own chrome shows at its first chrome frame, its
+    // content lidded in its own page until that has painted.
+    painted:
+      bodyCardsStore.stateOf(cardId) === "painted" || (chromeInBody(componentId) && bodyCardsStore.chromeShown(cardId)),
     active: pane.activeCardId === cardId,
     folded: cardFoldedOf(state, cardId),
-    ownsFoldedForm: componentId !== undefined && getRegistration(componentId)?.ownsFoldedForm === true,
+    foldsInBody:
+      chromeInBody(componentId) ||
+      (componentId !== undefined && getRegistration(componentId)?.ownsFoldedForm === true),
     arriving: cardArrivingOf(state, cardId),
     layerShown: spaceId === null || spaceId === activeSpaceId,
   };
@@ -511,23 +688,35 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, exa
     const cardId = el.dataset.cardId;
     if (cardId === undefined || !bodyCardsStore.has(cardId)) continue;
     const facts = shownFactsOf(deck, cardId);
-    const measured = el.getBoundingClientRect();
-    exact?.set(cardId, { x: measured.x, y: measured.y, width: measured.width, height: measured.height });
+    const frame = el.closest<HTMLElement>(".tug-pane");
+    const whole = isWhole(deck, frame, cardId);
+    const measured = measuredRectOf(el, frame, whole);
+    exact?.set(cardId, measured);
     const rect = wholePoints(measured);
     if (bodies.length === 0) radius = radiusAt(el);
-    const frame = el.closest<HTMLElement>(".tug-pane");
     const z = parseInt(getComputedStyle(frame ?? el).zIndex, 10);
+    const visible = facts !== null && bodyVisible(facts);
     bodies.push({
       cardId,
       x: rect.x,
       y: rect.y,
       width: rect.width,
       height: rect.height,
-      grips: gripRects(frame),
+      // A whole card's grips are its own page's DOM, above its content: the
+      // host keeps for the shell only the shell's own controls over it.
+      grips: whole ? shellControlRects(rect) : gripRects(frame),
       // A placeholder whose card is in no pane of the shown deck — a parked
       // workspace's card — is a body to hide and a lid to put back on.
-      visible: facts !== null && bodyVisible(facts),
+      visible,
       z: Number.isFinite(z) ? z : 0,
+      ...(whole ? { whole: true as const } : {}),
+      ...(whole ? { insets: insetsOf(paneOfView(measured), rect) } : {}),
+      // An inactive card of a whole card's pane that would show were it the
+      // active one: placed at the pane and kept painting, so a tab switch
+      // shows a page that has already drawn its new chrome.
+      ...(whole && !visible && facts !== null && !facts.active && bodyVisible({ ...facts, active: true })
+        ? { sibling: true as const }
+        : {}),
     });
   }
   return { radius, bodies: inReadingOrder(bodies) };
@@ -566,6 +755,8 @@ export function hiddenSince(
  */
 export class BodyPlacer {
   private readonly poster = new PlacementPoster((p) => postToHost("placeBodies", p));
+  /** The last `placeCards` posted, as its JSON, so a re-post that says nothing new is not sent. */
+  private lastCards: string | null = null;
   private container: HTMLElement | null = null;
   /** The last `floorGrid` posted, so a re-post that says nothing new is not sent. */
   private floorGrid: FloorGrid | null = null;
@@ -589,6 +780,8 @@ export class BodyPlacer {
   private readonly observed = new Set<Element>();
   /** Why the last measurement was declined, for {@link bodyPlacementDiag}. */
   private lastSkip: string | null = null;
+  /** Whole cards the hand dropped, to land after the next measurement that runs ({@link landAfterMeasure}). */
+  private readonly landing = new Set<string>();
   private measures = 0;
   /** The last beat plan's id; each plan takes the next. */
   private planSerial = 0;
@@ -633,6 +826,19 @@ export class BodyPlacer {
   };
 
   /**
+   * Land `cardId`'s view where its placement stands, after the next
+   * measurement that runs (`cardLand`): a card the host carried and the hand
+   * dropped. A drop that moved the card has posted its placement by then, or
+   * a settle carried it and the measurement waited for the land, so the host
+   * finds the view already home; a drop that moved nothing — home, a
+   * refusal — posts no placement at all, and this is what brings it back.
+   */
+  landAfterMeasure(cardId: string): void {
+    this.landing.add(cardId);
+    this.schedule();
+  }
+
+  /**
    * Re-post the floor and measure, once, on the far side of the next paint.
    * Coalesces. The floor is posted here rather than in {@link measure} so
    * a deck with no bodies still has one, and so the per-commit measurement
@@ -675,6 +881,9 @@ export class BodyPlacer {
     this.paneBoxes = this.readPaneBoxes(container);
     this.noteRestInsets();
     this.poster.offer(placement);
+    this.offerCards(placement, container);
+    for (const cardId of this.landing) postToHost("cardLand", { cardId });
+    this.landing.clear();
     // A measurement is the whole truth: a body it shows is no longer one a
     // pending hide may take back after the paint, and `shown` may lift its lid.
     for (const b of placement.bodies) if (b.visible) this.hiding.delete(b.cardId);
@@ -682,6 +891,20 @@ export class BodyPlacer {
     this.lidHidden(placement, container);
     this.observePlaceholders(container);
   };
+
+  /**
+   * Post `placeCards` for the whole cards of `placement` when it says
+   * something new: the gesture envelope and hit shape the host reads beside
+   * the view's rect, which `placeBodies` carries.
+   */
+  private offerCards(placement: PlaceBodies, container: HTMLElement): void {
+    const cards = measureCardPlacements(placement, container);
+    if (cards.cards.length === 0 && this.lastCards === null) return;
+    const json = JSON.stringify(cards);
+    if (json === this.lastCards) return;
+    this.lastCards = json;
+    postToHost("placeCards", cards);
+  }
 
   /** Keep each measured body's insets where it and its pane both have room ({@link restInsets}). No layout: the rects are this measurement's. */
   private noteRestInsets(): void {
@@ -765,17 +988,26 @@ export class BodyPlacer {
       if (cardId === undefined) continue;
       const i = last.bodies.findIndex((b) => b.cardId === cardId);
       if (i < 0) continue;
-      const measured = el.getBoundingClientRect();
-      this.exactRects.set(cardId, { x: measured.x, y: measured.y, width: measured.width, height: measured.height });
-      const rect = wholePoints(measured);
       const b = last.bodies[i];
+      const measured = measuredRectOf(el, frame, b.whole === true);
+      this.exactRects.set(cardId, measured);
+      const rect = wholePoints(measured);
       if (b.x === rect.x && b.y === rect.y && b.width === rect.width && b.height === rect.height) continue;
       bodies ??= [...last.bodies];
-      bodies[i] = { ...b, x: rect.x, y: rect.y, width: rect.width, height: rect.height, grips: gripRects(frame) };
+      bodies[i] = {
+        ...b,
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        grips: b.whole === true ? shellControlRects(rect) : gripRects(frame),
+        ...(b.whole === true ? { insets: insetsOf(paneOfView(measured), rect) } : {}),
+      };
     }
     if (bodies === null) return;
     const next: PlaceBodies = { radius: last.radius, bodies };
     this.poster.offer(next);
+    this.offerCards(next, container);
     const box = this.paneBoxes.get(frame);
     if (box !== undefined) {
       const rect = frame.getBoundingClientRect();
@@ -1218,6 +1450,7 @@ export class BodyPlacer {
       this.hiding.clear();
       this.container = null;
       this.floorGrid = null;
+      this.lastCards = null;
       this.floorReport = null;
       this.cancelCuts();
       for (const pane of this.paneClips.keys()) pane.style.clipPath = "";
@@ -1371,6 +1604,11 @@ let installed: BodyPlacer | null = null;
 
 function setInstalled(placer: BodyPlacer): void {
   installed = placer;
+}
+
+/** Land a dropped whole card's view after the installed placer's next measurement ({@link BodyPlacer.landAfterMeasure}). */
+export function landAfterPlacement(cardId: string): void {
+  installed?.landAfterMeasure(cardId);
 }
 
 /** The installed placer's account, or null when none is installed. Read-only. */

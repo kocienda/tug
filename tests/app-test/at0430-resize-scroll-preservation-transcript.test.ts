@@ -75,6 +75,9 @@ import {
   waitForEpisodesClosed,
 } from "./resize-scroll-preservation-fixture";
 
+/** The card's page's deck root, where its own episodes are stamped. */
+const PAGE_ROOT = "#deck-container";
+
 describe.skipIf(!SHOULD_RUN)(
   "at0430 — a width change never moves what the reader is looking at",
   () => {
@@ -159,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── Door 1: the width popup, through the FLIP settle. ────────────
           await holdsThrough("wide", async () => {
-            await chooseWidth(app, "p1", "wide");
+            await chooseWidth(app, "p1", "wide", "A");
           });
 
           // ── Door 2: bullseye in, a 400-odd pixel narrowing. ──────────────
@@ -174,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── Door 4: the popup again, the other way. ──────────────────────
           await holdsThrough("slim", async () => {
-            await chooseWidth(app, "p1", "slim");
+            await chooseWidth(app, "p1", "slim", "A");
           });
 
           // ── Door 5: a west-edge drag — the gesture the settle never sees. ─
@@ -190,20 +193,27 @@ describe.skipIf(!SHOULD_RUN)(
           // while the pre-gesture layout is still on screen, not at the move
           // latch — and that is what fails if the call is removed.
           const beforeDrag = await claimSubject(app.body("A"), SCROLLER);
-          const episodesBeforeDrag = await episodeCount(app);
-          const handle = await app.evalJS<{ x: number; y: number }>(
+          // The Session card draws its own grips, and its page holds the
+          // reader's place across their resize: the episode is raised there,
+          // on its deck root, at the press.
+          const page = app.body("A");
+          await armEpisodeWatch(page, PAGE_ROOT);
+          const episodesBeforeDrag = await episodeCount(page);
+          const view = (await app.bodies()).find((b) => b.cardId === "A")!.frame;
+          const grip = await page.evalJS<{ x: number; y: number }>(
             `(function () {
-              var h = document.querySelector(${JSON.stringify(`${FRAME} .tug-pane-resize-w`)});
+              var h = document.querySelector(".tug-pane-resize-w");
               if (h === null) throw new Error("west resize handle not found");
               var r = h.getBoundingClientRect();
               return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
             })()`,
           );
+          const handle = { x: view.x + grip.x, y: view.y + grip.y };
           // Rightward narrows the pane from its west edge, which keeps the
           // drag inside the canvas wherever the pane happens to sit.
           await app.nativeDrag(handle, { x: handle.x + 180, y: handle.y });
-          await waitForEpisodesClosed(app, FRAME);
-          expect(await episodeCount(app)).toBeGreaterThan(episodesBeforeDrag);
+          await waitForEpisodesClosed(page, PAGE_ROOT);
+          expect(await episodeCount(page)).toBeGreaterThan(episodesBeforeDrag);
           // And a gesture that changed no geometry left the reader alone.
           const afterDrag = await readSubject(app.body("A"), SCROLLER);
           expect(afterDrag).not.toBeNull();
@@ -226,7 +236,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await isAtBottom(app.body("A"), SCROLLER)).toBe(true);
 
           const episodesBeforeTail = await episodeCount(app);
-          await chooseWidth(app, "p1", "wide");
+          await chooseWidth(app, "p1", "wide", "A");
           await waitForEpisodesClosed(app, FRAME);
           expect(await episodeCount(app)).toBeGreaterThan(episodesBeforeTail);
           expect(await isAtBottom(app.body("A"), SCROLLER)).toBe(true);

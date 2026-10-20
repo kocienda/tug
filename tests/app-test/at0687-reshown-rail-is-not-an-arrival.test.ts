@@ -80,6 +80,7 @@ interface Reading {
 
 /** Hide the rails, and from inside the frame sampler show them again once the rail's left edge has slid out to `reshowAtLeft`. */
 async function toggleTwice(app: App, reshowAtLeft: number): Promise<Reading> {
+  // card-dom: shell — the stand-in frame is the arrangement's model, laid out in the shell.
   await app.evalJS<null>(
     `(function () {
       var rec = (window.__at0687 = { samples: [], reshownAt: null });
@@ -121,6 +122,7 @@ describe.skipIf(!SHOULD_RUN)("at0687 — a rail re-shown inside its depart windo
     async () => {
       const { app, tugbankPath } = await launch(4, railBlob(), TEST_NAME);
       try {
+        // card-dom: shell — the stand-in frame is the arrangement's model.
         const home = await app.evalJS<{ left: number; width: number }>(
           `(function () { var r = document.querySelector(${JSON.stringify(FRAME)}).getBoundingClientRect(); return { left: r.left, width: r.width }; })()`,
         );

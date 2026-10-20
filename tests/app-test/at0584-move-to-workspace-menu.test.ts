@@ -51,13 +51,14 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 import { seedFixtureSession } from "./fixtures/resolve";
 import { openFixtureSession, waitForTranscriptSettled } from "./fixtures/runner";
 
@@ -68,6 +69,11 @@ const HOME_SPACE = "space-home";
 const AWAY_SPACE = "space-away";
 
 const PANE_A = '.tug-pane[data-pane-id="p1"]';
+/**
+ * Card A's pane in its own page: a Session card draws its pane's chrome
+ * there, and the page holds that one pane. The Text card's is the shell's.
+ */
+const PAGE_PANE = ".body-chrome-frame";
 const MOVE_BUTTON = '[data-testid="tug-pane-title-bar-move-space-button"]';
 const MOVE_MENU = '[data-testid="tug-pane-title-bar-move-space-menu"]';
 const WIDTH_BUTTON = '[data-testid="tug-pane-title-bar-width-button"]';
@@ -158,7 +164,7 @@ const TWO_SPACE_BLOB = {
  * learns. Measuring from the pane would be measuring the badges.
  */
 async function triggerStanding(
-  app: App,
+  page: BodyApp,
   paneSelector: string,
 ): Promise<{
   disabled: boolean;
@@ -166,7 +172,7 @@ async function triggerStanding(
   leftOfWidth: boolean;
   mastheadKind: string | null;
 }> {
-  return app.evalJS(
+  return page.evalJS(
     `(function () {
       var pane = document.querySelector(${JSON.stringify(paneSelector)});
       if (pane === null) throw new Error("no pane at " + ${JSON.stringify(paneSelector)});
@@ -220,7 +226,8 @@ describe.skipIf(!SHOULD_RUN)("at0584 — Move to Workspace in the spine", () => 
         await wait(AFTER_LAND_MS);
 
         // --- The door is there, and it is live with somewhere to go. ------
-        const standing = await triggerStanding(app, PANE_A);
+        const page = app.body("A");
+        const standing = await triggerStanding(page, PAGE_PANE);
         note(
           `trigger: disabled=${standing.disabled} ` +
             `spineOffset=${standing.spineOffset.toFixed(1)} ` +
@@ -236,13 +243,13 @@ describe.skipIf(!SHOULD_RUN)("at0584 — Move to Workspace in the spine", () => 
         ).toBe(true);
 
         // --- The menu names the workspaces you are NOT in. ----------------
-        await app.revealPaneControls(PANE_A);
-        await app.nativeClickAtElement(`${PANE_A} ${MOVE_BUTTON}`);
-        await app.waitForCondition<boolean>(
+        await page.revealPaneControls(PAGE_PANE);
+        await page.nativeClickAtElement(`${PAGE_PANE} ${MOVE_BUTTON}`);
+        await page.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(MOVE_MENU)}).length > 0`,
           { timeoutMs: 5_000 },
         );
-        const labels = await app.evalJS<string[]>(
+        const labels = await page.evalJS<string[]>(
           `Array.prototype.slice.call(
              document.querySelector(${JSON.stringify(MOVE_MENU)})
                .querySelectorAll(".tug-menu-item-label")
@@ -255,7 +262,7 @@ describe.skipIf(!SHOULD_RUN)("at0584 — Move to Workspace in the spine", () => 
         ).toEqual(["Away"]);
 
         // --- Choosing one files the card and leaves the user put. ---------
-        await app.nativeClickAtElement(`${MOVE_MENU} .tug-menu-item`);
+        await page.nativeClickAtElement(`${MOVE_MENU} .tug-menu-item`);
         await app.waitForCondition<boolean>(
           `window.tugdeck.diag.listCardIds().indexOf("A") === -1`,
           { timeoutMs: 8_000 },
@@ -333,16 +340,12 @@ describe.skipIf(!SHOULD_RUN)("at0584 — Move to Workspace in the spine", () => 
         );
         await wait(AFTER_LAND_MS);
 
-        const textPane = await app.evalJS<string>(
-          `(function () {
-            var panes = Array.prototype.slice.call(
-              document.querySelectorAll('.tug-pane[data-pane-id]'));
-            var other = panes.filter(function (p) {
-              return p.getAttribute("data-pane-id") !== "p1";
-            });
-            if (other.length !== 1) throw new Error("expected one other pane, saw " + other.length);
-            return '.tug-pane[data-pane-id="' + other[0].getAttribute("data-pane-id") + '"]';
-          })()`,
+        // The Text card draws its pane's chrome in its own page, minted with
+        // the card, so it is found by kind.
+        const textPage = kindBody(app, "text");
+        await textPage.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${PAGE_PANE} ${MOVE_BUTTON}`)}) !== null`,
+          { timeoutMs: 10_000 },
         );
 
         expect(
@@ -355,11 +358,11 @@ describe.skipIf(!SHOULD_RUN)("at0584 — Move to Workspace in the spine", () => 
         // Both panes are read at rest: the row is hidden by opacity, never by
         // `display`, so every button keeps its measured box without a reveal
         // (at0468's first claim, which this leg's geometry rests on).
-        const session = await triggerStanding(app, PANE_A);
-        const text = await triggerStanding(app, textPane);
+        const session = await triggerStanding(app.body("A"), PAGE_PANE);
+        const text = await triggerStanding(textPage, PAGE_PANE);
         note(
           `session pane: masthead=${session.mastheadKind} ` +
-            `offset=${session.spineOffset.toFixed(2)} | text pane (${textPane}): ` +
+            `offset=${session.spineOffset.toFixed(2)} | text pane: ` +
             `masthead=${text.mastheadKind} offset=${text.spineOffset.toFixed(2)}`,
         );
 
@@ -390,9 +393,9 @@ describe.skipIf(!SHOULD_RUN)("at0584 — Move to Workspace in the spine", () => 
         // rather than the button, because a disabled button takes no pointer
         // events and would raise no tooltip at all ([L31]).
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `(function () {
-              var button = document.querySelector(${JSON.stringify(PANE_A)})
+              var button = document.querySelector(${JSON.stringify(PAGE_PANE)})
                 .querySelector(${JSON.stringify(MOVE_BUTTON)});
               var anchor = button.closest(".tug-pane-title-bar-tooltip-anchor");
               return anchor !== null && anchor.contains(button);

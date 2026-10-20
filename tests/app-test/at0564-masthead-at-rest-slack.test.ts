@@ -50,7 +50,11 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const SID = "at0564-session";
 const PANE_ID = "p1";
-const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
+/**
+ * Card A's pane in its own page: a Session card draws its pane's chrome,
+ * masthead and all, there, and the page holds that one pane.
+ */
+const PANE = ".body-chrome-frame";
 const CARD = '[data-card-id="A"]';
 const TITLE_BAR = `${PANE} .tug-pane-title-bar[data-masthead="true"]`;
 const DESCRIPTION = `${PANE} .session-masthead-row .tug-session-row-description`;
@@ -102,7 +106,7 @@ interface Slack {
  * the room a reader sees plus the chrome nobody reads as air.
  */
 async function readSlack(app: App): Promise<Slack> {
-  return app.evalJS(
+  return app.body("A").evalJS(
     `(function () {
       var bar = document.querySelector(${JSON.stringify(TITLE_BAR)});
       var desc = document.querySelector(${JSON.stringify(DESCRIPTION)});
@@ -133,6 +137,7 @@ async function toggleFolded(app: App, want: boolean): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
   );
+  // card-dom: shell — the pane record is the shell's deck.
   await app.waitForCondition<boolean>(
     `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === ${want}`,
     { timeoutMs: 8000 },
@@ -163,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)("AT0564: the masthead's at-rest slack", () => {
           { timeoutMs: 30_000 },
         );
         await app.bindSession("A", { tugSessionId: SID });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PULSE)}) !== null`,
           { timeoutMs: 20_000 },
         );

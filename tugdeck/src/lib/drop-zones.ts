@@ -163,6 +163,32 @@ export function hitRectOf(zone: DropZone): Rect {
   return zone.hit ?? zone.rect;
 }
 
+/**
+ * The height of a pane's title bar, by role: `--tug-chrome-height` for a
+ * content pane and `--tug-rail-chrome-height` for a rail, as every theme sets
+ * them.
+ */
+export const TITLE_BAR_HEIGHT_PX = { content: 36, sidebar: 32 } as const;
+
+/** The height of a pane's tab bar, which is `--tug-chrome-height` tall in every theme. */
+export const TAB_BAR_HEIGHT_PX = 36;
+
+/**
+ * Where a card dropped free merges into a pane: the pane's title-bar band,
+ * read from its rect alone. A drag the host tracks ends in a shell that holds
+ * no tab-bar DOM to hit-test, so the band is the pane's top edge at its
+ * title bar's height, and, on a pane of several cards (`tabbed`), its tab bar
+ * below that too: a tab is dropped on the bar it joins.
+ */
+export function mergeBandOf(paneRect: Rect, role: "content" | "sidebar", tabbed = false): Rect {
+  return {
+    x: paneRect.x,
+    y: paneRect.y,
+    width: paneRect.width,
+    height: Math.min(TITLE_BAR_HEIGHT_PX[role] + (tabbed ? TAB_BAR_HEIGHT_PX : 0), paneRect.height),
+  };
+}
+
 /** A rail's composition, in the rail's own vertical order.
  *
  *  Fed in rather than derived: a rail's membership and order come from
@@ -528,6 +554,12 @@ export interface DropZoneHost {
    * {@link DropZoneHost.enumerate} measures rather than being told.
    */
   gaugeDragFrame(frame: HTMLElement | null): void;
+  /**
+   * {@link gaugeDragFrame} for a card the host holds in hand: its pane's
+   * rect in the canvas's layout space, where no shell frame travels to be
+   * measured, and which kind of card is in the air. `null` retires the drag.
+   */
+  gaugeDragRect(rect: Rect | null, kind: "rail" | "card"): void;
   /** Commit the zone's mutation in one deck-manager call. False is a refusal
    *  the drop must make visible ([P09]) — never a quiet no-op. */
   commit(zone: DropZone, draggedPaneId: string): boolean;

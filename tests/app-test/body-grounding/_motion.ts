@@ -16,7 +16,7 @@ import { expect } from "bun:test";
 
 import { note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
-import { classifyFrame, describeFrames, FLOOR_BY_CLASS, framesDiffer, pollFor, readPalette, showsBareHole, type FloorMeasure, type FrameClasses, type Palette } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, FLOOR_BY_CLASS, framesDiffer, pollFor, readPalette, showsBareHole, type FloorMeasure, type FrameClasses, type Palette } from "./_frames";
 import { focusBody } from "./_bodies";
 
 export interface Rect {
@@ -31,6 +31,13 @@ export interface Sample {
   frame: Rect;
   /** Null while the card has no placeholder — a folded card's content box is not rendered. */
   placeholder: Rect | null;
+  /**
+   * Where the host's container should stand: the placeholder, or a whole
+   * card's view — its stand-in frame outset by the apron. Null as above.
+   */
+  view: Rect | null;
+  /** The card draws its own chrome: its pane is a stand-in, and its view the whole card. */
+  whole: boolean;
   /** The canvas wears `data-imposer-settling`: a settle is running. */
   settling: boolean;
   /** The placeholder wears `data-body-shown`: the lid is lifted. */
@@ -52,6 +59,52 @@ const CANVAS = "[data-deck-canvas-background]";
 /** The pane holding `cardId`, whatever its pane is called; a folded card's root still stands. */
 export const frameOf = (cardId: string): string => `.tug-pane:has([data-card-id="${cardId}"])`;
 export const placeholderOf = (cardId: string): string => `[data-body-placeholder][data-card-id="${cardId}"]`;
+
+/** What a card draws its chrome in its own page under: its pane is a stand-in (`lib/chrome-placement.ts`). */
+export const CHROME_IN_BODY = "data-chrome-in-body";
+/** How far a whole card's view reaches past its pane: `CARD_APRON_PX`. */
+export const CARD_APRON_PX = 6;
+
+/**
+ * The page-side expression for where `cardId`'s body view should stand: its
+ * placeholder's rect, or, for a card that draws its own chrome, its stand-in
+ * frame outset by the apron, since the card's view is the whole pane.
+ */
+const viewRectJs = (cardId: string): string => `(function () {
+  var ph = document.querySelector(${JSON.stringify(placeholderOf(cardId))});
+  if (ph === null) return null;
+  var frame = ph.closest(".tug-pane");
+  var whole = frame !== null && frame.hasAttribute(${JSON.stringify(CHROME_IN_BODY)});
+  var r = (whole ? frame : ph).getBoundingClientRect();
+  var a = whole ? ${CARD_APRON_PX} : 0;
+  return { x: r.x - a, y: r.y - a, width: r.width + 2 * a, height: r.height + 2 * a };
+})()`;
+
+/** Whether `cardId` draws its own chrome: its pane in the shell is a stand-in. */
+export const isWholeCard = (app: App, cardId: string): Promise<boolean> =>
+  app.evalJS<boolean>(
+    `(function () { var ph = document.querySelector(${JSON.stringify(placeholderOf(cardId))}); var f = ph && ph.closest(".tug-pane"); return f !== null && f.hasAttribute(${JSON.stringify(CHROME_IN_BODY)}); })()`,
+  );
+
+/** Where the host's container for `cardId` should stand, read in the shell (`viewRectJs`). */
+export const viewRectOf = (app: App, cardId: string): Promise<Rect | null> => app.evalJS<Rect | null>(viewRectJs(cardId));
+
+/**
+ * The page-side expression for the region `cardId`'s paint is judged in: its
+ * placeholder's rect, or a whole card's pane rect, which is its stand-in
+ * frame — chrome and content, without the apron, where the floor shows.
+ */
+const regionRectJs = (cardId: string): string => `(function () {
+  var ph = document.querySelector(${JSON.stringify(placeholderOf(cardId))});
+  if (ph === null) return null;
+  var frame = ph.closest(".tug-pane");
+  var whole = frame !== null && frame.hasAttribute(${JSON.stringify(CHROME_IN_BODY)});
+  var r = (whole ? frame : ph).getBoundingClientRect();
+  return { x: r.x, y: r.y, width: r.width, height: r.height };
+})()`;
+
+/** The region `cardId`'s paint is judged in, read in the shell (`regionRectJs`). */
+export const regionRectOf = (app: App, cardId: string): Promise<Rect | null> => app.evalJS<Rect | null>(regionRectJs(cardId));
 
 export const rectOf = (app: App, selector: string): Promise<Rect | null> =>
   app.evalJS<Rect | null>(
@@ -90,12 +143,16 @@ export async function armSampler(app: App, cardId: string): Promise<void> {
         if (rec.stop) return;
         var frame = document.querySelector(${JSON.stringify(frameOf(cardId))});
         var ph = document.querySelector(${JSON.stringify(placeholderOf(cardId))});
+        var view = ${viewRectJs(cardId)};
+        var region = ${regionRectJs(cardId)};
         var canvas = document.querySelector(${JSON.stringify(CANVAS)});
         if (frame !== null) {
           rec.samples.push({
             wall: Date.now(),
             frame: read(frame),
-            placeholder: ph === null ? null : read(ph),
+            placeholder: region,
+            view: view,
+            whole: frame.hasAttribute(${JSON.stringify(CHROME_IN_BODY)}),
             settling: canvas !== null && canvas.hasAttribute("data-imposer-settling"),
             shown: ph !== null && ph.hasAttribute("data-body-shown"),
           });
@@ -139,7 +196,8 @@ export async function bodyOf(app: App, cardId: string): Promise<BodyViewSnapshot
 
 /** The host's container stands on `cardId`'s placeholder, shown, with the lid lifted. */
 export async function expectAtRest(app: App, cardId: string, label: string): Promise<Rect> {
-  const placeholder = await rectOf(app, placeholderOf(cardId));
+  const placeholder = await viewRectOf(app, cardId);
+  const region = await regionRectOf(app, cardId);
   const body = await bodyOf(app, cardId);
   expect(placeholder, `${label}: the placeholder stands`).not.toBeNull();
   expect(body?.visible, `${label}: the body is placed visible`).toBe(true);
@@ -148,7 +206,7 @@ export async function expectAtRest(app: App, cardId: string, label: string): Pro
   note(`${label}: placeholder ${JSON.stringify(placeholder)}; host frame ${JSON.stringify(body!.frame)}; worst edge gap ${gap.toFixed(2)} px; lid lifted ${lifted}`);
   expect(gap, `${label}: the host's container stands on the placeholder`).toBeLessThanOrEqual(REST_TOLERANCE_PX);
   expect(lifted, `${label}: the lid is lifted`).toBe(true);
-  return placeholder!;
+  return region!;
 }
 
 /** The host's container for `cardId` is hidden, and the lid is on. */
@@ -181,7 +239,11 @@ export async function readStanding(app: App, cardId: string, placeholder: Rect, 
   const palette = await readPalette(app, probe.windowBackground, standingFrame);
   const standing = classifyFrame(standingFrame, palette);
   note(`${cardId}: palette ${JSON.stringify(palette)}; body standing: ${describeFrames([standing])}`);
-  expect(measure.own(standing), `${cardId}: the standing body fills its rect with its own paint`).toBeGreaterThan(0.95);
+  // A whole card's region is its chrome as well as its content, and its
+  // title band's tint lies inside the grid's reach, as a rail's ink does:
+  // it is read by the canvas and the bare window alone.
+  const own = (await isWholeCard(app, cardId)) ? FLOOR_BY_CANVAS : measure;
+  expect(own.own(standing), `${cardId}: the standing body fills its rect with its own paint`).toBeGreaterThan(0.95);
   return { palette, standing, scale: probe.scale, contentWidth: probe.contentWidth };
 }
 
@@ -340,16 +402,26 @@ export interface CarriedVerdict {
   trackBarPx: number;
 }
 
-/** The placeholder's rect at `wall`, linear between the shell's samples either side. */
-function placeholderAt(samples: readonly Sample[], wall: number): Rect | null {
+/** The host's presented frame read nearest before `wall`, or null before the first. */
+function presentedAt(presented: readonly Presented[], wall: number): Rect | null {
+  let found: Rect | null = null;
+  for (const p of presented) {
+    if (p.wall > wall) break;
+    found = p.frame;
+  }
+  return found;
+}
+
+/** Where the host's container should stand at `wall`, linear between the shell's samples either side. */
+function viewAt(samples: readonly Sample[], wall: number): Rect | null {
   const i = sampleIndexAt(samples, wall);
   if (i < 0) return null;
-  const a = samples[i].placeholder;
+  const a = samples[i].view;
   const next = samples[i + 1];
   if (a === null) return null;
-  if (next === undefined || next.placeholder === null || next.wall === samples[i].wall) return a;
+  if (next === undefined || next.view === null || next.wall === samples[i].wall) return a;
   const f = (wall - samples[i].wall) / (next.wall - samples[i].wall);
-  const b = next.placeholder;
+  const b = next.view;
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, width: a.width + (b.width - a.width) * f, height: a.height + (b.height - a.height) * f };
 }
 
@@ -412,7 +484,17 @@ export function judgeCarried(
     if (showsBareHole(whole)) bare += 1;
     const i = sampleIndexAt(samples, f.wall);
     if (i < 0 || samples[i].placeholder === null) continue;
-    const box = intersect(samples[i].placeholder!, crop);
+    // A whole card is judged where the host has it: its view is the card,
+    // the shell's stand-in a model the user never sees, so the question is
+    // whether the card's own paint fills the view, inset by its apron. A
+    // content box under the shell's chrome is judged where the shell has it.
+    const held = samples[i].whole ? presentedAt(presented, f.wall) : null;
+    const box = intersect(
+      held === null
+        ? samples[i].placeholder!
+        : { x: held.x + CARD_APRON_PX, y: held.y + CARD_APRON_PX, width: held.width - 2 * CARD_APRON_PX, height: held.height - 2 * CARD_APRON_PX },
+      crop,
+    );
     const region = {
       x: (box.x - crop.x + CORNER_INSET_PX) * scale,
       y: (box.y - crop.y + CORNER_INSET_PX) * scale,
@@ -439,7 +521,7 @@ export function judgeCarried(
   for (const p of presented) {
     const i = sampleIndexAt(samples, p.wall);
     if (!(moved(i) && moved(i - 1))) continue;
-    const at = placeholderAt(samples, p.wall);
+    const at = viewAt(samples, p.wall);
     if (at === null) continue;
     tracked += 1;
     worstTrackPx = Math.max(worstTrackPx, edgeGap(p.frame, at));
@@ -500,7 +582,7 @@ const REST_PX = 1;
 
 /** The container, presented and placed, stands on the placeholder to the pixel. */
 export async function expectPresentedAtRest(app: App, cardId: string, label: string): Promise<void> {
-  const placeholder = await rectOf(app, placeholderOf(cardId));
+  const placeholder = await viewRectOf(app, cardId);
   const body = (await bodyOf(app, cardId)) as (Awaited<ReturnType<typeof bodyOf>> & { presentedFrame?: Rect; beatsPlanId?: number | null }) | null;
   expect(placeholder, `${label}: the placeholder stands`).not.toBeNull();
   expect(body?.presentedFrame, `${label}: the host reports a presented frame`).toBeDefined();

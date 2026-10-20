@@ -49,12 +49,24 @@ import {
   expectHidden,
   placeholderOf,
   readSampler,
-  rectOf,
+  regionRectOf,
+  viewRectOf,
   readStanding,
   type Rect,
 } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-10-workspace";
+
+/**
+ * `cardId` at rest on its placeholder (`expectAtRest`), and where the host's
+ * view of it stands there: the placeholder, or for a card that draws its own
+ * chrome its stand-in outset by the apron. A body is judged against that
+ * place at every sample of the switch.
+ */
+async function restAt(app: App, cardId: string, label: string): Promise<Rect> {
+  await expectAtRest(app, cardId, label);
+  return (await viewRectOf(app, cardId))!;
+}
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
@@ -119,7 +131,7 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   // departing body there until the hide reaches it.
   for (const b of await app.bodies()) {
     if (b.cardId === null || !b.visible || places.has(b.cardId)) continue;
-    const at = await rectOf(app, placeholderOf(b.cardId));
+    const at = await viewRectOf(app, b.cardId);
     if (at !== null) places.set(b.cardId, at);
   }
   await armSampler(app, leg.watch);
@@ -135,13 +147,13 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   const landed = new Map<string, Rect>();
   for (const id of leg.arriving) {
     await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(placeholderOf(id))})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
-    landed.set(id, await expectAtRest(app, id, `${leg.label}: ${id} arrived`));
+    landed.set(id, await restAt(app, id, `${leg.label}: ${id} arrived`));
   }
   // A card the workspace was made with arrives too, at the place its own
   // allocation gives it now.
   for (const b of await app.bodies()) {
     if (b.cardId === null || !b.visible || landed.has(b.cardId)) continue;
-    const at = await rectOf(app, placeholderOf(b.cardId));
+    const at = await viewRectOf(app, b.cardId);
     if (at !== null) landed.set(b.cardId, at);
   }
 
@@ -205,8 +217,8 @@ export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Prom
     await Bun.sleep(400);
     const home = await app.evalJS<string>(ACTIVE_SPACE);
     const places = new Map<string, Rect>();
-    places.set(K, await expectAtRest(app, K, `${K} at home`));
-    const standing = await readStanding(app, K, places.get(K)!, floorMeasure(kind.rail));
+    places.set(K, await restAt(app, K, `${K} at home`));
+    const standing = await readStanding(app, K, (await regionRectOf(app, K))!, floorMeasure(kind.rail));
     const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
 
     await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
@@ -220,7 +232,7 @@ export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Prom
     note(`the away workspace's ${kind.componentId} card: ${K2} (${madeWith !== undefined ? "made with the workspace" : "opened there"})`);
     await standUpKind(app, kind, K2);
     await Bun.sleep(400);
-    places.set(K2, await expectAtRest(app, K2, `${K2} away`));
+    places.set(K2, await restAt(app, K2, `${K2} away`));
 
     if (leg === "home") {
       await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [K], departing: [K2], watch: K }, places, crop, standing.palette);
@@ -247,9 +259,9 @@ export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
     await Bun.sleep(400);
     const home = await app.evalJS<string>(ACTIVE_SPACE);
     const places = new Map<string, Rect>();
-    places.set(A, await expectAtRest(app, A, "A at home"));
-    places.set(B, await expectAtRest(app, B, "B at home"));
-    const standing = await readStanding(app, A, places.get(A)!);
+    places.set(A, await restAt(app, A, "A at home"));
+    places.set(B, await restAt(app, B, "B at home"));
+    const standing = await readStanding(app, A, (await regionRectOf(app, A))!);
     const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
 
     // ---- The away workspace, with a body card of its own ----
@@ -277,7 +289,7 @@ export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
     await waitForBody(app, C);
     await focusBody(app, C);
     await Bun.sleep(400);
-    places.set(C, await expectAtRest(app, C, "C away"));
+    places.set(C, await restAt(app, C, "C away"));
     note(`home ${home}: A ${JSON.stringify(places.get(A))}, B ${JSON.stringify(places.get(B))}; away ${away}: C ${JSON.stringify(places.get(C))}`);
 
     if (leg === "home") {

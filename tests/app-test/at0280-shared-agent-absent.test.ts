@@ -78,8 +78,9 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000280";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const ATOM = `${CARD} [data-slot="tug-text-editor"] img[data-atom-type]`;
-// The card's activity line lives in its pane chrome, on the masthead.
-const PANE = '.tug-pane[data-pane-id="p1"]';
+// The card's activity line lives in its pane chrome, on the masthead, which
+// a Session card draws in its own page; the page holds that one pane.
+const PANE = ".body-chrome-frame";
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const STRIP = `${MASTHEAD} .tug-activity-line`;
 const HEADLINE = `${PANE} [data-slot="tug-activity-line-headline"]`;
@@ -102,8 +103,9 @@ afterAll(() => {
   }
 });
 
-async function count(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+/** How many of `selector` the page that draws them holds. */
+async function count(page: Pick<App, "evalJS">, selector: string): Promise<number> {
+  return page.evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 }
@@ -116,7 +118,7 @@ async function count(app: App, selector: string): Promise<number> {
  * appeared on some other line, so the whole tier's ink is checked beside it.
  */
 async function mastheadText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `(document.querySelector(${JSON.stringify(MASTHEAD)})
        || { innerText: "" }).innerText`,
   );
@@ -178,11 +180,11 @@ describe.skipIf(!SHOULD_RUN)(
           // 1. The activity line is there, and there is no headline run at all
           //    — no agent means no goal was ever composed, and an absent level
           //    is now an absence rather than a word standing in for one.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(STRIP)}) !== null`,
             { timeoutMs: 20_000 },
           );
-          expect(await count(app, HEADLINE)).toBe(0);
+          expect(await count(app.body("A"), HEADLINE)).toBe(0);
           // `PULSE` is a retired word ([D186]) and never was ink ([D132]);
           // this is the guard against it coming back as a stand-in.
           expect(await mastheadText(app)).not.toContain("PULSE");
@@ -190,13 +192,13 @@ describe.skipIf(!SHOULD_RUN)(
           // 2. Two lines that open with a real PATH executable — the exact
           //    shape that would be put to the agent when one is available.
           await typeLine(app, "make test");
-          expect(await count(app, ATOM)).toBe(0);
+          expect(await count(app.body("A"), ATOM)).toBe(0);
 
           await typeLine(app, "git status", true);
-          expect(await count(app, ATOM)).toBe(0);
+          expect(await count(app.body("A"), ATOM)).toBe(0);
 
           // Still no composed goal after all that activity.
-          expect(await count(app, HEADLINE)).toBe(0);
+          expect(await count(app.body("A"), HEADLINE)).toBe(0);
           expect(await mastheadText(app)).not.toContain("PULSE");
 
           // 3. The Cards card says the same thing. The strip and the Cards row are
@@ -209,7 +211,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 10_000 },
           );
           // No goal line in the rail either, and no word standing in for one.
-          expect(await count(app, CARDS_INTENT)).toBe(0);
+          expect(await count(kindBody(app, "cards"), CARDS_INTENT)).toBe(0);
           expect(
             await kindBody(app, "cards").evalJS<string>(
               `(document.querySelector(${JSON.stringify(CARDS_ROW)})

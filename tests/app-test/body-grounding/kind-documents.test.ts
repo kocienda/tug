@@ -11,14 +11,14 @@
  *   unsaved, which the Cards rail's row says with its dot (a fact only the
  *   Text card's own page knows, relayed through the shell); ⌘S writes the
  *   file and the dot goes. Its pane's Reveal button stands enabled in the
- *   shell's title bar, answered by the body's chain.
+ *   title bar its page draws, answered by the body's chain.
  * - **File view** — the picture decodes at its natural size in its body;
- *   the gear in the shell's title bar opens the image settings sheet in the
- *   body, and Escape closes it.
+ *   the gear in the title bar its page draws opens the image settings sheet
+ *   beside it, and Escape closes it.
  * - **Diff** — the commit's files are its body's sections; a click on a
  *   section's trigger folds it.
- * - **Commit** — the shell's pane wears the commit's own subject in its
- *   masthead; a click on a path in the body's roster opens that file in a
+ * - **Commit** — its pane wears the commit's own subject in the masthead its
+ *   page draws; a click on a path in the body's roster opens that file in a
  *   new card on the shell's deck, and a second click goes back to that card.
  * - **Each** body paints the content pane's surface, read off the composite,
  *   and asked the deck for nothing only the shell answers.
@@ -39,8 +39,9 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "../_harness";
+import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { paneOf, pollFor } from "./_bodies";
+import { heldRectOf } from "../card-chrome-fixture";
 import { expectContentSurface, expectNoShellReads, standUpKind } from "./_kind-bodies";
 import { cardKind, kindPane, kindSidebars } from "./_kinds";
 
@@ -67,8 +68,8 @@ const DIFF_LABEL = ".tug-diff-document-header-label";
 const ROSTER_PATH = '[data-slot="tug-changes-list-file-ref"]';
 const ROW_TITLE = ".cards-list .cards-row-headline .tug-list-row-title";
 const UNSAVED = '[data-testid="cards-card-unsaved"]';
-const titleBarItem = (cardId: string, command: string): string =>
-  `${paneOf(cardId)} [data-testid="tug-pane-title-bar-item-${command}"]`;
+/** A title-bar item, read in the page of the card that draws its pane's chrome: the page's one pane. */
+const titleBarItem = (command: string): string => `[data-testid="tug-pane-title-bar-item-${command}"]`;
 
 const present = (selector: string): string => `document.querySelector(${JSON.stringify(selector)}) !== null`;
 const count = (selector: string): string => `document.querySelectorAll(${JSON.stringify(selector)}).length`;
@@ -90,15 +91,18 @@ const PINNED_COMMIT = "b7a4dcaed";
 /**
  * Focus `cardId` the deck's way, which brings a card the flow band holds
  * past the window's edge into view, and wait for its body to stand wholly
- * in the window, clear of the rail, before a gesture aims at it.
+ * in the window, clear of the rail, before a gesture aims at it. The card's
+ * pane is read off its view less the apron the view reaches past it by
+ * (`heldRectOf`): a card that draws its chrome stands at the window's edge
+ * with its apron past it.
  */
 async function bringIntoView(app: App, cardId: string): Promise<void> {
   await app.dispatchControlAction("focus-session-card", { cardId });
   const inView = await pollFor(
     async () => {
-      const frame = (await app.bodies()).find((b) => b.cardId === cardId)?.frame;
+      const frame = await heldRectOf(app, cardId);
       const rail = await app.evalJS<number>(`(function () { var p = document.querySelector(${JSON.stringify(paneOf(R))}); return p === null ? innerWidth : p.getBoundingClientRect().left; })()`);
-      return frame !== undefined && frame.x >= 0 && frame.x + frame.width <= rail + 1;
+      return frame !== null && frame.x >= 0 && frame.x + frame.width <= rail + 1;
     },
     (v) => v,
     READ_MS,
@@ -108,11 +112,11 @@ async function bringIntoView(app: App, cardId: string): Promise<void> {
 }
 
 /**
- * Wait until `selector`'s own centre is the shell's to hit and its box has
+ * Wait until `selector`'s own centre is its page's to hit and its box has
  * stopped moving — a title-bar cluster reflows as a body's items arrive, and
  * its neighbours stand where it is about to be — then click it.
  */
-async function clickSettled(app: App, selector: string): Promise<void> {
+async function clickSettled(app: App | BodyApp, selector: string): Promise<void> {
   const read = `(function () {
     var b = document.querySelector(${JSON.stringify(selector)}); if (b === null) return null;
     var r = b.getBoundingClientRect(); var hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
@@ -168,6 +172,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
       const picture = join(scratch, "picture.png");
       copyFileSync(PICTURE, picture);
       const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
+      // Where the file's seconds go, section by section: it runs near its budget.
+      const t0 = Date.now();
+      const mark = (section: string): void => note(`${section} at ${Date.now() - t0} ms`);
       try {
         await app.seedDeckState({
           state: deck(),
@@ -184,6 +191,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         const diff = await standUpKind(app, cardKind("diff"), D);
         const commit = await standUpKind(app, cardKind("commit"), C);
         const cards = await standUpKind(app, cardKind("cards"), R);
+        mark("all five stood up");
 
         // ── Text: its file, an edit the Cards rail sees, ⌘S to disk ─────
         const loaded = await pollFor(() => text.evalJS<string>(textOf(TEXT_EDITOR)), (t) => t.includes("alpha"), READ_MS);
@@ -196,11 +204,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         note(`cards rail rows: ${JSON.stringify(listed)}`);
         expect(listed.some((r) => r.includes("notes.md")), "the Cards rail names the Text card by its file").toBe(true);
         const reveal = await pollFor(
-          () => app.evalJS<boolean | null>(`(function () { var b = document.querySelector(${JSON.stringify(titleBarItem(T, "reveal-card-file"))}); return b === null ? null : !b.disabled; })()`),
+          () => text.evalJS<boolean | null>(`(function () { var b = document.querySelector(${JSON.stringify(titleBarItem("reveal-card-file"))}); return b === null ? null : !b.disabled; })()`),
           (v) => v === true,
           READ_MS,
         );
-        expect(reveal, "the Text card's Reveal button stands enabled in the shell's title bar").toBe(true);
+        expect(reveal, "the Text card's Reveal button stands enabled in the title bar its page draws").toBe(true);
         await text.nativeClickAtElement(TEXT_EDITOR);
         await app.nativeType("EDIT ");
         const edited = await pollFor(() => text.evalJS<string>(textOf(TEXT_EDITOR)), (t) => t.includes("EDIT"), READ_MS);
@@ -215,6 +223,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         expect(clean, "and the Cards rail's dot is gone").toBe(0);
 
         // ── File view: the picture, and the gear's sheet in the body ─────
+        mark("text done");
         await bringIntoView(app, F);
         const natural = await pollFor(
           () => file.evalJS<number>(`(function () { var i = document.querySelector(${JSON.stringify(IMAGE)}); return i === null ? 0 : i.naturalWidth; })()`),
@@ -222,24 +231,34 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
           READ_MS,
         );
         expect(natural, "the file-view body decodes the picture at its natural size").toBe(1024);
-        const gear = titleBarItem(F, "show-card-settings");
+        const gear = titleBarItem("show-card-settings");
         const gearUp = await pollFor(
-          () => app.evalJS<boolean>(`(function () { var b = document.querySelector(${JSON.stringify(gear)}); return b !== null && !b.disabled; })()`),
+          () => file.evalJS<boolean>(`(function () { var b = document.querySelector(${JSON.stringify(gear)}); return b !== null && !b.disabled; })()`),
           (v) => v,
           READ_MS,
         );
-        expect(gearUp, "the gear stands enabled in the shell's title bar, answered by the body's chain").toBe(true);
+        if (!gearUp) {
+          note(
+            "gear dark",
+            await file.evalJS<unknown>(
+              `(function () { var fr = document.querySelector("[data-first-responder]"); var a = document.activeElement; var id = fr === null ? null : fr.getAttribute("data-first-responder"); var el = id === null ? null : document.querySelector('[data-responder-id="' + id + '"]'); return { firstResponder: id, element: el === null ? null : (el.getAttribute("data-slot") || String(el.className).split(" ")[0] || el.tagName), inFrame: el !== null && el.closest(".body-chrome-frame") !== null, active: a === null ? null : String(a.className || a.tagName).split(" ")[0], gear: document.querySelector(${JSON.stringify(gear)}) !== null }; })()`,
+            ),
+          );
+          note("views", (await app.bodies()).map((b) => ({ card: b.cardId, firstResponder: b.firstResponder })));
+        }
+        expect(gearUp, "the gear stands enabled in the title bar its page draws, answered by the body's chain").toBe(true);
         // The gear rests inside the pane's rollup, revealed on a title-bar
         // hover and unhittable until then. Pin the row open first (at0416).
-        await app.revealPaneControls(paneOf(F));
-        await clickSettled(app, gear);
+        await file.revealPaneControls();
+        await clickSettled(file, gear);
         const sheet = await pollFor(() => file.evalJS<boolean>(present(IMAGE_SHEET)), (v) => v, READ_MS);
-        expect(sheet, "the gear in the shell's title bar opens the image settings sheet in the body").toBe(true);
+        expect(sheet, "the gear in the card's title bar opens the image settings sheet in its page").toBe(true);
         await app.nativeKey("Escape");
         const gone = await pollFor(() => file.evalJS<boolean>(present(IMAGE_SHEET)), (v) => !v, READ_MS);
         expect(gone, "Escape closes it").toBe(false);
 
         // ── Diff: the commit's files, and a section folds ────────────────
+        mark("file view done");
         await bringIntoView(app, D);
         const files = await pollFor(() => diff.evalJS<number>(count(DIFF_FILE)), (n) => n > 0, READ_MS);
         expect(files, "the Diff body lists the commit's files").toBeGreaterThan(0);
@@ -251,14 +270,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         note(`diff: first section ${before} → ${after}`);
         expect(after, "a click on a section's trigger toggles it").not.toBe(before);
 
-        // ── Commit: the shell's masthead, and the roster opens a file ────
+        // ── Commit: its masthead, and the roster opens a file ────────────
+        mark("diff done");
         await bringIntoView(app, C);
         const masthead = await pollFor(
-          () => app.evalJS<string>(textOf(`${paneOf(C)} [data-testid="commit-masthead-subject"]`)),
+          () => commit.evalJS<string>(textOf('[data-testid="commit-masthead-subject"]')),
           (t) => t.trim().length > 0,
           READ_MS,
         );
-        expect(masthead.trim(), "the shell's pane wears the commit's subject").toBe(subject);
+        expect(masthead.trim(), "the card's pane wears the commit's subject").toBe(subject);
         await pollFor(() => commit.evalJS<boolean>(present(ROSTER_PATH)), (v) => v, READ_MS);
         const textCards = "window.tugdeck.diag.getDeckState().cards.filter(function (c) { return c.componentId === \"text\"; }).length";
         await commit.nativeClickAtElement(ROSTER_PATH);
@@ -274,6 +294,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         expect(await app.evalJS<number>(textCards), "opening the same file again reuses its body card").toBe(2);
 
         // ── Surfaces and shell reads ─────────────────────────────────────
+        mark("commit done");
         // The Text card paints its editing well, in the shell as in its body.
         const WELL = "--tug7-surface-card-primary-normal-well-rest";
         for (const [id, share, token] of [[T, 0.5, WELL], [F, 0.2, undefined], [D, 0.3, undefined], [C, 0.3, undefined]] as const) {
@@ -281,6 +302,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
           await expectContentSurface(app, id, share, token);
         }
         for (const id of [T, F, D, C]) await expectNoShellReads(app, id);
+        mark("surfaces and shell reads done");
       } finally {
         await app.close();
         rmSync(scratch, { recursive: true, force: true });

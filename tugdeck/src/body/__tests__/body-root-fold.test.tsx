@@ -1,34 +1,44 @@
 /**
- * A body card hears its pane's fold on its own frame.
+ * A body card hears its pane's fold on the frame its page draws.
  *
  * The generic folded form (`holdFoldedBody`, `lib/folded-body.ts`) watches the
  * frame's `data-folded` to land `data-card-fold="settled"` and `inert` on the
- * card host. In the shell the pane writes it (`tug-pane.tsx`); a body's frame
- * is the body root's `.body-pane-frame`, which writes it from the shell's
- * `card.context` store (`body-root.tsx`). With motion off the fold lands at once;
+ * card host. A card that carries its chrome draws its pane in its own page,
+ * `.body-chrome-frame` (`body-chrome-frame.tsx`), and its body root writes the
+ * fold there from the shell's `card.context` store (`body-root.tsx`): the
+ * shell's pane is a stand-in that holds nothing. With motion off the fold lands at once;
  * with it on, the fold waits for the crossing the shell relays to end, which
  * `applyCrossingMirror` announces on the same frame. The unfold takes both
  * off, and hands the first responder's keyboard back to the card's content
  * once the host is no longer `inert` — the shell's hand-back cannot reach a
  * body's content.
+ * And the fold puts that keyboard on the fold glyph the page's title bar
+ * draws, the one live stop a folded card offers.
  *
  * @covers tugdeck/src/body/body-root.tsx
+ * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugdeck/src/lib/folded-body.ts
+ * @covers tugdeck/src/components/chrome/card-fold-glyph.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import React from "react";
 import type { CardContextValue } from "../../bus/declarations/card";
 import { installJsdom, settle } from "../../__tests__/jsdom-deck";
+import { createTestBus, type TestBus } from "../../bus/test-bus";
 
 const substrate = installJsdom();
 const { container, win } = substrate;
 
-const COMPONENT = "body-fold-probe";
+// A document kind, which carries its chrome: the probe stands in its
+// registration for the length of the file, and the kind's own is put back.
+const COMPONENT = "commit";
 const CARD = "c-body-fold";
 
 let bridge: import("../body-deck-bridge").BodyDeckBridge;
 let unmount: () => void = () => {};
+let restoreRegistration: () => void = () => {};
+let testBus: TestBus;
 let applyCrossingMirror: typeof import("../../lib/fold-crossing").applyCrossingMirror;
 let getFocusManager: typeof import("../../components/tugways/focus-manager").getFocusManager;
 
@@ -43,7 +53,7 @@ function context(over: Partial<CardContextValue> = {}): CardContextValue {
   };
 }
 
-const frame = (): HTMLElement => container.querySelector<HTMLElement>(".body-pane-frame")!;
+const frame = (): HTMLElement => container.querySelector<HTMLElement>(".body-chrome-frame")!;
 const host = (): HTMLElement =>
   container.querySelector<HTMLElement>(`[data-card-host][data-card-id="${CARD}"]`)!;
 const landed = (): { fold: string | null; inert: boolean } => ({
@@ -52,7 +62,7 @@ const landed = (): { fold: string | null; inert: boolean } => ({
 });
 
 beforeAll(async () => {
-  const { registerCard } = await import("../../card-registry");
+  const { registerCard, getRegistration } = await import("../../card-registry");
   const { BodyDeckBridge } = await import("../body-deck-bridge");
   const { renderBodyRoot } = await import("../body-root");
   const { AppLifecycle } = await import("../../lib/app-lifecycle");
@@ -64,6 +74,10 @@ beforeAll(async () => {
   ({ applyCrossingMirror } = await import("../../lib/fold-crossing"));
   ({ getFocusManager } = await import("../../components/tugways/focus-manager"));
 
+  const kind = getRegistration(COMPONENT);
+  restoreRegistration = () => {
+    if (kind !== undefined) registerCard(kind);
+  };
   registerCard({
     componentId: COMPONENT,
     contentFactory: () => <div data-probe="fold">probe</div>,
@@ -74,6 +88,10 @@ beforeAll(async () => {
     componentId: COMPONENT,
     putCardState: () => Promise.resolve(true),
   });
+  // The chrome frame reads its pane's facts off this page's bus.
+  testBus = createTestBus();
+  testBus.shell();
+  testBus.install(testBus.body(CARD, COMPONENT));
   const root = createRoot(container);
   root.render(
     renderBodyRoot({
@@ -92,14 +110,17 @@ beforeAll(async () => {
 
 afterAll(async () => {
   unmount();
+  restoreRegistration();
+  testBus.dispose();
   win.document.documentElement.style.removeProperty("--tug-motion");
   await settle();
   substrate.restore();
 });
 
 describe("a body card's fold", () => {
-  test("the open card's frame and host carry no fold", () => {
+  test("the open card's chrome frame and host carry no fold", () => {
     expect(host()).not.toBeNull();
+    expect(container.querySelector(".body-pane-frame")).toBeNull();
     expect(frame().hasAttribute("data-folded")).toBe(false);
     expect(landed()).toEqual({ fold: null, inert: false });
   });
@@ -161,6 +182,27 @@ describe("a body card's fold", () => {
       expect(adopted).toHaveLength(1);
     } finally {
       manager.adoptKeyCard = original as typeof manager.adoptKeyCard;
+    }
+  });
+
+  test("the fold puts the first responder's keyboard on the glyph its page draws", async () => {
+    win.document.documentElement.style.setProperty("--tug-motion", "0");
+    const { CARD_FOLD_FOCUS_KEY } = await import("../../components/chrome/card-fold-glyph");
+    const manager = getFocusManager()!;
+    const placed: unknown[] = [];
+    const original = manager.place.bind(manager);
+    manager.place = ((cardId: string, target: unknown, opts: unknown) => {
+      placed.push({ cardId, target });
+      return original(cardId, target as never, opts as never);
+    }) as typeof manager.place;
+    try {
+      bridge.applyContext(context({ folded: true }));
+      await settle();
+      expect(placed).toContainEqual({ cardId: CARD, target: { kind: "focus-key", focusKey: CARD_FOLD_FOCUS_KEY } });
+      bridge.applyContext(context());
+      await settle();
+    } finally {
+      manager.place = original as typeof manager.place;
     }
   });
 });

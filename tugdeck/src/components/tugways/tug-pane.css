@@ -2308,3 +2308,43 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
 .tug-place-seam[data-gesture]::before {
   opacity: 1;
 }
+
+/* ============================================================================
+   Stand-in — a pane whose active card draws the chrome in its own page
+   ========================================================================= */
+
+/* The card's page draws the title bar, the tab bar, the grips, the border and
+   the shadow, inset by the apron, and the host moves that view whole
+   (`lib/chrome-placement.ts`). The shell's frame stays laid out as the
+   arrangement's model — the imposer, the drop zones and the settle read it —
+   and paints nothing, so no frame of the card the user sees is the shell's.
+   The content element fills the frame, and the body's placeholder in it is
+   the frame's own rect, which the placer outsets by the apron. No lid: the
+   page lids its own content until it has painted. */
+.tug-pane[data-chrome-in-body] {
+  background: none;
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.tug-pane[data-chrome-in-body]::after,
+.tug-pane[data-chrome-in-body] > .tug-pane-chrome::before,
+.tug-pane[data-chrome-in-body] > .tug-pane-chrome::after {
+  display: none;
+}
+
+.tug-pane[data-chrome-in-body] > .tug-pane-chrome {
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+.tug-pane[data-chrome-in-body] > .tug-pane-chrome > .tug-pane-content {
+  position: absolute;
+  inset: 0;
+}
+
+.tug-pane[data-chrome-in-body] [data-body-placeholder]::before {
+  display: none;
+}

@@ -88,7 +88,6 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000559";
 const ARC = "at0559-folded";
 
 const PANE_ID = "p1";
-const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 const CARD = '[data-card-id="A"]';
 /** The shade — its presence in the DOM IS the reveal, and its absence is claim 1. */
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
@@ -104,7 +103,8 @@ const ARC_VALUE = `${STATUS_BAR} [data-slot="session-telemetry-arc-value"]`;
  * that is `{ role: success, state: running }`, so that pair is the dot saying
  * Ready.
  */
-const DOT = `${PANE} .session-masthead-row .tug-session-row-dot [data-slot="tug-progress-indicator"]`;
+/** The masthead's dot, in the card's own page, where it draws its chrome. */
+const DOT = `.body-chrome-frame .session-masthead-row .tug-session-row-dot [data-slot="tug-progress-indicator"]`;
 const DOT_SAYS_READY = `(function () {
   var el = document.querySelector(${JSON.stringify(DOT)});
   return el !== null && el.getAttribute("data-role") === "success" && el.getAttribute("data-state") === "running";
@@ -359,14 +359,14 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // ── The folded form announces ────────────────────────────────────
         // Waited on rather than merely asserted: this is the arc reaching
         // ready, which is also the moment a reveal would have fired.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           DOT_SAYS_READY,
           { timeoutMs: 240000 },
         );
 
         // The dot is the one green on the session's mark, and it breathes:
         // a live wait on a person, not a settled session ([B03]).
-        const dotVisual = await app.evalJS<{ role: string | null; state: string | null }>(
+        const dotVisual = await app.body("A").evalJS<{ role: string | null; state: string | null }>(
           `(function () {
              var el = document.querySelector(${JSON.stringify(DOT)});
              return {

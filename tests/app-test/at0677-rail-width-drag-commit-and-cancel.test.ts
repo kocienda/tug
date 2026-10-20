@@ -26,12 +26,11 @@
  *     The listeners are read through theirs: a `pointerup` arriving after the
  *     cancel finds nobody listening and commits nothing.
  *
- * The lost capture is the platform's own: the frame holding the capture is
- * asked to release it with the pointer id the press arrived on, which fires
- * `lostpointercapture` at it. WebKit may deliver that event only with the
- * next pointer event, and a held drag posts none, so when the release has not
- * delivered it the test dispatches the one event the platform owes — exactly
- * once, at the element that held the capture.
+ * The rail card draws its edge grip in its own page, and the host carries
+ * the press (`cardGesture` of kind `rail`) while the shell's draft moves the
+ * rail. So the pointer is lost the way the host loses one: the window
+ * resigns key, the host cancels its gesture, and the shell gives the draft
+ * back.
  *
  * The gesture's own code lives in `tug-pane.tsx`, `deck-canvas.tsx` and
  * `deck-manager.ts`, which are named by none of the lines below: each already
@@ -44,11 +43,13 @@
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
  * @covers tugdeck/src/lib/rail-width.ts
+ * @covers tugdeck/src/lib/rail-edge-registry.ts
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromePoint } from "./card-chrome-fixture";
 import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -73,7 +74,6 @@ const PANE_OF: Record<(typeof MEMBERS)[number], string> = {
 /** The member whose edge the hand drags: the middle one, so neither the
  *  first nor the last member stands in for "the rail". */
 const DRAGGED = "pJots";
-const HANDLE = `.tug-pane[data-pane-id="${DRAGGED}"] .tug-pane-resize-e`;
 
 const frame = (paneId: string): string =>
   `.tug-pane[data-pane-id="${paneId}"]`;
@@ -209,12 +209,8 @@ function expectEveryMember(
 
 /** The centre of the dragged member's deck-facing handle. */
 function grip(app: App): Promise<{ x: number; y: number }> {
-  return app.evalJS<{ x: number; y: number }>(
-    `(function () {
-      var r = document.querySelector(${JSON.stringify(HANDLE)}).getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    })()`,
-  );
+  // The rail card draws its edge grip in its own page.
+  return chromePoint(app, "J", ".tug-pane-resize-e");
 }
 
 function count(app: App, selector: string): Promise<number> {
@@ -285,7 +281,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "a drag whose pointer capture is lost releases everything it took",
+      "a drag whose window loses the mouse releases everything it took",
       async () => {
         const app = await launchTugApp({ testName: "at0677-rail-width-cancel" });
         try {
@@ -293,14 +289,6 @@ describe.skipIf(!SHOULD_RUN)(
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(frame("pBuried"))}).getAttribute("data-occluded") === "true"`,
             { timeoutMs: 5_000 },
-          );
-
-          // The press's pointer id, caught on its way down, so the release
-          // below names the capture the gesture actually took.
-          await app.evalJS<null>(
-            `(window.addEventListener("pointerdown", function (e) {
-               window.__at0677PointerId = e.pointerId;
-             }, { capture: true, once: true }), null)`,
           );
 
           const from = await grip(app);
@@ -323,33 +311,15 @@ describe.skipIf(!SHOULD_RUN)(
             "the gesture's bracket reveals every pane",
           ).not.toBe("true");
 
-          // ── The moment: the capture is lost. ─────────────────────────────
-          const delivery = await app.evalJS<string>(
-            `(function () {
-              var id = window.__at0677PointerId;
-              if (typeof id !== "number") return "no-pointer-id";
-              var holder = null;
-              document.querySelectorAll(".tug-pane, .tug-pane *").forEach(function (el) {
-                if (holder === null && el.hasPointerCapture(id)) holder = el;
-              });
-              if (holder === null) return "no-capture";
-              var delivered = false;
-              var mark = function () { delivered = true; };
-              holder.addEventListener("lostpointercapture", mark);
-              holder.releasePointerCapture(id);
-              holder.removeEventListener("lostpointercapture", mark);
-              if (delivered) return "platform";
-              holder.dispatchEvent(new PointerEvent("lostpointercapture", {
-                pointerId: id,
-                pointerType: "mouse",
-                isPrimary: true,
-                bubbles: true,
-              }));
-              return "dispatched";
-            })()`,
-          );
-          note(`lostpointercapture delivery: ${delivery}`);
-          expect(["platform", "dispatched"]).toContain(delivery);
+          // ── The moment: the window loses the mouse. ──────────────────────
+          // The press is the card's page's and the host carries the pointer,
+          // so what takes it away is the window resigning key — here, the app
+          // hidden: the host cancels the gesture there, and the shell's draft
+          // is given back.
+          await app.simulateAppHide({ timeoutMs: 5_000 });
+          // Shown again before anything is read: a hidden window paints no
+          // frames, and the deck's quiet below waits on them.
+          await app.simulateAppUnhide({ timeoutMs: 5_000 });
           await wait(FRAMES_MS);
 
           expect(
@@ -373,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 5_000 },
           );
 
-          // The listeners are gone: a release arriving now commits nothing.
+          // The gesture is gone: a release arriving now commits nothing.
           await app.nativeMouseUp({ x: from.x - NARROW_PX, y: from.y });
           await wait(AFTER_LAND_MS);
           expectEveryMember(await storedWidths(app), RAIL_WIDTH, "after release");

@@ -17,8 +17,10 @@
  * mounted, sized, and not hidden; the tape's own state says it painted. Only
  * the raster is wrong — and the raster is made in a render worker, off the
  * main thread, on a canvas whose control has been transferred away, so
- * `getImageData` cannot be reached from the page at all. The screenshot is
- * the only reading that sees what the user sees.
+ * `getImageData` cannot be reached from the page at all. The window as
+ * composited is the only reading that sees what the user sees — and the
+ * composite, not one page's snapshot, since the Session card draws its
+ * masthead in its own page.
  *
  * The tape's box is read in three bands out of the snapshot, which is what
  * lets the test do more than fail:
@@ -92,9 +94,8 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const SID = "at0567-session";
 const PANE_ID = "p1";
-const PANE = `.tug-pane[data-pane-id="${PANE_ID}"]`;
 /** The masthead's tape — the one a fresh card is reported to be missing. */
-const SPARK = `${PANE} .session-masthead-row [data-slot="tug-sparkline"]`;
+const SPARK = `.body-chrome-frame .session-masthead-row [data-slot="tug-sparkline"]`;
 
 /**
  * How far a channel must sit off the surround's median to count as ink.
@@ -153,7 +154,9 @@ interface TapeReading {
 }
 
 async function readTape(app: App): Promise<TapeReading> {
-  return app.evalJS<TapeReading>(
+  // Read in the card's page, where its masthead is, and placed in the window
+  // by where the host has the card's view: the screenshot is the window's.
+  const reading = await app.body("A").evalJS<TapeReading>(
     `(function () {
       var box = document.querySelector(${JSON.stringify(SPARK)});
       var canvas = box === null ? null : box.querySelector("canvas");
@@ -186,6 +189,9 @@ async function readTape(app: App): Promise<TapeReading> {
       };
     })()`,
   );
+  const view = (await app.bodies()).find((b) => b.cardId === "A")?.frame;
+  if (view === undefined || reading.width < 0) return reading;
+  return { ...reading, left: reading.left + view.x, top: reading.top + view.y };
 }
 
 /** How much ink a band of the snapshot carries, against the surround. */
@@ -217,10 +223,13 @@ interface TapeInk {
  * box's own median IS the background in the healthy case and is the whole
  * box in the vanished one, and the two would read alike.
  */
-function readInk(pngPath: string, box: TapeReading): TapeInk {
-  const png = decodePngFile(pngPath);
-  const scale = png.width / box.innerWidth;
+function readInk(shot: WindowShot, box: TapeReading): TapeInk {
+  const png = decodePngFile(shot.path);
+  const scale = shot.width / shot.contentWidth;
   const px = (v: number): number => Math.round(v * scale);
+  // The capture is the whole window: the content starts below its title bar.
+  const top = Math.round(shot.height - shot.contentHeight * scale);
+  const py = (v: number): number => top + px(v);
 
   const at = (x: number, y: number): [number, number, number] => {
     const i = (y * png.width + x) * 4;
@@ -229,11 +238,11 @@ function readInk(pngPath: string, box: TapeReading): TapeInk {
 
   const x0 = px(box.left);
   const x1 = px(box.left + box.width);
-  const yTop = px(box.top);
-  const yBot = px(box.top + box.height);
+  const yTop = py(box.top);
+  const yBot = py(box.top + box.height);
   // The baseline row is 1 CSS px up from the bottom edge; take the bottom 3
   // so a device-pixel rounding either way still lands inside the band.
-  const yBaseline = px(box.top + box.height - 3);
+  const yBaseline = py(box.top + box.height - 3);
 
   // Surround: the strip just left of the box, same rows.
   const sx0 = Math.max(0, px(box.left - 6));
@@ -282,6 +291,9 @@ function readInk(pngPath: string, box: TapeReading): TapeInk {
   };
 }
 
+/** The window as composited, and how its content's points map onto it. */
+type WindowShot = { path: string; width: number; height: number; contentWidth: number; contentHeight: number };
+
 /**
  * Hide or restore the tape's `<canvas>`, leaving the container's `::before`
  * alone. `visibility` rather than `display`: the element keeps its box, so
@@ -289,7 +301,7 @@ function readInk(pngPath: string, box: TapeReading): TapeInk {
  * watches — moves under the reading.
  */
 async function setCanvasHidden(app: App, hidden: boolean): Promise<void> {
-  await app.evalJS<null>(
+  await app.body("A").evalJS<null>(
     `(function () {
        var c = document.querySelector(${JSON.stringify(SPARK)} + " canvas");
        if (c !== null) c.style.visibility = ${hidden ? '"hidden"' : '""'};
@@ -314,7 +326,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 30_000 },
           );
           await app.bindSession("A", { tugSessionId: SID });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SPARK)}) !== null`,
             { timeoutMs: 20_000 },
           );
@@ -341,10 +353,10 @@ describe.skipIf(!SHOULD_RUN)(
           expect(box.rest!.height, "one stroke thick").toBe("1px");
           expect(box.rest!.bottom, "on the geometry's zero row").toBe("1px");
 
-          const shot = await app.screenshot();
+          const shot = await app.captureWindow();
           let ink: TapeInk;
           try {
-            ink = readInk(shot.path, box);
+            ink = readInk(shot, box);
           } finally {
             if (process.env.AT0567_KEEP_SHOTS !== "1") {
               try {
@@ -372,7 +384,7 @@ describe.skipIf(!SHOULD_RUN)(
           // is flat at zero — the bind's activity has to scroll off first.
           // Wait for the stop itself rather than for a duration, so the
           // reading is of the stopped instrument and not of one about to be.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function () {
                var s = window.__tug.sparklineInstrumentState(${JSON.stringify(SPARK)});
                return s !== null && !s.ticking && s.atRest;
@@ -385,10 +397,10 @@ describe.skipIf(!SHOULD_RUN)(
           const restBox = await readTape(app);
           note("at0567 tape box, at rest", JSON.stringify(restBox));
 
-          const restShot = await app.screenshot();
+          const restShot = await app.captureWindow();
           let restInk: TapeInk;
           try {
-            restInk = readInk(restShot.path, restBox);
+            restInk = readInk(restShot, restBox);
           } finally {
             if (process.env.AT0567_KEEP_SHOTS !== "1") {
               try {
@@ -413,10 +425,10 @@ describe.skipIf(!SHOULD_RUN)(
           await setCanvasHidden(app, true);
           await new Promise<void>((r) => setTimeout(r, 300));
 
-          const bareShot = await app.screenshot();
+          const bareShot = await app.captureWindow();
           let bareInk: TapeInk;
           try {
-            bareInk = readInk(bareShot.path, restBox);
+            bareInk = readInk(bareShot, restBox);
           } finally {
             await setCanvasHidden(app, false);
             if (process.env.AT0567_KEEP_SHOTS !== "1") {
@@ -447,12 +459,12 @@ describe.skipIf(!SHOULD_RUN)(
           // A bar that stayed would be a second line of the line's own
           // weight asserting zero beneath a reading that is not.
           for (let i = 0; i < 6; i++) {
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `window.__tug.recordActivity(${JSON.stringify(SID)}, "tools", 900)`,
             );
             await new Promise<void>((r) => setTimeout(r, 120));
           }
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function () {
                var box = document.querySelector(${JSON.stringify(SPARK)});
                var s = window.__tug.sparklineInstrumentState(${JSON.stringify(SPARK)});
@@ -465,10 +477,10 @@ describe.skipIf(!SHOULD_RUN)(
           const liveBox = await readTape(app);
           note("at0567 tape box, live", JSON.stringify(liveBox));
           expect(liveBox.rest, "the rest rule is withdrawn under a value").toBeNull();
-          const liveShot = await app.screenshot();
+          const liveShot = await app.captureWindow();
           let liveInk: TapeInk;
           try {
-            liveInk = readInk(liveShot.path, liveBox);
+            liveInk = readInk(liveShot, liveBox);
           } finally {
             if (process.env.AT0567_KEEP_SHOTS !== "1") {
               try {

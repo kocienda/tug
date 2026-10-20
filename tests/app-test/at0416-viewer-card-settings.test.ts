@@ -52,7 +52,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
-import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -177,22 +177,59 @@ function attr(selector: string, name: string): string {
 
 /**
  * Open the gear's sheet and wait for the named body to stand. The gear is a
- * pane title-bar item, so it is the shell's; the sheet it opens is the
- * card's own, so it stands in the card's page.
+ * pane title-bar item, which the card draws in its own page beside the sheet
+ * it opens, so both are the card's page's.
  */
 async function openGear(app: App, page: BodyApp, sheet: string): Promise<void> {
-  await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(GEAR_BUTTON)}) !== null`,
+  await page.waitForCondition<boolean>(
+    `(function () { var b = document.querySelector(${JSON.stringify(GEAR_BUTTON)}); return b !== null && !b.disabled; })()`,
     { timeoutMs: 10_000 },
   );
   // The gear rests inside the pane's rollup, revealed on a title-bar hover.
   // Pin the row open first or the press lands on the bar behind it.
-  await app.revealPaneControls();
-  await app.nativeClickAtElement(GEAR_BUTTON);
-  await page.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(sheet)}) !== null`,
-    { timeoutMs: 10_000 },
+  await page.revealPaneControls();
+  // What reaches the page from the press, for the failure's reading below.
+  await page.evalJS<null>(
+    `(function () {
+      window.__at0416Presses = [];
+      ["pointerdown", "mousedown", "click"].forEach(function (type) {
+        document.addEventListener(type, function (e) {
+          var t = e.target;
+          window.__at0416Presses.push(type + ":" + (t && t.getAttribute ? (t.getAttribute("data-testid") || String(t.className).split(" ")[0]) : String(t)));
+        }, true);
+      });
+      return null;
+    })()`,
   );
+  await page.nativeClickAtElement(GEAR_BUTTON);
+  try {
+    await page.waitForCondition<boolean>(
+      `document.querySelector(${JSON.stringify(sheet)}) !== null`,
+      { timeoutMs: 10_000 },
+    );
+  } catch (error) {
+    // What stood when the sheet never came: the viewer's view, and the gear as its page has it.
+    note("viewer view", (await app.bodies()).find((b) => b.componentId === "file-view") ?? null);
+    note(
+      "gear",
+      await page.evalJS<unknown>(
+        `(function () {
+          var b = document.querySelector(${JSON.stringify(GEAR_BUTTON)});
+          if (b === null) return null;
+          var r = b.getBoundingClientRect();
+          var hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          var fr = document.querySelector("[data-first-responder]");
+          return {
+            rect: [r.left, r.top, r.width, r.height], disabled: b.disabled, onTop: hit !== null && b.contains(hit), hit: hit === null ? null : hit.className,
+            presses: window.__at0416Presses || null,
+            firstResponder: fr === null ? null : fr.getAttribute("data-first-responder"),
+            active: document.activeElement === null ? null : String(document.activeElement.className || document.activeElement.tagName).split(" ")[0],
+          };
+        })()`,
+      ),
+    );
+    throw error;
+  }
 }
 
 /**
@@ -251,12 +288,12 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
         // Both verbs stand in the title bar, each as its own button.
         expect(
-          await app.evalJS<number>(
+          await viewer.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(REVEAL_BUTTON)}).length`,
           ),
         ).toBe(1);
         expect(
-          await app.evalJS<number>(
+          await viewer.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(GEAR_BUTTON)}).length`,
           ),
         ).toBe(1);
@@ -346,6 +383,7 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         // ---- The card owns them now: the first change snapshotted the full
         // set into this card's own tugbank slot, which is what makes a tuned
         // card stop following the deck defaults.
+        // card-dom: shell — the deck's card list is the shell's.
         const cardId = await app.evalJS<string>(
           `window.tugdeck.diag.getDeckState().cards.find(
              (c) => c.componentId === "file-view",
@@ -490,6 +528,7 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         // ---- The page gap re-lays out the document that is already open.
         // The card is its own page, and a tugbank value a test sets is local
         // to the page it sets it in, so the write goes to the card's page.
+        // card-dom: shell — the deck's card list is the shell's.
         const pdfCardId = await app.evalJS<string>(
           `window.tugdeck.diag.getDeckState().cards.find((c) => c.componentId === "file-view").id`,
         );

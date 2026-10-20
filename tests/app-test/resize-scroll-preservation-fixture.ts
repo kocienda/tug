@@ -108,11 +108,14 @@ export interface Anchor {
   scrollTop: number;
 }
 
+/** A page the episode is read in: the shell, or a card that draws its own chrome. */
+type EpisodePage = Pick<App, "evalJS" | "waitForCondition">;
+
 /**
  * Record every episode the frame raises, so a gesture that raised none is
  * distinguishable from one that raised one and did nothing.
  */
-export async function armEpisodeWatch(app: App, frame: string): Promise<void> {
+export async function armEpisodeWatch(app: EpisodePage, frame: string): Promise<void> {
   await app.evalJS<null>(
     `(function () {
       var frame = document.querySelector(${JSON.stringify(frame)});
@@ -130,11 +133,11 @@ export async function armEpisodeWatch(app: App, frame: string): Promise<void> {
   );
 }
 
-export const episodeCount = (app: App): Promise<number> =>
+export const episodeCount = (app: EpisodePage): Promise<number> =>
   app.evalJS<number>(`window.__at0430.seen.length`);
 
 /** Wait until no episode is open on the frame, then let the settle finish. */
-export async function waitForEpisodesClosed(app: App, frame: string): Promise<void> {
+export async function waitForEpisodesClosed(app: EpisodePage, frame: string): Promise<void> {
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(frame)}).getAttribute("data-resize-episode") === null`,
     { timeoutMs: 10_000 },

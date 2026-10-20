@@ -26,8 +26,13 @@
  *   `deck.frontmostProject`) and each card's context and crossing
  *   (`card.context`, `card.crossing`) as shared stores (`bus/declarations/`),
  *   set on every change; a body that says hello is sent every one it reads
- *   before anything held for it. Every card's binding and reported phase go
- *   to every body the same way (`deck.cardBindings`, `deck.cardActivities`).
+ *   before anything held for it. Each card is also sent its pane as its
+ *   chrome draws it (`pane.chrome`, `pane-chrome-projection.ts`), the same
+ *   value to every card of a pane, and the chrome's gestures come back as the
+ *   `pane.*` actions, answered here by `pane-verbs.ts` for a card on the
+ *   shown layer and only for a card of the sender's own pane. Every card's
+ *   binding and reported phase go to every body the same way
+ *   (`deck.cardBindings`, `deck.cardActivities`).
  * - `bodyFocus` goes to the host on every first-responder change, so the
  *   keyboard follows the deck's first responder into a body and out again.
  * - A body card's Tab walk may be split: its own stops in the body, its
@@ -108,7 +113,9 @@ import { bodyCardsStore } from "./body-cards-store";
 import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfaceAhead } from "./body-command-route";
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
-import { bodyBeatsCancelled, bodyBeatsLanded, bodyShown, floorShown } from "./body-placement";
+import { bodyBeatsCancelled, bodyBeatsLanded, bodyPlacementDiag, bodyShown, floorShown } from "./body-placement";
+import { mergeBandOf } from "./drop-zones";
+import { SHOWN_PANE_FRAMES } from "./pane-frame-selectors";
 import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
 import { cardSessionBindingStore, shareCardBinding } from "./card-session-binding-store";
@@ -126,6 +133,7 @@ import {
   cardActivate,
   cardAddSibling,
   cardClose,
+  cardGeometryChanged,
   cardRefuseHold,
   commandForCard,
   devtoolsLogEntries,
@@ -151,7 +159,38 @@ import {
   type CardHoldsValue,
   type CardReservationsValue,
 } from "../bus/declarations/card";
+import {
+  paneArrangePlace,
+  paneChrome,
+  paneCloseCard,
+  paneClosePane,
+  paneFillHeight,
+  paneMoveToSpace,
+  paneReorderTabs,
+  paneTabDrag,
+  paneRevealStackEntry,
+  paneSelectTab,
+  paneSetWidth,
+  paneToggleBullseye,
+  type PaneChromeValue,
+} from "../bus/declarations/pane";
 import type { SharedStore } from "../bus/shared-store";
+import { paneChromeFor } from "./pane-chrome-projection";
+import { installHostCardGesture } from "./host-card-gesture";
+import {
+  arrangePlace,
+  closePane,
+  closeTab,
+  fillPaneHeight,
+  moveActiveCardToSpace,
+  paneVerbAddress,
+  placeSlotOf,
+  revealStackEntry,
+  selectTab,
+  setPaneWidth,
+  stackEntryCardOf,
+  togglePaneBullseye,
+} from "./pane-verbs";
 import {
   deckFacts,
   deckFrontmostProject,
@@ -175,12 +214,12 @@ import {
 import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { openingBidForCard } from "./opening-bid";
-import { pageZoomStore } from "./page-zoom-store";
+import { deckRootElement, layoutPxOf, pageZoomStore } from "./page-zoom-store";
 import { bodyChordCaptureStore } from "./body-chord-capture-store";
 import { sheetReservationMemberIdOf } from "./sheet-reservation";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { getRegistration, isSidebarCard } from "../card-registry";
-import { cardIdentityElsewhere, liveCardIdentity } from "./card-identity";
+import { cardIdentity, cardIdentityElsewhere, liveCardIdentity } from "./card-identity";
 import { paneTitleBarItemsStore } from "./pane-title-bar-items-store";
 import { isSidebarPinned, sidebarSide, type SidebarSide } from "./layout-imposer";
 import {
@@ -214,7 +253,9 @@ import { getDropZoneHost } from "./drop-zone-host-registry";
 import { flashCardPane } from "./flash-pane-border";
 import { shareLayoutSelection } from "./cards-selection-store";
 import { registerCardCloseGuard } from "./card-close-guard";
-import { cardModalHoldStore } from "./card-modal-hold-store";
+import { cardModalHoldStore, isCardHeld, refuseCardModalHold } from "./card-modal-hold-store";
+import { closeGuardWalk } from "./close-guard-walk";
+import { chromeInBody } from "./chrome-placement";
 import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
 import { frontmostProjectBinding } from "./frontmost-project";
@@ -339,6 +380,22 @@ export function cardContextFor(deck: IDeckManagerStore, cardId: string): CardCon
   };
 }
 
+/** The `pane.chrome` the shell owes `cardId`'s body now: its pane on the deck it stands in. */
+export function paneChromeOf(deck: IDeckManagerStore, cardId: string): PaneChromeValue | null {
+  const spaceId = deck.spaceOf(cardId);
+  const spaces = deck.getSpacesSnapshot();
+  const layerShown = spaceId === null || spaceId === spaces.activeSpaceId;
+  const state = layerShown ? deck.getSnapshot() : ownDeckOf(deck, cardId);
+  return paneChromeFor(state, cardId, {
+    titleOf: (id) => cardTitleStore.get(id),
+    identityOf: (id) => {
+      const identity = cardIdentity(id);
+      return identity.source === "parked" ? identity.title : null;
+    },
+    spaces: { list: spaces.spaces, ownSpaceId: spaceId ?? spaces.activeSpaceId },
+  });
+}
+
 /**
  * The edge `cardId` stands pinned to when it is a rail card: the fact the
  * shell's own pane wears as `data-rail-side`, and that the rail treatment's
@@ -427,6 +484,30 @@ export function createBodyPaintGate(bus: PageBus, markPainted: (cardId: string) 
       waiting.clear();
     },
   };
+}
+
+/**
+ * The pane whose title band holds `point` (viewport px), other than
+ * `sourcePaneId`: where a tab dragged past its own bar would merge. Read off
+ * the shown frames, so a stand-in's band is as much a target as a pane the
+ * shell draws.
+ */
+function tabMergeTargetAt(
+  deck: IDeckManagerStore,
+  point: { x: number; y: number },
+  sourcePaneId: string,
+): { paneId: string; frame: HTMLElement } | null {
+  for (const frame of document.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
+    const paneId = frame.dataset.paneId;
+    if (paneId === undefined || paneId === sourcePaneId) continue;
+    const r = frame.getBoundingClientRect();
+    const tabbed = (deck.getSnapshot().panes.find((p) => p.id === paneId)?.cardIds.length ?? 0) > 1;
+    const band = mergeBandOf({ x: r.x, y: r.y, width: r.width, height: r.height }, frame.dataset.role === "sidebar" ? "sidebar" : "content", tabbed);
+    if (point.x >= band.x && point.x < band.x + band.width && point.y >= band.y && point.y < band.y + band.height) {
+      return { paneId, frame };
+    }
+  }
+  return null;
 }
 
 /**
@@ -655,6 +736,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     const unregs = [
       registerCardCloseAdvice(cardId, () => ({ waive: bodyFactsStore.waives(cardId) })),
       registerCardFoldGuard(cardId, () => bodyFactsStore.guarded(cardId)),
+      // A move or resize the deck commits is the card's to hear in its page,
+      // where its delegates are.
+      deck.observeCardDidMove(cardId, () => cardGeometryChanged.dispatch({ moved: true, resized: false }, { card: cardId })),
+      deck.observeCardDidResize(cardId, () => cardGeometryChanged.dispatch({ moved: false, resized: true }, { card: cardId })),
       deck.observeCardWillBeginDestruction(cardId, () => {
         postToHost("bodyDestroy", { cardId, save: false });
         forget(cardId);
@@ -674,6 +759,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const seedCard = (cardId: string): void => {
     cardCrossing.setFor(cardId, crossingOf(cardId));
     cardContext.setFor(cardId, cardContextFor(deck, cardId));
+    paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
     const followed = followedOf.get(cardId);
     if (followed !== undefined) cardFollowed.setFor(cardId, { cardId: followed });
   };
@@ -837,7 +923,12 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     for (const cardId of bodyCardsStore.cardIds()) {
       cardCrossing.setFor(cardId, crossingOf(cardId));
       cardContext.setFor(cardId, cardContextFor(deck, cardId));
+      paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
     }
+  };
+  /** Each body card's chrome alone: its tabs' titles move with no deck change. */
+  const publishPaneChrome = (): void => {
+    for (const cardId of bodyCardsStore.cardIds()) paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
   };
 
   // What a body reads of the deck beyond its own card. Each store sends only
@@ -981,8 +1072,14 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       publishBindings();
       publishSpaces();
     }),
-    cardTitleStore.subscribe(publishCardFacts),
-    cardIdentityElsewhere.subscribe(publishCardFacts),
+    cardTitleStore.subscribe(() => {
+      publishCardFacts();
+      publishPaneChrome();
+    }),
+    cardIdentityElsewhere.subscribe(() => {
+      publishCardFacts();
+      publishPaneChrome();
+    }),
     appInfoStore.subscribe(publishAppInfo),
     spaceBindingsLedgerStore.subscribe(() => {
       publishLedgerBindings();
@@ -1182,14 +1279,15 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const fromBody = (from: { cardId: string | null }): string | null =>
     from.cardId !== null && bodyCardsStore.has(from.cardId) ? from.cardId : null;
   releases.push(
-    cardActivate.handle((_payload, from) => {
+    cardActivate.handle(({ reveal }, from) => {
       const cardId = fromBody(from);
       if (cardId === null) return;
       // A parked body cannot be pressed: an activation from one — a warm
       // workspace's card taking focus in its own page — is not the user's,
       // and would name a key card the deck does not show.
       if (!cardContextFor(deck, cardId).layerShown) return;
-      deck.activateCard(cardId);
+      if (reveal === false) deck.activateCard(cardId, { reveal: false });
+      else deck.activateCard(cardId);
     }),
     cardClose.handle((_payload, from) => {
       const cardId = fromBody(from);
@@ -1203,6 +1301,121 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       const paneId = paneOf(deck.getSnapshot(), cardId);
       if (paneId !== null) deck.addCardToPane(paneId, componentId);
     }),
+  );
+
+  /** The shell DOM a tab drag from a card's page is indicating onto, if any. */
+  let tabDragTarget: HTMLElement | null = null;
+
+  /**
+   * The pane a chrome verb from a body acts on, or null: the sender must be a
+   * body card on the shown layer — a parked card's chrome cannot be pressed,
+   * as a hidden layer's frames take no interaction — and a card the verb
+   * names must be of the sender's own pane.
+   */
+  const pressedPane = (from: { cardId: string | null }, target?: string): string | null => {
+    const cardId = fromBody(from);
+    if (cardId === null || !cardContextFor(deck, cardId).layerShown) return null;
+    return paneVerbAddress(deck.getSnapshot(), cardId, target);
+  };
+  releases.push(
+    paneSelectTab.handle(({ cardId }, from) => {
+      const paneId = pressedPane(from, cardId);
+      if (paneId !== null) selectTab(deck, paneId, cardId);
+    }),
+    paneCloseCard.handle(({ cardId }, from) => {
+      const paneId = pressedPane(from, cardId);
+      if (paneId !== null) closeTab(deck, paneId, cardId);
+    }),
+    paneClosePane.handle((_payload, from) => {
+      const paneId = pressedPane(from);
+      if (paneId === null) return;
+      // The page that pressed the × has asked its own card: its confirm, its
+      // hold and its guard are in that page. The pane's other cards are this
+      // shell's to ask, through the holds and guards it keeps for their
+      // bodies, visiting each dirty one before the pane goes.
+      const sender = fromBody(from);
+      const others = (deck.getSnapshot().panes.find((p) => p.id === paneId)?.cardIds ?? []).filter((id) => id !== sender);
+      const held = others.find((id) => isCardHeld(cardModalHoldStore.getSnapshot(), id));
+      if (held !== undefined) {
+        refuseCardModalHold(held);
+        return;
+      }
+      const walk = closeGuardWalk(
+        others,
+        (id) => selectTab(deck, paneId, id),
+        (id) => deck.getSnapshot().panes.find((p) => p.id === paneId)?.activeCardId === id,
+      );
+      if (walk === null) {
+        closePane(deck, paneId);
+        return;
+      }
+      void walk().then((answer) => {
+        if (answer === "close") closePane(deck, paneId);
+      });
+    }),
+    paneReorderTabs.handle(({ fromIndex, toIndex }, from) => {
+      const paneId = pressedPane(from);
+      if (paneId !== null) deck.reorderCardInPane(paneId, fromIndex, toIndex);
+    }),
+    // A tab dragged past its own bar in a card's page: the point is the
+    // page's, offset here by where its view stands. The merge targets are the
+    // other panes' title bands, read off their frames, so a stand-in is one
+    // as a pane the shell draws is; anywhere else, the drop detaches.
+    paneTabDrag.handle(({ phase, cardId, x, y }, from) => {
+      const paneId = pressedPane(from, cardId);
+      const sender = fromBody(from);
+      tabDragTarget?.removeAttribute("data-drop-target");
+      tabDragTarget = null;
+      if (paneId === null || sender === null || phase === "cancel") return;
+      const view = bodyPlacementDiag()?.lastPosted?.bodies.find((b) => b.cardId === sender);
+      if (view === undefined) return;
+      const point = { x: view.x + x, y: view.y + y };
+      const target = tabMergeTargetAt(deck, point, paneId);
+      if (phase === "move") {
+        tabDragTarget =
+          target?.frame.querySelector<HTMLElement>(`.tug-tab-bar[data-pane-id], .tug-pane-accessory[data-pane-id]`) ?? null;
+        tabDragTarget?.setAttribute("data-drop-target", "true");
+        return;
+      }
+      if (target !== null) {
+        deck.moveCardToPane(paneId, cardId, target.paneId, 999);
+        return;
+      }
+      const root = deckRootElement().getBoundingClientRect();
+      deck.detachCard(paneId, cardId, { x: layoutPxOf(point.x - root.left), y: layoutPxOf(point.y - root.top) });
+    }),
+    paneSetWidth.handle(({ preset }, from) => {
+      const paneId = pressedPane(from);
+      if (paneId !== null) setPaneWidth(paneId, preset);
+    }),
+    paneFillHeight.handle((_payload, from) => {
+      const paneId = pressedPane(from);
+      if (paneId !== null) fillPaneHeight(paneId);
+    }),
+    paneArrangePlace.handle(({ verb }, from) => {
+      const paneId = pressedPane(from);
+      if (paneId === null) return;
+      const slot = placeSlotOf(deck.getSnapshot(), paneId);
+      if (slot === null) return;
+      arrangePlace(slot, verb === "place:split" ? "split" : verb === "place:stack" ? "stack" : "equalize");
+    }),
+    paneToggleBullseye.handle((_payload, from) => {
+      const paneId = pressedPane(from);
+      if (paneId !== null) togglePaneBullseye(paneId);
+    }),
+    paneMoveToSpace.handle(({ spaceId }, from) => {
+      const paneId = pressedPane(from);
+      if (paneId !== null) moveActiveCardToSpace(deck, paneId, spaceId);
+    }),
+    paneRevealStackEntry.handle(({ paneId: entryPaneId }, from) => {
+      const paneId = pressedPane(from);
+      if (paneId === null) return;
+      const cardId = stackEntryCardOf(deck.getSnapshot(), paneId, entryPaneId);
+      if (cardId !== null) revealStackEntry(deck, cardId);
+    }),
+  );
+
+  releases.push(
     // The body's chain did not answer it; this one does, and never sends it
     // back ([P04]: one front door, routed by the entry).
     answerBodyCommands(bus),
@@ -1239,6 +1452,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   // ---- What the host tells the shell ----
 
+  // A card drag or resize the host tracks, reported step by step.
+  releases.push(installHostCardGesture(deck));
+
   const bridge = ((window as unknown as { __tugBridge?: Record<string, unknown> }).__tugBridge ??=
     {});
   bridge.onBodyState = (report: BodyStateReport): void => {
@@ -1260,6 +1476,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       case "painted":
         // Its first frame of content is composited; the placer may show it
         // once the bus has said so too, and the facts the frame drew are in.
+        // A card that draws its own chrome says this at its first chrome
+        // frame, and shows from here; the gate still waits on `card.painted`.
+        if (chromeInBody(deck.getSnapshot().cards.find((c) => c.id === cardId)?.componentId)) {
+          bodyCardsStore.markChromeShown(cardId);
+        }
         paintGate.hostPainted(cardId);
         return;
       case "shown":

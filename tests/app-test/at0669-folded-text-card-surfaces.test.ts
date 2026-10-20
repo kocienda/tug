@@ -11,7 +11,8 @@
  *      route and through ⌘F — unfolds a folded Text card and then appears
  *      exactly where it does on an open card, with the caret in its field. The
  *      chord matters on its own: while folded the keyboard rests on the title
- *      bar's fold glyph, so ⌘F reaches the card only because the card's first
+ *      bar's fold glyph — drawn in the card's own page, beside its content —
+ *      so ⌘F reaches the card only because the card's first
  *      responder is held inside it across the fold. Return on that glyph is
  *      the other way back, and it hands the caret to the editor.
  *   2. **An unbidden one waits, and the masthead says it meanwhile.** A disk
@@ -131,10 +132,10 @@ async function unfolded(app: App): Promise<void> {
   await new Promise((r) => setTimeout(r, 2000));
 }
 
-/** Press a key where the keyboard is. */
+/** Press a key where the keyboard is: the card's page, which draws the glyph the fold puts it on. */
 function press(app: App, code: string, key: string, meta: boolean): Promise<unknown> {
   const init = `{code:${JSON.stringify(code)},key:${JSON.stringify(key)},metaKey:${meta},bubbles:true,cancelable:true,composed:true}`;
-  return app.evalJS(
+  return app.body("A").evalJS(
     `(function(){var t=document.activeElement||document; t.dispatchEvent(new KeyboardEvent("keydown",${init})); t.dispatchEvent(new KeyboardEvent("keyup",${init})); return null;})()`,
   );
 }
@@ -199,7 +200,8 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
           `(function(){var el=document.querySelector('${EDITOR}'); el.focus(); return document.execCommand("insertText", false, "LOCAL ");})()`,
         );
         await toggleFold(app);
-        await app.waitForCondition<boolean>(
+        // The masthead is the card's own, drawn in its page.
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var d=document.querySelector('${DETAIL}'); return d!==null && d.textContent==="File changed";})()`,
           { timeoutMs: 10_000 },
         );

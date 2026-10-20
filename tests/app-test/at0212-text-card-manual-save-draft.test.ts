@@ -64,7 +64,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         await seedTextCard(app, file);
         await waitForEditor(await waitForBodyReady(app, "A"), "alpha");
         await typeIntoEditor(app.body("A"), "ASIDE-SENTINEL ");
-        await waitForSaveCell(app, "Edited");
+        await waitForSaveCell(app.body("A"), "Edited");
         await settle();
 
         const deadline = Date.now() + 15000;
@@ -131,7 +131,12 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // shorter masthead, and the third said "Saved" about a buffer nothing
         // had ever written. A stand-in fills the second ([D132]) and the third
         // names what the buffer IS.
-        const untitled = await app.evalJS<{
+        // The new card draws its masthead in its own page: it is read there,
+        // and its ink is read off that page's own paint, in its own points.
+        const draftId = (await app.bodies()).find((b) => b.componentId === "text" && b.cardId !== null && b.cardId !== "A")?.cardId;
+        expect(draftId, "the new Text card has a body").toBeDefined();
+        const draft = app.body(draftId!);
+        const untitled = await draft.evalJS<{
           description: string;
           stamp: string | null;
           fontStyle: string;
@@ -177,7 +182,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // synthesized oblique — while the element keeps a normal rect, a
         // normal computed color, and its text content. Every assertion above
         // passes on a blank line, so the only honest guard is ink.
-        const shot = await app.screenshot();
+        const shot = await draft.screenshot();
         try {
           const png = decodePngFile(shot.path);
           const scale = png.width / untitled!.innerWidth;

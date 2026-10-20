@@ -1,14 +1,15 @@
 /**
- * at0738-body-turn.test.ts — a whole turn streams in a body card, with the
- * shell's masthead fed from the bus.
+ * at0738-body-turn.test.ts — a whole turn streams in a body card, with its
+ * masthead reading the turn.
  *
  * Part of the gate for the body path, split from `at0738-session-body` one
  * leg per file (see `at0738-body-placement` for the list). The app launches
  * with bodies on; shared helpers live in `session-body-fixture.ts`.
  *
  * **The turn.** A whole turn streams in a body: the shell's document holds no
- * transcript for the card, the shell's masthead dot reads working during the
- * turn and idle after (from the body's `card.facts`), tugcast lists one body
+ * transcript for the card, the masthead dot reads working during the turn
+ * and idle after — in the card's own page, which draws its chrome, masthead
+ * and all, since the masthead left the shell's pane — tugcast lists one body
  * page for the card subscribed to its session alone, and the composited
  * window's rect is filled by the body's own pane surface — its commonest
  * colour, not an ink share, which the shell's grid would satisfy through an
@@ -108,7 +109,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         expect(shellTranscript, "the shell's document holds no transcript for the body card").toBe(false);
 
         const working = await pollFor(
-          () => app.evalJS<{ role: string; state: string } | null>(mastheadDot(TURN)),
+          () => app.body(TURN).evalJS<{ role: string; state: string } | null>(mastheadDot()),
           (d) => d !== null && d.state === "running",
           PLACED_MS,
         );
@@ -139,13 +140,25 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
           var d = c.getImageData(0, 0, 1, 1).data;
           return "rgb(" + d[0] + ", " + d[1] + ", " + d[2] + ")";
         })()`;
-        const bodySurface = await body.evalJS<string>(asRgb(`getComputedStyle(document.body).backgroundColor`));
+        // The surface the card's content stands on: the nearest painted box
+        // under the content's centre. (The page's own background is clear: a
+        // card that draws its own chrome is the whole of its view.)
+        const surfaceAtContent = `(function () {
+          var c = document.querySelector(".tug-pane-content").getBoundingClientRect();
+          for (var el = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2); el; el = el.parentElement) {
+            var bg = getComputedStyle(el).backgroundColor;
+            if (bg !== "transparent" && !/rgba\\([^)]*,\\s*0\\)$/.test(bg)) return bg;
+          }
+          return "transparent";
+        })()`;
+        const bodySurface = await body.evalJS<string>(asRgb(surfaceAtContent));
         // What the shell lays over the frame — the frame dim, a normal-blend
-        // layer, composites over the hole as it does over a shell card — so
-        // the rect reads as the body's surface under that layer. The frame's
-        // own `data-focused` is the shell's, read as it stands.
-        const expected = await app.evalJS<{ fill: string; focused: string | null; layer: string }>(`(function () {
-          var pane = document.querySelector('.tug-pane[data-pane-id="${TURN}-pane"]');
+        // layer, composites over the content as it does over a shell card — so
+        // the rect reads as the body's surface under that layer. A Session card
+        // draws its own pane, frame dim and all, in its own page, so the layer
+        // and the frame's `data-focused` are read there, as they stand.
+        const expected = await body.evalJS<{ fill: string; focused: string | null; layer: string }>(`(function () {
+          var pane = document.querySelector('.body-chrome-frame');
           var s = getComputedStyle(pane, "::after");
           var c = document.createElement("canvas").getContext("2d");
           c.fillStyle = ${JSON.stringify(bodySurface)}; c.fillRect(0, 0, 1, 1);
@@ -157,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         const shellCanvas = await app.evalJS<string | null>(
           `(function () { return document.documentElement.hasAttribute("data-body-host") ? ${asRgb("getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')")} : null; })()`,
         );
-        note(`shell frame for the card: data-focused=${expected.focused}, frame dim ${expected.layer}, expected fill ${expected.fill}`);
+        note(`the card's own frame: data-focused=${expected.focused}, frame dim ${expected.layer}, expected fill ${expected.fill}`);
         note(
           `composite in the body's rect ${JSON.stringify(frame)}: fill ${paint.fill}, ink ${(paint.ink * 100).toFixed(1)}%; ` +
             `body surface ${bodySurface}, host canvas floor ${shellCanvas}`,
@@ -165,7 +178,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         expect(shellCanvas, "the host stands a canvas floor under the deck on a body host, and the shell's canvas stands down for it").not.toBeNull();
         expect(paint.fill, "the body's rect is painted by the body, not the shell's canvas").not.toBe(shellCanvas);
         const bodyFocused = await body.evalJS<string | null>(
-          `document.querySelector(".body-pane-root")?.getAttribute("data-focused") ?? null`,
+          `document.querySelector(".body-chrome-frame")?.getAttribute("data-focused") ?? null`,
         );
         expect(bodyFocused, "the key card's body reads itself as focused").toBe("true");
         const channel = (rgb: string): number[] => rgb.match(/\d+/g)!.map(Number);
@@ -180,7 +193,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
 
         await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 90_000 });
         const rested = await pollFor(
-          () => app.evalJS<{ role: string; state: string } | null>(mastheadDot(TURN)),
+          () => app.body(TURN).evalJS<{ role: string; state: string } | null>(mastheadDot()),
           (d) => d !== null && d.state === "stopped",
           PLACED_MS,
         );

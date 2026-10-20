@@ -1,13 +1,12 @@
 /**
- * row-02-drag-kinds.test.ts — every other kind's body card dragged by its
- * chrome moves as one piece under the pointer and lands as one.
+ * row-02-drag-kinds.test.ts — every kind but Session, its body card dragged
+ * by its chrome, moves as one piece under the pointer and lands as one.
  *
- * A piece of row 2 ([B02] row 2; the gesture and its reading are
- * `_row-02.ts`'s): a content card pressed at its grab handle, a rail at its
- * whole title bar.
+ * Row 2 (the gesture and its reading are `_row-02.ts`'s): a content card
+ * pressed at its grab handle, a rail at its whole title bar. A Session card
+ * draws its own chrome and is one view; `at0744` reads its drag.
  *
  * @foreground
- * @family row-02-drag
  * @covers tugdeck/src/lib/body-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugapp/Sources/BodyViewController.swift

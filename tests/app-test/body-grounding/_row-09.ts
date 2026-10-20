@@ -112,6 +112,7 @@ async function cameToRest(app: App, card: string, folded: boolean): Promise<Rect
     async () => {
       const state = await samplerState(app);
       const count = state.count;
+      // card-dom: shell — the sampler runs in the shell.
       const last = await app.evalJS<{ a: Rect; b: Rect } | null>(
         `(function () { var s = window.__bodyMotion.samples; if (s.length < 2) return null; return { a: s[s.length - 1].frame, b: s[s.length - 2].frame }; })()`,
       );

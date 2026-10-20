@@ -107,7 +107,9 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // glyphs beside it rather than as a mark laid over them. Resolved
         // through the live document rather than compared to a literal, so the
         // assertion follows the theme instead of pinning one theme's numbers.
-        const ink = await app.evalJS<{
+        // Card A draws its own chrome, so its badge and the glyphs beside it
+        // are in its own page.
+        const ink = await app.body("A").evalJS<{
           chipFg: string;
           chipBg: string;
           buttonFg: string;
@@ -205,7 +207,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // And the masthead it would have stood in is unquestionably there —
         // otherwise this case would pass for the wrong reason.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(FRAME)}) !== null`,
           ),
           "the masthead is mounted; it is the badge that declined",

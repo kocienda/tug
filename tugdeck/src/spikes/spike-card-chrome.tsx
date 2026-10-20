@@ -31,7 +31,7 @@
 
 import React, { useId, useState } from "react";
 
-import { CardTitleBar } from "@/components/chrome/tug-pane";
+import { CardTitleBar } from "@/components/chrome/card-title-bar";
 import type { CardMastheadPayload } from "@/lib/card-title-store";
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import { TugLabel } from "@/components/tugways/tug-label";

@@ -456,27 +456,28 @@ function bandBeneath(frames: Record<string, Rect>): number {
  * `bottomSlack` reads and the one a height constant a pixel too small
  * overruns.
  *
- * The pane and its title bar are the shell's; the sheet's header and action
- * row are in the Session card's body (card `B`, the one in `p2`). Each edge is
- * read in screen coordinates from its own page.
+ * The pane is the shell's stand-in; its title bar, and the sheet's header and
+ * action row, are in the Session card's body (card `B`, the one in `p2`),
+ * which draws its own chrome. Each edge is read in screen coordinates from
+ * its own page.
  */
 async function pickerEdges(app: App): Promise<{
   headerBelowTitleBar: number;
   actionsAbovePaneBottom: number;
 } | null> {
   const paneSel = '.tug-pane[data-pane-id="p2"]';
-  const barSel = `${paneSel} [data-testid="tug-pane-title-bar"]`;
+  const barSel = '[data-testid="tug-pane-title-bar"]';
   const shellHas = await app.evalJS<boolean>(
-    `document.querySelector(${JSON.stringify(paneSel)}) !== null && document.querySelector(${JSON.stringify(barSel)}) !== null`,
+    `document.querySelector(${JSON.stringify(paneSel)}) !== null`,
   );
   if (!shellHas) return null;
   const body = app.body("B");
   const bodyHas = await body.evalJS<boolean>(
-    `document.querySelector('.tug-sheet-header') !== null && document.querySelector('.tug-sheet-actions') !== null`,
+    `document.querySelector(${JSON.stringify(barSel)}) !== null && document.querySelector('.tug-sheet-header') !== null && document.querySelector('.tug-sheet-actions') !== null`,
   );
   if (!bodyHas) return null;
   const pane = await app.getElementScreenBounds(paneSel);
-  const bar = await app.getElementScreenBounds(barSel);
+  const bar = await body.getElementScreenBounds(barSel);
   const header = await body.getElementScreenBounds(".tug-sheet-header");
   const actions = await body.getElementScreenBounds(".tug-sheet-actions");
   return {
@@ -554,11 +555,9 @@ async function seed(app: App, shares: Record<string, number>): Promise<void> {
   await wait(AFTER_LAND_MS);
 }
 
-/** Activate the Session card by its title bar, and wait for its picker. */
+/** Activate the Session card by its title bar, in its own page, and wait for its picker. */
 async function raisePicker(app: App): Promise<void> {
-  await app.nativeClickAtElement(
-    '[data-pane-id="p2"] [data-testid="tug-pane-title-bar"]',
-  );
+  await kindBody(app, "session").nativeClickAtElement('[data-testid="tug-pane-title-bar"]');
   // The picker is in the Session card's body.
   await kindBody(app, "session").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,

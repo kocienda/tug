@@ -232,6 +232,43 @@ export function leftEdgeOnRow(frame: CaptureBurstFrame, y: number, colour: Rgb, 
 }
 
 /**
+ * A card's leading edge on row `y` against the ground it travels over: the
+ * outermost pixel of the first run of `minRun` pixels that are NOT near
+ * `ground`, scanning in from the side the card travels toward (`from: "right"`
+ * scans leftward from `x1`, `"left"` rightward from `x0`), or null. A dot
+ * grid's dots are shorter than the run, so the ground's texture is not an
+ * edge.
+ */
+export function leadingEdgeOnRow(
+  frame: CaptureBurstFrame,
+  y: number,
+  ground: Rgb,
+  tolerance: number,
+  from: "left" | "right",
+  x0: number,
+  x1: number,
+  minRun = 6,
+): number | null {
+  const png = decoded(frame.path);
+  const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
+  const lo = Math.max(0, Math.round(x0));
+  const hi = Math.min(png.width - 1, Math.round(x1));
+  const step = from === "right" ? -1 : 1;
+  let run = 0;
+  for (let x = from === "right" ? hi : lo; x >= lo && x <= hi; x += step) {
+    const i = (row * png.width + x) * 4;
+    const p = { r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] };
+    if (near(p, ground, tolerance)) {
+      run = 0;
+      continue;
+    }
+    run += 1;
+    if (run === minRun) return x - step * (minRun - 1);
+  }
+  return null;
+}
+
+/**
  * The x (device px) on row `y` where a run of at least `minRun` pixels within
  * `tolerance` of `colour` begins, of all such runs on the row the one that
  * begins nearest `nearX`; null when the row carries none. Where two surfaces
@@ -259,6 +296,73 @@ export function edgeNearOnRow(frame: CaptureBurstFrame, y: number, colour: Rgb, 
     }
   }
   return best;
+}
+
+/**
+ * The first device row at or below `fromY` on column `x` where a run of
+ * `minRun` pixels near `colour` begins, or null. What finds a band by its
+ * paint on one column: a title bar's top by the chrome's colour, a content
+ * box's top by its surface.
+ */
+export function bandStartOnColumn(
+  frame: CaptureBurstFrame,
+  x: number,
+  colour: Rgb,
+  tolerance: number,
+  fromY = 0,
+  minRun = 4,
+): number | null {
+  const png = decoded(frame.path);
+  const col = Math.min(png.width - 1, Math.max(0, Math.round(x)));
+  let run = 0;
+  for (let y = Math.max(0, Math.round(fromY)); y < png.height; y++) {
+    const i = (y * png.width + col) * 4;
+    const p = { r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] };
+    if (near(p, colour, tolerance)) {
+      run += 1;
+      if (run === minRun) return y - run + 1;
+    } else {
+      run = 0;
+    }
+  }
+  return null;
+}
+
+/**
+ * The share of `region`'s sampled pixels (device px, stride 4) where two
+ * frames of one burst differ by more than `tolerance` in any channel: how
+ * much of one area of the composite two frames disagree on, where
+ * {@link framesDiffer} asks of the whole frame.
+ */
+export function regionDiffShare(
+  a: CaptureBurstFrame,
+  b: CaptureBurstFrame,
+  region: { x: number; y: number; width: number; height: number },
+  tolerance = 8,
+): number {
+  const p = decoded(a.path);
+  const q = decoded(b.path);
+  if (p.width !== q.width || p.height !== q.height) return 1;
+  const x0 = Math.max(0, Math.floor(region.x));
+  const y0 = Math.max(0, Math.floor(region.y));
+  const x1 = Math.min(p.width, Math.ceil(region.x + region.width));
+  const y1 = Math.min(p.height, Math.ceil(region.y + region.height));
+  let differing = 0;
+  let sampled = 0;
+  for (let y = y0; y < y1; y += 4) {
+    for (let x = x0; x < x1; x += 4) {
+      const i = (y * p.width + x) * 4;
+      sampled += 1;
+      if (
+        Math.abs(p.rgba[i] - q.rgba[i]) > tolerance ||
+        Math.abs(p.rgba[i + 1] - q.rgba[i + 1]) > tolerance ||
+        Math.abs(p.rgba[i + 2] - q.rgba[i + 2]) > tolerance
+      ) {
+        differing += 1;
+      }
+    }
+  }
+  return differing / Math.max(1, sampled);
 }
 
 /**

@@ -67,6 +67,22 @@ export const CARD_SELECTORS = [
   '[data-slot="tug-prompt-entry"]',
 ] as const;
 
+/**
+ * Selectors of a pane's chrome. A card that draws its chrome in its own page
+ * (`lib/chrome-placement.ts`) holds its title bar, its tab bar and its grips
+ * there, masthead and all, so a reach for them through the shell finds the
+ * stand-in's nothing.
+ */
+export const CHROME_SELECTORS = [
+  "tug-pane-title",
+  "card-masthead",
+  "tug-tab-close-",
+  "tug-pane-resize",
+  "tug-tab-bar",
+  "session-masthead",
+  "tug-session-row-",
+] as const;
+
 /** Selectors only a Session card's DOM holds, so a reach with no named card is the Session card's. */
 const SESSION_SELECTORS = ["ROUTE_CHOICE", '[data-slot="tug-choice-group"][aria-label="Route"]', '[data-slot="tug-prompt-entry"]'];
 
@@ -561,7 +577,7 @@ export function censusOfSource(
     if (/\)\s*:\s*(?:Promise<\s*)?BodyApp\s*>?\s*(?:=>|\{)/.test(bindings.get(m[2]) ?? "")) onBody.add(m[1]);
   }
   const lines = src.split("\n");
-  const selectors = [...CARD_SELECTORS, ...vocabulary.extraSelectors, ...vocabulary.kindRoots.map((k) => k.root)];
+  const selectors = [...CARD_SELECTORS, ...CHROME_SELECTORS, ...vocabulary.extraSelectors, ...vocabulary.kindRoots.map((k) => k.root)];
   const entries: CensusEntry[] = [];
   const call = new RegExp(`\\??\\.\\s*(${EVALUATORS.join("|")})\\s*(?:<(?:[^<>()]|<[^<>]*>)*>)?\\s*\\(`, "g");
   for (const m of masked.matchAll(call)) {

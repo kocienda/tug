@@ -175,7 +175,8 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
-        await app.evalJS<boolean>(
+        // The shell's ledger copy, and the card's own, which its masthead reads.
+        for (const page of [app, app.body("A")]) await page.evalJS<boolean>(
           `window.__tug.publishSessionUpdated(${JSON.stringify(
             JSON.stringify({
               session_id: SESSION_ID,
@@ -312,12 +313,11 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
               m.hasAttribute('data-phase') ? "has-phase" : "no-phase",
             ].join("/");
           })()`;
-        // card-dom: shell — the masthead is pane chrome, drawn in the shell's page.
-        await app
+        // The masthead is pane chrome, which a Session card draws in its own page.
+        await app.body("A")
           .waitForCondition<boolean>(`${mastheadExpr} === "running/action/no-phase"`, { timeoutMs: 3_000 })
           .catch(() => undefined);
-        // card-dom: shell — the masthead is pane chrome, drawn in the shell's page.
-        const masthead = await app.evalJS<string>(mastheadExpr);
+        const masthead = await app.body("A").evalJS<string>(mastheadExpr);
         note("at0619 breath", JSON.stringify({ ...breath, masthead }));
         // The chip resolves to nothing, so the host says so...
         expect(breath.chipVariant).toBe("missing");
@@ -535,7 +535,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_DOT)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -554,7 +554,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // the phase key and still carry `data-phase`, correctly, because that
         // cell's whole job is to name the phase. A document-wide observer
         // would record their writes and convict this dot of them.
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var el = document.querySelector(${JSON.stringify(MASTHEAD_DOT)});
           var seen = [];
           var records = 0;
@@ -583,13 +583,13 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         })()`);
 
         await app.driveSession("A", { op: "send", text: "at0619 phase churn" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_DOT)})
              .getAttribute('data-state') === 'running'`,
           { timeoutMs: 20_000 },
         );
 
-        const working = await app.evalJS<{
+        const working = await app.body("A").evalJS<{
           seen: readonly string[];
           records: number;
           phase: boolean;
@@ -620,12 +620,12 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // drive on a synthetically bound session, where nothing answers a
         // turn and so `interrupting` and `idle` are out of reach.
         await app.driveSession("A", { op: "transportClose" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_DOT)})
              .getAttribute('data-role') === 'danger'`,
           { timeoutMs: 20_000 },
         );
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           seen: readonly string[];
           records: number;
         }>(`(function(){ window.__at0619.stop(); return window.__at0619.read(); })()`);
@@ -655,7 +655,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // the seeded pose; a flush that did nothing makes it the pose before
         // the seed. The no-flush arm is carried alongside precisely so a
         // green result cannot be an artefact of the probe.
-        const flush = await app.evalJS<{
+        const flush = await app.body("A").evalJS<{
           withGetAnimations: string | null;
           withOffsetWidth: string | null;
           withNoFlush: string | null;
@@ -732,7 +732,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_DOT)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -789,7 +789,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           };
           return null;
         })()`;
-        await app.evalJS<null>(watch);
+        await app.body("A").evalJS<null>(watch);
 
         // Null-safe, because the masthead mark is unmounted across a
         // transport close and a bare `.getAttribute` on the gap throws — an
@@ -802,11 +802,11 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         })()`;
 
         await app.driveSession("A", { op: "send", text: "at0619 weld" });
-        await app.waitForCondition<boolean>(stateIs("running"), {
+        await app.body("A").waitForCondition<boolean>(stateIs("running"), {
           timeoutMs: 20_000,
         });
 
-        const weld = await app.evalJS<{
+        const weld = await app.body("A").evalJS<{
           loops: number;
           names: readonly string[];
           nulls: number;
@@ -836,10 +836,10 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // work ended. So `data-breathing` goes and `data-emitting` does not,
         // in that order, at the moment the state changes.
         await app.driveSession("A", { op: "transportClose" });
-        await app.waitForCondition<boolean>(stateIs("aborted"), {
+        await app.body("A").waitForCondition<boolean>(stateIs("aborted"), {
           timeoutMs: 20_000,
         });
-        const settled = await app.evalJS<readonly string[]>(
+        const settled = await app.body("A").evalJS<readonly string[]>(
           `window.__at0619weld.gates()`,
         );
         note("at0619 gates through the settle", JSON.stringify(settled));

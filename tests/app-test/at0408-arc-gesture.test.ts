@@ -146,7 +146,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
 
         // ── A known name binds, with no shell row behind it ───────────────
         await runCommand(app, `/arc-bind ${KNOWN_ARC}`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)})?.textContent.trim() === ${JSON.stringify(chipText(KNOWN_ARC))}`,
           { timeoutMs: 15000 },
         );
@@ -170,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
         expect(receipt).toContain(`tugtool arc create ${MADE_ARC}`);
         // `arc create`'s unconditional auto-bind is what ends the card bound —
         // this handler never sends a second bind of its own.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)})?.textContent.trim() === ${JSON.stringify(chipText(MADE_ARC))}`,
           { timeoutMs: 20000 },
         );

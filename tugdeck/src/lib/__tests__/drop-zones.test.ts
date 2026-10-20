@@ -32,6 +32,7 @@ import {
   flowStepDecision,
   flowStepTarget,
   hitRectOf,
+  mergeBandOf,
   pickLiveZone,
   type AutoscrollTarget,
   type DropZone,
@@ -1421,5 +1422,26 @@ describe("a click names the slot beside the edge and reveals it whole", () => {
     };
     const target = flowStepTarget({ strip: holey, band: 1000, offset: 0, direction: 1 });
     expect(target!.slot).toBe(2);
+  });
+});
+
+describe("a card dropped free merges onto a pane's title band", () => {
+  const pane: Rect = { x: 100, y: 40, width: 600, height: 500 };
+
+  it("is the pane's top edge at a content pane's title-bar height", () => {
+    expect(mergeBandOf(pane, "content")).toEqual({ x: 100, y: 40, width: 600, height: 36 });
+  });
+
+  it("is a rail's shorter title bar on a rail", () => {
+    expect(mergeBandOf(pane, "sidebar")).toEqual({ x: 100, y: 40, width: 600, height: 32 });
+  });
+
+  it("never reaches past a pane shorter than its title bar", () => {
+    expect(mergeBandOf({ ...pane, height: 20 }, "content").height).toBe(20);
+  });
+
+  it("takes in the tab bar below the title bar on a pane of several cards", () => {
+    expect(mergeBandOf(pane, "content", true)).toEqual({ x: 100, y: 40, width: 600, height: 72 });
+    expect(mergeBandOf({ ...pane, height: 50 }, "content", true).height).toBe(50);
   });
 });

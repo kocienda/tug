@@ -440,11 +440,11 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
         expect(seatMoved, DECK_SEAT_NOTE).toBe(DECK_SEAT_FOLLOWS_A_ROTATION);
         if (!DECK_SEAT_FOLLOWS_A_ROTATION) return;
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_ARC)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        const sigil = await app.evalJS<string>(
+        const sigil = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(MASTHEAD_ARC)})?.textContent ?? "").trim()`,
         );
         note(`at0504 masthead after the rotation: ${JSON.stringify(sigil)}`);

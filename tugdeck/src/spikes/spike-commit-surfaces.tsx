@@ -41,7 +41,7 @@ import {
 } from "@/components/tugways/body-kinds/commit-block";
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { SessionCommitReceiptBlock } from "@/components/tugways/cards/session-commit-receipt-block";
-import { CardTitleBar } from "@/components/chrome/tug-pane";
+import { CardTitleBar } from "@/components/chrome/card-title-bar";
 import type { CommitMastheadPayload } from "@/lib/card-title-store";
 import type { CommandBlockProps } from "@/components/tugways/cards/session-command-block-registry";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";

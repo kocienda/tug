@@ -138,12 +138,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 13: arc tracking from a body", 
 
         // ── Before the bind, no arc reading anywhere ─────────────────────
         expect(await body.evalJS<string>(textOf(ARC_VALUE)), "the body's Z2 reads no arc before the bind").toBe("");
-        expect(await app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(MASTHEAD_MARK)}).length`), "no mark on the masthead before the bind").toBe(0);
+        expect(await app.body("row13-a").evalJS<number>(`document.querySelectorAll(${JSON.stringify(MASTHEAD_MARK)}).length`), "no mark on the masthead before the bind").toBe(0);
 
         // ── Bound: the body's Z2 and the shell's surfaces read one arc ────
         bindArc(projectDir, ARC, SID, { binaryRoot: CHECKOUT, env: scratch?.cli.env });
         const z2 = await pollFor(() => body.evalJS<string>(textOf(ARC_VALUE)), (t) => t === "1/3", READ_MS);
-        const masthead = await pollFor(() => app.evalJS<string>(textOf(MASTHEAD_FRACTION)), (t) => t === "1/3", READ_MS);
+        const masthead = await pollFor(() => app.body("row13-a").evalJS<string>(textOf(MASTHEAD_FRACTION)), (t) => t === "1/3", READ_MS);
         note(`bound: body Z2 ARC ${JSON.stringify(z2)}, shell masthead fraction ${JSON.stringify(masthead)}`);
         expect(z2, "the body's Z2 reads the declared run").toBe("1/3");
         expect(masthead, "the shell's masthead for the body card reads the same run").toBe("1/3");

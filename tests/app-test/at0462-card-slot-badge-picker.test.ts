@@ -69,7 +69,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
 import {
   AFTER_LAND_MS,
-  PANE_A,
+  PAGE_PANE,
   PICKER,
   PICKER_CHIPS,
   POPUP,
@@ -89,16 +89,18 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
       const app = await launchTugApp({ testName: "at0462-card-slot-badge" });
       try {
         await openDeck(app, deckShape(3), "A");
+        // Card A's badge, its picker and its popup are in A's own page.
+        const page = app.body("A");
 
         expect(
-          await app.evalJS<number>(
+          await page.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(POPUP)}).length`,
           ),
           "nothing is open until the badge is pressed",
         ).toBe(0);
 
-        await app.nativeClickAtElement(`${PANE_A} ${TRIGGER}`);
-        await app.waitForCondition<boolean>(
+        await page.nativeClickAtElement(`${PAGE_PANE} ${TRIGGER}`);
+        await page.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 8_000 },
         );
@@ -107,7 +109,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // land before measuring anything geometric.
         await wait(400);
 
-        const chips = await app.evalJS<{ digits: string[]; states: string[] }>(
+        const chips = await page.evalJS<{ digits: string[]; states: string[] }>(
           `(function () {
             var chips = Array.prototype.slice.call(
               document.querySelectorAll(${JSON.stringify(PICKER_CHIPS)})
@@ -125,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // consumers are lists that pad their own rows — so a run handed
         // straight to it sat flush against a border with an 8px radius, and
         // the corner chips were clipped by the curve.
-        const room = await app.evalJS<{
+        const room = await page.evalJS<{
           inset: number;
           width: number;
           height: number;
@@ -178,8 +180,8 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         ).toEqual(["filled", "rest", "rest"]);
 
         // Put it in the third place.
-        await app.nativeClickAtElement(`${PICKER_CHIPS}:nth-of-type(3)`);
-        await app.waitForCondition<boolean>(
+        await page.nativeClickAtElement(`${PICKER_CHIPS}:nth-of-type(3)`);
+        await page.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) === null`,
           { timeoutMs: 8_000 },
         );
@@ -218,8 +220,8 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // meaning the same thing sat apart by a distance that varied with the
         // answer. Held at slot 0 the shift is only the popup's padding and a
         // regression would hide; held at slot 2 it is two chips and a gap.
-        await app.nativeClickAtElement(`${PANE_A} ${TRIGGER}`);
-        await app.waitForCondition<boolean>(
+        await page.nativeClickAtElement(`${PAGE_PANE} ${TRIGGER}`);
+        await page.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 8_000 },
         );
@@ -227,14 +229,14 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // the interpolated pose. Let it land before measuring.
         await wait(400);
 
-        const aligned = await app.evalJS<{
+        const aligned = await page.evalJS<{
           filledIndex: number;
           filledCentre: number;
           triggerCentre: number;
         }>(
           `(function () {
             var trigger = document.querySelector(
-              ${JSON.stringify(PANE_A)} + " " + ${JSON.stringify(TRIGGER)}
+              ${JSON.stringify(PAGE_PANE)} + " " + ${JSON.stringify(TRIGGER)}
             );
             var chips = Array.prototype.slice.call(
               document.querySelectorAll(${JSON.stringify(PICKER_CHIPS)})
@@ -278,8 +280,10 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
       const app = await launchTugApp({ testName: "at0462-card-slot-badge" });
       try {
         await openDeck(app, deckShape(3), "A");
-        await app.nativeClickAtElement(`${PANE_A} ${TRIGGER}`);
-        await app.waitForCondition<boolean>(
+        // Card A's badge, its picker and its popup are in A's own page.
+        const page = app.body("A");
+        await page.nativeClickAtElement(`${PAGE_PANE} ${TRIGGER}`);
+        await page.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 8_000 },
         );
@@ -288,7 +292,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // land before measuring anything geometric.
         await wait(400);
 
-        const registered = await app.evalJS<
+        const registered = await page.evalJS<
           { focusable: boolean; key: string | null }[]
         >(
           `Array.prototype.map.call(

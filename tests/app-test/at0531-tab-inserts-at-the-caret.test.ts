@@ -48,8 +48,8 @@ const TEST_TIMEOUT_MS = 120_000;
 const CARD = '[data-card-id="A"]';
 const FILE_EDITOR = `${CARD} [data-slot="tug-text-card-editor"] .cm-content`;
 const PROMPT_EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const PANE = '[data-pane-id="p1"]';
-const OPTIONS_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-show-card-settings"]`;
+// The gear is a pane title-bar item, which the card draws in its own page.
+const OPTIONS_BUTTON = '[data-testid="tug-pane-title-bar-item-show-card-settings"]';
 const OPTIONS_PANEL = '[data-testid="text-card-options"]';
 const SOFT_TABS_SWITCH = `${OPTIONS_PANEL} [data-testid="text-card-option-soft-tabs"]`;
 
@@ -224,10 +224,10 @@ describe.skipIf(!SHOULD_RUN)("at0531: Tab inserts at the caret", () => {
         // gear sheet, so this covers the setting's whole path from the switch
         // to the keymap.
         //
-        // The gear is the pane's title bar, in the shell; the sheet it opens
-        // is the card's, in A's body.
-        await app.revealPaneControls(PANE);
-        await app.nativeClickAtElement(OPTIONS_BUTTON);
+        // The gear is the pane's title bar and the sheet it opens is the
+        // card's: both in A's page.
+        await app.body("A").revealPaneControls();
+        await app.body("A").nativeClickAtElement(OPTIONS_BUTTON);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OPTIONS_PANEL)}) !== null`,
           { timeoutMs: 15000 },

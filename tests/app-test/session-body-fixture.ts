@@ -167,10 +167,14 @@ export async function pagesOf(app: App): Promise<PageRow[]> {
   return app.waitForCondition<PageRow[]>(`window.__at0738Pages`, { timeoutMs: PLACED_MS });
 }
 
-/** The shell masthead's phase dot for a card: its role and state, or null where none stands. */
-export const mastheadDot = (cardId: string): string =>
+/**
+ * The masthead's phase dot, read in a Session card's own page — where the
+ * card draws its chrome, masthead and all: its role and state, or null where
+ * none stands.
+ */
+export const mastheadDot = (): string =>
   `(function () {
-    var dot = document.querySelector('.tug-pane[data-pane-id="${cardId}-pane"] [data-slot="session-masthead"] [data-slot="tug-progress-indicator"]');
+    var dot = document.querySelector('.body-chrome-frame [data-slot="session-masthead"] [data-slot="tug-progress-indicator"]');
     return dot === null ? null : { role: dot.getAttribute("data-role"), state: dot.getAttribute("data-state") };
   })()`;
 

@@ -22,6 +22,8 @@ export type BodyCardState = "creating" | "ready" | "painted" | "failed";
 
 export class BodyCardsStore extends Subscribable {
   private readonly states = new Map<string, BodyCardState>();
+  /** Cards that draw their own chrome whose page has put its first chrome frame on screen. */
+  private readonly chrome = new Set<string>();
   private ids: readonly string[] = [];
 
   /** Mark `cardId` a body card, in `creating`. A card already marked keeps its state. */
@@ -36,11 +38,27 @@ export class BodyCardsStore extends Subscribable {
     const prev = this.states.get(cardId);
     if (prev === undefined || prev === state) return;
     this.states.set(cardId, state);
+    // A page starting again, or gone, has no chrome on screen.
+    if (state === "creating" || state === "failed") this.chrome.delete(cardId);
     this.changed();
   }
 
+  /**
+   * The host has shown the first frame of `cardId`'s page with its chrome:
+   * a card that draws its own pane's chrome may show from here, before its
+   * content has painted, under its own content lid (`body-chrome-frame.tsx`).
+   */
+  markChromeShown(cardId: string): void {
+    if (!this.states.has(cardId) || this.chrome.has(cardId)) return;
+    this.chrome.add(cardId);
+    this.changed();
+  }
+
+  chromeShown = (cardId: string): boolean => this.chrome.has(cardId);
+
   /** The card is no longer a body card. */
   drop(cardId: string): void {
+    this.chrome.delete(cardId);
     if (!this.states.delete(cardId)) return;
     this.changed();
   }
@@ -55,6 +73,7 @@ export class BodyCardsStore extends Subscribable {
   /** For tests. */
   _reset(): void {
     this.states.clear();
+    this.chrome.clear();
     this.changed();
   }
 

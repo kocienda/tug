@@ -1,6 +1,6 @@
 /**
  * A body shows only when it is ready and its card is shown — the active card
- * of its pane, not folded (unless its kind draws its own folded form), not
+ * of its pane, not folded (unless it draws its folded form in its body), not
  * arriving, in the shown workspace — and the
  * placer tells the host only what changed. A body a plan is carrying in is
  * not hidden for arriving while its settle runs, and a body measured in a
@@ -31,7 +31,7 @@ const SHOWN: BodyShownFacts = {
   painted: true,
   active: true,
   folded: false,
-  ownsFoldedForm: false,
+  foldsInBody: false,
   arriving: false,
   layerShown: true,
 };
@@ -67,12 +67,12 @@ describe("bodyVisible", () => {
     ["ready but not yet painted", { painted: false }, false],
     ["an inactive tab", { active: false }, false],
     ["folded", { folded: true }, false],
-    ["folded, its kind drawing its own folded form", { folded: true, ownsFoldedForm: true }, true],
-    ["open, its kind drawing its own folded form", { ownsFoldedForm: true }, true],
+    ["folded, drawing its folded form in its body", { folded: true, foldsInBody: true }, true],
+    ["open, drawing its folded form in its body", { foldsInBody: true }, true],
     ["arriving", { arriving: true }, false],
     ["in a parked workspace", { layerShown: false }, false],
     ["folded in a parked workspace", { folded: true, layerShown: false }, false],
-    ["folded in its own form, in a parked workspace", { folded: true, ownsFoldedForm: true, layerShown: false }, false],
+    ["folded in its own form, in a parked workspace", { folded: true, foldsInBody: true, layerShown: false }, false],
   ];
   for (const [name, over, visible] of cases) {
     test(name, () => {
@@ -201,17 +201,17 @@ describe("a pane behind bodies", () => {
 describe("hiddenSince", () => {
   afterEach(() => bodyCardsStore._reset());
 
-  /** A deck of one pane, `p1`, holding `rail`, arriving unless `arriving` is false, folded when `folded`. */
-  function deckOf(facts: { arriving: boolean; folded?: boolean }): IDeckManagerStore {
+  /** A deck of one pane, `p1`, holding `rail`, arriving unless `arriving` is false, in a parked workspace when `parked`. */
+  function deckOf(facts: { arriving: boolean; parked?: boolean }): IDeckManagerStore {
     const state = {
-      panes: [{ id: "p1", cardIds: ["rail"], activeCardId: "rail", folded: facts.folded === true }],
+      panes: [{ id: "p1", cardIds: ["rail"], activeCardId: "rail" }],
       cards: [{ id: "rail", componentId: "layout" }],
       arriving: { p1: facts.arriving },
     };
     return {
       getSnapshot: () => state,
-      spaceOf: () => null,
-      getSpacesSnapshot: () => ({ activeSpaceId: null }),
+      spaceOf: () => (facts.parked === true ? "parked" : null),
+      getSpacesSnapshot: () => ({ activeSpaceId: "shown" }),
     } as unknown as IDeckManagerStore;
   }
 
@@ -231,7 +231,7 @@ describe("hiddenSince", () => {
   test("a body carried in is still hidden by a fact that would hide it anyway", () => {
     bodyCardsStore.mark("rail");
     bodyCardsStore.setState("rail", "painted");
-    const deck = deckOf({ arriving: true, folded: true });
+    const deck = deckOf({ arriving: true, parked: true });
     expect(hiddenSince(deck, posted, new Set(["rail"]))?.bodies[0].visible).toBe(false);
   });
 });

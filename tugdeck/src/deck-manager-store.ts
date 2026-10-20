@@ -484,6 +484,18 @@ export interface IDeckManagerStore {
     callback: CardLifecycleObserver,
   ) => () => void;
 
+  /** Subscribe to MOVE events: a card's pane committed a new position. No initial-sync. */
+  observeCardDidMove: (
+    cardId: string | null,
+    callback: CardLifecycleObserver,
+  ) => () => void;
+
+  /** Subscribe to RESIZE events: a card's pane committed a new size. No initial-sync. */
+  observeCardDidResize: (
+    cardId: string | null,
+    callback: CardLifecycleObserver,
+  ) => () => void;
+
   /**
    * Add a new card from the registry, wrapped in a new single-card
    * window at the default position. Returns the generated card id,

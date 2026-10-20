@@ -41,13 +41,14 @@
  *      one row meaning different things is the one thing this cluster cannot
  *      afford.
  *
- * @covers tugdeck/src/components/chrome/tug-pane.tsx
+ * @covers tugdeck/src/components/chrome/card-title-bar.tsx
+ * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugdeck/src/components/tugways/tug-pane.css
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -55,7 +56,13 @@ const TEST_TIMEOUT_MS = 180_000;
 /** The settle window, with room for the imposition's landing tween. */
 const AFTER_LAND_MS = 900;
 
-const PANE_A = '.tug-pane[data-pane-id="p1"]';
+/**
+ * Card A's pane, in A's own page: a Session card draws its pane's chrome
+ * there, and the page holds that one pane.
+ */
+const PANE_A = ".body-chrome-frame";
+/** Card A's stand-in in the shell, which carries the deck's facts about the pane. */
+const SHELL_PANE_A = '.tug-pane[data-pane-id="p1"]';
 const ROLLUP = '[data-testid="tug-pane-title-bar-rollup"]';
 const ROLLUP_ROW = '[data-testid="tug-pane-title-bar-rollup-row"]';
 const ROLLUP_MARK = '[data-testid="tug-pane-title-bar-rollup-mark"]';
@@ -100,18 +107,24 @@ function deckShape(): Record<string, unknown> {
   };
 }
 
-async function openDeck(app: App): Promise<void> {
+async function openDeck(app: App): Promise<BodyApp> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `document.querySelectorAll('.tug-pane[data-pane-id]').length === 2`,
     { timeoutMs: 8_000 },
   );
   await wait(AFTER_LAND_MS);
+  const page = app.body("A");
+  await page.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(`${PANE_A} ${ROLLUP}`)}) !== null`,
+    { timeoutMs: 8_000 },
+  );
+  return page;
 }
 
 /** The anchored end's three rects, to the pixel. */
-async function anchoredRects(app: App): Promise<Record<string, number[]>> {
-  return app.evalJS<Record<string, number[]>>(
+async function anchoredRects(page: BodyApp): Promise<Record<string, number[]>> {
+  return page.evalJS<Record<string, number[]>>(
     `(function () {
       var pane = document.querySelector(${JSON.stringify(PANE_A)});
       function rect(sel) {
@@ -135,10 +148,10 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
     async () => {
       const app = await launchTugApp({ testName: "at0468-title-bar-rollup" });
       try {
-        await openDeck(app);
+        const page = await openDeck(app);
 
         // --- At rest: present, laid out, and not clickable. ---------------
-        const atRest = await app.evalJS<{
+        const atRest = await page.evalJS<{
           opacity: string;
           pointerEvents: string;
           display: string;
@@ -185,9 +198,9 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
         ).toBe(atRest.buttons);
 
         // --- The anchored end holds its pixel across the reveal. ----------
-        const before = await anchoredRects(app);
-        await app.revealPaneControls(PANE_A);
-        const after = await anchoredRects(app);
+        const before = await anchoredRects(page);
+        await page.revealPaneControls(PANE_A);
+        const after = await anchoredRects(page);
         note(
           `anchored end before ${JSON.stringify(before)} after ${JSON.stringify(after)}`,
         );
@@ -200,7 +213,7 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
         ).toEqual(before);
 
         // Revealed, the row is reachable.
-        const shown = await app.evalJS<{ opacity: string; pointerEvents: string }>(
+        const shown = await page.evalJS<{ opacity: string; pointerEvents: string }>(
           `(function () {
             var row = document.querySelector(${JSON.stringify(PANE_A)})
               .querySelector(${JSON.stringify(ROLLUP_ROW)});
@@ -216,7 +229,7 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
         // the mark goes out as it arrives. A row that grew BESIDE the mark
         // would leave both on screen and push the badges — the two claims
         // this pair rules out.
-        const swap = await app.evalJS<{
+        const swap = await page.evalJS<{
           markOpacity: string;
           markRight: number;
           rowRight: number;
@@ -289,7 +302,7 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
         // assorted-commands menu draws the vertical one. This reads the SVG's
         // circles rather than trusting the icon's name: a swap that put the
         // same glyph on both would pass a name check and fail the eye.
-        const markAxis = await app.evalJS<string>(
+        const markAxis = await page.evalJS<string>(
           `(function () {
             var svg = document.querySelector(${JSON.stringify(PANE_A)})
               .querySelector(${JSON.stringify(ROLLUP_MARK)} + " svg");
@@ -319,30 +332,30 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
     async () => {
       const app = await launchTugApp({ testName: "at0468-title-bar-rollup-held" });
       try {
-        await openDeck(app);
+        const page = await openDeck(app);
 
         // --- A menu opened from inside the row holds it open. -------------
         // Hover the bar, press the width trigger, then walk the cursor OFF
         // the bar entirely — which is exactly what a hand reaching for a row
         // of the portalled menu does. Hover alone would have dropped the row
         // by now, and the trigger the menu hangs from with it.
-        await app.revealPaneControls(PANE_A);
-        await app.nativeClickAtElement(`${PANE_A} ${WIDTH_BUTTON}`);
-        await app.waitForCondition<boolean>(
+        await page.revealPaneControls(PANE_A);
+        await page.nativeClickAtElement(`${PANE_A} ${WIDTH_BUTTON}`);
+        await page.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(WIDTH_MENU)}).length > 0`,
           { timeoutMs: 5_000 },
         );
-        await app.concealPaneControls(PANE_A);
+        await page.concealPaneControls(PANE_A);
         await wait(200);
         expect(
-          await app.evalJS<boolean>(
+          await page.evalJS<boolean>(
             `document.querySelector(${JSON.stringify(PANE_A)})
               .querySelector(${JSON.stringify(ROLLUP)}).hasAttribute("data-held")`,
           ),
           "the pointer has left the bar, and the standing menu holds the row",
         ).toBe(true);
         expect(
-          await app.evalJS<string>(
+          await page.evalJS<string>(
             `window.getComputedStyle(
                document.querySelector(${JSON.stringify(PANE_A)})
                  .querySelector(${JSON.stringify(ROLLUP_ROW)})
@@ -353,11 +366,11 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
 
         // Dismissing the menu releases the row.
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await page.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(WIDTH_MENU)}).length === 0`,
           { timeoutMs: 5_000 },
         );
-        await app.waitForCondition<boolean>(
+        await page.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PANE_A)})
             .querySelector(${JSON.stringify(ROLLUP)}).hasAttribute("data-held") === false`,
           { timeoutMs: 4_000 },
@@ -365,23 +378,32 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
 
         // --- The mark lights for a posture it is hiding. ------------------
         expect(
-          await app.getElementAttribute(`${PANE_A} ${ROLLUP_MARK}`, "data-on"),
+          await page.getElementAttribute(`${PANE_A} ${ROLLUP_MARK}`, "data-on"),
           "quiet while nothing behind it is engaged",
         ).toBe(null);
 
-        await app.revealPaneControls(PANE_A);
-        await app.nativeClickAtElement(`${PANE_A} ${BULLSEYE}`);
+        await page.revealPaneControls(PANE_A);
+        await page.nativeClickAtElement(`${PANE_A} ${BULLSEYE}`);
+        // Bullseye is the deck's posture, stamped on the shell's stand-in.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(PANE_A)}).hasAttribute("data-bullseye")`,
+          `document.querySelector(${JSON.stringify(SHELL_PANE_A)}).hasAttribute("data-bullseye")`,
           { timeoutMs: 8_000 },
         );
+        // The card's page hears the posture from the shell's pane facts, one
+        // hop after the shell's own stamp.
+        await page
+          .waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(`${PANE_A} ${ROLLUP_MARK}`)})?.hasAttribute("data-on") === true`,
+            { timeoutMs: 4_000 },
+          )
+          .catch(() => undefined);
         expect(
-          await app.getElementAttribute(`${PANE_A} ${ROLLUP_MARK}`, "data-on"),
+          await page.getElementAttribute(`${PANE_A} ${ROLLUP_MARK}`, "data-on"),
           "a card in bullseye says so from the mark, with the target still hidden behind it",
         ).not.toBe(null);
         note(
           "bullseye reaches the mark",
-          await app.evalJS<string>(
+          await page.evalJS<string>(
             `window.getComputedStyle(
                document.querySelector(${JSON.stringify(PANE_A)})
                  .querySelector(${JSON.stringify(ROLLUP_MARK)})

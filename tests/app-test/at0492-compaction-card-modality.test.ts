@@ -108,7 +108,8 @@ describe.skipIf(!SHOULD_RUN)(
           await app.bindSession("A", { tugSessionId: SID });
           await app.awaitEngineReady("A", { timeoutMs: 30_000 });
           // The compaction cover is a sheet the card raises, so it lives in
-          // A's body; the pane's title bar and its controls are the shell's.
+          // A's body, and so do the pane's title bar and its controls: a
+          // Session card draws its own pane's chrome.
           const body = app.body("A");
 
           // Open the run through the real submit path — the composer, not a
@@ -150,17 +151,17 @@ describe.skipIf(!SHOULD_RUN)(
           // the rollup — the `⋯` and every verb in the row behind it — does
           // not unfurl for a pointer or a keyboard walk.
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,
             ),
           ).toBe(true);
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CLOSE_BUTTON)}).disabled`,
             ),
           ).toBe(true);
           expect(
-            await app.getComputedStyleValue(ROLLUP_ROW, "display"),
+            await body.getComputedStyleValue(ROLLUP_ROW, "display"),
           ).toBe("none");
 
           // (3) The close ROUTE — where ⌘W, Close All, and the Cards row's remote
@@ -213,13 +214,13 @@ describe.skipIf(!SHOULD_RUN)(
           // shape could not make — with the hold on the sheet, folding the
           // card dropped it and left the run unguarded.
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,
             ),
             "the hold outlives the cover",
           ).toBe(true);
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CLOSE_BUTTON)}).disabled`,
             ),
           ).toBe(true);
@@ -250,12 +251,12 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           // The hold went with the sheet: the chrome is live again.
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold") === false`,
             { timeoutMs: 4000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CLOSE_BUTTON)}).disabled`,
             ),
           ).toBe(false);
@@ -321,20 +322,19 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           // And the hold rides with it: same closed doors as the typed path.
-          // The cover is in A's body and the hold reaches the shell's title
-          // bar over the bus, one message behind it ([B23]), so the shell is
-          // given that message's time before it is read.
-          await app.waitForCondition<boolean>(
+          // The cover and the title bar are both in A's body, where the hold
+          // is the page's own; the wait gives the bar its render.
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,
             { timeoutMs: 4000 },
           ).catch(() => undefined);
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,
             ),
           ).toBe(true);
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CLOSE_BUTTON)}).disabled`,
             ),
           ).toBe(true);
@@ -346,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(COMPACTION)}) === null`,
             { timeoutMs: 8000 },
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold") === false`,
             { timeoutMs: 4000 },
           );

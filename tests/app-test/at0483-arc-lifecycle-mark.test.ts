@@ -186,11 +186,12 @@ const count = (page: App | BodyApp, selector: string): Promise<number> =>
 
 /**
  * Wait until BOTH hosts have drawn a mark, so every reading is one beat. The
- * two hosts are two pages — the masthead in the shell, the Cards row in the
- * Workspaces card's body — so each is waited on in its own.
+ * two hosts are two pages — the masthead in the Session card's own page,
+ * the Cards row in the Workspaces card's body — so each is waited on in its
+ * own.
  */
 const awaitBothMarks = async (app: App): Promise<boolean> => {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MASTHEAD_MARK)}) !== null`,
     { timeoutMs: 30000 },
   );
@@ -228,9 +229,9 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         );
 
         // ── Before any binding, neither host draws anything ───────────────
-        expect(await count(app, MASTHEAD_MARK)).toBe(0);
+        expect(await count(app.body("A"), MASTHEAD_MARK)).toBe(0);
         expect(await count(kindBody(app, "cards"), CARDS_MARK)).toBe(0);
-        expect(await count(app, MASTHEAD_ARC_RUN)).toBe(0);
+        expect(await count(app.body("A"), MASTHEAD_ARC_RUN)).toBe(0);
 
         // ── A declared run over a longer plan ─────────────────────────────
         bindArc(projectDir(), RUN_ARC, SID, {
@@ -239,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         });
         await awaitBothMarks(app);
 
-        const masthead = await readMark(app, MASTHEAD_MARK);
+        const masthead = await readMark(app.body("A"), MASTHEAD_MARK);
         const cardsRow = await readMark(kindBody(app, "cards"), CARDS_MARK);
         note("at0483 implement · masthead", JSON.stringify(masthead));
         note("at0483 implement · cards row", JSON.stringify(cardsRow));
@@ -257,18 +258,18 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         // The row names the arc exactly once: one `^<arc>` run, one mark.
         // The masthead's identity is HANDED the binding its row already read,
         // so a second subscription cannot draw a second run beneath it.
-        expect(await count(app, MASTHEAD_ARC_RUN)).toBe(1);
+        expect(await count(app.body("A"), MASTHEAD_ARC_RUN)).toBe(1);
         note("at0483 masthead at the implement reading", (await app.screenshot()).path);
 
         // ── An arc that is only a brief ───────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_ARC}`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_MARK)})
              ?.getAttribute("data-phase") === "brief"`,
           { timeoutMs: 30000 },
         );
 
-        const briefMasthead = await readMark(app, MASTHEAD_MARK);
+        const briefMasthead = await readMark(app.body("A"), MASTHEAD_MARK);
         const briefCards = await readMark(kindBody(app, "cards"), CARDS_MARK);
         note("at0483 brief · masthead", JSON.stringify(briefMasthead));
         note("at0483 brief · cards row", JSON.stringify(briefCards));
@@ -286,13 +287,13 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         appendArcLogLine(logPath, BRIEF_ARC, "arc-start", briefPath);
         appendArcLogLine(logPath, BRIEF_ARC, "arc-stage", "devise claude-at0483 opus");
         appendArcLogLine(logPath, BRIEF_ARC, "arc-stop", "devise you took the card back");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_MARK)})
              ?.getAttribute("data-stopped") === "true"`,
           { timeoutMs: 30000 },
         );
 
-        const stopped = await readMark(app, MASTHEAD_MARK);
+        const stopped = await readMark(app.body("A"), MASTHEAD_MARK);
         const stoppedCards = await readMark(kindBody(app, "cards"), CARDS_MARK);
         note("at0483 stopped · masthead", JSON.stringify(stopped));
         note("at0483 stopped · cards row", JSON.stringify(stoppedCards));
@@ -313,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
         // Two pages, waited on one after the other: the masthead's mark in
         // the shell, then the Cards row's in the standing Workspaces card.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(MASTHEAD_MARK)}).length === 0`,
           { timeoutMs: 30000 },
         );
@@ -321,7 +322,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
           `document.querySelectorAll(${JSON.stringify(CARDS_MARK)}).length === 0`,
           { timeoutMs: 30000 },
         );
-        expect(await count(app, MASTHEAD_ARC_RUN)).toBe(0);
+        expect(await count(app.body("A"), MASTHEAD_ARC_RUN)).toBe(0);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

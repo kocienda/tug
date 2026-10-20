@@ -48,7 +48,9 @@ const TEST_TIMEOUT_MS = 120_000;
 // UUID-shaped so the bound session reads as a real one.
 const SID = "a7c0d1ea-0000-4000-8000-000000000498";
 
-const PANE = '.tug-pane[data-pane-id="p1"]';
+// The masthead is pane chrome, which a Session card draws in its own page;
+// the page holds that one pane, and the beat history rises there beside it.
+const PANE = ".body-chrome-frame";
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const STAGE = `${MASTHEAD} .session-masthead-stage`;
 /** The account run's text — the activity primitive's full reading. */
@@ -142,17 +144,17 @@ describe.skipIf(!SHOULD_RUN)(
           // Bound, not resumed: the masthead is what this pins, and it needs
           // no transcript behind it.
           await app.bindSession("A", { tugSessionId: SID, projectDir });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MASTHEAD)}) !== null`,
             { timeoutMs: 20_000 },
           );
 
           // Two file beats, oldest first: the newer one is what the line
           // reads, the older one survives only in the history.
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame(`Reading ${olderPath}`, 1))})`,
           );
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishDigestFrame(${JSON.stringify(digestFrame(`Writing ${newerPath} — 264 lines`, 2))})`,
           );
 
@@ -162,18 +164,18 @@ describe.skipIf(!SHOULD_RUN)(
           // either way. Read once the history has opened below, which is
           // the proof the frames landed; nothing here waits on a line that
           // is not going to change.
-          await app.click(STAGE);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(STAGE);
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(HISTORY)}) !== null`,
             { timeoutMs: 10_000 },
           );
           const newerRow = `${HISTORY_REF}[data-path="${newerPath}"]`;
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(newerRow)}) !== null`,
             { timeoutMs: 10_000 },
           );
-          expect(await app.evalJS<number>(countJS(LINE_BEAT))).toBe(0);
-          const lineText = await app.evalJS<string>(
+          expect(await app.body("A").evalJS<number>(countJS(LINE_BEAT))).toBe(0);
+          const lineText = await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(LINE_TEXT)}) || {}).textContent || ""`,
           );
           expect(lineText).not.toContain(NEWER_NAME);
@@ -183,7 +185,7 @@ describe.skipIf(!SHOULD_RUN)(
           // 2. The history's newest beat is a real annotation, not a picture
           // of one.
           const ref = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector(${JSON.stringify(newerRow)});
               return {
                 kind: el.getAttribute('data-tug-annotation'),
@@ -202,26 +204,26 @@ describe.skipIf(!SHOULD_RUN)(
           expect(ref.noActivate).toBe(true);
 
           // 3. Clicking it opens the file it names…
-          await app.click(newerRow);
+          await app.body("A").click(newerRow);
           await waitAnyTextCardShows(app, "the-newer-file-body", {
             timeoutMs: 20_000,
           });
           // …and so does the older one, which is no longer the newest and is
           // still actionable from the history. The Text card opening may
           // have dismissed the popover; reopen it from the account run if so.
-          if ((await app.evalJS<number>(countJS(HISTORY))) === 0) {
-            await app.click(STAGE);
-            await app.waitForCondition<boolean>(
+          if ((await app.body("A").evalJS<number>(countJS(HISTORY))) === 0) {
+            await app.body("A").click(STAGE);
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(HISTORY)}) !== null`,
               { timeoutMs: 10_000 },
             );
           }
           const olderRow = `${HISTORY_REF}[data-path="${olderPath}"]`;
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(olderRow)}) !== null`,
             { timeoutMs: 10_000 },
           );
-          await app.click(olderRow);
+          await app.body("A").click(olderRow);
           await waitAnyTextCardShows(app, "the-older-file-body", {
             timeoutMs: 20_000,
           });

@@ -118,8 +118,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
         const aHolds = await pollFor(() => bodyOf(app, A), (x) => x?.firstResponder === true, SETTLE_MS);
         expect(aHolds?.firstResponder, "A's body is the first responder again").toBe(true);
 
-        // ---- Close over a draft: the shell's popover; Escape hands the
-        // keyboard back, and its Close button closes A and hands it on ----
+        // ---- Close over a draft: the popover, in A's own page, since a
+        // Session card draws its own chrome; Escape hands the keyboard back,
+        // and its Close button closes A and hands it on ----
         await focusBody(app, A);
         await app.nativeType("draft");
         expect(await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("draft") === true, SETTLE_MS), "A's composer holds a draft").toContain("draft");
@@ -127,14 +128,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
         const close = await app.performMenuItem("file.closeCard");
         expect(close.found && close.performed, "File › Close performs").toBe(true);
         const raised = await pollFor(
-          async () => ({ popover: await app.evalJS<boolean>(popoverPresent), cards: await cardCount(app) }),
+          async () => ({ popover: await a.evalJS<boolean>(popoverPresent), cards: await cardCount(app) }),
           (r) => r.popover || r.cards < cardsBefore,
           SETTLE_MS,
         );
         note(`after File › Close: popover ${raised.popover}, cards ${cardsBefore} → ${raised.cards}; A ${JSON.stringify(await bodyOf(app, A))}`);
-        expect(raised.popover, "File › Close over A's draft raises the shell's popover").toBe(true);
+        expect(raised.popover, "File › Close over A's draft raises its popover, in A's page").toBe(true);
         await app.nativeKey("Escape");
-        expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
+        expect(await pollFor(() => a.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
         const handedBack = await pollFor(() => bodyOf(app, A), (x) => x?.firstResponder === true, SETTLE_MS);
         note(`after the popover: ${await responders(app)}`);
         expect(handedBack?.firstResponder, "A's body holds the keyboard again").toBe(true);
@@ -142,10 +143,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
 
         const again = await app.performMenuItem("file.closeCard");
         expect(again.found && again.performed, "File › Close performs again").toBe(true);
-        expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS), "and asks again").toBe(true);
-        const button = await closeButtonOfPopover(app);
+        expect(await pollFor(() => a.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS), "and asks again").toBe(true);
+        const button = await closeButtonOfPopover(a);
         expect(button, "the popover has a Close button").not.toBeNull();
-        await app.nativeClick(button!);
+        await a.nativeClick(button!);
         expect(await pollFor(() => cardCount(app), (n) => n < cardsBefore, SETTLE_MS), "Close closes A").toBe(cardsBefore - 1);
         const handedOn = await pollFor(() => bodyOf(app, B), (x) => x?.firstResponder === true, 8_000);
         note(`after the close: ${await responders(app)}`);

@@ -308,11 +308,11 @@ describe.skipIf(!SHOULD_RUN)("AT0503: an arc across a tugcast restart", () => {
             // The binding rode the restart: the masthead's sigil reads the
             // account-global aggregate's `bound_session`, which only a live
             // row actually carrying the binding can reach.
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(MASTHEAD_ARC)}) !== null`,
               { timeoutMs: 20_000 },
             );
-            const sigil = await app.evalJS<string>(
+            const sigil = await app.body("A").evalJS<string>(
               `(document.querySelector(${JSON.stringify(MASTHEAD_ARC)})?.textContent ?? "").trim()`,
             );
             note(`at0503 masthead after restart: ${JSON.stringify(sigil)}`);

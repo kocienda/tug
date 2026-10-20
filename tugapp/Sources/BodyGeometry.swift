@@ -26,6 +26,14 @@ struct BodyHitRegion: Equatable {
     /// over the body — parallel to `visibleFrames`. In a document the handle
     /// is above the content, so a point on one is the shell's.
     var visibleGrips: [[CGRect]] = []
+    /// Each visible body's card hit shape when the card draws its own chrome,
+    /// parallel to `visibleFrames`, or nil for a content box under the
+    /// shell's chrome. A whole card's view reaches the apron past its pane,
+    /// and a point there is the card's only along an edge it grips; its grips
+    /// are its own page's DOM, so of it the shell keeps only its own controls
+    /// standing over the card (the place seams), which its `visibleGrips`
+    /// carry.
+    var visibleShapes: [CardHitShape?] = []
     var claim: Claim = .none
 
     /// Whether a viewport point belongs to a body rather than to the shell.
@@ -48,6 +56,11 @@ struct BodyHitRegion: Equatable {
             break
         }
         for (index, frame) in visibleFrames.enumerated() {
+            if index < visibleShapes.count, let shape = visibleShapes[index] {
+                if index < visibleGrips.count, visibleGrips[index].contains(where: { $0.contains(point) }) { return nil }
+                if shape.contains(point) { return index }
+                continue
+            }
             if index < visibleGrips.count, visibleGrips[index].contains(where: { $0.contains(point) }) { return nil }
             if frame.contains(point) { return index }
         }

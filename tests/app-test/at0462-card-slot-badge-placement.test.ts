@@ -69,7 +69,7 @@ import { launchTugApp, note } from "./_harness";
 import {
   BADGE,
   CLUSTER,
-  PANE_A,
+  PAGE_PANE,
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
   deckShape,
@@ -138,7 +138,8 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // live at the end that moves, so the chip now sits at the trailing
         // end: behind every verb in the rollup, ahead of only the column badge
         // that reads with it and the close box.
-        const geometry = await app.evalJS<{
+        // Card A's chrome is in A's own page.
+        const geometry = await app.body("A").evalJS<{
           insideCluster: boolean;
           chip: { left: number; right: number; axis: number };
           /** Controls the chip must TRAIL — everything inside the rollup. */
@@ -147,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           ahead: { left: number; axis: number }[];
         }>(
           `(function () {
-            var pane = document.querySelector(${JSON.stringify(PANE_A)});
+            var pane = document.querySelector(${JSON.stringify(PAGE_PANE)});
             var cluster = pane.querySelector(${JSON.stringify(CLUSTER)});
             var badge = cluster.querySelector(${JSON.stringify(BADGE)});
             // The CHIP, not its wrapper: the wrapper is an inline-flex box the

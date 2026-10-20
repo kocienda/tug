@@ -78,6 +78,9 @@ export interface BodyPublisherSources {
   readKbfPaint(): boolean | null;
 }
 
+/** The chrome a card draws in its own page that the host carries a press on. */
+const CHROME_PRESS_SURFACES = ".body-chrome-frame .tug-pane-title-bar, .body-chrome-frame .tug-pane-resize";
+
 export class BodyPublisher {
   constructor(
     private readonly sources: BodyPublisherSources,
@@ -107,9 +110,14 @@ export class BodyPublisher {
    * the first one earned would otherwise go unasked, and the keyboard and
    * the shell's key card would part. The shell knows, and an activation of
    * the card already key costs it nothing.
+   *
+   * A press on the chrome a card draws in its own page — its title bar or a
+   * grip — is the pointer's activation, which slides no strip under the
+   * hand (`reveal: false`): the host carries the press, and a click's
+   * release reveals the card (`host-card-gesture.ts`).
    */
-  pointerDown(): void {
-    cardActivate.on(this.bus).dispatch({});
+  pointerDown(onChrome = false): void {
+    cardActivate.on(this.bus).dispatch({ reveal: onChrome ? false : undefined });
   }
 }
 
@@ -274,7 +282,8 @@ export function installBodyPublisher(
     followSession();
     publish();
   };
-  const onPointerDown = (): void => publisher.pointerDown();
+  const onPointerDown = (event: PointerEvent): void =>
+    publisher.pointerDown(event.target instanceof Element && event.target.closest(CHROME_PRESS_SURFACES) !== null);
 
   const releases = [
     cardServicesStore.subscribe(onServices),

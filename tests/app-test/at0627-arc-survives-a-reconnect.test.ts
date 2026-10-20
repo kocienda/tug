@@ -246,7 +246,7 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
        };
      })()`,
   );
-  const sigil = await app.evalJS<string>(
+  const sigil = await app.body("A").evalJS<string>(
     `(document.querySelector(${JSON.stringify(MASTHEAD_ARC)})?.textContent ?? "").trim()`,
   );
   // Which segment the card believes it is on. Noted on both readings because
@@ -306,7 +306,7 @@ async function awaitArcSurfaces(app: App, timeoutMs = 60_000): Promise<void> {
     `(document.querySelector(${JSON.stringify(CELL)})?.querySelector('[data-slot="session-telemetry-arc-value"]')?.textContent ?? "").trim().length > 0`,
     { timeoutMs },
   );
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MASTHEAD_ARC)}) !== null`,
     { timeoutMs },
   );

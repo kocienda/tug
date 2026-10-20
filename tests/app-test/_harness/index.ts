@@ -1335,30 +1335,7 @@ export class App {
    * bar in the document. A pane with no rollup resolves to a no-op.
    */
   async revealPaneControls(paneSelector = ""): Promise<void> {
-    const scope = paneSelector === "" ? "" : `${paneSelector} `;
-    const bar = `${scope}[data-testid="tug-pane-title-bar"]`;
-    const rollup = `${scope}[data-testid="tug-pane-title-bar-rollup"]`;
-    const present = await this.evalJS<boolean>(
-      `document.querySelector(${JSON.stringify(rollup)}) !== null`,
-    );
-    if (!present) return;
-    await this.evalJS<null>(
-      `(function(){
-         var bar=document.querySelector(${JSON.stringify(bar)});
-         if(bar===null) throw new Error("no title bar at " + ${JSON.stringify(bar)});
-         bar.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
-         return null;
-       })()`,
-    );
-    await this.waitForCondition(
-      `(function(){
-         var r=document.querySelector(${JSON.stringify(rollup)});
-         if(r===null) return false;
-         var row=r.querySelector('[data-testid="tug-pane-title-bar-rollup-row"]');
-         return row!==null && window.getComputedStyle(row).pointerEvents!=='none';
-       })()`,
-      { timeoutMs: 4_000 },
-    );
+    await revealPaneControlsIn(this, paneSelector);
   }
 
   /**
@@ -1367,15 +1344,7 @@ export class App {
    * the hover is gone.
    */
   async concealPaneControls(paneSelector = ""): Promise<void> {
-    const scope = paneSelector === "" ? "" : `${paneSelector} `;
-    const bar = `${scope}[data-testid="tug-pane-title-bar"]`;
-    await this.evalJS<null>(
-      `(function(){
-         var bar=document.querySelector(${JSON.stringify(bar)});
-         if(bar!==null) bar.dispatchEvent(new PointerEvent("pointerleave", { bubbles: false }));
-         return null;
-       })()`,
-    );
+    await concealPaneControlsIn(this, paneSelector);
   }
 
   /** Double click at a viewport point (pinned inter-click interval). */
@@ -1947,6 +1916,51 @@ export class App {
   }
 }
 
+/** A page a pane's title bar can stand in: the shell, or a card that draws its own chrome. */
+interface ChromePage {
+  evalJS<T = unknown>(script: string, opts?: EvalJsOptions): Promise<T>;
+  waitForCondition<T = unknown>(script: string, opts?: WaitForConditionOptions): Promise<T>;
+}
+
+/** {@link App.revealPaneControls}, in whichever page holds the title bar. */
+async function revealPaneControlsIn(page: ChromePage, paneSelector: string): Promise<void> {
+  const scope = paneSelector === "" ? "" : `${paneSelector} `;
+  const bar = `${scope}[data-testid="tug-pane-title-bar"]`;
+  const rollup = `${scope}[data-testid="tug-pane-title-bar-rollup"]`;
+  const present = await page.evalJS<boolean>(`document.querySelector(${JSON.stringify(rollup)}) !== null`);
+  if (!present) return;
+  await page.evalJS<null>(
+    `(function(){
+       var bar=document.querySelector(${JSON.stringify(bar)});
+       if(bar===null) throw new Error("no title bar at " + ${JSON.stringify(bar)});
+       bar.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
+       return null;
+     })()`,
+  );
+  await page.waitForCondition(
+    `(function(){
+       var r=document.querySelector(${JSON.stringify(rollup)});
+       if(r===null) return false;
+       var row=r.querySelector('[data-testid="tug-pane-title-bar-rollup-row"]');
+       return row!==null && window.getComputedStyle(row).pointerEvents!=='none';
+     })()`,
+    { timeoutMs: 4_000 },
+  );
+}
+
+/** {@link App.concealPaneControls}, in whichever page holds the title bar. */
+async function concealPaneControlsIn(page: ChromePage, paneSelector: string): Promise<void> {
+  const scope = paneSelector === "" ? "" : `${paneSelector} `;
+  const bar = `${scope}[data-testid="tug-pane-title-bar"]`;
+  await page.evalJS<null>(
+    `(function(){
+       var bar=document.querySelector(${JSON.stringify(bar)});
+       if(bar!==null) bar.dispatchEvent(new PointerEvent("pointerleave", { bubbles: false }));
+       return null;
+     })()`,
+  );
+}
+
 /**
  * One card's body view, addressed the way {@link App} addresses the shell.
  *
@@ -1985,6 +1999,19 @@ export class BodyApp implements HarnessCaller {
     params: Record<string, unknown>,
   ): Promise<T> {
     return this.app.rpcCall<T>(method, scopeToCard(params, this.cardId));
+  }
+
+  /**
+   * {@link App.revealPaneControls} in this card's page, for a card that draws
+   * its own pane's chrome: its title bar is here.
+   */
+  async revealPaneControls(paneSelector = ""): Promise<void> {
+    await revealPaneControlsIn(this, paneSelector);
+  }
+
+  /** {@link App.concealPaneControls} in this card's page. */
+  async concealPaneControls(paneSelector = ""): Promise<void> {
+    await concealPaneControlsIn(this, paneSelector);
   }
 
   /** Screen-CG bounds for `selector` in this body, mapped through its view. */

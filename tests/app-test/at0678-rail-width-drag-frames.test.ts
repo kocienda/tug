@@ -43,6 +43,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromePoint } from "./card-chrome-fixture";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import { MIN_OVERVIEW_WIDTH_PX } from "../../tugdeck/src/lib/overview-measure";
 
@@ -66,7 +67,6 @@ const MIN_FRAMES = 20;
 const AFTER_LAND_MS = 900;
 
 const MEMBERS = ["overview", "jots", "layout"] as const;
-const HANDLE = `.tug-pane[data-pane-id="pJots"] .tug-pane-resize-e`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -138,22 +138,27 @@ interface FrameRecord {
 
 /**
  * Arm the recorder. It runs until `takeFrames`, and keeps a frame only when
- * it began with the pointer down — the press is caught on its way down,
- * before any listener of the deck's sees it, and the idle frames between
- * the two legs are not counted toward the drag.
+ * it began with the hand down — read off the host's reports of the hand
+ * (`onCardGesture`), since the press is the rail card's own page's and the
+ * host carries it — and the idle frames between the two legs are not
+ * counted toward the drag.
  */
 async function armFrames(app: App): Promise<void> {
+  // card-dom: shell — the shell's frames and the host's gesture reports, both the shell page's.
   await app.evalJS<null>(
     `(function () {
       var rec = { all: [], downAt: null, down: false, running: true };
       window.__at0678 = rec;
-      window.addEventListener("pointerdown", function () {
-        if (rec.downAt === null) rec.downAt = performance.now();
-        rec.down = true;
-      }, true);
-      window.addEventListener("pointerup", function () {
-        rec.down = false;
-      }, true);
+      var b = window.__tugBridge; var take = b.onCardGesture;
+      b.onCardGesture = function (r) {
+        if (r.phase === "move") {
+          if (rec.downAt === null) rec.downAt = performance.now();
+          rec.down = true;
+        } else {
+          rec.down = false;
+        }
+        return take(r);
+      };
       var channel = new MessageChannel();
       var started = null;
       var startedDown = false;
@@ -198,15 +203,12 @@ function p95(values: readonly number[]): number {
 }
 
 async function grip(app: App): Promise<{ x: number; y: number }> {
-  return app.evalJS<{ x: number; y: number }>(
-    `(function () {
-      var r = document.querySelector(${JSON.stringify(HANDLE)}).getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    })()`,
-  );
+  // The rail card draws its edge grip in its own page.
+  return chromePoint(app, "J", ".tug-pane-resize-e");
 }
 
 function memberWidths(app: App): Promise<Record<string, number>> {
+  // card-dom: shell — the stand-in frames are the arrangement's model, laid out in the shell.
   return app.evalJS<Record<string, number>>(
     `(function () {
       var out = {};
@@ -231,11 +233,16 @@ interface ReleaseSample {
 /** Arm the release sampler: it starts at the pointer's release and reads every
  *  rail member's opacity and width on each animation frame. */
 async function armRelease(app: App): Promise<void> {
+  // card-dom: shell — the stand-in frames and the host's gesture reports, both the shell page's.
   await app.evalJS<null>(
     `(function () {
       var rec = { frames: 0, minOpacity: 1, widths: {}, released: false, running: true };
       window.__at0678release = rec;
-      window.addEventListener("pointerup", function () { rec.released = true; }, true);
+      var b = window.__tugBridge; var take = b.onCardGesture;
+      b.onCardGesture = function (r) {
+        if (r.phase === "end") rec.released = true;
+        return take(r);
+      };
       var tick = function () {
         if (!rec.running) return;
         if (rec.released) {
@@ -259,6 +266,7 @@ async function armRelease(app: App): Promise<void> {
 }
 
 async function takeRelease(app: App): Promise<ReleaseSample> {
+  // card-dom: shell — the release sampler ran in the shell's page.
   return app.evalJS<ReleaseSample>(
     `(function () {
       var rec = window.__at0678release;

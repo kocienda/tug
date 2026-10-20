@@ -66,7 +66,13 @@ const PROMPT =
   "three claimants over two dead zones, and take the hover card off where the " +
   "menu can be acted on instead";
 
-const PANE = '.tug-pane[data-pane-id="p1"]';
+/**
+ * Card S's pane in its own page: a Session card draws its pane's chrome,
+ * masthead and all, there, and the page holds that one pane.
+ */
+const PANE = ".body-chrome-frame";
+/** Card S's stand-in in the shell. */
+const SHELL_PANE = '.tug-pane[data-pane-id="p1"]';
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const TITLE = `${MASTHEAD} .session-masthead-title`;
 const DESCRIPTION = `${MASTHEAD} .tug-session-row-description`;
@@ -185,12 +191,15 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD)}) !== null`,
           { timeoutMs: 15_000 },
         );
         expect(await app.evalJS<boolean>(publishSession())).toBe(true);
-        await app.waitForCondition<boolean>(
+        // The masthead reads the card's own page's ledger, which hears the
+        // update there.
+        expect(await app.body("S").evalJS<boolean>(publishSession())).toBe(true);
+        await app.body("S").waitForCondition<boolean>(
           `(function(){
              var el = document.querySelector(${JSON.stringify(DESCRIPTION)});
              return el !== null && (el.textContent || "").indexOf("right-click menu") !== -1;
@@ -209,18 +218,18 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // answered it with "No Actions". The masthead lives in that bar. A
         // press that only synthesizes the DOM event skips the capture entirely
         // and cannot see any of it.
-        await app.nativeRightClickAtElement(DESCRIPTION);
-        await app.waitForCondition<boolean>(
+        await app.body("S").nativeRightClickAtElement(DESCRIPTION);
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
         // And nothing else answered the same press.
         expect(
-          await app.evalJS<number>(
+          await app.body("S").evalJS<number>(
             `document.querySelectorAll('.tug-menu-content').length`,
           ),
         ).toBe(1);
-        const rows = await app.evalJS<
+        const rows = await app.body("S").evalJS<
           ReadonlyArray<{ action: string; label: string; disabled: boolean }>
         >(menuRows());
         note("at0387 menu", JSON.stringify(rows));
@@ -246,10 +255,10 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
 
         // ---- …and the item carries it to the pasteboard. ------------------
         setPasteboard(SENTINEL);
-        await app.nativeClickAtElement(
+        await app.body("S").nativeClickAtElement(
           `${MENU} [data-item-action="copy-session-citation"]`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) === null`,
           { timeoutMs: 8_000 },
         );
@@ -265,11 +274,11 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         expect(pasted).toBe(CITATION);
 
         // ---- The hover no longer says what the row already says. ----------
-        expect(await app.evalJS<boolean>(hoverTitle())).toBe(true);
+        expect(await app.body("S").evalJS<boolean>(hoverTitle())).toBe(true);
         // Long enough to clear the provider's 500ms open delay several times
         // over: the claim is that nothing opens.
         await new Promise((resolve) => setTimeout(resolve, 2_000));
-        const tooltips = await app.evalJS<number>(
+        const tooltips = await app.body("S").evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(TOOLTIP)}).length`,
         );
         note("at0387 tooltips over the title", String(tooltips));
@@ -293,7 +302,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD)}) !== null`,
           { timeoutMs: 15_000 },
         );
@@ -374,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // close.
         await app.evalJS<null>(`(window.__tug.closePane("p1"), null)`);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(MASTHEAD)}) === null`,
+          `document.querySelector(${JSON.stringify(SHELL_PANE)}) === null`,
           { timeoutMs: 10_000 },
         );
         // The closed card took the key view with it; the Overview is the surface

@@ -114,16 +114,13 @@ import { loadMakerTooling, registerCardKinds } from "../card-kinds";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { exposePerfMonitor, startPerfMonitor } from "../lib/perf-monitor";
 import { getSettings } from "../lib/maker-mode-bridge";
-import { getRegistration, isSidebarCard, type CardIdentityFacts } from "../card-registry";
-import { cardIdentityElsewhere } from "../lib/card-identity";
-import { cardActivityElsewhere } from "../lib/card-activity-elsewhere";
+import { getRegistration, isSidebarCard } from "../card-registry";
+import { createCardFactsMirror } from "./card-facts-mirror";
 import { appInfoStore } from "../lib/app-info-store";
 import { relayFrontmostProjectBinding } from "../lib/frontmost-project";
 import { applyCrossingMirror } from "../lib/fold-crossing";
 import { telemetryInspectionStore } from "../lib/telemetry-inspection-store";
 import { installInspectionPublisher } from "./body-inspection";
-import { cardTitleStore, type CardMastheadPayload } from "../lib/card-title-store";
-import type { CardSessionBinding } from "../lib/card-session-binding-store";
 import { cardsSpaceVerbRequest } from "../components/cards/cards-space-verb-request";
 import { shareLayoutSelection } from "../lib/cards-selection-store";
 import {
@@ -282,57 +279,6 @@ function putCardStateGuarded(
 ): Promise<boolean> {
   if (isTestMode && window.__tugPersistInTestMode !== true) return Promise.resolve(true);
   return putCardState(cardId, bag, options);
-}
-
-/**
- * Mirror what the shell holds about cards other than this page's own — their
- * session bindings, titles, live identities and reported session phases —
- * into this page's stores: every body reads other cards' sessions and phases
- * (a session's identity menu, the Overview's dots), and an arrangement card
- * lists their titles and identities too.
- * Those stores are per page and hold only this card's entries otherwise.
- * Returns the mirror's apply; each apply replaces the last, clearing what it
- * no longer names, and writes only what changed. The page's own card is
- * never written: it owns its entries.
- */
-function createCardFactsMirror(ownCardId: string): (
-  bindings: Record<string, CardSessionBinding>,
-  titles: Record<string, { title: string | null; masthead: CardMastheadPayload | null }>,
-  identities: Record<string, CardIdentityFacts>,
-  activities: Record<string, string>,
-) => void {
-  let boundBefore = new Map<string, string>();
-  let titledBefore = new Set<string>();
-  let knownBefore = new Set<string>();
-  let reportedBefore = new Set<string>();
-  return (bindings, titles, identities, activities) => {
-    const bound = new Map<string, string>();
-    for (const [id, binding] of Object.entries(bindings)) {
-      if (id === ownCardId) continue;
-      const json = JSON.stringify(binding);
-      bound.set(id, json);
-      if (JSON.stringify(cardSessionBindingStore.getBinding(id)) !== json) cardSessionBindingStore.setBinding(id, binding);
-    }
-    for (const id of boundBefore.keys()) if (!bound.has(id)) cardSessionBindingStore.clearBinding(id);
-    boundBefore = bound;
-    const titled = new Set(Object.keys(titles).filter((id) => id !== ownCardId));
-    for (const id of titled) {
-      const { title, masthead } = titles[id];
-      if (title !== null) cardTitleStore.set(id, title, masthead ?? undefined);
-      else if (masthead !== null) cardTitleStore.setMasthead(id, masthead);
-      else cardTitleStore.clear(id);
-    }
-    for (const id of titledBefore) if (!titled.has(id)) cardTitleStore.clear(id);
-    titledBefore = titled;
-    const known = new Set(Object.keys(identities).filter((id) => id !== ownCardId));
-    for (const id of known) cardIdentityElsewhere.set(id, identities[id]);
-    for (const id of knownBefore) if (!known.has(id)) cardIdentityElsewhere.set(id, null);
-    knownBefore = known;
-    const reported = new Set(Object.keys(activities).filter((id) => id !== ownCardId));
-    for (const id of reported) cardActivityElsewhere.set(id, activities[id]);
-    for (const id of reportedBefore) if (!reported.has(id)) cardActivityElsewhere.set(id, null);
-    reportedBefore = reported;
-  };
 }
 
 /**
@@ -662,6 +608,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
     cardId,
     componentId,
     replayIntent: (forwarded) => replayBodyIntent(forwarded, cardId, connection, bridge),
+    noteGeometryChanged: bridge.noteGeometryChanged,
   });
 
   initBodyHostMenuState(bridge);
@@ -780,6 +727,13 @@ async function bindBody(bind: BodyBind): Promise<void> {
 
   keyboardAccessStore.initialize(normalizeKeyboardAccessMode(readKeyboardAccess(tugbankClient)));
   keymapOverrideStore.initialize(tugbankClient.readDomain(KEYMAP_DOMAIN));
+  // A rebind written anywhere — the Settings card, another window, `tugbank
+  // write` — reaches this page's chords and tooltip chips as it reaches the
+  // shell's (`main.tsx`): a card that draws its own title bar shows its
+  // controls' chords here.
+  tugbankClient.onDomainChanged((domain, entries) => {
+    if (domain === KEYMAP_DOMAIN) keymapOverrideStore.applyRemote(entries);
+  });
   initMotionObserver();
   // The body's own motion guard: its loops take holds in this page's
   // registry, so the probe, the input-latency observer and

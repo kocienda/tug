@@ -156,10 +156,12 @@ const PROBE = `(function () {
 async function readTiers(
   app: App,
 ): Promise<{ session: TierGeometry | null; doc: TierGeometry | null }> {
-  return JSON.parse(await app.evalJS<string>(PROBE)) as {
-    session: TierGeometry | null;
-    doc: TierGeometry | null;
-  };
+  type Tiers = { session: TierGeometry | null; doc: TierGeometry | null };
+  // Each card draws its masthead in its own page, so each tier is read in the
+  // page that draws it.
+  const own = JSON.parse(await app.body("A").evalJS<string>(PROBE)) as Tiers;
+  const doc = JSON.parse(await app.body("B").evalJS<string>(PROBE)) as Tiers;
+  return { session: own.session, doc: doc.doc };
 }
 
 describe.skipIf(!SHOULD_RUN)("at0464 — the masthead's leading column", () => {
@@ -175,8 +177,12 @@ describe.skipIf(!SHOULD_RUN)("at0464 — the masthead's leading column", () => {
           tugSessionId: "at0464-A",
           projectDir: "/tmp/at0464",
         });
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null && document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null`,
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null`,
+          { timeoutMs: 15_000 },
+        );
+        await app.body("B").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null`,
           { timeoutMs: 15_000 },
         );
         await wait(AFTER_LAND_MS);

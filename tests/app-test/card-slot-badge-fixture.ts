@@ -23,8 +23,13 @@ export const TRIGGER = '[data-testid="card-slot-badge-trigger"]';
 export const POPUP = '[data-testid="card-slot-badge-popup"]';
 export const PICKER = '[data-testid="card-slot-badge-picker"]';
 export const PICKER_CHIPS = `${PICKER} [data-slot="tug-slot"]`;
-/** The first card's pane, so a click lands on ITS badge and not a neighbour's. */
+/** The first card's pane in the shell, where the deck's facts about it stand. */
 export const PANE_A = '.tug-pane[data-pane-id="p1"]';
+/**
+ * The first card's pane in its own page: a Session card draws its chrome
+ * there, badge and all, and the page holds that one pane.
+ */
+export const PAGE_PANE = ".body-chrome-frame";
 
 export const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -61,25 +66,54 @@ export function deckShape(count: number): Record<string, unknown> {
   };
 }
 
-/** Every badge on the deck, paired with the pane it stands in. */
-export async function readBadges(
-  app: App,
-): Promise<{ paneId: string; digit: string; state: string }[]> {
-  return app.evalJS(
+/** The badges in one page, each with the pane id that page names it by. */
+const badgesInPage = (skipStandIns: boolean): string => `(function () {
+  return Array.prototype.slice.call(
+    document.querySelectorAll(${JSON.stringify(BADGE)})
+  ).filter(function (el) {
+    return !(${skipStandIns} && el.closest("[data-chrome-in-body]"));
+  }).map(function (el) {
+    var pane = el.closest("[data-pane-id]");
+    var chip = el.querySelector('[data-slot="tug-slot"]');
+    return {
+      paneId: pane === null ? "" : pane.getAttribute("data-pane-id"),
+      digit: chip === null ? "" : chip.textContent,
+      state: chip === null ? "" : chip.getAttribute("data-state"),
+    };
+  });
+})()`;
+
+/**
+ * The cards whose pane in the shell is a stand-in — they draw their own
+ * chrome, so their badge is in their own page — by the shell's pane id.
+ */
+export async function chromeCards(app: App): Promise<Map<string, string>> {
+  const pairs = await app.evalJS<Array<[string, string]>>(
     `(function () {
-      return Array.prototype.slice.call(
-        document.querySelectorAll(${JSON.stringify(BADGE)})
-      ).map(function (el) {
-        var pane = el.closest("[data-pane-id]");
-        var chip = el.querySelector('[data-slot="tug-slot"]');
-        return {
-          paneId: pane === null ? "" : pane.getAttribute("data-pane-id"),
-          digit: chip === null ? "" : chip.textContent,
-          state: chip === null ? "" : chip.getAttribute("data-state"),
-        };
+      var deck = window.tugdeck.diag.getDeckState();
+      return Array.prototype.slice.call(document.querySelectorAll(".tug-pane[data-chrome-in-body]")).map(function (f) {
+        var pane = deck.panes.find(function (p) { return p.id === f.getAttribute("data-pane-id"); });
+        return [f.getAttribute("data-pane-id"), pane ? pane.activeCardId : ""];
       });
     })()`,
   );
+  return new Map(pairs);
+}
+
+/**
+ * Every badge on the deck, paired with the pane it stands in: the shell's own
+ * panes' badges in the shell's document, and each card that draws its own
+ * chrome's badge in that card's page, by the shell's pane id. In pane order.
+ */
+export async function readBadges(
+  app: App,
+): Promise<{ paneId: string; digit: string; state: string }[]> {
+  type Badge = { paneId: string; digit: string; state: string };
+  const out: Badge[] = [...(await app.evalJS<Badge[]>(badgesInPage(true)))];
+  for (const [paneId, cardId] of await chromeCards(app)) {
+    for (const b of await app.body(cardId).evalJS<Badge[]>(badgesInPage(false))) out.push({ ...b, paneId });
+  }
+  return out.sort((a, b) => a.paneId.localeCompare(b.paneId));
 }
 
 /**
@@ -104,9 +138,12 @@ export async function openDeck(
       projectDir: "/tmp/at0462",
     });
   }
-  await app.waitForCondition<boolean>(
-    `document.querySelectorAll(${JSON.stringify(FRAME)}).length === ${sessionCards.length}`,
-    { timeoutMs: 15_000 },
-  );
+  // A Session card draws its masthead in its own page.
+  for (const cardId of sessionCards) {
+    await app.body(cardId).waitForCondition<boolean>(
+      `document.querySelector(${JSON.stringify(FRAME)}) !== null`,
+      { timeoutMs: 15_000 },
+    );
+  }
   await wait(AFTER_LAND_MS);
 }

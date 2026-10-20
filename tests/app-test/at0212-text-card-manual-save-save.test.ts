@@ -41,9 +41,10 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import { launchTugApp } from "./_harness";
+import { launchTugApp, note } from "./_harness";
 import { AUTOMATIC_SAVE_MODE, mkSeededTugbank } from "./_harness/tugbank-helpers";
 import { mkTextFixture } from "./_harness/fixtures";
+import { chromePoint } from "./card-chrome-fixture";
 import {
   CMD_MASK,
   EDITOR_CONTENT,
@@ -73,7 +74,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
 
         // Clean titled manual card: "Saved"; Save/Revert disabled, Reload
         // enabled; Save As… carries the dynamic ⇧⌘S ([P07]).
-        await waitForSaveCell(app, "Saved");
+        await waitForSaveCell(app.body("A"), "Saved");
         await waitMenuEnabled(app, "file.save", false);
         await waitMenuEnabled(app, "file.revertToSaved", false);
         await waitMenuEnabled(app, "file.reloadFromDisk", true);
@@ -84,7 +85,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
 
         // Type → "Edited", disk UNCHANGED, Save + Revert enabled.
         await typeIntoEditor(app.body("A"), "EDIT ");
-        await waitForSaveCell(app, "Edited");
+        await waitForSaveCell(app.body("A"), "Edited");
         await settle();
         expect(fs.readFileSync(file, "utf8")).toBe(ORIGINAL);
         await waitMenuEnabled(app, "file.save", true);
@@ -95,7 +96,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // (typing focused it), so `save` reaches it via the chain.
         await dispatchControl(app, "save");
         await settle();
-        await waitForSaveCell(app, "Saved");
+        await waitForSaveCell(app.body("A"), "Saved");
         expect(fs.readFileSync(file, "utf8")).toContain("EDIT ");
       } finally {
         await app.close();
@@ -114,7 +115,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         await seedTextCard(app, file);
         await waitForEditor(app.body("A"), "alpha");
         await typeIntoEditor(app.body("A"), "MOVED ");
-        await waitForSaveCell(app, "Edited");
+        await waitForSaveCell(app.body("A"), "Edited");
         await settle();
 
         // Reposition the card by dragging its title bar. This promotes the
@@ -122,31 +123,46 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // focus off the editor. The card's reclaim must restore the editor
         // as first responder, or `save` (editor-owned) would walk up from
         // the pane and miss it — the "moved the card, ⌘S went dead" bug.
-        const tb = await app.getElementBounds(
-          `[data-testid="tug-pane-title-bar"]`,
-        );
-        await app.nativeDragElement(`[data-testid="tug-pane-title-bar"]`, {
-          x: tb.x + tb.width / 2 + 80,
-          y: tb.y + tb.height / 2,
-        });
+        // The bar is the card's own, drawn in its page; the drag is the
+        // window's, so it is pressed at the bar's grab handle, in the
+        // shell's points — the masthead's lines beside it are its own
+        // controls, not the bar.
+        const responders = `(function(){
+          var fr = document.querySelector('[data-first-responder]');
+          var content = document.querySelector('${EDITOR_CONTENT}');
+          var editorRid = content ? content.closest('[data-responder-id]')?.getAttribute('data-responder-id') : null;
+          var active = document.activeElement;
+          return {
+            fr: fr === null ? null : fr.getAttribute('data-first-responder'),
+            editor: editorRid,
+            active: active === null ? null : (active.getAttribute('data-testid') || active.className || active.tagName),
+          };
+        })()`;
+        const paneAt = `JSON.stringify(window.__tug.getPaneRecord("p1").position)`;
+        const before = { responders: await app.body("A").evalJS<unknown>(responders), pane: await app.evalJS<string>(paneAt) };
+        const from = await chromePoint(app, "A", ".tug-pane-title-bar .tug-pane-grab-handle");
+        await app.nativeDrag(from, { x: from.x + 80, y: from.y });
         await settle();
 
         // The reclaim must have restored the editor as the chain first
         // responder (not merely DOM focus, which survived the drag).
-        await app.body("A").waitForCondition<boolean>(
-          `(function(){
-             var fr = document.querySelector('[data-first-responder]');
-             var content = document.querySelector('${EDITOR_CONTENT}');
-             var editorRid = content ? content.closest('[data-responder-id]')?.getAttribute('data-responder-id') : null;
-             return fr !== null && editorRid !== null && fr.getAttribute('data-first-responder') === editorRid;
-           })()`,
-          { timeoutMs: 8000 },
-        );
+        try {
+          await app.body("A").waitForCondition<boolean>(
+            `(function(){ var r = ${responders}; return r.fr !== null && r.editor !== null && r.fr === r.editor; })()`,
+            { timeoutMs: 8000 },
+          );
+        } catch (error) {
+          // What stood when the editor never came back: the page's responders and focus, before the drag and after, and whether the pane moved.
+          note("before the drag", before);
+          note("after the drag", { responders: await app.body("A").evalJS<unknown>(responders), pane: await app.evalJS<string>(paneAt) });
+          note("view", (await app.bodies()).find((b) => b.cardId === "A") ?? null);
+          throw error;
+        }
 
         // `save` (the same path ⌘S/File▸Save use) still reaches the editor.
         await dispatchControl(app, "save");
         await settle();
-        await waitForSaveCell(app, "Saved");
+        await waitForSaveCell(app.body("A"), "Saved");
         expect(fs.readFileSync(file, "utf8")).toContain("MOVED ");
       } finally {
         await app.close();
@@ -165,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         await seedTextCard(app, file);
         await waitForEditor(app.body("A"), "alpha");
         await typeIntoEditor(app.body("A"), "MINE ");
-        await waitForSaveCell(app, "Edited");
+        await waitForSaveCell(app.body("A"), "Edited");
         await settle();
 
         // Another app changes the file underneath us; a save now conflicts
@@ -180,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         await settle();
         await app.body("A").click(`[data-testid="file-save-sheet-save-anyway"]`);
         await settle();
-        await waitForSaveCell(app, "Saved");
+        await waitForSaveCell(app.body("A"), "Saved");
         const disk = fs.readFileSync(file, "utf8");
         expect(disk).toContain("MINE ");
         expect(disk).not.toContain("FOREIGN CONTENT");

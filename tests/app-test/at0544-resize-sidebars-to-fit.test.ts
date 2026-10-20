@@ -166,6 +166,7 @@ async function settled(app: App): Promise<void> {
 
 /** Wait until both rails are up with two members each, and nothing is moving. */
 async function awaitRails(app: App): Promise<void> {
+  // card-dom: shell — the stand-in frames are the arrangement's model, laid out in the shell.
   await app.waitForCondition<boolean>(
     `document.querySelectorAll('.tug-pane[data-rail-side="left"]').length === 2 &&
      document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 2`,

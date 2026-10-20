@@ -260,7 +260,9 @@ import {
   type SaveCallbackSource,
 } from "./deck-trace";
 import { cardServicesStore } from "./lib/card-services-store";
-import { bodyCardsStore } from "./lib/body-cards-store";
+import { bodyCardsStore, bodyReadyQuiet } from "./lib/body-cards-store";
+import { hostCapabilitiesStore } from "./lib/body-handoff";
+import { chromeInBody } from "./lib/chrome-placement";
 import type { CardBinding } from "./protocol";
 import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
@@ -2185,6 +2187,16 @@ export class DeckManager implements IDeckManagerStore {
     callback: CardLifecycleObserver,
   ): (() => void) =>
     this.cardLifecycle.observeCardWillBeginDestruction(cardId, callback);
+
+  public observeCardDidMove = (
+    cardId: string | null,
+    callback: CardLifecycleObserver,
+  ): (() => void) => this.cardLifecycle.observeCardDidMove(cardId, callback);
+
+  public observeCardDidResize = (
+    cardId: string | null,
+    callback: CardLifecycleObserver,
+  ): (() => void) => this.cardLifecycle.observeCardDidResize(cardId, callback);
 
   public attachResponderChainManager = (
     manager: CardLifecycleManager | null,
@@ -4379,6 +4391,16 @@ export class DeckManager implements IDeckManagerStore {
       acceptsFamilies: registration.acceptsFamilies ?? [],
     };
 
+    // A rail card that draws its chrome in its own page arrives hidden until
+    // that page has painted, as a body Session card does: its pane's slide
+    // then carries the whole card in, where a slide begun before the page
+    // existed showed the canvas through the stand-in until the host showed
+    // the card. The bound reveals it if the page never paints.
+    const quiet =
+      typeof window !== "undefined" && chromeInBody(componentId) && hostCapabilitiesStore.get().bodyViews
+        ? bodyReadyQuiet(cardId)
+        : null;
+
     this._flipFirstResponder(
       cardId,
       () => {
@@ -4403,6 +4425,7 @@ export class DeckManager implements IDeckManagerStore {
           panes,
           activePaneId: paneId,
           imposition,
+          ...(quiet !== null ? { arriving: arrivingWith(this.deckState.arriving, paneId, true) } : {}),
         };
         this.notify("_createSidebarPane");
         this.scheduleSave();
@@ -4411,6 +4434,7 @@ export class DeckManager implements IDeckManagerStore {
       },
       "showSidebarPane",
     );
+    if (quiet !== null) this._watchArrival(paneId, cardId, quiet, { needsReport: false });
 
     return cardId;
   }

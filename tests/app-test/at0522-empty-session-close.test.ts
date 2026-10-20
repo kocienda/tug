@@ -55,9 +55,11 @@ function pause(ms: number): Promise<void> {
   );
 }
 
-function paneCloseButtonSelector(paneId: string): string {
-  return `.tug-pane[data-pane-id="${paneId}"] [data-testid="tug-pane-close-button"]`;
-}
+/**
+ * The pane's close box, in a Session card's own page: the card draws its
+ * pane's chrome there, and the confirm its title bar raises stands there too.
+ */
+const PANE_CLOSE = '.body-chrome-frame [data-testid="tug-pane-close-button"]';
 
 function deckShape(cardIds: readonly string[]) {
   return {
@@ -117,18 +119,15 @@ describe.skipIf(!SHOULD_RUN)(
           // waiver speaks for.
           await app.body("A").waitForCondition<boolean>(PICKER_OPEN, { timeoutMs: 8000 });
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          await app.body("A").nativeClickAtElement(PANE_CLOSE);
 
           await app.waitForCondition<boolean>(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 4000 },
           );
-          // card-dom: shell — the close confirm is the pane's, raised by the shell's title bar.
-          const popoverText = await app.evalJS<string | null>(popoverTextScript());
-          expect(
-            popoverText,
-            "an unattached Session card should not raise a close confirm",
-          ).toBeNull();
+          // The pane closed with nothing pressed after the X: a confirm would
+          // have held it, so none stood. (The confirm rises in the card's own
+          // page, which the close took with it.)
         } finally {
           await app.close();
         }
@@ -149,18 +148,14 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8000 },
           );
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          await app.body("A").nativeClickAtElement(PANE_CLOSE);
 
           await app.waitForCondition<boolean>(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 4000 },
           );
-          // card-dom: shell — the close confirm is the pane's, raised by the shell's title bar.
-          const popoverText = await app.evalJS<string | null>(popoverTextScript());
-          expect(
-            popoverText,
-            "a session that was never sent a message has nothing to confirm over",
-          ).toBeNull();
+          // Closed with nothing pressed after the X: a session that was never
+          // sent a message has nothing to confirm over.
         } finally {
           await app.close();
         }
@@ -195,12 +190,11 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 4000 },
           );
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          await app.body("A").nativeClickAtElement(PANE_CLOSE);
           // Past the popover-flash window, so this reads a popover that holds.
           await pause(300);
 
-          // card-dom: shell — the close confirm is the pane's, raised by the shell's title bar.
-          const popoverText = await app.evalJS<string | null>(popoverTextScript());
+          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "an unsent draft must not be discarded silently",
@@ -225,11 +219,13 @@ describe.skipIf(!SHOULD_RUN)(
           await seedCards(app, ["A", "B"]);
           await app.body("A").waitForCondition<boolean>(PICKER_OPEN, { timeoutMs: 8000 });
 
-          await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
+          // B stands behind A at the pane's rect, transparent and still
+          // painting: the press is A's, the card that is seen, and the
+          // confirm stands in A's page.
+          await app.body("A").nativeClickAtElement(PANE_CLOSE);
           await pause(300);
 
-          // card-dom: shell — the close confirm is the pane's, raised by the shell's title bar.
-          const popoverText = await app.evalJS<string | null>(popoverTextScript());
+          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "a multi-tab pane keeps its whole-pane confirm",

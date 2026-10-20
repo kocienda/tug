@@ -34,21 +34,29 @@ export const widthButton = (paneId: string): string =>
  * The caller waits for whatever it is measuring: this waits only for the popup,
  * because what "landed" means differs by suite — a settled frame width, a
  * cleared bullseye, a closed reflow episode.
+ *
+ * `card` names the card whose page draws the pane's chrome, for a card that
+ * carries its own (a Session card): its title bar, its width button and the
+ * popup are in that page, and the page holds one pane. Omitted, the shell's.
  */
 export async function chooseWidth(
   app: App,
   paneId: string,
   preset: "slim" | "comfy" | "wide",
+  card?: string,
 ): Promise<void> {
+  const page = card === undefined ? app : app.body(card);
+  const pane = card === undefined ? `[data-pane-id="${paneId}"]` : "";
+  const button = card === undefined ? widthButton(paneId) : `[data-testid="tug-pane-title-bar-width-button"]`;
   // The width control rests inside the pane's rollup, revealed on a title-bar
   // hover. Pin the row open first or the press lands on the bar behind it.
-  await app.revealPaneControls(`[data-pane-id="${paneId}"]`);
-  await app.nativeClickAtElement(widthButton(paneId));
-  await app.waitForCondition<boolean>(
+  await page.revealPaneControls(pane);
+  await page.nativeClickAtElement(button);
+  await page.waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(WIDTH_MENU)}).length > 0`,
     { timeoutMs: 5_000 },
   );
-  const chose = await app.evalJS<boolean>(
+  const chose = await page.evalJS<boolean>(
     `(function () {
       var row = Array.from(
         document.querySelectorAll(${JSON.stringify(WIDTH_MENU)} + " [role='menuitemradio']"),
@@ -61,7 +69,7 @@ export async function chooseWidth(
     })()`,
   );
   expect(chose, `the width menu offered its ${preset} row`).toBe(true);
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(WIDTH_MENU)}).length === 0`,
     { timeoutMs: 8_000 },
   );

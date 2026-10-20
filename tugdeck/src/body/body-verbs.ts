@@ -17,6 +17,7 @@ import type { PageBus } from "../bus/page-bus";
 import {
   cardCloseDecision,
   cardContentAction,
+  cardGeometryChanged,
   cardRefuseHold,
   cardsShrink,
   commandForCard,
@@ -52,6 +53,8 @@ export interface BodyVerbHost {
   componentId: string;
   /** Replay a session the shell decided for the card after handing it here, as the bind's own intent was. */
   replayIntent(intent: BodyIntent): void;
+  /** The shell committed a new position or size for the card's pane. */
+  noteGeometryChanged(moved: boolean, resized: boolean): void;
 }
 
 /** Whether `value` is a log entry as the shell relays one, its id left to this page. */
@@ -117,6 +120,11 @@ export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
     // speaks the refusal here, in the card it concerns.
     cardRefuseHold.on(bus).handle(() => {
       refuseCardModalHold(cardId);
+    }),
+    // The card's pane moved or resized in the shell: the card's own
+    // delegates hear it here, where its content is.
+    cardGeometryChanged.on(bus).handle(({ moved, resized }) => {
+      host.noteGeometryChanged(moved, resized);
     }),
     // The shell's log, for the devtools card's Log tab: this page logs
     // almost nothing of its own.

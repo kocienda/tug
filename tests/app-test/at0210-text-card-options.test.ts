@@ -11,8 +11,9 @@
  * `.cm-lineWrapping`). Every step drives the real settings → CM6 reconfigure
  * path on a real file — no mocks.
  *
- * The masthead lives in the PANE's title bar, which is not a descendant of
- * the card element, so its selectors are pane-scoped rather than card-scoped.
+ * The masthead lives in the pane's title bar, which the card draws in its own
+ * page beside the card element, so its selectors are read in the card's page
+ * and are not card-scoped.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -42,15 +43,15 @@ const TEST_TIMEOUT_MS = 120_000;
 const CARD = '[data-card-id="A"]';
 const EDITOR_CONTENT = `${CARD} [data-slot="tug-text-card-editor"] .cm-content`;
 const LINE_NUMBERS = `${CARD} [data-slot="tug-text-card-editor"] .cm-lineNumbers`;
-// The masthead and the title-bar buttons are the PANE's, not the card's — the title
-// bar is a sibling of the card element, so a card-scoped prefix matches
-// nothing here.
-const PANE = '[data-pane-id="p1"]';
-const MASTHEAD_TITLE = `${PANE} [data-testid="card-masthead-title"]`;
-const MASTHEAD_DESCRIPTION = `${PANE} [data-testid="card-masthead-description"]`;
-const MASTHEAD_DETAIL = `${PANE} [data-testid="card-masthead-detail"]`;
-const OPTIONS_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-show-card-settings"]`;
-const REVEAL_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-reveal-card-file"]`;
+// The masthead and the title-bar buttons are the pane's, not the card's — the
+// title bar is a sibling of the card element in the card's page, which holds
+// the one pane, so a card-scoped prefix matches nothing here and no pane
+// scope is needed.
+const MASTHEAD_TITLE = '[data-testid="card-masthead-title"]';
+const MASTHEAD_DESCRIPTION = '[data-testid="card-masthead-description"]';
+const MASTHEAD_DETAIL = '[data-testid="card-masthead-detail"]';
+const OPTIONS_BUTTON = '[data-testid="tug-pane-title-bar-item-show-card-settings"]';
+const REVEAL_BUTTON = '[data-testid="tug-pane-title-bar-item-reveal-card-file"]';
 const OPTIONS_PANEL = '[data-testid="text-card-options"]';
 // Scoped to the sheet: the same option testids also appear in the
 // Settings card's Text Card tab (shared TextCardControls).
@@ -138,14 +139,14 @@ const WRAP_STATE = `(() => {
  * focus happens to sit.
  */
 async function pressEditorOptions(app: App): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(OPTIONS_BUTTON)}) !== null`,
     { timeoutMs: 8000 },
   );
   // The gear rests inside the pane's rollup, revealed on a title-bar hover.
   // Pin the row open first or the press lands on the bar behind it.
-  await app.revealPaneControls(PANE);
-  await app.nativeClickAtElement(OPTIONS_BUTTON);
+  await app.body("A").revealPaneControls();
+  await app.body("A").nativeClickAtElement(OPTIONS_BUTTON);
 }
 
 describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () => {
@@ -173,16 +174,16 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // its third line — how it stands with the disk. A freshly loaded file
         // is clean, so the save state reads "Saved".
         expect(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `document.querySelector(${JSON.stringify(MASTHEAD_TITLE)}).innerText`,
           ),
         ).toBe("sample.txt");
         expect(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `document.querySelector(${JSON.stringify(MASTHEAD_DESCRIPTION)}).innerText`,
           ),
         ).toContain("sample.txt");
-        const saveLine = await app.evalJS<string>(
+        const saveLine = await app.body("A").evalJS<string>(
           `document.querySelector(${JSON.stringify(MASTHEAD_DETAIL)}).innerText`,
         );
         expect(saveLine.startsWith("Saved")).toBe(true);
@@ -249,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // A bound card's Reveal button is live — the dimmed case is the next
         // test, on a buffer that is not a file yet.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(REVEAL_BUTTON)}).disabled`,
           ),
         ).toBe(false);
@@ -270,7 +271,8 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
           `(window.__tug.dispatchControlAction("new-text-card", {}), null)`,
         );
         // The draft's card id is minted by the deck, so its body is found by kind.
-        await kindBody(app, "text").waitForCondition<boolean>(
+        const body = kindBody(app, "text");
+        await body.waitForCondition<boolean>(
           `document.querySelector('[data-slot="tug-text-card-editor"]') !== null`,
           { timeoutMs: 15000 },
         );
@@ -281,7 +283,7 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // places on a draft than on a saved file, and would jump sideways the
         // instant it was saved.
         const REVEAL = '[data-testid="tug-pane-title-bar-item-reveal-card-file"]';
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REVEAL)}) !== null`,
           { timeoutMs: 10000 },
         );
@@ -290,7 +292,7 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // select. The answer comes from the command table asking this card,
         // not from the card asserting it.
         expect(
-          await app.evalJS<boolean>(
+          await body.evalJS<boolean>(
             `document.querySelector(${JSON.stringify(REVEAL)}).disabled`,
           ),
         ).toBe(true);
@@ -299,9 +301,8 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // `pointer-events: none`, so the bubble hangs on the anchoring span —
         // hovering the button itself would tell the reader nothing.
         const anchor = `document.querySelector(${JSON.stringify(REVEAL)}).closest('.tug-pane-title-bar-tooltip-anchor')`;
-        expect(await app.evalJS<boolean>(`${anchor} !== null`)).toBe(true);
-        // card-dom: shell — the anchor is the pane title bar's, drawn by the shell.
-        await app.evalJS<null>(
+        expect(await body.evalJS<boolean>(`${anchor} !== null`)).toBe(true);
+        await body.evalJS<null>(
           `(function () {
              var el = ${anchor};
              var opts = { bubbles: true, cancelable: true, pointerType: "mouse" };
@@ -310,12 +311,12 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
              return null;
            })()`,
         );
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelector('[data-slot="tug-tooltip"]') !== null`,
           { timeoutMs: 8000 },
         );
         expect(
-          await app.evalJS<string>(
+          await body.evalJS<string>(
             `document.querySelector('[data-slot="tug-tooltip"]').innerText.trim()`,
           ),
         ).toContain("No file");

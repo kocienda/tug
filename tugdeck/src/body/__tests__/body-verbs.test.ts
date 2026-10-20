@@ -14,7 +14,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { answerBodyVerbs } from "../body-verbs";
 import type { BodyIntent } from "../body-intent";
-import { focusEnter, focusExit, jotsNewJot, sessionIntent } from "../../bus/declarations/verbs";
+import { cardGeometryChanged, focusEnter, focusExit, jotsNewJot, sessionIntent } from "../../bus/declarations/verbs";
 import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
 import { getJotsStore } from "../../lib/jots-store";
 
@@ -25,9 +25,16 @@ afterEach(() => {
   bus?.dispose();
 });
 
-function body(cardId: string, componentId: string, replayed: BodyIntent[] = []): TestPage {
+function body(cardId: string, componentId: string, replayed: BodyIntent[] = [], geometry: string[] = []): TestPage {
   const page = bus.body(cardId, componentId);
-  releases.push(answerBodyVerbs(page.bus, { cardId, componentId, replayIntent: (intent) => replayed.push(intent) }));
+  releases.push(
+    answerBodyVerbs(page.bus, {
+      cardId,
+      componentId,
+      replayIntent: (intent) => replayed.push(intent),
+      noteGeometryChanged: (moved, resized) => geometry.push(`${moved ? "moved" : ""}${resized ? "resized" : ""}`),
+    }),
+  );
   return page;
 }
 
@@ -75,5 +82,18 @@ describe("the shell's verbs, answered in the card's body", () => {
     sessionIntent.on(shell.bus).dispatch({ kind: "nonsense" }, { card: "S" });
     await bus.flush();
     expect(replayed).toEqual([{ kind: "restore" }]);
+  });
+
+  test("a move and a resize the deck commits reach the card's body, each as itself", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const geometry: string[] = [];
+    body("T", "text", [], geometry);
+    await bus.flush();
+
+    cardGeometryChanged.on(shell.bus).dispatch({ moved: true, resized: false }, { card: "T" });
+    cardGeometryChanged.on(shell.bus).dispatch({ moved: false, resized: true }, { card: "T" });
+    await bus.flush();
+    expect(geometry).toEqual(["moved", "resized"]);
   });
 });

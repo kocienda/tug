@@ -86,6 +86,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp } from "./_harness";
+import { chromePoint } from "./card-chrome-fixture";
 import {
   COMFORT_OVERVIEW_WIDTH_PX,
   DEFAULT_OVERVIEW_WIDTH_PX,
@@ -121,20 +122,16 @@ describe.skipIf(!SHOULD_RUN)(
           await seedTwoRails(app, 400, "three-up");
 
           // The Overview holds the LEFT edge, so its one handle is its east
-          // one — a rail exposes only its deck-facing edge.
-          const handle = '.tug-pane[data-pane-id="pGaz"] .tug-pane-resize-e';
+          // one — a rail exposes only its deck-facing edge. The card draws it
+          // in its own page.
+          const handle = ".body-chrome-frame .tug-pane-resize";
           expect(
-            await app.evalJS<number>(
-              `document.querySelectorAll(${JSON.stringify(handle)}).length`,
+            await app.body("G").evalJS<string[]>(
+              `Array.from(document.querySelectorAll(${JSON.stringify(handle)})).map(function (el) { return el.className; })`,
             ),
-          ).toBe(1);
+          ).toEqual(["tug-pane-resize tug-pane-rail-edge tug-pane-resize-e"]);
 
-          const grip = await app.evalJS<{ x: number; y: number }>(
-            `(function () {
-              var r = document.querySelector(${JSON.stringify(handle)}).getBoundingClientRect();
-              return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-            })()`,
-          );
+          const grip = await chromePoint(app, "G", ".tug-pane-resize-e");
 
           // Drag it well past the comfort measure and past the hard floor too:
           // 300px in from a 580px rail asks for 280, which is under both. The

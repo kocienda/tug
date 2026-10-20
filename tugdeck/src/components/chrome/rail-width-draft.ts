@@ -122,6 +122,8 @@ import {
 import { paneOcclusionGesture } from "@/components/chrome/pane-occlusion-controller";
 import { group } from "@/components/tugways/tug-animator";
 import { landByDeadline } from "@/lib/land-by-deadline";
+import { CHROME_IN_BODY_ATTRIBUTE } from "@/lib/chrome-placement";
+import { cardRailHold } from "@/bus/declarations/card";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_CLASS,
@@ -227,15 +229,64 @@ interface Carried {
 /** The inline properties a held body is written by, saved as it found them. */
 const HELD_PROPERTIES = ["width", "align-self"] as const;
 
-/** A member whose content waits for the hand to rest: its body, held. */
+/** A member whose content waits for the hand to rest. */
 interface Held {
-  readonly body: HTMLElement;
-  /** The frame's width less its body's — the chrome's borders — so a hold
-   *  for a frame width is a body width. */
-  readonly inset: number;
-  /** The body's width at the press: the hold the drag opens with. */
-  readonly width0: number;
-  readonly saved: Readonly<Record<(typeof HELD_PROPERTIES)[number], string>>;
+  /** The press has become a drag: hold the content at the width it stands at, anchored to the rail's outer edge. */
+  latch(side: SidebarSide): void;
+  /** Lay the content out for a frame `width` layout px wide. */
+  hold(width: number): void;
+  /** Give the content back to its frame. */
+  restore(): void;
+}
+
+/**
+ * A member whose content is in this document: its body, held by inline
+ * styles saved first and given back as they were found.
+ */
+function heldBody(frame: HTMLElement, body: HTMLElement): Held {
+  // The frame's width less its body's — the chrome's borders — so a hold
+  // for a frame width is a body width; and the body's width at the press,
+  // the hold the drag opens with.
+  const inset = frame.offsetWidth - body.offsetWidth;
+  const width0 = body.offsetWidth;
+  const saved = {
+    width: body.style.getPropertyValue("width"),
+    "align-self": body.style.getPropertyValue("align-self"),
+  };
+  return {
+    latch(side) {
+      body.style.setProperty("align-self", side === "left" ? "flex-start" : "flex-end");
+      body.style.setProperty("width", `${width0}px`);
+    },
+    hold(width) {
+      body.style.setProperty("width", `${width - inset}px`);
+    },
+    restore() {
+      for (const property of HELD_PROPERTIES) body.style.setProperty(property, saved[property]);
+    },
+  };
+}
+
+/**
+ * A member whose card draws its chrome in its own page: the frame here is a
+ * stand-in, and the content is the card's page's. The hold is said to the
+ * card (`card.railHold`), whose page lays its content out at it.
+ */
+function heldCard(cardId: string, frame: HTMLElement): Held {
+  const width0 = frame.offsetWidth;
+  let side: SidebarSide = "left";
+  return {
+    latch(s) {
+      side = s;
+      cardRailHold.setFor(cardId, { side, width: width0 });
+    },
+    hold(width) {
+      cardRailHold.setFor(cardId, { side, width });
+    },
+    restore() {
+      cardRailHold.setFor(cardId, null);
+    },
+  };
 }
 
 interface Draft {
@@ -369,17 +420,15 @@ class RailWidthDraft implements RailWidthGesture {
     const held: Held[] = [];
     for (const el of members) {
       if (!el.hasAttribute(RAIL_REFLOW_ATTR)) continue;
+      if (el.hasAttribute(CHROME_IN_BODY_ATTRIBUTE)) {
+        const paneId = el.dataset.paneId;
+        const cardId = this.store.getSnapshot().panes.find((p) => p.id === paneId)?.activeCardId;
+        if (cardId !== undefined) held.push(heldCard(cardId, el));
+        continue;
+      }
       const body = el.querySelector<HTMLElement>(".tug-pane-body");
       if (body === null) continue;
-      held.push({
-        body,
-        inset: el.offsetWidth - body.offsetWidth,
-        width0: body.offsetWidth,
-        saved: {
-          width: body.style.getPropertyValue("width"),
-          "align-self": body.style.getPropertyValue("align-self"),
-        },
-      });
+      held.push(heldBody(el, body));
     }
 
     this.draft = {
@@ -607,13 +656,7 @@ class RailWidthDraft implements RailWidthGesture {
     for (const el of draft.members) el.setAttribute("data-pointer-owned", "true");
     // The content that cannot follow the hand is held where it stands,
     // anchored to the edge the rail does not move.
-    for (const h of draft.held) {
-      h.body.style.setProperty(
-        "align-self",
-        draft.side === "left" ? "flex-start" : "flex-end",
-      );
-      h.body.style.setProperty("width", `${h.width0}px`);
-    }
+    for (const h of draft.held) h.latch(draft.side);
     // The readout rides beside the pointer for as long as the hand drags.
     const readout = document.createElement("div");
     readout.className = READOUT_CLASS;
@@ -634,20 +677,14 @@ class RailWidthDraft implements RailWidthGesture {
       }
     }
     for (const c of draft.carried) c.el.style.translate = c.savedTranslate;
-    for (const h of draft.held) {
-      for (const property of HELD_PROPERTIES) {
-        h.body.style.setProperty(property, h.saved[property]);
-      }
-    }
+    for (const h of draft.held) h.restore();
     for (const el of draft.members) el.removeAttribute(LIMIT_ATTR);
   }
 
   /** The held members laid out at the width the rail now stands at: the
    *  one reflow they take, made while the hand rests. */
   private hold(draft: Draft, width: number): void {
-    for (const h of draft.held) {
-      h.body.style.setProperty("width", `${width - h.inset}px`);
-    }
+    for (const h of draft.held) h.hold(width);
   }
 
   /**

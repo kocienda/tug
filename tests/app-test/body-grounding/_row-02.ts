@@ -29,23 +29,26 @@
  * its chrome offers: a content card's grab handle, and a rail's whole title
  * bar, which is what a rail wears in place of a handle.
  *
- * The Session card's drag is `row-02-drag-session`, every other kind's
- * `row-02-drag-kinds`, one launch each.
+ * Every other kind's drag is `row-02-drag-kinds`, one launch. A Session card
+ * draws its own chrome and is one view the host carries: its one-piece drag
+ * is `at0744-card-drag-is-one-view`, read as the chrome and content standing
+ * the chrome's height apart on every frame. Every other kind that draws its
+ * own chrome is read the same way here (`one-view-drag.ts`), since a
+ * placeholder under shell-drawn chrome is not what it is.
  */
 
 import { expect } from "bun:test";
-import { randomUUID } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
-import { onTestRunEnd } from "../_harness/test-cleanup";
-import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
 import { classifyFrame, describeFrames, edgeNearOnRow, fillOnRow, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, showsBareHole, type FloorMeasure, type FrameClasses } from "./_frames";
 import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
+import { chromeInBody } from "../../../tugdeck/src/lib/chrome-placement";
+import { expectDragsAsOneView } from "../one-view-drag";
 
 const TEST_NAME = "body-grounding-row-02-drag";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -59,13 +62,11 @@ export interface Launch {
   foreground: boolean;
 }
 
-const CARD = "row02-body";
 const frameSel = (card: string): string => `.tug-pane:has([data-card-id="${card}"])`;
 /** A content card is pressed at its grab handle; a rail wears none, and its whole bar is the surface. */
 const handleSel = (card: string, rail: boolean): string =>
   rail ? `${frameSel(card)} .tug-pane-title-bar` : `${frameSel(card)} .tug-pane-title-bar .tug-pane-grab-handle`;
 const placeholderSel = (card: string): string => `[data-body-placeholder][data-card-id="${card}"]`;
-const BODY_READY_MS = 30_000;
 const PLACED_MS = 3_000;
 /** The burst over the whole gesture: the trail (about 700 ms), the hold, the release and the landing. */
 const BURST_MS = 3_000;
@@ -89,25 +90,6 @@ const RAIL_BAR_ROW_PX = 4;
 const LEAD_FRAMES = 2;
 const FRAME_MS = 1000 / 60;
 
-const oneCard = {
-  cards: [{ id: CARD, componentId: "session", title: "Body", closable: true }],
-  panes: [
-    {
-      id: `${CARD}-pane`,
-      position: { x: 40, y: 40 },
-      size: { width: 640, height: 480 },
-      cardIds: [CARD],
-      activeCardId: CARD,
-      title: "",
-      acceptsFamilies: ["maker"],
-      slot: 0,
-    },
-  ],
-  activePaneId: `${CARD}-pane`,
-  imposition: { kind: "four-up", layout: "flow", sidebars: {} },
-  hasFocus: true,
-};
-
 interface Rect {
   x: number;
   y: number;
@@ -121,11 +103,6 @@ interface Sample {
   placeholder: Rect;
   owned: boolean;
 }
-
-const promptPhase = `(function () {
-  var entry = document.querySelector('[data-slot="tug-prompt-entry"]');
-  return entry === null ? null : entry.getAttribute("data-phase");
-})()`;
 
 const rectOf = (app: App, selector: string): Promise<Rect | null> =>
   app.evalJS<Rect | null>(
@@ -426,57 +403,28 @@ export async function dragKind(launch: Launch, kind: CardKind): Promise<void> {
   const card = `row02-${kind.componentId}`;
   const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch });
   try {
-    await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row02-seed"] }), focusCardId: card });
-    await standUpKind(app, kind, card);
+    // A card that draws its own chrome travels over bare canvas, which its
+    // reading tells it apart from; every other kind beside a Session card.
+    const whole = chromeInBody(kind.componentId);
+    await app.seedDeckState({ state: kindDeck(kind, card, { sessions: whole ? [] : ["row02-seed"] }), focusCardId: card });
+    const body = await standUpKind(app, kind, card);
+    if (whole) {
+      await body.waitForCondition<boolean>(`document.querySelector('[data-content-painted]') !== null`, { timeoutMs: 5_000 });
+      await expectDragsAsOneView(app, body, {
+        card,
+        press: kind.rail ? ".tug-pane-title-bar" : ".tug-pane-title-bar .tug-pane-grab-handle",
+        chromeRowPx: kind.rail ? 6 : MASTHEAD_ROW_PX,
+        reading: kind.rail ? "edges" : "bands",
+        standIn: `.tug-pane[data-chrome-in-body][data-pane-id="${card}-pane"]`,
+      });
+      await expectNoShellReads(app, card);
+      return;
+    }
     const handle = await pollFor(() => rectOf(app, handleSel(card, kind.rail)), (r) => r !== null && r.width > 0, PLACED_MS);
     expect(handle, `the ${kind.componentId} card's chrome offers a drag surface`).not.toBeNull();
     await Bun.sleep(400);
     await dragLeg(app, card, handle!, floorMeasure(kind.rail), kind.rail);
     await expectNoShellReads(app, card);
-  } finally {
-    await app.close();
-  }
-}
-
-/** Launch with one Session body card, its stub turn run out, and drag it by its grab handle. */
-export async function dragSession(launch: Launch): Promise<void> {
-  const stubDir = stubDirectory();
-  const app = await launchTugApp({ testName: TEST_NAME, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
-  try {
-    await app.seedDeckState({ state: oneCard, focusCardId: CARD });
-    const tugSessionId = randomUUID();
-    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-row02-project-")));
-    onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
-    writeFileSync(join(stubDir, `${tugSessionId}.json`), JSON.stringify(streamingTranscript(2, 1)));
-    await app.spawnSessionNew(CARD, { tugSessionId, projectDir });
-    const shown = await pollFor(() => bodyOf(app, CARD), (b) => b !== null && b.visible, BODY_READY_MS);
-    expect(shown?.visible, "the body card's body is placed visible").toBe(true);
-
-    // The masthead — whose lead line carries the grab handle — is bound.
-    const body = app.body(CARD);
-    await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 90_000 });
-    // The handle fills the lead line beside the masthead's identity, which
-    // keeps re-laying out as the body's facts land after the turn goes idle:
-    // a centre read straight away stood 8 px inside the handle's left edge by
-    // the press, so a run that settles a few px further misses it. So the
-    // handle is read once it has held still for half a second.
-    let last: Rect | null = null;
-    let still = 0;
-    const handle = await pollFor(
-      async () => {
-        const r = await rectOf(app, handleSel(CARD, false));
-        const same = r !== null && last !== null && r.x === last.x && r.y === last.y && r.width === last.width;
-        still = same ? still + 1 : 0;
-        last = r;
-        return r;
-      },
-      (r) => r !== null && r.width > 0 && still >= 10,
-      PLACED_MS,
-    );
-    expect(handle, "the body card's masthead carries a grab handle").not.toBeNull();
-    expect(still, "and it holds still before the press").toBeGreaterThanOrEqual(10);
-
-    await dragLeg(app, CARD, handle!);
   } finally {
     await app.close();
   }

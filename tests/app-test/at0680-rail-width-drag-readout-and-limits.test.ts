@@ -28,6 +28,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromePoint } from "./card-chrome-fixture";
 import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -54,7 +55,6 @@ const FRAMES_MS = 250;
 const READOUT_GONE_MS = 800;
 
 const MEMBERS = ["jots", "layout"] as const;
-const HANDLE = `.tug-pane[data-pane-id="pJots"] .tug-pane-resize-e`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -205,12 +205,8 @@ function count(app: App, selector: string): Promise<number> {
 }
 
 async function grip(app: App): Promise<{ x: number; y: number }> {
-  return app.evalJS<{ x: number; y: number }>(
-    `(function () {
-      var r = document.querySelector(${JSON.stringify(HANDLE)}).getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    })()`,
-  );
+  // The rail card draws its edge grip in its own page.
+  return chromePoint(app, "J", ".tug-pane-resize-e");
 }
 
 const readoutWidth = (text: string | null): number =>

@@ -111,7 +111,7 @@ afterAll(() => {
 });
 
 const mastheadHeight = (app: App): Promise<number> =>
-  app.evalJS<number>(
+  app.body("A").evalJS<number>(
     `Math.round(document.querySelector(${JSON.stringify(MASTHEAD)}).getBoundingClientRect().height)`,
   );
 
@@ -135,11 +135,11 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD)}) !== null`,
           { timeoutMs: 10000 },
         );
-        expect(await app.evalJS<number>(
+        expect(await app.body("A").evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(RUN)}).length`,
         )).toBe(0);
         const bareHeight = await mastheadHeight(app);
@@ -152,7 +152,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
             `(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]?.textContent ?? "").trim().slice(0, 400)`,
           ),
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RUN)}) !== null`,
           { timeoutMs: 15000 },
         );
@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
         // the whole format is only observable on a session that has all three
         // parts at once.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishSessionUpdated(${JSON.stringify(
               JSON.stringify({
                 session_id: SID,
@@ -171,12 +171,12 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
             )})`,
           ),
         ).toBe(true);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(IDENTITY_RUN)})?.textContent ?? "").indexOf(${JSON.stringify(RENAME)}) === 0`,
           { timeoutMs: 10000 },
         );
 
-        const run = await app.evalJS<{
+        const run = await app.body("A").evalJS<{
           text: string;
           grammar: string;
           svgCount: number;
@@ -234,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
         // is where the name's first character actually paints, and text with
         // no elidable box of its own overflows a centred flex row in both
         // directions, putting that glyph to the LEFT of its own box.
-        const elision = await app.evalJS<{
+        const elision = await app.body("A").evalJS<{
           hasNameSpan: boolean;
           overflows: boolean;
           maxInlineSize: string;
@@ -283,7 +283,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
         // attribute that used to paint the run is pinned absent on both sides
         // of the edit so a re-tint could not slip back in unnoticed.
         const reviewAttr = async (): Promise<string | null> =>
-          app.evalJS<string | null>(
+          app.body("A").evalJS<string | null>(
             `document.querySelector(${JSON.stringify(RUN)}).getAttribute("data-review")`,
           );
         expect(await reviewAttr()).toBeNull();
@@ -291,7 +291,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
         const nudge = join(projectDir(), "at0406-nudge.txt");
         writeFileSync(nudge, "at0406 recompose nudge\n");
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(RUN)})?.getAttribute("title") ?? "").indexOf("changed since") !== -1`,
             { timeoutMs: 30000 },
           );
@@ -305,7 +305,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RUN)}) === null`,
           { timeoutMs: 15000 },
         );

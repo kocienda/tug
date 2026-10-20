@@ -188,7 +188,8 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
-        await app.evalJS<boolean>(
+        // The shell's ledger copy, and the card's own, which its masthead reads.
+        for (const page of [app, app.body("A")]) await page.evalJS<boolean>(
           `window.__tug.publishSessionUpdated(${JSON.stringify(
             JSON.stringify({
               session_id: SESSION_ID,
@@ -201,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
           { timeoutMs: 20_000 },
         );
         await app.driveSession("A", { op: "send", text: "at0645 keep working" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
              var el = document.querySelector(${JSON.stringify(MASTHEAD_DOT)});
              return el !== null && el.getAttribute('data-state') === 'running';

@@ -696,6 +696,14 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         self.title = "Tug"
         self.minSize = MainWindow.minWindowSize
 
+        // The app going inactive or hidden takes the mouse a carried gesture
+        // waits on, whether or not this window is told it resigned key.
+        for name in [NSApplication.didResignActiveNotification, NSApplication.didHideNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.bodies?.cancelGesture() }
+            }
+        }
+
         // Restore the window frame saved by AppKit under
         // `NSWindow Frame MainWindow` in NSUserDefaults, then apply
         // a fit-to-screen pass.
@@ -1057,7 +1065,43 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         let prior = dispatchingEvent
         dispatchingEvent = event
         defer { dispatchingEvent = prior }
+        // The left button's state as this window has seen it, which a card's
+        // `cardGesture` begin is read against: the page's message can arrive
+        // after the up it was pressed for.
+        if event.type == .leftMouseDown || event.type == .leftMouseUp {
+            // A press also takes a card a settle is carrying from its beats,
+            // where it shows, so the press reaches the card it lands on.
+            let viewport = BodyGeometry.flipped(
+                containerView.convert(event.locationInWindow, from: nil), inHeight: containerView.bounds.height
+            )
+            bodies?.noteLeftButton(down: event.type == .leftMouseDown, atViewport: viewport)
+        }
+        // A card drag or resize the host is tracking takes each drag and the
+        // up before the page that started it sees them, so the card moves in
+        // the same commit as the event; the page still gets them, and ignores
+        // moves once it has handed the gesture over. Escape cancels it, and
+        // goes no further.
+        if let bodies, bodies.gestureLive {
+            switch event.type {
+            case .leftMouseDragged, .leftMouseUp:
+                bodies.track(event)
+            case .keyDown where event.keyCode == MainWindow.escapeKeyCode:
+                bodies.cancelGesture()
+                return
+            default:
+                break
+            }
+        }
         super.sendEvent(event)
+    }
+
+    /// The Escape key's virtual key code.
+    private static let escapeKeyCode: UInt16 = 53
+
+    /// A window that loses key loses the mouse-up a tracked gesture waits on.
+    override func resignKey() {
+        bodies?.cancelGesture()
+        super.resignKey()
     }
 
     /// Make the WKWebView the window's first responder so keyboard focus lands
@@ -1323,7 +1367,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         #endif
         guard let bodies else { return false }
         let viewport = BodyGeometry.flipped(point, inHeight: containerView.bounds.height)
-        return bodies.region.passesThrough(viewport)
+        return bodies.passesThrough(viewport)
     }
 
     /// The body web view a drag at a window point belongs to: the visible
@@ -1360,6 +1404,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         "dictation", "pageZoom", "hostFrames",
         "bodyHello", "painted", "bodyCreate", "placeBodies", "bodyDestroy",
         "bodyFocus", "pointerClaim", "floorGrid", "beatPlan", "crossingReady", "bodySurface",
+        "placeCards", "cardGesture", "cardLand",
     ]
 
     /// Names only the shell may post: the deck's own chrome, the window's
@@ -1369,7 +1414,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     static let shellOnlyHandlerNames: Set<String> = [
         "sourceTree", "setTheme", "devBadge", "updateAction",
         "frontendLaunchStalled", "hmrUpdate", "bodyCreate", "placeBodies",
-        "bodyDestroy", "bodyFocus", "pointerClaim", "hostFrames", "floorGrid", "beatPlan",
+        "bodyDestroy", "bodyFocus", "pointerClaim", "hostFrames", "floorGrid", "beatPlan", "placeCards", "cardLand",
     ]
 
     /// One page's configuration: a fresh content controller carrying every
@@ -2915,6 +2960,21 @@ extension MainWindow: WKScriptMessageHandler {
         case "placeBodies":
             guard let body = message.body as? [String: Any] else { return }
             bodies.place(body)
+        case "placeCards":
+            // The shell's placement of every card's pane rect.
+            guard let body = message.body as? [String: Any] else { return }
+            bodies.placeCards(body)
+        case "cardGesture":
+            // A card's page has taken a title-bar or grip press for the host
+            // to carry. The shell never posts this.
+            guard let fromBody, let body = message.body as? [String: Any] else { return }
+            bodies.claimGesture(from: fromBody, payload: body)
+        case "cardLand":
+            // A drop the shell committed nothing for: the card goes back to
+            // the place it already holds, which no placement will name.
+            guard let body = message.body as? [String: Any],
+                  let cardId = body["cardId"] as? String else { return }
+            bodies.landCard(cardId: cardId)
         case "bodyDestroy":
             guard let body = message.body as? [String: Any],
                   let cardId = body["cardId"] as? String else { return }

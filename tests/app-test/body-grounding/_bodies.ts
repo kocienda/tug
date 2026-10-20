@@ -157,8 +157,12 @@ export async function foldedOf(app: App, cardId: string): Promise<boolean> {
 export const CONFIRM_POPOVER = '[data-slot="tug-confirm-popover"]';
 export const popoverPresent = `document.querySelector(${JSON.stringify(CONFIRM_POPOVER)}) !== null`;
 
-/** The centre of the shell's Close popover's Close button, or null. */
-export async function closeButtonOfPopover(app: App): Promise<{ x: number; y: number } | null> {
+/**
+ * The centre of the Close popover's Close button, in the viewport of the page
+ * it stands in — the shell's, or the card's own for a card that draws its own
+ * chrome — or null.
+ */
+export async function closeButtonOfPopover(app: Pick<App, "evalJS">): Promise<{ x: number; y: number } | null> {
   return app.evalJS<{ x: number; y: number } | null>(`(function () {
     var root = document.querySelector(${JSON.stringify(CONFIRM_POPOVER)});
     if (root === null) return null;

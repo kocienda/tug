@@ -178,11 +178,11 @@ describe.skipIf(!SHOULD_RUN)("at0485 — an arc binding survives a relaunch", ()
             expect(facts.tugSessionId, "seated on the rotated segment").toBe(STAGE);
             expect(facts.lineId, "bound to the line").toBe(LINE);
 
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(MASTHEAD_ARC)}) !== null`,
               { timeoutMs: 20_000 },
             );
-            const sigil = await app.evalJS<string>(
+            const sigil = await app.body("A").evalJS<string>(
               `(document.querySelector(${JSON.stringify(MASTHEAD_ARC)})?.textContent ?? "").trim()`,
             );
             note(`at0485 masthead arc sigil after relaunch: ${JSON.stringify(sigil)}`);

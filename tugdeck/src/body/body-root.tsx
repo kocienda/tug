@@ -14,8 +14,9 @@
  */
 
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { getRegistration, isEngineManagedCard } from "../card-registry";
+import { cardKindName, getRegistration, isEngineManagedCard } from "../card-registry";
 import { takeBiddenUnfold } from "../lib/card-fold";
+import { useCardFoldFocus } from "../components/chrome/card-fold-glyph";
 import { useFocusManager } from "../components/tugways/use-focusable";
 import { composeProviders } from "../lib/compose-providers";
 import { useSyncExternalStore } from "../lib/gesture-scope";
@@ -43,8 +44,19 @@ import { RAIL_TREATMENT, RAIL_TREATMENT_ATTRIBUTE } from "../lib/layout-imposer"
 import { bodyPaneId, type BodyDeckBridge } from "./body-deck-bridge";
 import { refuseCardModalHold } from "../lib/card-modal-hold-store";
 import { getCardCloseGuard } from "../lib/card-close-guard";
+import { cardWaivesCloseConfirm } from "../lib/card-close-advice";
+import { chromeInBody } from "../lib/chrome-placement";
+import { paneChrome, paneCloseCard, paneClosePane, paneSelectTab, type PaneChromeValue } from "../bus/declarations/pane";
+import type { CardTitleBarHandle } from "../components/chrome/card-title-bar";
+import { BodyChromeFrame } from "./body-chrome-frame";
 import { UsageContext } from "../lib/usage-context";
 import type { UsageStore } from "../lib/usage-store";
+
+/** The pane facts a card that keeps its chrome in the shell reads: none. */
+const noPaneChrome = {
+  subscribe: (_listener: () => void) => () => {},
+  getSnapshot: (): PaneChromeValue | null => null,
+};
 
 export interface BodyRootProps {
   bridge: BodyDeckBridge;
@@ -78,6 +90,16 @@ function BodyPane({
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  // A card that carries its pane's chrome draws it here, from the pane's
+  // facts the shell publishes to it ([L02]), and the title bar's imperative
+  // handle is what its close and reveal verbs drive, as the shell's pane's is.
+  // Any other card's page reads nothing of the pane, and need not be on a bus.
+  const carriesChrome = chromeInBody(componentId);
+  const chrome = useSyncExternalStore(
+    carriesChrome ? paneChrome.subscribe : noPaneChrome.subscribe,
+    carriesChrome ? paneChrome.getSnapshot : noPaneChrome.getSnapshot,
+  );
+  const titleBarRef = useRef<CardTitleBarHandle>(null);
   // The pane currency a card's content can send its pane: `ADD_TAB` and
   // `CLOSE_TAB` are not commands, so the unhandled-target hook would not
   // forward them; answered here as the shell's pane answers them. A
@@ -91,7 +113,12 @@ function BodyPane({
         bridge.addCardToPane(paneId, event.value);
       },
       [TUG_ACTIONS.CLOSE_TAB]: (event: ActionEvent) => {
-        if (event.value !== cardId) return;
+        if (typeof event.value !== "string") return;
+        // A sibling's tab: the shell closes it, through its holds and guard.
+        if (event.value !== cardId) {
+          if (carriesChrome) paneCloseCard.dispatch({ cardId: event.value });
+          return;
+        }
         if (refuseCardModalHold(cardId)) return;
         const guard = getCardCloseGuard(cardId);
         if (guard === null) {
@@ -102,8 +129,53 @@ function BodyPane({
           if (answer === "close") bridge.removeCard(paneId, cardId);
         });
       },
+      // The chrome's verbs, where this page draws the chrome: a tab pressed,
+      // and the closes and the reveal that run through the title bar's own
+      // confirm and picker, as the shell's pane answers them.
+      ...(carriesChrome
+        ? {
+            [TUG_ACTIONS.SELECT_TAB]: (event: ActionEvent) => {
+              if (typeof event.value === "string" && event.value !== cardId) paneSelectTab.dispatch({ cardId: event.value });
+            },
+            [TUG_ACTIONS.CLOSE]: (_event: ActionEvent) => {
+              const tabs = paneChrome.getSnapshot()?.tabs ?? [];
+              if (tabs.length <= 1) {
+                titleBarRef.current?.requestClose();
+                return;
+              }
+              const reg = getRegistration(componentId);
+              titleBarRef.current?.requestCloseWith({
+                needsConfirm: reg?.defaultMeta.confirmClose === true && !cardWaivesCloseConfirm(cardId),
+                message: `Close ${cardKindName(reg?.defaultMeta)}?`,
+                confirmLabel: "Close",
+                onConfirm: () => bridge.removeCard(paneId, cardId),
+              });
+            },
+            [TUG_ACTIONS.CLOSE_ALL]: (_event: ActionEvent) => {
+              const tabs = paneChrome.getSnapshot()?.tabs ?? [];
+              const count = Math.max(tabs.length, 1);
+              titleBarRef.current?.requestCloseWith({
+                needsConfirm: tabs.some(
+                  (t) =>
+                    getRegistration(t.componentId)?.defaultMeta.confirmClose === true &&
+                    !(t.cardId === cardId && cardWaivesCloseConfirm(cardId)),
+                ),
+                message: count > 1 ? `Close ${count} Tabs?` : `Close ${cardKindName(getRegistration(componentId)?.defaultMeta)}?`,
+                confirmLabel: count > 1 ? "Close All" : "Close",
+                onConfirm: () => paneClosePane.dispatch({}),
+                guardScope: "pane",
+              });
+            },
+            [TUG_ACTIONS.CLOSE_PANE]: (_event: ActionEvent) => {
+              titleBarRef.current?.requestClose();
+            },
+            [TUG_ACTIONS.REVEAL_STACK]: (_event: ActionEvent) => {
+              titleBarRef.current?.revealStack();
+            },
+          }
+        : {}),
     }),
-    [bridge, paneId, cardId],
+    [bridge, paneId, cardId, componentId, carriesChrome],
   );
   const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions });
   // The shell's rule for a focused pane (`pane-focus-controller.ts`): it is
@@ -134,8 +206,11 @@ function BodyPane({
   // not opened for a surface that places its own focus (`takeBiddenUnfold`),
   // is handed its content as the shell's hook would hand it. Queued behind
   // the fold observer's microtask, which this write queued first and which
-  // lifts the host's `inert`. The fold itself moves nothing here: the
-  // keyboard goes to the shell's glyph.
+  // lifts the host's `inert`. For a card that keeps its chrome in the shell,
+  // the fold itself moves nothing here: the keyboard goes to the shell's
+  // glyph. A card that carries its chrome draws the glyph here, so the hook
+  // runs here whole — the fold onto the glyph and the unfold back — and the
+  // shell's stands down.
   const focusManager = useFocusManager();
   const folded = useSyncExternalStore(bridge.subscribe, () => bridge.getContext().folded === true);
   const lastFoldedRef = useRef<boolean | null>(null);
@@ -145,7 +220,7 @@ function BodyPane({
     else frameEl.removeAttribute("data-folded");
     const wasFolded = lastFoldedRef.current;
     lastFoldedRef.current = folded;
-    if (folded || wasFolded !== true) return;
+    if (folded || wasFolded !== true || carriesChrome) return;
     const bidden = takeBiddenUnfold(cardId);
     if (bidden || focusManager === null || getRegistration(componentId)?.ownsFoldedForm === true) return;
     queueMicrotask(() => {
@@ -156,7 +231,17 @@ function BodyPane({
         focusManager.adoptKeyCard(cardId);
       }
     });
-  }, [frameEl, folded, bridge, cardId, componentId, focusManager]);
+  }, [frameEl, folded, bridge, cardId, componentId, focusManager, carriesChrome]);
+  // After the write above, so the unfold's placement queues behind the fold
+  // observer's microtask that lifts the host's `inert`, as in the shell.
+  const readFirstResponderCardId = useCallback(() => bridge.getContext().firstResponderCardId, [bridge]);
+  useCardFoldFocus(
+    carriesChrome ? cardId : null,
+    componentId,
+    folded,
+    carriesChrome && getRegistration(componentId)?.ownsFoldedForm !== true,
+    readFirstResponderCardId,
+  );
   // A pinned rail paints the rail's own surface: the shell's treatment rule
   // keys on the deck's treatment and the pane's pinned side, and this page's
   // `body` is where its surface token resolves, so both are written here
@@ -191,6 +276,27 @@ function BodyPane({
     paneContentRegistry.register(paneId, contentEl);
     return () => paneContentRegistry.unregister(paneId);
   }, [paneId, contentEl]);
+
+  if (carriesChrome) {
+    return (
+      <BodyChromeFrame
+        bridge={bridge}
+        cardId={cardId}
+        componentId={componentId}
+        paneId={paneId}
+        chrome={chrome}
+        folded={folded}
+        focused={focused}
+        frameEl={frameEl}
+        rootEl={rootEl}
+        setFrame={setFrame}
+        setRootEl={setRootEl}
+        setContentEl={setContentEl}
+        titleBarRef={titleBarRef}
+        ResponderScope={ResponderScope}
+      />
+    );
+  }
 
   return (
     <>

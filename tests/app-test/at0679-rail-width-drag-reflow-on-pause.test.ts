@@ -28,6 +28,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chromePoint } from "./card-chrome-fixture";
 import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -47,7 +48,6 @@ const RESTED_MS = 200;
 const AFTER_LAND_MS = 900;
 
 const MEMBERS = ["overview", "jots"] as const;
-const HANDLE = `.tug-pane[data-pane-id="pJots"] .tug-pane-resize-e`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -113,54 +113,104 @@ interface Sample {
   m: Record<string, { frame: number; body: number; offset: number; inline: string }>;
 }
 
+/** The card each member is: a rail card draws its chrome and lays out its content in its own page. */
+const CARD_OF: Record<(typeof MEMBERS)[number], string> = { overview: "G", jots: "J" };
+
+/** One member's frame in its own page, on one animation frame. */
+interface PageSample {
+  t: number;
+  frame: number;
+  body: number;
+  offset: number;
+  inline: string;
+}
+
+/** One of the host's reports of the hand, as the shell hears it. */
+interface HandReport {
+  t: number;
+  phase: string;
+}
+
+/**
+ * Arm the samplers. Each member's page records, every animation frame, its
+ * own frame's width and its body's width, offset and inline width; the shell
+ * records the host's reports of the hand (`onCardGesture`), since the press
+ * is the Jots page's and the host carries it. Every clock is the epoch's
+ * (`timeOrigin + now`), so the pages' samples line up.
+ */
 async function armSampler(app: App): Promise<void> {
+  // card-dom: shell — the host's gesture reports arrive in the shell's page.
   await app.evalJS<null>(
     `(function () {
-      var rec = { samples: [], down: false, lastMove: performance.now(), running: true };
-      window.__at0679 = rec;
-      window.addEventListener("pointerdown", function () { rec.down = true; }, true);
-      window.addEventListener("pointerup", function () { rec.down = false; }, true);
-      window.addEventListener("pointermove", function () { rec.lastMove = performance.now(); }, true);
-      var tick = function () {
-        if (!rec.running) return;
-        var m = {};
-        document.querySelectorAll('.tug-pane[data-rail-side="left"]').forEach(function (el) {
-          var body = el.querySelector(".tug-pane-body");
-          var fr = el.getBoundingClientRect();
+      var rec = (window.__at0679 = { hand: [] });
+      var b = window.__tugBridge; var take = b.onCardGesture;
+      b.onCardGesture = function (r) {
+        rec.hand.push({ t: performance.timeOrigin + performance.now(), phase: r.phase });
+        return take(r);
+      };
+      return null;
+    })()`,
+  );
+  for (const member of MEMBERS) {
+    await app.body(CARD_OF[member]).evalJS<null>(
+      `(function () {
+        var rec = (window.__at0679 = { samples: [], running: true });
+        var tick = function () {
+          if (!rec.running) return;
+          var frame = document.querySelector(".body-chrome-frame");
+          var body = frame.querySelector(".tug-pane-body");
+          var fr = frame.getBoundingClientRect();
           var br = body.getBoundingClientRect();
-          m[el.getAttribute("data-rail-member")] = {
+          rec.samples.push({
+            t: performance.timeOrigin + performance.now(),
             frame: fr.width,
             body: br.width,
             offset: br.left - fr.left,
             inline: body.style.width,
-          };
-        });
-        rec.samples.push({ down: rec.down, sinceMove: performance.now() - rec.lastMove, m: m });
+          });
+          requestAnimationFrame(tick);
+        };
         requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-      return null;
-    })()`,
-  );
+        return null;
+      })()`,
+    );
+  }
 }
 
+/**
+ * Stop the samplers and read them as one series, on the Overview's frames:
+ * whether the button was down (between the hand's first report and its
+ * last), how long since the hand's last move, and each member's frame as its
+ * page last drew it.
+ */
 async function takeSamples(app: App): Promise<Sample[]> {
-  return app.evalJS<Sample[]>(
-    `(function () {
-      var rec = window.__at0679;
-      rec.running = false;
-      return rec.samples;
-    })()`,
-  );
+  const take = `(function () { var rec = window.__at0679; rec.running = false; return rec.samples; })()`;
+  const pages: Record<string, PageSample[]> = {};
+  for (const member of MEMBERS) pages[member] = await app.body(CARD_OF[member]).evalJS<PageSample[]>(take);
+  // card-dom: shell — the host's gesture reports arrive in the shell's page.
+  const hand = await app.evalJS<HandReport[]>(`window.__at0679.hand`);
+  const firstMove = hand.find((h) => h.phase === "move")?.t ?? Number.POSITIVE_INFINITY;
+  const end = hand.find((h) => h.phase === "end" || h.phase === "cancel")?.t ?? Number.POSITIVE_INFINITY;
+  const lastAt = (series: PageSample[], t: number): PageSample => {
+    let last = series[0];
+    for (const s of series) if (s.t <= t) last = s;
+    return last;
+  };
+  return pages.overview.map((s) => {
+    const moves = hand.filter((h) => h.phase === "move" && h.t <= s.t);
+    const lastMove = moves.length > 0 ? moves[moves.length - 1].t : firstMove;
+    const m: Sample["m"] = {};
+    for (const member of MEMBERS) {
+      const p = lastAt(pages[member], s.t);
+      m[member] = { frame: p.frame, body: p.body, offset: p.offset, inline: p.inline };
+    }
+    return { down: s.t >= firstMove && s.t < end, sinceMove: Math.max(0, s.t - lastMove), m };
+  });
 }
 
 async function grip(app: App): Promise<{ x: number; y: number }> {
-  return app.evalJS<{ x: number; y: number }>(
-    `(function () {
-      var r = document.querySelector(${JSON.stringify(HANDLE)}).getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    })()`,
-  );
+  // The rail card draws its edge grip in its own page.
+  return chromePoint(app, "J", ".tug-pane-resize-e");
 }
 
 describe.skipIf(!SHOULD_RUN)(

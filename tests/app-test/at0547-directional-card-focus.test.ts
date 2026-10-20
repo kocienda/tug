@@ -166,6 +166,7 @@ async function focused(app: App): Promise<string | null> {
 }
 
 async function flowOffset(app: App): Promise<number> {
+  // card-dom: shell — the deck's flow offset is the shell's state.
   return app.evalJS<number>(
     `(window.tugdeck.diag.getDeckState().flowOffset || 0)`,
   );

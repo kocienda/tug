@@ -101,26 +101,22 @@ const MENU = '[data-slot="tug-editor-context-menu"]';
 const COMPOSER = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
 /** The bound Session card's masthead title — the third way into the atom copy. */
 const MASTHEAD_TITLE =
-  '.tug-pane[data-pane-id="p1"] [data-slot="session-masthead"] .session-masthead-title';
+  '.body-chrome-frame [data-slot="session-masthead"] .session-masthead-title';
 
 /**
  * Deliver a `session_updated` ledger row to the pages that take it: the shell
- * (the pane's masthead, and the identity `copySessionAtom` resolves) and A's
- * body (the composer's chip — A wears the session, so its filter admits the
- * row). The wire reaches each page; the harness's publish reaches only the
- * page it runs in. A body's surface has no `publishSessionUpdated`, so the
- * row goes in through its `dispatchControlAction` — the same
- * `dispatchAction({ ...row, action: "session_updated" })` the shell's publish
- * makes, into the handler the body registered.
+ * and A's body (the pane's masthead and the composer's chip — A wears the
+ * session, so its filter admits the row). The wire reaches each page; the harness's publish reaches
+ * only the page it runs in.
  */
 async function publishSessionUpdated(app: App, fields: Record<string, unknown>): Promise<void> {
   const row = { session_id: SESSION_ID, fields };
-  // card-dom: shell — the masthead resolves the identity in the shell.
+  // card-dom: shell — the shell's ledger copy, beside the card's own.
   await app.evalJS<boolean>(
     `window.__tug.publishSessionUpdated(${JSON.stringify(JSON.stringify(row))})`,
   );
   await app.body("A").evalJS<boolean>(
-    `(window.__tug.dispatchControlAction("session_updated", ${JSON.stringify(row)}), true)`,
+    `window.__tug.publishSessionUpdated(${JSON.stringify(JSON.stringify(row))})`,
   );
 }
 
@@ -266,8 +262,9 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // production validator. What comes back is what a paste would insert.
         // The read is async (the native bridge calls back), and `evalJS`
         // cannot return a promise — so kick it off, park the result, and poll.
-        // card-dom: shell — `readClipboardAtoms` is the shell's surface; the
-        // pasteboard it reads is the app's.
+        // `readClipboardAtoms` is the shell's surface; the pasteboard it reads
+        // is the app's.
+        // card-dom: shell — the app's pasteboard, read through the shell.
         await app.evalJS<null>(
           `(window.__at0376sidecar = undefined,
             window.__tug.readClipboardAtoms().then(function (r) {
@@ -308,15 +305,13 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // silently ignored a right-click would leave the popover as the only
         // door, which is the thing this decision exists to fix.
         //
-        // The masthead is the pane's chrome (`tug-pane.tsx` mounts it), so it,
-        // and the menu its title raises, are the shell's.
-        // card-dom: shell — the masthead is pane chrome.
-        await app.waitForCondition<boolean>(
+        // The masthead is the pane's chrome, which a Session card draws in its
+        // own page, so it, and the menu its title raises, are the card's.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_TITLE)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        // card-dom: shell — the masthead is pane chrome.
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var title = document.querySelector(${JSON.stringify(MASTHEAD_TITLE)});
           var r = title.getBoundingClientRect();
           title.dispatchEvent(new MouseEvent("contextmenu", {
@@ -326,8 +321,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
           }));
           return null;
         })()`);
-        // card-dom: shell — the masthead title's menu rises in the shell.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
@@ -337,8 +331,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // title's own single-Copy menu AND the surrounding surface's read-only
         // one. The claim here is the one [D132] makes — the title offers a live
         // Copy — and the diagnostic below records the overlap for the follow-on.
-        // card-dom: shell — the masthead title's menu rises in the shell.
-        const titleMenus = await app.evalJS<
+        const titleMenus = await app.body("A").evalJS<
           ReadonlyArray<ReadonlyArray<{ label: string; disabled: boolean }>>
         >(
           `Array.prototype.map.call(

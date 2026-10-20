@@ -60,8 +60,7 @@ import { getDeckStore } from "@/lib/deck-store-registry";
 import { layoutRectOf } from "@/lib/page-zoom-store";
 import { useStoreDerived } from "@/lib/use-store-derived";
 import type { DeckState } from "@/layout-tree";
-import { slotCount } from "@/lib/layout-imposer";
-import { findSidebarPanes } from "@/deck-store-selectors";
+import { slotFactsIn, type SlotFacts } from "@/lib/slot-facts";
 import { dispatchCommand } from "@/command-dispatch";
 import { TugButton } from "@/components/tugways/internal/tug-button";
 import { TugSlot } from "@/components/tugways/tug-slot";
@@ -85,6 +84,12 @@ const BADGE_SLOT_FOCUS_GROUP = "card-slot-badge-slots";
 export interface CardSlotBadgeProps {
   /** The card whose host pane the badge reports on. */
   cardId: string | undefined;
+  /**
+   * The facts to draw, given, for a badge with no deck behind it to read them
+   * from — a card that draws its own chrome, in its own page. Omitted, the
+   * badge reads the deck.
+   */
+  facts?: SlotFacts | null;
 }
 
 /**
@@ -93,41 +98,17 @@ export interface CardSlotBadgeProps {
  */
 export const CardSlotBadge = React.memo(function CardSlotBadge({
   cardId,
+  facts,
 }: CardSlotBadgeProps): React.ReactElement | null {
   if (cardId === undefined) return null;
   // Keyed on the card, because the derivations below are functions of the
   // snapshot alone ([L02], `useStoreDerived`): a pane that fronts another card
   // gets a fresh badge deriving for that card, rather than a cached answer
   // about the last one.
-  return <CardSlotBadgeFor key={cardId} cardId={cardId} />;
+  return <CardSlotBadgeFor key={cardId} cardId={cardId} given={facts} />;
 });
 
-/**
- * What the badge draws, and nothing else: the arrangement's slot count and the
- * slot the card's pane holds. `undefined` when the deck does not hold the card
- * at all — the caller then asks the parked workspaces — and `null` when it does
- * and there is no position to name.
- */
-interface SlotFacts {
-  count: number;
-  held: number;
-}
-
-function slotFactsIn(deck: DeckState, cardId: string): SlotFacts | null | undefined {
-  const host = deck.panes.find((pane) => pane.cardIds.includes(cardId));
-  if (host === undefined) return undefined;
-  const kind = deck.imposition.kind;
-  // No imposition, or an imposition with one place in it: there is no position
-  // to report, so there is no chip.
-  if (kind === undefined || slotCount(kind) <= 1) return null;
-  if (host.slot === undefined) return null;
-  // A sidebar — the Cards card among them — is the imposition's fixed end rather
-  // than a member of the chain it bounds. The same guard `SlotPicker` applies.
-  if (findSidebarPanes(deck).some((entry) => entry.pane.id === host.id)) return null;
-  return { count: slotCount(kind), held: host.slot };
-}
-
-function CardSlotBadgeFor({ cardId }: { cardId: string }): React.ReactElement | null {
+function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts | null | undefined }): React.ReactElement | null {
   const deckStore = getDeckStore();
   // The two facts the chip draws, derived rather than read whole. The badge
   // used to take the entire deck snapshot, and a whole snapshot changes on
@@ -185,8 +166,8 @@ function CardSlotBadgeFor({ cardId }: { cardId: string }): React.ReactElement | 
   const badgeRef = React.useRef<HTMLSpanElement | null>(null);
 
   // The deck whose pane hosts this card: the live one, or the parked record
-  // of whichever mounted workspace holds it.
-  const facts = live !== undefined ? live : parked;
+  // of whichever mounted workspace holds it — unless the facts were given.
+  const facts = given !== undefined ? given : live !== undefined ? live : parked;
   if (facts === null) return null;
   const { count, held } = facts;
 
