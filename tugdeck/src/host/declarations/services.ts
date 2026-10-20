@@ -272,7 +272,7 @@ export const openPathToHost = defineToHost({
   codec: obj({ path: str, kind: literal("file", "folder", "reveal") }),
   samples: [
     { path: "~/CLAUDE.md", kind: "file" },
-    { path: "~/.claude/projects", kind: "folder" },
+    { path: "~/Projects", kind: "folder" },
     { path: "/tmp/shots/one.png", kind: "reveal" },
   ],
   refused: ["~/CLAUDE.md", { path: "~/CLAUDE.md" }, { path: "~/CLAUDE.md", kind: "edit" }],

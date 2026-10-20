@@ -3619,10 +3619,22 @@ mod tests {
     /// under a session this process saw nothing wrong with is `SeatLost`.
     #[test]
     fn a_departure_names_a_dead_session() {
-        assert_eq!(session_died(SpawnState::Live, true), ArcStopReason::SessionGone);
-        assert_eq!(session_died(SpawnState::Errored, false), ArcStopReason::SessionGone);
-        assert_eq!(session_died(SpawnState::Live, false), ArcStopReason::SeatLost);
-        assert_eq!(session_died(SpawnState::Closed, false), ArcStopReason::SeatLost);
+        assert_eq!(
+            session_died(SpawnState::Live, true),
+            ArcStopReason::SessionGone
+        );
+        assert_eq!(
+            session_died(SpawnState::Errored, false),
+            ArcStopReason::SessionGone
+        );
+        assert_eq!(
+            session_died(SpawnState::Live, false),
+            ArcStopReason::SeatLost
+        );
+        assert_eq!(
+            session_died(SpawnState::Closed, false),
+            ArcStopReason::SeatLost
+        );
     }
 
     /// A user's tugcast never takes the override, however it is spelled; an
@@ -3632,8 +3644,14 @@ mod tests {
     fn app_test_tuning_is_test_only() {
         let d = Duration::from_secs(60);
         assert_eq!(tuned_for_app_test(Some("1000"), false, d), d);
-        assert_eq!(tuned_for_app_test(Some("1000"), true, d), Duration::from_millis(1000));
-        assert_eq!(tuned_for_app_test(Some("0"), true, d), Duration::from_millis(100));
+        assert_eq!(
+            tuned_for_app_test(Some("1000"), true, d),
+            Duration::from_millis(1000)
+        );
+        assert_eq!(
+            tuned_for_app_test(Some("0"), true, d),
+            Duration::from_millis(100)
+        );
         assert_eq!(tuned_for_app_test(Some("soon"), true, d), d);
         assert_eq!(tuned_for_app_test(None, true, d), d);
     }

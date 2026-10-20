@@ -214,7 +214,7 @@ async function standUpBody(app: App, card: string, stubDir: string): Promise<voi
  * own chrome, which is in front of it by design, and only what the rail
  * leaves uncovered is the body's to fill.
  */
-async function standing(app: App, card: string, rail?: string, kind?: CardKind): Promise<{ standing: Standing; crop: Rect }> {
+async function standing(app: App, card: string, rail?: string): Promise<{ standing: Standing; crop: Rect }> {
   const start = await expectAtRest(app, card, `${card}: at the start`);
   const s = await readStanding(app, card, start);
   const height = await app.evalJS<number>("window.innerHeight");
@@ -378,7 +378,7 @@ export async function withKind(launch: Launch, kind: CardKind, name: string, leg
     await standUpKind(app, kind, card);
     await focusBody(app, card, { composer: false });
     await Bun.sleep(600);
-    const { standing: s, crop } = await standing(app, card, undefined, kind);
+    const { standing: s, crop } = await standing(app, card);
     await legs({ app, card, s, crop });
   } finally {
     await app.close();

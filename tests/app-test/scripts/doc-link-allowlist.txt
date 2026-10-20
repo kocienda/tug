@@ -22,7 +22,6 @@ tugcode/src/__tests__/fixtures/subagent-foreground/main.jsonl references/palette
 tugcode/src/context-breakdown.ts cwd/CLAUDE.md
 tugdeck/src/__tests__/session-wake-fixture-replay.test.ts arc/tugplan-session-wake.md
 tugdeck/src/components/chrome/settle-engine.ts arc/jul30-perf-brief.md
-tugdeck/src/components/chrome/tug-pane.tsx arc/layout-imposer-polish.md
 tugdeck/src/components/tugways/__tests__/focus-route.test.ts arc/keyboard-as-engine-state.md
 tugdeck/src/components/tugways/__tests__/kbf-derivation.test.ts arc/kbf-mode.md
 tugdeck/src/components/tugways/cards/__tests__/session-tool-visibility-policy.test.ts arc/session-assistant-rendering.md

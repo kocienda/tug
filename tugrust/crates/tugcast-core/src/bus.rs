@@ -132,7 +132,10 @@ mod tests {
             let parsed: BusDelivered = serde_json::from_value(envelope.clone())
                 .unwrap_or_else(|e| panic!("{envelope} does not parse: {e}"));
             let written = serde_json::to_value(&parsed).expect("serializes");
-            assert_eq!(&written, envelope, "{envelope} does not survive a round trip");
+            assert_eq!(
+                &written, envelope,
+                "{envelope} does not survive a round trip"
+            );
         }
     }
 
@@ -147,7 +150,10 @@ mod tests {
             BusKind::Request,
             BusKind::Reply,
         ] {
-            assert!(has(&|e| e.kind == kind), "the fixture has no {kind:?} envelope");
+            assert!(
+                has(&|e| e.kind == kind),
+                "the fixture has no {kind:?} envelope"
+            );
         }
         assert!(has(&|e| e.to == BusTarget::Role(BusRole::Shell)));
         assert!(has(&|e| e.to == BusTarget::Role(BusRole::Body)));

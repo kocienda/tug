@@ -1032,7 +1032,10 @@ impl AgentSupervisor {
             let ledger = self.ledger.lock().await;
             ledger.get(tug_session_id).cloned()
         };
-        let frame = Frame::new(FeedId::CODE_INPUT, b"{\"type\":\"request_inflight\"}".to_vec());
+        let frame = Frame::new(
+            FeedId::CODE_INPUT,
+            b"{\"type\":\"request_inflight\"}".to_vec(),
+        );
         let tx = match entry_arc {
             None => None,
             Some(entry_arc) => {

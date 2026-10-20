@@ -9803,7 +9803,10 @@ mod tests {
         }
         let ack = ack.expect("spawn_session_ok ack");
         assert_eq!(ack["tug_session_id"], "root");
-        assert_ne!(ack["seated_session_id"], "tip", "the ack seats the segment resumed");
+        assert_ne!(
+            ack["seated_session_id"], "tip",
+            "the ack seats the segment resumed"
+        );
     }
 
     /// **And after a relaunch, where the segment already has an entry.** A
@@ -9842,7 +9845,10 @@ mod tests {
             .expect("the tip segment");
         {
             let held = sup.ledger.lock().await;
-            let tip = held.get(&TugSessionId::new("tip")).cloned().expect("tip entry");
+            let tip = held
+                .get(&TugSessionId::new("tip"))
+                .cloned()
+                .expect("tip entry");
             drop(held);
             tip.lock().await.spawn_state = SpawnState::Live;
         }
@@ -9854,8 +9860,14 @@ mod tests {
 
         {
             let held = sup.ledger.lock().await;
-            assert!(held.contains_key(&TugSessionId::new("root")), "the root's entry is the one used");
-            assert!(!held.contains_key(&TugSessionId::new("tip")), "and the tip's bridge is gone");
+            assert!(
+                held.contains_key(&TugSessionId::new("root")),
+                "the root's entry is the one used"
+            );
+            assert!(
+                !held.contains_key(&TugSessionId::new("tip")),
+                "and the tip's bridge is gone"
+            );
         }
         assert_eq!(
             ledger.get("tip").unwrap().expect("row").state,
@@ -9870,7 +9882,10 @@ mod tests {
         }
         let ack = ack.expect("spawn_session_ok ack");
         assert_eq!(ack["tug_session_id"], "root");
-        assert_ne!(ack["seated_session_id"], "tip", "the ack seats the segment resumed");
+        assert_ne!(
+            ack["seated_session_id"], "tip",
+            "the ack seats the segment resumed"
+        );
     }
 
     /// The second way in: the card asks under the name *claude* knows the

@@ -6967,7 +6967,8 @@ mod tests {
 
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("tugcode");
-        std::fs::write(&script, "#!/bin/sh\nprintf '%s ' \"$@\"\n").expect("write stand-in tugcode");
+        std::fs::write(&script, "#!/bin/sh\nprintf '%s ' \"$@\"\n")
+            .expect("write stand-in tugcode");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -6998,9 +6999,21 @@ mod tests {
                 .expect("read child stdout");
             argv.push(out);
         }
-        assert!(!argv[0].contains("--crash-respawn"), "a first spawn is not a respawn: {}", argv[0]);
-        assert!(argv[1].contains("--crash-respawn"), "a respawn says so: {}", argv[1]);
-        assert!(argv[1].contains("--resume-session claude-seg-2"), "and still names the segment: {}", argv[1]);
+        assert!(
+            !argv[0].contains("--crash-respawn"),
+            "a first spawn is not a respawn: {}",
+            argv[0]
+        );
+        assert!(
+            argv[1].contains("--crash-respawn"),
+            "a respawn says so: {}",
+            argv[1]
+        );
+        assert!(
+            argv[1].contains("--resume-session claude-seg-2"),
+            "and still names the segment: {}",
+            argv[1]
+        );
     }
 
     // ── parse_user_message_text ──────────────────────────────────────────────

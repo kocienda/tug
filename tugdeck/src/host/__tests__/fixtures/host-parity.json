@@ -965,7 +965,7 @@
           "kind": "file"
         },
         {
-          "path": "~/.claude/projects",
+          "path": "~/Projects",
           "kind": "folder"
         },
         {

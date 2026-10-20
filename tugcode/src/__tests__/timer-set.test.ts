@@ -41,9 +41,10 @@ describe("TimerSet", () => {
   test("clearAll cancels timeouts and intervals alike", async () => {
     const timers = new TimerSet();
     const fired: string[] = [];
-    timers.setTimeout("once", () => fired.push("once"), 5);
     timers.setInterval("every", () => fired.push("every"), 1, { unref: true });
     await tick(3);
+    // Armed just before the clear, so a slow tick cannot let it fire first.
+    timers.setTimeout("once", () => fired.push("once"), 5);
     timers.clearAll();
     const count = fired.length;
     await tick(15);

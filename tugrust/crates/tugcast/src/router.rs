@@ -2201,7 +2201,10 @@ mod tests {
         let first = build_handshake_response(1, &PageIdentity::tool());
         let second = build_handshake_response(2, &PageIdentity::tool());
         let id = first["server_id"].as_str().expect("server_id is a string");
-        assert!(uuid::Uuid::parse_str(id).is_ok(), "server_id is a uuid: {id}");
+        assert!(
+            uuid::Uuid::parse_str(id).is_ok(),
+            "server_id is a uuid: {id}"
+        );
         assert_eq!(second["server_id"], first["server_id"]);
         assert_eq!(id, server_id());
     }
@@ -2794,7 +2797,10 @@ mod tests {
         .unwrap();
         let outcome = intercept_session_control(Some(&sup), "request_inflight", &unknown, 1).await;
         assert!(matches!(outcome, ControlIntercept::Handled));
-        assert!(input_rx.try_recv().is_err(), "a session that is not live is not asked");
+        assert!(
+            input_rx.try_recv().is_err(),
+            "a session that is not live is not asked"
+        );
     }
 
     #[tokio::test]
@@ -3474,7 +3480,10 @@ mod tests {
         let from = page(PageRole::Body, "b1", Some("c1"));
         route_bus(&pages, &lane, &from, sent.to_string().as_bytes()).expect("delivered");
         let (_, body) = delivered(&mut rx);
-        assert_eq!(body["payload"]["binding"], serde_json::json!({"tugSessionId": "s1"}));
+        assert_eq!(
+            body["payload"]["binding"],
+            serde_json::json!({"tugSessionId": "s1"})
+        );
         assert_eq!(body["extra"], serde_json::json!([1, 2]));
     }
 

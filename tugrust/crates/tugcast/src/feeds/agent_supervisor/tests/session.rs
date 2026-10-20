@@ -197,7 +197,10 @@ async fn test_request_replay_dispatched_logs_the_reload_reason() {
     // The reason is telemetry only: what tugcode receives is unchanged.
     let frame = input_rx.try_recv().expect("first request forwarded");
     let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
-    assert!(body.get("reason").is_none(), "tugcode's verb carries no reason: {body}");
+    assert!(
+        body.get("reason").is_none(),
+        "tugcode's verb carries no reason: {body}"
+    );
 }
 
 /// Idle session: request_replay no-ops. No frame on input_tx (none
