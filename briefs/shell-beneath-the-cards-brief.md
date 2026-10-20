@@ -26,6 +26,8 @@ So this brief is a continuation, not a redesign: it carries the arc's plan decis
 
 **[F05] Known reds carried forward.** `at0408` (an arc's auto-bind reaches neither page), the right-click files `at0307`, `at0346`, `at0560`, `at0568`, `at0599`, and the bodies-migration reds `at0527`, `at0600`. Each is red on the base for a recorded cause and none is this brief's to fix before the layer order changes. **(verified, from the arc's commit bodies and the migration brief)**
 
+**[F06] Five reds the half-join carried to `main`.** The pre-join verify at the step 7 boundary found five files red alone and green before the arc: `at0347-stack-badge-picker` (a lone rail is a place too, and splittable), `body-grounding/row-28-deck-facts` (a click on the empty canvas gives the shell the keyboard), `at0710-zoom-same-layout` (the grid is painted on the root), `body-grounding/row-06-menus-kinds-shows` (File › Close on a rail asks) and `body-grounding/row-07-focus` (⌘W raises the shell's Close popover; the card closes). Four read chrome the rail step moved into the card's page and were not in that step's verdict; `at0710` may be a canvas-grid defect. The join `feee863b8` landed with them. **(verified, `/tmp/audit2/c1v-reds-alone.log`, 2026-10-19)**
+
 ---
 
 ## Decisions {#decisions}
@@ -58,7 +60,9 @@ So this brief is a continuation, not a redesign: it carries the arc's plan decis
 
 **[B14] The carried reds end, and the documents say what the code does.** Each file in [F05] ends green, fixed, changed or deleted, with its reason recorded. `tuglaws/shell-and-bodies.md`, `tuglaws/pane-model.md`, L09 and L25 are updated for chrome in the card and the shell beneath, and a design decision records the layer order.
 
-**[B15] Steps stay the size of a sitting.** The user's call from the split holds: one piece of work and one verdict per step. The order below is the parent plan's steps 8 to 19 with their numbers dropped, so that the door numbers afresh.
+**[B15] The five reds of [F06] end in this arc's first step.** Each ends fixed, changed or deleted with its reason in the commit body, before any other kind moves: a red carried past the step that could end it is the shape the arc-supplement forbids.
+
+**[B16] Steps stay the size of a sitting.** The user's call from the split holds: one piece of work and one verdict per step. The order below is the parent plan's steps 8 to 19 with their numbers dropped, so that the door numbers afresh.
 
 ---
 
@@ -83,7 +87,7 @@ So this brief is a continuation, not a redesign: it carries the arc's plan decis
 
 An arc from `main`, opened after `host-channel-and-body-deck` has joined. The order the pieces must land in, each one step unless the door cuts it finer:
 
-1. **Every other kind carries its chrome**; the transitional set and allow-list go ([B04]).
+1. **The five reds of the half-join end** ([B15]), then **every other kind carries its chrome**; the transitional set and allow-list go ([B04]). The door may cut these in two.
 2. **The shell's pane is a stand-in only** ([B05]), with the live reading on a rail card, a folded Text card and a two-tab pane.
 3. **Whole cards under flow-strip writes** ([B06]).
 4. **The overlay page and its host view**, with the gates and alerts ([B07]).
