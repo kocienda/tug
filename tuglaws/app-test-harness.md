@@ -38,7 +38,7 @@ Each test file launches its own `App` via `launchTugApp()` and closes it in a `f
 
 The reasons are not arbitrary:
 
-- **Crash isolation.** One test file's hang or assertion failure does not poison the next. The harness can leave a subprocess in any state — including wedged — and the next file starts from a clean process boot. A file whose app stops answering does not hold the run either: the recipe kills it at three times the median of its five most recent recorded wall times (floored at two minutes), records it as `WEDGED` — a machine state the history never reads as a red — and halts the run after two wedges in a row.
+- **Crash isolation.** One test file's hang or assertion failure does not poison the next. The harness can leave a subprocess in any state — including wedged — and the next file starts from a clean process boot. A file whose app stops answering does not hold the run either: the recipe stops it at the per-file budget (`TUG_APPTEST_FILE_BUDGET_SECS`, 20 s unless set) and records it as `OVERTIME`, a red whose failure says where it was. The history reads a `STALLED` row — the old `WEDGED` — as a machine state, neither a red nor a duration, though the recipe writes none today.
 - **WKUserScript injection is one-shot.** The script that sets `window.__tugTestMode = true` runs at process start via `WKUserScript`. There is no API to "downgrade" a live WebView back to non-test mode. To get a fresh non-test-mode WebView, you spawn a new app.
 - **Per-spawn log files.** Stdout / stderr capture rotates per spawn. Failed-test diagnostics stay scoped to the file that produced them.
 

@@ -6,7 +6,7 @@
  * Reads the document `TUG_APPTEST_JSON=<path>` writes and prints every red
  * file grouped by the signature of its failures, biggest cluster first: a
  * run of five hundred files reds by cause, and a cause shows as many files
- * failing the same way. A file that wedged or errored with no failure of its
+ * failing the same way. A file that stalled or errored with no failure of its
  * own groups by its status.
  *
  * Several reports read as one run: a corpus run in batches, each batch its own

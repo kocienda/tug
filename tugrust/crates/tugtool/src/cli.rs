@@ -288,6 +288,10 @@ pub enum Commands {
     #[command(subcommand)]
     Test(TestCommands),
 
+    /// The runners the PreToolUse hook draws a run panel for.
+    #[command(subcommand)]
+    Run(RunCommands),
+
     /// Tell the block this command runs under how far it has got.
     ///
     /// Silent and always exits 0: a report that cannot be delivered changes
@@ -341,6 +345,18 @@ pub enum Commands {
 }
 
 #[derive(Subcommand)]
+pub enum RunCommands {
+    /// The runners the hook wraps from here: tugtool's built-ins and the
+    /// `[[tugtool.run.runner]]` rows this project's `.tugtool/config.toml`
+    /// declares, longest head first, one per line — the head, its
+    /// `kind=` (wrapped in `tugtool test run`) or `unit=` (reports itself;
+    /// the hook exports the call id), the suite, and where the row came
+    /// from. A config that does not load is refused here, by name; the hook
+    /// itself falls back to the built-ins in silence.
+    Runners,
+}
+
+#[derive(Subcommand)]
 pub enum ProgressCommands {
     /// The long Bash calls that ended with no progress report, by command
     /// head: how many, and how long they ran in all. Where the next report
@@ -371,6 +387,187 @@ pub enum ProgressCommands {
         #[arg(long = "needle")]
         needles: Vec<String>,
     },
+    /// One item of a run moves: a loop over files, tests or targets draws
+    /// the block's run panel one line per item, and builds no JSON.
+    ///
+    /// `plan` declares the items, so they draw as pending; `start` and
+    /// `done` move one; `amend` adds to one that ran; `finish` closes the
+    /// run. Every call posts the whole run as rows. State is kept between
+    /// calls under the temp dir, one file per item, keyed by the label and
+    /// the calling session, so parallel jobs never share a file. A `start`
+    /// or `done` for a name the plan did not list adds it.
+    ///
+    /// A row is `name`, `status`, `index` (0-based), and optionally
+    /// `passed`, `total`, `secs`, `median`, `started_at_ms`, `title`,
+    /// `message` and `history`. The statuses are `pending running pass fail
+    /// error stalled skipped`; `wedged` is read as `stalled`. Past 64 items a
+    /// report carries only the running and red rows.
+    ///
+    /// Silent, and always exits 0: with no calling session nothing is kept
+    /// and nothing is sent.
+    #[command(subcommand)]
+    Unit(UnitCommands),
+}
+
+#[derive(Subcommand)]
+pub enum UnitCommands {
+    /// Declare the run's items, which draw as pending until they start. A
+    /// rerun under the same label starts over.
+    Plan {
+        /// The run's short name (`app-test`).
+        label: String,
+        /// The report's line; `<n> <unit>s` when left off. It comes before
+        /// `--of`, which takes every word after it as a name.
+        text: Option<String>,
+        /// What the run counts (`file`, `test`); `test` when left off.
+        #[arg(long)]
+        unit: Option<String>,
+        /// How many items run at once.
+        #[arg(long)]
+        jobs: Option<u64>,
+        /// Text the running command contains, for matching the report to it
+        /// when the session has several calls open.
+        #[arg(long = "needle")]
+        needles: Vec<String>,
+        /// One median per name, in seconds, `-` for none: the time a pending
+        /// row expects to take. A list whose length is not the names' is
+        /// ignored whole.
+        #[arg(long, num_args = 1..)]
+        medians: Vec<String>,
+        /// Every item's name, in run order.
+        #[arg(long = "of", num_args = 1.., required = true)]
+        of: Vec<String>,
+    },
+    /// An item starts now.
+    Start {
+        label: String,
+        /// The item's name; one the plan lacks is added.
+        name: String,
+        /// The seconds it is expected to take, over the plan's.
+        #[arg(long)]
+        median: Option<f64>,
+        /// The report's line; `<name> started` when left off.
+        text: Option<String>,
+    },
+    /// An item landed: `pass`, `fail`, `error`, `skipped` or `stalled`.
+    Done {
+        label: String,
+        name: String,
+        #[arg(value_enum)]
+        status: crate::progress_unit::LandedStatus,
+        /// Its wall seconds; the time since its start when left off.
+        #[arg(long)]
+        secs: Option<f64>,
+        /// Tests it passed — kept only beside a `--total` above zero.
+        #[arg(long)]
+        passed: Option<u64>,
+        /// Tests it ran.
+        #[arg(long)]
+        total: Option<u64>,
+        /// A red item's first failure: its title.
+        #[arg(long)]
+        title: Option<String>,
+        /// A red item's first failure: its message.
+        #[arg(long)]
+        message: Option<String>,
+        /// The report's line; `<name> <STATUS> (<passed>/<total>) <secs>s`
+        /// when left off.
+        text: Option<String>,
+    },
+    /// Add to an item that ran — its history line, most often — leaving its
+    /// status as it is.
+    Amend {
+        label: String,
+        name: String,
+        /// What the record says of this item before this run.
+        #[arg(long)]
+        history: Option<String>,
+        #[arg(long)]
+        message: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
+        /// The report's line; the last one posted when left off.
+        text: Option<String>,
+    },
+    /// The run is over. Its line is `done` when left off.
+    Finish { label: String, text: Option<String> },
+}
+
+impl UnitCommands {
+    pub fn into_call(self) -> crate::progress_unit::UnitCall {
+        use crate::progress_unit::{Amendment, Landing, UnitCall};
+        match self {
+            UnitCommands::Plan {
+                label,
+                text,
+                unit,
+                jobs,
+                needles,
+                medians,
+                of,
+            } => UnitCall::Plan {
+                label,
+                text,
+                unit,
+                jobs,
+                needles,
+                medians,
+                of,
+            },
+            UnitCommands::Start {
+                label,
+                name,
+                median,
+                text,
+            } => UnitCall::Start {
+                label,
+                name,
+                median,
+                text,
+            },
+            UnitCommands::Done {
+                label,
+                name,
+                status,
+                secs,
+                passed,
+                total,
+                title,
+                message,
+                text,
+            } => UnitCall::Done {
+                label,
+                name,
+                status,
+                landing: Landing {
+                    secs,
+                    passed,
+                    total,
+                    title,
+                    message,
+                },
+                text,
+            },
+            UnitCommands::Amend {
+                label,
+                name,
+                history,
+                message,
+                title,
+                text,
+            } => UnitCall::Amend {
+                label,
+                name,
+                amendment: Amendment {
+                    history,
+                    message,
+                    title,
+                },
+                text,
+            },
+            UnitCommands::Finish { label, text } => UnitCall::Finish { label, text },
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -480,9 +677,9 @@ pub enum ApptestCommands {
     /// Answer each named file's history for the run root's base checkout.
     ///
     /// One of `last-green`, `red-streak`, or `no-history` per file. `SKIP`
-    /// and `WEDGED` rows are excluded — a file the runner skipped, or killed
-    /// at its cap because the app stopped answering, says nothing about
-    /// whether it works.
+    /// and `STALLED` rows (and the old `WEDGED`) are excluded — a file the
+    /// runner skipped, or stopped because the app stopped answering, says
+    /// nothing about whether it works.
     History {
         /// The root the run executed in (default: cwd). Resolved to its base
         /// checkout, so an arc worktree and its checkout share one history.
@@ -551,9 +748,18 @@ pub enum TestCommands {
     /// Run a test command, copying its output through, and record the run.
     ///
     /// The command's stdout and stderr pass through as they arrive and its
-    /// exit status is this verb's. Progress is followed from stderr, and at
-    /// exit the run's junit document is recorded, so `test last --failures`
-    /// names a red run's failures whatever happened to its output.
+    /// exit status is this verb's. Progress is followed from the runner's
+    /// output as it arrives, and at exit the run is recorded — from its junit
+    /// document, or from the tally the wrapper counted — so `test last
+    /// --failures` names a red run's failures whatever happened to its
+    /// output.
+    ///
+    /// For a runner tugtool has no parser for: `--kind tap` reads TAP on
+    /// stdout; `--kind junit --junit <path>` follows nothing live and records
+    /// the document the command writes; `--kind lines --item <regex>` reads
+    /// one item per line, from the regex's `name` and `status` groups, with
+    /// `--total <regex>`'s `total` group (or one on the item line) as the
+    /// count up front.
     Run {
         /// The suite's name in the ledger, e.g. `tugdeck` or `rust`.
         #[arg(long)]
@@ -561,10 +767,10 @@ pub enum TestCommands {
         /// Which runner the command is.
         #[arg(long, value_enum)]
         kind: crate::test_run::RunKind,
-        /// The junit document the command writes. Bun is pointed at a
-        /// temporary one when none is named; a nextest or cargo-test run
+        /// The junit document the command writes. Bun and pytest are pointed
+        /// at a temporary one when none is named; a run of any other kind
         /// with none is recorded from the tally the wrapper counts off its
-        /// output.
+        /// output. `--kind junit` requires it.
         #[arg(long)]
         junit: Option<PathBuf>,
         /// The label progress is shown under.
@@ -573,6 +779,25 @@ pub enum TestCommands {
         /// Text the running command contains, for matching progress to it.
         #[arg(long = "needle")]
         needles: Vec<String>,
+        /// `--kind lines`: the regex an item's line matches, with `name` and
+        /// `status` groups. The status words read are:
+        /// pass: pass passed ok ✓ ✔ success succeeded xfail;
+        /// fail: fail failed failure ✗ ✘ × 'not ok' xpass ***failed
+        /// ***timeout ***exception; error: error err errored exception;
+        /// skipped: skip skipped pending ignored todo 'not run' ↓. A line
+        /// whose status is none of these is not an item.
+        #[arg(long)]
+        item: Option<String>,
+        /// `--kind lines`: the regex whose `total` group says how many items
+        /// the run will hold.
+        #[arg(long)]
+        total: Option<String>,
+        /// `--kind lines`: which stream the item lines are on.
+        #[arg(long, value_enum, default_value_t = crate::run_parsers::Stream::Both)]
+        stream: crate::run_parsers::Stream,
+        /// What the run counts (`test`, `file`, `check`); `test` when left off.
+        #[arg(long)]
+        unit: Option<String>,
         /// The command to run.
         #[arg(last = true, required = true, allow_hyphen_values = true)]
         command: Vec<String>,
@@ -1832,6 +2057,16 @@ mod tests {
             }
             _ => panic!("arc stop did not parse"),
         }
+    }
+
+    #[test]
+    fn run_runners_parses_with_the_global_json_flag() {
+        let cli = Cli::parse_from(["tugtool", "run", "runners", "--json"]);
+        assert!(cli.json);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Run(RunCommands::Runners))
+        ));
     }
 
     /// **`--plan` is gone, and its absence is a refusal rather than a

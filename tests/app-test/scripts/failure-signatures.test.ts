@@ -40,11 +40,13 @@ describe("clustersOf", () => {
       { file: "b.test.ts", status: "FAIL", failures: [{ title: "b", message: timeout('[data-slot=\\"x\\"]'), location: "b.test.ts:9:1" }] },
       { file: "c.test.ts", status: "FAIL", failures: [{ title: "c", message: "expect(received).toBe(expected)" }] },
       { file: "d.test.ts", status: "WEDGED" },
+      { file: "f.test.ts", status: "STALLED" },
       { file: "e.test.ts", status: "PASS", failures: [] },
     ];
     const clusters = clustersOf(files);
-    expect(clusters.map((c) => c.files.length)).toEqual([2, 1, 1]);
+    expect(clusters.map((c) => c.files.length)).toEqual([2, 1, 1, 1]);
     expect(clusters[0].files.map((f) => f.file)).toEqual(["a.test.ts", "b.test.ts"]);
     expect(clusters.some((c) => c.signature === "[WEDGED] no failure recorded")).toBe(true);
+    expect(clusters.some((c) => c.signature === "[STALLED] no failure recorded")).toBe(true);
   });
 });

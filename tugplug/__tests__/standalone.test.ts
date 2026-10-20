@@ -235,6 +235,82 @@ describe("the hook script, from the bundle alone", () => {
   });
 });
 
+/**
+ * A project may declare its own runners in `.tugtool/config.toml`, and the
+ * hook reads them from the call's `cwd`. The declaring project is a second
+ * scratch checkout, so the shared one keeps carrying no `.tugtool/`.
+ */
+describe("the hook, on a project that declares its runners", () => {
+  let declaring = "";
+
+  beforeAll(() => {
+    declaring = join(lab, "declaring");
+    mkdirSync(join(declaring, ".tugtool"), { recursive: true });
+    writeFileSync(
+      join(declaring, ".tugtool/config.toml"),
+      [
+        "[[tugtool.run.runner]]",
+        'match = "make check"',
+        'kind  = "cargo-test"',
+        'suite = "checks"',
+        "",
+        "[[tugtool.run.runner]]",
+        'match = "just app-test"',
+        'unit  = "file"',
+        "",
+        "[[tugtool.run.runner]]",
+        'match = "make lint"',
+        'kind  = "lines"',
+        `item  = "^(?P<status>PASS|FAIL): (?P<name>[^ ']+)"`,
+        "",
+      ].join("\n"),
+    );
+    const r = run(["git", "init", "-q", "-b", "main"], { cwd: declaring });
+    if (r.code !== 0) throw new Error(`git init: ${r.err}`);
+  });
+
+  test("wraps a declared kind row under its declared suite", () => {
+    const decision = hook({
+      tool_name: "Bash",
+      tool_input: { command: "make check" },
+      cwd: declaring,
+      tool_use_id: "toolu_01declared",
+    });
+    const command: string = decision.hookSpecificOutput.updatedInput.command;
+    expect(command.startsWith("TUG_TOOL_USE_ID=toolu_01declared ")).toBe(true);
+    expect(command).toContain(`${join(bundle, "Contents/MacOS/tugtool")} test run --suite checks --kind cargo-test `);
+    expect(command.endsWith(" -- make check")).toBe(true);
+  });
+
+  test("carries a declared lines row's regex single-quoted", () => {
+    const decision = hook({
+      tool_name: "Bash",
+      tool_input: { command: "make lint" },
+      cwd: declaring,
+      tool_use_id: "toolu_01lines",
+    });
+    const command: string = decision.hookSpecificOutput.updatedInput.command;
+    expect(command).toContain(
+      ` test run --suite lint --kind lines --item '^(?P<status>PASS|FAIL): (?P<name>[^ '\\'']+)' --label 'make lint' `,
+    );
+    expect(command.endsWith(" -- make lint")).toBe(true);
+  });
+
+  test("gives a declared unit row the call id and nothing else", () => {
+    const decision = hook({
+      tool_name: "Bash",
+      tool_input: { command: "just app-test at0707.test.ts" },
+      cwd: declaring,
+      tool_use_id: "toolu_01unit",
+    });
+    expect(decision.hookSpecificOutput.updatedInput.command).toBe("TUG_TOOL_USE_ID=toolu_01unit just app-test at0707.test.ts");
+  });
+
+  test("the same command on the project that declares nothing is left alone", () => {
+    expect(hook({ tool_name: "Bash", tool_input: { command: "make check" }, cwd: project, tool_use_id: "toolu_01x" })).toBeNull();
+  });
+});
+
 describe("what a session must know rides the system prompt, from the bundle alone", () => {
   test("every prompt file ships at the plugin root", () => {
     expect(PLUGIN_PROMPT_FILES).toContain("file-editing.md");

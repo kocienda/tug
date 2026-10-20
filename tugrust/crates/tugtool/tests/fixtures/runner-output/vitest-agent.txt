@@ -1,0 +1,11 @@
+
+ RUN  v4.1.12 /private/tmp/tug-runner-fixtures/vitest
+
+ ❯ math.test.mjs (2 tests | 1 failed) 4ms
+   × subtracts wrong 2ms
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 2 passed | 1 skipped (4)
+   Start at  08:18:39
+   Duration  118ms (transform 15ms, setup 0ms, import 26ms, tests 5ms, environment 0ms)
+

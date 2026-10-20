@@ -1,0 +1,29 @@
+
+
+  math
+    ✔ adds
+    1) subtracts wrong
+
+  str
+    ✔ concat
+    - later
+
+
+  2 passing (3ms)
+  1 pending
+  1 failing
+
+  1) math
+       subtracts wrong:
+
+      AssertionError [ERR_ASSERTION]: 1 == 0
+      + expected - actual
+
+      -1
+      +0
+      
+      at Context.<anonymous> (test/math.spec.js:4:40)
+      at process.processImmediate (node:internal/timers:504:21)
+
+
+

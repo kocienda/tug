@@ -320,6 +320,137 @@ fn build_app_phase_calls_post_the_run_as_phase_rows() {
     assert_eq!(body["units"][1]["status"], "pending");
 }
 
+/// A loop over items, as a shell script writes it: one `progress unit` line
+/// per move, and every call posts the whole run as rows.
+#[test]
+fn a_unit_loop_posts_the_run_as_rows_on_every_call() {
+    let (_dir, tmp) = scratch();
+    let (port, requests) = fake_tugcast(Answer::Ok);
+    register_fake_instance(&tmp, port);
+    let call = |args: &[&str]| {
+        let mut cmd = progress(&tmp);
+        cmd.env("TUG_SESSION_ID", "seg-0").arg("unit").args(args);
+        silent(&mut cmd);
+        requests.recv_timeout(Duration::from_secs(5)).unwrap()
+    };
+
+    let body = call(&[
+        "plan",
+        "checks",
+        "--unit",
+        "file",
+        "--jobs",
+        "2",
+        "--needle",
+        "make check",
+        "--medians",
+        "4",
+        "-",
+        "--of",
+        "a.sh",
+        "b.sh",
+    ]);
+    assert_eq!(body["op"], "run_progress");
+    assert_eq!(body["label"], "checks");
+    assert_eq!(body["text"], "2 files");
+    assert_eq!(body["unit"], "file");
+    assert_eq!(body["jobs"], 2);
+    assert_eq!(body["needles"], serde_json::json!(["make check"]));
+    assert_eq!(
+        (
+            body["done"].as_u64(),
+            body["total"].as_u64(),
+            body["failures"].as_u64()
+        ),
+        (Some(0), Some(2), Some(0))
+    );
+    assert_eq!(
+        body["units"],
+        serde_json::json!([
+            {"name": "a.sh", "status": "pending", "index": 0, "median": 4.0},
+            {"name": "b.sh", "status": "pending", "index": 1},
+        ])
+    );
+
+    let body = call(&["start", "checks", "a.sh"]);
+    assert_eq!(body["text"], "a.sh started");
+    assert_eq!(body["units"][0]["status"], "running");
+    assert!(body["units"][0]["started_at_ms"].as_i64().unwrap() > 0);
+    assert_eq!(body["units"][0]["median"], 4.0);
+
+    let body = call(&[
+        "done",
+        "checks",
+        "a.sh",
+        "fail",
+        "--secs",
+        "3",
+        "--passed",
+        "1",
+        "--total",
+        "2",
+        "--title",
+        "b breaks",
+        "--message",
+        "expected 1",
+    ]);
+    assert_eq!(body["text"], "a.sh FAIL (1/2) 3s");
+    assert_eq!(
+        (body["done"].as_u64(), body["failures"].as_u64()),
+        (Some(1), Some(1))
+    );
+    let row = &body["units"][0];
+    assert_eq!(row["status"], "fail");
+    assert_eq!(
+        (row["passed"].as_u64(), row["total"].as_u64()),
+        (Some(1), Some(2))
+    );
+    assert_eq!(row["secs"], 3);
+    assert_eq!(row["title"], "b breaks");
+    assert_eq!(row["message"], "expected 1");
+    assert_eq!(body["units"][1]["status"], "pending");
+
+    let body = call(&["finish", "checks", "1 failed"]);
+    assert_eq!(body["text"], "1 failed");
+    assert_eq!(body["unit"], "file");
+    assert_eq!(body["jobs"], 2);
+    assert_eq!(body["needles"], serde_json::json!(["make check"]));
+    assert_eq!(
+        (
+            body["done"].as_u64(),
+            body["total"].as_u64(),
+            body["failures"].as_u64()
+        ),
+        (Some(1), Some(2), Some(1))
+    );
+    assert_eq!(body["units"].as_array().unwrap().len(), 2);
+}
+
+/// With no calling session a unit loop keeps nothing and sends nothing.
+#[test]
+fn a_unit_loop_with_no_calling_session_keeps_nothing() {
+    let (_dir, tmp) = scratch();
+    let (port, requests) = fake_tugcast(Answer::Never);
+    register_fake_instance(&tmp, port);
+    for args in [
+        &["plan", "checks", "--of", "a", "b"][..],
+        &["start", "checks", "a"],
+        &["done", "checks", "a", "wedged"],
+        &["amend", "checks", "a", "--history", "red before"],
+        &["finish", "checks"],
+    ] {
+        silent(progress(&tmp).arg("unit").args(args));
+    }
+    assert!(
+        !tmp.join("tug-progress-unit").exists(),
+        "state was kept with nobody to report to"
+    );
+    assert!(
+        requests.recv_timeout(Duration::from_millis(200)).is_err(),
+        "the stand-in saw a request"
+    );
+}
+
 /// `progress gaps` reads the machine-global record tugcast writes, through
 /// the same redirect every harness sets, ranking heads by count then time.
 #[test]

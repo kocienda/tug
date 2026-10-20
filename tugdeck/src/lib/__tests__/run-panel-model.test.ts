@@ -36,7 +36,7 @@ const MID_RUN: RunProgress = {
 describe("runPanelModel", () => {
   test("mid-run: the tally, the lanes' elapsed, the reds, and cells for a whole small batch", () => {
     const m = runPanelModel(MID_RUN, "running", NOW);
-    expect(m.counts).toEqual({ pass: 3, red: 1, fail: 1, wedged: 0, skipped: 0, pending: 4 });
+    expect(m.counts).toEqual({ pass: 3, red: 1, fail: 1, stalled: 0, skipped: 0, pending: 4 });
     expect(m.track).toBe("cells");
     expect(m.lanes.map((l) => [l.unit.name, l.elapsedSecs])).toEqual([
       ["at0341", 12],
@@ -105,14 +105,14 @@ describe("runPanelModel", () => {
       done: 10,
       units: (MID_RUN.units ?? []).map((u) =>
         u.name === "at0352"
-          ? { ...u, status: "wedged" as const, secs: 120 }
+          ? { ...u, status: "stalled" as const, secs: 120 }
           : u.status === "pending" || u.status === "running"
             ? { ...u, status: "pass" as const, secs: 5 }
             : u,
       ),
     };
     const m = runPanelModel(finished, "finished", NOW);
-    expect(verdictSentence(m)).toBe("1 of 10 files failed, 1 wedged");
+    expect(verdictSentence(m)).toBe("1 of 10 files failed, 1 stalled");
     const green = runPanelModel(
       { ...finished, failures: 0, units: finished.units?.map((u) => ({ ...u, status: "pass" as const })) },
       "finished",

@@ -227,3 +227,95 @@ fn test_run_wraps_a_red_bun_run_and_records_its_failure() {
     assert_eq!(report["runs"][0]["tests"], 3);
     assert_eq!(report["runs"][0]["exitCode"], 1);
 }
+
+/// `--kind lines` end to end: each line the item regex matches is a test, the
+/// red exit passes through, and the record names the failing item.
+#[test]
+fn test_run_lines_records_the_items_its_regex_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("test_results.db");
+    let out = run(
+        &db,
+        dir.path(),
+        &[
+            "test",
+            "run",
+            "--suite",
+            "s",
+            "--kind",
+            "lines",
+            "--item",
+            r"^(?P<status>PASS|FAIL) (?P<name>\S+)",
+            "--",
+            "sh",
+            "-c",
+            "printf 'PASS a\\nFAIL b\\n'; exit 1",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1), "the red exit passes through");
+    assert_eq!(
+        stdout(&out),
+        "PASS a\nFAIL b\n",
+        "the output passes through"
+    );
+
+    let out = run(&db, dir.path(), &["test", "last", "--json"]);
+    let report = last_report(&stdout(&out));
+    assert_eq!(report["runs"][0]["tests"], 2);
+    assert_eq!(report["runs"][0]["failed"], 1);
+    let out = run(&db, dir.path(), &["test", "last", "--failures"]);
+    assert_eq!(stdout(&out), "s  (fail) b\n");
+}
+
+/// `--kind tap` on a real `node --test` run: the top-level results are the
+/// tests, a skip is counted as one, and the failure is named.
+#[test]
+fn test_run_tap_records_a_node_test_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("test_results.db");
+    let scratch = dir.path().join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::write(
+        scratch.join("a.test.mjs"),
+        "import { test } from \"node:test\";\n\
+         import assert from \"node:assert\";\n\
+         test(\"adds\", () => { assert.equal(1 + 1, 2); });\n\
+         test(\"subtracts wrong\", () => { assert.equal(2 - 1, 0); });\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.join("b.test.mjs"),
+        "import { test } from \"node:test\";\n\
+         test(\"later\", { skip: \"not yet\" }, () => {});\n",
+    )
+    .unwrap();
+
+    let out = run(
+        &db,
+        &scratch,
+        &[
+            "test",
+            "run",
+            "--suite",
+            "node",
+            "--kind",
+            "tap",
+            "--",
+            "node",
+            "--test",
+            "--test-reporter=tap",
+            "a.test.mjs",
+            "b.test.mjs",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1), "node's red exit passes through");
+    assert!(stdout(&out).contains("not ok 2 - subtracts wrong"));
+
+    let out = run(&db, &scratch, &["test", "last", "--json"]);
+    let report = last_report(&stdout(&out));
+    assert_eq!(report["runs"][0]["tests"], 3);
+    assert_eq!(report["runs"][0]["failed"], 1);
+    assert_eq!(report["runs"][0]["skipped"], 1);
+    let out = run(&db, &scratch, &["test", "last", "--failures"]);
+    assert_eq!(stdout(&out), "node  (fail) subtracts wrong\n");
+}

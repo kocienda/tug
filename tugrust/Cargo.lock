@@ -3075,6 +3075,7 @@ dependencies = [
  "glob",
  "libc",
  "parking_lot",
+ "regex",
  "roxmltree",
  "rusqlite",
  "serde",
@@ -3096,6 +3097,7 @@ dependencies = [
 name = "tugtool-core"
 version = "0.8.18"
 dependencies = [
+ "regex",
  "roxmltree",
  "rusqlite",
  "serde",

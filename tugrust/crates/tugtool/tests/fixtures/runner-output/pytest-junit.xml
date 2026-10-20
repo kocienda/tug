@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="1" tests="4" time="0.019" timestamp="2026-10-20T08:18:38.457719-07:00" hostname="orbit.local"><testcase classname="test_sample" name="test_adds" time="0.000" /><testcase classname="test_sample" name="test_concat" time="0.000" /><testcase classname="test_sample" name="test_subtracts_wrong" time="0.000"><failure message="assert (2 - 1) == 0">def test_subtracts_wrong():
+&gt;       assert 2 - 1 == 0
+E       assert (2 - 1) == 0
+
+test_sample.py:10: AssertionError</failure></testcase><testcase classname="test_sample" name="test_later" time="0.000"><skipped type="pytest.skip" message="not yet">/private/tmp/tug-runner-fixtures/pytest/test_sample.py:12: not yet</skipped></testcase></testsuite></testsuites>

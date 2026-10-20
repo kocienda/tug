@@ -121,18 +121,17 @@ just app-test 2>/dev/null | tail -n 1   # → VERDICT: PASS  (47/47 ...)
 ```
 
 The summary also lists every file with `[PASS]` / `[FAIL]` / `[SKIP]`
-/ `[ERR]` / `[WEDGED]` and per-file `(passed/total)` counts, plus a
+/ `[ERR]` / `[OVERTIME]` and per-file `(passed/total)` counts, plus a
 `Failures:` block when any file fails. The app-test cleanup design
 record's summary-format spec [S01] states the contract.
 
-`[WEDGED]` is a file the recipe killed at its cap: three times the median of
-its five most recent recorded wall times, floored at two minutes
-(`scripts/wedge-cap.ts`, enforced by `scripts/run-capped.sh`). It is a
-machine state rather than a result — the app stopped answering — so the
-results ledger never reads it as a red and never takes a duration from
-it, and the verdict is `FAIL` because nobody learned whether the file
-works. Two wedges in a row halt the run with a line saying the app is
-not answering, and the summary names the files it never reached.
+`[OVERTIME]` is a file that ran past the per-file budget,
+`TUG_APPTEST_FILE_BUDGET_SECS` (20 s unless set). One still running at the
+budget is stopped by `scripts/run-capped.sh`, and its failure is where it
+was when it stopped; one that finished green but late is `OVERTIME` too.
+Either way it is a red. The results ledger also reads a `[STALLED]` row —
+the old `[WEDGED]` — as a machine state, neither a red nor a duration,
+though the recipe writes none today.
 
 ### Concurrency: one invocation at a time
 

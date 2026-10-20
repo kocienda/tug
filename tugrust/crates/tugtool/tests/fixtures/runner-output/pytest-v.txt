@@ -1,0 +1,23 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0 -- /private/tmp/tug-runner-fixtures/pytest/.venv/bin/python3.14
+cachedir: .pytest_cache
+rootdir: /private/tmp/tug-runner-fixtures/pytest
+collecting ... collected 4 items
+
+test_sample.py::test_adds PASSED                                         [ 25%]
+test_sample.py::test_concat PASSED                                       [ 50%]
+test_sample.py::test_subtracts_wrong FAILED                              [ 75%]
+test_sample.py::test_later SKIPPED (not yet)                             [100%]
+
+=================================== FAILURES ===================================
+_____________________________ test_subtracts_wrong _____________________________
+
+    def test_subtracts_wrong():
+>       assert 2 - 1 == 0
+E       assert (2 - 1) == 0
+
+test_sample.py:10: AssertionError
+---- generated xml file: /private/tmp/tug-runner-fixtures/pytest/junit.xml -----
+=========================== short test summary info ============================
+FAILED test_sample.py::test_subtracts_wrong - assert (2 - 1) == 0
+==================== 1 failed, 2 passed, 1 skipped in 0.02s ====================

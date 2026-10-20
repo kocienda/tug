@@ -25,7 +25,7 @@ An app-test launches `Tug.app`, costs a two-minute `just app-test-build` before 
 - **History.** Every red file in the report's `Failures:` section carries a `history:` line from `tugtool apptest history`. Re-run alone only files whose history says they were green before you touched the tree; a file red at the base, which the step does not claim to fix, leaves the selection and is named in the report.
 - **Instruments.** Never add a `note()` to a slow test and re-run it to read the note — a settle-frames file is about 160 seconds plus the rebuild, and one step that ran `at0622` five times to read instruments was the incident the doctrine's rule records (2026-10-05).
 - **Core tier.** The core tier (`just app-test`, no arguments) runs once per arc, on the first step that changes a harness file's existing behaviour; adding a new export nobody imports yet is not that.
-- **Wedges.** A file past three times its recorded median is killed and recorded as `WEDGED` — a machine state, not a result. Relaunch rather than debug it.
+- **Overtime.** A file still running at the per-file budget (`TUG_APPTEST_FILE_BUDGET_SECS`, 20 s unless set) is stopped and recorded as `OVERTIME`, a red that says where it was. A run whose files all stop far past their recorded medians is a wedged machine, not a result: relaunch rather than debug them. The ledger reads a `STALLED` row — the old `WEDGED` — as neither a red nor a duration.
 
 The how-to is [app-test-harness.md](app-test-harness.md) and the "Testing" section of the root `CLAUDE.md`.
 

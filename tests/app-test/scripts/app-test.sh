@@ -630,7 +630,13 @@ run_one_file() {
     file_start="$(date +%s)"
     # The block's run panel draws this file's lane from here.
     printf '%s' "$((file_start * 1000))" > "$out.start"
-    post_units "$f started"
+    local _cap basis
+    IFS=$'\t' read -r _cap basis <<< "$(wedge_cap_for "$f")"
+    if [ -n "$basis" ] && [ "$basis" != "-" ]; then
+        unit_report start app-test "${f%.test.ts}" --median "$basis"
+    else
+        unit_report start app-test "${f%.test.ts}"
+    fi
     # The file runs under the budget (run-capped.sh), which stops it and
     # leaves $out.wedged behind when it has not finished by then.
     local cap="$BUDGET_SECS"
@@ -718,7 +724,7 @@ report_progress() {
     local nth elapsed detail="" first title msg
     # shellcheck disable=SC2012  # counting rows the runner named itself
     nth="$(ls "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
-    post_units "$f $status ($passed/$total) ${secs}s"
+    report_unit_done "$f" "$status" "$passed" "$total" "$secs" "$fails"
     [ -n "$PROGRESS" ] || return 0
     elapsed=$(( $(date +%s) - START_EPOCH ))
     # The first record's title and the first line of its message: enough to
@@ -743,25 +749,53 @@ report_progress() {
         "[$status]" "$f" "$passed" "$total" "$secs" "$detail"
 }
 
-# The run as the calling Session card's block draws it: every file's state as
-# a unit row (scripts/run-units.ts), with `text` the one line a reader without
-# the panel sees. Built only when a session is listening, so a run from a
-# plain terminal spends nothing on it; synchronous, so a file's start can
-# never land after its own result. Telemetry: it never fails the run.
-post_units() {
-    local text="$1" units nth fails
-    if [ -z "$TUGTOOL_BIN" ] || [ -z "${TUG_SESSION_ID:-}" ]; then
-        return 0
+# The run as the calling Session card's block draws it: one row per file,
+# reported through `tugtool progress unit`, which keeps the rows and posts
+# them with the one line a reader without the panel sees. The verb is silent
+# with no calling session, so a run from a plain terminal spends nothing on
+# it; synchronous, so a file's start can never land after its own result.
+# Telemetry: a missing or older verb, or one that refuses, never touches the
+# run.
+unit_report() {
+    [ -n "$TUGTOOL_BIN" ] || return 0
+    "$TUGTOOL_BIN" progress unit "$@" >/dev/null 2>&1 || true
+}
+
+# Trim leading and trailing whitespace.
+trim() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    printf '%s' "${s%"${s##*[![:space:]]}"}"
+}
+
+# One landed file as its row: the row word mapped to the panel's status, and
+# a red carrying the first failure record's title and message. A file stopped
+# at the budget carries its records like any red; one that finished green
+# past it says so.
+report_unit_done() {
+    local f="$1" status="$2" passed="$3" total="$4" secs="$5" fails="$6"
+    local word first title="" msg=""
+    local -a extra=()
+    case "$status" in
+        PASS) word=pass ;;
+        FAIL|OVERTIME) word=fail ;;
+        SKIP) word=skipped ;;
+        STALLED) word=stalled ;;
+        *) word=error ;;
+    esac
+    if [ "$status" = OVERTIME ] && [ ! -e "${fails%.fails}.wedged" ]; then
+        msg="green, but ${secs}s is over the per-file budget: split it or make it faster"
+    elif { [ "$word" = fail ] || [ "$word" = error ]; } && [ -s "$fails" ]; then
+        first="$(cat "$fails")"
+        first="${first%%"$RS"*}"
+        title="$(trim "${first%%"$US"*}")"
+        case "$first" in *"$US"*) first="${first#*"$US"}"; msg="$(trim "${first%%"$US"*}")" ;; esac
     fi
-    # shellcheck disable=SC2012  # counting rows the runner named itself
-    nth="$(ls "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
-    fails="$(grep -lE '^(FAIL|ERR|WEDGED|OVERTIME):' "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
-    units="$(mktemp "$RUNDIR/units.XXXXXX")"
-    bun scripts/run-units.ts "$RUNDIR" "$CAPS_FILE" "${FILES[@]}" > "$units" 2>/dev/null || printf '[]' > "$units"
-    "$TUGTOOL_BIN" progress --label app-test --unit file --jobs "$JOBS" --units-json "$units" \
-        --done "$nth" --total "${#FILES[@]}" --failures "$fails" --needle "just app-test" \
-        -- "$text" >/dev/null 2>&1 || true
-    rm -f "$units"
+    [ -n "$title" ] && extra+=(--title "$title")
+    [ -n "$msg" ] && extra+=(--message "$msg")
+    [ "$word" = skipped ] || extra+=(--secs "$secs")
+    unit_report "done" app-test "${f%.test.ts}" "$word" --passed "$passed" --total "$total" \
+        ${extra[@]+"${extra[@]}"}
 }
 
 # Fold one finished file's $RUNDIR output into the arrays the summary reads.
@@ -821,8 +855,11 @@ BUN_TIMEOUT_ARG="--timeout $((BUDGET_SECS * 1000))"
 # wall time that sum makes at this concurrency, and how many files the record
 # already puts over the budget. A file with no record counts as unknown.
 est_known=0; est_secs=0; est_over=0; est_unknown=0
+declare -a UNIT_NAMES=() UNIT_MEDIANS=()
 for f in "${FILES[@]}"; do
     IFS=$'\t' read -r _cap basis <<< "$(wedge_cap_for "$f")"
+    UNIT_NAMES+=("${f%.test.ts}")
+    UNIT_MEDIANS+=("${basis:--}")
     if [ "$basis" = "-" ] || [ -z "$basis" ]; then
         est_unknown=$((est_unknown + 1))
     else
@@ -834,6 +871,10 @@ done
 if [ "${#FILES[@]}" -gt 0 ]; then
     est_wall=$(( (est_secs + JOBS - 1) / JOBS ))
     echo "==> ${#FILES[@]} file(s); the record says ~${est_secs}s of file time (~${est_wall}s wall at ${JOBS} at a time) for the ${est_known} with a record, ${est_unknown} unknown; ${est_over} already over the ${BUDGET_SECS}s budget by their recorded times."
+    # The block's run panel: every file pending, each carrying the time the
+    # record expects of it, which the panel sums for the time left.
+    unit_report plan app-test --unit file --jobs "$JOBS" --needle "just app-test" \
+        --medians "${UNIT_MEDIANS[@]}" --of "${UNIT_NAMES[@]}"
 fi
 
 START_EPOCH="$(date +%s)"
@@ -892,7 +933,7 @@ for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
         [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
         RESULT_ROWS+=("SKIP:$f:0:0:0")
         printf '%s\n' "SKIP:$f:0:0:0" > "$RUNDIR/$(printf '%s' "$f" | tr '/' '_').row"
-        post_units "$f SKIP"
+        unit_report "done" app-test "${f%.test.ts}" skipped
         [ -n "$PROGRESS" ] && printf '%3d/%-3d %5s  %-6s %-56s (skipped — takes the screen)\n' \
             "${#RESULT_ROWS[@]}" "${#FILES[@]}" "" "[SKIP]" "$f"
         continue
@@ -911,7 +952,7 @@ files_passed=0
 files_failed=0
 files_errored=0
 files_skipped=0
-files_wedged=0
+files_stalled=0
 files_overtime=0
 tests_passed_total=0
 tests_total=0
@@ -923,7 +964,7 @@ for row in "${RESULT_ROWS[@]}"; do
         OVERTIME) files_overtime=$((files_overtime + 1)) ;;
         ERR)  files_errored=$((files_errored + 1)) ;;
         SKIP) files_skipped=$((files_skipped + 1)) ;;
-        WEDGED) files_wedged=$((files_wedged + 1)) ;;
+        STALLED) files_stalled=$((files_stalled + 1)) ;;
     esac
     tests_passed_total=$((tests_passed_total + rpassed))
     tests_total=$((tests_total + rtotal))
@@ -940,7 +981,7 @@ printf '%-14s  %d\n' 'Files passed:' "$files_passed"
 printf '%-14s  %d\n' 'Files failed:' "$files_failed"
 printf '%-14s  %d\n' 'Files errored:' "$files_errored"
 [ "$files_skipped" -gt 0 ] && printf '%-14s  %d\n' 'Files skipped:' "$files_skipped"
-[ "$files_wedged" -gt 0 ] && printf '%-14s  %d\n' 'Files wedged:' "$files_wedged"
+[ "$files_stalled" -gt 0 ] && printf '%-14s  %d\n' 'Files stalled:' "$files_stalled"
 [ "$files_overtime" -gt 0 ] && printf '%-14s  %d (past the %ss budget)\n' 'Files overtime:' "$files_overtime" "$BUDGET_SECS"
 if [ "$ELAPSED" -lt 60 ]; then
     printf '%-14s  %ds\n' 'Wall time:' "$ELAPSED"
@@ -1076,12 +1117,11 @@ fi
 # The block's last report: every file landed, and each red carrying the line
 # the record says of it. Posted before the call returns, so the block settles
 # on this.
-if [ -n "${TUG_SESSION_ID:-}" ]; then
-    for f in ${RED_FILES[@]+"${RED_FILES[@]}"}; do
-        printf '%s\t%s\n' "$f" "$(history_line "$f" | sed 's/^ *history: //')"
-    done > "$RUNDIR/history.tsv"
-    post_units "$files_passed passed, $((files_failed + files_errored)) failed, $files_wedged wedged"
-fi
+for f in ${RED_FILES[@]+"${RED_FILES[@]}"}; do
+    red_history="$(history_line "$f" | sed 's/^ *history: //')"
+    [ -n "$red_history" ] && unit_report amend app-test "${f%.test.ts}" --history "$red_history"
+done
+unit_report finish app-test "$files_passed passed, $((files_failed + files_errored + files_overtime)) failed, $files_stalled stalled"
 
 # The JSON document, when asked for. It is serialized from the SAME arrays
 # the summary above renders — never by re-parsing the printed text — so the
@@ -1091,7 +1131,7 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
     if ! command -v jq >/dev/null 2>&1; then
         echo "[app-test] TUG_APPTEST_JSON is set but jq is not on PATH — no document written." >&2
     else
-        if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ]; then
+        if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_stalled" -eq 0 ]; then
             json_verdict=PASS
         else
             json_verdict=FAIL
@@ -1154,13 +1194,13 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
             --argjson filesFailed "$files_failed" \
             --argjson filesErrored "$files_errored" \
             --argjson filesSkipped "$files_skipped" \
-            --argjson filesWedged "$files_wedged" \
+            --argjson filesStalled "$files_stalled" \
             --argjson testsPassed "$tests_passed_total" \
             --argjson testsTotal "$tests_total" \
             '{sweep:$sweep, wallSeconds:$wall, verdict:$verdict,
               totals:{filesRun:$filesRun, filesPassed:$filesPassed,
                       filesFailed:$filesFailed, filesErrored:$filesErrored,
-                      filesSkipped:$filesSkipped, filesWedged:$filesWedged,
+                      filesSkipped:$filesSkipped, filesStalled:$filesStalled,
                       testsPassed:$testsPassed,
                       testsTotal:$testsTotal},
               files: .}' > "$TUG_APPTEST_JSON"
@@ -1181,7 +1221,7 @@ elif ! command -v jq >/dev/null 2>&1; then
     echo "[app-test] results not recorded: jq is not on PATH" >&2
 else
     record_verdict=PASS
-    { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ] && [ "$files_overtime" -eq 0 ]; } || record_verdict=FAIL
+    { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_stalled" -eq 0 ] && [ "$files_overtime" -eq 0 ]; } || record_verdict=FAIL
     record_head="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     record_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
     record_dirty=false
@@ -1252,18 +1292,18 @@ echo "$BANNER"
 files_ran=$((files_run - files_skipped))
 skip_clause=""
 [ "$files_skipped" -gt 0 ] && skip_clause="; $files_skipped skipped"
-# A wedge is not a red, but it is not a green either: nobody learned
+# A stalled file is not a red, but it is not a green either: nobody learned
 # whether that file works, so the run cannot say PASS.
-wedge_clause=""
-[ "$files_wedged" -gt 0 ] && wedge_clause="; $files_wedged wedged"
-[ "$files_overtime" -gt 0 ] && wedge_clause="$wedge_clause; $files_overtime over the ${BUDGET_SECS}s budget"
-if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ -z "$wedge_clause" ]; then
+stall_clause=""
+[ "$files_stalled" -gt 0 ] && stall_clause="; $files_stalled stalled"
+[ "$files_overtime" -gt 0 ] && stall_clause="$stall_clause; $files_overtime over the ${BUDGET_SECS}s budget"
+if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ -z "$stall_clause" ]; then
     printf 'VERDICT: PASS  (%d/%d files green%s; %d/%d tests passed)\n' \
         "$files_passed" "$files_ran" "$skip_clause" "$tests_passed_total" "$tests_total"
     exit 0
 else
     printf 'VERDICT: FAIL  (%d/%d files green; %d file(s) failed%s%s; %d/%d tests passed)\n' \
-        "$files_passed" "$files_ran" $((files_failed + files_errored)) "$wedge_clause" "$skip_clause" \
+        "$files_passed" "$files_ran" $((files_failed + files_errored)) "$stall_clause" "$skip_clause" \
         "$tests_passed_total" "$tests_total"
     exit 1
 fi

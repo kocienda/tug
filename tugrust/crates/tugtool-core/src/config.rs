@@ -21,6 +21,10 @@ pub struct TugConfig {
     #[serde(default)]
     pub arc: ArcConfig,
 
+    /// The runners this project declares, beside the ones tugtool knows.
+    #[serde(default)]
+    pub run: RunConfig,
+
     /// The retired `[tugtool.dash]` table, bound only so the loader can see it
     /// and refuse. Nothing reads its value: a project whose declarations are
     /// still under the old key would look configured while declaring nothing
@@ -197,6 +201,75 @@ pub struct Surface {
     #[serde(default)]
     pub checked_by: Vec<String>,
 }
+
+/// The `[tugtool.run]` table: the commands this project runs that the run
+/// panel should draw, beside the runners tugtool already knows.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RunConfig {
+    /// One row per runner, declared as `[[tugtool.run.runner]]`.
+    #[serde(default, rename = "runner")]
+    pub runners: Vec<Runner>,
+}
+
+/// One declared runner: the command head it answers for, and how its run
+/// reaches the panel.
+///
+/// A row with a `kind` is wrapped by the PreToolUse hook in
+/// `tugtool test run --kind <kind>`, which parses its output. A row with only
+/// a `unit` is a command that reports itself — a recipe calling
+/// `tugtool progress` — and the hook puts nothing in front of it but the
+/// call id, so its reports attach to the block exactly. On a `kind` row,
+/// `unit` is the word the panel counts in.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Runner {
+    /// The command head, as typed: whole words, space-separated.
+    pub r#match: String,
+    /// A `tugtool test run --kind` — one of [`RUN_KIND_NAMES`].
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// The unit the run counts. Alone, it declares a self-reporting command.
+    #[serde(default)]
+    pub unit: Option<String>,
+    /// The test ledger's key for the run; the head's last word when absent.
+    #[serde(default)]
+    pub suite: Option<String>,
+    /// The panel's label; the head when absent.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// For `kind = "lines"`: the regex one item's line matches, with `name`
+    /// and `status` named groups.
+    #[serde(default)]
+    pub item: Option<String>,
+    /// For `kind = "lines"`: the regex the run's total matches, with a
+    /// `total` named group.
+    #[serde(default)]
+    pub total: Option<String>,
+    /// Which stream a `lines` run reads: one of [`RUN_STREAMS`].
+    #[serde(default)]
+    pub stream: Option<String>,
+}
+
+/// The `tugtool test run --kind` names a declared runner may name. The kinds
+/// are a `clap::ValueEnum` in tugtool, which this crate cannot see, so the
+/// names are spelled here and a tugtool test holds the two lists equal.
+pub const RUN_KIND_NAMES: &[&str] = &[
+    "bun",
+    "nextest",
+    "cargo-test",
+    "tap",
+    "junit",
+    "lines",
+    "go",
+    "pytest",
+    "jest",
+    "vitest",
+    "mocha",
+    "swift",
+    "ctest",
+];
+
+/// The streams a `lines` run may read.
+pub const RUN_STREAMS: &[&str] = &["stdout", "stderr", "both"];
 
 /// The context size, in tokens, a seated implement stage is compacted above
 /// when a project declares none ([P07]).
@@ -413,6 +486,28 @@ pub enum ConfigRefusal {
     LenderBorrows { surface: String, lender: String },
     /// A `checked_by` naming its own surface.
     SelfBorrow(String),
+    /// A runner with an empty `match`.
+    EmptyRunnerMatch,
+    /// A runner declaring neither a `kind` nor a `unit`.
+    RunnerWithoutAction(String),
+    /// A runner naming a `kind` tugtool does not have.
+    UnknownRunnerKind { runner: String, kind: String },
+    /// A `lines` runner with no `item` regex.
+    LinesWithoutItem(String),
+    /// A runner regex that does not compile.
+    RunnerRegex {
+        runner: String,
+        field: &'static str,
+        error: String,
+    },
+    /// A runner regex missing a named group its field requires.
+    RunnerRegexGroup {
+        runner: String,
+        field: &'static str,
+        group: &'static str,
+    },
+    /// A runner `stream` outside [`RUN_STREAMS`].
+    UnknownRunnerStream { runner: String, stream: String },
 }
 
 impl std::fmt::Display for ConfigRefusal {
@@ -461,6 +556,44 @@ impl std::fmt::Display for ConfigRefusal {
             Self::SelfBorrow(name) => {
                 write!(f, "surface {name:?} declares itself in its own checked_by")
             }
+            Self::EmptyRunnerMatch => {
+                f.write_str("a [[tugtool.run.runner]] declares an empty match")
+            }
+            Self::RunnerWithoutAction(runner) => write!(
+                f,
+                "runner {runner:?} declares neither a kind nor a unit — a runner is wrapped \
+                 by its kind, or reports itself in its unit"
+            ),
+            Self::UnknownRunnerKind { runner, kind } => write!(
+                f,
+                "runner {runner:?} declares the kind {kind:?} — the kinds are {}",
+                RUN_KIND_NAMES.join(", ")
+            ),
+            Self::LinesWithoutItem(runner) => write!(
+                f,
+                "runner {runner:?} is kind \"lines\" and declares no item regex"
+            ),
+            Self::RunnerRegex {
+                runner,
+                field,
+                error,
+            } => write!(
+                f,
+                "runner {runner:?} declares a {field} regex that does not compile: {error}"
+            ),
+            Self::RunnerRegexGroup {
+                runner,
+                field,
+                group,
+            } => write!(
+                f,
+                "runner {runner:?} declares a {field} regex with no (?P<{group}>…) group"
+            ),
+            Self::UnknownRunnerStream { runner, stream } => write!(
+                f,
+                "runner {runner:?} declares the stream {stream:?} — the streams are {}",
+                RUN_STREAMS.join(", ")
+            ),
         }
     }
 }
@@ -474,6 +607,7 @@ impl TugConfig {
             return Err(ConfigRefusal::RetiredDashTable);
         }
         self.arc.validate()?;
+        self.run.validate()?;
         Ok(())
     }
 }
@@ -554,6 +688,67 @@ impl ArcConfig {
         Ok(())
     }
 }
+
+impl RunConfig {
+    /// Check every declared runner, so a row that cannot mean what it says
+    /// is refused at load rather than wrapped into a command that fails.
+    ///
+    /// A `kind` row may name a `unit` too — the word its run counts in. Only
+    /// a row with neither has nothing for the hook to do.
+    pub fn validate(&self) -> Result<(), ConfigRefusal> {
+        for runner in &self.runners {
+            let name = runner.r#match.trim();
+            if name.is_empty() {
+                return Err(ConfigRefusal::EmptyRunnerMatch);
+            }
+            let name = name.to_string();
+            match (&runner.kind, &runner.unit) {
+                (None, None) => return Err(ConfigRefusal::RunnerWithoutAction(name)),
+                (Some(kind), _) if !RUN_KIND_NAMES.contains(&kind.as_str()) => {
+                    return Err(ConfigRefusal::UnknownRunnerKind {
+                        runner: name,
+                        kind: kind.clone(),
+                    });
+                }
+                (Some(kind), _) if kind == "lines" && runner.item.is_none() => {
+                    return Err(ConfigRefusal::LinesWithoutItem(name));
+                }
+                _ => {}
+            }
+            let fields: [(&'static str, &Option<String>, &[&'static str]); 2] = [
+                ("item", &runner.item, &["name", "status"]),
+                ("total", &runner.total, &["total"]),
+            ];
+            for (field, pattern, groups) in fields {
+                let Some(pattern) = pattern else { continue };
+                let regex = regex::Regex::new(pattern).map_err(|e| ConfigRefusal::RunnerRegex {
+                    runner: name.clone(),
+                    field,
+                    error: e.to_string(),
+                })?;
+                for group in groups {
+                    if !regex.capture_names().flatten().any(|n| n == *group) {
+                        return Err(ConfigRefusal::RunnerRegexGroup {
+                            runner: name.clone(),
+                            field,
+                            group,
+                        });
+                    }
+                }
+            }
+            if let Some(stream) = &runner.stream
+                && !RUN_STREAMS.contains(&stream.as_str())
+            {
+                return Err(ConfigRefusal::UnknownRunnerStream {
+                    runner: name,
+                    stream: stream.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Config {
     /// Load configuration from a file
     pub fn load(path: &Path) -> Result<Self, TugError> {
@@ -713,6 +908,89 @@ mod tests {
             .arc
             .validate()
             .expect("the legal neighbour must still load");
+    }
+
+    /// The runner table's refusals, in the same shape as the surface table's:
+    /// each names the offending row and value, beside a legal neighbour.
+    #[test]
+    fn runner_table_refusals_each_name_the_offending_value() {
+        let cases: &[(&str, &str, &[&str])] = &[
+            (
+                "an empty match",
+                "[[tugtool.run.runner]]\nmatch = \" \"\nkind = \"cargo-test\"\n",
+                &["empty match"],
+            ),
+            (
+                "neither a kind nor a unit",
+                "[[tugtool.run.runner]]\nmatch = \"make check\"\n",
+                &["\"make check\"", "neither a kind nor a unit"],
+            ),
+            (
+                "an unknown kind",
+                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"pyunit\"\n",
+                &["\"make check\"", "\"pyunit\"", "cargo-test"],
+            ),
+            (
+                "a stream outside the three",
+                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\nstream = \"stdin\"\n",
+                &["\"make check\"", "\"stdin\"", "stdout, stderr, both"],
+            ),
+            (
+                "a lines row with no item",
+                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\n",
+                &["\"make check\"", "no item regex"],
+            ),
+            (
+                "an item with no status group",
+                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<name>\\S+) ok'\n",
+                &["\"make check\"", "item regex", "(?P<status>"],
+            ),
+            (
+                "an item with no name group",
+                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok) \\S+'\n",
+                &["\"make check\"", "item regex", "(?P<name>"],
+            ),
+            (
+                "a total with no total group",
+                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok) (?P<name>\\S+)'\ntotal = '^running \\d+'\n",
+                &["\"make check\"", "total regex", "(?P<total>"],
+            ),
+            (
+                "an item that does not compile",
+                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok'\n",
+                &["\"make check\"", "item regex that does not compile"],
+            ),
+        ];
+
+        for (label, toml_text, fragments) in cases {
+            let config: Config =
+                toml::from_str(toml_text).unwrap_or_else(|e| panic!("{label} should parse: {e}"));
+            let refusal = config
+                .tugtool
+                .validate()
+                .expect_err(&format!("{label} must be refused"));
+            let message = refusal.to_string();
+            for fragment in *fragments {
+                assert!(
+                    message.contains(fragment),
+                    "{label}: the refusal must name {fragment:?}, said: {message}"
+                );
+            }
+        }
+
+        // The neighbour: a wrapped row, a self-reporting row, a wrapped row
+        // that names the unit it counts in, and a `lines` row whose regexes
+        // carry every group they need.
+        let legal: Config = toml::from_str(
+            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\nsuite = \"checks\"\nlabel = \"checks\"\nstream = \"both\"\n\n[[tugtool.run.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n\n[[tugtool.run.runner]]\nmatch = \"bun run check\"\nkind = \"bun\"\nunit = \"file\"\n\n[[tugtool.run.runner]]\nmatch = \"make lint\"\nkind = \"lines\"\nitem = '^(?P<status>PASS|FAIL): (?P<name>\\S+)'\ntotal = '^running (?P<total>\\d+) checks'\nstream = \"stdout\"\nunit = \"check\"\n",
+        )
+        .expect("the legal neighbour should parse");
+        legal
+            .tugtool
+            .validate()
+            .expect("the legal neighbour must still load");
+        assert_eq!(legal.tugtool.run.runners.len(), 4);
+        assert_eq!(legal.tugtool.run.runners[1].unit.as_deref(), Some("file"));
     }
 
     /// Overlap is not ambiguity: a longer prefix shadowing a shorter one is

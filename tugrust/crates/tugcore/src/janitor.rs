@@ -189,6 +189,10 @@ pub const TMP_PREFIXES: &[TmpPrefix] = &[
     // recipe label. Read only between one phase call and the next, so a
     // day-old directory is a finished run's leftovers.
     dir("tug-progress-phase"),
+    // `tugtool progress unit`'s per-run state: a plan and one file per item,
+    // read only while the run's calls are still arriving, so a day-old
+    // directory is a finished run's leftovers.
+    dir("tug-progress-unit"),
     // `testTmpDir()` in the app-test harness.
     dir("tug-scratch-"),
     dir("tugcast-capture-"),

@@ -1,0 +1,20 @@
+FAIL ./math.test.js
+  ● subtracts wrong
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 0
+    Received: 1
+
+      1 | test("adds", () => { expect(1 + 1).toBe(2); });
+    > 2 | test("subtracts wrong", () => { expect(2 - 1).toBe(0); });
+        |                                               ^
+      3 |
+
+      at Object.toBe (math.test.js:2:47)
+
+Test Suites: 1 failed, 1 passed, 2 total
+Tests:       1 failed, 1 skipped, 2 passed, 4 total
+Snapshots:   0 total
+Time:        0.294 s
+Ran all test suites.

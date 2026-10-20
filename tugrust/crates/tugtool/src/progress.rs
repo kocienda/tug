@@ -264,7 +264,16 @@ impl PhaseRun {
 /// one recipe in two sessions, never share a run.
 fn phase_state_path(label: &str) -> Option<std::path::PathBuf> {
     let token = crate::session_identity::calling_session_token()?;
-    let safe: String = label
+    Some(
+        std::env::temp_dir()
+            .join("tug-progress-phase")
+            .join(format!("{token}-{}.json", safe_label(label))),
+    )
+}
+
+/// A label as a file name: letters, digits, `-` and `_` kept, the rest `_`.
+pub(crate) fn safe_label(label: &str) -> String {
+    label
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -273,15 +282,10 @@ fn phase_state_path(label: &str) -> Option<std::path::PathBuf> {
                 '_'
             }
         })
-        .collect();
-    Some(
-        std::env::temp_dir()
-            .join("tug-progress-phase")
-            .join(format!("{token}-{safe}.json")),
-    )
+        .collect()
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

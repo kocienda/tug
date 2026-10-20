@@ -98,7 +98,8 @@ pub enum ApptestLedgerError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FileResult {
     pub file: String,
-    /// `PASS` | `FAIL` | `ERR` | `SKIP` | `WEDGED`.
+    /// `PASS` | `FAIL` | `ERR` | `SKIP` | `OVERTIME` | `STALLED`, or the
+    /// `WEDGED` older runs recorded for what is now `STALLED`.
     pub status: String,
     pub passed: i64,
     pub total: i64,
@@ -361,11 +362,12 @@ struct Outcome {
 /// `SKIP` rows are excluded from consideration entirely — a file the runner
 /// skipped tells the reader nothing about whether it works.
 ///
-/// So are `WEDGED` rows: the runner killed the file at its cap because the
-/// app stopped answering, which says nothing about the file either. Read as a
-/// red it would indict a file for a machine state, and read as a duration it
-/// would inflate the next run's cap — so it is neither. A wedged file *did*
-/// run, though, and contended with its batch, so it still counts toward
+/// So are `STALLED` rows, and the `WEDGED` rows older runs recorded under the
+/// old word: the file was stopped because the app stopped answering, which
+/// says nothing about the file either. Read as a red it would indict a file
+/// for a machine state, and read as a duration it would inflate the median the
+/// next run projects from — so it is neither. A stalled file *did* run,
+/// though, and contended with its batch, so it still counts toward
 /// `files_in_run`.
 pub fn file_history(
     conn: &Connection,
@@ -379,7 +381,7 @@ pub fn file_history(
                 r.secs
            FROM results r JOIN runs u ON u.id = r.run_id
           WHERE u.base_root = ?1 AND r.file = ?2
-            AND r.status NOT IN ('SKIP', 'WEDGED')
+            AND r.status NOT IN ('SKIP', 'WEDGED', 'STALLED')
           ORDER BY u.id DESC",
     )?;
     let mut out = Vec::with_capacity(files.len());
@@ -954,12 +956,12 @@ mod tests {
         );
     }
 
-    /// A file killed at its cap is a machine state, not a result: it never
-    /// becomes a red, never supplies the duration the next cap is computed
-    /// from, and never hides the green before it. It still ran, so it still
-    /// counts toward the size of the batch its neighbours ran in.
+    /// A stalled file is a machine state, not a result: it never becomes a
+    /// red, never supplies a duration, and never hides the green before it.
+    /// It still ran, so it still counts toward the size of the batch its
+    /// neighbours ran in. The old word, `WEDGED`, reads exactly as `STALLED`.
     #[test]
-    fn wedged_rows_are_neither_a_red_nor_a_duration() {
+    fn stalled_and_wedged_rows_are_neither_a_red_nor_a_duration() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_string_lossy().into_owned();
         let mut conn = ledger(dir.path());
@@ -991,6 +993,19 @@ mod tests {
             ),
         )
         .unwrap();
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "bbb3333",
+                1_700_090_000,
+                vec![
+                    timed(name, "STALLED", 900),
+                    timed("at0563.test.ts", "FAIL", 9),
+                ],
+            ),
+        )
+        .unwrap();
         let base = resolve_base_root(Path::new(&root));
         let answers = file_history(&conn, &base, &[name.into(), "at0563.test.ts".into()]).unwrap();
         match &answers[0].history {
@@ -998,7 +1013,7 @@ mod tests {
                 assert_eq!(green.sha, "aaa1111");
                 assert_eq!(green.runs_ago, 0, "the wedge is not a recorded outcome");
             }
-            other => panic!("a WEDGED row must not become a red: {other:?}"),
+            other => panic!("a STALLED or WEDGED row must not become a red: {other:?}"),
         }
         assert_eq!(
             answers[0].last_secs,
@@ -1012,19 +1027,26 @@ mod tests {
             other => panic!("expected the neighbour's red: {other:?}"),
         }
 
-        // A file that has only ever wedged has no history, and so gets the floor.
+        // A file that has only ever stalled has no history, under either word.
         record_run(
             &mut conn,
             &run(
                 &root,
                 "ccc3333",
                 1_700_172_800,
-                vec![timed("at0597.test.ts", "WEDGED", 1015)],
+                vec![
+                    timed("at0597.test.ts", "WEDGED", 1015),
+                    timed("at0598.test.ts", "STALLED", 1015),
+                ],
             ),
         )
         .unwrap();
         assert_eq!(
             history_of(&conn, &root, "at0597.test.ts"),
+            History::NoHistory
+        );
+        assert_eq!(
+            history_of(&conn, &root, "at0598.test.ts"),
             History::NoHistory
         );
     }
@@ -1165,12 +1187,13 @@ mod tests {
             secs,
             ..file("at0001.test.ts", status)
         };
-        // Oldest first. The WEDGED and SKIP rows are no durations at all.
+        // Oldest first. The STALLED, WEDGED and SKIP rows are no durations at all.
         let outcomes = [
             ("PASS", 9),
             ("PASS", 10),
             ("FAIL", 11),
             ("WEDGED", 400),
+            ("STALLED", 500),
             ("PASS", 12),
             ("SKIP", 0),
             ("PASS", 60),

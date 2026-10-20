@@ -38,12 +38,16 @@
  * by derivation and naming it here would only raise its recorded debt. Run
  * this file by name with any change to the rail width drag.
  *
+ * The cancel hides the app to take its window's pointer away, and a hide
+ * works only on an app that was active, so that launch is in the foreground.
+ *
+ * @foreground
  * @covers tugdeck/src/components/chrome/pane-occlusion-controller.ts
  * @covers tugdeck/src/lib/resize-episode.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
  * @covers tugdeck/src/lib/rail-width.ts
- * @covers tugdeck/src/lib/rail-edge-registry.ts
+ * @covers tugdeck/src/lib/host-card-gesture.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -283,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a drag whose window loses the mouse releases everything it took",
       async () => {
-        const app = await launchTugApp({ testName: "at0677-rail-width-cancel" });
+        const app = await launchTugApp({ foreground: true, testName: "at0677-rail-width-cancel" });
         try {
           await seed(app);
           await app.waitForCondition<boolean>(

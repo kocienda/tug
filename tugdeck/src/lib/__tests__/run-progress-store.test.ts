@@ -180,6 +180,19 @@ describe("RunProgressStore — a run that names its unit", () => {
     expect(narrowRunUnits({ name: "a" })).toBeUndefined();
   });
 
+  test("the old word `wedged` arrives as `stalled`, and an unknown status is still dropped", () => {
+    expect(
+      narrowRunUnits([
+        { name: "a", status: "wedged", index: 0 },
+        { name: "b", status: "stalled", index: 1 },
+        { name: "c", status: "frozen", index: 2 },
+      ]),
+    ).toEqual([
+      { name: "a", status: "stalled", index: 0 },
+      { name: "b", status: "stalled", index: 1 },
+    ]);
+  });
+
   test("closing settles the last report, and a run without a unit does not", () => {
     const store = new RunProgressStore();
     store.applyReport({ tool_use_id: "t", text: "x", unit: "file", units: ROWS }, 1000);

@@ -37,7 +37,7 @@ export type RunUnitStatus =
   | "pass"
   | "fail"
   | "error"
-  | "wedged"
+  | "stalled"
   | "skipped";
 
 const RUN_UNIT_STATUSES: ReadonlySet<string> = new Set<RunUnitStatus>([
@@ -46,7 +46,7 @@ const RUN_UNIT_STATUSES: ReadonlySet<string> = new Set<RunUnitStatus>([
   "pass",
   "fail",
   "error",
-  "wedged",
+  "stalled",
   "skipped",
 ]);
 
@@ -130,7 +130,8 @@ export function narrowRunUnits(raw: unknown): RunUnit[] | undefined {
     if (typeof r !== "object" || r === null) continue;
     const row = r as Record<string, unknown>;
     const name = str(row.name);
-    const status = row.status;
+    // `wedged` is the old word for `stalled`, and older reporters still send it.
+    const status = row.status === "wedged" ? "stalled" : row.status;
     if (name === undefined || typeof status !== "string" || !RUN_UNIT_STATUSES.has(status)) continue;
     const unit: RunUnit = { name, status: status as RunUnitStatus };
     const index = num(row.index);

@@ -21,7 +21,7 @@
  *      its time on the right. A run counting tests has no row here: it lists
  *      only its reds, so the masthead's fraction and the band are its
  *      progress, and its total is the runner's own count, never an estimate.
- *   4. **Reds** — the most recent failed or wedged unit open as a card, its
+ *   4. **Reds** — the most recent failed or stalled unit open as a card, its
  *      first failure and what the record said of it before this run, and
  *      every earlier red folded under it, newest first, one tap away. While
  *      the run goes they land at the foot, under the folds, so a red
@@ -92,7 +92,7 @@ const DOT: Record<RunUnitStatus, { role: TugProgressIndicatorRole; state: TugPro
   pass: { role: "success", state: "completed" },
   fail: { role: "danger", state: "aborted" },
   error: { role: "danger", state: "aborted" },
-  wedged: { role: "caution", state: "aborted" },
+  stalled: { role: "caution", state: "aborted" },
   skipped: { role: "inherit", state: "stopped" },
 };
 
@@ -109,7 +109,7 @@ const WORD: Record<RunUnitStatus, string> = {
   pass: "PASS",
   fail: "FAIL",
   error: "ERROR",
-  wedged: "WEDGED",
+  stalled: "STALLED",
   skipped: "skipped",
 };
 
@@ -119,7 +119,7 @@ const STEP_STATUS: Record<RunUnitStatus, TugStepRowStatus> = {
   pass: "done",
   fail: "error",
   error: "error",
-  wedged: "error",
+  stalled: "error",
   skipped: "pending",
 };
 
@@ -141,7 +141,7 @@ function Fraction({ done, total, unit }: { done: number; total: number | undefin
 }
 
 function Tally({ m }: { m: RunPanelModel }) {
-  const failed = m.counts.red - m.counts.wedged;
+  const failed = m.counts.red - m.counts.stalled;
   return (
     <span className="tug-run-panel-tally" data-slot="tug-run-panel-tally">
       <span className="tug-run-panel-tally-word" data-status={m.counts.pass > 0 ? "pass" : undefined}>
@@ -150,8 +150,8 @@ function Tally({ m }: { m: RunPanelModel }) {
       {failed > 0 && (
         <span className="tug-run-panel-tally-word" data-status="fail">{failed} fail</span>
       )}
-      {m.counts.wedged > 0 && (
-        <span className="tug-run-panel-tally-word" data-status="wedged">{m.counts.wedged} wedged</span>
+      {m.counts.stalled > 0 && (
+        <span className="tug-run-panel-tally-word" data-status="stalled">{m.counts.stalled} stalled</span>
       )}
       {m.counts.skipped > 0 && (
         <span className="tug-run-panel-tally-word">{m.counts.skipped} skipped</span>

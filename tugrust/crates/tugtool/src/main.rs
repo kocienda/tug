@@ -13,6 +13,9 @@ mod host;
 mod output;
 mod plan;
 mod progress;
+mod progress_unit;
+mod run_parsers;
+mod runners;
 mod session;
 mod session_identity;
 mod splash;
@@ -217,6 +220,10 @@ fn main() -> ExitCode {
                     junit,
                     label,
                     needles,
+                    item,
+                    total,
+                    stream,
+                    unit,
                     command,
                 } => test_run::run(test_run::RunArgs {
                     suite,
@@ -224,6 +231,10 @@ fn main() -> ExitCode {
                     junit,
                     label,
                     needles,
+                    item,
+                    total,
+                    stream,
+                    unit_word: unit,
                     command,
                 }),
                 cli::TestCommands::Last {
@@ -233,6 +244,11 @@ fn main() -> ExitCode {
                 } => test_ledger_cli::run_last(failures, suite, root, json),
             };
             changes::finish(command, json, result)
+        }
+
+        // The runners the hook wraps, and the config's refusal when it has one.
+        Some(Commands::Run(cli::RunCommands::Runners)) => {
+            changes::finish("run runners", json, runners::run_runners(json))
         }
 
         // The record of long calls that reported nothing. A reader, exits 0.
@@ -255,6 +271,15 @@ fn main() -> ExitCode {
             ..
         }) => {
             progress::run_phase(&label, n, name.as_deref(), &of, needles);
+            ExitCode::SUCCESS
+        }
+
+        // One item of a run moves. Telemetry: silent, always 0.
+        Some(Commands::Progress {
+            command: Some(cli::ProgressCommands::Unit(call)),
+            ..
+        }) => {
+            progress_unit::run_unit(call.into_call());
             ExitCode::SUCCESS
         }
 

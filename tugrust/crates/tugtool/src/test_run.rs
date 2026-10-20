@@ -48,6 +48,9 @@ use tugtool_core::test_ledger::{self, JunitFailure, JunitRun, TestRun};
 
 use crate::changes::AppError;
 use crate::progress::{RunReport, post_run_progress};
+use crate::run_parsers::{
+    GoForward, GoReader, ItemStatus, LineRead, LineRule, Stream, TapReader, default_unit, rule_for,
+};
 use crate::session_identity::have_calling_session;
 use crate::test_ledger_cli::{git_facts, now_epoch, read_junit, record};
 
@@ -59,6 +62,46 @@ pub enum RunKind {
     /// `cargo test` — libtest's own reporter: `running N tests`, then one
     /// `test <name> ... ok` line per test, on stdout, and no junit document.
     CargoTest,
+    /// TAP on stdout: the unindented `ok`/`not ok` lines and the `1..N` plan.
+    Tap,
+    /// A runner that writes a junit document and is followed by nothing
+    /// live: the run is recorded from the document `--junit` names.
+    Junit,
+    /// One item per line of output, read by the `--item` regex.
+    Lines,
+    /// `go test`, followed through its `-json` events and replayed as the
+    /// text `go test -v` prints.
+    Go,
+    /// `pytest`, read off its `-v` lines and recorded from its junit
+    /// document.
+    Pytest,
+    /// `jest`, one line per test file on stderr.
+    Jest,
+    /// `vitest`, one line per test file on stdout.
+    Vitest,
+    /// `mocha`'s spec reporter.
+    Mocha,
+    /// `swift test`: XCTest's and Swift Testing's lines.
+    Swift,
+    /// `ctest`.
+    Ctest,
+}
+
+impl RunKind {
+    /// Whether the kind reads its runner through a line rule
+    /// ([`crate::run_parsers::LineRule`]).
+    fn reads_by_rule(self) -> bool {
+        matches!(
+            self,
+            RunKind::Lines
+                | RunKind::Pytest
+                | RunKind::Jest
+                | RunKind::Vitest
+                | RunKind::Mocha
+                | RunKind::Swift
+                | RunKind::Ctest
+        )
+    }
 }
 
 /// What a run has shown so far.
@@ -69,6 +112,8 @@ pub struct Progress {
     /// Tests the run will execute, when the runner says so up front.
     pub total: Option<u64>,
     pub failures: u64,
+    /// Tests the run skipped; they count toward `done`.
+    pub skipped: u64,
     /// The latest thing worth showing: a failing test, a crate compiling, the
     /// last test finished, or `running`.
     pub text: String,
@@ -247,7 +292,7 @@ impl ProgressSink for Poster {
 }
 
 /// The report a progress state becomes.
-fn report_of(progress: &Progress, label: &str, needles: &[String]) -> RunReport {
+fn report_of(progress: &Progress, label: &str, unit: &str, needles: &[String]) -> RunReport {
     let units: Vec<serde_json::Value> = progress
         .failed
         .iter()
@@ -265,7 +310,7 @@ fn report_of(progress: &Progress, label: &str, needles: &[String]) -> RunReport 
         done: Some(progress.done),
         total: progress.total,
         failures: Some(progress.failures),
-        unit: Some("test".to_string()),
+        unit: Some(unit.to_string()),
         jobs: None,
         units: Some(serde_json::Value::Array(units)),
         needles: needles.to_vec(),
@@ -317,14 +362,15 @@ fn collect_bun_total(command: &[String]) -> Option<u64> {
 
 /// The sink a run reports through: a [`Poster`] when there is a calling
 /// session to report to, and nothing at all otherwise.
-fn sink_for(args: &RunArgs) -> Box<dyn ProgressSink> {
+fn sink_for(args: &RunArgs, unit: &str) -> Box<dyn ProgressSink> {
     if !have_calling_session() {
         return Box::new(NoSink);
     }
     let label = args.label.clone().unwrap_or_else(|| args.suite.clone());
     let needles = args.needles.clone();
+    let unit = unit.to_string();
     Box::new(Poster::start(move |progress| {
-        post_run_progress(&report_of(progress, &label, &needles))
+        post_run_progress(&report_of(progress, &label, &unit, &needles))
     }))
 }
 
@@ -566,7 +612,9 @@ pub fn cargo_test_line(raw: &str) -> CargoTestLine {
 // ---------------------------------------------------------------------------
 
 /// The argv to spawn: the command, with the runner's progress and record
-/// flags inserted before any `--` that hands arguments on to the tests.
+/// flags inserted before any `--` that hands arguments on to the tests —
+/// or, for `go test`'s `-json` and `node --test`'s `--test-reporter=tap`,
+/// straight after the words they belong to.
 pub fn wrapped_argv(kind: RunKind, command: &[String], junit_tmp: Option<&Path>) -> Vec<String> {
     let split = command
         .iter()
@@ -587,31 +635,74 @@ pub fn wrapped_argv(kind: RunKind, command: &[String], junit_tmp: Option<&Path>)
         }
         RunKind::Nextest if marks => vec!["--status-level".to_string(), "pass".to_string()],
         RunKind::Nextest => Vec::new(),
-        // libtest already prints every test; nothing to ask for.
-        RunKind::CargoTest => Vec::new(),
+        // `-v` for the one line per test the rule reads, unless the command
+        // already chose how much pytest says; the junit document for the
+        // record.
+        RunKind::Pytest => {
+            let mut v = Vec::new();
+            if !pytest_chose_verbosity(&command[..split]) {
+                v.push("-v".to_string());
+            }
+            if let Some(p) = junit_tmp {
+                v.push(format!("--junit-xml={}", p.display()));
+            }
+            v
+        }
+        // libtest already prints every test, and the other line kinds read
+        // what the command prints as it stands; nothing to ask for.
+        _ => Vec::new(),
     };
     let mut argv = command[..split].to_vec();
     argv.extend(extra);
     argv.extend_from_slice(&command[split..]);
+    // A flag that belongs after a word of the command's own.
+    let after = match kind {
+        RunKind::Go if marks => Some(("test", "-json")),
+        RunKind::Tap if marks => Some(("--test", "--test-reporter=tap")),
+        _ => None,
+    };
+    if let Some((word, flag)) = after
+        && let Some(at) = argv[..split].iter().position(|a| a == word)
+    {
+        argv.insert(at + 1, flag.to_string());
+    }
     argv
 }
 
-/// Whether the wrapper asks the runner for its one-mark-per-pass output —
-/// bun's `--dots`, nextest's `--status-level pass` — which it then counts
-/// and swallows. A command that already names that flag asked for the
-/// output itself, so the wrapper adds nothing and swallows nothing: what
-/// the command prints is what the bare command would have printed. Read
-/// before any `--`, past which the arguments are the tests' own.
+/// Whether pytest's arguments already say how much it prints.
+fn pytest_chose_verbosity(args: &[String]) -> bool {
+    args.iter().any(|a| {
+        a == "--quiet"
+            || a == "--verbose"
+            || (a.len() > 1
+                && !a.starts_with("--")
+                && a.starts_with('-')
+                && (a[1..].chars().all(|c| c == 'q') || a[1..].chars().all(|c| c == 'v')))
+    })
+}
+
+/// Whether the wrapper asks the runner for output it then reads and does
+/// not show as it came: bun's `--dots` and nextest's `--status-level pass`,
+/// counted and swallowed; `go test`'s `-json`, replayed as the text it
+/// carries; and `node --test`'s `--test-reporter=tap`, whose TAP is shown
+/// in place of the spec reporter's lines. A command that already names that
+/// flag asked for the output itself, so the wrapper adds nothing and
+/// changes nothing: what the command prints is what the bare command would
+/// have printed. Read before any `--`, past which the arguments are the
+/// tests' own.
 pub fn asks_for_marks(kind: RunKind, command: &[String]) -> bool {
-    let mut runner_args = command.iter().take_while(|a| *a != "--");
+    let runner_args: Vec<&String> = command.iter().take_while(|a| *a != "--").collect();
+    let has = |pred: &dyn Fn(&str) -> bool| runner_args.iter().any(|a| pred(a));
     match kind {
-        RunKind::Bun => !runner_args.any(|a| a == "--dots"),
-        RunKind::Nextest => !runner_args.any(|a| a.starts_with("--status-level")),
-        RunKind::CargoTest => false,
+        RunKind::Bun => !has(&|a| a == "--dots"),
+        RunKind::Nextest => !has(&|a| a.starts_with("--status-level")),
+        RunKind::Go => has(&|a| a == "test") && !has(&|a| a == "-json" || a == "--json"),
+        RunKind::Tap => has(&|a| a == "--test") && !has(&|a| a.starts_with("--test-reporter")),
+        _ => false,
     }
 }
 
-/// The followers a run's stderr feeds, and the progress they add up to.
+/// The followers a run's streams feed, and the progress they add up to.
 struct Follow {
     kind: RunKind,
     /// Whether the per-pass marks are the wrapper's to swallow — true when
@@ -619,7 +710,16 @@ struct Follow {
     swallow_marks: bool,
     dots: BunDots,
     bun: BunFailures,
-    line: Vec<u8>,
+    tap: TapReader,
+    go: GoReader,
+    /// The line rule a rule kind reads with.
+    rule: Option<LineRule>,
+    /// The rule's stop line has passed: nothing after it is an item.
+    stopped: bool,
+    /// One partial line per stream, so a chunk of one never splices into a
+    /// half-read line of the other.
+    err_line: Vec<u8>,
+    out_line: Vec<u8>,
     nextest_summary: bool,
     progress: Progress,
 }
@@ -631,7 +731,12 @@ impl Follow {
             swallow_marks: true,
             dots: BunDots::default(),
             bun: BunFailures::default(),
-            line: Vec::new(),
+            tap: TapReader,
+            go: GoReader::default(),
+            rule: rule_for(kind),
+            stopped: false,
+            err_line: Vec::new(),
+            out_line: Vec::new(),
             nextest_summary: false,
             progress: Progress {
                 text: "running".into(),
@@ -647,7 +752,7 @@ impl Follow {
                 // bun's pass-through is the dots filter's; the lines it
                 // forwards only feed the counts.
                 let filtered = self.dots.feed(chunk);
-                self.lines(&filtered);
+                self.lines(&filtered, false);
                 self.progress.done = self.dots.ticks() + self.progress.failures;
                 if self.swallow_marks {
                     filtered
@@ -655,20 +760,59 @@ impl Follow {
                     chunk.to_vec()
                 }
             }
-            RunKind::Nextest => self.lines(chunk),
-            // cargo's stderr is the build; the tests are on stdout.
-            RunKind::CargoTest => chunk.to_vec(),
+            RunKind::Nextest => self.lines(chunk, false),
+            // The line kinds forward the chunk and only count its lines.
+            kind if kind.reads_by_rule() => {
+                if self.rule.as_ref().is_some_and(|r| r.stream.reads_stderr()) {
+                    self.lines(chunk, false);
+                }
+                chunk.to_vec()
+            }
+            // cargo's stderr is the build and its tests are on stdout, as
+            // TAP and go's events are.
+            _ => chunk.to_vec(),
         }
     }
 
-    /// Take one stdout chunk, returning what to forward — which is all of
-    /// it, always. Only `cargo test` reports on stdout, and it is read
-    /// without being filtered.
+    /// Take one stdout chunk, returning what to forward. `cargo test`, TAP
+    /// and a line rule that reads stdout are read without being filtered;
+    /// `go test`'s events, when the wrapper asked for them, are replaced by
+    /// the text they carry.
     fn feed_stdout(&mut self, chunk: &[u8]) -> Vec<u8> {
-        if self.kind == RunKind::CargoTest {
-            self.lines(chunk);
+        if self.kind == RunKind::Go && self.swallow_marks {
+            let mut out = Vec::with_capacity(chunk.len());
+            for &b in chunk {
+                self.out_line.push(b);
+                if b == b'\n' {
+                    let line = std::mem::take(&mut self.out_line);
+                    out.extend(self.go_line(&line));
+                }
+            }
+            return out;
+        }
+        let reads = match self.kind {
+            RunKind::CargoTest | RunKind::Tap | RunKind::Go => true,
+            kind if kind.reads_by_rule() => {
+                self.rule.as_ref().is_some_and(|r| r.stream.reads_stdout())
+            }
+            _ => false,
+        };
+        if reads {
+            self.lines(chunk, true);
         }
         chunk.to_vec()
+    }
+
+    /// One `go test -json` line, counted, as what reaches the reader.
+    fn go_line(&mut self, bytes: &[u8]) -> Vec<u8> {
+        let text = String::from_utf8_lossy(bytes);
+        let (read, forward) = self.go.line(text.trim_end_matches(['\n', '\r']));
+        self.take_read(read);
+        match forward {
+            GoForward::Verbatim => bytes.to_vec(),
+            GoForward::Text(text) => text.into_bytes(),
+            GoForward::Nothing => Vec::new(),
+        }
     }
 
     /// The run as a record, from the stream alone — for a runner that wrote
@@ -700,20 +844,25 @@ impl Follow {
         JunitRun {
             tests: self.progress.done as i64,
             failed: self.progress.failures as i64,
-            skipped: 0,
+            skipped: self.progress.skipped as i64,
             files: Vec::new(),
             failures,
         }
     }
 
-    /// Split bytes into whole lines and read each; returns the lines to
-    /// forward.
-    fn lines(&mut self, bytes: &[u8]) -> Vec<u8> {
+    /// Split one stream's bytes into whole lines and read each; returns the
+    /// lines to forward.
+    fn lines(&mut self, bytes: &[u8], stdout: bool) -> Vec<u8> {
         let mut out = Vec::with_capacity(bytes.len());
         for &b in bytes {
-            self.line.push(b);
+            let buf = if stdout {
+                &mut self.out_line
+            } else {
+                &mut self.err_line
+            };
+            buf.push(b);
             if b == b'\n' {
-                let line = std::mem::take(&mut self.line);
+                let line = std::mem::take(buf);
                 if self.take_line(&line) {
                     out.extend_from_slice(&line);
                 }
@@ -722,13 +871,60 @@ impl Follow {
         out
     }
 
-    /// Flush a final unterminated line.
-    fn finish(&mut self) -> Vec<u8> {
-        let line = std::mem::take(&mut self.line);
+    /// Flush each stream's final unterminated line, returning what is left
+    /// to forward of each: stdout's when it is a replayed go event, stderr's
+    /// when it is nextest's. Every other line was forwarded as it arrived.
+    fn finish(&mut self) -> (Vec<u8>, Vec<u8>) {
+        let out = std::mem::take(&mut self.out_line);
+        let out = if out.is_empty() {
+            Vec::new()
+        } else if self.kind == RunKind::Go && self.swallow_marks {
+            self.go_line(&out)
+        } else {
+            self.take_line(&out);
+            Vec::new()
+        };
+        let line = std::mem::take(&mut self.err_line);
         if !line.is_empty() && self.take_line(&line) && self.kind == RunKind::Nextest {
-            return line;
+            return (out, line);
         }
-        Vec::new()
+        (out, Vec::new())
+    }
+
+    /// Count one item a line reader found, and the total, the closing
+    /// count, the stop or the note it read.
+    fn take_read(&mut self, read: LineRead) {
+        if read.stop {
+            self.stopped = true;
+            return;
+        }
+        if let Some(note) = read.note {
+            self.progress.text = note;
+        }
+        // The runner's own count of the run replaces what was counted.
+        if let Some(tally) = read.tally {
+            self.progress.done = tally.done;
+            self.progress.total = Some(tally.done);
+            self.progress.failures = tally.failed;
+            self.progress.skipped = tally.skipped;
+            return;
+        }
+        if let Some(total) = read.total
+            && self.progress.total.is_none()
+        {
+            self.progress.total = Some(total);
+        }
+        let Some(item) = read.item else { return };
+        self.progress.done += 1;
+        match item.status {
+            ItemStatus::Pass => {}
+            ItemStatus::Skipped => self.progress.skipped += 1,
+            ItemStatus::Fail | ItemStatus::Error => {
+                self.progress.failures += 1;
+                self.progress.note_failure(&item.name, &item.message);
+            }
+        }
+        self.progress.text = item.name;
     }
 
     /// Read one whole line; returns whether nextest's line is forwarded.
@@ -791,6 +987,26 @@ impl Follow {
                 }
                 true
             }
+            RunKind::Tap => {
+                let read = self.tap.line(&strip_ansi(text));
+                self.take_read(read);
+                true
+            }
+            RunKind::Go => {
+                let (read, _) = self.go.line(text);
+                self.take_read(read);
+                true
+            }
+            kind if kind.reads_by_rule() => {
+                if self.stopped {
+                    return true;
+                }
+                if let Some(read) = self.rule.as_ref().map(|r| r.read(&strip_ansi(text))) {
+                    self.take_read(read);
+                }
+                true
+            }
+            _ => true,
         }
     }
 }
@@ -802,6 +1018,12 @@ pub struct RunArgs {
     pub junit: Option<PathBuf>,
     pub label: Option<String>,
     pub needles: Vec<String>,
+    /// The `lines` kind's item regex, total regex and stream.
+    pub item: Option<String>,
+    pub total: Option<String>,
+    pub stream: Stream,
+    /// What the run counts; `test` when not said.
+    pub unit_word: Option<String>,
     pub command: Vec<String>,
 }
 
@@ -849,21 +1071,65 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
             "test run names the command to run after `--`".into(),
         ));
     };
+    let unit = args
+        .unit_word
+        .clone()
+        .unwrap_or_else(|| default_unit(args.kind).into());
+    let rule = match (args.kind, &args.item) {
+        (RunKind::Lines, Some(item)) => Some(
+            LineRule::new(item, args.total.as_deref(), args.stream)
+                .map_err(|why| AppError::Exit2("unresolved", format!("test run: {why}")))?,
+        ),
+        (RunKind::Lines, None) => {
+            return Err(AppError::Exit2(
+                "unresolved",
+                "test run --kind lines names its item regex with --item".into(),
+            ));
+        }
+        (_, Some(_)) => {
+            return Err(AppError::Exit2(
+                "unresolved",
+                "test run reads --item only under --kind lines".into(),
+            ));
+        }
+        (_, None) if args.total.is_some() => {
+            return Err(AppError::Exit2(
+                "unresolved",
+                "test run reads --total only under --kind lines".into(),
+            ));
+        }
+        (_, None) => rule_for(args.kind),
+    };
+    if args.kind == RunKind::Junit && args.junit.is_none() {
+        return Err(AppError::Exit2(
+            "unresolved",
+            "test run --kind junit names the document with --junit".into(),
+        ));
+    }
     // The document the run is recorded from, when there is one: the path
-    // named, or a temporary one bun is pointed at. A nextest or cargo run
-    // with no path is recorded from the follower's tally instead.
+    // named, or a temporary one bun or pytest is pointed at. A run of any
+    // other kind with no path — or a pytest run that names its own junit
+    // file, which this verb was not told of — is recorded from the
+    // follower's tally instead.
+    let names_own_junit = args.kind == RunKind::Pytest
+        && args
+            .command
+            .iter()
+            .any(|a| a.starts_with("--junit-xml") || a.starts_with("--junitxml"));
     let junit_path = match (args.kind, &args.junit) {
         (_, Some(p)) => Some(p.clone()),
         (RunKind::Bun, None) => Some(junit_tmp_path()),
-        (RunKind::Nextest | RunKind::CargoTest, None) => None,
+        (RunKind::Pytest, None) if !names_own_junit => Some(junit_tmp_path()),
+        (_, None) => None,
     };
-    let remove_junit = args.kind == RunKind::Bun && args.junit.is_none();
+    let writes_junit = matches!(args.kind, RunKind::Bun | RunKind::Pytest);
+    let remove_junit = writes_junit && args.junit.is_none() && junit_path.is_some();
     let argv = wrapped_argv(
         args.kind,
         &args.command,
-        junit_path.as_deref().filter(|_| args.kind == RunKind::Bun),
+        junit_path.as_deref().filter(|_| writes_junit),
     );
-    let sink = Arc::new(Mutex::new(sink_for(&args)));
+    let sink = Arc::new(Mutex::new(sink_for(&args, &unit)));
     // The count is for the block's report; with no block to report to, the
     // run is not made to wait on it.
     let collected = match args.kind {
@@ -890,6 +1156,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
 
     let follow = Arc::new(Mutex::new(Follow {
         swallow_marks: asks_for_marks(args.kind, &args.command),
+        rule,
         ..Follow::new(args.kind)
     }));
     follow.lock().progress.total = collected;
@@ -937,9 +1204,12 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
     // Both streams are closed, so a final unterminated line is whole.
     {
         let mut follow = follow.lock();
-        let tail = follow.finish();
-        if !tail.is_empty() {
-            let _ = std::io::stderr().lock().write_all(&tail);
+        let (out, err) = follow.finish();
+        if !out.is_empty() {
+            let _ = std::io::stdout().lock().write_all(&out);
+        }
+        if !err.is_empty() {
+            let _ = std::io::stderr().lock().write_all(&err);
         }
     }
     let code = match status {
@@ -1296,6 +1566,7 @@ mod tests {
             done,
             total: None,
             failures,
+            skipped: 0,
             text: format!("t{done}"),
             failed: Vec::new(),
         }
@@ -1367,7 +1638,7 @@ mod tests {
             total: Some(10998),
             ..state(120, 2)
         };
-        let bun = report_of(&counted, "bun test · tugdeck", &needles);
+        let bun = report_of(&counted, "bun test · tugdeck", "test", &needles);
         assert_eq!(bun.text, "t120");
         assert_eq!(
             (bun.done, bun.total, bun.failures),
@@ -1376,7 +1647,7 @@ mod tests {
         assert_eq!(bun.needles, needles);
 
         // No count from the runner: no total, whatever the history says.
-        let filtered = report_of(&state(5, 0), "bun test · tugdeck", &needles);
+        let filtered = report_of(&state(5, 0), "bun test · tugdeck", "test", &needles);
         assert_eq!((filtered.done, filtered.total), (Some(5), None));
     }
 
@@ -1393,7 +1664,11 @@ mod tests {
             |words: &[&str]| -> Vec<String> { words.iter().map(|s| s.to_string()).collect() };
         assert!(!bun_filters_by_name(&argv(&["bun", "test", "src/lib"])));
         assert!(bun_filters_by_name(&argv(&["bun", "test", "-t", "drag"])));
-        assert!(bun_filters_by_name(&argv(&["bun", "test", "--test-name-pattern=drag"])));
+        assert!(bun_filters_by_name(&argv(&[
+            "bun",
+            "test",
+            "--test-name-pattern=drag"
+        ])));
         assert!(bun_filters_by_name(&argv(&["bun", "test", "--only"])));
         assert!(!bun_filters_by_name(&argv(&["bun", "test", "--", "-t"])));
     }
@@ -1428,7 +1703,7 @@ mod tests {
         ] {
             follow.feed(line.as_bytes());
         }
-        let report = report_of(&follow.progress, "rust", &[]);
+        let report = report_of(&follow.progress, "rust", "test", &[]);
         assert_eq!(report.unit.as_deref(), Some("test"));
         assert_eq!(
             report.units,
@@ -1539,5 +1814,224 @@ mod tests {
         }
         assert_eq!(follow.progress.failures, (FAILED_KEPT + 5) as u64);
         assert_eq!(follow.progress.failed.len(), FAILED_KEPT);
+    }
+
+    #[test]
+    fn the_line_kinds_add_nothing_to_the_command() {
+        let command: Vec<String> = ["make", "check", "--", "-v"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        for kind in [RunKind::Tap, RunKind::Junit, RunKind::Lines] {
+            assert_eq!(wrapped_argv(kind, &command, None), command, "{kind:?}");
+            assert!(!asks_for_marks(kind, &command), "{kind:?}");
+        }
+    }
+
+    fn args(kind: RunKind) -> RunArgs {
+        RunArgs {
+            suite: "s".into(),
+            kind,
+            junit: None,
+            label: None,
+            needles: Vec::new(),
+            item: None,
+            total: None,
+            stream: Stream::Both,
+            unit_word: None,
+            command: vec!["true".into()],
+        }
+    }
+
+    #[test]
+    fn a_kind_missing_what_it_reads_is_refused_before_anything_runs() {
+        let code = |args: RunArgs| match run(args) {
+            Err(err) => (err.exit_code(), err.message().to_string()),
+            Ok(()) => panic!("the run should have been refused"),
+        };
+        assert_eq!(
+            code(args(RunKind::Junit)),
+            (
+                2,
+                "test run --kind junit names the document with --junit".into()
+            )
+        );
+        assert_eq!(
+            code(args(RunKind::Lines)),
+            (
+                2,
+                "test run --kind lines names its item regex with --item".into()
+            )
+        );
+        let (exit, message) = code(RunArgs {
+            item: Some(r"^(?P<name>\S+)".into()),
+            ..args(RunKind::Lines)
+        });
+        assert_eq!(exit, 2);
+        assert!(message.contains("(?P<status>"), "{message}");
+        let (exit, _) = code(RunArgs {
+            item: Some(r"^(?P<status>ok) (?P<name>\S+)".into()),
+            ..args(RunKind::Tap)
+        });
+        assert_eq!(exit, 2, "--item is the lines kind's alone");
+    }
+
+    #[test]
+    fn each_stream_keeps_its_own_partial_line() {
+        let mut follow = Follow {
+            rule: Some(
+                LineRule::new(r"^(?P<status>PASS|FAIL) (?P<name>\S+)$", None, Stream::Both)
+                    .unwrap(),
+            ),
+            ..Follow::new(RunKind::Lines)
+        };
+        // A stdout chunk ends mid-line, a whole stderr line arrives, and
+        // then the rest of the stdout line.
+        assert_eq!(follow.feed_stdout(b"PASS al"), b"PASS al");
+        assert_eq!(follow.feed(b"FAIL beta\n"), b"FAIL beta\n");
+        follow.feed_stdout(b"pha\nSKIP gamma");
+        follow.finish();
+        assert_eq!(follow.progress.done, 2);
+        assert_eq!(follow.progress.failures, 1);
+        assert_eq!(follow.progress.failed[0].name, "beta");
+        assert_eq!(follow.progress.text, "alpha");
+
+        // A rule that reads stdout leaves stderr's lines alone.
+        let mut follow = Follow {
+            rule: Some(
+                LineRule::new(
+                    r"^(?P<status>PASS|FAIL) (?P<name>\S+)$",
+                    None,
+                    Stream::Stdout,
+                )
+                .unwrap(),
+            ),
+            ..Follow::new(RunKind::Lines)
+        };
+        follow.feed(b"FAIL beta\n");
+        follow.feed_stdout(b"PASS alpha\n");
+        assert_eq!((follow.progress.done, follow.progress.failures), (1, 0));
+    }
+
+    #[test]
+    fn a_tap_run_counts_its_skips_into_the_record() {
+        let mut follow = Follow::new(RunKind::Tap);
+        follow
+            .feed_stdout(include_str!("../tests/fixtures/runner-output/node-test.tap").as_bytes());
+        follow.finish();
+        assert_eq!(follow.progress.total, Some(4));
+        let doc = follow.tally();
+        assert_eq!((doc.tests, doc.failed, doc.skipped), (4, 1, 1));
+        assert_eq!(doc.failures[0].name, "subtracts wrong");
+    }
+
+    fn words(s: &str) -> Vec<String> {
+        s.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn go_and_node_get_their_flag_after_their_own_word_unless_they_named_one() {
+        let argv = |kind, s| wrapped_argv(kind, &words(s), None).join(" ");
+        assert_eq!(
+            argv(RunKind::Go, "go test ./... -run X"),
+            "go test -json ./... -run X"
+        );
+        assert_eq!(
+            argv(RunKind::Go, "go test -json ./..."),
+            "go test -json ./..."
+        );
+        assert_eq!(
+            argv(RunKind::Go, "go test . -args -v"),
+            "go test -json . -args -v",
+            "a flag past -args is the test binary's, so -json goes first"
+        );
+        assert_eq!(
+            argv(RunKind::Tap, "node --test a.test.mjs"),
+            "node --test --test-reporter=tap a.test.mjs"
+        );
+        assert_eq!(
+            argv(RunKind::Tap, "node --test --test-reporter=spec a.mjs"),
+            "node --test --test-reporter=spec a.mjs"
+        );
+        assert_eq!(argv(RunKind::Tap, "prove -v t/"), "prove -v t/");
+    }
+
+    #[test]
+    fn pytest_gets_verbose_lines_unless_it_chose_and_always_its_document() {
+        let doc = Path::new("/tmp/p.xml");
+        let argv = |s| wrapped_argv(RunKind::Pytest, &words(s), Some(doc)).join(" ");
+        assert_eq!(
+            argv("pytest tests"),
+            "pytest tests -v --junit-xml=/tmp/p.xml"
+        );
+        assert_eq!(
+            argv("python3 -m pytest -q"),
+            "python3 -m pytest -q --junit-xml=/tmp/p.xml"
+        );
+        assert_eq!(argv("pytest -vv"), "pytest -vv --junit-xml=/tmp/p.xml");
+        assert_eq!(
+            argv("pytest --verbose"),
+            "pytest --verbose --junit-xml=/tmp/p.xml"
+        );
+        assert_eq!(
+            argv("pytest -- -k x"),
+            "pytest -v --junit-xml=/tmp/p.xml -- -k x"
+        );
+        assert_eq!(
+            wrapped_argv(RunKind::Pytest, &words("pytest -x"), None).join(" "),
+            "pytest -x -v"
+        );
+    }
+
+    #[test]
+    fn a_go_run_is_replayed_as_its_text_and_counted() {
+        let mut follow = Follow {
+            swallow_marks: true,
+            ..Follow::new(RunKind::Go)
+        };
+        let events = include_str!("../tests/fixtures/runner-output/go-test2json.jsonl");
+        // Fed in two pieces that split a line, the way a pipe delivers it.
+        let (a, b) = events.split_at(events.len() / 2);
+        let mut shown = follow.feed_stdout(a.as_bytes());
+        shown.extend(follow.feed_stdout(b.as_bytes()));
+        let (tail, _) = follow.finish();
+        shown.extend(tail);
+        let shown = String::from_utf8(shown).unwrap();
+        assert!(shown.starts_with("=== RUN   TestAdds\n"), "{shown}");
+        assert!(!shown.contains("\"Action\""), "{shown}");
+        assert_eq!(
+            (
+                follow.progress.done,
+                follow.progress.failures,
+                follow.progress.skipped
+            ),
+            (4, 1, 1)
+        );
+        assert_eq!(follow.progress.failed[0].name, "TestSubtractsWrong");
+
+        // A command that asked for -json itself sees its events as they came.
+        let mut follow = Follow {
+            swallow_marks: false,
+            ..Follow::new(RunKind::Go)
+        };
+        assert_eq!(follow.feed_stdout(events.as_bytes()), events.as_bytes());
+        assert_eq!(follow.progress.done, 4);
+    }
+
+    #[test]
+    fn a_closing_summary_makes_an_agent_run_s_count_exact() {
+        let mut follow = Follow::new(RunKind::Jest);
+        let stderr = include_str!("../tests/fixtures/runner-output/jest-agent.txt");
+        follow.feed(stderr.as_bytes());
+        follow.finish();
+        let doc = follow.tally();
+        assert_eq!((doc.tests, doc.failed), (2, 1));
+        assert_eq!(doc.failures[0].name, "./math.test.js");
+
+        // mocha's failure section, past its summary, counts nothing twice.
+        let mut follow = Follow::new(RunKind::Mocha);
+        follow.feed_stdout(include_str!("../tests/fixtures/runner-output/mocha.txt").as_bytes());
+        let doc = follow.tally();
+        assert_eq!((doc.tests, doc.failed, doc.skipped), (4, 1, 1));
     }
 }

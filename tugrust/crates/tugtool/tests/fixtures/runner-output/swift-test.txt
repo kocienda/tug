@@ -1,0 +1,26 @@
+Test Suite 'All tests' started at 2026-10-20 08:18:41.523.
+Test Suite 'SamplePackageTests.xctest' started at 2026-10-20 08:18:41.524.
+Test Suite 'LegacyTests' started at 2026-10-20 08:18:41.524.
+Test Case '-[SampleTests.LegacyTests testAdds]' started.
+Test Case '-[SampleTests.LegacyTests testAdds]' passed (0.001 seconds).
+Test Case '-[SampleTests.LegacyTests testLater]' started.
+/private/tmp/tug-runner-fixtures/swift/Tests/SampleTests/LegacyTests.swift:7: -[SampleTests.LegacyTests testLater] : Test skipped - not yet
+Test Case '-[SampleTests.LegacyTests testLater]' skipped (0.001 seconds).
+Test Case '-[SampleTests.LegacyTests testSubtractsWrong]' started.
+/private/tmp/tug-runner-fixtures/swift/Tests/SampleTests/LegacyTests.swift:6: error: -[SampleTests.LegacyTests testSubtractsWrong] : XCTAssertEqual failed: ("1") is not equal to ("0")
+Test Case '-[SampleTests.LegacyTests testSubtractsWrong]' failed (0.057 seconds).
+Test Suite 'LegacyTests' failed at 2026-10-20 08:18:41.583.
+	 Executed 3 tests, with 1 test skipped and 1 failure (0 unexpected) in 0.059 (0.059) seconds
+Test Suite 'SamplePackageTests.xctest' failed at 2026-10-20 08:18:41.583.
+	 Executed 3 tests, with 1 test skipped and 1 failure (0 unexpected) in 0.059 (0.059) seconds
+Test Suite 'All tests' failed at 2026-10-20 08:18:41.583.
+	 Executed 3 tests, with 1 test skipped and 1 failure (0 unexpected) in 0.059 (0.061) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1501
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Test modern() started.
+􀟈  Test modernWrong() started.
+􁁛  Test modern() passed after 0.001 seconds.
+􀢄  Test modernWrong() recorded an issue at SampleTests.swift:9:5: Expectation failed: (2 - 1 → 1) == 0
+􀢄  Test modernWrong() failed after 0.001 seconds with 1 issue.
+􀢄  Test run with 2 tests in 0 suites failed after 0.001 seconds with 1 issue.

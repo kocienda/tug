@@ -12,10 +12,12 @@
 //! means "no opinion" — Claude Code falls through to its normal permission
 //! flow. A hook that crashed would block work, so nothing here is allowed to.
 //!
-//! One answer is not a permission decision at all. A `cargo nextest run`,
-//! `cargo test` or `bun test` the model types is rewritten, through the
-//! hook's `updatedInput`, to run inside `tugtool test run`, so the block it
-//! runs in gets the run panel without anybody remembering to wire it. The
+//! One answer is not a permission decision at all. A runner the model types —
+//! one tugtool knows, or one the project declares in `.tugtool/config.toml`
+//! (`tugtool run runners` lists them) — is rewritten, through the hook's
+//! `updatedInput`, to run inside `tugtool test run`, or, for a command that
+//! reports itself, to carry the call id; so the block it runs in gets the run
+//! panel without anybody remembering to wire it. The
 //! rewrite carries no `permissionDecision`: Claude Code judges the wrapped
 //! command exactly as it would have judged the bare one, and the transcript
 //! keeps showing what the model typed — the `tool_use` block is never
@@ -29,6 +31,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::changes::AppError;
+use crate::runners::{self, RunnerAction, RunnerSpec, SuiteRule, kind_name};
 
 use super::file::gate_decision;
 use tugchanges_core::shell_ops::{ParseOutcome, parse_shell_ops};
@@ -40,7 +43,8 @@ pub enum HookCommands {
     /// read-only Bash prefixes; denies a Bash command whose file operations
     /// the change ledger cannot read; rewrites each test runner in a Bash
     /// command — wherever it stands as a command of its own, a pipeline's head
-    /// included — to run inside `tugtool test run`; says nothing otherwise.
+    /// included — to run inside `tugtool test run`, or to carry the call id
+    /// when the project declares it reports itself; says nothing otherwise.
     PreToolUse,
 }
 
@@ -186,14 +190,6 @@ pub(crate) fn pre_tool_use_with(
 // Test runners run inside `tugtool test run`
 // ---------------------------------------------------------------------------
 
-/// The runners the hook recognises, by their leading words, and the
-/// `test run --kind` each one is.
-const TEST_RUNNERS: &[(&[&str], &str)] = &[
-    (&["cargo", "nextest", "run"], "nextest"),
-    (&["cargo", "test"], "cargo-test"),
-    (&["bun", "test"], "bun"),
-];
-
 /// The simple commands in a Bash command line, as byte ranges: the stretches
 /// between the shell's control operators (`|`, `||`, `&&`, `;`, `&`, a
 /// newline) and its grouping parentheses, read outside quotes. A `&` that is
@@ -283,14 +279,18 @@ fn is_assignment(word: &str) -> bool {
 }
 
 /// The runner a simple command is, past any environment assignments: the
-/// offset of its first word, its `test run --kind`, and its own words.
-fn runner_in(words: &[(usize, &str)]) -> Option<(usize, &'static str, String)> {
+/// offset of its first word, and its row in the table — the first whose head
+/// it starts with, which is the longest, since the table is sorted so.
+fn runner_in<'r>(
+    words: &[(usize, &str)],
+    runners: &'r [RunnerSpec],
+) -> Option<(usize, &'r RunnerSpec)> {
     let first = words.iter().position(|(_, w)| !is_assignment(w))?;
     let rest: Vec<&str> = words[first..].iter().map(|(_, w)| *w).collect();
-    TEST_RUNNERS
+    runners
         .iter()
-        .find(|(head, _)| rest.len() >= head.len() && rest[..head.len()] == **head)
-        .map(|(head, kind)| (words[first].0, *kind, head.join(" ")))
+        .find(|spec| spec.matches(&rest))
+        .map(|spec| (words[first].0, spec))
 }
 
 /// The command line with every recognised runner wrapped where it stands, or
@@ -311,41 +311,66 @@ fn runner_in(words: &[(usize, &str)]) -> Option<(usize, &'static str, String)> {
 /// wrapped `tugtool test run` among them, so nothing is wrapped twice, and
 /// `echo cargo test` or a loop's `do cargo test` too.
 ///
-/// The suite is the ledger's key for the run. Rust runs share `rust` with
-/// `just test-rust`, so a crate run and the workspace run are one history. A
-/// bun run takes the name of the directory it runs in — the last `cd <dir>`
-/// before it, else the call's own — which is how the recipes name theirs.
+/// The suite is the ledger's key for the run, and the row's [`SuiteRule`]
+/// names it: a fixed name, or the directory the run is in — the last
+/// `cd <dir>` before it, else the call's own.
+///
+/// A row that reports itself ([`RunnerAction::ExportId`]) gets the call id in
+/// front of its first word and nothing more, and nothing at all without a
+/// plain id to give it or when the command already sets one.
 pub(crate) fn wrap_test_runner(
     command: &str,
     cwd: Option<&str>,
     tool_use_id: Option<&str>,
     tugtool: &str,
+    runners: &[RunnerSpec],
 ) -> Option<String> {
     let mut inserts: Vec<(usize, String)> = Vec::new();
     let mut dir: Option<&str> = None;
+    let id = tool_use_id.filter(|id| is_plain_word(id));
     for span in simple_commands(command)? {
         let words = words_of(command, span);
         if let [(_, "cd"), (_, d)] = words.as_slice() {
             dir = Some(d);
             continue;
         }
-        let Some((at, kind, head)) = runner_in(&words) else {
+        let Some((at, spec)) = runner_in(&words, runners) else {
             continue;
         };
-        let suite = match kind {
-            "bun" => dir_name(dir.or(cwd)).unwrap_or("bun"),
-            _ => "rust",
+        let (kind, flags) = match &spec.action {
+            RunnerAction::Wrap { kind, flags } => (*kind, flags),
+            RunnerAction::ExportId => {
+                let set = words
+                    .iter()
+                    .take_while(|(o, _)| *o < at)
+                    .any(|(_, w)| w.starts_with("TUG_TOOL_USE_ID="));
+                if let Some(id) = id.filter(|_| !set) {
+                    inserts.push((at, format!("TUG_TOOL_USE_ID={id} ")));
+                }
+                continue;
+            }
+        };
+        let head = spec.head_text();
+        let suite = match &spec.suite {
+            SuiteRule::Fixed(name) => name.as_str(),
+            SuiteRule::DirName(fallback) => dir_name(dir.or(cwd)).unwrap_or(fallback),
         };
         let mut wrap = String::new();
-        if let Some(id) = tool_use_id.filter(|id| is_plain_word(id)) {
+        if let Some(id) = id {
             wrap.push_str(&format!("TUG_TOOL_USE_ID={id} "));
         }
         wrap.push_str(&format!(
-            "{} test run --suite {} --kind {} --label {} --needle {} -- ",
+            "{} test run --suite {} --kind {} ",
             shell_word(tugtool),
             shell_word(suite),
-            kind,
-            shell_word(&head),
+            kind_name(kind),
+        ));
+        for (flag, value) in flags.pairs() {
+            wrap.push_str(&format!("{flag} {} ", shell_word(value)));
+        }
+        wrap.push_str(&format!(
+            "--label {} --needle {} -- ",
+            shell_word(&spec.label_text()),
             shell_word(&head),
         ));
         inserts.push((at, wrap));
@@ -390,14 +415,17 @@ fn shell_word(word: &str) -> String {
 }
 
 /// The rewrite for a Bash call whose command is a recognised runner, or
-/// `None`. The call's `tool_use_id` rides the rewritten command; the other
-/// input fields ride the rewritten input untouched.
+/// `None`. The table is the built-ins plus whatever the project the call's
+/// `cwd` is in declares ([`runners::for_cwd`]). The call's `tool_use_id`
+/// rides the rewritten command; the other input fields ride the rewritten
+/// input untouched.
 pub(crate) fn test_runner_rewrite(payload: &Value, tugtool: &str) -> Option<Decision> {
     let input = payload.get("tool_input")?.as_object()?;
     let command = input.get("command")?.as_str()?;
     let cwd = payload.get("cwd").and_then(Value::as_str);
     let id = payload.get("tool_use_id").and_then(Value::as_str);
-    let wrapped = wrap_test_runner(command, cwd, id, tugtool)?;
+    let runners = runners::for_cwd(cwd);
+    let wrapped = wrap_test_runner(command, cwd, id, tugtool, &runners)?;
     let mut updated = input.clone();
     updated.insert("command".into(), wrapped.into());
     Some(Decision::Rewrite(Value::Object(updated)))
@@ -929,7 +957,13 @@ mod tests {
     const TUGTOOL: &str = "/Applications/Tug.app/Contents/MacOS/tugtool";
 
     fn wrap(command: &str) -> Option<String> {
-        wrap_test_runner(command, Some("/proj"), Some("toolu_01A"), TUGTOOL)
+        wrap_test_runner(
+            command,
+            Some("/proj"),
+            Some("toolu_01A"),
+            TUGTOOL,
+            &runners::built_in(),
+        )
     }
 
     #[test]
@@ -949,6 +983,40 @@ mod tests {
                  --suite rust --kind cargo-test --label 'cargo test' --needle 'cargo test' -- cargo test"
             )
         );
+    }
+
+    #[test]
+    fn every_built_in_head_wraps_to_its_kind() {
+        for (command, kind) in [
+            ("go test ./... -run TestX", "go"),
+            ("pytest -x tests", "pytest"),
+            ("python -m pytest", "pytest"),
+            ("python3 -m pytest -q", "pytest"),
+            ("jest --ci", "jest"),
+            ("npx jest", "jest"),
+            ("bunx jest", "jest"),
+            ("vitest", "vitest"),
+            ("vitest run src", "vitest"),
+            ("npx vitest run", "vitest"),
+            ("bunx vitest", "vitest"),
+            ("mocha", "mocha"),
+            ("npx mocha test/", "mocha"),
+            ("node --test a.test.mjs", "tap"),
+            ("swift test --parallel", "swift"),
+            ("ctest --output-on-failure", "ctest"),
+        ] {
+            let wrapped = wrap(command).unwrap_or_else(|| panic!("{command} is a runner"));
+            assert!(
+                wrapped.contains(&format!(" --suite proj --kind {kind} ")),
+                "{command}: {wrapped}"
+            );
+            // The command itself goes through as typed: what a kind adds to
+            // it (`-json`, `-v`) is `test run`'s to add.
+            assert!(wrapped.ends_with(&format!(" -- {command}")), "{wrapped}");
+        }
+        // `node` alone, and `swift build`, are not test runs.
+        assert_eq!(wrap("node a.mjs"), None);
+        assert_eq!(wrap("swift build"), None);
     }
 
     #[test]
@@ -1066,22 +1134,168 @@ mod tests {
 
     #[test]
     fn without_a_call_id_the_wrap_still_happens_and_carries_none() {
-        let out = wrap_test_runner("bun test", None, None, TUGTOOL).unwrap();
+        let out = wrap_test_runner("bun test", None, None, TUGTOOL, &runners::built_in()).unwrap();
         assert!(!out.contains("TUG_TOOL_USE_ID"), "{out}");
         assert!(out.starts_with(TUGTOOL), "{out}");
         // An id that is not a plain word is not put in a shell's environment.
-        let out = wrap_test_runner("bun test", None, Some("x; rm -rf /"), TUGTOOL).unwrap();
+        let out = wrap_test_runner(
+            "bun test",
+            None,
+            Some("x; rm -rf /"),
+            TUGTOOL,
+            &runners::built_in(),
+        )
+        .unwrap();
         assert!(!out.contains("TUG_TOOL_USE_ID"), "{out}");
     }
 
     #[test]
     fn a_binary_path_with_a_space_is_quoted() {
-        let out =
-            wrap_test_runner("bun test", None, None, "/Applications/Tug 2.app/tugtool").unwrap();
+        let out = wrap_test_runner(
+            "bun test",
+            None,
+            None,
+            "/Applications/Tug 2.app/tugtool",
+            &runners::built_in(),
+        )
+        .unwrap();
         assert!(
             out.starts_with("'/Applications/Tug 2.app/tugtool' test run"),
             "{out}"
         );
+    }
+
+    /// A project directory carrying `.tugtool/config.toml` with this text.
+    fn project_declaring(config: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("temp");
+        std::fs::create_dir(dir.path().join(".tugtool")).expect("mkdir");
+        std::fs::write(dir.path().join(".tugtool/config.toml"), config).expect("write");
+        dir
+    }
+
+    /// The command the hook would run for `command` typed in `dir`.
+    fn rewritten_in(dir: &tempfile::TempDir, command: &str) -> Option<String> {
+        let payload = json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": command },
+            "cwd": dir.path().to_string_lossy(),
+            "tool_use_id": "toolu_01A",
+        });
+        match test_runner_rewrite(&payload, TUGTOOL)? {
+            Decision::Rewrite(input) => input["command"].as_str().map(String::from),
+            other => panic!("expected a rewrite, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_declared_kind_row_wraps_under_its_declared_suite_and_label() {
+        let dir = project_declaring(
+            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\nsuite = \"checks\"\nlabel = \"checks\"\n",
+        );
+        assert_eq!(
+            rewritten_in(&dir, "cd sub && make check -j4 | tail -3").as_deref(),
+            Some(
+                "cd sub && TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool \
+                 test run --suite checks --kind cargo-test --label checks --needle 'make check' \
+                 -- make check -j4 | tail -3"
+            )
+        );
+        // The built-ins still stand beside it.
+        assert!(
+            rewritten_in(&dir, "cargo test")
+                .unwrap()
+                .contains("--suite rust --kind cargo-test ")
+        );
+        // A row with no suite records under its head's last word.
+        let dir = project_declaring(
+            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\n",
+        );
+        assert!(
+            rewritten_in(&dir, "make check")
+                .unwrap()
+                .contains("--suite check --kind cargo-test --label 'make check' ")
+        );
+    }
+
+    #[test]
+    fn a_declared_lines_row_carries_its_rule_single_quoted() {
+        let dir = project_declaring(
+            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = \"^(?P<status>PASS|FAIL): (?P<name>[^ ']+)\"\ntotal = '^running (?P<total>\\d+) checks'\nstream = \"stdout\"\nunit = \"check\"\n",
+        );
+        assert_eq!(
+            rewritten_in(&dir, "make check").as_deref(),
+            Some(
+                "TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool \
+                 test run --suite check --kind lines \
+                 --item '^(?P<status>PASS|FAIL): (?P<name>[^ '\\'']+)' \
+                 --total '^running (?P<total>\\d+) checks' --stream stdout --unit check \
+                 --label 'make check' --needle 'make check' -- make check"
+            )
+        );
+        // A kind with a rule of its own carries no regex, even one declared.
+        let dir = project_declaring(
+            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"tap\"\nitem = '^(?P<status>ok) (?P<name>\\S+)'\nunit = \"check\"\n",
+        );
+        let wrapped = rewritten_in(&dir, "make check").unwrap();
+        assert!(
+            wrapped.contains("--kind tap --unit check --label"),
+            "{wrapped}"
+        );
+    }
+
+    #[test]
+    fn a_declared_unit_row_gets_the_call_id_and_nothing_else() {
+        let dir = project_declaring(
+            "[[tugtool.run.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n",
+        );
+        assert_eq!(
+            rewritten_in(&dir, "just app-test at0707.test.ts").as_deref(),
+            Some("TUG_TOOL_USE_ID=toolu_01A just app-test at0707.test.ts")
+        );
+        assert_eq!(
+            rewritten_in(&dir, "FOO=1 just app-test 2>&1 | tail -20").as_deref(),
+            Some("FOO=1 TUG_TOOL_USE_ID=toolu_01A just app-test 2>&1 | tail -20")
+        );
+        // A neighbouring recipe is not the declared one.
+        assert_eq!(rewritten_in(&dir, "just app-test-build"), None);
+        // An id already set is left as it is.
+        assert_eq!(rewritten_in(&dir, "TUG_TOOL_USE_ID=x just app-test"), None);
+
+        // Without a plain id there is nothing to export, so nothing changes.
+        let runners = runners::for_cwd(dir.path().to_str());
+        for id in [None, Some("x; rm -rf /")] {
+            assert_eq!(
+                wrap_test_runner("just app-test", None, id, TUGTOOL, &runners),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn a_declared_head_shadows_the_built_in_it_equals() {
+        let dir =
+            project_declaring("[[tugtool.run.runner]]\nmatch = \"bun test\"\nunit = \"file\"\n");
+        assert_eq!(
+            rewritten_in(&dir, "bun test src").as_deref(),
+            Some("TUG_TOOL_USE_ID=toolu_01A bun test src")
+        );
+    }
+
+    #[test]
+    fn a_config_that_does_not_load_leaves_the_built_ins_alone() {
+        for config in [
+            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"pyunit\"\n",
+            "this is not toml = = =",
+        ] {
+            let dir = project_declaring(config);
+            assert_eq!(rewritten_in(&dir, "make check"), None, "{config}");
+            assert!(
+                rewritten_in(&dir, "cargo test")
+                    .unwrap()
+                    .contains("--kind cargo-test "),
+                "{config}"
+            );
+        }
     }
 
     #[test]

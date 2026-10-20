@@ -242,11 +242,38 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
         expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("composer clears after send");
         expect(await count(card, `${RUN_BLOCK} [data-slot="bash-live-band"]`), "no one-line band beside it").toBe(0);
 
+        // An older reporter still sends `wedged`: the deck reads it as
+        // `stalled`, and the panel says STALLED.
         await frame(app, {
           type: "run_progress",
           tool_use_id: RUN_ID,
           label: "app-test",
-          text: "2 passed, 1 failed, 1 wedged",
+          text: "at0352 WEDGED",
+          done: 3,
+          total: 4,
+          failures: 2,
+          unit: "file",
+          jobs: 2,
+          units: [
+            { name: "at0310-file-view-open", status: "pass", index: 0, passed: 2, total: 2, secs: 5, median: 5 },
+            { name: "at0339-composer-order-census", status: "fail", index: 1, passed: 1, total: 2, secs: 14,
+              median: 9, title: "composer clears after send", message: "data-empty wait timed out" },
+            { name: "at0352-pane-split-restore", status: "wedged", index: 2, secs: 120, median: 11 },
+            { name: "at0360-session-identity-menu", status: "pending", index: 3, median: 7 },
+          ],
+        });
+        const STALLED_RED = `${RUN_PANEL} [data-slot="tug-run-panel-red"][data-status="stalled"]`;
+        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(STALLED_RED)})`, {
+          timeoutMs: 10_000,
+        });
+        expect(await text(card, STALLED_RED), "the old word wears the new one").toContain("STALLED");
+        expect(await count(card, `${RUN_PANEL} .tug-run-panel-cell[data-status="stalled"]`)).toBe(1);
+
+        await frame(app, {
+          type: "run_progress",
+          tool_use_id: RUN_ID,
+          label: "app-test",
+          text: "2 passed, 1 failed, 1 stalled",
           done: 4,
           total: 4,
           failures: 2,
@@ -257,7 +284,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
             { name: "at0339-composer-order-census", status: "fail", index: 1, passed: 1, total: 2, secs: 14,
               median: 9, title: "composer clears after send", message: "data-empty wait timed out",
               history: "red in the last 7 recorded runs" },
-            { name: "at0352-pane-split-restore", status: "wedged", index: 2, secs: 120, median: 11,
+            { name: "at0352-pane-split-restore", status: "stalled", index: 2, secs: 120, median: 11,
               message: "stopped at its 120s cap" },
             { name: "at0360-session-identity-menu", status: "pass", index: 3, passed: 3, total: 3, secs: 7, median: 7 },
           ],
@@ -290,7 +317,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           { timeoutMs: 10_000 },
         );
         expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-verdict"]`)).toContain(
-          "1 of 4 files failed, 1 wedged",
+          "1 of 4 files failed, 1 stalled",
         );
         // Only the most recent red stands open; the earlier one is folded
         // under it, a tap away.

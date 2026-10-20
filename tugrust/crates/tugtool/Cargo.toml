@@ -30,6 +30,7 @@ toml.workspace = true
 glob.workspace = true
 chrono.workspace = true
 roxmltree.workspace = true
+regex.workspace = true
 tugcore.workspace = true
 tugtool-core.workspace = true
 tugarc-core.workspace = true

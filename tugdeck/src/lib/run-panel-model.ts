@@ -26,7 +26,7 @@ export type RunPanelState = "running" | "finished";
 
 /** A unit whose status is a red. */
 export function isRed(status: RunUnitStatus): boolean {
-  return status === "fail" || status === "error" || status === "wedged";
+  return status === "fail" || status === "error" || status === "stalled";
 }
 
 export interface RunLane {
@@ -45,7 +45,7 @@ export interface RunPanelModel {
   jobs: number | undefined;
   /** The rows, run order, with a finished run's leftovers resolved. */
   units: RunUnit[];
-  counts: { pass: number; red: number; fail: number; wedged: number; skipped: number; pending: number };
+  counts: { pass: number; red: number; fail: number; stalled: number; skipped: number; pending: number };
   /** One cell per unit, or a band. */
   track: "cells" | "band" | "none";
   /**
@@ -165,7 +165,7 @@ export function runPanelModel(
       pass,
       red,
       fail: count("fail") + count("error"),
-      wedged: count("wedged"),
+      stalled: count("stalled"),
       skipped: count("skipped"),
       pending: count("pending"),
     },
@@ -180,7 +180,7 @@ export function runPanelModel(
 }
 
 /**
- * The verdict band's sentence: `2 of 25 files failed, 1 wedged · 1 skipped`,
+ * The verdict band's sentence: `2 of 25 files failed, 1 stalled · 1 skipped`,
  * or `25 files passed`. A run that stopped short says how many never ran.
  */
 export function verdictSentence(m: RunPanelModel): string {
@@ -188,12 +188,12 @@ export function verdictSentence(m: RunPanelModel): string {
   const word = unitWord(m.unit, total);
   const parts: string[] = [];
   if (m.counts.red > 0) {
-    const failed = m.counts.red - m.counts.wedged;
+    const failed = m.counts.red - m.counts.stalled;
     const lead =
       failed > 0
         ? `${failed} of ${total} ${word} failed`
-        : `${m.counts.wedged} of ${total} ${word} wedged`;
-    parts.push(failed > 0 && m.counts.wedged > 0 ? `${lead}, ${m.counts.wedged} wedged` : lead);
+        : `${m.counts.stalled} of ${total} ${word} stalled`;
+    parts.push(failed > 0 && m.counts.stalled > 0 ? `${lead}, ${m.counts.stalled} stalled` : lead);
   } else {
     parts.push(`${m.counts.pass} ${unitWord(m.unit, m.counts.pass)} passed`);
   }

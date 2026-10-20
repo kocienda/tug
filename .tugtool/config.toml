@@ -43,6 +43,84 @@ audit_model = "opus"
 # it is 300000.
 # implement_compact_tokens = 300000
 
+# The commands the PreToolUse hook draws a run panel for, beside the runners
+# tugtool knows (`tugtool run runners` lists both). A row with a `kind` is
+# wrapped in `tugtool test run --kind <kind>`; a row with only a `unit` is a
+# command that reports itself, and the hook puts the call id in front of it
+# and nothing else, so its reports attach to the block exactly rather than by
+# needle.
+#
+# Every recipe below reports through `tugtool progress` (report-phase.sh, the
+# app-test recipe) or `tugtool test run`, or delegates to one that does. A
+# recipe that reports nothing gets no row: the id would have nobody to carry
+# it.
+#
+# Schema and refusals: Runner in tugtool-core/src/config.rs.
+
+[[tugtool.run.runner]]
+match = "just app-test"
+unit  = "file"
+
+[[tugtool.run.runner]]
+match = "just app-test-changed"
+unit  = "file"
+
+[[tugtool.run.runner]]
+match = "just app-test-build"
+unit  = "file"
+
+[[tugtool.run.runner]]
+match = "just app-test-all"
+unit  = "file"
+
+[[tugtool.run.runner]]
+match = "just app-test-smoke"
+unit  = "file"
+
+[[tugtool.run.runner]]
+match = "just build"
+unit  = "phase"
+
+[[tugtool.run.runner]]
+match = "just build-app"
+unit  = "phase"
+
+[[tugtool.run.runner]]
+match = "just app-debug"
+unit  = "phase"
+
+[[tugtool.run.runner]]
+match = "just app-release"
+unit  = "phase"
+
+[[tugtool.run.runner]]
+match = "just test"
+unit  = "test"
+
+[[tugtool.run.runner]]
+match = "just test-rust"
+unit  = "test"
+
+[[tugtool.run.runner]]
+match = "just test-ts"
+unit  = "test"
+
+[[tugtool.run.runner]]
+match = "just test-swift"
+unit  = "phase"
+
+[[tugtool.run.runner]]
+match = "just test-standalone"
+unit  = "phase"
+
+[[tugtool.run.runner]]
+match = "just golden"
+unit  = "phase"
+
+[[tugtool.run.runner]]
+match = "just tugmark-fuzz"
+unit  = "phase"
+
 # The surfaces this project is made of. `tugtool arc verify <arc>` resolves
 # every path an arc would land to the surface declaring the longest matching
 # path, refuses — naming them — when one resolves to no surface, and runs what

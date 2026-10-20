@@ -235,9 +235,15 @@ fn wall(secs: f64) -> String {
     }
 }
 
-/// `(fail) <file> › <name>`, then the message's first line beneath it.
+/// `(fail) <file> › <name>`, then the message's first line beneath it. A
+/// failure recorded from a runner's stream names no file, and is
+/// `(fail) <name>`.
 fn failure_lines(f: &test_ledger::JunitFailure) -> String {
-    let mut s = format!("(fail) {} › {}\n", f.file, f.name);
+    let mut s = if f.file.is_empty() {
+        format!("(fail) {}\n", f.name)
+    } else {
+        format!("(fail) {} › {}\n", f.file, f.name)
+    };
     if let Some(line) = f.message.lines().map(str::trim).find(|l| !l.is_empty()) {
         s.push_str(&format!("      {line}\n"));
     }
@@ -325,5 +331,27 @@ mod tests {
             render_last(&report, true),
             "no failures in the latest run of rust\n"
         );
+    }
+
+    /// pytest 9.1's `--junit-xml` document: one `<testsuite name="pytest">`
+    /// under `<testsuites>`, so its failures read as from one file named
+    /// `pytest` — the document names no other, and that is accepted.
+    #[test]
+    fn a_pytest_junit_document_is_read_as_one_file_named_pytest() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/runner-output/pytest-junit.xml");
+        let doc = read_junit(&path).expect("a pytest document reads");
+        assert_eq!((doc.tests, doc.failed, doc.skipped), (4, 1, 1));
+        assert_eq!(doc.failures.len(), 1);
+        assert_eq!(doc.failures[0].file, "pytest");
+        assert_eq!(doc.failures[0].name, "test_subtracts_wrong");
+        assert_eq!(doc.failures[0].message, "assert (2 - 1) == 0");
+    }
+
+    #[test]
+    fn a_failure_with_no_file_is_named_alone() {
+        let mut f = failure("tests::bad", "");
+        f.file = String::new();
+        assert_eq!(failure_lines(&f), "(fail) tests::bad\n");
     }
 }
