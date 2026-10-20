@@ -1,0 +1,129 @@
+/* spike-session-chooser.css — what the grouped Choose Session adds.
+
+   The sheet panel, header, picker body, filter, session rows, trash row and
+   actions are the shipped classes (`tug-sheet.css`, `session-card.css`); only
+   the rules below are new to the design, and they are what graduates into
+   `session-card.css` if it ships. Tokens only ([L15]); no gallery vocabulary
+   ([L16]). */
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.sp-sc-blurb {
+  margin: 0;
+  max-width: 72ch;
+  font-size: var(--tug-font-size-sm);
+  line-height: var(--tug-line-height-md);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The spike's own scaffolding: the sheet sits as it would on a card, centered
+   under a little air, and the spike content supplies the surface behind it so
+   the panel's overlay fill and border read as the real presentation. */
+.sp-sc-content {
+  background: var(--tug7-surface-global-primary-normal-default-rest);
+}
+
+.sp-sc-sheet {
+  margin-inline: 0;
+  /* The shipped panel reserves the bottom through a spacer the sheet mounts;
+     this static copy pads instead. */
+  padding-bottom: var(--tugx-sheet-space-b);
+  /* The real sheet caps itself against the canvas; inside a card the spike's
+     column scrolls, so the panel takes its content height. */
+  max-height: none;
+  overflow: visible;
+}
+
+/* ---- The list ------------------------------------------------------------
+   The shipped cap is 14.5rem, sized for one project's sessions under a path
+   field. The grouped list IS the sheet, so it takes a taller cap: ~8 session
+   rows at the 3.5rem floor plus two group bands, before it scrolls. */
+.sp-sc-list.session-card-picker-list-view.tug-list-view {
+  max-height: 34rem;
+}
+
+/* ---- The project band ---------------------------------------------------- */
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.sp-sc-group.tug-list-row {
+  --tugx-list-row-min-height: 3.25rem;
+  background: var(--tug7-surface-global-primary-normal-default-rest);
+  /* Two lines: the name, then the whole path. The chevron and the facts sit on
+     the NAME line rather than centering across both, so the band's first line
+     reads as one row of facts and the path hangs beneath it. */
+  align-items: flex-start;
+}
+
+.sp-sc-group.tug-list-row .tug-list-row-leading,
+.sp-sc-group.tug-list-row .tug-list-row-trailing {
+  /* The name line's box: its font size at the row's line height. */
+  min-height: calc(var(--tug-font-size-md) * 1.4);
+}
+
+/* A band that is folded sits a touch quieter than one that is open, so the
+   open group reads as the subject and the folded ones as the margin. */
+.sp-sc-group.tug-list-row[data-expanded="false"] .sp-sc-group-name {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-sc-group-chevron {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.sp-sc-group-name {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-md);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  white-space: nowrap;
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.sp-sc-group-path {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  margin-top: 2px;
+}
+
+.sp-sc-group-facts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-md);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.sp-sc-group-count {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- The New session row ---------------------------------------------------
+   The shipped sheet's New session row nudges its title toward the resume
+   rows' dot column by a little extra padding (`session-card.css`); the same
+   nudge here, since the row is the same row with the project in its name. */
+.session-card-picker-sessions-list .sp-sc-new.tug-list-row {
+  padding-inline-start: calc(
+    var(--tugx-list-row-padding-inline) + var(--tugx-list-row-indicator-gutter) +
+      var(--tug-space-xs)
+  );
+}
+
+.sp-sc-new .tug-list-row-title {
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* ---- The other-folder row ---------------------------------------------------
+   The door to the old path field and Browse. Quiet: it is the exception, not
+   the way in. */
+.sp-sc-other.tug-list-row .tug-list-row-leading {
+  color: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+.sp-sc-other .tug-list-row-title {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
