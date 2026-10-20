@@ -4,21 +4,20 @@ import XCTest
 // The host's half of the host vocabulary agrees with the page's: the parity
 // fixture the page's registry writes names the same messages `ToHostName`
 // lists, with the same shell-only set, every sample decodes, and every
-// refusal the page's codec makes on a typed message the host makes too. The
-// way back agrees the same way: the same `__tugBridge` members, every sample
-// decoding and re-encoding to itself, and the same calls the host awaits.
+// refusal the page's codec makes the host makes too. The way back agrees the
+// same way: the same `__tugBridge` members, every sample decoding and
+// re-encoding to itself, and the same calls the host awaits, each made with
+// a payload the page reads and answered with a reply the host reads.
 final class HostChannelTests: XCTestCase {
     private struct ToHostEntry {
         var name: String
         var from: String
-        var typed: Bool
         var samples: [Any]
         var refused: [Any]
     }
 
     private struct ToPageEntry {
         var member: String
-        var typed: Bool
         var samples: [Any]
         var refused: [Any]
     }
@@ -37,7 +36,6 @@ final class HostChannelTests: XCTestCase {
         return try rows.map { row in
             ToPageEntry(
                 member: try XCTUnwrap(row["member"] as? String),
-                typed: try XCTUnwrap(row["typed"] as? Bool),
                 samples: try XCTUnwrap(row["samples"] as? [Any]),
                 refused: try XCTUnwrap(row["refused"] as? [Any])
             )
@@ -50,7 +48,6 @@ final class HostChannelTests: XCTestCase {
             ToHostEntry(
                 name: try XCTUnwrap(row["name"] as? String),
                 from: try XCTUnwrap(row["from"] as? String),
-                typed: try XCTUnwrap(row["typed"] as? Bool),
                 samples: try XCTUnwrap(row["samples"] as? [Any]),
                 refused: try XCTUnwrap(row["refused"] as? [Any])
             )
@@ -97,10 +94,10 @@ final class HostChannelTests: XCTestCase {
         }
     }
 
-    func testEveryTypedRefusalIsRefused() throws {
-        let typed = try toHostEntries().filter(\.typed)
-        check("the fixture carries a typed message", !typed.isEmpty)
-        for entry in typed {
+    func testEveryRefusalIsRefused() throws {
+        let entries = try toHostEntries()
+        check("every message names a refusal", entries.allSatisfy { !$0.refused.isEmpty })
+        for entry in entries {
             for (i, value) in entry.refused.enumerated() {
                 let decoded = ToHost.decode(name: entry.name, data: try json(value))
                 if case .success = decoded {
@@ -113,16 +110,6 @@ final class HostChannelTests: XCTestCase {
     func testABodyThatIsNotJSONIsRefused() {
         let decoded = ToHost.decode(name: "openPath", data: Data("not json".utf8))
         guard case .failure(.notJSON) = decoded else { return XCTFail("\(decoded)") }
-    }
-
-    func testATypedMessageThatIsNotJSONIsRefusedAsNotJSON() {
-        let decoded = ToHost.decode(name: "cardPlan", data: Data("not json".utf8))
-        guard case .failure(.notJSON) = decoded else { return XCTFail("\(decoded)") }
-    }
-
-    func testALooseObjectMessageRefusesAString() {
-        let decoded = ToHost.decode(name: "openPath", data: Data(#""c1""#.utf8))
-        guard case .failure(.notObject) = decoded else { return XCTFail("\(decoded)") }
     }
 
     func testAnUnknownNameIsRefused() {
@@ -167,10 +154,10 @@ final class HostChannelTests: XCTestCase {
         }
     }
 
-    func testEveryTypedToPageRefusalIsRefused() throws {
-        let typed = try toPageEntries().filter(\.typed)
-        check("the fixture carries a typed member", !typed.isEmpty)
-        for entry in typed {
+    func testEveryToPageRefusalIsRefused() throws {
+        let entries = try toPageEntries()
+        check("every member names a refusal", entries.allSatisfy { !$0.refused.isEmpty })
+        for entry in entries {
             for (i, value) in entry.refused.enumerated() {
                 if case .success = ToPage.decode(member: entry.member, data: try json(value)) {
                     check("\(entry.member) refused \(i) is refused", false)
@@ -179,15 +166,22 @@ final class HostChannelTests: XCTestCase {
         }
     }
 
-    func testTheTypedMembersAreThePagesTypedMembers() throws {
-        for entry in try toPageEntries() {
-            guard let member = ToPageMember(rawValue: entry.member) else { continue }
-            check("\(entry.member) is typed exactly when the page types it", member.typed == entry.typed)
+    func testAFieldThePageReadsAsValueOrNullIsWrittenAsNull() throws {
+        func object(_ message: ToPage) throws -> [String: Any] {
+            let json = try XCTUnwrap(message.payloadJSON())
+            return try XCTUnwrap(try JSONSerialization.jsonObject(with: json) as? [String: Any])
         }
-    }
-
-    func testATypedMemberIsNotMadeLoose() {
-        check("a typed member's payload is never built loose", ToPage.make(.onBodyState, ["state": "ready"]) == nil)
+        check("no source tree", try object(.settingsLoaded(SettingsLoaded(makerMode: false, sourceTree: nil)))["sourceTree"] is NSNull)
+        check("a dismissed picker", try object(.pathChosen(PathChosen(id: "p1", path: nil)))["path"] is NSNull)
+        check("no thumbnail", try object(.thumbnail(Thumbnail(requestId: "t1", dataUrl: nil)))["dataUrl"] is NSNull)
+        let layer = HostFrameReading.Layer(samples: [], active: [], activeTicks: 0, advancedRatio: nil, worstStillMs: 0)
+        let reading = HostFrameReading(
+            summary: FrameMeterStats.summarize(timestampsMs: [], periodMs: 8, windowStartMs: 0, windowEndMs: 16),
+            armedWallMs: 0, tickMs: [], samples: nil, layers: ["c1": layer]
+        )
+        let sent = try object(.hostFrames(HostFramesReply(requestId: "f1", reading: reading)))
+        let layers = try XCTUnwrap((sent["reading"] as? [String: Any])?["layers"] as? [String: Any])
+        check("a layer with no active ticks", (layers["c1"] as? [String: Any])?["advancedRatio"] is NSNull)
     }
 
     func testASnapCarriesTheAxisThatDidNotSnapAsNull() throws {
@@ -243,9 +237,55 @@ final class HostChannelTests: XCTestCase {
               Set(made.map { "\($0.receiver).\($0.member)" }) == hostCalls)
     }
 
+    /// The fixture's page-call row for `member`.
+    private func pageCallRow(_ member: String) throws -> [String: Any] {
+        let rows = try XCTUnwrap(try fixture()["pageCalls"] as? [[String: Any]])
+        return try XCTUnwrap(rows.first { $0["member"] as? String == member }, "no row for \(member)")
+    }
+
+    func testEveryPageCallIsMadeWithAPayloadThePageReads() throws {
+        let made: [PageCall] = [.saveState, .prepareForTermination, .reauthenticate(token: "t0k3n"), .pageZoomApply(factor: 1.25)]
+        for call in made {
+            let samples = try XCTUnwrap(try pageCallRow(call.member)["samples"] as? [Any])
+            let sent = try JSONSerialization.jsonObject(with: try XCTUnwrap(call.payloadJSON()), options: [.fragmentsAllowed])
+            check("\(call.member)'s payload is one of the page's samples",
+                  samples.contains { NSDictionary(dictionary: ["v": $0]).isEqual(to: ["v": sent]) }, "\(sent)")
+        }
+    }
+
+    func testEveryPageCallReplyIsReadAndEveryRefusedReplyIsRefused() throws {
+        for (receiver, member) in PageCall.declared {
+            let row = try pageCallRow(member)
+            let replies = try XCTUnwrap(row["replies"] as? [Any])
+            let refused = try XCTUnwrap(row["refusedReplies"] as? [Any])
+            check("\(receiver).\(member) names a reply and a refused reply", !replies.isEmpty && !refused.isEmpty)
+            for (i, reply) in replies.enumerated() {
+                if case .failure(let error) = PageReply.decode(member: member, data: try json(reply)) {
+                    check("\(member) reply \(i) is read", false, error.description)
+                }
+            }
+            for (i, value) in refused.enumerated() {
+                if case .success = PageReply.decode(member: member, data: try json(value)) {
+                    check("\(member) refused reply \(i) is refused", false)
+                }
+            }
+        }
+    }
+
+    func testAPageThatAnswersNothingAnswersNothing() {
+        guard case .success(.nothing) = PageReply.decode(member: "prepareForTermination", data: Data("null".utf8)) else {
+            return XCTFail("a call with no member to answer it is not nothing")
+        }
+        let verdict = #"{"ok":true,"interrupted":["s1"],"unacknowledged":[],"flushedCards":2,"failedCards":[],"layoutSaved":true,"elapsedMs":12.5}"#
+        guard case .success(.verdict(let read)) = PageReply.decode(member: "prepareForTermination", data: Data(verdict.utf8)) else {
+            return XCTFail("the verdict does not decode")
+        }
+        check("the verdict's fields", read.interrupted == ["s1"] && read.flushedCards == 2 && read.elapsedMs == 12.5)
+    }
+
     func testAScriptCarriesQuotesAndLineSeparatorsIntact() throws {
         let text = "it's \"quoted\"\u{2028}and\u{2029}split\\ here\n"
-        let message = ToPage.loose(.onClipboardRead, .object(["requestId": .string("clip-1"), "text": .string(text)]))
+        let message = ToPage.clipboardRead(ClipboardContents(requestId: "clip-1", text: text, html: "", atoms: ""))
         let script = try XCTUnwrap(message.script())
         let context = try XCTUnwrap(JSContext())
         context.evaluateScript("var received = null; var window = { __tugBridge: { onClipboardRead: function (p) { received = p; } } };")

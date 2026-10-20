@@ -746,6 +746,15 @@ export interface MenuStatePayload {
 }
 
 /**
+ * What a body page posts as `menuState`: the key card's blocks alone
+ * ({@link bodyMenuPayload}). The deck's facts are the shell's.
+ */
+export type MenuStateBodyPayload = Pick<
+  MenuStatePayload,
+  "session" | "file" | "document" | "edit" | "commands"
+>;
+
+/**
  * Project the deck store snapshot into the menu-relevant shape.
  *
  * `spaces` is the second input because the level above the deck is not IN the
@@ -1312,7 +1321,7 @@ export class HostMenuStatePublisher {
 }
 
 /** Production sink: post to the Swift host; nothing outside a WKWebView (browser dev mode). */
-function postMenuState(payload: MenuStatePayload): void {
+function postMenuState(payload: MenuStatePayload | MenuStateBodyPayload): void {
   postToHost(menuStateToHost, payload);
 }
 
@@ -1499,10 +1508,7 @@ const DECK_COUNT_MENU_ITEMS: ReadonlySet<string> = new Set(
  * session, file and document blocks still ride, as the shell's do for the
  * frontmost card.
  */
-export function bodyMenuPayload(payload: MenuStatePayload): Pick<
-  MenuStatePayload,
-  "session" | "file" | "document" | "edit" | "commands"
-> {
+export function bodyMenuPayload(payload: MenuStatePayload): MenuStateBodyPayload {
   const keyed = payload.selectionActive;
   const commands: Record<string, MenuCommandGate> = {};
   if (keyed) {
@@ -1541,7 +1547,7 @@ export function applyShellMenuFacts(menu: DeckMenuValue): void {
  */
 export function initBodyHostMenuState(deck: CardDeck, view: DeckView | null): void {
   const publisher = new HostMenuStatePublisher(
-    (payload) => postMenuState(bodyMenuPayload(payload) as MenuStatePayload),
+    (payload) => postMenuState(bodyMenuPayload(payload)),
     scheduleAfterPaint,
   );
   activePublisher = publisher;

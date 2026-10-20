@@ -115,84 +115,95 @@ final class DictationStateTests: XCTestCase {
     }
 
     func testTheWireShape() {
-        let keys = { (event: DictationEvent) -> [String] in event.jsonObject.keys.sorted() }
+        let keys = { (event: DictationEvent) -> [String] in self.wire(event).keys.sorted() }
 
         check(
             "preparing carries only id and kind",
-            keys(DictationEvent.plain("d1", .preparing)) == ["id", "kind"]
+            keys(.preparing(id: "d1")) == ["id", "kind"]
         )
         check(
             "ready carries only id and kind",
-            keys(DictationEvent.plain("d1", .ready)) == ["id", "kind"]
+            keys(.ready(id: "d1")) == ["id", "kind"]
         )
         check(
             "the kind crosses as its wire string",
-            DictationEvent.plain("d1", .ready).jsonObject["kind"] as? String == "ready"
+            wire(.ready(id: "d1"))["kind"] as? String == "ready"
         )
-        check("the id crosses", DictationEvent.plain("d1", .ready).jsonObject["id"] as? String == "d1")
+        check("the id crosses", wire(.ready(id: "d1"))["id"] as? String == "d1")
 
-        let volatileEvent = DictationEvent.text("d1", .volatile, "hel")
+        let volatileEvent = DictationEvent.volatile(id: "d1", text: "hel")
         check("volatile carries text", keys(volatileEvent) == ["id", "kind", "text"])
-        check("and the text is it", volatileEvent.jsonObject["text"] as? String == "hel")
+        check("and the text is it", wire(volatileEvent)["text"] as? String == "hel")
 
-        let finalEvent = DictationEvent.text("d1", .final, "hello world")
+        let finalEvent = DictationEvent.final(id: "d1", text: "hello world")
         check("final carries text", keys(finalEvent) == ["id", "kind", "text"])
-        check("final's kind is final", finalEvent.jsonObject["kind"] as? String == "final")
+        check("final's kind is final", wire(finalEvent)["kind"] as? String == "final")
+        check(
+            "the reducer's output picks the case",
+            DictationEvent.transcript("d1", .volatile("hel")) == volatileEvent
+                && DictationEvent.transcript("d1", .final("hello world")) == finalEvent
+        )
 
-        let ended = DictationEvent.ended("d1", .stopped)
+        let ended = DictationEvent.ended(id: "d1", reason: .stopped)
         check("ended carries a reason", keys(ended) == ["id", "kind", "reason"])
-        check("and no text", ended.jsonObject["text"] == nil)
-        check("the reason is the wire string", ended.jsonObject["reason"] as? String == "stopped")
+        check("and no text", wire(ended)["text"] == nil)
+        check("the reason is the wire string", wire(ended)["reason"] as? String == "stopped")
         check(
             "a hyphenated reason keeps its hyphen",
-            DictationEvent.ended("d1", .deviceLost).jsonObject["reason"] as? String == "device-lost"
+            wire(.ended(id: "d1", reason: .deviceLost))["reason"] as? String == "device-lost"
         )
 
-        let endedWithMessage = DictationEvent.ended("d1", .error, message: "the tap fell over")
+        let endedWithMessage = DictationEvent.ended(id: "d1", reason: .error, message: "the tap fell over")
         check(
             "an ended error carries its message",
             keys(endedWithMessage) == ["id", "kind", "message", "reason"]
         )
         check(
             "and the message is it",
-            endedWithMessage.jsonObject["message"] as? String == "the tap fell over"
+            wire(endedWithMessage)["message"] as? String == "the tap fell over"
         )
 
-        let refused = DictationEvent.refused("d1", .microphonePermission)
+        let refused = DictationEvent.refused(id: "d1", reason: .microphonePermission)
         check("refused carries a reason", keys(refused) == ["id", "kind", "reason"])
         check(
             "the refusal is the wire string",
-            refused.jsonObject["reason"] as? String == "microphone-permission"
+            wire(refused)["reason"] as? String == "microphone-permission"
         )
         check(
             "a one-word refusal has no hyphen to keep",
-            DictationEvent.refused("d1", .unavailable).jsonObject["reason"] as? String == "unavailable"
+            wire(.refused(id: "d1", reason: .unavailable))["reason"] as? String == "unavailable"
         )
 
-        let refusedWithMessage = DictationEvent.refused("d1", .error, message: "no such locale")
+        let refusedWithMessage = DictationEvent.refused(id: "d1", reason: .error, message: "no such locale")
         check(
             "a refused error carries its message",
             keys(refusedWithMessage) == ["id", "kind", "message", "reason"]
         )
 
         check(
-            "level is a kind, not something we send",
-            DictationEvent.plain("d1", .level).jsonObject["level"] == nil
+            "the reserved level carries only its level",
+            keys(.level(id: "d1", level: 0.4)) == ["id", "kind", "level"]
         )
     }
 
     func testThePayloadCrossesTheWire() {
-        let event = DictationEvent.text("d1", .final, "quotes \" and \\ and a newline\n")
-        guard let data = try? JSONSerialization.data(withJSONObject: event.jsonObject),
-            let round = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
+        let event = DictationEvent.final(id: "d1", text: "quotes \" and \\ and a newline\n")
+        guard let data = try? JSONEncoder().encode(event) else {
             check("awkward text serializes", false)
             return
         }
         check("awkward text serializes", true)
         check(
             "and survives the round trip",
-            round["text"] as? String == "quotes \" and \\ and a newline\n"
+            (try? JSONDecoder().decode(DictationEvent.self, from: data)) == event
         )
+    }
+
+    /// The event as it crosses to the deck: encoded, then read back as JSON.
+    /// Empty when it does not encode.
+    private func wire(_ event: DictationEvent) -> [String: Any] {
+        guard let data = try? JSONEncoder().encode(event),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return object
     }
 }

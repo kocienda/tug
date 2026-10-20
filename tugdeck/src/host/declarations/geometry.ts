@@ -120,7 +120,6 @@ const SAMPLE_RECT = { x: 121, y: 96, width: 398, height: 483 };
 export const placeCardsToHost = defineToHost<PlaceCards>({
   name: "placeCards",
   from: "shell",
-  typed: true,
   codec: placeCardsCodec,
   samples: [
     {
@@ -199,7 +198,6 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
 export const cardGestureToHost = defineToHost<CardGestureBegin>({
   name: "cardGesture",
   from: "body",
-  typed: true,
   codec: cardGestureBeginCodec,
   samples: [
     { phase: "begin", kind: "move", x: 140, y: 12, meta: false, alt: false },
@@ -220,7 +218,6 @@ export const cardGestureToHost = defineToHost<CardGestureBegin>({
 export const cardPlanToHost = defineToHost<CardPlan>({
   name: "cardPlan",
   from: "shell",
-  typed: true,
   codec: cardPlanCodec,
   samples: [
     {
@@ -302,7 +299,6 @@ const gestureReport: CardGestureReport = {
 export const cardGestureToPage = defineToPage<CardGestureReport>({
   member: "onCardGesture",
   to: "shell",
-  typed: true,
   codec: gestureReportCodec,
   samples: [
     gestureReport,
@@ -316,7 +312,6 @@ export const cardGestureToPage = defineToPage<CardGestureReport>({
 export const cardInsetsToPage = defineToPage<CardInsets>({
   member: "onCardInsets",
   to: "body",
-  typed: true,
   codec: cardInsets,
   samples: [{ top: 6, right: 6.5, bottom: 6, left: 6 }],
   refused: [28, { top: 6, right: 6, bottom: 6 }],
@@ -336,7 +331,6 @@ export interface BodyCrossing {
 export const bodyCrossingToPage = defineToPage<BodyCrossing>({
   member: "onBodyCrossing",
   to: "body",
-  typed: true,
   codec: obj({
     phase: literal("begin", "land"),
     width: optional(num),

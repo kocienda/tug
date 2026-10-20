@@ -2,15 +2,15 @@
  * Page lifecycle: a page saying it is connected, ready, painted or faulted,
  * and the shell making, focusing and destroying bodies.
  *
- * The messages a body's life is told in are typed field by field ([B02]),
- * as the placement messages are; the launch's own (`frontendLaunchStalled`,
- * `pageFault`, `hmrUpdate`) and the calls into `window.tugdeck` are loose.
+ * Every message is typed field by field, as the placement messages are, and
+ * so are the calls into `window.tugdeck` and their replies.
  *
  * @module host/declarations/lifecycle
  */
 
-import { bool, empty, literal, nullable, num, obj, opaque, optional, str, type Codec } from "../../bus/codec";
-import { defineToHost, definePageCall, defineToPage, looseObject, looseReply } from "../declare";
+import { arr, bool, empty, literal, nullable, num, obj, opaque, optional, str, type Codec } from "../../bus/codec";
+import { defineToHost, definePageCall, defineToPage, noReply } from "../declare";
+import type { TerminationVerdict } from "../../teardown";
 
 /** A JSON object carried as is: a body's intent, which `parseBodyIntent` reads in the body. */
 const jsonObject: Codec<Record<string, unknown>> = opaque(
@@ -31,7 +31,6 @@ const rgbaBytes: Codec<number[]> = opaque(
 export const bodyHelloToHost = defineToHost({
   name: "bodyHello",
   from: "body",
-  typed: true,
   codec: empty,
   samples: [{}],
   refused: [true],
@@ -40,7 +39,6 @@ export const bodyHelloToHost = defineToHost({
 export const paintedToHost = defineToHost({
   name: "painted",
   from: "body",
-  typed: true,
   codec: empty,
   samples: [{}],
   refused: [true],
@@ -50,7 +48,6 @@ export const paintedToHost = defineToHost({
 export const frontendReadyToHost = defineToHost({
   name: "frontendReady",
   from: "any",
-  typed: true,
   codec: empty,
   samples: [{}],
   refused: [true],
@@ -59,18 +56,24 @@ export const frontendReadyToHost = defineToHost({
 export const frontendLaunchStalledToHost = defineToHost({
   name: "frontendLaunchStalled",
   from: "shell",
-  codec: looseObject({ waitingOn: "wasm" }),
+  codec: obj({ waitingOn: str }),
   samples: [{ waitingOn: "wasm" }],
-  refused: ["wasm"],
+  refused: ["wasm", {}],
 });
 
-/** Posted only by `PageFaultScript`'s injected script, which no TypeScript module writes. */
+/**
+ * Posted only by `PageFaultScript`'s injected script, which no TypeScript
+ * module writes: what faulted, its text, and where (`""` when it said nowhere).
+ */
 export const pageFaultToHost = defineToHost({
   name: "pageFault",
   from: "any",
-  codec: looseObject({ kind: "error", message: "", source: "" }),
-  samples: [{ kind: "error", message: "TypeError: x is undefined", source: "main.tsx:12" }],
-  refused: ["fault"],
+  codec: obj({ kind: literal("error", "resource", "unhandledrejection", "console.error"), message: str, source: str }),
+  samples: [
+    { kind: "error", message: "TypeError: x is undefined", source: "main.tsx:12" },
+    { kind: "console.error", message: "it's \"broken\"\nagain", source: "" },
+  ],
+  refused: ["fault", { kind: "error", message: "x" }, { kind: "warning", message: "x", source: "" }],
 });
 
 /** The page's own surface as sRGB bytes, or null when it paints none. */
@@ -83,7 +86,6 @@ const bodySurfaceCodec: Codec<BodySurface> = obj({ surface: nullable(rgbaBytes) 
 export const crossingReadyToHost = defineToHost<BodySurface>({
   name: "crossingReady",
   from: "body",
-  typed: true,
   codec: bodySurfaceCodec,
   samples: [{ surface: [28, 30, 34, 255] }, { surface: null }],
   refused: [[28, 30, 34, 255], {}, { surface: [28, 30, 34] }],
@@ -92,7 +94,6 @@ export const crossingReadyToHost = defineToHost<BodySurface>({
 export const bodySurfaceToHost = defineToHost<BodySurface>({
   name: "bodySurface",
   from: "body",
-  typed: true,
   codec: bodySurfaceCodec,
   samples: [{ surface: [28, 30, 34, 255] }, { surface: null }],
   refused: [[28, 30, 34, 255], { surface: [28, 30, 34, 256] }],
@@ -108,7 +109,6 @@ export interface BodyCreate {
 export const bodyCreateToHost = defineToHost<BodyCreate>({
   name: "bodyCreate",
   from: "shell",
-  typed: true,
   codec: obj({ cardId: str, componentId: str, intent: jsonObject }),
   samples: [{ cardId: "c1", componentId: "text", intent: { kind: "mount" } }],
   refused: ["c1", { cardId: "c1", intent: { kind: "mount" } }, { cardId: "c1", componentId: "text", intent: "mount" }],
@@ -123,7 +123,6 @@ export interface BodyDestroy {
 export const bodyDestroyToHost = defineToHost<BodyDestroy>({
   name: "bodyDestroy",
   from: "shell",
-  typed: true,
   codec: obj({ cardId: str, save: bool }),
   samples: [{ cardId: "c1", save: false }],
   refused: ["c1", { cardId: "c1" }],
@@ -137,7 +136,6 @@ export interface BodyFocus {
 export const bodyFocusToHost = defineToHost<BodyFocus>({
   name: "bodyFocus",
   from: "shell",
-  typed: true,
   codec: obj({ cardId: nullable(str) }),
   samples: [{ cardId: "c1" }, { cardId: null }],
   refused: [null, { cardId: 7 }],
@@ -146,7 +144,7 @@ export const bodyFocusToHost = defineToHost<BodyFocus>({
 export const hmrUpdateToHost = defineToHost({
   name: "hmrUpdate",
   from: "shell",
-  codec: looseObject({}),
+  codec: empty,
   samples: [{}],
   refused: [true],
 });
@@ -181,7 +179,6 @@ const bind: BodyBind = {
 export const bodyBindToPage = defineToPage<BodyBind>({
   member: "onBodyBind",
   to: "body",
-  typed: true,
   codec: obj({
     cardId: str,
     componentId: str,
@@ -212,7 +209,6 @@ export interface BodyStateReport {
 export const bodyStateToPage = defineToPage<BodyStateReport>({
   member: "onBodyState",
   to: "shell",
-  typed: true,
   codec: obj({
     cardId: str,
     state: literal("ready", "painted", "landed", "beatsCancelled", "failed", "terminated"),
@@ -239,8 +235,22 @@ export const saveStateCall = definePageCall({
   receiver: "tugdeck",
   member: "saveState",
   codec: empty,
-  replyCodec: looseReply(null),
+  replyCodec: noReply,
   samples: [{}],
+  refused: [true],
+  replies: [null],
+  refusedReplies: [true, {}],
+});
+
+/** A page's account of its half of a quit, which the host logs. */
+const terminationVerdict: Codec<TerminationVerdict> = obj({
+  ok: bool,
+  interrupted: arr(str),
+  unacknowledged: arr(str),
+  flushedCards: num,
+  failedCards: arr(str),
+  layoutSaved: bool,
+  elapsedMs: num,
 });
 
 /** The page's half of a quit; its reply is the verdict the host logs. */
@@ -248,15 +258,28 @@ export const prepareForTerminationCall = definePageCall({
   receiver: "tugdeck",
   member: "prepareForTermination",
   codec: empty,
-  replyCodec: looseReply({ ok: true }),
+  replyCodec: terminationVerdict,
   samples: [{}],
+  refused: [true],
+  replies: [
+    { ok: true, interrupted: [], unacknowledged: [], flushedCards: 3, failedCards: [], layoutSaved: true, elapsedMs: 41.5 },
+    { ok: false, interrupted: ["s1"], unacknowledged: ["s2"], flushedCards: 1, failedCards: ["c2"], layoutSaved: true, elapsedMs: 3500 },
+  ],
+  refusedReplies: [
+    { ok: true },
+    "ok",
+    { ok: true, interrupted: [], unacknowledged: [], flushedCards: "3", failedCards: [], layoutSaved: true, elapsedMs: 41.5 },
+  ],
 });
 
 /** Tugcast restarted: take its new session cookie and reconnect. */
 export const reauthenticateCall = definePageCall({
   receiver: "tugdeck",
   member: "reauthenticate",
-  codec: looseObject({ token: "t0k3n" }),
-  replyCodec: looseReply(null),
+  codec: obj({ token: str }),
+  replyCodec: noReply,
   samples: [{ token: "t0k3n" }],
+  refused: ["t0k3n", {}, { token: 7 }],
+  replies: [null],
+  refusedReplies: [true],
 });

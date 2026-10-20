@@ -230,6 +230,13 @@ describe("clampScale and steppedScale", () => {
     expect(steppedScale(1.1, -1)).toBe(1);
   });
 
+  test("a scale a hair from a stop steps past it, not onto it", () => {
+    // A fit-width scale of 1.2496 is the 1.25 stop to the eye; stepping onto
+    // it would be a Zoom In that moves nothing.
+    expect(steppedScale(1.2496, 1)).toBe(1.5);
+    expect(steppedScale(1.0004, -1)).toBe(0.75);
+  });
+
   test("stepping past either end of the ladder stops at the bound", () => {
     expect(steppedScale(PDF_MAX_SCALE, 1)).toBe(PDF_MAX_SCALE);
     expect(steppedScale(0.25, -1)).toBe(PDF_MIN_SCALE);

@@ -675,7 +675,7 @@ final class TestHarnessConnection {
                     self.respondError(id: id, name: "ProtocolError", message: "captureBurst: nothing armed")
                     return
                 }
-                self.respond(id: id, ok: true, payload: ["value": burst.read()])
+                self.respond(id: id, ok: true, payload: ["value": burst.read().harnessJSON])
             default:
                 self.respondError(id: id, name: "ProtocolError", message: "captureBurst: op must be 'arm' or 'read'")
             }
@@ -776,7 +776,7 @@ final class TestHarnessConnection {
                 mainWindow.hostFrameMeter.arm(windowMs: windowMs, sampling: layer)
                 self.respond(id: id, ok: true, payload: ["value": ["armed": true, "windowMs": windowMs]])
             case "read":
-                self.respond(id: id, ok: true, payload: ["value": mainWindow.hostFrameMeter.read()])
+                self.respond(id: id, ok: true, payload: ["value": mainWindow.hostFrameMeter.read().harnessJSON])
             default:
                 self.respondError(id: id, name: "ProtocolError", message: "hostFrames: op must be 'arm' or 'read'")
             }
@@ -1622,6 +1622,28 @@ final class TestHarnessConnection {
         tugcodeLifecycle.stop()
         fileHandle.readabilityHandler = nil
         fileHandle.closeFile()
+    }
+}
+
+// MARK: - The host frame reading
+
+extension HostFrameReading {
+    /// The reading as a harness response carries it: what it encodes for the
+    /// page's `onHostFrames`, read back as Foundation values, so the harness's
+    /// `hostFrames` verb and the page's reply are one shape.
+    var harnessJSON: Any {
+        guard let data = try? JSONEncoder().encode(self),
+              let object = try? JSONSerialization.jsonObject(with: data) else { return NSNull() }
+        return object
+    }
+}
+
+extension CaptureBurst.Reading {
+    /// The reading as a harness response carries it, read back as Foundation values.
+    var harnessJSON: Any {
+        guard let data = try? JSONEncoder().encode(self),
+              let object = try? JSONSerialization.jsonObject(with: data) else { return NSNull() }
+        return object
     }
 }
 

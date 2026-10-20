@@ -144,21 +144,10 @@ extension HostChannel {
         }
     }
 
-    /// Deliver `member` carrying `value`, a Foundation value built for it
-    /// (`ToPage.make`). A value that is not JSON, or not what the member
-    /// carries, is logged and not sent.
-    func send(_ member: ToPageMember, _ value: Any, to webView: WKWebView, completion: (() -> Void)? = nil) {
-        guard let message = ToPage.make(member, value) else {
-            TugLog.warn("host", "not a payload its member carries", [TugLog.field("member", member.rawValue)])
-            completion?()
-            return
-        }
-        send(message, to: webView, completion: completion)
-    }
-
     /// Make `call` in the page in `webView` and await its reply. A page with
-    /// no such member answers `.null`.
-    func call(_ call: PageCall, in webView: WKWebView, completion: ((Result<JSONValue, Error>) -> Void)? = nil) {
+    /// no such member answers `.nothing`; a reply that does not decode is
+    /// logged and fails as its `HostDecodeError`.
+    func call(_ call: PageCall, in webView: WKWebView, completion: ((Result<PageReply, Error>) -> Void)? = nil) {
         guard let source = call.source() else {
             TugLog.warn("host", "could not render a call", [TugLog.field("member", call.member)])
             completion?(.failure(HostDecodeError.typed("could not render \(call.member)")))
@@ -167,7 +156,19 @@ extension HostChannel {
         webView.callAsyncJavaScript(source, arguments: [:], in: nil, in: .page) { result in
             switch result {
             case .success(let value):
-                completion?(.success(JSONValue(any: value) ?? .null))
+                // WebKit hands the reply over as Foundation values; anything
+                // that is not JSON is no reply at all.
+                let data = (try? JSONEncoder().encode(JSONValue(any: value) ?? .null)) ?? Data("null".utf8)
+                switch PageReply.decode(member: call.member, data: data) {
+                case .success(let reply):
+                    completion?(.success(reply))
+                case .failure(let error):
+                    TugLog.warn("host", "refused a reply", [
+                        TugLog.field("member", call.member),
+                        TugLog.field("reason", error.description),
+                    ])
+                    completion?(.failure(error))
+                }
             case .failure(let error):
                 TugLog.warn("host", "call failed", [
                     TugLog.field("member", call.member),

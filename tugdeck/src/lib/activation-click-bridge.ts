@@ -32,10 +32,5 @@ export function installActivationClickBridge(): void {
   installHostChannel();
   if (installed) return;
   installed = true;
-  onHostMessage(activationClickToPage, (payload) => {
-    const { x, y } = payload as { x?: unknown; y?: unknown };
-    if (typeof x !== "number" || typeof y !== "number") return;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    activateAtViewportPoint(x, y);
-  });
+  onHostMessage(activationClickToPage, ({ x, y }) => activateAtViewportPoint(x, y));
 }

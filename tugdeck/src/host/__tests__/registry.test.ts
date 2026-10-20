@@ -3,7 +3,7 @@
  * outside `src/host/declarations/`, everything declared there is listed in
  * `host/registry.ts`, names are unique per direction, and every codec admits
  * its samples and refuses its refused samples — page→host messages,
- * host→page members and the calls the host awaits alike.
+ * host→page members, the calls the host awaits and their replies alike.
  *
  * @covers tugdeck/src/host/declare.ts
  * @covers tugdeck/src/host/registry.ts
@@ -22,19 +22,15 @@ interface Conformance {
   codec: Codec<unknown>;
   samples: readonly unknown[];
   refused: readonly unknown[];
-  typed: boolean;
 }
 
 const ALL: readonly Conformance[] = [
-  ...TO_HOST.map((d) => ({ name: d.name, codec: d.codec, samples: d.samples, refused: d.refused, typed: d.typed })),
-  ...TO_PAGE.map((d) => ({ name: d.member, codec: d.codec, samples: d.samples, refused: d.refused, typed: d.typed })),
-  ...PAGE_CALLS.map((d) => ({
-    name: `${d.receiver}.${d.member}`,
-    codec: d.codec,
-    samples: d.samples,
-    refused: [],
-    typed: false,
-  })),
+  ...TO_HOST.map((d) => ({ name: d.name, codec: d.codec, samples: d.samples, refused: d.refused })),
+  ...TO_PAGE.map((d) => ({ name: d.member, codec: d.codec, samples: d.samples, refused: d.refused })),
+  ...PAGE_CALLS.flatMap((d) => [
+    { name: `${d.receiver}.${d.member}`, codec: d.codec, samples: d.samples, refused: d.refused },
+    { name: `${d.receiver}.${d.member} reply`, codec: d.replyCodec, samples: d.replies, refused: d.refusedReplies },
+  ]),
 ];
 
 const SRC = join(import.meta.dir, "..", "..");
@@ -124,7 +120,7 @@ describe("the host registry", () => {
     expect(admitted).toEqual([]);
   });
 
-  test("a typed declaration names what it refuses", () => {
-    expect(ALL.filter((d) => d.typed && d.refused.length === 0).map((d) => d.name)).toEqual([]);
+  test("every declaration names what it refuses", () => {
+    expect(ALL.filter((d) => d.refused.length === 0).map((d) => d.name)).toEqual([]);
   });
 });

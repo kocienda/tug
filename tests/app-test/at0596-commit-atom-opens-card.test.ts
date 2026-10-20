@@ -203,18 +203,12 @@ describe.skipIf(!SHOULD_RUN)("at0596 — a click on a commit atom opens its card
             { timeoutMs: 15_000 },
           );
 
-          // The masthead is the shell's pane chrome; the card is its own page.
-          // The pane is found through the deck's record of which pane holds
-          // the commit card, and the masthead is waited for, since the shell's
-          // chrome commits a beat after the body's document stands.
-          const masthead = await app.waitForCondition<string>(
+          // The Commit card draws its own chrome, masthead included, in its
+          // page. The masthead is waited for, since the chrome commits a beat
+          // after the card's document stands.
+          const masthead = await kindBody(app, "commit").waitForCondition<string>(
             `(() => {
-               const s = window.tugdeck.diag.getDeckState();
-               const card = s.cards.find((c) => c.componentId === "commit");
-               const pane = card === undefined ? undefined : s.panes.find((p) => p.cardIds.includes(card.id));
-               const el = pane === undefined
-                 ? null
-                 : document.querySelector('.tug-pane[data-pane-id="' + pane.id + '"] [data-testid="commit-masthead"]');
+               const el = document.querySelector('[data-testid="commit-masthead"]');
                const text = el === null ? "" : el.innerText.replace(/\\s+/g, " ").trim();
                return text === "" ? false : text;
              })()`,

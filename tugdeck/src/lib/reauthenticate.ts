@@ -11,10 +11,8 @@
  */
 
 /** Take the restarted tugcast's cookie for `payload.token`, then reconnect. */
-export function reauthenticate(payload: object, connection: { forceReconnect(): void }): null {
-  const token = (payload as { token?: unknown }).token;
-  if (typeof token !== "string") return null;
-  void fetch(`/auth?token=${encodeURIComponent(token)}`, { credentials: "include" }).then(
+export function reauthenticate(payload: { token: string }, connection: { forceReconnect(): void }): null {
+  void fetch(`/auth?token=${encodeURIComponent(payload.token)}`, { credentials: "include" }).then(
     () => connection.forceReconnect(),
     () => {},
   );

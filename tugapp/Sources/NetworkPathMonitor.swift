@@ -50,15 +50,8 @@ import Network
 /// nonisolated context, and an annotation it cannot honour at its one
 /// construction site would be a claim rather than a constraint.
 final class NetworkPathMonitor {
-    /// The one published shape, matching the deck's `NetworkPathSnapshot`.
-    struct Report: Equatable {
-        /// `"satisfied" | "unsatisfied" | "requiresConnection"`, or
-        /// `"unknown"` for a status this build does not know — see
-        /// `statusName`, which is the only writer.
-        let status: String
-        let isExpensive: Bool
-        let isConstrained: Bool
-    }
+    /// The one published shape: the `onNetworkPath` payload the deck decodes.
+    typealias Report = NetworkPathReport
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "app.tug.network-path", qos: .utility)
@@ -84,7 +77,7 @@ final class NetworkPathMonitor {
 
         monitor.pathUpdateHandler = { [weak self] path in
             let report = Report(
-                status: NetworkPathMonitor.statusName(path.status),
+                status: NetworkPathMonitor.status(path.status),
                 isExpensive: path.isExpensive,
                 isConstrained: path.isConstrained
             )
@@ -93,7 +86,7 @@ final class NetworkPathMonitor {
                 guard report != self.lastReport else { return }
                 self.lastReport = report
                 TugLog.info("path", "network path changed", [
-                    TugLog.field("status", report.status),
+                    TugLog.field("status", report.status.rawValue),
                     TugLog.field("expensive", report.isExpensive ? "yes" : "no"),
                     TugLog.field("constrained", report.isConstrained ? "yes" : "no"),
                 ])
@@ -109,19 +102,19 @@ final class NetworkPathMonitor {
     /// Called from `pathUpdateHandler`, on the monitor's private queue: a
     /// pure mapping over an enum, so it needs no thread of its own.
     ///
-    /// A future `NWPath.Status` case maps to a spelling the deck does not
-    /// recognize, and `networkPathFromPayload` reads an unrecognized status
-    /// as `null` — no evidence. Mapping it to `unsatisfied` instead would
-    /// hand the deck a *believed negative* it never earned, and the one
-    /// thing the deck does with that reading is act on it: every submission
-    /// held, the setup wizard's claim on the app dropped. Only the negative
-    /// is believed, so only a real negative may be spelled as one.
-    private static func statusName(_ status: NWPath.Status) -> String {
+    /// A future `NWPath.Status` case maps to `unknown`, which
+    /// `networkPathFromPayload` reads as `null` — no evidence. Mapping it to
+    /// `unsatisfied` instead would hand the deck a *believed negative* it
+    /// never earned, and the one thing the deck does with that reading is act
+    /// on it: every submission held, the setup wizard's claim on the app
+    /// dropped. Only the negative is believed, so only a real negative may be
+    /// spelled as one.
+    private static func status(_ status: NWPath.Status) -> Report.Status {
         switch status {
-        case .satisfied: return "satisfied"
-        case .unsatisfied: return "unsatisfied"
-        case .requiresConnection: return "requiresConnection"
-        @unknown default: return "unknown"
+        case .satisfied: return .satisfied
+        case .unsatisfied: return .unsatisfied
+        case .requiresConnection: return .requiresConnection
+        @unknown default: return .unknown
         }
     }
 }

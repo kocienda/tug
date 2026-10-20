@@ -64,9 +64,7 @@ protocol BridgeDelegate: AnyObject {
     func bridgeChoosePath(kind: String, initialPath: String?, suggestedName: String?, completion: @escaping (String?) -> Void)
     func bridgeGetSettings(completion: @escaping (Bool, String?) -> Void)
     func bridgeFrontendReady()
-    func bridgeDevModeError(message: String)
     func bridgeSetTheme(color: String)
-    func bridgeDevBadge(backend: Bool, app: Bool)
     func bridgePageDidLoad()
     func bridgeHmrUpdate()
     /// The coarse stage the launch has reached, for the splash failure
@@ -517,9 +515,11 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// Every body view: created, placed, focused and destroyed at the shell's
     /// word. Made in `init`, after the container exists.
     private(set) var bodies: BodyViewController!
-    /// The view that sent the last dictation `start`, which every dictation
-    /// event goes back to.
-    private weak var dictationTarget: WKWebView?
+    /// The view that made each live dictation claim, by its id: every event
+    /// goes back to the page whose claim it is. A claim superseded by
+    /// another page's `start` hears its own `ended` there, not in the page
+    /// that took the mic. A terminal event lets the entry go.
+    private let dictationTargets = NSMapTable<NSString, WKWebView>.strongToWeakObjects()
     #if DEBUG
     /// The display-rate spike's child page (`spikeBody`), made on first use.
     /// DEBUG-only.
@@ -975,7 +975,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     func forwardActivationClick(at locationInWindow: NSPoint) {
         let viewLocal = webView.convert(locationInWindow, from: nil)
         guard webView.bounds.contains(viewLocal) else { return }
-        hostChannel.send(.onActivationClick, ["x": Double(viewLocal.x), "y": Double(viewLocal.y)], to: webView)
+        hostChannel.send(.activationClick(ActivationClick(x: Double(viewLocal.x), y: Double(viewLocal.y))), to: webView)
     }
 
     /// Load URL in webview
@@ -1150,7 +1150,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// before the view is unhidden — so a deck that loads or reloads at a
     /// persisted zoom is never seen at 100 %.
     func bridgePageZoom() {
-        hostChannel.send(.onPageZoom, ["factor": Double(zoomFactor)], to: webView)
+        hostChannel.send(.pageZoom(PageZoom(factor: Double(zoomFactor))), to: webView)
     }
 
     /// Reset to 100%.
@@ -1272,8 +1272,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
                 if remaining > 0 { usleep(UInt32(remaining * 1_000_000)) }
             }
             group.wait()
-            let meta: [String: Any] = ["count": count, "intervalMs": intervalMs, "times": times]
-            if let data = try? JSONSerialization.data(withJSONObject: meta) {
+            let meta = BurstTimes(count: count, intervalMs: intervalMs, times: times)
+            if let data = try? JSONEncoder().encode(meta) {
                 try? data.write(to: dir.appendingPathComponent("times.json"))
             }
             DispatchQueue.main.async { completion(dir) }
@@ -1647,23 +1647,13 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    /// Deliver a trash/restore result to the view that asked (`onTrashResult`).
-    func replyToTrashRequest(_ payload: [String: Any], in target: WKWebView? = nil) {
-        replyToBridgeRequest(.onTrashResult, payload, in: target)
-    }
-
-    /// Deliver a QuickLook thumbnail result to the view that asked
-    /// (`onThumbnail`). See `os-thumbnail-store.ts`.
-    func replyToThumbnailRequest(_ payload: [String: Any], in target: WKWebView? = nil) {
-        replyToBridgeRequest(.onThumbnail, payload, in: target)
-    }
-
-    /// Deliver a request/reply result through `member`, in the view that
-    /// asked (the shell when none is named), on the next main-queue turn.
-    private func replyToBridgeRequest(_ member: ToPageMember, _ payload: [String: Any], in target: WKWebView? = nil) {
+    /// Deliver a request's reply in the view that asked (the shell when none
+    /// is named), on the next main-queue turn: a trash or restore result, a
+    /// thumbnail, a frame reading.
+    private func reply(_ message: ToPage, in target: WKWebView? = nil) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.hostChannel.send(member, payload, to: target ?? self.webView)
+            self.hostChannel.send(message, to: target ?? self.webView)
         }
     }
 
@@ -1749,7 +1739,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// Release notes are arbitrary HTML or Markdown; the channel serializes
     /// the snapshot so any text survives.
     func bridgeUpdateState(_ snapshot: UpdateSnapshot) {
-        hostChannel.send(.onUpdateState, snapshot.jsonObject, to: webView)
+        hostChannel.send(.updateState(snapshot), to: webView)
     }
 
     /// Push one dictation event to the deck.
@@ -1763,7 +1753,13 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// The payload carries recognised speech — arbitrary text, quotes and
     /// all — which the channel serializes.
     func bridgeDictationEvent(_ event: DictationEvent) {
-        hostChannel.send(.onDictation, event.jsonObject, to: dictationTarget ?? webView)
+        let key = event.id as NSString
+        let target: WKWebView = dictationTargets.object(forKey: key) ?? webView
+        switch event {
+        case .ended, .refused: dictationTargets.removeObject(forKey: key)
+        default: break
+        }
+        hostChannel.send(.dictation(event), to: target)
     }
 
     /// Push a trackpad scroll's phase edge to the deck.
@@ -1777,13 +1773,13 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// sends nothing; the deltas reach the page through the DOM as always.
     /// Receiver: `tugdeck/src/lib/scroll-phase-bridge.ts`.
     private func bridgeScrollPhase(of event: NSEvent) {
-        let edge: String
+        let edge: ScrollPhaseEdge
         if event.phase.contains(.began) || event.phase.contains(.mayBegin) {
-            edge = "touched"
+            edge = .touched
         } else if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
-            edge = "lifted"
+            edge = .lifted
         } else if event.momentumPhase.contains(.began) {
-            edge = "momentum"
+            edge = .momentum
         } else {
             return
         }
@@ -1792,7 +1788,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         let inContainer = containerView.convert(event.locationInWindow, from: nil)
         let viewport = BodyGeometry.flipped(inContainer, inHeight: containerView.bounds.height)
         let target: WKWebView = bodies?.body(atViewportPoint: viewport)?.webView ?? webView
-        hostChannel.send(.text(.onScrollPhase, edge), to: target)
+        hostChannel.send(.scrollPhase(edge), to: target)
     }
 
     /// Hand the deck the host's network-path report.
@@ -1802,12 +1798,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// `network-path-store.ts` carries it again on the receiving side. The one
     /// line worth repeating here: `satisfied` is not an assurance, because
     /// captive wifi reports it while nothing gets through.
-    func bridgeNetworkPath(status: String, isExpensive: Bool, isConstrained: Bool) {
-        hostChannel.send(
-            .onNetworkPath,
-            ["status": status, "isExpensive": isExpensive, "isConstrained": isConstrained],
-            to: webView
-        )
+    func bridgeNetworkPath(_ report: NetworkPathReport) {
+        hostChannel.send(.networkPath(report), to: webView)
     }
 
     /// Present the `/export` save panel ([#step-13c]) as a sheet on this
@@ -1838,17 +1830,17 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
         panel.beginSheetModal(for: self) { [weak self] response in
             guard let self = self else { return }
-            var result = "canceled"
+            var result = ExportDone.Result.canceled
             if response == .OK, let url = panel.url {
                 let content = popup.indexOfSelectedItem == 0 ? markdown : jsonl
                 do {
                     try content.write(to: url, atomically: true, encoding: .utf8)
-                    result = "saved"
+                    result = .saved
                 } catch {
                     NSLog("MainWindow: export write failed: %@", error.localizedDescription)
                 }
             }
-            self.hostChannel.send(.onExportDone, ["id": requestId, "result": result], to: target)
+            self.hostChannel.send(.exportDone(ExportDone(id: requestId, result: result)), to: target)
         }
     }
 
@@ -1859,11 +1851,6 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         let ext = sender.indexOfSelectedItem == 0 ? "md" : "jsonl"
         let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
         panel.nameFieldStringValue = "\(base).\(ext)"
-    }
-
-    /// Send dev mode error to frontend
-    func bridgeDevModeError(message: String) {
-        hostChannel.send(.text(.onDevModeError, message), to: webView)
     }
 
     // MARK: - WKNavigationDelegate
@@ -2248,38 +2235,28 @@ extension MainWindow {
         let replyView = sender.replyView
         switch message {
         case .sourceTree:
-            bridgeDelegate?.bridgeChooseSourceTree { [weak self] path in
-                guard let self = self else { return }
-                if let path = path {
-                    self.hostChannel.send(.text(.onSourceTreeSelected, path), to: self.webView)
-                } else {
-                    self.hostChannel.send(.loose(.onSourceTreeCancelled, .object([:])), to: self.webView)
-                }
-            }
-        case .choosePath(let body):
+            // The delegate persists the choice and re-sends dev mode; the
+            // page reads the tree through `getSettings`, as it does after
+            // Maker ▸ Source Tree…, so nothing is sent back.
+            bridgeDelegate?.bridgeChooseSourceTree { _ in }
+        case .choosePath(let request):
             // TugFileChooser "Browse…" picker. The web layer sends a request
-            // id, an optional starting path, and a `kind` ("directory"|"file");
-            // we open an NSOpenPanel and call back
+            // id, an optional starting path, and a `kind` (directory, file,
+            // save, insert); we open the panel and call back
             // window.__tugBridge.onPathChosen({id, path|null}). The id lets
             // concurrent pickers resolve independently.
-            guard let requestId = body["id"] as? String else { return }
-            let initialPath = body["initialPath"] as? String
-            let suggestedName = body["suggestedName"] as? String
-            let kind = (body["kind"] as? String) ?? "directory"
-            bridgeDelegate?.bridgeChoosePath(kind: kind, initialPath: initialPath, suggestedName: suggestedName) { [weak self] path in
+            bridgeDelegate?.bridgeChoosePath(
+                kind: request.kind.rawValue, initialPath: request.initialPath, suggestedName: request.suggestedName
+            ) { [weak self] path in
                 guard let self = self else { return }
-                self.hostChannel.send(.onPathChosen, ["id": requestId, "path": path.map { $0 as Any } ?? NSNull()], to: replyView)
+                self.hostChannel.send(.pathChosen(PathChosen(id: request.id, path: path)), to: replyView)
             }
         case .getSettings:
             bridgeDelegate?.bridgeGetSettings { [weak self] makerMode, sourceTree in
                 guard let self = self else { return }
-                self.hostChannel.send(
-                    .onSettingsLoaded,
-                    ["makerMode": makerMode, "sourceTree": sourceTree.map { $0 as Any } ?? NSNull()],
-                    to: replyView
-                )
+                self.hostChannel.send(.settingsLoaded(SettingsLoaded(makerMode: makerMode, sourceTree: sourceTree)), to: replyView)
             }
-        case .lookUpInDictionary(let body):
+        case .lookUpInDictionary(let lookup):
             // Look Up in Dictionary. The web layer sends the selected text and
             // the viewport (CSS) point its panel should anchor to; AppKit's
             // `showDefinition(for:at:)` puts up the system definition panel —
@@ -2299,20 +2276,17 @@ extension MainWindow {
             // measured in, with View › Zoom's transform already applied. Only
             // the font size is scaled: it is the computed style, in layout px,
             // and the callout is redrawn over glyphs drawn at the zoom factor.
-            guard let text = body["text"] as? String, !text.isEmpty else { return }
-            let anchor = NSPoint(
-                x: (body["x"] as? Double) ?? 0,
-                y: (body["y"] as? Double) ?? 0
-            )
+            guard !lookup.text.isEmpty else { return }
+            let anchor = NSPoint(x: lookup.x, y: lookup.y)
             let font = MainWindow.definitionFont(
-                families: (body["fontFamily"] as? String) ?? "",
-                size: ((body["fontSize"] as? Double) ?? 0) * Double(zoomFactor),
-                bold: (body["bold"] as? Bool) ?? false,
-                italic: (body["italic"] as? Bool) ?? false
+                families: lookup.fontFamily,
+                size: lookup.fontSize * Double(zoomFactor),
+                bold: lookup.bold,
+                italic: lookup.italic
             )
-            let defined = NSAttributedString(string: text, attributes: [.font: font])
+            let defined = NSAttributedString(string: lookup.text, attributes: [.font: font])
             replyView.showDefinition(for: defined, at: anchor)
-        case .openPath(let body):
+        case .openPath(let open):
             // `/memory` ([#step-12a]) — hand a memory path to the OS. The web
             // layer sends a `~`-relative or absolute path plus a `kind`; we
             // expand the tilde (the web layer has no home dir) and route via
@@ -2328,8 +2302,8 @@ extension MainWindow {
             // is only created in the user's own space (`BridgePathGuard`);
             // Claude Code's memory files under `~/.claude/` are why the root
             // is not narrower.
-            guard let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
-            let kind = (body["kind"] as? String) ?? "file"
+            let rawPath = open.path
+            guard !rawPath.isEmpty else { return }
             let url: URL
             switch BridgePathGuard.user.forOpening(rawPath) {
             case .success(let resolved): url = resolved
@@ -2339,7 +2313,8 @@ extension MainWindow {
             }
             let expanded = url.path
             let fm = FileManager.default
-            if kind == "reveal" {
+            switch open.kind {
+            case .reveal:
                 // Open Finder with the file itself selected inside its
                 // folder (not merely the folder open). Falls back to opening
                 // the deepest existing ancestor if the exact path is gone.
@@ -2352,7 +2327,7 @@ extension MainWindow {
                     }
                     NSWorkspace.shared.open(dir)
                 }
-            } else if kind == "folder" {
+            case .folder:
                 // Open the folder in Finder. If the exact path doesn't exist
                 // (e.g. the auto-memory folder before claude has reported its
                 // resolved cwd, so the encoding is still best-effort), walk up
@@ -2363,7 +2338,7 @@ extension MainWindow {
                     dir = dir.deletingLastPathComponent()
                 }
                 NSWorkspace.shared.open(dir)
-            } else {
+            case .file:
                 if !fm.fileExists(atPath: expanded) {
                     if case .failure(let refusal) = BridgePathGuard.user.forCreating(rawPath) {
                         TugLog.warn("bridge", "openPath refused", [TugLog.field("reason", refusal.reason)])
@@ -2375,7 +2350,7 @@ extension MainWindow {
                 }
                 NSWorkspace.shared.open(url)
             }
-        case .trashPath(let body):
+        case .trashPath(let request):
             // Move an attachment to the macOS Trash. `NSWorkspace.recycle`
             // reports the destination URL, and that URL is the entire restore
             // mechanism — `restorePath` moves the file back from it, so undo
@@ -2384,55 +2359,49 @@ extension MainWindow {
             // user who never presses Cmd-Z.
             //
             // JS-side contract: post {requestId, path} and wait for
-            // window.__tugTrashCallback({requestId, ok, trashedPath, error}).
-            // See os-trash.ts.
+            // `onTrashResult`. See os-trash.ts.
             //
             // Only a path in the user's own space is recycled
             // (`BridgePathGuard`); a refusal replies `ok: false` so the deck
             // settles rather than timing out.
-            guard let requestId = body["requestId"] as? String,
-                  let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
+            let requestId = request.requestId
+            guard !request.path.isEmpty else { return }
             let url: URL
-            switch BridgePathGuard.user.forTrashing(rawPath) {
+            switch BridgePathGuard.user.forTrashing(request.path) {
             case .success(let resolved): url = resolved
             case .failure(let refusal):
                 TugLog.warn("bridge", "trashPath refused", [TugLog.field("reason", refusal.reason)])
-                replyToTrashRequest(["requestId": requestId, "ok": false, "error": refusal.reason], in: replyView)
+                reply(.trashResult(.failed(requestId: requestId, error: refusal.reason)), in: replyView)
                 return
             }
             NSWorkspace.shared.recycle([url]) { [weak self] newURLs, error in
                 guard let self = self else { return }
                 if let error = error {
-                    self.replyToTrashRequest(["requestId": requestId, "ok": false,
-                                              "error": error.localizedDescription], in: replyView)
+                    self.reply(.trashResult(.failed(requestId: requestId, error: error.localizedDescription)), in: replyView)
                     return
                 }
                 guard let trashed = newURLs[url] else {
-                    self.replyToTrashRequest(["requestId": requestId, "ok": false,
-                                              "error": "no trashed URL reported"], in: replyView)
+                    self.reply(.trashResult(.failed(requestId: requestId, error: "no trashed URL reported")), in: replyView)
                     return
                 }
-                self.replyToTrashRequest(["requestId": requestId, "ok": true,
-                                          "trashedPath": trashed.path], in: replyView)
+                self.reply(.trashResult(.trashed(requestId: requestId, trashedPath: trashed.path)), in: replyView)
             }
-        case .restorePath(let body):
+        case .restorePath(let request):
             // The symmetric half of `trashPath`, and it has to live here: the
             // fs route family has no move verb, and /api/fs/write is a text
             // writer that would corrupt binary bytes. The host already holds
             // the trashed URL it minted, so the restore is one moveItem.
             // The source must be in the user's Trash and the destination in
             // the user's own space (`BridgePathGuard`).
-            guard let requestId = body["requestId"] as? String,
-                  let trashedPath = body["trashedPath"] as? String, !trashedPath.isEmpty,
-                  let destinationPath = body["destination"] as? String, !destinationPath.isEmpty
-            else { return }
+            let requestId = request.requestId
+            guard !request.trashedPath.isEmpty, !request.destination.isEmpty else { return }
             let from: URL
             let wanted: URL
-            switch BridgePathGuard.user.forRestoring(trashed: trashedPath, destination: destinationPath) {
+            switch BridgePathGuard.user.forRestoring(trashed: request.trashedPath, destination: request.destination) {
             case .success(let pair): (from, wanted) = (pair.from, pair.to)
             case .failure(let refusal):
                 TugLog.warn("bridge", "restorePath refused", [TugLog.field("reason", refusal.reason)])
-                replyToTrashRequest(["requestId": requestId, "ok": false, "error": refusal.reason], in: replyView)
+                reply(.trashResult(.failed(requestId: requestId, error: refusal.reason)), in: replyView)
                 return
             }
             let fm = FileManager.default
@@ -2444,13 +2413,11 @@ extension MainWindow {
                 // actually landed so the deck can rewrite the re-inserted link.
                 let target = Self.unoccupiedURL(for: wanted, fileManager: fm)
                 try fm.moveItem(at: from, to: target)
-                replyToTrashRequest(["requestId": requestId, "ok": true,
-                                     "restoredPath": target.path], in: replyView)
+                reply(.trashResult(.restored(requestId: requestId, restoredPath: target.path)), in: replyView)
             } catch {
-                replyToTrashRequest(["requestId": requestId, "ok": false,
-                                     "error": error.localizedDescription], in: replyView)
+                reply(.trashResult(.failed(requestId: requestId, error: error.localizedDescription)), in: replyView)
             }
-        case .thumbnailPath(let body):
+        case .thumbnailPath(let asked):
             // A QuickLook thumbnail for a non-image attachment. A .txt, a .pdf,
             // a .key — the system already knows how to draw a preview of each,
             // and QuickLook is the only way to ask: it runs the owning app's
@@ -2463,13 +2430,12 @@ extension MainWindow {
             // more than the deck's generic glyph says.
             //
             // JS-side contract: post {requestId, path, size} and wait for
-            // window.__tugThumbnailCallback({requestId, dataUrl}). A file with
-            // no thumbnail at all replies with a null dataUrl rather than
-            // staying silent, so the caller settles instead of timing out.
-            guard let requestId = body["requestId"] as? String,
-                  let rawPath = body["path"] as? String, !rawPath.isEmpty else { return }
-            let points = (body["size"] as? Double) ?? 64
-            let url = URL(fileURLWithPath: (rawPath as NSString).expandingTildeInPath)
+            // `onThumbnail`. A file with no thumbnail at all replies with a
+            // null dataUrl rather than staying silent, so the caller settles
+            // instead of timing out.
+            guard !asked.path.isEmpty else { return }
+            let points = asked.size
+            let url = URL(fileURLWithPath: (asked.path as NSString).expandingTildeInPath)
             let scale = replyView.window?.backingScaleFactor ?? 2
             let request = QLThumbnailGenerator.Request(
                 fileAt: url,
@@ -2480,51 +2446,30 @@ extension MainWindow {
                 [weak self] representation, _ in
                 guard let self = self else { return }
                 let dataUrl = representation.flatMap { Self.pngDataURL(for: $0.cgImage) }
-                self.replyToThumbnailRequest([
-                    "requestId": requestId,
-                    // NSNull, not a nil Optional: JSONSerialization refuses the
-                    // latter outright and the reply would never be delivered.
-                    "dataUrl": dataUrl ?? NSNull(),
-                ], in: replyView)
+                self.reply(.thumbnail(Thumbnail(requestId: asked.requestId, dataUrl: dataUrl)), in: replyView)
             }
-        case .updateAction(let name):
+        case .updateAction(let action):
             // The deck's one way to answer the update flow — the pill's and
             // the popover's controls all arrive here [B03]. The host maps the
             // name onto whichever Sparkle reply closure the current state
             // holds, and ignores one the state has no closure for, so a stale
             // click from a deck that reloaded mid-flow does nothing rather
             // than replying twice.
-            guard let action = UpdateAction(rawValue: name) else {
-                // To `tugapp.log` rather than `NSLog`: a press that vanishes
-                // here is indistinguishable from a dead button, and the line
-                // that says otherwise has to be in the log somebody reads.
-                TugLog.warn("update", "updateAction names no action; ignoring", [
-                    TugLog.field("body", name),
-                ])
-                return
-            }
             if let appDelegate = NSApp.delegate as? AppDelegate {
                 appDelegate.performUpdateAction(action)
             }
 
-        case .dictation(let body):
+        case .dictation(let request):
             // Spec S01: `{ id, verb }`, and the engine owns everything after
             // that — which session is live, whether a second start supersedes
             // the first, and every refusal the machine can hand back. The host
             // is where "one composer holds the mic" is enforced, so a deck
             // that lost track cannot leave two taps on the input node.
-            guard let id = body["id"] as? String,
-                  let verb = body["verb"] as? String else {
-                TugLog.warn("dictation", "dictation with an unreadable body; ignoring", [
-                    TugLog.field("body", String(describing: body.fields)),
-                ])
-                return
-            }
             // The events of a claim go back to the page that made it.
-            if verb == "start" { dictationTarget = replyView }
-            dictationEngine.handle(verb: verb, id: id)
+            if request.verb == .start { dictationTargets.setObject(replyView, forKey: request.id as NSString) }
+            dictationEngine.handle(verb: request.verb, id: request.id)
 
-        case .exportSession(let body):
+        case .exportSession(let export):
             // `/export` ([#step-13c]) — save the session transcript to a
             // user-chosen file. The web layer builds BOTH renderings
             // (markdown + JSON Lines) and sends them with a default base
@@ -2532,12 +2477,8 @@ extension MainWindow {
             // chooses which content is written. Sibling of `openPath` (the
             // host owns the panel + file write; the content is the web
             // layer's). Calls back `onExportDone(id, "saved" | "canceled")`.
-            guard let requestId = body["id"] as? String else { return }
-            let baseName = (body["baseName"] as? String) ?? "tug-session"
-            let markdown = (body["markdown"] as? String) ?? ""
-            let jsonl = (body["jsonl"] as? String) ?? ""
-            presentExportPanel(requestId: requestId, baseName: baseName,
-                               markdown: markdown, jsonl: jsonl, replyTo: replyView)
+            presentExportPanel(requestId: export.id, baseName: export.baseName,
+                               markdown: export.markdown, jsonl: export.jsonl, replyTo: replyView)
         case .frontendReady:
             // A body's ready is its own: it has painted its card. The
             // launch's reveal and lifecycle replay are the shell's.
@@ -2558,35 +2499,28 @@ extension MainWindow {
             // The spare is made a beat after the shell has painted, so the
             // first card the user opens can bind a body already warm.
             bodies.scheduleSpare()
-        case .pageFault(let body):
-            PageFaultScript.log(body.fields)
-        case .frontendLaunchStalled(let body):
+        case .pageFault(let fault):
+            PageFaultScript.log(fault)
+        case .frontendLaunchStalled(let stalled):
             // The deck bounded its own boot awaits and one of them ran past
             // its horizon. It has not given up — the await is still running
             // — so this only names the wait, which is more than the splash
             // could say on its own.
-            let waitingOn = body["waitingOn"] as? String
             TugLog.warn("launch", "frontend boot await ran past its horizon", [
-                TugLog.field("waiting_on", waitingOn ?? "unknown"),
+                TugLog.field("waiting_on", stalled.waitingOn),
             ])
             mountLaunchFailure(
-                stage: "\(LaunchStage.waitingForInterface.rawValue): \(waitingOn ?? "unknown")",
+                stage: "\(LaunchStage.waitingForInterface.rawValue): \(stalled.waitingOn)",
                 reason: "The interface loaded but has not finished starting up."
             )
-        case .setTheme(let body):
-            guard let color = body["color"] as? String else { return }
-            bridgeDelegate?.bridgeSetTheme(color: color)
-        case .pageZoom(let body):
+        case .setTheme(let theme):
+            bridgeDelegate?.bridgeSetTheme(color: theme.color)
+        case .pageZoom(let zoom):
             // The Layout card's Zoom row: a level, chosen directly. The same
             // path as the View menu's, so it persists and is remembered for
             // Toggle Actual Size exactly as a chord would be.
-            guard let factor = body["factor"] as? Double else { return }
-            setPageZoom(CGFloat(factor))
-        case .devBadge(let body):
-            let backend = body["backend"] as? Bool ?? false
-            let app = body["app"] as? Bool ?? false
-            bridgeDelegate?.bridgeDevBadge(backend: backend, app: app)
-        case .clipboardRead(let body):
+            setPageZoom(CGFloat(zoom.factor))
+        case .clipboardRead(let request):
             // Native clipboard bridge. Read NSPasteboard directly and call
             // back to JavaScript with the contents. This exists because
             // Safari's JavaScript Clipboard API (navigator.clipboard.readText /
@@ -2596,29 +2530,27 @@ extension MainWindow {
             // NSPasteboard on the native side is the only way to supply
             // clipboard data to JavaScript without the popup.
             //
-            // JS-side contract: post {requestId} and wait for a callback
-            // on window.__tugNativeClipboardCallback(data) where data is
-            // {requestId, text, html, atoms}. See tug-native-clipboard.ts.
+            // JS-side contract: post {requestId} and wait for
+            // `onClipboardRead` with {requestId, text, html, atoms}. See
+            // tug-native-clipboard.ts.
             //
             // `atoms` carries the Tug-private atom sidecar JSON when the
             // clipboard was last written by a Tug copy (via clipboardWrite),
             // empty otherwise. This is the robust Tug-to-Tug channel — it
             // bypasses WebKit's HTML sanitizer and custom-MIME repacking
             // entirely.
-            guard let requestId = body["requestId"] as? String else { return }
             let pasteboard = NSPasteboard.general
-            let text = pasteboard.string(forType: .string) ?? ""
-            let html = pasteboard.string(forType: .html) ?? ""
-            let atoms = pasteboard.string(forType: tugAtomsPasteboardType) ?? ""
             // The text may carry quotes, backslashes, control characters and
             // line separators; the channel serializes it so all of them
             // survive.
-            hostChannel.send(
-                .onClipboardRead,
-                ["requestId": requestId, "text": text, "html": html, "atoms": atoms],
-                to: replyView
+            let contents = ClipboardContents(
+                requestId: request.requestId,
+                text: pasteboard.string(forType: .string) ?? "",
+                html: pasteboard.string(forType: .html) ?? "",
+                atoms: pasteboard.string(forType: tugAtomsPasteboardType) ?? ""
             )
-        case .clipboardWrite(let body):
+            hostChannel.send(.clipboardRead(contents), to: replyView)
+        case .clipboardWrite(let write):
             // Native clipboard-write bridge for Tug prompt copy/cut. The
             // web layer never writes atom-bearing selections through the
             // DOM copy event (WebKit's pasteboard normalization swallows
@@ -2635,12 +2567,7 @@ extension MainWindow {
             // sidecar, and a write that carried only `.string` would silently
             // strip formatting an external paste used to get.
             // See tug-native-clipboard.ts.
-            guard let text = body["text"] as? String else {
-                NSLog("MainWindow: clipboardWrite invalid payload")
-                return
-            }
-            let atoms = body["atoms"] as? String ?? ""
-            let html = body["html"] as? String ?? ""
+            let (text, atoms, html) = (write.text, write.atoms, write.html)
             let pasteboard = NSPasteboard.general
             var types: [NSPasteboard.PasteboardType] = [.string]
             if !html.isEmpty { types.append(.html) }
@@ -2656,7 +2583,7 @@ extension MainWindow {
             if !atoms.isEmpty {
                 pasteboard.setString(atoms, forType: tugAtomsPasteboardType)
             }
-        case .clipboardWriteImage(let body):
+        case .clipboardWriteImage(let write):
             // Native image-clipboard bridge. The WKWebView's JS Clipboard
             // image write (navigator.clipboard.write + ClipboardItem) is
             // unreliable in this app — the same reason clipboardRead is
@@ -2665,44 +2592,52 @@ extension MainWindow {
             // base64-encoded image bytes; the host decodes and writes an
             // NSImage to the general pasteboard so any app can paste it.
             // JS-side contract: post {base64}. See tug-native-clipboard.ts.
-            guard let base64 = body["base64"] as? String,
-                  let data = Data(base64Encoded: base64),
+            guard let data = Data(base64Encoded: write.base64),
                   let image = NSImage(data: data) else {
-                NSLog("MainWindow: clipboardWriteImage invalid payload")
+                NSLog("MainWindow: clipboardWriteImage bytes are not an image")
                 return
             }
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.writeObjects([image])
-        case .menuState(let body):
+        case .menuState(let post):
             // Menu-relevant state pushed from a page's host-menu-state
             // aggregator. AppDelegate keeps the shell's and each body's, and
             // merges the key card's body into the shell's.
-            let payload = body.fields
             guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
-            if let fromBody {
-                if let cardId = fromBody.cardId {
-                    appDelegate.updateBodyMenuState(cardId: cardId, payload: payload)
+            switch (post, fromBody) {
+            case (.body(let blocks), let body?):
+                if let cardId = body.cardId {
+                    appDelegate.updateBodyMenuState(cardId: cardId, blocks: blocks)
                 }
-            } else {
-                appDelegate.updateMenuState(payload)
+            case (.shell(let state), nil):
+                appDelegate.updateMenuState(state)
+            case (.shell, _?), (.body, nil):
+                // The shell posts its whole state and a body its card's
+                // blocks; either out of place says the page is not the page
+                // it claims to be.
+                TugLog.warn("menu", "menuState from the wrong page; ignoring", [
+                    TugLog.field("from", fromBody == nil ? "shell" : "body"),
+                ])
             }
         case .hmrUpdate:
             bridgeDelegate?.bridgeHmrUpdate()
-        case .hostFrames(let body):
+        case .hostFrames(let request):
             // `window.__tugMotion.hostFrames(windowMs)`: the window's frames
             // over the next `windowMs`, read by the host's display link, so a
             // page can ask what was shown while it was itself busy. Each
             // request gets its own meter; the reply goes to
             // `__tugBridge.onHostFrames` when its window closes.
-            guard let requestId = body["requestId"] as? String else { return }
-            let windowMs = (body["windowMs"] as? NSNumber)?.intValue ?? 2000
+            let requestId = request.requestId
+            // Held to a minute: past any reading a page asks for, and inside
+            // what `Int` can hold, which a page's number need not be.
+            let windowMs = Int(min(max(request.windowMs, 0), 60_000))
             let meter = HostFrameMeter(view: containerView)
             pageFrameMeters[requestId] = meter
             meter.arm(windowMs: windowMs)
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(windowMs + 50)) { [weak self] in
                 guard let self, let meter = self.pageFrameMeters.removeValue(forKey: requestId) else { return }
-                self.replyToBridgeRequest(.onHostFrames, ["requestId": requestId, "reading": meter.read()])
+                self.reply(.hostFrames(HostFramesReply(requestId: requestId, reading: meter.read())))
             }
         case .bodyHello:
             // A body's page is connected; it waits to be told its card.
@@ -2781,6 +2716,14 @@ private extension NSColor {
             alpha: 1.0
         )
     }
+}
+
+/// A frame burst's `times.json`: how many frames, at what interval, and the
+/// absolute time each capture began.
+struct BurstTimes: Encodable {
+    var count: Int
+    var intervalMs: Int
+    var times: [Double]
 }
 
 /// One composited image of a window this process owns, as the window server

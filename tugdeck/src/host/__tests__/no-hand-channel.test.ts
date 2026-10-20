@@ -12,9 +12,10 @@
  * installs a `__tug…Callback` global, and the host evaluates script in a
  * page only in `HostChannel.swift` — or to read the page, under the marker
  * `// host-channel: diagnostic read` in the three lines above the call.
- * And the geometry family is typed on the host's side: no file that places,
- * carries or plans a body names `[String: Any]`, so nothing there can read a
- * field the decode did not check.
+ * And every host message is typed on the host's side: no host source names
+ * `[String: Any]`, so nothing can read a field the decode did not check —
+ * except the files that carry tugcast's control channel, whose JSON is not
+ * a host message, each named below with what its JSON is.
  *
  * The DEBUG spike (`body/spike-page.ts`, `TestHarness/SpikeBodyHandlers.swift`)
  * and the harness (`TestHarness/`) are exempt by name: they read pages and
@@ -129,12 +130,14 @@ describe("no hand-made host channel", () => {
     expect(unmarkedEvaluations([HOST_CHANNEL])).toEqual([]);
   });
 
-  test("no geometry file on the host names [String: Any]", () => {
-    const GEOMETRY = ["BodyViewController.swift", "BodyGeometry.swift", "BodyBeats.swift", "CardGeometry.swift"].map(
-      (name) => `tugapp/Sources/${name}`,
-    );
-    const geometry = HOST.filter(({ path }) => GEOMETRY.includes(relative(CHECKOUT, path)));
-    expect(geometry.length).toBe(GEOMETRY.length);
-    expect(hits(geometry, /\[String:\s*Any\]/, [])).toEqual([]);
+  test("no host-message file on the host names [String: Any]", () => {
+    const NOT_HOST_MESSAGES = [
+      // tugcast's control socket: the frames it reads and writes.
+      "ControlSocket.swift",
+      // tugcast's control frames (`sendControl`, `ControlParams`), its quiesce report, and the instance list it reads.
+      "ProcessManager.swift",
+    ].map((name) => `tugapp/Sources/${name}`);
+    expect(NOT_HOST_MESSAGES.every((rel) => HOST.some(({ path }) => relative(CHECKOUT, path) === rel))).toBe(true);
+    expect(hits(HOST, /\[String:\s*Any\]/, NOT_HOST_MESSAGES)).toEqual([]);
   });
 });

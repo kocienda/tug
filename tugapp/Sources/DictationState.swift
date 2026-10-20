@@ -24,7 +24,7 @@ import Foundation
 /// One vocabulary, fixed by the deck's `DictationEvent` type — the raw values
 /// are the wire strings, so the two sides cannot drift apart without a build
 /// failure on one of them.
-enum DictationEventKind: String {
+enum DictationEventKind: String, Codable {
     /// Work is happening before the mic is live — an asset download, most
     /// often. Zero or more of these precede `ready`.
     case preparing
@@ -46,7 +46,7 @@ enum DictationEventKind: String {
 
 /// Why a session never started. Mapped from a host condition by Table T02
 /// and spoken to the user by Table T01.
-enum DictationRefusal: String, Error {
+enum DictationRefusal: String, Error, Codable {
     /// `AVCaptureDevice.requestAccess(for: .audio)` said no.
     case microphonePermission = "microphone-permission"
     /// Speech recognition authorization is anything but `.authorized`.
@@ -62,7 +62,7 @@ enum DictationRefusal: String, Error {
 }
 
 /// Why a live session ended.
-enum DictationEndReason: String {
+enum DictationEndReason: String, Codable {
     /// The deck asked for it — the button, Escape, a submit, a card going
     /// modal, the app resigning active.
     case stopped
@@ -74,68 +74,98 @@ enum DictationEndReason: String {
     case error
 }
 
-/// One event, as the deck receives it through `__tugBridge.onDictation`.
+/// One event, as the deck receives it through `__tugBridge.onDictation`: the
+/// deck's `DictationEvent` union, keyed on `kind`.
 ///
-/// The optional fields are the union of every kind's payload; `jsonObject`
-/// emits only the keys the kind actually has, which is what Spec S02's
-/// discriminated union on the deck side requires. A `text` key on a `ready`
-/// event would parse — and would mean the two sides disagree about what a
-/// `ready` is.
-struct DictationEvent {
-    /// The session this belongs to. The deck drops any event whose id is not
-    /// the claim it is holding, which is how a superseded session's late
-    /// callbacks land nowhere.
-    let id: String
-    let kind: DictationEventKind
-    /// `volatile` and `final` only.
-    var text: String?
-    /// Reserved; never set ([P03]).
-    var level: Double?
-    /// `refused` only.
-    var refusal: DictationRefusal?
-    /// `ended` only.
-    var endReason: DictationEndReason?
-    /// `refused` and `ended` may carry one.
-    var message: String?
+/// Each kind carries its own payload on its case, so a `volatile` cannot
+/// omit its text and a `ready` cannot carry one — the shape Spec S02's
+/// discriminated union requires is the only one this can build. The id on
+/// every case is the session it belongs to: the deck drops any event whose
+/// id is not the claim it is holding, which is how a superseded session's
+/// late callbacks land nowhere.
+enum DictationEvent: Equatable {
+    case preparing(id: String)
+    case ready(id: String)
+    /// Reserved; never sent ([P03]).
+    case level(id: String, level: Double)
+    case volatile(id: String, text: String)
+    case final(id: String, text: String)
+    /// The terminal event for a session that started; an `error` may say why.
+    case ended(id: String, reason: DictationEndReason, message: String? = nil)
+    /// The terminal event for a session that never did.
+    case refused(id: String, reason: DictationRefusal, message: String? = nil)
 
-    /// An event with no payload: `preparing` or `ready`.
-    static func plain(_ id: String, _ kind: DictationEventKind) -> DictationEvent {
-        DictationEvent(id: id, kind: kind)
+    /// The reducer's output for the session `id`: a `volatile` or a `final`.
+    static func transcript(_ id: String, _ output: DictationEventKindAndText) -> DictationEvent {
+        output.kind == .final ? .final(id: id, text: output.text) : .volatile(id: id, text: output.text)
     }
 
-    /// A `volatile` or `final` carrying its text.
-    static func text(_ id: String, _ kind: DictationEventKind, _ text: String) -> DictationEvent {
-        DictationEvent(id: id, kind: kind, text: text)
+    var id: String {
+        switch self {
+        case .preparing(let id), .ready(let id), .level(let id, _), .volatile(let id, _), .final(let id, _),
+             .ended(let id, _, _), .refused(let id, _, _):
+            return id
+        }
     }
 
-    /// The terminal event for a session that never started.
-    static func refused(
-        _ id: String, _ refusal: DictationRefusal, message: String? = nil
-    ) -> DictationEvent {
-        DictationEvent(id: id, kind: .refused, refusal: refusal, message: message)
+    var kind: DictationEventKind {
+        switch self {
+        case .preparing: return .preparing
+        case .ready: return .ready
+        case .level: return .level
+        case .volatile: return .volatile
+        case .final: return .final
+        case .ended: return .ended
+        case .refused: return .refused
+        }
+    }
+}
+
+extension DictationEvent: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, text, level, reason, message
     }
 
-    /// The terminal event for a session that did.
-    static func ended(
-        _ id: String, _ reason: DictationEndReason, message: String? = nil
-    ) -> DictationEvent {
-        DictationEvent(id: id, kind: .ended, endReason: reason, message: message)
+    /// Only the keys the kind has. A `message`, when there is one, is a
+    /// string: absent is no message, and `null` is refused, as the deck's
+    /// `optional(str)` refuses it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(String.self, forKey: .id)
+        func message() throws -> String? {
+            container.contains(.message) ? try container.decode(String.self, forKey: .message) : nil
+        }
+        switch try container.decode(DictationEventKind.self, forKey: .kind) {
+        case .preparing: self = .preparing(id: id)
+        case .ready: self = .ready(id: id)
+        case .level: self = .level(id: id, level: try container.decode(Double.self, forKey: .level))
+        case .volatile: self = .volatile(id: id, text: try container.decode(String.self, forKey: .text))
+        case .final: self = .final(id: id, text: try container.decode(String.self, forKey: .text))
+        case .ended:
+            self = .ended(id: id, reason: try container.decode(DictationEndReason.self, forKey: .reason), message: try message())
+        case .refused:
+            self = .refused(id: id, reason: try container.decode(DictationRefusal.self, forKey: .reason), message: try message())
+        }
     }
 
-    /// The event as it crosses the bridge, per Spec S02.
-    ///
-    /// Only the keys that apply. Unlike the update flow's snapshot this is an
-    /// *event* rather than state, so there is no absent-field-means-cleared
-    /// reading to preserve and no reason for an `NSNull` — a key the kind
-    /// does not have is simply not there.
-    var jsonObject: [String: Any] {
-        var object: [String: Any] = ["id": id, "kind": kind.rawValue]
-        if let text { object["text"] = text }
-        if let level { object["level"] = level }
-        if let refusal { object["reason"] = refusal.rawValue }
-        if let endReason { object["reason"] = endReason.rawValue }
-        if let message { object["message"] = message }
-        return object
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        switch self {
+        case .preparing, .ready:
+            break
+        case .level(_, let level):
+            try container.encode(level, forKey: .level)
+        case .volatile(_, let text), .final(_, let text):
+            try container.encode(text, forKey: .text)
+        case .ended(_, let reason, let message):
+            try container.encode(reason, forKey: .reason)
+            try container.encodeIfPresent(message, forKey: .message)
+        case .refused(_, let reason, let message):
+            try container.encode(reason, forKey: .reason)
+            try container.encodeIfPresent(message, forKey: .message)
+        }
     }
 }
 

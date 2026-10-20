@@ -102,8 +102,8 @@ Nothing in `components/` learns whether it runs in a body. The primitives feed t
 
 ## Adding a host message {#adding-a-host-message}
 
-1. Declare it in a file under `tugdeck/src/host/declarations/` with `defineToHost`, `defineToPage` or `definePageCall`, beside its payload's codec, at least one of its `samples`, and the `refused` payloads a typed codec must refuse.
+1. Declare it in a file under `tugdeck/src/host/declarations/` with `defineToHost`, `defineToPage` or `definePageCall`, beside its payload's codec, at least one of its `samples`, and the `refused` payloads its codec must refuse. A call the host awaits declares its reply's codec too, with `replies` and `refusedReplies`.
 2. Register it in `tugdeck/src/host/registry.ts`, in `TO_HOST`, `TO_PAGE` or `PAGE_CALLS`. `host/__tests__/registry.test.ts` checks that the file and the list agree and that every codec decodes its samples and refuses its refusals.
-3. Write its Swift twin in `tugapp/Sources/HostMessages.swift`: the name in `ToHostName`, `ToPageMember` or `PageCall`, and a `Decodable` payload a typed message decodes into. Handle it in `HostChannel.swift`'s dispatch, or send it with `HostChannel.send`.
+3. Write its Swift twin in `tugapp/Sources/HostMessages.swift`: the name in `ToHostName`, `ToPageMember` or `PageCall`, and the `Decodable` payload it decodes into or the `Encodable` one it is sent with. Handle it in `HostChannel.swift`'s dispatch, or send it with `HostChannel.send`.
 4. Regenerate the parity fixture with `HOST_PARITY_UPDATE=1 bun test src/host/__tests__/host-parity.test.ts` and review its diff; `TugTests/HostChannelTests.swift` holds the Swift side to the same fixture.
 5. Post it with `postToHost(decl, payload)` or handle it with `onHostMessage(decl, handler)`. Nothing else reaches `webkit.messageHandlers` or defines a `__tugBridge` member (`host/__tests__/no-hand-channel.test.ts`).

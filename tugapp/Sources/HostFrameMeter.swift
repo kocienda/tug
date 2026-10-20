@@ -146,26 +146,21 @@ final class HostFrameMeter: NSObject {
     }
 
     /// The reading over `[fromMs, toMs]` from arming (the whole window by
-    /// default), in Spec S06's `HostFrameReading` shape, with `armedWallMs`
-    /// and, per sampled name, its samples, its active spans, and over those
-    /// spans the share of ticks it advanced on and its longest still run.
-    func read(fromMs: Double = 0, toMs: Double? = nil) -> [String: Any] {
+    /// default), with `armedWallMs` and, per sampled name, its samples, its
+    /// active spans, and over those spans the share of ticks it advanced on
+    /// and its longest still run.
+    func read(fromMs: Double = 0, toMs: Double? = nil) -> HostFrameReading {
         let end = toMs ?? windowMs
-        var reading = FrameMeterStats.summarize(
+        let summary = FrameMeterStats.summarize(
             timestampsMs: timestampsMs,
             periodMs: periodMs,
             windowStartMs: fromMs,
             windowEndMs: end
-        ).dictionary
-        reading["armedWallMs"] = armedWallMs
-        reading["tickMs"] = timestampsMs.filter { $0 >= fromMs && $0 <= end }
-        let json = { (s: [(t: Double, x: Double, y: Double, opacity: Double, width: Double, height: Double)]) -> [[String: Double]] in
-            s.map { ["t": $0.t, "x": $0.x, "y": $0.y, "opacity": $0.opacity] }
+        )
+        let sampled = { (s: [(t: Double, x: Double, y: Double, opacity: Double, width: Double, height: Double)]) -> [HostFrameReading.Sample] in
+            s.map { HostFrameReading.Sample(t: $0.t, x: $0.x, y: $0.y, opacity: $0.opacity) }
         }
-        if tracks[Self.singleLayerName] != nil {
-            reading["samples"] = json(samplesIn(Self.singleLayerName, fromMs: fromMs, toMs: end))
-        }
-        var layers: [String: Any] = [:]
+        var layers: [String: HostFrameReading.Layer] = [:]
         for (name, track) in tracks {
             var moved = 0
             var pairs = 0
@@ -180,16 +175,22 @@ final class HostFrameMeter: NSObject {
                 moved += Int((FrameMeterStats.advanceRatio(states: states.map(\.state)) * Double(states.count - 1)).rounded())
                 worstStill = max(worstStill, FrameMeterStats.worstStillMs(states: states))
             }
-            layers[name] = [
-                "samples": json(samplesIn(name, fromMs: fromMs, toMs: end)),
-                "active": track.active.map { ["fromMs": $0.fromMs, "toMs": $0.toMs] },
-                "activeTicks": pairs,
-                "advancedRatio": pairs > 0 ? Double(moved) / Double(pairs) : NSNull(),
-                "worstStillMs": worstStill,
-            ] as [String: Any]
+            layers[name] = HostFrameReading.Layer(
+                samples: sampled(samplesIn(name, fromMs: fromMs, toMs: end)),
+                active: track.active.map { HostFrameReading.Span(fromMs: $0.fromMs, toMs: $0.toMs) },
+                activeTicks: pairs,
+                advancedRatio: pairs > 0 ? Double(moved) / Double(pairs) : nil,
+                worstStillMs: worstStill
+            )
         }
-        reading["layers"] = layers
-        return reading
+        return HostFrameReading(
+            summary: summary,
+            armedWallMs: armedWallMs,
+            tickMs: timestampsMs.filter { $0 >= fromMs && $0 <= end },
+            samples: tracks[Self.singleLayerName] != nil
+                ? sampled(samplesIn(Self.singleLayerName, fromMs: fromMs, toMs: end)) : nil,
+            layers: layers
+        )
     }
 
     /// The share of ticks over `[fromMs, toMs]` on which the sampled layer's
@@ -225,7 +226,7 @@ final class CaptureBurst {
     /// The shortest interval: the display's own period, near enough.
     static let minIntervalMs = 8
 
-    struct Frame {
+    struct Frame: Encodable {
         /// Ms from arming, host clock.
         let t: Double
         /// Wall-clock ms (`Date().timeIntervalSince1970 * 1000`) at capture,
@@ -324,24 +325,42 @@ final class CaptureBurst {
         }
     }
 
-    /// The reading so far, in the harness's shape.
-    func read() -> [String: Any] {
+    /// A burst's reading: whether every frame is written, each frame's file,
+    /// and what a reader needs to place them — in the harness's shape.
+    struct Reading: Encodable {
+        struct Crop: Encodable {
+            var x: Double
+            var y: Double
+            var width: Double
+            var height: Double
+        }
+
+        var done: Bool
+        var frames: [Frame]
+        var scale: Double
+        var contentWidth: Double
+        var contentHeight: Double
+        var windowBackground: String
+        var intervalMs: Int
+        var durationMs: Int
+        /// Absent for a burst of the whole window.
+        var crop: Crop?
+    }
+
+    /// The reading so far.
+    func read() -> Reading {
         lock.lock()
         defer { lock.unlock() }
-        let sorted = frames.sorted { $0.t < $1.t }
-        var out: [String: Any] = [
-            "done": captureFinished && encoded == captured,
-            "frames": sorted.map { ["t": $0.t, "wall": $0.wall, "path": $0.path] },
-            "scale": Double(scale),
-            "contentWidth": Double(contentSize.width),
-            "contentHeight": Double(contentSize.height),
-            "windowBackground": windowBackgroundHex,
-            "intervalMs": intervalMs,
-            "durationMs": durationMs,
-        ]
-        if let crop {
-            out["crop"] = ["x": crop.minX, "y": crop.minY, "width": crop.width, "height": crop.height]
-        }
-        return out
+        return Reading(
+            done: captureFinished && encoded == captured,
+            frames: frames.sorted { $0.t < $1.t },
+            scale: Double(scale),
+            contentWidth: Double(contentSize.width),
+            contentHeight: Double(contentSize.height),
+            windowBackground: windowBackgroundHex,
+            intervalMs: intervalMs,
+            durationMs: durationMs,
+            crop: crop.map { .init(x: $0.minX, y: $0.minY, width: $0.width, height: $0.height) }
+        )
     }
 }

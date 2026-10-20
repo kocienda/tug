@@ -29,8 +29,6 @@ import { scrollPhaseToPage } from "@/host/declarations/services";
 /** One phase edge from the host. */
 export type ScrollPhaseEdge = "touched" | "lifted" | "momentum";
 
-const EDGES: readonly string[] = ["touched", "lifted", "momentum"];
-
 const listeners = new Set<(edge: ScrollPhaseEdge) => void>();
 
 /**
@@ -48,14 +46,14 @@ let installed = false;
 
 /**
  * Take `__tugBridge.onScrollPhase` in this page. Called once from deck boot;
- * safe to call again. An edge this build does not know is dropped.
+ * safe to call again. An edge this build does not know is refused by the
+ * declaration and never arrives.
  */
 export function installScrollPhaseBridge(): void {
   installHostChannel();
   if (installed) return;
   installed = true;
   onHostMessage(scrollPhaseToPage, (edge) => {
-    if (!EDGES.includes(edge)) return;
-    for (const listener of [...listeners]) listener(edge as ScrollPhaseEdge);
+    for (const listener of [...listeners]) listener(edge);
   });
 }

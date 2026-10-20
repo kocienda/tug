@@ -148,7 +148,7 @@ describe("network-path-store: the bridge receiver", () => {
       __tugBridge?: { onNetworkPath?: (r: Record<string, unknown>) => void };
     };
     installNetworkPathBridge();
-    w.__tugBridge?.onNetworkPath?.({ status: "unsatisfied" });
+    w.__tugBridge?.onNetworkPath?.({ status: "unsatisfied", isExpensive: false, isConstrained: false });
     expect(networkPathStore.getSnapshot().status).toBe("unsatisfied");
   });
 });

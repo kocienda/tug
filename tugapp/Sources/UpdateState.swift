@@ -22,7 +22,7 @@ import Foundation
 /// and `readyToInstall` are separate because only the latter has a decision
 /// in it; `upToDate` and `idle` are separate because only the former is
 /// worth showing.
-enum UpdateStage: String {
+enum UpdateStage: String, Codable {
     /// Nothing to say. No pill, and the menu offers a check.
     case idle
     /// A user-initiated check is in flight and can be cancelled.
@@ -53,7 +53,7 @@ enum UpdateStage: String {
 /// Whether an action does anything depends on which reply closure the driver
 /// is currently holding; an action the state has no closure for is ignored
 /// rather than queued [B03].
-enum UpdateAction: String {
+enum UpdateAction: String, Codable {
     /// Begin, resume, or finish the update.
     case install
     /// Put it off. At `readyToInstall` this leaves Sparkle to install on the
@@ -189,33 +189,60 @@ struct UpdateSnapshot: Equatable {
         }
     }
 
-    /// The snapshot as the deck receives it, through
-    /// `__tugBridge.onUpdateState` [B03].
-    ///
-    /// What crosses the bridge is *state*, never an event — which is the
-    /// whole reason a deck reload needs no queue: the host replays the
-    /// current snapshot and the deck is caught up, however many transitions
-    /// it missed. So this carries what is true now and nothing about how it
-    /// got here.
-    ///
-    /// `NSNull` rather than a nil Optional: `JSONSerialization` refuses the
-    /// latter outright and the whole payload would go undelivered.
-    var jsonObject: [String: Any] {
-        [
-            "stage": stage.rawValue,
-            "version": version,
-            "build": build,
-            "currentVersion": currentVersion,
-            "releaseNotes": releaseNotes ?? NSNull(),
-            "releaseNotesFailed": releaseNotesFailed,
-            "userInitiated": userInitiated,
-            "percent": percent ?? NSNull(),
-            "receivedBytes": receivedBytes,
-            "expectedBytes": expectedBytes,
-            "message": message,
-            "cancellable": isCancellable,
-            "revealCount": revealCount,
-        ]
+}
+
+/// The snapshot as the deck receives it, through `__tugBridge.onUpdateState`
+/// [B03]: the deck's `updateStateToPage`.
+///
+/// What crosses the bridge is *state*, never an event — which is the whole
+/// reason a deck reload needs no queue: the host replays the current snapshot
+/// and the deck is caught up, however many transitions it missed. So this
+/// carries what is true now and nothing about how it got here.
+///
+/// Every field in every stage, and one object rather than a union keyed on
+/// `stage`: an `idle` snapshot still carries the running version and the
+/// reveal count, so a stage's variant would differ from the next only in
+/// which of the same fields the deck reads. A field with no value is written
+/// as `null`, which the deck reads as "none" and refuses as absent;
+/// `cancellable` is the stage's, derived on the way out.
+extension UpdateSnapshot: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case stage, version, build, currentVersion, releaseNotes, releaseNotesFailed, userInitiated
+        case percent, receivedBytes, expectedBytes, message, cancellable, revealCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stage = try container.decode(UpdateStage.self, forKey: .stage)
+        version = try container.decode(String.self, forKey: .version)
+        build = try container.decode(String.self, forKey: .build)
+        currentVersion = try container.decode(String.self, forKey: .currentVersion)
+        releaseNotes = try container.decodeValueOrNull(String.self, forKey: .releaseNotes)
+        releaseNotesFailed = try container.decode(Bool.self, forKey: .releaseNotesFailed)
+        userInitiated = try container.decode(Bool.self, forKey: .userInitiated)
+        percent = try container.decodeValueOrNull(Int.self, forKey: .percent)
+        receivedBytes = try container.decode(UInt64.self, forKey: .receivedBytes)
+        expectedBytes = try container.decode(UInt64.self, forKey: .expectedBytes)
+        message = try container.decode(String.self, forKey: .message)
+        _ = try container.decode(Bool.self, forKey: .cancellable)
+        revealCount = try container.decode(Int.self, forKey: .revealCount)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(stage, forKey: .stage)
+        try container.encode(version, forKey: .version)
+        try container.encode(build, forKey: .build)
+        try container.encode(currentVersion, forKey: .currentVersion)
+        try container.encode(releaseNotes, forKey: .releaseNotes)
+        try container.encode(releaseNotesFailed, forKey: .releaseNotesFailed)
+        try container.encode(userInitiated, forKey: .userInitiated)
+        try container.encode(percent, forKey: .percent)
+        try container.encode(receivedBytes, forKey: .receivedBytes)
+        try container.encode(expectedBytes, forKey: .expectedBytes)
+        try container.encode(message, forKey: .message)
+        try container.encode(isCancellable, forKey: .cancellable)
+        try container.encode(revealCount, forKey: .revealCount)
     }
 }
 

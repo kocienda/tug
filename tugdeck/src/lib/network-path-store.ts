@@ -171,6 +171,6 @@ export function installNetworkPathBridge(): void {
   if (installed) return;
   installed = true;
   onHostMessage(networkPathToPage, (report) => {
-    networkPathStore.apply(networkPathFromPayload(report as Record<string, unknown>));
+    networkPathStore.apply(networkPathFromPayload(report));
   });
 }

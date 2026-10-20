@@ -9,6 +9,14 @@ import XCTest
 // before it; and the app-menu item's title and command track the flow, so
 // the menu is a complete second door and not just a way to start one [B07].
 final class UpdateStateTests: XCTestCase {
+    /// The snapshot as it crosses to the deck: encoded, then read back as
+    /// JSON. Empty when it does not encode.
+    private func wire(_ snapshot: UpdateSnapshot) -> [String: Any] {
+        guard let data = try? JSONEncoder().encode(snapshot),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return object
+    }
+
     /// A machine driven to the point where an update has been found, which is
     /// where most of the interesting cases start.
     private func machineWithUpdateFound(userInitiated: Bool = true) -> UpdateStateMachine {
@@ -396,15 +404,15 @@ final class UpdateStateTests: XCTestCase {
     // ── The wire form [B03] ──────────────────────────────────────────────
     //
     // The snapshot crosses to the deck as JSON, and a payload
-    // `JSONSerialization` refuses is not a malformed pill — it is no pill at
-    // all, because the whole `evaluateJavaScript` call is skipped. Every state
-    // the flow can reach is checked for that, plus the two fields that have a
+    // that does not encode is not a malformed pill — it is no pill at all,
+    // because the whole `evaluateJavaScript` call is skipped. Every state the
+    // flow can reach is checked for that, plus the two fields that have a
     // null to get wrong.
     func testTheSnapshotsWireForm() {
-        func payload(_ snapshot: UpdateSnapshot) -> [String: Any] { snapshot.jsonObject }
+        func payload(_ snapshot: UpdateSnapshot) -> [String: Any] { wire(snapshot) }
 
         var machine = UpdateStateMachine()
-        check("idle serializes", JSONSerialization.isValidJSONObject(payload(machine.snapshot)))
+        check("idle serializes", !payload(machine.snapshot).isEmpty)
         check("idle's notes are null", payload(machine.snapshot)["releaseNotes"] is NSNull)
         check("idle's percent is null", payload(machine.snapshot)["percent"] is NSNull)
         check("idle's stage is a string", payload(machine.snapshot)["stage"] as? String == "idle")
@@ -413,7 +421,7 @@ final class UpdateStateTests: XCTestCase {
         machine.apply(
             .updateFound(version: "0.9.0", build: "412", notes: "<p>a & b</p>", userInitiated: true)
         )
-        check("available serializes", JSONSerialization.isValidJSONObject(payload(machine.snapshot)))
+        check("available serializes", !payload(machine.snapshot).isEmpty)
         check("carries the version", payload(machine.snapshot)["version"] as? String == "0.9.0")
         check("carries the build", payload(machine.snapshot)["build"] as? String == "412")
         check("carries the notes", payload(machine.snapshot)["releaseNotes"] as? String == "<p>a & b</p>")
@@ -424,7 +432,7 @@ final class UpdateStateTests: XCTestCase {
         machine.apply(.downloadStarted)
         machine.apply(.downloadExpectedLength(200))
         machine.apply(.downloadReceived(50))
-        check("downloading serializes", JSONSerialization.isValidJSONObject(payload(machine.snapshot)))
+        check("downloading serializes", !payload(machine.snapshot).isEmpty)
         check("carries the whole percent", payload(machine.snapshot)["percent"] as? Int == 25)
         check("downloading is cancellable", payload(machine.snapshot)["cancellable"] as? Bool == true)
         check("carries the bytes received", payload(machine.snapshot)["receivedBytes"] as? UInt64 == 50)
@@ -448,7 +456,7 @@ final class UpdateStateTests: XCTestCase {
 
         var failed = UpdateStateMachine()
         failed.apply(.failed("could not reach the feed"))
-        check("error serializes", JSONSerialization.isValidJSONObject(payload(failed.snapshot)))
+        check("error serializes", !payload(failed.snapshot).isEmpty)
         check("an error carries its message",
               payload(failed.snapshot)["message"] as? String == "could not reach the feed")
     }
@@ -483,7 +491,7 @@ final class UpdateStateTests: XCTestCase {
         notFound.apply(.updateNotFound)
         check("up-to-date keeps it", notFound.snapshot.currentVersion == "0.8.10")
         check("it crosses the wire",
-              notFound.snapshot.jsonObject["currentVersion"] as? String == "0.8.10")
+              wire(notFound.snapshot)["currentVersion"] as? String == "0.8.10")
 
         let unknown = UpdateStateMachine()
         check("a machine nobody told is empty rather than wrong",

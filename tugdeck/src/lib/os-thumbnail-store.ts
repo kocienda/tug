@@ -31,12 +31,6 @@ import { createSubscribable } from "./subscribable";
 import { hostAvailable, onHostMessage, postToHost } from "../host/channel";
 import { thumbnailPathToHost, thumbnailToPage } from "../host/declarations/services";
 
-/** What the host reports back. `dataUrl` is null when QuickLook had nothing. */
-interface ThumbnailCallbackData {
-  requestId: string;
-  dataUrl?: string | null;
-}
-
 /**
  * Settled results, keyed by path: a PNG data URL, or `null` for "asked, and
  * there is no thumbnail". A path absent from the map has not been asked yet.
@@ -78,7 +72,8 @@ export function hasOSThumbnailBridge(): boolean {
  */
 const THUMBNAIL_TIMEOUT_MS = 10_000;
 
-const pending = new Map<string, (data: ThumbnailCallbackData) => void>();
+/** Settlers by request id; a reply's `dataUrl` is null when QuickLook had nothing. */
+const pending = new Map<string, (dataUrl: string | null) => void>();
 
 let callbackInstalled = false;
 let requestSeq = 0;
@@ -86,11 +81,9 @@ let requestSeq = 0;
 function installCallback(): void {
   if (callbackInstalled) return;
   callbackInstalled = true;
-  onHostMessage(thumbnailToPage, (payload) => {
-    const data = payload as ThumbnailCallbackData;
-    if (typeof data.requestId !== "string") return;
-    const settle = pending.get(data.requestId);
-    if (settle) settle(data);
+  onHostMessage(thumbnailToPage, ({ requestId, dataUrl }) => {
+    const settle = pending.get(requestId);
+    if (settle) settle(dataUrl);
   });
 }
 
@@ -130,8 +123,6 @@ export function requestOSThumbnail(path: string, size: number): void {
     pending.delete(requestId);
     inFlight.delete(path);
   }, THUMBNAIL_TIMEOUT_MS);
-  pending.set(requestId, (data) => {
-    settle(typeof data.dataUrl === "string" ? data.dataUrl : null);
-  });
+  pending.set(requestId, settle);
   postToHost(thumbnailPathToHost, { requestId, path, size });
 }

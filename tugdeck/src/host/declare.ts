@@ -19,32 +19,8 @@
 
 import { opaque, type Codec } from "../bus/codec";
 
-function isRecord(value: unknown): value is object {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * A loose object payload ([B02]): admitted as any JSON object and carried as
- * is. Its fields mean what its handler reads; typing it is a later change.
- */
-export function looseObject(sample: object): Codec<object> {
-  return opaque(isRecord, sample);
-}
-
-/** A loose string payload. */
-export function looseString(sample: string): Codec<string> {
-  return opaque((value: unknown): value is string => typeof value === "string", sample);
-}
-
-/** A loose number payload. */
-export function looseNumber(sample: number): Codec<number> {
-  return opaque((value: unknown): value is number => typeof value === "number" && Number.isFinite(value), sample);
-}
-
-/** Any reply at all: the host logs what it gets. */
-export function looseReply(sample: unknown): Codec<unknown> {
-  return opaque((_value: unknown): _value is unknown => true, sample);
-}
+/** The reply of a call that answers nothing: `null`. */
+export const noReply: Codec<null> = opaque((value: unknown): value is null => value === null, null);
 
 /**
  * Which page may post a message, or receive one: the shell, a card's body,
@@ -63,8 +39,6 @@ export interface ToHost<T> {
   readonly samples: readonly T[];
   /** Payloads the codec refuses, which the Swift decode must refuse too. */
   readonly refused: readonly unknown[];
-  /** Whether the payload is typed field by field, or carried loose. */
-  readonly typed: boolean;
 }
 
 /** A message the host sends a page, through one `window.__tugBridge` member. */
@@ -75,7 +49,6 @@ export interface ToPage<T> {
   readonly codec: Codec<T>;
   readonly samples: readonly T[];
   readonly refused: readonly unknown[];
-  readonly typed: boolean;
 }
 
 /** A call the host makes into a page and awaits a reply from. */
@@ -86,6 +59,11 @@ export interface PageCall<T, R> {
   readonly codec: Codec<T>;
   readonly replyCodec: Codec<R>;
   readonly samples: readonly T[];
+  readonly refused: readonly unknown[];
+  /** Replies the page answers with, which the Swift decode must read. */
+  readonly replies: readonly R[];
+  /** Replies the reply codec refuses, which the Swift decode must refuse too. */
+  readonly refusedReplies: readonly unknown[];
 }
 
 export type HostDeclaration = ToHost<unknown> | ToPage<unknown> | PageCall<unknown, unknown>;
@@ -97,23 +75,37 @@ function record(key: string, declaration: HostDeclaration): void {
   defined.set(key, declaration);
 }
 
+// A declaration's type is its codec's: `samples` is `NoInfer`, so a sample's
+// plain string never widens a codec's literal to `string`.
+
 export function defineToHost<T>(
-  d: Omit<ToHost<T>, "kind" | "refused" | "typed"> & { refused?: unknown[]; typed?: boolean },
+  d: Omit<ToHost<T>, "kind" | "samples" | "refused"> & {
+    samples: readonly NoInfer<T>[];
+    refused: unknown[];
+  },
 ): ToHost<T> {
-  const declaration: ToHost<T> = { kind: "toHost", ...d, refused: d.refused ?? [], typed: d.typed ?? false };
+  const declaration: ToHost<T> = { kind: "toHost", ...d };
   record(`toHost:${d.name}`, declaration as ToHost<unknown>);
   return declaration;
 }
 
 export function defineToPage<T>(
-  d: Omit<ToPage<T>, "kind" | "refused" | "typed"> & { refused?: unknown[]; typed?: boolean },
+  d: Omit<ToPage<T>, "kind" | "samples" | "refused"> & {
+    samples: readonly NoInfer<T>[];
+    refused: unknown[];
+  },
 ): ToPage<T> {
-  const declaration: ToPage<T> = { kind: "toPage", ...d, refused: d.refused ?? [], typed: d.typed ?? false };
+  const declaration: ToPage<T> = { kind: "toPage", ...d };
   record(`toPage:${d.member}`, declaration as ToPage<unknown>);
   return declaration;
 }
 
-export function definePageCall<T, R>(d: Omit<PageCall<T, R>, "kind">): PageCall<T, R> {
+export function definePageCall<T, R>(
+  d: Omit<PageCall<T, R>, "kind" | "samples" | "replies"> & {
+    samples: readonly NoInfer<T>[];
+    replies: readonly NoInfer<R>[];
+  },
+): PageCall<T, R> {
   const declaration: PageCall<T, R> = { kind: "pageCall", ...d };
   record(`pageCall:${d.receiver}.${d.member}`, declaration as PageCall<unknown, unknown>);
   return declaration;

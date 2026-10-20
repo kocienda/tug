@@ -70,7 +70,7 @@ const OVERVIEW_TEXT = `${OVERVIEW_FIELD} .cm-content`;
 
 /**
  * One dictation event, pushed into `page`. The host sends a claim's events
- * back to the page that made it (`MainWindow.swift`, `dictationTarget`): A's
+ * back to the page that made it (`MainWindow.swift`, `dictationTargets`): A's
  * body for the Session composer, the Overview's body for the rail's.
  */
 async function push(page: App | BodyApp, event: Record<string, unknown>): Promise<void> {

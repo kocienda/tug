@@ -39,13 +39,11 @@ let receiving = false;
 function ensureBridge(): void {
   if (receiving) return;
   receiving = true;
-  onHostMessage(exportDoneToPage, (payload) => {
-    const { id, result } = payload as { id?: unknown; result?: unknown };
-    if (typeof id !== "string") return;
+  onHostMessage(exportDoneToPage, ({ id, result }) => {
     const resolve = pending.get(id);
     if (resolve !== undefined) {
       pending.delete(id);
-      resolve(result === "saved" ? "saved" : "canceled");
+      resolve(result);
     }
   });
 }

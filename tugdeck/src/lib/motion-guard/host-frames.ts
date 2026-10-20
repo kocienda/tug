@@ -17,37 +17,9 @@
  */
 
 import { hostAvailable, onHostMessage, postToHost } from "../../host/channel";
-import { hostFramesToHost, hostFramesToPage } from "../../host/declarations/services";
+import { hostFramesToHost, hostFramesToPage, type HostFrameReading } from "../../host/declarations/services";
 
-/** A window of host display-link ticks (Spec S06's `HostFrameReading`). */
-export interface HostFrameReading {
-  periodMs: number;
-  ticks: number;
-  expectedTicks: number;
-  missed: number;
-  worstGapMs: number;
-  gapsOverPeriod: Array<{ atMs: number; gapMs: number }>;
-  samples?: Array<{ t: number; x: number; y: number; opacity: number }>;
-  /** The wall clock (ms since 1970) at the meter's arming; its `t` are from there. */
-  armedWallMs?: number;
-  /** Every tick inside the window, ms from arming. */
-  tickMs?: number[];
-  /**
-   * Each layer the meter sampled by name — a carried body's container under
-   * its card id — with the spans its beats move it over, and across those
-   * the share of ticks its presentation advanced on and its longest still run.
-   */
-  layers?: Record<
-    string,
-    {
-      samples: Array<{ t: number; x: number; y: number; opacity: number }>;
-      active: Array<{ fromMs: number; toMs: number }>;
-      activeTicks: number;
-      advancedRatio: number | null;
-      worstStillMs: number;
-    }
-  >;
-}
+export type { HostFrameReading };
 
 /** The window `tugtool deck motion frames` reads when it names none. */
 export const HOST_FRAMES_WINDOW_DEFAULT_MS = 2000;
@@ -63,13 +35,11 @@ let callbackInstalled = false;
 function installCallback(): void {
   if (callbackInstalled) return;
   callbackInstalled = true;
-  onHostMessage(hostFramesToPage, (payload) => {
-    const data = payload as { requestId?: unknown; reading?: unknown };
-    if (typeof data.requestId !== "string") return;
-    const settle = pending.get(data.requestId);
+  onHostMessage(hostFramesToPage, ({ requestId, reading }) => {
+    const settle = pending.get(requestId);
     if (!settle) return;
-    pending.delete(data.requestId);
-    settle(data.reading as HostFrameReading);
+    pending.delete(requestId);
+    settle(reading);
   });
 }
 

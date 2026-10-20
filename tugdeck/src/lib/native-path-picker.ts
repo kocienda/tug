@@ -40,13 +40,11 @@ let receiving = false;
 function ensureBridge(): void {
   if (receiving) return;
   receiving = true;
-  onHostMessage(pathChosenToPage, (payload) => {
-    const { id, path } = payload as { id?: unknown; path?: unknown };
-    if (typeof id !== "string") return;
+  onHostMessage(pathChosenToPage, ({ id, path }) => {
     const resolve = pending.get(id);
     if (resolve !== undefined) {
       pending.delete(id);
-      resolve(typeof path === "string" ? path : null);
+      resolve(path);
     }
   });
 }

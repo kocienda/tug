@@ -7,15 +7,9 @@
  * reads it. The menu-state layer needs the fact because a hidden Maker
  * menu's chords must fall through to the web view.
  *
- * The host responds by calling `window.__tugBridge.onSettingsLoaded(
- * { makerMode, sourceTree })` (an emit string in `MainWindow.swift` — keep
- * the callback name in lockstep). The callback carries no request id, so
- * pending resolvers queue FIFO; the host evaluates responses in request
- * order.
- *
- * The `__tugBridge` object is shared with other host callbacks (the
- * path picker's `onPathChosen`), so receivers are merged in with `??=`
- * — never replace the object wholesale.
+ * The host answers with `settingsLoadedToPage` (`{ makerMode, sourceTree }`,
+ * declared in `host/declarations/services.ts`). The reply carries no request
+ * id, so pending resolvers queue FIFO; the host answers in request order.
  *
  * Graceful degradation: outside the host (browser dev) the handler is
  * absent and the call resolves `null`.
@@ -57,15 +51,11 @@ let receiving = false;
 function ensureBridge(): void {
   if (receiving) return;
   receiving = true;
-  onHostMessage(settingsLoadedToPage, (payload) => {
-    const settings = payload as { makerMode?: unknown; sourceTree?: unknown };
-    knownMakerMode = settings.makerMode === true;
+  onHostMessage(settingsLoadedToPage, (settings) => {
+    knownMakerMode = settings.makerMode;
     const resolve = pendingSettings.shift();
     if (resolve === undefined) return;
-    resolve({
-      makerMode: settings.makerMode === true,
-      sourceTree: typeof settings.sourceTree === "string" ? settings.sourceTree : null,
-    });
+    resolve(settings);
   });
 }
 

@@ -173,10 +173,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// `menuState` push from tugdeck. All pull-based menu validation
     /// (`validateMenuItem(_:)`) and dynamic menu building read from here.
     private(set) var menuState = MenuState.empty
-    /// The last payload each page pushed: the shell's, and each body's by
-    /// card. `menuState` is their merge for the key card.
-    private var shellMenuPayload: [String: Any] = [:]
-    private var bodyMenuPayloads: [String: [String: Any]] = [:]
+    /// The last state each page pushed: the shell's, and each body's card
+    /// blocks by card. `menuState` is their merge for the key card.
+    private var shellMenuState = MenuState.empty
+    private var bodyMenuBlocks: [String: MenuState.CardBlocks] = [:]
 
     /// UTIs a Text card can **edit** — text and everything that conforms to it
     /// (source code, JSON, XML, Markdown, …). The `choosePath` bridge panel
@@ -516,11 +516,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
 
-        processManager.onDevModeError = { [weak self] message in
-            guard let self = self else { return }
-            self.window.bridgeDevModeError(message: message)
-        }
-
         // A tugcast that keeps dying is a launch that will never finish, and
         // the backoff alone says nothing on screen. Past the threshold the
         // splash stops pretending and names it. `mountLaunchFailure` refuses
@@ -644,12 +639,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             window.hostChannel.call(.prepareForTermination, in: view.webView) { result in
                 guard !settled else { return }
                 switch result {
-                case .success(.null):
+                case .success(.nothing):
                     // The page has no `prepareForTermination` to answer with.
                     verdicts[view.label] = "no answer from the page — saved synchronously"
                     fallbackSave(view.webView)
-                case .success(let value):
-                    verdicts[view.label] = Self.describeVerdict(value)
+                case .success(.verdict(let verdict)):
+                    verdicts[view.label] = Self.describeVerdict(verdict)
+                case .failure(let error as HostDecodeError):
+                    verdicts[view.label] = "unreadable (\(error)) — saved synchronously"
+                    fallbackSave(view.webView)
                 case .failure(let error):
                     verdicts[view.label] = "failed (\(error.localizedDescription)) — saved synchronously"
                     fallbackSave(view.webView)
@@ -662,36 +660,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    /// Render the deck's verdict as one log line. Unknown or malformed
-    /// shapes are logged verbatim rather than dropped — the point of the
-    /// verdict is that a bad quit leaves a named trace.
-    private static func describeVerdict(_ value: JSONValue) -> String {
-        guard case .object(let verdict) = value else {
-            return "unreadable: \(value)"
+    /// Render the deck's verdict as one log line — the point of the verdict
+    /// is that a bad quit leaves a named trace. A reply that does not decode
+    /// is named as unreadable by the pipeline, with why.
+    private static func describeVerdict(_ verdict: TerminationVerdict) -> String {
+        func ids(_ list: [String]) -> String {
+            list.isEmpty ? "none" : list.joined(separator: ",")
         }
-        func ids(_ key: String) -> String {
-            guard case .array(let entries)? = verdict[key] else { return "none" }
-            let list = entries.compactMap { entry -> String? in
-                if case .string(let id) = entry { return id }
-                return nil
-            }
-            return list.isEmpty ? "none" : list.joined(separator: ",")
-        }
-        func flag(_ key: String) -> Bool {
-            if case .bool(let value)? = verdict[key] { return value }
-            return false
-        }
-        func count(_ key: String) -> Int {
-            if case .number(let value)? = verdict[key] { return Int(value) }
-            return -1
-        }
-        let ok = flag("ok")
-        let flushed = count("flushedCards")
-        let layoutSaved = flag("layoutSaved")
-        let elapsed = count("elapsedMs")
-        return "ok=\(ok) interrupted=\(ids("interrupted")) unacknowledged=\(ids("unacknowledged")) "
-            + "flushedCards=\(flushed) failedCards=\(ids("failedCards")) "
-            + "layoutSaved=\(layoutSaved) elapsedMs=\(elapsed)"
+        return "ok=\(verdict.ok) interrupted=\(ids(verdict.interrupted)) unacknowledged=\(ids(verdict.unacknowledged)) "
+            + "flushedCards=\(verdict.flushedCards) failedCards=\(ids(verdict.failedCards)) "
+            + "layoutSaved=\(verdict.layoutSaved) elapsedMs=\(Int(verdict.elapsedMs))"
     }
 
     /// Tear down the bridge and the child processes, then let AppKit finish
@@ -715,44 +693,55 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // restore, deck.saveAndFlush on resign, the cascade layer added
     // in Step 7, etc.). Uniform shape: `params: ["event": "<name>"]`.
 
+    /// One `app-lifecycle` frame, to every page: the shell and each card
+    /// body keep their own `AppLifecycle`, and what observes the app
+    /// resigning in a body (a microphone it claimed, a selection to save)
+    /// hears it only if the frame reaches that body. A host tell with no
+    /// `to` goes to the shell alone.
+    private func sendLifecycle(_ event: String, replayed: Bool = false) {
+        var params: ControlParams = ["event": event, "to": "all"]
+        if replayed { params["replayed"] = true }
+        processManager.sendControl("app-lifecycle", params: params)
+    }
+
     func applicationWillBecomeActive(_ notification: Notification) {
         NSLog("AppDelegate: applicationWillBecomeActive")
-        processManager.sendControl("app-lifecycle", params: ["event": "willBecomeActive"])
+        sendLifecycle("willBecomeActive")
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         NSLog("AppDelegate: applicationDidBecomeActive")
-        processManager.sendControl("app-lifecycle", params: ["event": "didBecomeActive"])
+        sendLifecycle("didBecomeActive")
     }
 
     func applicationWillResignActive(_ notification: Notification) {
         NSLog("AppDelegate: applicationWillResignActive")
-        processManager.sendControl("app-lifecycle", params: ["event": "willResignActive"])
+        sendLifecycle("willResignActive")
     }
 
     func applicationDidResignActive(_ notification: Notification) {
         NSLog("AppDelegate: applicationDidResignActive")
-        processManager.sendControl("app-lifecycle", params: ["event": "didResignActive"])
+        sendLifecycle("didResignActive")
     }
 
     func applicationWillHide(_ notification: Notification) {
         NSLog("AppDelegate: applicationWillHide")
-        processManager.sendControl("app-lifecycle", params: ["event": "willHide"])
+        sendLifecycle("willHide")
     }
 
     func applicationDidHide(_ notification: Notification) {
         NSLog("AppDelegate: applicationDidHide")
-        processManager.sendControl("app-lifecycle", params: ["event": "didHide"])
+        sendLifecycle("didHide")
     }
 
     func applicationWillUnhide(_ notification: Notification) {
         NSLog("AppDelegate: applicationWillUnhide")
-        processManager.sendControl("app-lifecycle", params: ["event": "willUnhide"])
+        sendLifecycle("willUnhide")
     }
 
     func applicationDidUnhide(_ notification: Notification) {
         NSLog("AppDelegate: applicationDidUnhide")
-        processManager.sendControl("app-lifecycle", params: ["event": "didUnhide"])
+        sendLifecycle("didUnhide")
     }
 
     /// Re-fire the current OS-level app-lifecycle state through the
@@ -804,19 +793,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         // Active/resign: send whichever matches NSApp.isActive.
         let activeEvent = active ? "didBecomeActive" : "didResignActive"
-        processManager.sendControl(
-            "app-lifecycle",
-            params: ["event": activeEvent, "replayed": true]
-        )
+        sendLifecycle(activeEvent, replayed: true)
         // Hide/unhide: an app that's been Cmd-H'd is also `isHidden`
         // and conventionally not `isActive`. Sending both is correct:
         // the two axes are orthogonal in AppKit and the tugdeck-side
         // observers ignore the dimensions they don't care about.
         let hiddenEvent = hidden ? "didHide" : "didUnhide"
-        processManager.sendControl(
-            "app-lifecycle",
-            params: ["event": hiddenEvent, "replayed": true]
-        )
+        sendLifecycle(hiddenEvent, replayed: true)
     }
 
     #if DEBUG
@@ -1147,28 +1130,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // one and scale the whole web view otherwise. The branch lives at
     // invocation rather than at menu-build time because a key equivalent
     // fires the selector without rebuilding the menu.
+    //
+    // A document's zoom is addressed to its card's page: the surface and the
+    // responder that answers the command live in the card's body, and a
+    // tell with no `to` reaches the shell alone.
+
+    private func sendDocumentZoom(_ action: String) -> Bool {
+        guard let document = menuState.document else { return false }
+        sendControl(action, params: ["to": ["card": document.cardId]])
+        return true
+    }
 
     @objc func actualSize(_ sender: Any?) {
-        if menuState.document != nil {
-            sendControl("zoom-actual")
-            return
-        }
+        if sendDocumentZoom("zoom-actual") { return }
         window.actualSize()
     }
 
     @objc func zoomIn(_ sender: Any?) {
-        if menuState.document != nil {
-            sendControl("zoom-in")
-            return
-        }
+        if sendDocumentZoom("zoom-in") { return }
         window.zoomIn()
     }
 
     @objc func zoomOut(_ sender: Any?) {
-        if menuState.document != nil {
-            sendControl("zoom-out")
-            return
-        }
+        if sendDocumentZoom("zoom-out") { return }
         window.zoomOut()
     }
 
@@ -1813,30 +1797,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.setDevInfo(text: "\(branch) · \(rev) · build \(buildStamp) · load \(loadStamp)")
     }
 
-    /// Replace the shell's menu payload (called by MainWindow on every
+    /// Replace the shell's menu state (called by MainWindow on every
     /// `menuState` message from the shell).
-    func updateMenuState(_ payload: [String: Any]) {
-        shellMenuPayload = payload
+    func updateMenuState(_ state: MenuState) {
+        shellMenuState = state
         applyMenuPayloads()
     }
 
-    /// Replace one body's menu payload: its card-scoped blocks, which win
+    /// Replace one body's card-scoped blocks, which win
     /// while its card is the key card.
-    func updateBodyMenuState(cardId: String, payload: [String: Any]) {
-        bodyMenuPayloads[cardId] = payload
+    func updateBodyMenuState(cardId: String, blocks: MenuState.CardBlocks) {
+        bodyMenuBlocks[cardId] = blocks
         applyMenuPayloads()
     }
 
     /// A body went away; its card's blocks go with it.
     func dropBodyMenuState(cardId: String) {
-        guard bodyMenuPayloads.removeValue(forKey: cardId) != nil else { return }
+        guard bodyMenuBlocks.removeValue(forKey: cardId) != nil else { return }
         applyMenuPayloads()
     }
 
-    /// Rebuild `menuState` from the shell's payload and the key card's body.
+    /// Rebuild `menuState` from the shell's state and the key card's body.
     private func applyMenuPayloads() {
         let previousToken = menuState.edit.nativeUndoToken
-        menuState = MenuState(payload: MenuState.merged(shell: shellMenuPayload, bodies: bodyMenuPayloads))
+        menuState = MenuState.merged(shell: shellMenuState, bodies: bodyMenuBlocks)
 
         // Native-control undo scoping: the web view's NSUndoManager is
         // per-web-view, so its contents must never outlive focus in one
@@ -2019,7 +2003,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - UDS control commands
 
-    private func sendControl(_ action: String, params: [String: Any] = [:]) {
+    private func sendControl(_ action: String, params: ControlParams = [:]) {
         processManager.sendControl(action, params: params)
     }
 }

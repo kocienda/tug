@@ -133,7 +133,14 @@ final class SpikeBodyHandlers: NSObject, WKScriptMessageHandler {
                 "frame": ["x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height],
             ]))
         case "pageFault":
-            PageFaultScript.log(message.body)
+            // The spike child's own handler, decoded as the channel decodes
+            // every page's: a fault that does not decode is said, not guessed at.
+            switch HostChannel.decode(name: message.name, body: message.body) {
+            case .success(.pageFault(let fault)): PageFaultScript.log(fault)
+            case .success: break
+            case .failure(let error):
+                TugLog.warn("host", "refused", [TugLog.field("name", message.name), TugLog.field("error", error.description)])
+            }
         default:
             break
         }
@@ -226,8 +233,10 @@ final class SpikeBodyHandlers: NSObject, WKScriptMessageHandler {
             timestampsMs: ticks, periodMs: childPeriod,
             windowStartMs: stallStartMs, windowEndMs: stallEndMs
         )
+        var meterReading = meter.read(fromMs: stallStartMs, toMs: stallEndMs)
+        meterReading.samples = nil
         return [
-            "meter": meter.read(fromMs: stallStartMs, toMs: stallEndMs).filter { $0.key != "samples" },
+            "meter": meterReading.harnessJSON,
             "presentationAdvancedRatio": meter.presentationAdvancedRatio(
                 fromMs: stallStartMs, toMs: stallStartMs + stallMs / 2),
             "child": [

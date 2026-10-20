@@ -77,17 +77,11 @@ let callbackInstalled = false;
 function installCallback(): void {
   if (callbackInstalled) return;
   callbackInstalled = true;
-  onHostMessage(clipboardReadToPage, (payload) => {
-    const data = payload as { requestId?: unknown; text?: unknown; html?: unknown; atoms?: unknown };
-    if (typeof data.requestId !== "string") return;
-    const resolver = pendingCallbacks.get(data.requestId);
+  onHostMessage(clipboardReadToPage, ({ requestId, text, html, atoms }) => {
+    const resolver = pendingCallbacks.get(requestId);
     if (resolver) {
-      pendingCallbacks.delete(data.requestId);
-      resolver({
-        text: typeof data.text === "string" ? data.text : "",
-        html: typeof data.html === "string" ? data.html : "",
-        atoms: typeof data.atoms === "string" ? data.atoms : "",
-      });
+      pendingCallbacks.delete(requestId);
+      resolver({ text, html, atoms });
     }
   });
 }

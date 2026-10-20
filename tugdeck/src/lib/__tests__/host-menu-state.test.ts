@@ -15,6 +15,8 @@ import {
   type MenuStatePayload,
 } from "../host-menu-state";
 import { TUG_ACTIONS } from "@/lib/action-vocabulary";
+import { INVALID } from "@/bus/codec";
+import { menuStateToHost } from "@/host/declarations/services";
 import { cardTitleStore } from "../card-title-store";
 import { registerCard } from "../../card-registry";
 import { registerShellDeck } from "../deck-store-registry";
@@ -611,6 +613,23 @@ describe("HostMenuStatePublisher", () => {
     await settle();
     expect(posted).toHaveLength(1);
     expect(posted[0].session).toEqual(sessionBlock("a"));
+  });
+
+  test("what it posts, and a body's share of it, is what the declaration admits", async () => {
+    // The writer and the codec are separate opinions about one shape; a flush
+    // the codec refuses is a push the channel would drop.
+    const posted: MenuStatePayload[] = [];
+    const publisher = new HostMenuStatePublisher((p) => posted.push(p));
+    publisher.setDeckProjection(
+      projectDeckState(deck([card("a", { componentId: "session" })], [pane("p1", ["a"])])),
+    );
+    publisher.setSessionBlock("a", sessionBlock("a"));
+    await settle();
+    const whole = menuStateToHost.codec.decode(posted[0]);
+    expect(whole).not.toBe(INVALID);
+    // Read as the whole payload, not as its blocks alone.
+    expect(whole !== INVALID && "panes" in whole).toBe(true);
+    expect(menuStateToHost.codec.decode(bodyMenuPayload(posted[0]))).not.toBe(INVALID);
   });
 
   test("the Shade-visibility booleans (Spec S04) ride the session block", async () => {

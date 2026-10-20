@@ -8,7 +8,7 @@ import Foundation
 /// judged by the same rule. Foundation-only, so `TugTests` compiles it.
 enum FrameMeterStats {
     /// One gap between consecutive frames that ran past 1.5 periods.
-    struct Gap: Equatable {
+    struct Gap: Codable, Equatable {
         /// Where the gap ended, in ms from the window's start.
         let atMs: Double
         let gapMs: Double
@@ -23,19 +23,6 @@ enum FrameMeterStats {
         let missed: Int
         let worstGapMs: Double
         let gapsOverPeriod: [Gap]
-
-        /// The JSON shape a reading travels in (the harness and the page's
-        /// `hostFrames` callback both take it).
-        var dictionary: [String: Any] {
-            [
-                "periodMs": periodMs,
-                "ticks": ticks,
-                "expectedTicks": expectedTicks,
-                "missed": missed,
-                "worstGapMs": worstGapMs,
-                "gapsOverPeriod": gapsOverPeriod.map { ["atMs": $0.atMs, "gapMs": $0.gapMs] },
-            ]
-        }
     }
 
     /// Summarize the frames that landed inside `[windowStartMs, windowEndMs]`.
@@ -125,5 +112,98 @@ enum FrameMeterStats {
         guard sorted.count > 1 else { return nil }
         let intervals = (1..<sorted.count).map { sorted[$0] - sorted[$0 - 1] }.sorted()
         return intervals[intervals.count / 2]
+    }
+}
+
+/// A window of the host's display-link ticks, as `HostFrameMeter` reads it:
+/// the one shape the page's `onHostFrames` reply and the harness's
+/// `hostFrames` verb both encode (Spec S06's `HostFrameReading`, which
+/// `host/declarations/services.ts` declares field for field).
+struct HostFrameReading: Codable, Equatable {
+    /// One presentation sample of a metered layer: ms from arming, position, opacity.
+    struct Sample: Codable, Equatable {
+        var t: Double
+        var x: Double
+        var y: Double
+        var opacity: Double
+    }
+
+    /// A span a layer's beats move it over, ms from arming.
+    struct Span: Codable, Equatable {
+        var fromMs: Double
+        var toMs: Double
+    }
+
+    /// A layer sampled by name: its samples, its active spans, and across
+    /// those the share of ticks it advanced on and its longest still run.
+    struct Layer: Codable, Equatable {
+        var samples: [Sample]
+        var active: [Span]
+        var activeTicks: Int
+        /// Nil when the layer had no active ticks to judge.
+        var advancedRatio: Double?
+        var worstStillMs: Double
+
+        private enum CodingKeys: String, CodingKey {
+            case samples, active, activeTicks, advancedRatio, worstStillMs
+        }
+
+        init(samples: [Sample], active: [Span], activeTicks: Int, advancedRatio: Double?, worstStillMs: Double) {
+            self.samples = samples
+            self.active = active
+            self.activeTicks = activeTicks
+            self.advancedRatio = advancedRatio
+            self.worstStillMs = worstStillMs
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            samples = try container.decode([Sample].self, forKey: .samples)
+            active = try container.decode([Span].self, forKey: .active)
+            activeTicks = try container.decode(Int.self, forKey: .activeTicks)
+            advancedRatio = try container.decodeValueOrNull(Double.self, forKey: .advancedRatio)
+            worstStillMs = try container.decode(Double.self, forKey: .worstStillMs)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            // `advancedRatio` as a null when there is none: the page's codec
+            // reads it as a number or null, never absent.
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(samples, forKey: .samples)
+            try container.encode(active, forKey: .active)
+            try container.encode(activeTicks, forKey: .activeTicks)
+            try container.encode(advancedRatio, forKey: .advancedRatio)
+            try container.encode(worstStillMs, forKey: .worstStillMs)
+        }
+    }
+
+    var periodMs: Double
+    var ticks: Int
+    var expectedTicks: Int
+    var missed: Int
+    var worstGapMs: Double
+    var gapsOverPeriod: [FrameMeterStats.Gap]
+    /// The single sampled layer's samples, when the meter was armed sampling one.
+    var samples: [Sample]?
+    /// The wall clock (ms since 1970) at the meter's arming.
+    var armedWallMs: Double
+    /// Every tick inside the window, ms from arming.
+    var tickMs: [Double]
+    var layers: [String: Layer]
+
+    init(
+        summary: FrameMeterStats.Summary, armedWallMs: Double, tickMs: [Double],
+        samples: [Sample]?, layers: [String: Layer]
+    ) {
+        periodMs = summary.periodMs
+        ticks = summary.ticks
+        expectedTicks = summary.expectedTicks
+        missed = summary.missed
+        worstGapMs = summary.worstGapMs
+        gapsOverPeriod = summary.gapsOverPeriod
+        self.samples = samples
+        self.armedWallMs = armedWallMs
+        self.tickMs = tickMs
+        self.layers = layers
     }
 }

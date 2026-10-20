@@ -2,21 +2,22 @@ import Foundation
 
 /// Menu-relevant frontend state, pushed by tugdeck's host-menu-state
 /// aggregator on every menu-relevant change. Wire contract with
-/// `tugdeck/src/lib/host-menu-state.ts` — keep both sides in sync.
+/// `tugdeck/src/lib/host-menu-state.ts`, declared as `menuStateToHost`
+/// and held to it by the parity fixture.
 ///
-/// Decoding is defensive throughout: a missing or mistyped field reads
-/// as its inert value (empty list, nil block, false flag), so menu
-/// validation degrades to "disabled" rather than crashing on a
-/// malformed payload. Before the first push arrives (app boot,
+/// The decode is the declaration's: a payload with a missing or mistyped
+/// field is refused whole, and the menus keep the last state that did
+/// decode. Only the fields the host reads are decoded; the page's others
+/// are its own. Before the first push arrives (app boot,
 /// pre-frontendReady) the cache is `.empty`, and `validateMenuItem`'s
 /// default branch reads the empty `commands` block as cold start —
 /// every identified item without an explicit case validates disabled
 /// until the frontend has answered once. Migrating an item's tier out
 /// of the validator therefore cannot flip its splash-screen posture
 /// from disabled to enabled.
-struct MenuState {
+struct MenuState: Decodable {
     /// One pane entry, z-order topmost first.
-    struct Pane {
+    struct Pane: Decodable {
         let id: String
         let title: String
         let focused: Bool
@@ -24,14 +25,20 @@ struct MenuState {
 
     /// One workspace row for the Window menu's Workspaces section, in the
     /// user's order, `active` on the one rendered ([P12]).
-    struct Space {
+    struct Space: Decodable {
         let id: String
         let name: String
         let active: Bool
     }
 
+    /// The focused pane's active card: the key card, whose body's blocks
+    /// win while it has a body.
+    struct ActiveCard: Decodable {
+        let cardId: String
+    }
+
     /// Session-card session state; nil unless the active card is a session card.
-    struct Session {
+    struct Session: Decodable {
         let cardId: String
         let sessionBound: Bool
         /// The model / effort / permission-mode settings may be changed
@@ -50,7 +57,7 @@ struct MenuState {
     /// menu key equivalent before the WKWebView sees a keydown: ⌘+ / ⌘- / ⌘0
     /// can never be handled web-side, so a surface that wants them says so
     /// here and the delegate forwards the command instead of scaling the page.
-    struct Document {
+    struct Document: Decodable {
         let cardId: String
     }
 
@@ -75,7 +82,7 @@ struct MenuState {
     /// control; the delegate clears the stack on every change
     /// (`updateMenuState`), which is what keeps the per-web-view native
     /// stack card-safe.
-    struct Edit {
+    struct Edit: Decodable {
         let undo: Bool
         let redo: Bool
         let undoLabel: String
@@ -103,15 +110,39 @@ struct MenuState {
     /// `KeyboardEvent.code` → key-equivalent conversion, so this side spells
     /// neither alphabet and only assembles the mask — which happens on the
     /// AppKit side, in `AppDelegate.swift`, so this file stays Foundation-only.
-    struct ChordSpec {
+    struct ChordSpec: Decodable {
         let keyEquivalent: String
         let command: Bool
         let shift: Bool
         let option: Bool
         let control: Bool
+
+        private enum CodingKeys: String, CodingKey { case keyEquivalent, command, shift, option, control }
+
+        init(keyEquivalent: String, command: Bool, shift: Bool, option: Bool, control: Bool) {
+            self.keyEquivalent = keyEquivalent
+            self.command = command
+            self.shift = shift
+            self.option = option
+            self.control = control
+        }
+
+        /// A modifier is absent or a boolean; absent reads as up, and `null`
+        /// is refused, as the page's `optional(bool)` refuses it.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            func flag(_ key: CodingKeys) throws -> Bool {
+                container.contains(key) ? try container.decode(Bool.self, forKey: key) : false
+            }
+            keyEquivalent = try container.decode(String.self, forKey: .keyEquivalent)
+            command = try flag(.command)
+            shift = try flag(.shift)
+            option = try flag(.option)
+            control = try flag(.control)
+        }
     }
 
-    struct CommandGate {
+    struct CommandGate: Decodable {
         /// nil means the command states no opinion on enablement and the
         /// hand-rolled tier below still owns the item. A gate can carry a
         /// chord and nothing else: View ▸ Zoom In takes its chord from the
@@ -149,12 +180,71 @@ struct MenuState {
             case apply(ChordSpec)
         }
         let chord: ChordField
+
+        private enum CodingKeys: String, CodingKey { case enabled, state, title, chord }
+
+        init(enabled: Bool?, state: Mark?, title: String?, chord: ChordField) {
+            self.enabled = enabled
+            self.state = state
+            self.title = title
+            self.chord = chord
+        }
+
+        /// Every field is absent or a value, and absence is a reading of its
+        /// own. The chord's three states are read apart by the key's presence:
+        /// a missing key is "leave the item alone" and an explicit null is
+        /// "release the chord". The mark's three readings arrive as two JSON
+        /// types, the booleans and the string `"mixed"`; any other value is
+        /// refused.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = container.contains(.enabled) ? try container.decode(Bool.self, forKey: .enabled) : nil
+            title = container.contains(.title) ? try container.decode(String.self, forKey: .title) : nil
+            if !container.contains(.state) {
+                state = nil
+            } else if let on = try? container.decode(Bool.self, forKey: .state) {
+                state = on ? .on : .off
+            } else if try container.decode(String.self, forKey: .state) == "mixed" {
+                state = .mixed
+            } else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .state, in: container, debugDescription: "a mark is true, false or \"mixed\"")
+            }
+            if !container.contains(.chord) {
+                chord = .absent
+            } else if try container.decodeNil(forKey: .chord) {
+                chord = .detach
+            } else {
+                chord = .apply(try container.decode(ChordSpec.self, forKey: .chord))
+            }
+        }
+    }
+
+    /// The blocks that belong to the key card rather than to the deck: all a
+    /// body page posts. Each block is a value or null.
+    struct CardBlocks: Decodable {
+        var session: Session?
+        var document: Document?
+        var edit: Edit
+        var commands: [String: CommandGate]
+
+        private enum CodingKeys: String, CodingKey { case session, document, edit, commands }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            session = try container.decodeValueOrNull(Session.self, forKey: .session)
+            document = try container.decodeValueOrNull(Document.self, forKey: .document)
+            edit = try container.decode(Edit.self, forKey: .edit)
+            commands = try container.decode([String: CommandGate].self, forKey: .commands)
+        }
     }
 
     var panes: [Pane] = []
     /// Every workspace, in the user's order, for the Window menu's
     /// Workspaces section.
     var spaces: [Space] = []
+    /// The key card, or nil when the deck has no panes.
+    var activeCard: ActiveCard?
     var session: Session?
     /// A frontmost surface that owns zoom for itself (the viewer card's PDF
     /// branch). Present means View ▸ Zoom In / Zoom Out / Actual Size scale
@@ -193,140 +283,65 @@ struct MenuState {
 
     init() {}
 
-    init(payload: [String: Any]) {
-        captureArmed = payload["captureArmed"] as? Bool ?? false
-        appModalOpen = payload["appModalOpen"] as? Bool ?? false
-        if let rawPanes = payload["panes"] as? [[String: Any]] {
-            panes = rawPanes.compactMap { entry in
-                guard let id = entry["id"] as? String else { return nil }
-                return Pane(
-                    id: id,
-                    title: entry["title"] as? String ?? "Untitled",
-                    focused: entry["focused"] as? Bool ?? false
-                )
-            }
-        }
-        if let rawSpaces = payload["spaces"] as? [[String: Any]] {
-            spaces = rawSpaces.compactMap { entry in
-                guard let id = entry["id"] as? String else { return nil }
-                return Space(
-                    id: id,
-                    name: entry["name"] as? String ?? "Untitled",
-                    active: entry["active"] as? Bool ?? false
-                )
-            }
-        }
-        if let rawSession = payload["session"] as? [String: Any],
-           let cardId = rawSession["cardId"] as? String {
-            session = Session(
-                cardId: cardId,
-                sessionBound: rawSession["sessionBound"] as? Bool ?? false,
-                // Fail open: a parse miss keeps the settings items enabled
-                // rather than stranding a dead AI door.
-                canChangeSettings: rawSession["canChangeSettings"] as? Bool ?? true
-            )
-        }
-        if let rawDocument = payload["document"] as? [String: Any],
-           let cardId = rawDocument["cardId"] as? String {
-            document = Document(cardId: cardId)
-        }
-        if let rawRecents = payload["recentDocuments"] as? [String] {
-            recentDocuments = rawRecents
-        }
-        activeTheme = payload["activeTheme"] as? String ?? ""
-        if let rawEdit = payload["edit"] as? [String: Any] {
-            edit = Edit(
-                undo: rawEdit["undo"] as? Bool ?? false,
-                redo: rawEdit["redo"] as? Bool ?? false,
-                undoLabel: rawEdit["undoLabel"] as? String ?? "",
-                redoLabel: rawEdit["redoLabel"] as? String ?? "",
-                nativeUndoToken: rawEdit["nativeUndoToken"] as? Int ?? 0
-            )
-        }
-        if let rawCommands = payload["commands"] as? [String: Any] {
-            for (itemId, rawGate) in rawCommands {
-                // A gate that cannot be read at all is dropped rather than
-                // defaulted: an unreadable gate is not a claim of "enabled",
-                // and dropping it leaves the item on whichever tier still
-                // owns it.
-                guard let gate = rawGate as? [String: Any] else { continue }
-                // The three chord states have to be read apart, and only the
-                // key's *presence* separates the first two: a missing key is
-                // "leave the item alone", while an explicit JSON null (which
-                // arrives as NSNull) is "release the chord". Reading it with
-                // `as? [String: Any]` alone would collapse them and turn every
-                // detach into a no-op.
-                let chordField: CommandGate.ChordField
-                if let rawChord = gate["chord"] {
-                    if let spec = rawChord as? [String: Any],
-                       let keyEquivalent = spec["keyEquivalent"] as? String {
-                        chordField = .apply(ChordSpec(
-                            keyEquivalent: keyEquivalent,
-                            command: spec["command"] as? Bool ?? false,
-                            shift: spec["shift"] as? Bool ?? false,
-                            option: spec["option"] as? Bool ?? false,
-                            control: spec["control"] as? Bool ?? false
-                        ))
-                    } else {
-                        // Null, or a spec too malformed to apply. Detaching is
-                        // the safe reading of both: an unreadable chord must
-                        // not leave a stale one standing.
-                        chordField = .detach
-                    }
-                } else {
-                    chordField = .absent
-                }
-                // The mark's three readings arrive as two JSON types — the
-                // booleans as numbers, `"mixed"` as a string — so they are
-                // read apart. Anything else states no opinion and leaves the
-                // item's constructed state standing.
-                let stateField: CommandGate.Mark?
-                if let on = gate["state"] as? Bool {
-                    stateField = on ? .on : .off
-                } else if gate["state"] as? String == "mixed" {
-                    stateField = .mixed
-                } else {
-                    stateField = nil
-                }
-                commands[itemId] = CommandGate(
-                    enabled: gate["enabled"] as? Bool,
-                    state: stateField,
-                    title: gate["title"] as? String,
-                    chord: chordField
-                )
-            }
-        }
+    private enum CodingKeys: String, CodingKey {
+        case panes, spaces, activeCard, session, document, edit, commands
+        case recentDocuments, activeTheme, captureArmed, appModalOpen
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        panes = try container.decode([Pane].self, forKey: .panes)
+        spaces = try container.decode([Space].self, forKey: .spaces)
+        activeCard = try container.decodeValueOrNull(ActiveCard.self, forKey: .activeCard)
+        let blocks = try CardBlocks(from: decoder)
+        session = blocks.session
+        document = blocks.document
+        edit = blocks.edit
+        commands = blocks.commands
+        recentDocuments = try container.decode([String].self, forKey: .recentDocuments)
+        activeTheme = try container.decode(String.self, forKey: .activeTheme)
+        captureArmed = try container.decode(Bool.self, forKey: .captureArmed)
+        appModalOpen = try container.decode(Bool.self, forKey: .appModalOpen)
     }
 }
 
 extension MenuState {
-    /// The blocks that belong to the key card rather than to the deck. A body
-    /// card's are published by its body; the deck's — panes, workspaces,
-    /// recents, theme, the capture and modal flags — stay the shell's.
-    static let cardScopedKeys = ["session", "file", "document", "edit"]
-
-    /// One payload from the shell's and the bodies'.
+    /// The shell's state with the key card's body merged over it.
     ///
-    /// The shell names its key card in `activeCard.cardId`. When that card is
-    /// a body with a payload of its own, the card-scoped blocks come from the
-    /// body — present or absent as the body says — and `commands` is the
-    /// union of both, the body's gate winning an identifier both report. A
-    /// payload from a body whose card is not the key card changes nothing, so
-    /// a background body can never light the menu for a card the user is not
-    /// in.
-    static func merged(shell: [String: Any], bodies: [String: [String: Any]]) -> [String: Any] {
-        guard let activeCard = shell["activeCard"] as? [String: Any],
-              let cardId = activeCard["cardId"] as? String,
-              let body = bodies[cardId] else { return shell }
+    /// The shell names its key card in `activeCard`. When that card is a body
+    /// that has posted blocks of its own, the card-scoped blocks come from the
+    /// body — present or null as the body says — and `commands` is the union
+    /// of both, the body's gate winning an identifier both report. The deck's
+    /// facts — panes, workspaces, recents, theme, the capture and modal flags
+    /// — stay the shell's. Blocks from a body whose card is not the key card
+    /// change nothing, so a background body can never light the menu for a
+    /// card the user is not in.
+    static func merged(shell: MenuState, bodies: [String: CardBlocks]) -> MenuState {
+        guard let cardId = shell.activeCard?.cardId, let body = bodies[cardId] else { return shell }
         var merged = shell
-        for key in cardScopedKeys {
-            merged[key] = body[key]
-        }
-        var commands = shell["commands"] as? [String: Any] ?? [:]
-        for (identifier, gate) in body["commands"] as? [String: Any] ?? [:] {
-            commands[identifier] = gate
-        }
-        merged["commands"] = commands
+        merged.session = body.session
+        merged.document = body.document
+        merged.edit = body.edit
+        merged.commands.merge(body.commands) { _, bodys in bodys }
         return merged
+    }
+}
+
+/// A `menuState` post: the shell's whole state, or a body page's card-scoped
+/// blocks, told apart by `panes`, which only the whole carries. A payload
+/// carrying it is read as the whole or refused for what is wrong with it,
+/// never read as its blocks alone.
+enum MenuStatePost: Decodable {
+    case shell(MenuState)
+    case body(MenuState.CardBlocks)
+
+    private enum Probe: String, CodingKey { case panes }
+
+    init(from decoder: Decoder) throws {
+        if try decoder.container(keyedBy: Probe.self).contains(.panes) {
+            self = .shell(try MenuState(from: decoder))
+        } else {
+            self = .body(try MenuState.CardBlocks(from: decoder))
+        }
     }
 }

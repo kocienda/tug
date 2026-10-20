@@ -4,25 +4,17 @@ import Foundation
 ///
 /// Every message a page posts is named here once, with whether only the
 /// shell may post it, and decoded here once, from the JSON string the page
-/// posts (`postToHost` in `host/channel.ts`). A payload the page carries
-/// loose arrives as a `HostObject`; a typed one decodes into its `Decodable`
-/// struct or is refused whole. Every message the host sends a page is named
-/// here too, as the `window.__tugBridge` member that receives it (`ToPage`),
-/// and so is every call the host awaits (`PageCall`); each renders the one
-/// script that delivers it. `TugTests/HostChannelTests.swift` checks this
-/// file against the parity fixture the page's registry writes, so the two
-/// sides cannot list different names or disagree about a sample.
+/// posts (`postToHost` in `host/channel.ts`): each decodes into its
+/// `Decodable` struct or is refused whole. Every message the host sends a
+/// page is named here too, as the `window.__tugBridge` member that receives
+/// it (`ToPage`), and so is every call the host awaits (`PageCall`) with the
+/// reply it reads (`PageReply`); each renders the one script that delivers
+/// it from an `Encodable` payload. `TugTests/HostChannelTests.swift` checks
+/// this file against the parity fixture the page's registry writes, so the
+/// two sides cannot list different names or disagree about a sample.
 ///
 /// Foundation-only, so `TugTests` compiles it. Logging a refusal and naming
 /// the page that sent a message are `HostChannel.swift`'s.
-
-/// A loose payload: a JSON object, carried as `JSONSerialization` reads it.
-/// Its fields mean what its handler reads; typing it is a later change.
-struct HostObject {
-    let fields: [String: Any]
-
-    subscript(key: String) -> Any? { fields[key] }
-}
 
 // MARK: - The geometry family
 //
@@ -41,6 +33,18 @@ struct EmptyPayload: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         _ = try decoder.container(keyedBy: CodingKeys.self)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// A field the writer always writes, as a value or a null. Absent is
+    /// refused, as the page's `nullable` codec refuses it; the synthesized
+    /// decode of an optional would read it as nil.
+    func decodeValueOrNull<T: Decodable>(_ type: T.Type, forKey key: Key) throws -> T? {
+        guard contains(key) else {
+            throw DecodingError.keyNotFound(key, .init(codingPath: codingPath, debugDescription: "no \(key.stringValue)"))
+        }
+        return try decodeNil(forKey: key) ? nil : decode(type, forKey: key)
     }
 }
 
@@ -290,6 +294,332 @@ struct BodyStateReport: Codable, Equatable {
     }
 }
 
+// MARK: - The host's services
+//
+// The pickers, the clipboard, the OS, the window's settings, the launch's
+// own reports and the frame meter, typed under the geometry family's rule
+// with the field names the page's codecs use (`host/declarations/services.ts`,
+// `lifecycle.ts`). A host→page payload is encoded from the value its sender
+// holds; a field the page reads as a value or null is written as a null,
+// never left out.
+
+/// `choosePath`: open a picker, answered with `onPathChosen` under `id`.
+struct ChoosePath: Decodable, Equatable {
+    /// The panel: `save` names a new file, `insert` takes any file.
+    enum Kind: String, Decodable, Equatable {
+        case directory, file, save, insert
+    }
+
+    var id: String
+    var kind: Kind
+    /// Where the panel starts; nil for its own default.
+    var initialPath: String?
+    /// A `save` panel's filename.
+    var suggestedName: String?
+
+    private enum CodingKeys: String, CodingKey { case id, kind, initialPath, suggestedName }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        initialPath = try container.decodeValueOrNull(String.self, forKey: .initialPath)
+        suggestedName = try container.decodeValueOrNull(String.self, forKey: .suggestedName)
+    }
+}
+
+/// `setTheme`: the window's background, as the theme's canvas colour.
+struct SetTheme: Decodable, Equatable {
+    var color: String
+}
+
+/// `clipboardRead`: read the pasteboard, answered with `onClipboardRead`.
+struct ClipboardReadRequest: Decodable, Equatable {
+    var requestId: String
+}
+
+/// `clipboardWrite`: a copy's plain text, its atom sidecar and its rich text,
+/// `""` for a flavour it has none of.
+struct ClipboardWrite: Decodable, Equatable {
+    var text: String
+    var atoms: String
+    var html: String
+}
+
+/// `clipboardWriteImage`: image bytes, base64-encoded.
+struct ClipboardWriteImage: Decodable, Equatable {
+    var base64: String
+}
+
+/// `openPath`: hand a path to the OS.
+struct OpenPath: Decodable, Equatable {
+    /// `file` opens it in its editor, `folder` in Finder, and `reveal`
+    /// selects it in its folder.
+    enum Kind: String, Decodable, Equatable {
+        case file, folder, reveal
+    }
+
+    var path: String
+    var kind: Kind
+}
+
+/// `lookUpInDictionary`: the selected text, the viewport point of its first
+/// character's baseline origin, and the font its callout is redrawn in.
+struct DictionaryLookup: Decodable, Equatable {
+    var text: String
+    var x: Double
+    var y: Double
+    var fontFamily: String
+    /// Layout px; the host scales it by the zoom factor.
+    var fontSize: Double
+    var bold: Bool
+    var italic: Bool
+}
+
+/// `trashPath`: move a file to the Trash, answered with `onTrashResult`.
+struct TrashPath: Decodable, Equatable {
+    var requestId: String
+    var path: String
+}
+
+/// `restorePath`: move a trashed file back, answered with `onTrashResult`.
+struct RestorePath: Decodable, Equatable {
+    var requestId: String
+    var trashedPath: String
+    var destination: String
+}
+
+/// `thumbnailPath`: a QuickLook thumbnail `size` points on an edge,
+/// answered with `onThumbnail`.
+struct ThumbnailPath: Decodable, Equatable {
+    var requestId: String
+    var path: String
+    var size: Double
+}
+
+/// `exportSession`: a session's two renderings, which the save panel's
+/// format popup chooses between, answered with `onExportDone` under `id`.
+struct ExportSession: Decodable, Equatable {
+    var id: String
+    /// The default filename, without an extension.
+    var baseName: String
+    var markdown: String
+    var jsonl: String
+}
+
+/// `pageZoom` and `onPageZoom`: a zoom factor.
+struct PageZoom: Codable, Equatable {
+    var factor: Double
+}
+
+/// `hostFrames`: meter the window's frames for `windowMs`, answered with
+/// `onHostFrames` under `requestId`.
+struct HostFramesRequest: Decodable, Equatable {
+    var requestId: String
+    var windowMs: Double
+}
+
+/// `frontendLaunchStalled`: the boot await that ran past its horizon.
+struct FrontendLaunchStalled: Decodable, Equatable {
+    var waitingOn: String
+}
+
+/// `pageFault`: what `PageFaultScript` saw, its text, and where (`""` when
+/// it said nowhere).
+struct PageFault: Decodable, Equatable {
+    enum Kind: String, Decodable, Equatable {
+        case error, resource, unhandledrejection
+        case consoleError = "console.error"
+    }
+
+    var kind: Kind
+    var message: String
+    var source: String
+}
+
+/// `onSettingsLoaded`: the maker-mode gate and the source tree, nil when unset.
+struct SettingsLoaded: Codable, Equatable {
+    var makerMode: Bool
+    var sourceTree: String?
+
+    private enum CodingKeys: String, CodingKey { case makerMode, sourceTree }
+
+    init(makerMode: Bool, sourceTree: String?) {
+        self.makerMode = makerMode
+        self.sourceTree = sourceTree
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        makerMode = try container.decode(Bool.self, forKey: .makerMode)
+        sourceTree = try container.decodeValueOrNull(String.self, forKey: .sourceTree)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(makerMode, forKey: .makerMode)
+        try container.encode(sourceTree, forKey: .sourceTree)
+    }
+}
+
+/// `onPathChosen`: the path a picker chose, or nil when it was dismissed.
+struct PathChosen: Codable, Equatable {
+    var id: String
+    var path: String?
+
+    private enum CodingKeys: String, CodingKey { case id, path }
+
+    init(id: String, path: String?) {
+        self.id = id
+        self.path = path
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        path = try container.decodeValueOrNull(String.self, forKey: .path)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(path, forKey: .path)
+    }
+}
+
+/// `onExportDone`: whether the export was written.
+struct ExportDone: Codable, Equatable {
+    enum Result: String, Codable, Equatable {
+        case saved, canceled
+    }
+
+    var id: String
+    var result: Result
+}
+
+/// `onClipboardRead`: the pasteboard's plain text, rich text and atom
+/// sidecar, `""` for a flavour it has none of.
+struct ClipboardContents: Codable, Equatable {
+    var requestId: String
+    var text: String
+    var html: String
+    var atoms: String
+}
+
+/// `onTrashResult`: where a trashed or restored file went, or why it did
+/// not move. `ok` is the tag; a success names the one path its verb made.
+enum TrashResult: Codable, Equatable {
+    case trashed(requestId: String, trashedPath: String)
+    case restored(requestId: String, restoredPath: String)
+    case failed(requestId: String, error: String)
+
+    private enum CodingKeys: String, CodingKey { case requestId, ok, trashedPath, restoredPath, error }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        if try container.decode(Bool.self, forKey: .ok) {
+            if let trashedPath = try container.decodeIfPresent(String.self, forKey: .trashedPath) {
+                self = .trashed(requestId: requestId, trashedPath: trashedPath)
+            } else {
+                self = .restored(requestId: requestId, restoredPath: try container.decode(String.self, forKey: .restoredPath))
+            }
+        } else {
+            self = .failed(requestId: requestId, error: try container.decode(String.self, forKey: .error))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .trashed(let requestId, let trashedPath):
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(true, forKey: .ok)
+            try container.encode(trashedPath, forKey: .trashedPath)
+        case .restored(let requestId, let restoredPath):
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(true, forKey: .ok)
+            try container.encode(restoredPath, forKey: .restoredPath)
+        case .failed(let requestId, let error):
+            try container.encode(requestId, forKey: .requestId)
+            try container.encode(false, forKey: .ok)
+            try container.encode(error, forKey: .error)
+        }
+    }
+}
+
+/// `onThumbnail`: a PNG data URL, or nil when QuickLook had nothing — sent
+/// all the same, so the page settles rather than timing out.
+struct Thumbnail: Codable, Equatable {
+    var requestId: String
+    var dataUrl: String?
+
+    private enum CodingKeys: String, CodingKey { case requestId, dataUrl }
+
+    init(requestId: String, dataUrl: String?) {
+        self.requestId = requestId
+        self.dataUrl = dataUrl
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        requestId = try container.decode(String.self, forKey: .requestId)
+        dataUrl = try container.decodeValueOrNull(String.self, forKey: .dataUrl)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(dataUrl, forKey: .dataUrl)
+    }
+}
+
+/// `onHostFrames`: what the display link read over the window a page asked for.
+struct HostFramesReply: Codable, Equatable {
+    var requestId: String
+    var reading: HostFrameReading
+}
+
+/// `onActivationClick`: a click on an inactive window, at its viewport point.
+struct ActivationClick: Codable, Equatable {
+    var x: Double
+    var y: Double
+}
+
+/// `onNetworkPath`: the host's network-path hint, `NetworkPathMonitor`'s
+/// report. `unknown` is a status this build does not know, which the deck
+/// reads as no evidence.
+struct NetworkPathReport: Codable, Equatable {
+    enum Status: String, Codable, Equatable {
+        case satisfied, unsatisfied, requiresConnection, unknown
+    }
+
+    var status: Status
+    var isExpensive: Bool
+    var isConstrained: Bool
+}
+
+/// `dictation`: a verb for the session `id`. `start` claims the mic, `stop`
+/// truncates, `finish` asks for the settled reading of what was heard.
+struct DictationRequest: Codable, Equatable {
+    enum Verb: String, Codable, Equatable {
+        case start, stop, finish
+    }
+
+    var id: String
+    var verb: Verb
+}
+
+/// `onScrollPhase`: a trackpad scroll's phase edge, posted bare.
+enum ScrollPhaseEdge: String, Codable, Equatable {
+    /// Fingers down.
+    case touched
+    /// Fingers up.
+    case lifted
+    /// The first delta macOS sends on the hand's behalf.
+    case momentum
+}
+
 /// Every page→host message name, as the page's `WKScriptMessageHandler`
 /// names it.
 enum ToHostName: String, CaseIterable {
@@ -301,7 +631,7 @@ enum ToHostName: String, CaseIterable {
     case bodyHello, painted, frontendReady, frontendLaunchStalled, pageFault
     case crossingReady, bodySurface, bodyCreate, bodyDestroy, bodyFocus, hmrUpdate
     // The host's services.
-    case sourceTree, choosePath, getSettings, setTheme, devBadge
+    case sourceTree, choosePath, getSettings, setTheme
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
     case openPath, lookUpInDictionary, trashPath, restorePath, thumbnailPath
     case exportSession, updateAction, dictation, pageZoom, hostFrames
@@ -312,7 +642,7 @@ enum ToHostName: String, CaseIterable {
     /// card's own body, and the answer is the window's whole zoom either way.
     var shellOnly: Bool {
         switch self {
-        case .sourceTree, .setTheme, .devBadge, .updateAction, .frontendLaunchStalled, .hmrUpdate,
+        case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .hmrUpdate,
              .bodyCreate, .bodyDestroy, .bodyFocus, .hostFrames,
              .cardPlan, .placeCards, .overlayCreate:
             return true
@@ -331,14 +661,14 @@ enum ToHostName: String, CaseIterable {
 enum HostDecodeError: Error, CustomStringConvertible {
     case unknownName(String)
     case notJSON
-    case notObject
-    case notString
     case typed(String)
 
     /// `error`, thrown decoding a typed payload, as the refusal it is: a body
-    /// that is not JSON at all is `notJSON`, as it is for a loose one.
+    /// that is not JSON at all is `notJSON`. A bare value no case names fails
+    /// at the root too, but with no underlying parse error, and that is a
+    /// refusal of the value rather than the JSON.
     init(decoding error: Error) {
-        if case DecodingError.dataCorrupted(let context) = error, context.codingPath.isEmpty {
+        if case DecodingError.dataCorrupted(let context) = error, context.codingPath.isEmpty, context.underlyingError != nil {
             self = .notJSON
         } else {
             self = .typed(String(describing: error))
@@ -349,8 +679,6 @@ enum HostDecodeError: Error, CustomStringConvertible {
         switch self {
         case .unknownName(let name): return "no message is named \(name)"
         case .notJSON: return "the body is not JSON"
-        case .notObject: return "the body is not a JSON object"
-        case .notString: return "the body is not a JSON string"
         case .typed(let reason): return reason
         }
     }
@@ -366,56 +694,46 @@ enum ToHost {
     case bodyHello
     case painted
     case frontendReady
-    case frontendLaunchStalled(HostObject)
-    case pageFault(HostObject)
+    case frontendLaunchStalled(FrontendLaunchStalled)
+    case pageFault(PageFault)
     case crossingReady(BodySurface)
     case bodySurface(BodySurface)
     case bodyCreate(BodyCreate)
     case bodyDestroy(BodyDestroy)
     case bodyFocus(BodyFocus)
-    case hmrUpdate(HostObject)
-    case sourceTree(HostObject)
-    case choosePath(HostObject)
-    case getSettings(HostObject)
-    case setTheme(HostObject)
-    case devBadge(HostObject)
-    case clipboardRead(HostObject)
-    case clipboardWrite(HostObject)
-    case clipboardWriteImage(HostObject)
-    case menuState(HostObject)
-    case openPath(HostObject)
-    case lookUpInDictionary(HostObject)
-    case trashPath(HostObject)
-    case restorePath(HostObject)
-    case thumbnailPath(HostObject)
-    case exportSession(HostObject)
-    case updateAction(String)
-    case dictation(HostObject)
-    case pageZoom(HostObject)
-    case hostFrames(HostObject)
+    case hmrUpdate
+    case sourceTree
+    case choosePath(ChoosePath)
+    case getSettings
+    case setTheme(SetTheme)
+    case clipboardRead(ClipboardReadRequest)
+    case clipboardWrite(ClipboardWrite)
+    case clipboardWriteImage(ClipboardWriteImage)
+    case menuState(MenuStatePost)
+    case openPath(OpenPath)
+    case lookUpInDictionary(DictionaryLookup)
+    case trashPath(TrashPath)
+    case restorePath(RestorePath)
+    case thumbnailPath(ThumbnailPath)
+    case exportSession(ExportSession)
+    case updateAction(UpdateAction)
+    case dictation(DictationRequest)
+    case pageZoom(PageZoom)
+    case hostFrames(HostFramesRequest)
 
     /// The message `name` carries in `data`, the UTF-8 of the JSON the page
     /// posted, or why it does not decode.
     static func decode(name: String, data: Data) -> Result<ToHost, HostDecodeError> {
         guard let which = ToHostName(rawValue: name) else { return .failure(.unknownName(name)) }
         do {
-            if let decoded = try typed(which, data) { return .success(decoded) }
+            return .success(try typed(which, data))
         } catch {
             return .failure(HostDecodeError(decoding: error))
         }
-        guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-            return .failure(.notJSON)
-        }
-        if which == .updateAction {
-            guard let action = value as? String else { return .failure(.notString) }
-            return .success(.updateAction(action))
-        }
-        guard let fields = value as? [String: Any] else { return .failure(.notObject) }
-        return .success(loose(which, HostObject(fields: fields)))
     }
 
-    /// The typed message `name` carries in `data`, or nil when `name` is loose.
-    private static func typed(_ name: ToHostName, _ data: Data) throws -> ToHost? {
+    /// The message `name` carries in `data`.
+    private static func typed(_ name: ToHostName, _ data: Data) throws -> ToHost {
         let decoder = JSONDecoder()
         func read<T: Decodable>(_ type: T.Type) throws -> T { try decoder.decode(type, from: data) }
         switch name {
@@ -432,45 +750,35 @@ enum ToHost {
         case .bodyCreate: return .bodyCreate(try read(BodyCreate.self))
         case .bodyDestroy: return .bodyDestroy(try read(BodyDestroy.self))
         case .bodyFocus: return .bodyFocus(try read(BodyFocus.self))
-        default: return nil
-        }
-    }
-
-    private static func loose(_ name: ToHostName, _ body: HostObject) -> ToHost {
-        switch name {
-        case .frontendLaunchStalled: return .frontendLaunchStalled(body)
-        case .pageFault: return .pageFault(body)
-        case .hmrUpdate: return .hmrUpdate(body)
-        case .sourceTree: return .sourceTree(body)
-        case .choosePath: return .choosePath(body)
-        case .getSettings: return .getSettings(body)
-        case .setTheme: return .setTheme(body)
-        case .devBadge: return .devBadge(body)
-        case .clipboardRead: return .clipboardRead(body)
-        case .clipboardWrite: return .clipboardWrite(body)
-        case .clipboardWriteImage: return .clipboardWriteImage(body)
-        case .menuState: return .menuState(body)
-        case .openPath: return .openPath(body)
-        case .lookUpInDictionary: return .lookUpInDictionary(body)
-        case .trashPath: return .trashPath(body)
-        case .restorePath: return .restorePath(body)
-        case .thumbnailPath: return .thumbnailPath(body)
-        case .exportSession: return .exportSession(body)
-        case .dictation: return .dictation(body)
-        case .pageZoom: return .pageZoom(body)
-        case .hostFrames: return .hostFrames(body)
-        case .placeCards, .cardGesture, .cardPlan,
-             .overlayCreate, .overlayClaim,
-             .bodyHello, .painted, .frontendReady, .crossingReady, .bodySurface, .bodyCreate,
-             .bodyDestroy, .bodyFocus, .updateAction:
-            preconditionFailure("\(name.rawValue) is typed, not loose")
+        case .frontendLaunchStalled: return .frontendLaunchStalled(try read(FrontendLaunchStalled.self))
+        case .pageFault: return .pageFault(try read(PageFault.self))
+        case .hmrUpdate: _ = try read(EmptyPayload.self); return .hmrUpdate
+        case .sourceTree: _ = try read(EmptyPayload.self); return .sourceTree
+        case .choosePath: return .choosePath(try read(ChoosePath.self))
+        case .getSettings: _ = try read(EmptyPayload.self); return .getSettings
+        case .setTheme: return .setTheme(try read(SetTheme.self))
+        case .clipboardRead: return .clipboardRead(try read(ClipboardReadRequest.self))
+        case .clipboardWrite: return .clipboardWrite(try read(ClipboardWrite.self))
+        case .clipboardWriteImage: return .clipboardWriteImage(try read(ClipboardWriteImage.self))
+        case .openPath: return .openPath(try read(OpenPath.self))
+        case .lookUpInDictionary: return .lookUpInDictionary(try read(DictionaryLookup.self))
+        case .trashPath: return .trashPath(try read(TrashPath.self))
+        case .restorePath: return .restorePath(try read(RestorePath.self))
+        case .thumbnailPath: return .thumbnailPath(try read(ThumbnailPath.self))
+        case .exportSession: return .exportSession(try read(ExportSession.self))
+        case .pageZoom: return .pageZoom(try read(PageZoom.self))
+        case .hostFrames: return .hostFrames(try read(HostFramesRequest.self))
+        case .updateAction: return .updateAction(try read(UpdateAction.self))
+        case .dictation: return .dictation(try read(DictationRequest.self))
+        case .menuState: return .menuState(try read(MenuStatePost.self))
         }
     }
 }
 
 // MARK: - Host → page
 
-/// A JSON value the host builds for a page: what a loose payload carries.
+/// A JSON value: what a body's intent carries, and what a page call's reply
+/// is read through on its way to its `Decodable` type.
 enum JSONValue: Codable, Equatable {
     case null
     case bool(Bool)
@@ -497,10 +805,10 @@ enum JSONValue: Codable, Equatable {
                 values.append(value)
             }
             self = .array(values)
-        case let dictionary as [String: Any]:
+        case let dictionary as NSDictionary:
             var fields: [String: JSONValue] = [:]
             for (key, element) in dictionary {
-                guard let value = JSONValue(any: element) else { return nil }
+                guard let key = key as? String, let value = JSONValue(any: element) else { return nil }
                 fields[key] = value
             }
             self = .object(fields)
@@ -538,15 +846,9 @@ enum JSONValue: Codable, Equatable {
         }
     }
 
-    /// `value` as the source of a JS expression that evaluates to it:
+    /// The JS expression that evaluates to the value `json` encodes:
     /// `JSON.parse("<value as a JSON string>")`. Serialized twice so any
     /// string, U+2028 and quotes included, survives as a JS string literal.
-    var parseExpression: String? {
-        guard let json = try? JSONEncoder().encode(self) else { return nil }
-        return Self.parseExpression(json: json)
-    }
-
-    /// The JS expression that evaluates to the value `json` encodes.
     static func parseExpression(json: Data) -> String? {
         guard let jsonString = String(data: json, encoding: .utf8),
               let quoted = try? JSONSerialization.data(withJSONObject: jsonString, options: [.fragmentsAllowed]),
@@ -575,48 +877,51 @@ enum ToPageMember: String, CaseIterable {
     // Page lifecycle.
     case onBodyBind, onBodyState
     // The host's services.
-    case onSettingsLoaded, onDevModeError, onSourceTreeSelected, onSourceTreeCancelled
-    case onPathChosen, onExportDone, onClipboardRead, onTrashResult, onThumbnail, onHostFrames
+    case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
-
-    /// Whether the member's payload is one JSON string rather than an object.
-    var carriesString: Bool {
-        switch self {
-        case .onDevModeError, .onSourceTreeSelected, .onScrollPhase: return true
-        default: return false
-        }
-    }
-
-    /// Whether the member's payload is typed field by field: the geometry
-    /// family's, which only a typed `ToPage` case carries.
-    var typed: Bool {
-        switch self {
-        case .onCardGesture, .onCardInsets, .onBodyCrossing, .onBodyBind, .onBodyState: return true
-        default: return false
-        }
-    }
 }
 
-/// One host→page message. The geometry family's members carry their typed
-/// payloads; of the rest, a string member carries its string, and every other
-/// member a loose JSON object.
+/// One host→page message, carrying its member's `Encodable` payload.
 enum ToPage {
-    case loose(ToPageMember, JSONValue)
-    case text(ToPageMember, String)
     case cardGesture(CardGestureReport)
     case cardInsets(CardInsets)
     case bodyCrossing(BodyCrossing)
     case bodyBind(BodyBind)
     case bodyState(BodyStateReport)
+    case settingsLoaded(SettingsLoaded)
+    case pathChosen(PathChosen)
+    case exportDone(ExportDone)
+    case clipboardRead(ClipboardContents)
+    case trashResult(TrashResult)
+    case thumbnail(Thumbnail)
+    case hostFrames(HostFramesReply)
+    case pageZoom(PageZoom)
+    case activationClick(ActivationClick)
+    case networkPath(NetworkPathReport)
+    case dictation(DictationEvent)
+    case updateState(UpdateSnapshot)
+    case scrollPhase(ScrollPhaseEdge)
 
     var member: ToPageMember {
         switch self {
-        case .loose(let member, _), .text(let member, _): return member
         case .cardGesture: return .onCardGesture
         case .cardInsets: return .onCardInsets
         case .bodyCrossing: return .onBodyCrossing
         case .bodyBind: return .onBodyBind
         case .bodyState: return .onBodyState
+        case .settingsLoaded: return .onSettingsLoaded
+        case .pathChosen: return .onPathChosen
+        case .exportDone: return .onExportDone
+        case .clipboardRead: return .onClipboardRead
+        case .trashResult: return .onTrashResult
+        case .thumbnail: return .onThumbnail
+        case .hostFrames: return .onHostFrames
+        case .pageZoom: return .onPageZoom
+        case .activationClick: return .onActivationClick
+        case .networkPath: return .onNetworkPath
+        case .dictation: return .onDictation
+        case .updateState: return .onUpdateState
+        case .scrollPhase: return .onScrollPhase
         }
     }
 
@@ -624,54 +929,55 @@ enum ToPage {
     func payloadJSON() -> Data? {
         let encoder = JSONEncoder()
         switch self {
-        case .loose(_, let value): return try? encoder.encode(value)
-        case .text(_, let string): return try? encoder.encode(JSONValue.string(string))
         case .cardGesture(let report): return try? encoder.encode(report)
         case .cardInsets(let insets): return try? encoder.encode(insets)
         case .bodyCrossing(let crossing): return try? encoder.encode(crossing)
         case .bodyBind(let bind): return try? encoder.encode(bind)
         case .bodyState(let report): return try? encoder.encode(report)
+        case .settingsLoaded(let settings): return try? encoder.encode(settings)
+        case .pathChosen(let chosen): return try? encoder.encode(chosen)
+        case .exportDone(let done): return try? encoder.encode(done)
+        case .clipboardRead(let contents): return try? encoder.encode(contents)
+        case .trashResult(let result): return try? encoder.encode(result)
+        case .thumbnail(let thumbnail): return try? encoder.encode(thumbnail)
+        case .hostFrames(let reply): return try? encoder.encode(reply)
+        case .pageZoom(let zoom): return try? encoder.encode(zoom)
+        case .activationClick(let click): return try? encoder.encode(click)
+        case .networkPath(let report): return try? encoder.encode(report)
+        case .dictation(let event): return try? encoder.encode(event)
+        case .updateState(let snapshot): return try? encoder.encode(snapshot)
+        case .scrollPhase(let edge): return try? encoder.encode(edge)
         }
-    }
-
-    /// `member` carrying `value`, a Foundation value built for it (see
-    /// `JSONValue.init(any:)`); nil when the value is not JSON, or is not the
-    /// kind of value the member carries. A typed member is sent only as its
-    /// typed case, so it is nil for one of those too.
-    static func make(_ member: ToPageMember, _ value: Any) -> ToPage? {
-        if member.typed { return nil }
-        if member.carriesString {
-            guard let string = value as? String else { return nil }
-            return .text(member, string)
-        }
-        guard let json = JSONValue(any: value), case .object = json else { return nil }
-        return .loose(member, json)
     }
 
     /// The message `member` carries in `data`, the UTF-8 of its JSON payload.
     static func decode(member name: String, data: Data) -> Result<ToPage, HostDecodeError> {
         guard let member = ToPageMember(rawValue: name) else { return .failure(.unknownName(name)) }
-        if member.typed {
-            let decoder = JSONDecoder()
-            do {
-                switch member {
-                case .onCardGesture: return .success(.cardGesture(try decoder.decode(CardGestureReport.self, from: data)))
-                case .onCardInsets: return .success(.cardInsets(try decoder.decode(CardInsets.self, from: data)))
-                case .onBodyCrossing: return .success(.bodyCrossing(try decoder.decode(BodyCrossing.self, from: data)))
-                case .onBodyBind: return .success(.bodyBind(try decoder.decode(BodyBind.self, from: data)))
-                case .onBodyState: return .success(.bodyState(try decoder.decode(BodyStateReport.self, from: data)))
-                default: preconditionFailure("\(name) is not typed")
-                }
-            } catch {
-                return .failure(HostDecodeError(decoding: error))
+        let decoder = JSONDecoder()
+        func read<T: Decodable>(_ type: T.Type) throws -> T { try decoder.decode(type, from: data) }
+        do {
+            switch member {
+            case .onCardGesture: return .success(.cardGesture(try read(CardGestureReport.self)))
+            case .onCardInsets: return .success(.cardInsets(try read(CardInsets.self)))
+            case .onBodyCrossing: return .success(.bodyCrossing(try read(BodyCrossing.self)))
+            case .onBodyBind: return .success(.bodyBind(try read(BodyBind.self)))
+            case .onBodyState: return .success(.bodyState(try read(BodyStateReport.self)))
+            case .onSettingsLoaded: return .success(.settingsLoaded(try read(SettingsLoaded.self)))
+            case .onPathChosen: return .success(.pathChosen(try read(PathChosen.self)))
+            case .onExportDone: return .success(.exportDone(try read(ExportDone.self)))
+            case .onClipboardRead: return .success(.clipboardRead(try read(ClipboardContents.self)))
+            case .onTrashResult: return .success(.trashResult(try read(TrashResult.self)))
+            case .onThumbnail: return .success(.thumbnail(try read(Thumbnail.self)))
+            case .onHostFrames: return .success(.hostFrames(try read(HostFramesReply.self)))
+            case .onPageZoom: return .success(.pageZoom(try read(PageZoom.self)))
+            case .onActivationClick: return .success(.activationClick(try read(ActivationClick.self)))
+            case .onNetworkPath: return .success(.networkPath(try read(NetworkPathReport.self)))
+            case .onDictation: return .success(.dictation(try read(DictationEvent.self)))
+            case .onUpdateState: return .success(.updateState(try read(UpdateSnapshot.self)))
+            case .onScrollPhase: return .success(.scrollPhase(try read(ScrollPhaseEdge.self)))
             }
-        }
-        guard let value = try? JSONDecoder().decode(JSONValue.self, from: data) else { return .failure(.notJSON) }
-        switch (member.carriesString, value) {
-        case (true, .string(let string)): return .success(.text(member, string))
-        case (true, _): return .failure(.notString)
-        case (false, .object): return .success(.loose(member, value))
-        case (false, _): return .failure(.notObject)
+        } catch {
+            return .failure(HostDecodeError(decoding: error))
         }
     }
 
@@ -717,18 +1023,76 @@ enum PageCall {
         }
     }
 
-    var payload: JSONValue {
+    /// `reauthenticate`'s payload.
+    private struct Token: Encodable {
+        var token: String
+    }
+
+    /// The payload's JSON; nil when it does not encode.
+    func payloadJSON() -> Data? {
+        let encoder = JSONEncoder()
         switch self {
-        case .saveState, .prepareForTermination: return .object([:])
-        case .reauthenticate(let token): return .object(["token": .string(token)])
-        case .pageZoomApply(let factor): return .number(factor)
+        case .saveState, .prepareForTermination: return try? encoder.encode(EmptyPayload())
+        case .reauthenticate(let token): return try? encoder.encode(Token(token: token))
+        case .pageZoomApply(let factor): return try? encoder.encode(factor)
         }
     }
 
     /// The body of the async function that makes the call and returns its reply.
     func source() -> String? {
-        guard let argument = payload.parseExpression else { return nil }
+        guard let json = payloadJSON(), let argument = JSONValue.parseExpression(json: json) else { return nil }
         let object = receiver == "tugdeck" ? "window.tugdeck" : "window.__tugBridge"
         return "return await \(object)?.\(member)?.(\(argument));"
+    }
+}
+
+/// A page's account of its half of a quit (`prepareForTermination`'s reply),
+/// with the field names the page's codec uses (`host/declarations/lifecycle.ts`).
+struct TerminationVerdict: Decodable, Equatable {
+    /// Every phase below came back clean.
+    var ok: Bool
+    /// Sessions interrupted and observed to settle.
+    var interrupted: [String]
+    /// Sessions interrupted that had not settled when the bound expired.
+    var unacknowledged: [String]
+    /// Card bags written and confirmed.
+    var flushedCards: Int
+    /// Card ids whose writes still failed.
+    var failedCards: [String]
+    var layoutSaved: Bool
+    var elapsedMs: Double
+}
+
+/// What a page answers a `PageCall` with.
+enum PageReply: Equatable {
+    /// Nothing: a call that answers `null`, or a page with no such member,
+    /// whose optional call returns nothing.
+    case nothing
+    /// `prepareForTermination`'s verdict.
+    case verdict(TerminationVerdict)
+
+    /// The reply `member`'s call answered with, from its JSON. Every call
+    /// may answer nothing; `prepareForTermination` may answer its verdict,
+    /// and any other value is refused.
+    static func decode(member: String, data: Data) -> Result<PageReply, HostDecodeError> {
+        let decoder = JSONDecoder()
+        do {
+            if try decoder.decode(NullProbe.self, from: data).isNull { return .success(.nothing) }
+            guard member == "prepareForTermination" else {
+                return .failure(.typed("\(member) answers nothing, and the page answered a value"))
+            }
+            return .success(.verdict(try decoder.decode(TerminationVerdict.self, from: data)))
+        } catch {
+            return .failure(HostDecodeError(decoding: error))
+        }
+    }
+
+    /// Whether a JSON value is `null`, decoding any value at all.
+    private struct NullProbe: Decodable {
+        var isNull: Bool
+
+        init(from decoder: Decoder) throws {
+            isNull = try decoder.singleValueContainer().decodeNil()
+        }
     }
 }

@@ -29,30 +29,19 @@
 
 import type { ToHost } from "../host/declare";
 import { hostAvailable, onHostMessage, postToHost } from "../host/channel";
-import { restorePathToHost, trashPathToHost, trashResultToPage } from "../host/declarations/services";
-
-/** What the host reports back for either verb. */
-interface TrashCallbackData {
-  requestId: string;
-  ok: boolean;
-  trashedPath?: string;
-  restoredPath?: string;
-  error?: string;
-}
+import { restorePathToHost, trashPathToHost, trashResultToPage, type TrashResult } from "../host/declarations/services";
 
 /** Map of pending requestId → settler. Shared by both verbs; ids are unique. */
-const pendingCallbacks = new Map<string, (data: TrashCallbackData) => void>();
+const pendingCallbacks = new Map<string, (data: TrashResult) => void>();
 
 let callbackInstalled = false;
 
 function installCallback(): void {
   if (callbackInstalled) return;
   callbackInstalled = true;
-  onHostMessage(trashResultToPage, (payload) => {
-    const data = payload as TrashCallbackData;
-    if (typeof data.requestId !== "string") return;
-    const settle = pendingCallbacks.get(data.requestId);
-    if (settle) settle(data);
+  onHostMessage(trashResultToPage, (result) => {
+    const settle = pendingCallbacks.get(result.requestId);
+    if (settle) settle(result);
   });
 }
 
@@ -76,15 +65,15 @@ const TRASH_TIMEOUT_MS = 10_000;
 let requestSeq = 0;
 
 /** Post `payload` as `decl` and settle on the host's reply. */
-function request(
-  decl: ToHost<object>,
-  payload: Record<string, unknown>,
-): Promise<TrashCallbackData | null> {
+function request<T extends { requestId: string }>(
+  decl: ToHost<T>,
+  payload: Omit<T, "requestId">,
+): Promise<TrashResult | null> {
   installCallback();
   const requestId = `tug-trash-${Date.now()}-${requestSeq++}`;
   return new Promise((resolve) => {
     let settled = false;
-    const settle = (data: TrashCallbackData | null) => {
+    const settle = (data: TrashResult | null) => {
       if (settled) return;
       settled = true;
       pendingCallbacks.delete(requestId);
@@ -96,7 +85,7 @@ function request(
       console.warn(`os-trash: host callback timed out after ${TRASH_TIMEOUT_MS}ms`);
       settle(null);
     }, TRASH_TIMEOUT_MS);
-    postToHost(decl, { requestId, ...payload });
+    postToHost(decl, { requestId, ...payload } as T);
   });
 }
 
@@ -112,8 +101,8 @@ export async function trashPathInOS(path: string): Promise<string | null> {
   if (!hostAvailable(trashPathToHost)) return null;
   if (path.length === 0) return null;
   const data = await request(trashPathToHost, { path });
-  if (!data || !data.ok || typeof data.trashedPath !== "string") {
-    if (data?.error) console.warn(`os-trash: trash failed — ${data.error}`);
+  if (!data || !("trashedPath" in data)) {
+    if (data && !data.ok) console.warn(`os-trash: trash failed — ${data.error}`);
     return null;
   }
   return data.trashedPath;
@@ -135,8 +124,8 @@ export async function restoreTrashedPathInOS(
   if (!hostAvailable(restorePathToHost)) return null;
   if (trashedPath.length === 0 || destination.length === 0) return null;
   const data = await request(restorePathToHost, { trashedPath, destination });
-  if (!data || !data.ok || typeof data.restoredPath !== "string") {
-    if (data?.error) console.warn(`os-trash: restore failed — ${data.error}`);
+  if (!data || !("restoredPath" in data)) {
+    if (data && !data.ok) console.warn(`os-trash: restore failed — ${data.error}`);
     return null;
   }
   return data.restoredPath;

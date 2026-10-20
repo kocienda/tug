@@ -55,6 +55,7 @@ import {
   cycleFocusMode,
   dispatchAction,
   registerAction,
+  registerAppLifecycleAction,
   registerEvalAction,
   registerRunCardCommand,
   registerStoreTailActions,
@@ -496,6 +497,10 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // the shell mounts (`requestLogout` sends it `app.logout`).
   const appLifecycle = new AppLifecycle();
   registerAppLifecycle(appLifecycle);
+  // The host's app-lifecycle frames reach every page on CONTROL; this page's
+  // lifecycle hears them only if it answers the action, and a mic claimed
+  // here must end when the app resigns.
+  registerAppLifecycleAction();
   const sheetLifecycle = new SheetLifecycle();
   registerSheetLifecycle(sheetLifecycle);
   const bannerLifecycle = new BannerLifecycle();

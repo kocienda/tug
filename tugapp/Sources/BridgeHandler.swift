@@ -189,11 +189,7 @@ final class BridgeHandler: BridgeDelegate {
             // second call re-publishes the current report to a store that
             // reloaded empty, rather than stacking a monitor.
             delegate.networkPathMonitor.start { [weak self] report in
-                self?.window?.bridgeNetworkPath(
-                    status: report.status,
-                    isExpensive: report.isExpensive,
-                    isConstrained: report.isConstrained
-                )
+                self?.window?.bridgeNetworkPath(report)
             }
 
             // First frontendReady is the initial mount — no replay
@@ -226,19 +222,9 @@ final class BridgeHandler: BridgeDelegate {
         }
     }
 
-    func bridgeDevModeError(message: String) {
-        window?.bridgeDevModeError(message: message)
-    }
-
     func bridgeSetTheme(color: String) {
         ProcessManager.writeTugbank(domain: TugConfig.domain, key: TugConfig.keyWindowBackground, value: color)
         window?.updateBackgroundColor(color)
-    }
-
-    func bridgeDevBadge(backend: Bool, app: Bool) {
-        // Restart Server and Relaunch App items removed; badge logic is a no-op.
-        _ = backend
-        _ = app
     }
 
     func bridgePageDidLoad() {

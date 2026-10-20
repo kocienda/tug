@@ -14,9 +14,9 @@
  * when a session has to be given up are `dictation-store.ts`'s, and inserting
  * the text is the editor's.
  *
- * The event type is the same union the host's `DictationState.swift` encodes,
- * and the raw strings in both are the contract ([P02]) — one protocol, fixed
- * by this type.
+ * The event type is the union `dictationToPage` declares, which the host's
+ * `DictationState.swift` encodes as an enum keyed on the same tag — one
+ * protocol ([P02]), held by the parity fixture.
  *
  * Graceful degradation: outside the host (dev browser, or before the app is
  * rebuilt with the handler) {@link isDictationAvailable} is `false`,
@@ -28,54 +28,19 @@
  */
 
 import { hostAvailable, installHostChannel, onHostMessage, postToHost } from "../host/channel";
-import { dictationToHost, dictationToPage } from "../host/declarations/services";
+import { dictationToHost, dictationToPage, type DictationEvent } from "../host/declarations/services";
+import { INVALID } from "../bus/codec";
 
-/** Why a session never started. The button speaks each of these (Table T01). */
-export type DictationRefusalReason =
-  | "microphone-permission"
-  | "speech-permission"
-  | "no-model"
-  | "no-input-device"
-  | "unavailable"
-  | "error";
-
-/** Why a live session ended. */
-export type DictationEndReason = "stopped" | "superseded" | "device-lost" | "error";
+export type { DictationEndReason, DictationEvent, DictationRefusalReason } from "../host/declarations/services";
 
 /**
- * One event from the host, per Spec S02.
- *
- * The ordering rules are the host's to keep (Spec S03): zero or more
- * `preparing`, then exactly one of `ready` or `refused`; after `ready`, any
- * interleaving of `volatile` and `final`, then exactly one `ended`, and
- * nothing after it.
- *
- * `volatile.text` is the whole provisional tail since the last `final` and
- * each one replaces the previous; the concatenation of every `final.text` is
- * the transcript.
+ * This page's mark on the ids it mints. Every card body is its own page with
+ * its own module state, so a bare counter would have two composers both
+ * claim `dict-1`, and the host could not tell one claim from the other.
  */
-export type DictationEvent =
-  | { id: string; kind: "preparing" }
-  | { id: string; kind: "ready" }
-  /** Reserved. The host never sends one ([P03]) — the live face is the wave. */
-  | { id: string; kind: "level"; level: number }
-  | { id: string; kind: "volatile"; text: string }
-  | { id: string; kind: "final"; text: string }
-  | { id: string; kind: "ended"; reason: DictationEndReason; message?: string }
-  | { id: string; kind: "refused"; reason: DictationRefusalReason; message?: string };
+const PAGE_MARK = crypto.randomUUID().slice(0, 8);
 
-const END_REASONS: readonly string[] = ["stopped", "superseded", "device-lost", "error"];
-
-const REFUSAL_REASONS: readonly string[] = [
-  "microphone-permission",
-  "speech-permission",
-  "no-model",
-  "no-input-device",
-  "unavailable",
-  "error",
-];
-
-/** Monotonic session-id counter (no Date/random — resume-safe and unique enough). */
+/** Monotonic session-id counter within this page. */
 let nextId = 0;
 
 /** The one listener, or `null`. The store registers it; nothing else may. */
@@ -86,55 +51,28 @@ export function isDictationAvailable(): boolean {
   return hostAvailable(dictationToHost);
 }
 
-/** A fresh session id. Unique per `start`, which is what the host keys on. */
+/**
+ * A fresh session id. Unique per `start` across every page in the window,
+ * which is what the host keys on.
+ */
 export function mintDictationId(): string {
   nextId += 1;
-  return `dict-${nextId}`;
+  return `dict-${PAGE_MARK}-${nextId}`;
 }
 
 /**
  * Parse a payload from the host into an event, or `null`.
  *
- * Strict on purpose. The union above is discriminated, and a `ready` carrying
- * a `text` or an `ended` carrying a reason this build does not know are both
- * a host and a deck that disagree about the protocol — which is a thing to
- * drop and not a thing to guess at, because the guess would put text in the
- * user's document or leave a claim nothing can release.
+ * Strict on purpose: it is the declaration's own decode. The union is
+ * discriminated, and a `volatile` without its text or an `ended` carrying a
+ * reason this build does not know are both a host and a deck that disagree
+ * about the protocol — which is a thing to drop and not a thing to guess at,
+ * because the guess would put text in the user's document or leave a claim
+ * nothing can release. A field a kind does not have is dropped.
  */
 export function dictationEventFromPayload(payload: unknown): DictationEvent | null {
-  if (typeof payload !== "object" || payload === null) return null;
-  const record = payload as Record<string, unknown>;
-
-  const id = record.id;
-  const kind = record.kind;
-  if (typeof id !== "string" || typeof kind !== "string") return null;
-
-  switch (kind) {
-    case "preparing":
-    case "ready":
-      return { id, kind };
-    case "level":
-      return typeof record.level === "number" ? { id, kind, level: record.level } : null;
-    case "volatile":
-    case "final":
-      return typeof record.text === "string" ? { id, kind, text: record.text } : null;
-    case "ended": {
-      const reason = record.reason;
-      if (typeof reason !== "string" || !END_REASONS.includes(reason)) return null;
-      const event: DictationEvent = { id, kind, reason: reason as DictationEndReason };
-      if (typeof record.message === "string") event.message = record.message;
-      return event;
-    }
-    case "refused": {
-      const reason = record.reason;
-      if (typeof reason !== "string" || !REFUSAL_REASONS.includes(reason)) return null;
-      const event: DictationEvent = { id, kind, reason: reason as DictationRefusalReason };
-      if (typeof record.message === "string") event.message = record.message;
-      return event;
-    }
-    default:
-      return null;
-  }
+  const event = dictationToPage.codec.decode(payload);
+  return event === INVALID ? null : event;
 }
 
 /** Ask the host to start listening for `id`. A no-op outside the host. */
@@ -188,9 +126,7 @@ export function installDictationBridge(): void {
   installHostChannel();
   if (installed) return;
   installed = true;
-  onHostMessage(dictationToPage, (payload) => {
-    const event = dictationEventFromPayload(payload);
-    if (event === null) return;
+  onHostMessage(dictationToPage, (event) => {
     listener?.(event);
   });
 }

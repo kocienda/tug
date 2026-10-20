@@ -36,8 +36,10 @@ export const num: Codec<number> = codec((v) => (typeof v === "number" && Number.
 
 export const bool: Codec<boolean> = codec((v) => (typeof v === "boolean" ? v : INVALID), false);
 
-/** One of a fixed set of strings or numbers. */
-export function literal<const L extends readonly [string | number, ...(string | number)[]]>(...values: L): Codec<L[number]> {
+/** One of a fixed set of strings, numbers or booleans. */
+export function literal<const L extends readonly [string | number | boolean, ...(string | number | boolean)[]]>(
+  ...values: L
+): Codec<L[number]> {
   return codec((v) => ((values as readonly unknown[]).includes(v) ? (v as L[number]) : INVALID), values[0]);
 }
 
@@ -91,6 +93,23 @@ export function obj<S extends Shape>(shape: S): Codec<Decoded<S>> {
     }
     return out as Decoded<S>;
   }, sample);
+}
+
+/** What a codec admits, distributed over a union of codecs. */
+type Admitted<C> = C extends Codec<infer T> ? T : never;
+
+/**
+ * The first of `variants` that admits the value: a payload that varies by
+ * kind, each variant an `obj` whose tag field (a `literal`) says which.
+ */
+export function oneOf<V extends readonly [Codec<unknown>, ...Codec<unknown>[]]>(...variants: V): Codec<Admitted<V[number]>> {
+  return codec((v) => {
+    for (const variant of variants) {
+      const d = variant.decode(v);
+      if (d !== INVALID) return d as Admitted<V[number]>;
+    }
+    return INVALID;
+  }, variants[0].sample as Admitted<V[number]>);
 }
 
 /** A type the deck already guards elsewhere: admitted by `guard`, carried as is. */

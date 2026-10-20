@@ -188,19 +188,6 @@ export const IDLE_UPDATE: UpdateSnapshot = {
   revealCount: 0,
 };
 
-const STAGES: readonly UpdateStage[] = [
-  "idle",
-  "checking",
-  "available",
-  "downloading",
-  "paused",
-  "extracting",
-  "readyToInstall",
-  "installing",
-  "upToDate",
-  "error",
-];
-
 function snapshotsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
   return (
     a.stage === b.stage &&
@@ -306,13 +293,14 @@ export function useUpdateState(): UpdateRenderSnapshot {
 }
 
 /**
- * Normalize a raw bridge payload onto the snapshot shape.
+ * Fold a decoded bridge snapshot onto the store's shape.
  *
- * Tolerant of the wire in one direction only: a payload whose `stage` this
- * build does not recognize reads as `idle` — "the host said something I
- * cannot draw", which is the same answer as nothing to draw. Every other
- * field falls back to its idle value rather than to a guess, so a partial
- * payload cannot produce a pill that claims a version it was not given.
+ * The declaration has already refused anything partial or unknown —
+ * `updateStateToPage` requires every field and names every stage, so a
+ * payload this build cannot draw never reaches here and cannot produce a
+ * pill claiming a version it was not given. What is left is arithmetic:
+ * `percent` is clamped and rounded onto 0–100, and the byte pair is floored
+ * at zero.
  *
  * `revealCount` is the one field that crosses even at `idle`, and it has to.
  * The Tug-menu item is enabled in every stage and does exactly one thing —
@@ -323,44 +311,15 @@ export function useUpdateState(): UpdateRenderSnapshot {
  * is true before any check, and the wizard's Check row says so. Everything
  * else about `idle` is still flattened, because there is nothing to draw.
  */
-export function updateFromPayload(
-  payload: Record<string, unknown>,
-): UpdateSnapshot {
-  const rawStage = payload.stage;
-  const stage: UpdateStage = STAGES.includes(rawStage as UpdateStage)
-    ? (rawStage as UpdateStage)
-    : "idle";
-  const percent = payload.percent;
-  const nonNegative = (raw: unknown): number =>
-    typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
-  const revealCount =
-    typeof payload.revealCount === "number" &&
-    Number.isFinite(payload.revealCount)
-      ? payload.revealCount
-      : 0;
-  const currentVersion =
-    typeof payload.currentVersion === "string" ? payload.currentVersion : "";
-
+export function updateFromPayload(payload: UpdateSnapshot): UpdateSnapshot {
+  const { stage, currentVersion, revealCount, percent } = payload;
   if (stage === "idle") return { ...IDLE_UPDATE, currentVersion, revealCount };
-
+  const nonNegative = (raw: number): number => (raw > 0 ? Math.floor(raw) : 0);
   return {
-    stage,
-    version: typeof payload.version === "string" ? payload.version : "",
-    build: typeof payload.build === "string" ? payload.build : "",
-    currentVersion,
-    releaseNotes:
-      typeof payload.releaseNotes === "string" ? payload.releaseNotes : null,
-    releaseNotesFailed: payload.releaseNotesFailed === true,
-    userInitiated: payload.userInitiated === true,
-    percent:
-      typeof percent === "number" && Number.isFinite(percent)
-        ? Math.min(100, Math.max(0, Math.round(percent)))
-        : null,
+    ...payload,
+    percent: percent === null ? null : Math.min(100, Math.max(0, Math.round(percent))),
     receivedBytes: nonNegative(payload.receivedBytes),
     expectedBytes: nonNegative(payload.expectedBytes),
-    message: typeof payload.message === "string" ? payload.message : "",
-    cancellable: payload.cancellable === true,
-    revealCount,
   };
 }
 
@@ -396,6 +355,6 @@ export function installUpdateBridge(): void {
   if (installed) return;
   installed = true;
   onHostMessage(updateStateToPage, (snapshot) => {
-    updateStore.apply(updateFromPayload(snapshot as Record<string, unknown>));
+    updateStore.apply(updateFromPayload(snapshot));
   });
 }

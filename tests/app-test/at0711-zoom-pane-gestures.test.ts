@@ -46,6 +46,9 @@ const RESIZE_DX = 40;
 /** The gap an adjacent-edge snap leaves (`IMPOSITION_GAP_PX`, `layout-imposer.ts`). */
 const IMPOSITION_GAP_PX = 5;
 
+/** How far a body's frame stands out from its pane's rect (`placeCards`'s `apron`), viewport px. */
+const APRON_PX = 10;
+
 function deckShape(): Record<string, unknown> {
   const pane = (id: string, card: string, f: typeof A) => ({
     id,
@@ -104,6 +107,45 @@ async function seed(app: App): Promise<void> {
   );
   const a = await record(app, "pA");
   expect(a, "pane A seeded where it was put").toEqual(A);
+  await settled(app);
+}
+
+/**
+ * Wait until the seed has settled: the shell's settle has ended, and A's and
+ * B's bodies stand where it then placed them. A seed under a new zoom
+ * carries the panes to their new frames, the shell places the bodies only
+ * once that settle ends, and the host takes a press on a card in flight
+ * where it is drawn, so a gesture begun mid-flight starts from a rect that
+ * is neither the old place nor the new one.
+ */
+async function settled(app: App): Promise<void> {
+  await app.waitForCondition<boolean>(
+    `document.querySelector("[data-imposer-settling]") === null && document.getAnimations().length === 0`,
+    { timeoutMs: 5_000 },
+  );
+  const same = (a: Frame, b: Frame) =>
+    Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5;
+  // Where the shell drew each pane, viewport px, and so where its body's
+  // frame stands once placed: the pane's rect out by the apron.
+  const panes = await app.evalJS<Record<string, Frame>>(`(function () {
+  var out = {};
+  ["A", "B"].forEach(function (id) {
+    var r = document.querySelector('.tug-pane[data-pane-id="p' + id + '"]').getBoundingClientRect();
+    out[id] = { x: r.left - ${APRON_PX}, y: r.top - ${APRON_PX}, width: r.width + ${2 * APRON_PX}, height: r.height + ${2 * APRON_PX} };
+  });
+  return out;
+})()`);
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    const views = (await app.bodies()) as (Awaited<ReturnType<App["bodies"]>>[number] & { beatsPlanId?: number | null })[];
+    const ours = views.filter((b) => b.cardId === "A" || b.cardId === "B");
+    const away = ours.filter(
+      (b) => b.beatsPlanId != null || !same(b.presentedFrame, b.frame) || !same(b.frame, panes[b.cardId!]),
+    );
+    if (ours.length === 2 && away.length === 0) return;
+    if (Date.now() > deadline) throw new Error(`bodies not where their panes are: ${JSON.stringify({ away, panes })}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 /** Wait until `paneId`'s stored frame differs from `before`. */

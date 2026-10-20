@@ -39,7 +39,6 @@ const overlayClaimCodec: Codec<OverlayClaim> = {
 export const overlayCreateToHost = defineToHost<Record<string, never>>({
   name: "overlayCreate",
   from: "shell",
-  typed: true,
   codec: empty,
   samples: [{}],
   refused: ["now", []],
@@ -53,7 +52,6 @@ export const overlayCreateToHost = defineToHost<Record<string, never>>({
 export const overlayClaimToHost = defineToHost<OverlayClaim>({
   name: "overlayClaim",
   from: "overlay",
-  typed: true,
   codec: overlayClaimCodec,
   samples: [{ all: true }, { rects: [] }, { rects: [{ x: 1, y: 2, width: 3, height: 4 }] }],
   refused: [[], {}, { all: false }, { rects: [{ x: "bad", y: 2, width: 3, height: 4 }] }],

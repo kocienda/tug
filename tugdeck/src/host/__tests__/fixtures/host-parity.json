@@ -3,7 +3,6 @@
     {
       "name": "placeCards",
       "from": "shell",
-      "typed": true,
       "samples": [
         {
           "apron": 10,
@@ -178,7 +177,6 @@
     {
       "name": "cardGesture",
       "from": "body",
-      "typed": true,
       "samples": [
         {
           "phase": "begin",
@@ -228,7 +226,6 @@
     {
       "name": "cardPlan",
       "from": "shell",
-      "typed": true,
       "samples": [
         {
           "planId": 1,
@@ -351,7 +348,6 @@
     {
       "name": "overlayCreate",
       "from": "shell",
-      "typed": true,
       "samples": [
         {}
       ],
@@ -363,7 +359,6 @@
     {
       "name": "overlayClaim",
       "from": "overlay",
-      "typed": true,
       "samples": [
         {
           "all": true
@@ -403,7 +398,6 @@
     {
       "name": "bodyHello",
       "from": "body",
-      "typed": true,
       "samples": [
         {}
       ],
@@ -414,7 +408,6 @@
     {
       "name": "painted",
       "from": "body",
-      "typed": true,
       "samples": [
         {}
       ],
@@ -425,7 +418,6 @@
     {
       "name": "frontendReady",
       "from": "any",
-      "typed": true,
       "samples": [
         {}
       ],
@@ -436,35 +428,47 @@
     {
       "name": "frontendLaunchStalled",
       "from": "shell",
-      "typed": false,
       "samples": [
         {
           "waitingOn": "wasm"
         }
       ],
       "refused": [
-        "wasm"
+        "wasm",
+        {}
       ]
     },
     {
       "name": "pageFault",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "kind": "error",
           "message": "TypeError: x is undefined",
           "source": "main.tsx:12"
+        },
+        {
+          "kind": "console.error",
+          "message": "it's \"broken\"\nagain",
+          "source": ""
         }
       ],
       "refused": [
-        "fault"
+        "fault",
+        {
+          "kind": "error",
+          "message": "x"
+        },
+        {
+          "kind": "warning",
+          "message": "x",
+          "source": ""
+        }
       ]
     },
     {
       "name": "crossingReady",
       "from": "body",
-      "typed": true,
       "samples": [
         {
           "surface": [
@@ -498,7 +502,6 @@
     {
       "name": "bodySurface",
       "from": "body",
-      "typed": true,
       "samples": [
         {
           "surface": [
@@ -532,7 +535,6 @@
     {
       "name": "bodyCreate",
       "from": "shell",
-      "typed": true,
       "samples": [
         {
           "cardId": "c1",
@@ -560,7 +562,6 @@
     {
       "name": "bodyDestroy",
       "from": "shell",
-      "typed": true,
       "samples": [
         {
           "cardId": "c1",
@@ -577,7 +578,6 @@
     {
       "name": "bodyFocus",
       "from": "shell",
-      "typed": true,
       "samples": [
         {
           "cardId": "c1"
@@ -596,7 +596,6 @@
     {
       "name": "hmrUpdate",
       "from": "shell",
-      "typed": false,
       "samples": [
         {}
       ],
@@ -607,7 +606,6 @@
     {
       "name": "sourceTree",
       "from": "shell",
-      "typed": false,
       "samples": [
         {}
       ],
@@ -618,7 +616,6 @@
     {
       "name": "choosePath",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "id": "path-1",
@@ -628,19 +625,34 @@
         },
         {
           "id": "path-2",
-          "kind": "file",
+          "kind": "save",
           "initialPath": null,
-          "suggestedName": null
+          "suggestedName": "Untitled-2"
         }
       ],
       "refused": [
-        "path-1"
+        "path-1",
+        {
+          "id": "path-1",
+          "initialPath": null,
+          "suggestedName": null
+        },
+        {
+          "id": "path-1",
+          "kind": "folder",
+          "initialPath": null,
+          "suggestedName": null
+        },
+        {
+          "id": "path-1",
+          "kind": "file",
+          "suggestedName": null
+        }
       ]
     },
     {
       "name": "getSettings",
       "from": "any",
-      "typed": false,
       "samples": [
         {}
       ],
@@ -651,96 +663,310 @@
     {
       "name": "setTheme",
       "from": "shell",
-      "typed": false,
       "samples": [
         {
           "color": "#1c1e22"
         }
       ],
       "refused": [
-        "#1c1e22"
-      ]
-    },
-    {
-      "name": "devBadge",
-      "from": "shell",
-      "typed": false,
-      "samples": [
+        "#1c1e22",
+        {},
         {
-          "backend": true,
-          "app": false
+          "color": 1842722
         }
-      ],
-      "refused": [
-        true
       ]
     },
     {
       "name": "clipboardRead",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "requestId": "clip-1"
         }
       ],
       "refused": [
-        "clip-1"
+        "clip-1",
+        {
+          "requestId": 7
+        }
       ]
     },
     {
       "name": "clipboardWrite",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "text": "hello",
           "atoms": "",
           "html": "<p>hello</p>"
+        },
+        {
+          "text": "hello",
+          "atoms": "{\"atoms\":[]}",
+          "html": ""
         }
       ],
       "refused": [
-        "hello"
+        "hello",
+        {
+          "text": "hello"
+        },
+        {
+          "text": "hello",
+          "atoms": null,
+          "html": ""
+        }
       ]
     },
     {
       "name": "clipboardWriteImage",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "base64": "iVBORw0KGgo="
         }
       ],
       "refused": [
-        "iVBORw0KGgo="
+        "iVBORw0KGgo=",
+        {}
       ]
     },
     {
       "name": "menuState",
       "from": "any",
-      "typed": false,
       "samples": [
+        {
+          "panes": [
+            {
+              "id": "p1",
+              "title": "Session",
+              "focused": true,
+              "cardCount": 1,
+              "closable": true
+            }
+          ],
+          "spaces": [
+            {
+              "id": "s1",
+              "name": "Main",
+              "active": true
+            }
+          ],
+          "activeCard": {
+            "cardId": "c1",
+            "component": "session",
+            "closable": true
+          },
+          "selectionActive": true,
+          "stackDepth": 1,
+          "session": null,
+          "file": {
+            "cardId": "c1",
+            "mode": "manual",
+            "dirty": true,
+            "untitled": false,
+            "readOnly": false,
+            "hasPath": true,
+            "conflict": false
+          },
+          "document": null,
+          "edit": {
+            "cut": false,
+            "copy": false,
+            "paste": false,
+            "delete": false,
+            "selectAll": false,
+            "undo": true,
+            "redo": false,
+            "undoLabel": "Typing",
+            "redoLabel": "",
+            "nativeUndoToken": 3,
+            "find": false,
+            "findNext": false,
+            "findPrevious": false
+          },
+          "commands": {
+            "view.zoomIn": {
+              "chord": {
+                "keyEquivalent": "+",
+                "command": true
+              }
+            },
+            "card.close": {
+              "chord": null
+            },
+            "window.jots": {
+              "enabled": true,
+              "state": "mixed",
+              "title": "Hide Jots"
+            }
+          },
+          "recentDocuments": [
+            "/a.md"
+          ],
+          "activeTheme": "ironclad",
+          "openQuickly": true,
+          "captureArmed": false,
+          "appModalOpen": false
+        },
+        {
+          "session": {
+            "cardId": "c1",
+            "sessionBound": true,
+            "canInterrupt": false,
+            "canChangeSettings": true,
+            "permissionMode": "default",
+            "aiSummary": "",
+            "hasAssistantMessage": false,
+            "hasTurns": false,
+            "changesVisible": false,
+            "historyVisible": false,
+            "commitReady": false,
+            "hasCustomName": false
+          },
+          "file": null,
+          "document": {
+            "cardId": "c1"
+          },
+          "edit": {
+            "cut": false,
+            "copy": false,
+            "paste": false,
+            "delete": false,
+            "selectAll": false,
+            "undo": false,
+            "redo": false,
+            "undoLabel": "",
+            "redoLabel": "",
+            "nativeUndoToken": 0,
+            "find": false,
+            "findNext": false,
+            "findPrevious": false
+          },
+          "commands": {
+            "session.stop": {
+              "enabled": false,
+              "state": false
+            }
+          }
+        }
+      ],
+      "refused": [
+        [],
         {
           "canUndo": false,
           "canRedo": false,
           "enabled": {
             "close-card": true
           }
+        },
+        {
+          "session": null,
+          "file": null,
+          "document": null,
+          "edit": {
+            "cut": false,
+            "copy": false,
+            "paste": false,
+            "delete": false,
+            "selectAll": false,
+            "undo": false,
+            "redo": false,
+            "undoLabel": "",
+            "redoLabel": "",
+            "nativeUndoToken": 0,
+            "find": false,
+            "findNext": false,
+            "findPrevious": false
+          },
+          "commands": {
+            "x": {
+              "state": "sideways"
+            }
+          }
+        },
+        {
+          "session": null,
+          "file": null,
+          "document": null,
+          "edit": {
+            "cut": false,
+            "copy": false,
+            "paste": false,
+            "delete": false,
+            "selectAll": false,
+            "undo": false,
+            "redo": false,
+            "undoLabel": "",
+            "redoLabel": "",
+            "nativeUndoToken": 0,
+            "find": false,
+            "findNext": false,
+            "findPrevious": false
+          },
+          "commands": {
+            "x": {
+              "chord": {
+                "command": true
+              }
+            }
+          }
+        },
+        {
+          "file": null,
+          "document": null,
+          "edit": {
+            "cut": false,
+            "copy": false,
+            "paste": false,
+            "delete": false,
+            "selectAll": false,
+            "undo": false,
+            "redo": false,
+            "undoLabel": "",
+            "redoLabel": "",
+            "nativeUndoToken": 0,
+            "find": false,
+            "findNext": false,
+            "findPrevious": false
+          },
+          "commands": {}
+        },
+        {
+          "panes": [],
+          "session": null,
+          "file": null,
+          "document": null,
+          "edit": {
+            "cut": false,
+            "copy": false,
+            "paste": false,
+            "delete": false,
+            "selectAll": false,
+            "undo": false,
+            "redo": false,
+            "undoLabel": "",
+            "redoLabel": "",
+            "nativeUndoToken": 0,
+            "find": false,
+            "findNext": false,
+            "findPrevious": false
+          },
+          "commands": {}
         }
-      ],
-      "refused": [
-        []
       ]
     },
     {
       "name": "openPath",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "path": "~/CLAUDE.md",
           "kind": "file"
+        },
+        {
+          "path": "~/.claude/projects",
+          "kind": "folder"
         },
         {
           "path": "/tmp/shots/one.png",
@@ -748,13 +974,19 @@
         }
       ],
       "refused": [
-        "~/CLAUDE.md"
+        "~/CLAUDE.md",
+        {
+          "path": "~/CLAUDE.md"
+        },
+        {
+          "path": "~/CLAUDE.md",
+          "kind": "edit"
+        }
       ]
     },
     {
       "name": "lookUpInDictionary",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "text": "lexicon",
@@ -767,13 +999,24 @@
         }
       ],
       "refused": [
-        "lexicon"
+        "lexicon",
+        {
+          "text": "lexicon"
+        },
+        {
+          "text": "lexicon",
+          "x": "120",
+          "y": 340,
+          "fontFamily": "",
+          "fontSize": 14,
+          "bold": false,
+          "italic": false
+        }
       ]
     },
     {
       "name": "trashPath",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "requestId": "trash-1",
@@ -781,13 +1024,15 @@
         }
       ],
       "refused": [
-        "~/Desktop/a.png"
+        "~/Desktop/a.png",
+        {
+          "requestId": "trash-1"
+        }
       ]
     },
     {
       "name": "restorePath",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "requestId": "trash-2",
@@ -796,13 +1041,16 @@
         }
       ],
       "refused": [
-        "~/.Trash/a.png"
+        "~/.Trash/a.png",
+        {
+          "requestId": "trash-2",
+          "trashedPath": "~/.Trash/a.png"
+        }
       ]
     },
     {
       "name": "thumbnailPath",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "requestId": "thumb-1",
@@ -811,13 +1059,16 @@
         }
       ],
       "refused": [
-        "~/Documents/report.pdf"
+        "~/Documents/report.pdf",
+        {
+          "requestId": "thumb-1",
+          "path": "~/Documents/report.pdf"
+        }
       ]
     },
     {
       "name": "exportSession",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "id": "export-1",
@@ -827,27 +1078,36 @@
         }
       ],
       "refused": [
-        "export-1"
+        "export-1",
+        {
+          "id": "export-1"
+        },
+        {
+          "id": "export-1",
+          "baseName": "s",
+          "markdown": "# S",
+          "jsonl": null
+        }
       ]
     },
     {
       "name": "updateAction",
       "from": "shell",
-      "typed": false,
       "samples": [
         "install",
-        "later"
+        "later",
+        "check"
       ],
       "refused": [
         {
           "action": "install"
-        }
+        },
+        "sideways"
       ]
     },
     {
       "name": "dictation",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "id": "d1",
@@ -859,26 +1119,34 @@
         }
       ],
       "refused": [
-        "start"
+        "start",
+        {
+          "id": "d1",
+          "verb": "listen"
+        },
+        {
+          "verb": "stop"
+        }
       ]
     },
     {
       "name": "pageZoom",
       "from": "any",
-      "typed": false,
       "samples": [
         {
           "factor": 1.25
         }
       ],
       "refused": [
-        1.25
+        1.25,
+        {
+          "factor": "1.25"
+        }
       ]
     },
     {
       "name": "hostFrames",
       "from": "shell",
-      "typed": false,
       "samples": [
         {
           "requestId": "frames-1",
@@ -886,7 +1154,14 @@
         }
       ],
       "refused": [
-        "frames-1"
+        "frames-1",
+        {
+          "requestId": "frames-1"
+        },
+        {
+          "requestId": 7,
+          "windowMs": 2000
+        }
       ]
     }
   ],
@@ -894,7 +1169,6 @@
     {
       "member": "onCardGesture",
       "to": "shell",
-      "typed": true,
       "samples": [
         {
           "cardId": "c1",
@@ -1015,7 +1289,6 @@
     {
       "member": "onCardInsets",
       "to": "body",
-      "typed": true,
       "samples": [
         {
           "top": 6,
@@ -1036,7 +1309,6 @@
     {
       "member": "onBodyCrossing",
       "to": "body",
-      "typed": true,
       "samples": [
         {
           "phase": "begin",
@@ -1062,7 +1334,6 @@
     {
       "member": "onBodyBind",
       "to": "body",
-      "typed": true,
       "samples": [
         {
           "cardId": "c1",
@@ -1116,7 +1387,6 @@
     {
       "member": "onBodyState",
       "to": "shell",
-      "typed": true,
       "samples": [
         {
           "cardId": "c1",
@@ -1164,7 +1434,6 @@
     {
       "member": "onSettingsLoaded",
       "to": "any",
-      "typed": false,
       "samples": [
         {
           "makerMode": true,
@@ -1176,49 +1445,19 @@
         }
       ],
       "refused": [
-        true
-      ]
-    },
-    {
-      "member": "onDevModeError",
-      "to": "shell",
-      "typed": false,
-      "samples": [
-        "the source tree has no tugdeck",
-        "it's \"broken\"\nagain"
-      ],
-      "refused": [
+        true,
         {
-          "message": "x"
+          "makerMode": "yes",
+          "sourceTree": null
+        },
+        {
+          "sourceTree": null
         }
-      ]
-    },
-    {
-      "member": "onSourceTreeSelected",
-      "to": "shell",
-      "typed": false,
-      "samples": [
-        "/Users/me/src/tug"
-      ],
-      "refused": [
-        null
-      ]
-    },
-    {
-      "member": "onSourceTreeCancelled",
-      "to": "shell",
-      "typed": false,
-      "samples": [
-        {}
-      ],
-      "refused": [
-        true
       ]
     },
     {
       "member": "onPathChosen",
       "to": "any",
-      "typed": false,
       "samples": [
         {
           "id": "tug-path-1",
@@ -1230,13 +1469,19 @@
         }
       ],
       "refused": [
-        "tug-path-1"
+        "tug-path-1",
+        {
+          "path": "/Users/me/notes.md"
+        },
+        {
+          "id": "tug-path-1",
+          "path": 7
+        }
       ]
     },
     {
       "member": "onExportDone",
       "to": "any",
-      "typed": false,
       "samples": [
         {
           "id": "tug-export-1",
@@ -1248,13 +1493,19 @@
         }
       ],
       "refused": [
-        "saved"
+        "saved",
+        {
+          "id": "tug-export-1",
+          "result": "failed"
+        },
+        {
+          "result": "saved"
+        }
       ]
     },
     {
       "member": "onClipboardRead",
       "to": "any",
-      "typed": false,
       "samples": [
         {
           "requestId": "clip-1",
@@ -1264,13 +1515,16 @@
         }
       ],
       "refused": [
-        "clip-1"
+        "clip-1",
+        {
+          "requestId": "clip-1",
+          "text": "x"
+        }
       ]
     },
     {
       "member": "onTrashResult",
       "to": "any",
-      "typed": false,
       "samples": [
         {
           "requestId": "trash-1",
@@ -1279,18 +1533,31 @@
         },
         {
           "requestId": "trash-2",
+          "ok": true,
+          "restoredPath": "/Users/me/Desktop/a-2.png"
+        },
+        {
+          "requestId": "trash-3",
           "ok": false,
           "error": "outside the project"
         }
       ],
       "refused": [
-        false
+        false,
+        {
+          "requestId": "trash-1",
+          "ok": true
+        },
+        {
+          "requestId": "trash-1",
+          "ok": false,
+          "trashedPath": "/x"
+        }
       ]
     },
     {
       "member": "onThumbnail",
       "to": "any",
-      "typed": false,
       "samples": [
         {
           "requestId": "thumb-1",
@@ -1302,35 +1569,142 @@
         }
       ],
       "refused": [
-        null
+        null,
+        {
+          "requestId": "thumb-1"
+        },
+        {
+          "requestId": "thumb-1",
+          "dataUrl": false
+        }
       ]
     },
     {
       "member": "onHostFrames",
       "to": "shell",
-      "typed": false,
       "samples": [
         {
           "requestId": "frames-1",
           "reading": {
-            "windowMs": 2000,
-            "frames": 120,
-            "worstGapMs": 17.2
+            "periodMs": 8.33,
+            "ticks": 238,
+            "expectedTicks": 240,
+            "missed": 2,
+            "worstGapMs": 25,
+            "gapsOverPeriod": [
+              {
+                "atMs": 812.5,
+                "gapMs": 25
+              }
+            ],
+            "armedWallMs": 1760000000000.5,
+            "tickMs": [
+              8.3,
+              16.7
+            ],
+            "layers": {}
+          }
+        },
+        {
+          "requestId": "frames-2",
+          "reading": {
+            "periodMs": 8.33,
+            "ticks": 238,
+            "expectedTicks": 240,
+            "missed": 2,
+            "worstGapMs": 25,
+            "gapsOverPeriod": [
+              {
+                "atMs": 812.5,
+                "gapMs": 25
+              }
+            ],
+            "armedWallMs": 1760000000000.5,
+            "tickMs": [
+              8.3,
+              16.7
+            ],
+            "layers": {
+              "c1": {
+                "samples": [
+                  {
+                    "t": 0,
+                    "x": 10,
+                    "y": 20,
+                    "opacity": 1
+                  }
+                ],
+                "active": [
+                  {
+                    "fromMs": 0,
+                    "toMs": 300
+                  }
+                ],
+                "activeTicks": 36,
+                "advancedRatio": 0.97,
+                "worstStillMs": 16.7
+              },
+              "c2": {
+                "samples": [],
+                "active": [],
+                "activeTicks": 0,
+                "advancedRatio": null,
+                "worstStillMs": 0
+              }
+            },
+            "samples": [
+              {
+                "t": 0,
+                "x": 10,
+                "y": 20,
+                "opacity": 1
+              }
+            ]
           }
         }
       ],
       "refused": [
-        "frames-1"
+        "frames-1",
+        {
+          "requestId": "frames-1",
+          "reading": {}
+        },
+        {
+          "requestId": "frames-1",
+          "reading": {
+            "periodMs": 8.33,
+            "ticks": 238,
+            "expectedTicks": 240,
+            "missed": 2,
+            "worstGapMs": 25,
+            "gapsOverPeriod": [
+              {
+                "atMs": 812.5,
+                "gapMs": 25
+              }
+            ],
+            "armedWallMs": 1760000000000.5,
+            "layers": {}
+          }
+        }
       ]
     },
     {
       "member": "onDictation",
       "to": "any",
-      "typed": false,
       "samples": [
         {
           "id": "d1",
+          "kind": "preparing"
+        },
+        {
+          "id": "d1",
           "kind": "ready"
+        },
+        {
+          "id": "d1",
+          "kind": "level",
+          "level": 0.4
         },
         {
           "id": "d1",
@@ -1339,18 +1713,57 @@
         },
         {
           "id": "d1",
+          "kind": "final",
+          "text": "hello there"
+        },
+        {
+          "id": "d1",
           "kind": "ended",
-          "reason": "finished"
+          "reason": "device-lost"
+        },
+        {
+          "id": "d1",
+          "kind": "ended",
+          "reason": "error",
+          "message": "the tap fell over"
+        },
+        {
+          "id": "d1",
+          "kind": "refused",
+          "reason": "no-model"
         }
       ],
       "refused": [
-        "ready"
+        "ready",
+        {
+          "id": "d1",
+          "kind": "listening"
+        },
+        {
+          "id": "d1",
+          "kind": "volatile"
+        },
+        {
+          "id": "d1",
+          "kind": "ended",
+          "reason": "finished"
+        },
+        {
+          "id": "d1",
+          "kind": "refused",
+          "reason": "superseded"
+        },
+        {
+          "id": "d1",
+          "kind": "ended",
+          "reason": "stopped",
+          "message": null
+        }
       ]
     },
     {
       "member": "onUpdateState",
       "to": "shell",
-      "typed": false,
       "samples": [
         {
           "stage": "available",
@@ -1369,26 +1782,45 @@
         }
       ],
       "refused": [
-        "available"
+        "available",
+        {
+          "stage": "available"
+        },
+        {
+          "stage": "sideways",
+          "version": "",
+          "build": "",
+          "currentVersion": "1.3.2",
+          "releaseNotes": null,
+          "releaseNotesFailed": false,
+          "userInitiated": false,
+          "percent": null,
+          "receivedBytes": 0,
+          "expectedBytes": 0,
+          "message": "",
+          "cancellable": false,
+          "revealCount": 0
+        }
       ]
     },
     {
       "member": "onPageZoom",
       "to": "shell",
-      "typed": false,
       "samples": [
         {
           "factor": 1.25
         }
       ],
       "refused": [
-        1.25
+        1.25,
+        {
+          "factor": "1.25"
+        }
       ]
     },
     {
       "member": "onActivationClick",
       "to": "shell",
-      "typed": false,
       "samples": [
         {
           "x": 412.5,
@@ -1399,28 +1831,42 @@
         [
           412.5,
           96
-        ]
+        ],
+        {
+          "x": 412.5
+        }
       ]
     },
     {
       "member": "onNetworkPath",
       "to": "shell",
-      "typed": false,
       "samples": [
         {
           "status": "unsatisfied",
           "isExpensive": false,
           "isConstrained": true
+        },
+        {
+          "status": "unknown",
+          "isExpensive": false,
+          "isConstrained": false
         }
       ],
       "refused": [
-        "satisfied"
+        "satisfied",
+        {
+          "status": "online",
+          "isExpensive": false,
+          "isConstrained": false
+        },
+        {
+          "status": "satisfied"
+        }
       ]
     },
     {
       "member": "onScrollPhase",
       "to": "any",
-      "typed": false,
       "samples": [
         "touched",
         "lifted",
@@ -1429,7 +1875,8 @@
       "refused": [
         {
           "edge": "touched"
-        }
+        },
+        "began"
       ]
     }
   ],
@@ -1439,6 +1886,16 @@
       "member": "saveState",
       "samples": [
         {}
+      ],
+      "refused": [
+        true
+      ],
+      "replies": [
+        null
+      ],
+      "refusedReplies": [
+        true,
+        {}
       ]
     },
     {
@@ -1446,6 +1903,50 @@
       "member": "prepareForTermination",
       "samples": [
         {}
+      ],
+      "refused": [
+        true
+      ],
+      "replies": [
+        {
+          "ok": true,
+          "interrupted": [],
+          "unacknowledged": [],
+          "flushedCards": 3,
+          "failedCards": [],
+          "layoutSaved": true,
+          "elapsedMs": 41.5
+        },
+        {
+          "ok": false,
+          "interrupted": [
+            "s1"
+          ],
+          "unacknowledged": [
+            "s2"
+          ],
+          "flushedCards": 1,
+          "failedCards": [
+            "c2"
+          ],
+          "layoutSaved": true,
+          "elapsedMs": 3500
+        }
+      ],
+      "refusedReplies": [
+        {
+          "ok": true
+        },
+        "ok",
+        {
+          "ok": true,
+          "interrupted": [],
+          "unacknowledged": [],
+          "flushedCards": "3",
+          "failedCards": [],
+          "layoutSaved": true,
+          "elapsedMs": 41.5
+        }
       ]
     },
     {
@@ -1455,6 +1956,19 @@
         {
           "token": "t0k3n"
         }
+      ],
+      "refused": [
+        "t0k3n",
+        {},
+        {
+          "token": 7
+        }
+      ],
+      "replies": [
+        null
+      ],
+      "refusedReplies": [
+        true
       ]
     },
     {
@@ -1463,6 +1977,22 @@
       "samples": [
         1.25,
         0.5
+      ],
+      "refused": [
+        "1.25",
+        {
+          "factor": 1.25
+        },
+        null
+      ],
+      "replies": [
+        null
+      ],
+      "refusedReplies": [
+        {
+          "ok": true
+        },
+        0
       ]
     }
   ]

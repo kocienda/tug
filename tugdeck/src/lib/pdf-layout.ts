@@ -76,6 +76,9 @@ export const PDF_ZOOM_STEPS: readonly number[] = [
   0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8,
 ];
 
+/** How close, as a ratio, a ladder stop may sit to a scale and still be it. */
+const STEP_SAME = 1.02;
+
 /** Clamp a scale into the supported range. */
 export function clampScale(scale: number): number {
   if (!Number.isFinite(scale)) return 1;
@@ -86,15 +89,19 @@ export function clampScale(scale: number): number {
  * The next stop up or down the zoom ladder. A scale that sits between stops —
  * a fit scale, typically — moves to the neighbouring stop in that direction
  * rather than snapping to the nearest.
+ *
+ * A stop within {@link STEP_SAME} of the scale counts as the scale itself, so
+ * a fit scale that happens to sit a hair below a stop steps past it: a Zoom
+ * In that grows the page by a fraction of a pixel is a press that did nothing.
  */
 export function steppedScale(scale: number, direction: 1 | -1): number {
   if (direction === 1) {
-    const up = PDF_ZOOM_STEPS.find((step) => step > scale + 1e-9);
+    const up = PDF_ZOOM_STEPS.find((step) => step > scale * STEP_SAME);
     return up ?? PDF_MAX_SCALE;
   }
   const down = [...PDF_ZOOM_STEPS]
     .reverse()
-    .find((step) => step < scale - 1e-9);
+    .find((step) => step < scale / STEP_SAME);
   return down ?? PDF_MIN_SCALE;
 }
 

@@ -8,6 +8,10 @@ enum RestartDecision {
     case doNotRestart
 }
 
+/// A control frame's params, which `sendControl` writes to tugcast over the
+/// control socket as JSON: tugcast's channel, not a host message.
+typealias ControlParams = [String: Any]
+
 /// Manages the tugcast server process lifecycle with supervisor loop
 class ProcessManager {
     private var process: Process?
@@ -76,9 +80,6 @@ class ProcessManager {
     /// the attempt count and the last exit code. The backoff is unchanged by
     /// it — this only reports.
     var onRepeatedRespawn: ((Int, Int32) -> Void)?
-
-    /// Callback for dev_mode errors
-    var onDevModeError: ((String) -> Void)?
 
     /// Resolved shell PATH. Access via `resolvedShellPATH` — populated by `resolveShellPATH()`.
     private static var _shellPATH: String?
@@ -644,7 +645,7 @@ class ProcessManager {
             let success = msg.data["success"] as? Bool ?? false
             if !success {
                 let errorMessage = msg.data["error"] as? String ?? "Unknown error"
-                onDevModeError?(errorMessage)
+                TugLog.warn("tugcast", "dev_mode refused", [TugLog.field("error", errorMessage)])
             }
         case "shutdown":
             guard restartDecision == .pending else {
@@ -706,7 +707,7 @@ class ProcessManager {
     }
 
     /// Send a control command to tugcast via UDS
-    func sendControl(_ action: String, params: [String: Any] = [:]) {
+    func sendControl(_ action: String, params: ControlParams = [:]) {
         guard let connection = controlConnection else {
             NSLog("ProcessManager: sendControl skipped, no control connection (action: %@)", action)
             return

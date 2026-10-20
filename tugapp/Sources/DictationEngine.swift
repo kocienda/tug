@@ -105,21 +105,16 @@ final class DictationEngine {
 
     // MARK: - The deck's three verbs
 
-    /// Spec S01's message, arrived. An unreadable verb is logged and dropped
-    /// rather than guessed at.
-    func handle(verb: String, id: String) {
+    /// Spec S01's message, arrived. A verb the declaration does not name was
+    /// refused before it got here.
+    func handle(verb: DictationRequest.Verb, id: String) {
         switch verb {
-        case "start":
+        case .start:
             start(id)
-        case "stop":
+        case .stop:
             stop(id)
-        case "finish":
+        case .finish:
             finish(id)
-        default:
-            TugLog.warn("dictation", "unknown verb; ignoring", [
-                TugLog.field("verb", verb),
-                TugLog.field("id", id),
-            ])
         }
     }
 
@@ -141,7 +136,7 @@ final class DictationEngine {
             recognizer?.cancel()
             teardown()
             liveId = nil
-            send(.ended(previous, .superseded))
+            send(.ended(id: previous, reason: .superseded))
         }
 
         liveId = id
@@ -151,7 +146,7 @@ final class DictationEngine {
             // No device, no permission, no recogniser. The session exists,
             // answers `ready`, and can be stopped or superseded — which is
             // the whole of what an automated test needs from it ([P01]).
-            send(.plain(id, .ready))
+            send(.ready(id: id))
             return
         }
 
@@ -197,7 +192,7 @@ final class DictationEngine {
             progress: { [weak self] busy in
                 DispatchQueue.main.async {
                     guard let self, self.liveId == id, busy else { return }
-                    self.send(.plain(id, .preparing))
+                    self.send(.preparing(id: id))
                 }
             },
             completion: { [weak self] result in
@@ -244,7 +239,7 @@ final class DictationEngine {
             self.recognizer?.cancel()
             self.teardown()
             self.liveId = nil
-            self.send(.ended(id, .deviceLost))
+            self.send(.ended(id: id, reason: .deviceLost))
         }
 
         do {
@@ -255,7 +250,7 @@ final class DictationEngine {
             return
         }
 
-        send(.plain(id, .ready))
+        send(.ready(id: id))
     }
 
     // MARK: - Running and stopping
@@ -263,7 +258,7 @@ final class DictationEngine {
     private func consume(id: String, cumulative: String, isFinal: Bool) {
         guard liveId == id else { return }
         for output in reducer.feed(cumulative: cumulative, isFinal: isFinal) {
-            send(.text(id, output.kind, output.text))
+            send(.transcript(id, output))
         }
     }
 
@@ -277,7 +272,7 @@ final class DictationEngine {
         _ = reducer.finish()
         teardown()
         liveId = nil
-        send(.ended(id, .stopped))
+        send(.ended(id: id, reason: .stopped))
 
         // Anything the recogniser reports after this arrives with `liveId`
         // already nil and is dropped, which is Spec S03 rule 5: a tail the
@@ -340,14 +335,14 @@ final class DictationEngine {
         _ = reducer.finish()
         teardown()
         liveId = nil
-        send(.ended(id, .stopped))
+        send(.ended(id: id, reason: .stopped))
     }
 
     private func refuse(_ id: String, _ refusal: DictationRefusal, message: String? = nil) {
         recognizer?.cancel()
         teardown()
         liveId = nil
-        send(.refused(id, refusal, message: message))
+        send(.refused(id: id, reason: refusal, message: message))
     }
 
     /// Give the microphone back. Safe to call with nothing running.

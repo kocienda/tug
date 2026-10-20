@@ -124,6 +124,8 @@ async function push(app: App, revealCount: number): Promise<void> {
     releaseNotesFailed: false,
     userInitiated: false,
     percent: null,
+    receivedBytes: 0,
+    expectedBytes: 0,
     message: "",
     cancellable: false,
     revealCount,

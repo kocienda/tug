@@ -5,8 +5,9 @@
  * bridge payload lands on the snapshot whole. An identical payload replaces
  * nothing and notifies nobody, which is what makes the host's replay on
  * frontend-ready free rather than a re-render on every mount. A payload this
- * build cannot draw reads as `idle` — nothing to show — rather than as a pill
- * claiming a stage it does not understand. `percent` comes back as `null`
+ * build cannot draw — an unknown stage, a missing field — is refused whole by
+ * the declaration and changes nothing, rather than landing as a pill claiming
+ * a stage it does not understand. `percent` comes back as `null`
  * rather than `0` when the total is unknown, because a bar at 0% says
  * something false. And an action posts the bare name the host's
  * `UpdateAction` parses, with no envelope around it.
@@ -17,6 +18,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 
+import { INVALID } from "../../bus/codec";
+import { updateStateToPage } from "../../host/declarations/services";
 import {
   updateStore,
   updateFromPayload,
@@ -24,11 +27,12 @@ import {
   postUpdateAction,
   IDLE_UPDATE,
   type UpdateAction,
+  type UpdateSnapshot,
   type UpdateStage,
 } from "../update-store";
 
-/** A full payload in the shape `UpdateSnapshot.jsonObject` emits. */
-function available(overrides: Record<string, unknown> = {}) {
+/** A full payload in the shape the host's `UpdateSnapshot` encodes. */
+function available(overrides: Partial<UpdateSnapshot> = {}): UpdateSnapshot {
   return {
     stage: "available",
     version: "0.9.0",
@@ -38,11 +42,24 @@ function available(overrides: Record<string, unknown> = {}) {
     releaseNotesFailed: false,
     userInitiated: true,
     percent: null,
+    receivedBytes: 0,
+    expectedBytes: 0,
     message: "",
     cancellable: false,
     revealCount: 0,
     ...overrides,
   };
+}
+
+/**
+ * A raw payload as the bridge lands it: decoded by the declaration, and
+ * applied only when it decodes. Answers whether it landed.
+ */
+function land(payload: unknown): boolean {
+  const snapshot = updateStateToPage.codec.decode(payload);
+  if (snapshot === INVALID) return false;
+  updateStore.apply(updateFromPayload(snapshot));
+  return true;
 }
 
 describe("update-store: a host snapshot lands whole", () => {
@@ -138,27 +155,21 @@ describe("update-store: an unchanged snapshot is not a change", () => {
 });
 
 describe("update-store: the idle case", () => {
-  it("reads an unrecognized stage as nothing to show", () => {
-    // A host build ahead of this deck. "I cannot draw that" is the same
-    // answer as "there is nothing to draw" — never a pill in a stage this
-    // build has no controls for. The running version still crosses: which Tug
-    // is on disk is true whatever stage the host thinks it is in.
-    updateStore.apply(updateFromPayload(available({ stage: "sideways" })));
-    expect(updateStore.getSnapshot()).toEqual({
-      ...IDLE_UPDATE,
-      currentVersion: "0.8.10",
-    });
-  });
-
-  it("reads an empty payload as idle", () => {
-    updateStore.apply(updateFromPayload({}));
-    expect(updateStore.getSnapshot()).toEqual(IDLE_UPDATE);
+  it("refuses an unrecognized stage, and keeps what it had", () => {
+    // A host build ahead of this deck. Never a pill in a stage this build has
+    // no controls for: the declaration names every stage, so the payload is
+    // refused whole and the store is left as it was.
+    updateStore.apply(updateFromPayload(available({ version: "0.8.0" })));
+    const before = updateStore.getSnapshot();
+    expect(land({ ...available(), stage: "sideways" })).toBe(false);
+    expect(land({})).toBe(false);
+    expect(updateStore.getSnapshot()).toBe(before);
   });
 
   it("drops the version when the host goes idle", () => {
     updateStore.apply(updateFromPayload(available()));
-    updateStore.apply(updateFromPayload({ stage: "idle", version: "0.9.0" }));
-    expect(updateStore.getSnapshot().version).toBe("");
+    updateStore.apply(updateFromPayload(available({ stage: "idle", version: "0.9.0" })));
+    expect(updateStore.getSnapshot()).toEqual({ ...IDLE_UPDATE, currentVersion: "0.8.10" });
   });
 
   it("still carries the reveal count at idle", () => {
@@ -167,7 +178,7 @@ describe("update-store: the idle case", () => {
     // an idle snapshot that dropped the bump would make the item dead in the
     // state a user most often reaches for it from — no flow yet, and a wizard
     // that should open on its Check row.
-    updateStore.apply(updateFromPayload({ stage: "idle", revealCount: 4 }));
+    updateStore.apply(updateFromPayload(available({ stage: "idle", revealCount: 4 })));
     const snap = updateStore.getSnapshot();
     expect(snap.stage).toBe("idle");
     expect(snap.revealCount).toBe(4);
@@ -176,15 +187,13 @@ describe("update-store: the idle case", () => {
 });
 
 describe("update-store: a partial payload cannot invent a pill", () => {
-  it("falls back to the idle value for every missing field", () => {
-    updateStore.apply(updateFromPayload({ stage: "available" }));
-    const snap = updateStore.getSnapshot();
-    expect(snap.stage).toBe("available");
-    expect(snap.version).toBe("");
-    expect(snap.build).toBe("");
-    expect(snap.releaseNotes).toBeNull();
-    expect(snap.userInitiated).toBe(false);
-    expect(snap.message).toBe("");
+  it("refuses a payload missing any field, and keeps what it had", () => {
+    updateStore.apply(updateFromPayload(available({ version: "0.8.0" })));
+    const before = updateStore.getSnapshot();
+    expect(land({ stage: "available" })).toBe(false);
+    const { revealCount: _omitted, ...withoutCount } = available();
+    expect(land(withoutCount)).toBe(false);
+    expect(updateStore.getSnapshot()).toBe(before);
   });
 
   it("reads a null percent as unknown rather than as zero", () => {
@@ -209,11 +218,8 @@ describe("update-store: a partial payload cannot invent a pill", () => {
     }
   });
 
-  it("reads a non-numeric percent as unknown", () => {
-    updateStore.apply(
-      updateFromPayload(available({ stage: "downloading", percent: "42" })),
-    );
-    expect(updateStore.getSnapshot().percent).toBeNull();
+  it("refuses a non-numeric percent", () => {
+    expect(land({ ...available({ stage: "downloading" }), percent: "42" })).toBe(false);
   });
 });
 
@@ -293,22 +299,15 @@ describe("update-store: progress never reaches React [L06]", () => {
     expect(updateStore.getRenderSnapshot()).toBe(first);
   });
 
-  it("a missing or nonsense byte pair reads as zero rather than as NaN", () => {
-    // An older host, or a partial payload. Zero is what "no transfer" looks
-    // like, and it is what the detail line already knows to say `Starting…`
-    // about.
+  it("a negative byte count reads as zero, and a nonsense one is refused", () => {
+    // Zero is what "no transfer" looks like, and it is what the detail line
+    // already knows to say `Starting…` about.
     updateStore.apply(
-      updateFromPayload(
-        available({
-          stage: "downloading",
-          percent: 10,
-          receivedBytes: "lots",
-          expectedBytes: -1,
-        }),
-      ),
+      updateFromPayload(available({ stage: "downloading", percent: 10, receivedBytes: -3, expectedBytes: -1 })),
     );
     expect(updateStore.getSnapshot().receivedBytes).toBe(0);
     expect(updateStore.getSnapshot().expectedBytes).toBe(0);
+    expect(land({ ...available({ stage: "downloading" }), receivedBytes: "lots" })).toBe(false);
   });
 
   it("moves the render snapshot when anything else changes", () => {
@@ -344,12 +343,6 @@ describe("update-store: reveal is a count, not an event", () => {
     updateStore.apply(updateFromPayload(available({ revealCount: 3 })));
     expect(updateStore.getSnapshot().revealCount).toBe(3);
     expect(updateStore.getRenderSnapshot().revealCount).toBe(3);
-  });
-
-  it("reads a payload with no count at all as zero", () => {
-    const { revealCount: _omitted, ...withoutCount } = available();
-    updateStore.apply(updateFromPayload(withoutCount));
-    expect(updateStore.getSnapshot().revealCount).toBe(0);
   });
 
   it("moves the render snapshot when the count is the only thing that moved", () => {

@@ -361,8 +361,8 @@ export function installPageZoomBridge(store: PageZoomStore = pageZoomStore): voi
   installHostChannel();
   if (installedZoom?.store === store) return;
   installedZoom?.release();
-  const releaseReport = onHostMessage(pageZoomToPage, (report) => store.report((report as { factor?: unknown }).factor));
-  const releaseApply = answerPageCall(pageZoomApplyCall, (factor) => store.apply(factor));
+  const releaseReport = onHostMessage(pageZoomToPage, (report) => store.report(report.factor));
+  const releaseApply = answerPageCall(pageZoomApplyCall, (factor) => store.apply(factor).then(() => null));
   installedZoom = {
     store,
     release: () => {

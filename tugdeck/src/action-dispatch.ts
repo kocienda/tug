@@ -409,6 +409,73 @@ export function cycleFocusMode(): void {
 }
 
 /**
+ * Route macOS `NSApplicationDelegate` events into this page's `AppLifecycle`
+ * singleton. The Swift side sends a control frame with
+ * `action: "app-lifecycle"` and `event: "<willBecomeActive|didBecomeActive|
+ * willResignActive|didResignActive|willHide|didHide|willUnhide|didUnhide>"`;
+ * this handler dispatches to the matching `notifyApplication*` method.
+ *
+ * This control-frame path replaces earlier ad-hoc window globals so the app
+ * lifecycle is a single unified pipe rather than a set of one-off RPC
+ * functions. Every page that registers an `AppLifecycle` registers this too —
+ * the shell in `initActionDispatch`, a card body in its own boot — or what
+ * observes the app resigning there (a live microphone, a selection to save)
+ * never hears it.
+ */
+export function registerAppLifecycleAction(): void {
+  registerAction("app-lifecycle", (payload) => {
+    const event = payload.event;
+    if (typeof event !== "string") {
+      console.warn("app-lifecycle: missing or invalid event", payload);
+      return;
+    }
+    const lifecycle = getAppLifecycle();
+    if (lifecycle === null) {
+      console.warn(
+        `app-lifecycle: AppLifecycle not registered yet (event=${event})`,
+      );
+      return;
+    }
+    // The Swift host tags frames replayed on tugcast reconnect with
+    // `replayed: true` so the lifecycle trace can distinguish the
+    // recovery path from a literal OS notification. Observers see no
+    // difference — they are idempotent under repeated `did*` events
+    // by contract (see `app-lifecycle.ts` JSDoc).
+    if (payload.replayed === true) {
+      console.log(`[AppLifecycle] replayed ${event} (post-reconnect resync)`);
+    }
+    switch (event) {
+      case "willBecomeActive":
+        lifecycle.notifyApplicationWillBecomeActive();
+        break;
+      case "didBecomeActive":
+        lifecycle.notifyApplicationDidBecomeActive();
+        break;
+      case "willResignActive":
+        lifecycle.notifyApplicationWillResignActive();
+        break;
+      case "didResignActive":
+        lifecycle.notifyApplicationDidResignActive();
+        break;
+      case "willHide":
+        lifecycle.notifyApplicationWillHide();
+        break;
+      case "didHide":
+        lifecycle.notifyApplicationDidHide();
+        break;
+      case "willUnhide":
+        lifecycle.notifyApplicationWillUnhide();
+        break;
+      case "didUnhide":
+        lifecycle.notifyApplicationDidUnhide();
+        break;
+      default:
+        console.warn(`app-lifecycle: unknown event ${event}`);
+    }
+  });
+}
+
+/**
  * Initialize action dispatch system.
  *
  * Registers a callback for Control frames and registers all built-in
@@ -1462,65 +1529,7 @@ export function initActionDispatch(
     }
   });
 
-  // app-lifecycle: route macOS `NSApplicationDelegate` events into the
-  // `AppLifecycle` singleton. The Swift side sends a control frame with
-  // `action: "app-lifecycle"` and `event: "<willBecomeActive|didBecomeActive|
-  // willResignActive|didResignActive|willHide|didHide|willUnhide|didUnhide>"`;
-  // this handler dispatches to the matching `notifyApplication*` method.
-  //
-  // This control-frame path replaces earlier ad-hoc window globals so
-  // the app lifecycle is a single unified pipe rather
-  // than a set of one-off RPC functions.
-  registerAction("app-lifecycle", (payload) => {
-    const event = payload.event;
-    if (typeof event !== "string") {
-      console.warn("app-lifecycle: missing or invalid event", payload);
-      return;
-    }
-    const lifecycle = getAppLifecycle();
-    if (lifecycle === null) {
-      console.warn(
-        `app-lifecycle: AppLifecycle not registered yet (event=${event})`,
-      );
-      return;
-    }
-    // The Swift host tags frames replayed on tugcast reconnect with
-    // `replayed: true` so the lifecycle trace can distinguish the
-    // recovery path from a literal OS notification. Observers see no
-    // difference — they are idempotent under repeated `did*` events
-    // by contract (see `app-lifecycle.ts` JSDoc).
-    if (payload.replayed === true) {
-      console.log(`[AppLifecycle] replayed ${event} (post-reconnect resync)`);
-    }
-    switch (event) {
-      case "willBecomeActive":
-        lifecycle.notifyApplicationWillBecomeActive();
-        break;
-      case "didBecomeActive":
-        lifecycle.notifyApplicationDidBecomeActive();
-        break;
-      case "willResignActive":
-        lifecycle.notifyApplicationWillResignActive();
-        break;
-      case "didResignActive":
-        lifecycle.notifyApplicationDidResignActive();
-        break;
-      case "willHide":
-        lifecycle.notifyApplicationWillHide();
-        break;
-      case "didHide":
-        lifecycle.notifyApplicationDidHide();
-        break;
-      case "willUnhide":
-        lifecycle.notifyApplicationWillUnhide();
-        break;
-      case "didUnhide":
-        lifecycle.notifyApplicationDidUnhide();
-        break;
-      default:
-        console.warn(`app-lifecycle: unknown event ${event}`);
-    }
-  });
+  registerAppLifecycleAction();
 
   // Save all card states around app backgrounding.
   //

@@ -75,16 +75,12 @@ enum PageFaultScript {
     }
 
     /// Write one fault the page posted. Called from the message handler.
-    static func log(_ body: Any?) {
-        let dict = body as? [String: Any]
-        let kind = dict?["kind"] as? String ?? "unknown"
-        let message = dict?["message"] as? String ?? String(describing: body ?? "")
-        let source = dict?["source"] as? String ?? ""
+    static func log(_ fault: PageFault) {
         // One line per fault: the log is line-oriented and a stack's own
         // newlines would read as separate, subsystem-less entries.
-        let flat = message.replacingOccurrences(of: "\n", with: " | ")
-        var fields = [TugLog.field("kind", kind)]
-        if !source.isEmpty { fields.append(TugLog.field("source", source)) }
+        let flat = fault.message.replacingOccurrences(of: "\n", with: " | ")
+        var fields = [TugLog.field("kind", fault.kind.rawValue)]
+        if !fault.source.isEmpty { fields.append(TugLog.field("source", fault.source)) }
         fields.append(TugLog.field("message", flat))
         TugLog.error("webview", "page fault", fields)
     }

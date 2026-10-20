@@ -228,8 +228,10 @@ describe("the host handler", () => {
     const first = mintDictationId();
     const second = mintDictationId();
     expect(first).not.toBe(second);
-    expect(first).toMatch(/^dict-\d+$/);
-    expect(second).toMatch(/^dict-\d+$/);
+    expect(first).toMatch(/^dict-[0-9a-f]{8}-\d+$/);
+    expect(second).toMatch(/^dict-[0-9a-f]{8}-\d+$/);
+    // One page, one mark: what tells two pages' claims apart is the mark.
+    expect(first.split("-")[1]).toBe(second.split("-")[1]);
   });
 });
 
