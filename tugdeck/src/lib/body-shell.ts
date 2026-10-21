@@ -139,6 +139,7 @@ import {
   cardActivate,
   cardAddSibling,
   cardClose,
+  cardFlash,
   cardRefuseHold,
   commandForCard,
   devtoolsLogEntries,
@@ -258,7 +259,7 @@ import {
 } from "../bus/declarations/arrangement";
 import { answerMiniature } from "./miniature-bus";
 import { getDropZoneHost } from "./drop-zone-host-registry";
-import { flashCardPane } from "./flash-pane-border";
+import { flashCardPane, setPaneFlashRelay } from "./flash-pane-border";
 import { shareLayoutSelection } from "./cards-selection-store";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { cardModalHoldStore, isCardHeld, refuseCardModalHold } from "./card-modal-hold-store";
@@ -550,6 +551,22 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       flashCard: (cardId) => flashCardPane(deck, cardId),
     }),
   );
+  // A rung pane's ring is drawn by its card's page, which stands opaque over
+  // the shell's stand-in ([D216]). Every card of the pane is told, so a tab
+  // switch mid-ring shows it lit.
+  const rungPane = (paneId: string) => deck.getSnapshot().panes.find((p) => p.id === paneId);
+  setPaneFlashRelay({
+    draws: (paneId) => {
+      const active = rungPane(paneId)?.activeCardId;
+      return active !== undefined && bodyCardsStore.has(active) && bodyCardsStore.stateOf(active) !== "failed";
+    },
+    tell: (paneId, lit) => {
+      for (const cardId of rungPane(paneId)?.cardIds ?? []) {
+        if (bodyCardsStore.has(cardId)) cardFlash.dispatch({ lit }, { card: cardId });
+      }
+    },
+  });
+  releases.push(() => setPaneFlashRelay(null));
 
   // ---- Per-card registrations, held while the card is a body card ----
 

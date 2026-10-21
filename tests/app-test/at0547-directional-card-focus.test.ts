@@ -47,11 +47,13 @@
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugdeck/src/lib/flash-pane-border.ts
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { ringedCards, waitForRing } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -244,15 +246,13 @@ describe.skipIf(!SHOULD_RUN)(
           await app.expectFocusedCard("L", { timeoutMs: 8_000 });
 
           // ── The rail is the last place there is. Clear any flash the arrival
-          // just raised, so what is read below is the refusal's own.
-          await app.evalJS<null>(
-            `(function () {
-              document
-                .querySelectorAll(".tug-pane")
-                .forEach(function (el) { el.classList.remove("tug-pane-flash"); });
-              return null;
-            })()`,
-          );
+          // just raised, so what is read below is the refusal's own. The ring
+          // is drawn in the card's own page.
+          for (const card of await ringedCards(app)) {
+            await app.body(card).evalJS<null>(
+              `(document.querySelector(".tug-pane.tug-pane-flash").classList.remove("tug-pane-flash"), null)`,
+            );
+          }
           const atEdge = await app.menuItemState("go.focusCardRight");
           expect(
             atEdge.found ? atEdge.enabled : true,
@@ -263,18 +263,13 @@ describe.skipIf(!SHOULD_RUN)(
             await focused(app),
             "past the rail there is nothing, so the keyboard stays put",
           ).toBe("L");
-          const flashed = await app.evalJS<string[]>(
-            `Array.prototype.filter
-              .call(document.querySelectorAll(".tug-pane"), function (el) {
-                return el.classList.contains("tug-pane-flash");
-              })
-              .map(function (el) { return el.getAttribute("data-pane-id"); })`,
-          );
-          note("panes flashed by the edge press", JSON.stringify(flashed));
+          await waitForRing(app, "L");
+          const flashed = await ringedCards(app);
+          note("cards flashed by the edge press", JSON.stringify(flashed));
           expect(
             flashed,
             "and the pane that is not moving says so — visible refusal, not silence",
-          ).toEqual(["pRail"]);
+          ).toEqual(["L"]);
         } finally {
           await app.close();
         }

@@ -37,6 +37,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "../_harness";
+import { ringedCards, waitForRing } from "../card-chrome-fixture";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
@@ -200,12 +201,16 @@ export async function edgesOfKind(launch: Launch, kind: CardKind): Promise<void>
       const took = await app.setPageZoom(zoom);
       expect(took, `View › Zoom took ${zoom}`).toBeCloseTo(zoom, 3);
       for (const key of [card, T]) {
-        if (key === card) await focusBody(app, card, { composer: false });
-        else {
+        if (key === card) {
+          // `focus-session-card` answers with the ring once its settle lands,
+          // which may be after the focus reads true: wait for it to light.
+          await focusBody(app, card, { composer: false });
+          await waitForRing(app, card, 5_000);
+        } else {
           await app.evalJS<null>(`(window.__tug.dispatchControlAction("focus-pane", { paneId: ${JSON.stringify(`${T}-pane`)} }), null)`);
           expect(await pollFor(() => app.getFocusedCardId(), (id) => id === T, SETTLE_MS), "the Text card is key").toBe(T);
         }
-        await pollFor(() => app.evalJS<boolean>(`document.querySelector(".tug-pane-flash") === null`), (gone) => gone, 5_000);
+        await pollFor(() => ringedCards(app), (lit) => lit.length === 0, 5_000);
         await Bun.sleep(300);
         const state = `zoom ${zoom}, ${key === card ? "body key" : "Text key"}`;
         const posted = await app.evalJS<Rect[]>(
@@ -281,19 +286,22 @@ export async function edgesOfSession(launch: Launch): Promise<void> {
       for (const key of [A, T]) {
         if (key === A) {
           await focusBody(app, A, { composer: false });
+          await waitForRing(app, A, 5_000);
         } else {
           await app.evalJS<null>(`(window.__tug.dispatchControlAction("focus-pane", { paneId: ${JSON.stringify(`${T}-pane`)} }), null)`);
           const focused = await pollFor(() => app.getFocusedCardId(), (id) => id === T, SETTLE_MS);
           expect(focused, "the Text card is key").toBe(T);
         }
-        // Focusing a card runs the pane's activation flash, an inset accent
-        // ring over its border for 1750 ms: read the edges once it is off.
+        // Focusing a card by `focus-session-card` runs the pane's activation
+        // flash once its settle lands, an inset accent ring over its border
+        // for 1750 ms, drawn in the card's own page: it was waited for above,
+        // and the edges are read once it is off.
         const flashed = await pollFor(
-          () => app.evalJS<boolean>(`document.querySelector(".tug-pane-flash") === null`),
-          (gone) => gone,
+          () => ringedCards(app),
+          (lit) => lit.length === 0,
           5_000,
         );
-        expect(flashed, "the activation flash has run out").toBe(true);
+        expect(flashed, "the activation flash has run out").toEqual([]);
         await Bun.sleep(300);
         const state = `zoom ${zoom}, ${key === A ? "body key" : "Text key"}`;
 

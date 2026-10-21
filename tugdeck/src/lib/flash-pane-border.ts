@@ -46,6 +46,17 @@
  * overlap no motion. Everything else about it is unchanged, including the
  * deferred retry for a pane the DOM does not hold yet.
  *
+ * ## Where the ring is seen
+ *
+ * A card is one view over the shell ([D216]): its own page draws its frame,
+ * opaque over the shell's paintless stand-in, so the ring is drawn there: the
+ * shell decides what is rung — the one-at-a-time rule and the restart are
+ * still decided here — and {@link setPaneFlashRelay} is how it tells the card's
+ * page to light the ring on the frame it draws ({@link flashPaneFrame}), or to
+ * put it out when another subject is rung. The shell draws a pane's ring
+ * itself only where no page stands over the pane: a card whose page failed,
+ * whose placard the shell draws in the stand-in.
+ *
  * @module lib/flash-pane-border
  */
 
@@ -62,8 +73,7 @@ const FLASH_ANIMATION_NAME = "tug-pane-border-flash";
 const SETTLING_ATTRIBUTE = "data-imposer-settling";
 
 /**
- * The one flash currently on the deck: the element it is lit on, and how to
- * end it.
+ * The one flash currently on the deck: what it is lit on, and how to end it.
  *
  * At most one thing flashes at a time. The directional focus commands
  * (`Focus Card Left`/`Right`/`Above`/`Below`) can activate a card a keystroke
@@ -73,18 +83,37 @@ const SETTLING_ATTRIBUTE = "data-imposer-settling";
  * one before it, whichever subject it was on: a card's ring puts out a
  * vacancy's and the other way round, because the reader reads them the same.
  *
- * The element is held beside the ender because a re-request on the SAME
+ * The subject is the element the ring is lit on, or the pane id when a card's
+ * page draws it. It is held beside the ender because a re-request on the SAME
  * subject is a restart rather than an end, and a restart needs the class left
  * on: taking it off would take the effect with it, and there would be nothing
  * left to seek.
  */
 interface ActiveFlash {
-  readonly el: HTMLElement;
+  readonly subject: HTMLElement | string;
   /** End it. `keepClass` leaves the class on for a restart to seek. */
   readonly end: (keepClass: boolean) => void;
 }
 
 let activeFlash: ActiveFlash | null = null;
+
+/** The shell's line to the pages of a pane's cards. */
+export interface PaneFlashRelay {
+  /** Whether a card's page stands over the pane and draws its frame. */
+  draws(paneId: string): boolean;
+  /** Tell the pane's cards' pages that its ring is lit or out. */
+  tell(paneId: string, lit: boolean): void;
+}
+
+let paneFlashRelay: PaneFlashRelay | null = null;
+
+/**
+ * Install the shell's relay to the cards' pages, or remove it with `null`.
+ * Only the shell installs one; in a card's page the ring is the page's own.
+ */
+export function setPaneFlashRelay(relay: PaneFlashRelay | null): void {
+  paneFlashRelay = relay;
+}
 
 /** Slack over the flash's own duration before the backstop fires. */
 const FLASH_BACKSTOP_SLACK_MS = 500;
@@ -144,7 +173,7 @@ function runFlash(
   animationName: string,
   backstopMs: () => number,
 ): void {
-  const restarting = activeFlash !== null && activeFlash.el === el;
+  const restarting = activeFlash !== null && activeFlash.subject === el;
   activeFlash?.end(restarting);
 
   const running = restarting ? runningFlashOn(el, animationName) : null;
@@ -153,23 +182,23 @@ function runFlash(
 
   const end = (keepClass: boolean): void => {
     if (!keepClass) el.classList.remove(flashClass);
-    el.removeEventListener("animationend", onEnd);
+    el.removeEventListener("animationend", onAnimationEnd);
     window.clearTimeout(backstop);
     if (activeFlash !== null && activeFlash.end === end) activeFlash = null;
   };
   // `animationend` bubbles, so the listener must name the flash's own
   // keyframes: any animation finishing anywhere inside the card — a streaming
   // transcript, a spinner — would otherwise cut the flash short.
-  const onEnd = (event: AnimationEvent): void => {
+  const onAnimationEnd = (event: AnimationEvent): void => {
     if (event.animationName !== animationName) return;
     end(false);
   };
-  el.addEventListener("animationend", onEnd);
+  el.addEventListener("animationend", onAnimationEnd);
   // A window whose rendering is suspended never ticks the keyframes, so
   // `animationend` never arrives and the ring would rest on the pane forever.
   // The timer is the only thing that guarantees the flash is one-shot.
   const backstop = window.setTimeout(() => end(false), backstopMs());
-  activeFlash = { el, end };
+  activeFlash = { subject: el, end };
 }
 
 /**
@@ -200,6 +229,11 @@ function paneFrame(paneId: string): HTMLElement | null {
 /**
  * Flash the pane with this id.
  *
+ * Where a card's page stands over the pane, the page draws the ring and the
+ * shell only tells it to ({@link setPaneFlashRelay}); the page's ring runs and
+ * ends by itself, so the shell's record of it ends only when another subject
+ * is rung, and puts the page's ring out then.
+ *
  * A pane the DOM does not hold yet gets one deferred retry: `assign-slot` can
  * pull a card out of a tab group into a pane that exists in the store but not
  * on screen until React commits, and the flash belongs on the pane the card
@@ -216,9 +250,37 @@ export function flashPaneBorder(paneId: string, allowRetry = true): void {
     if (allowRetry) retryAfterCommit(() => flashPaneBorder(paneId, false));
     return;
   }
-  runFlash(paneEl, FLASH_CLASS, FLASH_ANIMATION_NAME, () =>
-    flashBackstopMs(paneEl, "::before"),
+  const relay = paneFlashRelay;
+  if (relay === null || !relay.draws(paneId)) {
+    runFlash(paneEl, FLASH_CLASS, FLASH_ANIMATION_NAME, () =>
+      flashBackstopMs(paneEl, "::before"),
+    );
+    return;
+  }
+  const restarting = activeFlash !== null && activeFlash.subject === paneId;
+  activeFlash?.end(restarting);
+  const end = (keepClass: boolean): void => {
+    if (activeFlash !== null && activeFlash.end === end) activeFlash = null;
+    if (!keepClass) relay.tell(paneId, false);
+  };
+  activeFlash = { subject: paneId, end };
+  relay.tell(paneId, true);
+}
+
+/**
+ * Light the ring on `frame`, a card's own pane frame in its page, or restart
+ * it if it is already lit — what the page does when the shell says its pane
+ * was rung.
+ */
+export function flashPaneFrame(frame: HTMLElement): void {
+  runFlash(frame, FLASH_CLASS, FLASH_ANIMATION_NAME, () =>
+    flashBackstopMs(frame, "::before"),
   );
+}
+
+/** Put out the ring on `frame` if it is the one lit: the shell rang another subject. */
+export function endPaneFrameFlash(frame: HTMLElement): void {
+  if (activeFlash !== null && activeFlash.subject === frame) activeFlash.end(false);
 }
 
 /**

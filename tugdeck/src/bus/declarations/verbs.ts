@@ -197,6 +197,17 @@ export const surfaceDismissed = defineAction({
   codec: empty,
 });
 
+/**
+ * The shell rang the card's pane (`flash-pane-border.ts`), or its ring went
+ * out: the card's page lights or puts out the same ring on the frame it draws,
+ * which is the one the reader sees.
+ */
+export const cardFlash = defineAction({
+  id: "card.flash",
+  owner: "card",
+  codec: obj({ lit: bool }),
+});
+
 /** A chain action for the card's content responder, which lives in its body. */
 export const cardContentAction = defineAction({
   id: "card.contentAction",

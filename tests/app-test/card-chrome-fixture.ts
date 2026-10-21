@@ -78,3 +78,31 @@ export async function chromePoint(app: App, card: string, selector: string): Pro
   const r = await chromeRect(app, card, selector);
   return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
 }
+
+/** The frame's flash ring, lit, in a card's page. */
+const RING = ".tug-pane.tug-pane-flash";
+
+/**
+ * Whether `card`'s page has the "here it is" ring lit on its frame: the ring
+ * a card's page draws, opaque over the shell's stand-in (`flash-pane-border.ts`).
+ */
+export async function cardRinged(app: App, card: string): Promise<boolean> {
+  return app.body(card).evalJS<boolean>(`document.querySelector(${JSON.stringify(RING)}) !== null`);
+}
+
+/** The cards whose visible view has the ring lit, in the host's order. */
+export async function ringedCards(app: App): Promise<string[]> {
+  const out: string[] = [];
+  for (const view of await app.bodies()) {
+    if (view.cardId === null || !view.visible) continue;
+    if (await cardRinged(app, view.cardId)) out.push(view.cardId);
+  }
+  return out;
+}
+
+/** Wait until `card`'s page has the ring lit; throws past `timeoutMs`. */
+export async function waitForRing(app: App, card: string, timeoutMs = 2_000): Promise<void> {
+  await app.body(card).waitForCondition<boolean>(`document.querySelector(${JSON.stringify(RING)}) !== null`, {
+    timeoutMs,
+  });
+}

@@ -40,12 +40,14 @@
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugdeck/src/lib/flash-pane-border.ts
+ * @covers tugdeck/src/body/body-verbs.ts
  * @foreground
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { ringedCards } from "./card-chrome-fixture";
 import {
   IMPOSITION_GAP_PX,
   RAIL_GUTTER_PX,
@@ -304,16 +306,24 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
         // And the arrival is ANSWERED. Moving the band is all this verb does,
         // and on a deck of similar cards that is not enough to say which one
         // the reader asked for. Read inside the flash's own window: the ring
-        // runs far longer than the settle, so it is still burning here.
-        const rung = await app.evalJS<string[]>(
-          `Array.from(document.querySelectorAll(".tug-pane.tug-pane-flash"))
-             .map(function (el) { return el.getAttribute("data-pane-id"); })`,
-        );
+        // runs far longer than the settle, so it is still burning here. The
+        // ring is drawn in the card's own page, which stands opaque over the
+        // shell's stand-in.
+        const rung = await ringedCards(app);
         note(`⌃⌘3 rang: ${JSON.stringify(rung)}`);
         expect(
           rung,
           "the card standing in the named place is rung, and only it",
-        ).toEqual(["p3"]);
+        ).toEqual(["C"]);
+        // And it is burning: the ring's own opacity, mid-run.
+        const seen = await app.body("C").evalJS<string | null>(
+          `(function () {
+             var frame = document.querySelector(".tug-pane.tug-pane-flash");
+             return frame === null ? null : getComputedStyle(frame, "::before").opacity;
+           })()`,
+        );
+        note(`⌃⌘3: card C's own ring opacity ${JSON.stringify(seen)}`);
+        expect(Number(seen), "the ring is burning, not at rest").toBeGreaterThan(0);
 
         // A second digit travels from wherever the first left it — the answer
         // is a destination, so it does not depend on where the band stood.
@@ -346,25 +356,20 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
         // happen — an empty slot is a legitimate destination, so answering
         // only for occupied ones would make the same gesture silent for a
         // reason the reader never asked about.
-        const rungEmpty = await app.evalJS<{ panes: string[]; tiles: string[] }>(
-          `(function () {
-            return {
-              panes: Array.from(
-                document.querySelectorAll(".tug-pane.tug-pane-flash"),
-              ).map(function (el) { return el.getAttribute("data-pane-id"); }),
-              tiles: Array.from(
-                document.querySelectorAll(".tug-slot-vacancy-flash"),
-              ).map(function (el) { return el.getAttribute("data-vacant-slot"); })
-            };
-          })()`,
-        );
+        const rungEmpty = {
+          cards: await ringedCards(app),
+          tiles: await app.evalJS<string[]>(
+            `Array.from(document.querySelectorAll(".tug-slot-vacancy-flash"))
+               .map(function (el) { return el.getAttribute("data-vacant-slot"); })`,
+          ),
+        };
         note(`⌃⌘5 rang: ${JSON.stringify(rungEmpty)}`);
         expect(
           rungEmpty.tiles,
           "the held-open place answers with its badge",
         ).toEqual(["4"]);
         expect(
-          rungEmpty.panes,
+          rungEmpty.cards,
           "and no card is rung for a place no card stands in",
         ).toEqual([]);
         // The ring is also the badge's only other way onto the screen. At rest

@@ -41,6 +41,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { kindBody } from "./_harness/card-reach";
+import { cardRinged, waitForRing } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -140,21 +141,6 @@ async function slotsByCard(app: App): Promise<Record<string, number | null>> {
 async function setSelection(app: App, cardIds: string[]): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.setLayoutSelection(${JSON.stringify(cardIds)}), null)`,
-  );
-}
-
-/** Whether the pane holding `cardId` is wearing the one-shot flash class. */
-async function paneIsFlashing(app: App, cardId: string): Promise<boolean> {
-  return app.evalJS<boolean>(
-    `(function () {
-      var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
-        return p.cardIds.indexOf(${JSON.stringify(cardId)}) !== -1;
-      });
-      if (pane === undefined) return false;
-      var el = document.querySelector(
-        '.tug-pane[data-pane-id="' + pane.id + '"]');
-      return el !== null && el.classList.contains("tug-pane-flash");
-    })()`,
   );
 }
 
@@ -278,20 +264,9 @@ describe.skipIf(!SHOULD_RUN)(
           // slot. Both keep their slots, and B — the member that blocked it —
           // flashes.
           await app.nativeKey("]", NUDGE);
-          await app.waitForCondition<boolean>(
-            `(function () {
-              var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
-                return p.cardIds.indexOf("B") !== -1;
-              });
-              if (pane === undefined) return false;
-              var el = document.querySelector(
-                '.tug-pane[data-pane-id="' + pane.id + '"]');
-              return el !== null && el.classList.contains("tug-pane-flash");
-            })()`,
-            { timeoutMs: 2_000 },
-          );
+          await waitForRing(app, "B");
           expect(
-            await paneIsFlashing(app, "A"),
+            await cardRinged(app, "A"),
             "the refusal names the blocking member, not the whole selection",
           ).toBe(false);
 

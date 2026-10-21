@@ -44,6 +44,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { launchTugApp, type App } from "./_harness";
+import { waitForRing } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -130,21 +131,10 @@ async function openAndCatchCard(app: App, file: string): Promise<string> {
   expect(fresh).toHaveLength(1);
 
   // …and the card that answered the open announces itself. The flash is a
-  // one-shot class the pane wears for the length of the keyframes, so the read
-  // is a poll: the card is added before React has committed its pane, and the
-  // flash lands on the deferred retry that follows the commit.
-  await app.waitForCondition<boolean>(
-    `(function () {
-      var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
-        return p.cardIds.indexOf(${JSON.stringify(fresh[0])}) !== -1;
-      });
-      if (pane === undefined) return false;
-      var el = document.querySelector(
-        '.tug-pane[data-pane-id="' + pane.id + '"]');
-      return el !== null && el.classList.contains("tug-pane-flash");
-    })()`,
-    { timeoutMs: 1_200 },
-  );
+  // one-shot class the card's own frame wears in its page for the length of
+  // the keyframes, so the read is a poll: the card is added before its page
+  // has drawn its frame, and the ring is lit once the frame stands.
+  await waitForRing(app, fresh[0], 5_000);
   return fresh[0];
 }
 

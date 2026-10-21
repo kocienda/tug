@@ -1174,9 +1174,11 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
 
 /* One-shot activation flash ([P04]): a Cards card session row click fronts the
    bound card and pulses an accent ring around its border. The class is added
-   on dispatch (on the pane root) and removed on `animationend` (see
-   `flashPaneBorder` in action-dispatch.ts). The accent holds for most of the
-   animation, then fades, so it reads clearly. Appearance only ([L06]).
+   on the frame of whoever draws the pane — the card's own page, which stands
+   opaque over the shell's stand-in, or the shell for a card whose page failed
+   — and removed on `animationend` (`lib/flash-pane-border.ts`). The accent
+   holds for most of the animation, then fades, so it reads clearly.
+   Appearance only ([L06]).
 
    The ring is an INSET box-shadow on a LAYER OF ITS OWN — `::before` on the
    pane frame, inset 0 over the chrome's whole box and above every child of it.

@@ -17,6 +17,7 @@ import type { PageBus } from "../bus/page-bus";
 import {
   cardCloseDecision,
   cardContentAction,
+  cardFlash,
   cardRefuseHold,
   cardsShrink,
   commandForCard,
@@ -33,6 +34,9 @@ import { dispatchCommand, sendToCardContent } from "../command-dispatch";
 import { shrinkCardsState } from "../components/cards/cards-escape";
 import { enterKeyViewWalk, getFocusManager } from "../components/tugways/focus-manager";
 import { getCardCloseGuard } from "../lib/card-close-guard";
+import { endPaneFrameFlash, flashPaneFrame } from "../lib/flash-pane-border";
+import * as paneFrameRegistry from "../components/chrome/pane-frame-registry";
+import { bodyPaneId } from "./body-card-deck";
 import { refuseCardModalHold } from "../lib/card-modal-hold-store";
 import { cardServicesStore } from "../lib/card-services-store";
 import type { PendingAsk } from "../lib/code-session-store/types";
@@ -70,6 +74,14 @@ function isRelayedLogEntry(value: unknown): value is Omit<TugDevLogEntry, "id"> 
 /** Answer the shell's verbs for `host`'s card on `bus`. Returns the release. */
 export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
   const { cardId, componentId } = host;
+  // A ring told before this page's frame has mounted — a card the shell rang
+  // as it made it — waits for the frame rather than being lost.
+  const framePaneId = bodyPaneId(cardId);
+  let awaitFrame: (() => void) | null = null;
+  const stopAwaitingFrame = (): void => {
+    awaitFrame?.();
+    awaitFrame = null;
+  };
   const releases: Array<() => void> = [
     // A command whose owner is the key card, routed here while this card is
     // key: it runs against this page's own chain, whose key card is the
@@ -88,6 +100,26 @@ export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
     // chain holds that responder, and nothing forwards it on from here.
     cardContentAction.on(bus).handle(({ action }) => {
       sendToCardContent(cardId, action);
+    }),
+    // The shell rang this card's pane, or rang another subject: the ring is
+    // drawn on this page's frame, which stands opaque over the shell's.
+    cardFlash.on(bus).handle(({ lit }) => {
+      stopAwaitingFrame();
+      const frame = paneFrameRegistry.getElement(framePaneId);
+      if (!lit) {
+        if (frame !== null) endPaneFrameFlash(frame);
+        return;
+      }
+      if (frame !== null) {
+        flashPaneFrame(frame);
+        return;
+      }
+      awaitFrame = paneFrameRegistry.subscribe(framePaneId, () => {
+        const mounted = paneFrameRegistry.getElement(framePaneId);
+        if (mounted === null) return;
+        stopAwaitingFrame();
+        flashPaneFrame(mounted);
+      });
     }),
     // An open of the file this card holds, from another page: the line it
     // asked for is revealed in this card's own editor.
@@ -141,6 +173,7 @@ export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
     );
   }
   return () => {
+    stopAwaitingFrame();
     for (const release of releases.splice(0)) release();
   };
 }
