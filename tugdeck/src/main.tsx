@@ -216,6 +216,8 @@ declare global {
      * Release builds never reach this path (`#if DEBUG`-gated).
      */
     __tugRestoreInTestMode?: boolean;
+    /** The last boot lap posted (`lap` below), read by the host's boot watchdog (`PageFaultScript`). */
+    __tugBootLap?: string;
   }
 }
 
@@ -239,6 +241,7 @@ installDomForensics();
 let bootLapsOpen = true;
 function lap(name: string, detail?: string): void {
   if (!bootLapsOpen) return;
+  window.__tugBootLap = name;
   postToHost(launchLapToHost, { name, ms: performance.now(), detail });
 }
 

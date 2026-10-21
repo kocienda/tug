@@ -64,6 +64,37 @@ enum PageFaultScript {
             post("console.error", parts.join(" "));
             return original.apply(this, arguments);
           };
+          // The boot watchdog, on the shell page only: a page that has not
+          // reached `frontend-ready` by each mark reports where its load
+          // stands — how many resources it holds, how many are still open,
+          // the last few it asked for, and the last boot lap it posted
+          // (`__tugBootLap`, written by main.tsx's `lap`) — because a launch
+          // that stalls with no error, no socket and no lap is otherwise
+          // unreadable (2026-10-21). The buffer is raised first so the count
+          // is the whole graph, not the default 250.
+          if (!/[?&](body|overlay)=/.test(window.location.search)) {
+            try { performance.setResourceTimingBufferSize(4000); } catch (e) {}
+            var census = function (mark) {
+              try {
+                var rs = performance.getEntriesByType("resource");
+                var open = 0;
+                for (var i = 0; i < rs.length; i += 1) { if (!rs[i].responseEnd) open += 1; }
+                var last = [];
+                var tail = rs.slice(-5);
+                for (var j = 0; j < tail.length; j += 1) {
+                  last.push(tail[j].name.replace(/^[a-z]+:\\/\\/[^/]+/, "") + "@" + Math.round(tail[j].startTime) + (tail[j].responseEnd ? "" : "(open)"));
+                }
+                post("stall", "boot watchdog " + mark + "s: lap=" + (window.__tugBootLap || "none") + " readyState=" + document.readyState + " resources=" + rs.length + " open=" + open + " now=" + Math.round(performance.now()) + " last=" + last.join(", "));
+              } catch (e) {
+                post("stall", "boot watchdog " + mark + "s: census failed: " + text(e));
+              }
+            };
+            var arm = function (mark) {
+              setTimeout(function () { if (window.__tugBootLap !== "frontend-ready") census(mark); }, mark * 1000);
+            };
+            arm(15);
+            arm(40);
+          }
         })();
         """
         let script = WKUserScript(

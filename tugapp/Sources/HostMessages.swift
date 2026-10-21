@@ -436,7 +436,7 @@ struct LaunchLap: Decodable, Equatable {
 /// it said nowhere).
 struct PageFault: Decodable, Equatable {
     enum Kind: String, Decodable, Equatable {
-        case error, resource, unhandledrejection
+        case error, resource, unhandledrejection, stall
         case consoleError = "console.error"
     }
 

@@ -83,11 +83,13 @@ export const launchLapToHost = defineToHost<LaunchLap>({
 /**
  * Posted only by `PageFaultScript`'s injected script, which no TypeScript
  * module writes: what faulted, its text, and where (`""` when it said nowhere).
+ * `stall` is its boot watchdog's census of a shell page that has not reached
+ * `frontend-ready`.
  */
 export const pageFaultToHost = defineToHost({
   name: "pageFault",
   from: "any",
-  codec: obj({ kind: literal("error", "resource", "unhandledrejection", "console.error"), message: str, source: str }),
+  codec: obj({ kind: literal("error", "resource", "unhandledrejection", "console.error", "stall"), message: str, source: str }),
   samples: [
     { kind: "error", message: "TypeError: x is undefined", source: "main.tsx:12" },
     { kind: "console.error", message: "it's \"broken\"\nagain", source: "" },
