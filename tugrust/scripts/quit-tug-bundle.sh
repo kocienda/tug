@@ -66,10 +66,36 @@ QUIT_ERROR="$(osascript \
 started=$(date +%s)
 deadline=$(( started + TIMEOUT ))
 next_note=$(( started + 5 ))
+captured=0
 while [ "$(date +%s)" -lt "$deadline" ] && running; do
     if [ "$(date +%s)" -ge "$next_note" ]; then
         echo "    waiting for $INSTANCE_ID to quit ($(( $(date +%s) - started ))s)"
         next_note=$(( next_note + 5 ))
+    fi
+    # Diagnostic capture, once, when the app has sat on the quit event for
+    # 3 s. The app receives the event at once but has been seen not to
+    # dispatch it for 20–146 s (2026-10-18 to 2026-10-21) while its main
+    # thread kept running; what state it is in then is not in any log, so
+    # take it live: a 2 s sample of every thread, and a no-op Apple Event
+    # with its own timeout, which says whether all Apple Events are stuck
+    # or only the quit. Read-only; the wait goes on either way.
+    if [ "$captured" -eq 0 ] && [ "$(( $(date +%s) - started ))" -ge 3 ]; then
+        captured=1
+        STALL_DIR="/tmp/tug-quit-stall-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$STALL_DIR"
+        APP_PID="$(lsappinfo info -only pid "$(lsappinfo find "bundleid=$BUNDLE_ID")" 2>/dev/null | sed -n 's/.*pid = \([0-9][0-9]*\).*/\1/p' | head -1)"
+        echo "    quit not taken after 3s — capturing to $STALL_DIR (pid ${APP_PID:-?})"
+        if [ -n "$APP_PID" ]; then
+            sample "$APP_PID" 2 -mayDie -file "$STALL_DIR/sample.txt" >/dev/null 2>&1 || true
+        fi
+        probe_start=$(date +%s)
+        probe_out="$(osascript -e 'with timeout of 5 seconds' -e "tell application id \"$BUNDLE_ID\" to launch" -e 'end timeout' 2>&1)"
+        probe_exit=$?
+        {
+            echo "quit sent at: $(date -r "$started" +%T)  osascript error: ${QUIT_ERROR:-none}"
+            echo "noop event: exit=$probe_exit elapsed=$(( $(date +%s) - probe_start ))s output=${probe_out:-none}"
+        } > "$STALL_DIR/events.txt"
+        cat "$STALL_DIR/events.txt" | sed 's/^/    /'
     fi
     sleep 0.1
 done
