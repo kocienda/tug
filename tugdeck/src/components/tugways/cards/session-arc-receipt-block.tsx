@@ -61,7 +61,6 @@ import { arcNoteParts } from "@/lib/arc-note-command";
 import { CardIdContext } from "@/lib/card-id-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { formatTokensApprox } from "@/lib/code-session-store/compaction";
-import { getConnection } from "@/lib/connection-singleton";
 import { useCardJoinReadyArc } from "@/lib/code-session-store/use-session-phase";
 import { useCitedSession } from "@/lib/session-citation-store";
 import { useSessionUsage } from "@/lib/session-usage-store";
@@ -423,18 +422,11 @@ function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
     // silently when the store has none.
     const binding = cardId === null ? undefined : cardSessionBindingStore.getBinding(cardId);
     if (binding === undefined) return;
-    // And the press is raised only once the frame is actually going out. A
-    // held button waits for an answer, and a frame nobody sent is answered by
-    // nothing — greying the control forever is the dead button this whole
-    // offer exists to avoid.
-    const connection = getConnection();
-    if (connection === null) return;
-    arcPressStore.press(arc, "resume", binding.tugSessionId);
-    connection.sendControlFrame("arc_resume", {
-      tug_session_id: binding.tugSessionId,
-      project_dir: binding.projectDir,
-      arc,
-    });
+    // The store raises the press only once the frame is actually going out,
+    // and on the shell, where the answer arrives: a press held here and
+    // answered there was the "no answer" this offer used to speak over an
+    // arc that had resumed.
+    arcPressStore.send(arc, "resume", binding);
   }, [arc, cardId]);
   return (
     <TugInlineDialog

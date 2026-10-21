@@ -19,6 +19,12 @@
  * The caution's id carries the verb, so a refused Stop and a refused Start
  * are two notices rather than one overwriting the other.
  *
+ * **A refusal goes with its bulletin.** The shell holds the refusal, past
+ * this page's life, so when the bulletin closes — the user's ✕, or its own
+ * timeout — the refusal it spoke is let go by its sequence. Otherwise the
+ * card that reloads or wakes would speak a refusal already read, and a newer
+ * refusal that arrived meanwhile is not taken down with the old.
+ *
  * The subscription registers in `useLayoutEffect` ([L03]); no notice state
  * enters React state ([L02]); appearance is the bulletin's own CSS/DOM ([L06]).
  */
@@ -63,6 +69,7 @@ export function ArcPressNoticeController({
       api.caution(`Couldn't ${refusal.verb} ${refusal.arc}`, {
         id,
         description: refusal.reason,
+        onGone: () => arcPressStore.clearRefusal(tugSessionId, refusal.seq),
       });
     };
     apply();

@@ -24,6 +24,12 @@
  *   zones it would offer (`miniature.zones`) and hands it the outline, the
  *   carrying stamp and the commit, whose refusal the shell flashes on the
  *   dragged card's pane.
+ * - **The arc transport presses** (`arc.presses`). Start, Resume and Stop are
+ *   pressed on whichever page holds the button and answered at the shell,
+ *   and a refusal is spoken on the page of the card the press acted as. So
+ *   the shell holds every press and refusal, each body reads them, and a
+ *   body's press is proposed whole for the shell to make and send
+ *   (`lib/arc-press-store.ts`, which says why).
  *
  * @module bus/declarations/relays
  */
@@ -112,6 +118,142 @@ export const overviewDraft = defineSharedStore<OverviewComposerDraftState | null
   initial: null,
   proposals: draftPatch,
   applyProposal: holdOverviewDraft,
+});
+
+// ---- The arc transport presses ----
+
+/**
+ * The three transport verbs, which are the three acts a press can be.
+ *
+ * They are not three states of one thing: `start` opens an arc that may never
+ * have run, `resume` clears a stop, and `stop` ends what is running. One
+ * store holds all three because the *press* is the same shape in each case —
+ * one button, one frame, one answer — not because the acts are.
+ */
+export type ArcTransportVerb = "start" | "resume" | "stop";
+
+/** A refused press: the arc, the verb, the reason the server gave, and when. */
+export interface ArcPressRefusal {
+  readonly arc: string;
+  readonly verb: ArcTransportVerb;
+  readonly reason: string;
+  /** Bumped on every refusal so two identical reasons in a row still notify. */
+  readonly seq: number;
+}
+
+/** Who a press acts as: the session the frame names, in its project. */
+export interface ArcPressActor {
+  readonly tugSessionId: string;
+  readonly projectDir: string;
+}
+
+/** What the shell holds and every body replicates. */
+export interface ArcPressState {
+  /** The presses still waiting for an answer, by {@link arcPressKey}. */
+  readonly pending: readonly string[];
+  /** The last refusal for each session. */
+  readonly refusals: Readonly<Record<string, ArcPressRefusal>>;
+}
+
+/** What a body asks of the shell's store. */
+export type ArcPressPatch =
+  | { op: "press"; arc: string; verb: ArcTransportVerb; actor: ArcPressActor }
+  | { op: "refuse"; voice: string; arc: string; verb: ArcTransportVerb; reason: string }
+  | { op: "clear"; sessionId: string; seq: number | null };
+
+/** One pending press, keyed so two verbs on one arc are two presses. */
+export function arcPressKey(arc: string, verb: ArcTransportVerb): string {
+  return `${verb}:${arc}`;
+}
+
+/**
+ * How a replica shows its own patch before the shell answers: a press greys
+ * the button on the click, and a seen refusal goes at once. A proposed refusal
+ * waits for the shell, which numbers it — a sequence the replica made up
+ * would be spoken twice when the shell's arrived.
+ */
+export function applyArcPressPatch(prev: ArcPressState, patch: ArcPressPatch): ArcPressState {
+  switch (patch.op) {
+    case "press": {
+      const key = arcPressKey(patch.arc, patch.verb);
+      return prev.pending.includes(key) ? prev : { ...prev, pending: [...prev.pending, key] };
+    }
+    case "clear": {
+      const refusal = prev.refusals[patch.sessionId];
+      if (refusal === undefined || (patch.seq !== null && refusal.seq !== patch.seq)) return prev;
+      const { [patch.sessionId]: _gone, ...rest } = prev.refusals;
+      return { ...prev, refusals: rest };
+    }
+    case "refuse":
+      return prev;
+  }
+}
+
+function isTransportVerb(value: unknown): value is ArcTransportVerb {
+  return value === "start" || value === "resume" || value === "stop";
+}
+
+function isPressRefusal(value: unknown): value is ArcPressRefusal {
+  return (
+    isRecord(value) &&
+    typeof value.arc === "string" &&
+    isTransportVerb(value.verb) &&
+    typeof value.reason === "string" &&
+    typeof value.seq === "number"
+  );
+}
+
+function isArcPressState(value: unknown): value is ArcPressState {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.pending) &&
+    value.pending.every((key) => typeof key === "string") &&
+    isRecord(value.refusals) &&
+    Object.values(value.refusals).every(isPressRefusal)
+  );
+}
+
+function isArcPressPatch(value: unknown): value is ArcPressPatch {
+  if (!isRecord(value)) return false;
+  switch (value.op) {
+    case "press":
+      return (
+        typeof value.arc === "string" &&
+        isTransportVerb(value.verb) &&
+        isRecord(value.actor) &&
+        typeof value.actor.tugSessionId === "string" &&
+        typeof value.actor.projectDir === "string"
+      );
+    case "refuse":
+      return (
+        typeof value.arc === "string" &&
+        typeof value.voice === "string" &&
+        isTransportVerb(value.verb) &&
+        typeof value.reason === "string"
+      );
+    case "clear":
+      return typeof value.sessionId === "string" && (value.seq === null || typeof value.seq === "number");
+    default:
+      return false;
+  }
+}
+
+export const arcPresses = defineSharedStore<ArcPressState, ArcPressPatch>({
+  key: "arc.presses",
+  owner: "shell",
+  scope: { deck: true },
+  codec: opaque(isArcPressState, {
+    pending: ["resume:demo"],
+    refusals: { s1: { arc: "demo", verb: "resume", reason: "no answer", seq: 1 } },
+  }),
+  initial: { pending: [], refusals: {} },
+  proposals: opaque(isArcPressPatch, {
+    op: "press",
+    arc: "demo",
+    verb: "resume",
+    actor: { tugSessionId: "s1", projectDir: "/p" },
+  }),
+  applyProposal: applyArcPressPatch,
 });
 
 // ---- The miniature ----

@@ -63,6 +63,7 @@ import {
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
 import { cardSessionBindingStore, shareCardBinding } from "../lib/card-session-binding-store";
+import { shareArcPresses } from "../lib/arc-press-store";
 import { cardServicesStore } from "../lib/card-services-store";
 import { attachSessionLedgerStore } from "../lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "../lib/session-state-changes-store";
@@ -597,6 +598,10 @@ async function bindBody(bind: BodyBind): Promise<void> {
   registerRunCardCommand();
   // The card's binding is the shell's too: each change of it is proposed.
   shareCardBinding();
+  // So are the arc transport presses: this card's Start, Resume and Stop are
+  // proposed to the shell, which sends them and hears their answers, and a
+  // refusal spoken here may have been pressed on another card's page.
+  shareArcPresses();
   // The session set follows the card's binding: a rotation seats a new
   // segment. The store also reads every other card's binding, from the
   // shell's `deck.cards`, so only a change to this card's own sessions re-scopes the

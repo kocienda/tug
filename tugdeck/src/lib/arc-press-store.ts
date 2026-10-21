@@ -21,6 +21,31 @@
  * same shape {@link arcBindErrorStore} uses, for the same reason ([L22]: a
  * bulletin is a direct DOM update and must not round-trip through render).
  *
+ * **One store for the whole deck, and the shell holds it** (`arc.presses`).
+ * A press is made on whichever page holds the button — a stop receipt's
+ * Resume in its Session card's body, the Arcs card's row in the Arcs card's,
+ * the shade and the popover in theirs — and the refusal is spoken on another
+ * page as often as not: the Arcs card presses as the card it follows. A store
+ * per page left each half talking to itself. The answers arrive at the shell
+ * only, so a body's press never settled, and its horizon spoke "no answer"
+ * over an arc that had resumed; and a refusal parked on the Arcs card's page
+ * named a card whose page never read it. So the shell owns the presses, the
+ * refusals, the horizons and the answers, and every body reads the replica
+ * and proposes to it ({@link shareArcPresses}).
+ *
+ * **The shell sends the frame.** A body proposes the whole press, frame
+ * included, and the shell records the press and only then sends it. A body
+ * that sent its own frame and proposed only the press would race its answer
+ * to the shell — a fast server's `_ok` arriving before the proposal settles
+ * nothing, and the press that lands after it waits out its horizon. The
+ * replica shows the press at once, so the button greys on the click.
+ *
+ * **A refusal stands until it is seen or superseded.** The shell holds it
+ * past any one page's life, so the bulletin that speaks it clears it when it
+ * goes ({@link ArcPressStore.clearRefusal} with its sequence) — or a card
+ * that reloads, or wakes, would speak an old refusal again. A later press
+ * that lands clears it too.
+ *
  * **This store says nothing about whether an arc is still stopped**, and it
  * must not grow a field that does. A receipt is a frozen record of a past
  * moment, and a renderer that read live arc state into one would stop being a
@@ -42,31 +67,30 @@
  * @module lib/arc-press-store
  */
 
+import type { ControlAction } from "@tugproto/control";
+
+import {
+  arcPresses,
+  arcPressKey as pressKey,
+  type ArcPressActor,
+  type ArcPressPatch,
+  type ArcPressRefusal,
+  type ArcPressState,
+  type ArcTransportVerb,
+} from "../bus/declarations/relays";
+import { pageBus, type PageBus } from "../bus/page-bus";
+import type { StoreView } from "../bus/shared-store";
+import { getConnection } from "./connection-singleton";
 import { Subscribable } from "./subscribable";
 
-/**
- * The three transport verbs, which are the three acts a press can be.
- *
- * They are not three states of one thing: `start` opens an arc that may never
- * have run, `resume` clears a stop, and `stop` ends what is running. One
- * store holds all three because the *press* is the same shape in each case —
- * one button, one frame, one answer — not because the acts are.
- */
-export type ArcTransportVerb = "start" | "resume" | "stop";
+export type { ArcPressActor, ArcPressPatch, ArcPressRefusal, ArcPressState, ArcTransportVerb };
 
-/** A refused press: the arc, the verb, the reason the server gave, and when. */
-export interface ArcPressRefusal {
-  readonly arc: string;
-  readonly verb: ArcTransportVerb;
-  readonly reason: string;
-  /** Bumped on every refusal so two identical reasons in a row still notify. */
-  readonly seq: number;
-}
-
-/** One pending press, keyed so two verbs on one arc are two presses. */
-function pressKey(arc: string, verb: ArcTransportVerb): string {
-  return `${verb}:${arc}`;
-}
+/** The CONTROL action each transport verb sends. */
+export const ACTION_FOR: Record<ArcTransportVerb, ControlAction> = {
+  start: "arc_run",
+  resume: "arc_resume",
+  stop: "arc_stop",
+};
 
 /**
  * How long a press waits for an answer before it releases itself.
@@ -94,20 +118,70 @@ const DEFAULT_TIMERS: PressTimerSource = {
     globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-class ArcPressStore extends Subscribable {
+/**
+ * Where a press's frame goes: the page's connection, or null when it has
+ * none. Injectable beside the clock, so a test reads the frames a shell sent
+ * without reaching for the connection singleton other suites mock.
+ */
+export interface PressFrameSink {
+  sendControlFrame: (action: ControlAction, payload: Record<string, unknown>) => void;
+}
+
+export class ArcPressStore extends Subscribable {
   private _pending = new Set<string>();
   private _refusals = new Map<string, ArcPressRefusal>();
   private _seq = 0;
   private _timers = new Map<string, unknown>();
   private _voices = new Map<string, string>();
   private _clock: PressTimerSource = DEFAULT_TIMERS;
+  private _sink: () => PressFrameSink | null = getConnection;
+  /** A body: the shell's store, which this page reads and proposes to. */
+  private _replica: StoreView<ArcPressState, ArcPressPatch> | null = null;
+  /** The shell: where every change is published. */
+  private _publish: ((state: ArcPressState) => void) | null = null;
 
   /** Whether a `verb` press on `arc` is still waiting for its answer. */
-  isPending = (arc: string, verb: ArcTransportVerb): boolean =>
-    this._pending.has(pressKey(arc, verb));
+  isPending = (arc: string, verb: ArcTransportVerb): boolean => {
+    const key = pressKey(arc, verb);
+    if (this._replica !== null) return this._replica.getSnapshot().pending.includes(key);
+    return this._pending.has(key);
+  };
 
   /**
-   * The button was pressed.
+   * Press `verb` on `arc` as `actor`: hold the button and send the frame.
+   *
+   * The press is raised only once the frame is actually going out. A held
+   * button waits for an answer, and a frame nobody sent is answered by
+   * nothing — so with no connection the press is not made, and the button
+   * stays pressable so a reconnect makes the same press work ([L31]). Returns
+   * whether the press was made.
+   *
+   * In a body the press is the shell's to make ({@link ArcPressStore}'s header
+   * says why): it is proposed whole, and the replica shows it at once.
+   */
+  send = (arc: string, verb: ArcTransportVerb, actor: ArcPressActor): boolean => {
+    if (this.isPending(arc, verb)) return false;
+    if (this._replica !== null) {
+      this._replica.propose({ op: "press", arc, verb, actor });
+      return true;
+    }
+    const connection = this._sink();
+    if (connection === null) {
+      console.warn(`arc ${verb} not sent: no connection`, { arc });
+      return false;
+    }
+    this.press(arc, verb, actor.tugSessionId);
+    connection.sendControlFrame(ACTION_FOR[verb], {
+      tug_session_id: actor.tugSessionId,
+      project_dir: actor.projectDir,
+      arc,
+    });
+    return true;
+  };
+
+  /**
+   * The button was pressed — the press alone, with no frame. {@link send} is
+   * the door a surface uses; this is the half of it the horizon hangs on.
    *
    * `sessionId` is the card the press acts as — the followed card on the Arcs
    * surface, the card itself in a popover. The store cannot work it out and
@@ -132,24 +206,28 @@ class ArcPressStore extends Subscribable {
         this.refuse(null, arc, verb, "no answer");
       }, PRESS_HORIZON_MS),
     );
-    this.notify();
+    this._changed();
   };
 
   /**
    * The press was answered — either way. A refusal calls this too, through
    * {@link refuse}: the button stops waiting whatever the answer was, and a
    * button still greyed over a refusal the bulletin already spoke is a
-   * control the user cannot retry.
+   * control the user cannot retry. The answers are the shell's, so a body
+   * settles nothing.
    */
   settle = (arc: string, verb: ArcTransportVerb): void => {
+    if (this._replica !== null) return;
     const key = pressKey(arc, verb);
     this._forget(key);
-    if (this._pending.delete(key)) this.notify();
+    if (this._pending.delete(key)) this._changed();
   };
 
   /** The last refusal for `sessionId`, or null. */
-  refusalFor = (sessionId: string): ArcPressRefusal | null =>
-    this._refusals.get(sessionId) ?? null;
+  refusalFor = (sessionId: string): ArcPressRefusal | null => {
+    if (this._replica !== null) return this._replica.getSnapshot().refusals[sessionId] ?? null;
+    return this._refusals.get(sessionId) ?? null;
+  };
 
   /**
    * Record a refusal, release the button, and wake the readers.
@@ -160,6 +238,10 @@ class ArcPressStore extends Subscribable {
    * naming a session no card holds — what a segment-addressed refusal is on
    * any rotated arc. Neither is worth dropping on the floor, and with neither
    * id nor press there is nowhere to speak and the button is released alone.
+   *
+   * In a body only a named refusal is proposed — a surface's own, refused
+   * before any frame went out — since a null one is an answer, and the
+   * answers are the shell's.
    */
   refuse = (
     sessionId: string | null,
@@ -167,28 +249,88 @@ class ArcPressStore extends Subscribable {
     verb: ArcTransportVerb,
     reason: string,
   ): void => {
+    if (this._replica !== null) {
+      if (sessionId !== null) {
+        this._replica.propose({ op: "refuse", voice: sessionId, arc, verb, reason });
+      }
+      return;
+    }
     const key = pressKey(arc, verb);
     const voice = sessionId ?? this._voices.get(key) ?? null;
     this._forget(key);
     this._pending.delete(key);
     if (voice === null) {
-      this.notify();
+      this._changed();
       return;
     }
     this._seq += 1;
     this._refusals.set(voice, { arc, verb, reason, seq: this._seq });
-    this.notify();
+    this._changed();
   };
 
-  /** Forget a session's refusal — a later success is not still a failure. */
-  clearRefusal = (sessionId: string): void => {
-    if (this._refusals.delete(sessionId)) this.notify();
+  /**
+   * Forget a session's refusal — a later success is not still a failure, and
+   * a refusal the bulletin has spoken and let go is not still news. `seq`
+   * names the refusal being let go, so a bulletin that closes does not take a
+   * newer refusal down with it; omit it to forget whatever stands.
+   */
+  clearRefusal = (sessionId: string, seq: number | null = null): void => {
+    if (this._replica !== null) {
+      if (this.refusalFor(sessionId) !== null) {
+        this._replica.propose({ op: "clear", sessionId, seq });
+      }
+      return;
+    }
+    const refusal = this._refusals.get(sessionId);
+    if (refusal === undefined || (seq !== null && refusal.seq !== seq)) return;
+    this._refusals.delete(sessionId);
+    this._changed();
+  };
+
+  /** Everything the store holds, as the shell publishes it. */
+  state = (): ArcPressState => {
+    if (this._replica !== null) return this._replica.getSnapshot();
+    return {
+      pending: [...this._pending],
+      refusals: Object.fromEntries(this._refusals),
+    };
   };
 
   /** @internal The horizon's clock, replaced by the store's own tests. */
   _setTimersForTests = (clock: PressTimerSource): void => {
     this._clock = clock;
   };
+
+  /** @internal The frame sink, replaced by the store's own tests. */
+  _setFrameSinkForTests = (sink: () => PressFrameSink | null): void => {
+    this._sink = sink;
+  };
+
+  /** @internal {@link shareArcPresses}: this page reads the shell's store. */
+  _attachReplica(replica: StoreView<ArcPressState, ArcPressPatch>): () => void {
+    this._replica = replica;
+    const release = replica.subscribe(() => this.notify());
+    this.notify();
+    return () => {
+      release();
+      if (this._replica === replica) this._replica = null;
+      this.notify();
+    };
+  }
+
+  /** @internal {@link shareArcPresses}: this page is the shell, and publishes. */
+  _attachPublisher(publish: (state: ArcPressState) => void): () => void {
+    this._publish = publish;
+    publish(this.state());
+    return () => {
+      if (this._publish === publish) this._publish = null;
+    };
+  }
+
+  private _changed(): void {
+    this._publish?.(this.state());
+    this.notify();
+  }
 
   /**
    * Retire a press's horizon and its voice. Called on every exit, because a
@@ -206,3 +348,39 @@ class ArcPressStore extends Subscribable {
 }
 
 export const arcPressStore = new ArcPressStore();
+
+/**
+ * Hold the deck's presses with the shell (`arc.presses`).
+ *
+ * In the shell, `store` is the one store: every change is published, and a
+ * body's proposal is the same call the shell's own surfaces make — a press
+ * made and its frame sent, a surface's refusal recorded, a seen refusal let
+ * go. In a body, `store` becomes the replica's reader and proposer. Returns
+ * the release.
+ */
+export function shareArcPresses(
+  bus: PageBus = pageBus(),
+  store: ArcPressStore = arcPressStore,
+): () => void {
+  const shared = arcPresses.on(bus);
+  if (bus.page.role !== "shell") return store._attachReplica(shared);
+  const releases = [
+    store._attachPublisher((state) => shared.set(state)),
+    shared.onProposal((patch) => {
+      switch (patch.op) {
+        case "press":
+          store.send(patch.arc, patch.verb, patch.actor);
+          return;
+        case "refuse":
+          store.refuse(patch.voice, patch.arc, patch.verb, patch.reason);
+          return;
+        case "clear":
+          store.clearRefusal(patch.sessionId, patch.seq);
+          return;
+      }
+    }),
+  ];
+  return () => {
+    for (const release of releases.splice(0)) release();
+  };
+}

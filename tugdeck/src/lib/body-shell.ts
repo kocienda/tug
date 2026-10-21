@@ -123,6 +123,7 @@ import { getTugTiming } from "./scale-timing";
 import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
 import { cardSessionBindingStore, shareCardBinding } from "./card-session-binding-store";
+import { shareArcPresses } from "./arc-press-store";
 import { cardTitleStore } from "./card-title-store";
 import { CARDS_CARD_ID } from "./cards-card-id";
 import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
@@ -1120,6 +1121,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     shareLayoutSelection(bus),
     // A body card's binding is the shell's, and its body proposes each change.
     shareCardBinding(bus),
+    // The arc transport presses are the shell's, where their answers arrive:
+    // a body proposes each press, and reads every press and refusal.
+    shareArcPresses(bus),
     // A followed card's body may come up after the devtools body did: a
     // session spawned into it, or the card re-adopted.
     bodyCardsStore.subscribe(syncInspection),

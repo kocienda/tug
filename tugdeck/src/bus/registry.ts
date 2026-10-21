@@ -82,6 +82,7 @@ import {
   paneToggleBullseye,
 } from "./declarations/pane";
 import {
+  arcPresses,
   cardBinding,
   miniatureCarry,
   miniatureCommit,
@@ -161,6 +162,7 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
   appInfo,
   cardBinding,
   overviewDraft,
+  arcPresses,
   miniatureDemand,
   miniatureGauges,
   busProbe,

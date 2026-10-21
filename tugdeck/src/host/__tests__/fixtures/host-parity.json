@@ -13,6 +13,7 @@
             "height": 872
           },
           "zoom": 1,
+          "gap": 15,
           "cards": [
             {
               "cardId": "c1",
@@ -121,6 +122,7 @@
           "apron": 10,
           "canvas": null,
           "zoom": 1.25,
+          "gap": 5,
           "cards": []
         }
       ],

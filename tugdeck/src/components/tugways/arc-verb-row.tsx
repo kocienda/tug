@@ -46,7 +46,6 @@
 import "./arc-verb-row.css";
 
 import React, { useCallback } from "react";
-import type { ControlAction } from "@tugproto/control";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import {
   GitCommitHorizontal,
@@ -64,7 +63,6 @@ import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { arcPressStore, type ArcTransportVerb } from "@/lib/arc-press-store";
 import type { TransportActor } from "@/lib/arc-transport";
-import { getConnection } from "@/lib/connection-singleton";
 import type {
   ArcTransportVerbEntry,
   ArcVerb,
@@ -74,13 +72,6 @@ import type {
 
 /** The verbs a surface performs itself — everything but the transport. */
 export type ArcSurfaceVerbKind = Exclude<ArcVerbKind, ArcTransportVerb>;
-
-/** The CONTROL action each transport verb sends. */
-const ACTION_FOR: Record<ArcTransportVerb, ControlAction> = {
-  start: "arc_run",
-  resume: "arc_resume",
-  stop: "arc_stop",
-};
 
 /**
  * The press of one transport verb, and whether a press is already out.
@@ -117,23 +108,13 @@ function useArcTransportPress({
       if (voice !== null) arcPressStore.refuse(voice, arc, verb, actor.reason);
       return;
     }
-    const connection = getConnection();
-    if (connection === null) {
-      // Not silent, and not greyed either: the button stays pressable so a
-      // reconnect makes the same press work ([L31]).
-      console.warn(`arc ${verb} not sent: no connection`, { arc });
-      return;
-    }
-    arcPressStore.press(arc, verb, actor.tugSessionId);
     // The same three fields for every verb. A Start names no kind: the
     // opening reads that off the arc's documents ([P03]), and a row that
     // should not have offered Start is answered by the server's own refusal
-    // naming the address to write to.
-    connection.sendControlFrame(ACTION_FOR[verb], {
-      tug_session_id: actor.tugSessionId,
-      project_dir: actor.projectDir,
-      arc,
-    });
+    // naming the address to write to. With no connection the press is not
+    // made — not silent, and not greyed either: the button stays pressable so
+    // a reconnect makes the same press work ([L31]).
+    arcPressStore.send(arc, verb, actor);
   }, [actor, arc, pending, verb, voice]);
   return { pending, press };
 }

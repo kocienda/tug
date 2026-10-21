@@ -60,6 +60,12 @@ export interface PaneBulletinOptions {
    * @default "OK"
    */
   okLabel?: string;
+  /**
+   * Called once the bulletin goes — closed by the user, or timed out. A
+   * notice whose fact outlives the page that shows it (one the shell holds)
+   * lets the fact go here, or the next page to mount speaks it again.
+   */
+  onGone?: () => void;
 }
 
 /**
@@ -91,6 +97,11 @@ export function mapOptions(
   if (options?.id !== undefined)
     result.id = scopedToastId(toasterId, options.id);
   if (options?.description !== undefined) result.description = options.description;
+  if (options?.onGone !== undefined) {
+    const onGone = options.onGone;
+    result.onDismiss = () => onGone();
+    result.onAutoClose = () => onGone();
+  }
   if (options?.sticky === true) {
     // Persist-until-dismissed: never auto-dismiss, and render an OK button
     // (left-aligned on its own row, like any bulletin action). Sonner

@@ -50,6 +50,7 @@
  * @covers tugdeck/src/lib/arc-receipt.ts
  * @covers tugdeck/src/components/tugways/tug-inline-dialog.tsx
  * @covers tugdeck/src/lib/arc-press-store.ts
+ * @covers tugdeck/src/bus/declarations/relays.ts
  * @covers tugcode/src/session.ts
  */
 
@@ -352,6 +353,24 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
           if (!grew) await new Promise((r) => setTimeout(r, 100));
         }
         expect(grew).toBe(false);
+
+        // ── And the press was heard where it was made ─────────────────────
+        //
+        // The Resume is pressed in the card's own page, and its answer lands
+        // at the shell. While each page kept its own press store, this page
+        // never heard the `arc_resume_ok`: the button sat greyed over an arc
+        // that had resumed, and forty-five seconds on its horizon spoke
+        // "Couldn't resume — no answer". The receipt is a record and stays,
+        // so its button is still here to read: by now it has to have let go.
+        const held = await app.body("A").evalJS<boolean>(
+          `(() => {
+            const button = document.querySelector(${JSON.stringify(RESUME_BUTTON)});
+            return button === null ||
+              button.disabled === true ||
+              button.getAttribute("aria-disabled") === "true";
+          })()`,
+        );
+        expect(held).toBe(false);
 
         const rowsAfterResume = await shellRowText(app);
         note("at0476 rows after the resume", JSON.stringify(rowsAfterResume));
