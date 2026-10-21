@@ -23,12 +23,11 @@
  *        rides the transaction stream, [L19] file structure.
  */
 
-import { ChangeSet, EditorSelection, Prec } from "@codemirror/state";
+import { EditorSelection, Prec } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { EditorState, Extension, TransactionSpec } from "@codemirror/state";
 
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
-import { getAtomsInRange, removeAtomsEffect } from "./atom-decoration";
 
 /** The `KeyboardEvent` fields the type-over decision reads. */
 type TypeOverKey = Pick<
@@ -57,13 +56,8 @@ function isLiteralType(event: TypeOverKey): boolean {
  * that touches no atom — the native path handles those). Pure: no view,
  * no DOM, so the replace behavior is exercisable headlessly.
  *
- * Replacing the selected range with the character does not, on its own,
- * clear the covered atoms' decorations: an atom at the range start maps
- * onto the inserted character under the field's auto-mapping (a replace
- * decoration stretches over an insertion rather than collapsing), so the
- * typed character would render AS the chip. The covered atoms are dropped
- * explicitly via {@link removeAtomsEffect} — the same mechanism command
- * demotion uses — which also records each atom for undo.
+ * The covered atoms leave with their U+FFFCs: the field drops an atom
+ * whose character a change takes, and records it for undo.
  */
 export function typeOverAtomChange(
   state: EditorState,
@@ -76,15 +70,9 @@ export function typeOverAtomChange(
   if (!state.sliceDoc(sel.from, sel.to).includes(TUG_ATOM_CHAR)) return null;
 
   const changes = { from: sel.from, to: sel.to, insert: event.key };
-  const changeSet = ChangeSet.of([changes], state.doc.length);
-  const removed = getAtomsInRange(state, sel.from, sel.to).map((atom) => ({
-    position: changeSet.mapPos(atom.position, -1),
-    original: atom,
-  }));
   return {
     changes,
     selection: EditorSelection.cursor(sel.from + event.key.length),
-    effects: removeAtomsEffect.of(removed),
     userEvent: "input.type",
     scrollIntoView: true,
   };

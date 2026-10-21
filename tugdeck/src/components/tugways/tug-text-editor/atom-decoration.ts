@@ -35,6 +35,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view
 import type { DecorationSet, PluginValue, ViewUpdate } from "@codemirror/view";
 import { Facet, StateEffect, StateField } from "@codemirror/state";
 import type {
+  ChangeDesc,
   EditorState,
   Extension,
   Range,
@@ -274,36 +275,18 @@ export const regenerateAtomsEffect = StateEffect.define<null>();
  */
 export const replaceAtomsEffect = StateEffect.define<readonly PositionedAtom[]>();
 
-/** One atom demotion: which decoration to drop and how to undo it. */
-export interface DemotedAtom {
-  /** Start offset of the decoration to drop, in the transaction's
-   *  FINAL coordinates. */
-  position: number;
-  /** The atom as it stood in the transaction's START state — the
-   *  record `atomInvertedEffects` re-adds when the demotion is
-   *  undone. */
-  original: PositionedAtom;
-}
-
-/**
- * Drop the atom decorations named by `position`. Needed by edits that
- * turn an atom back into literal text (command demotion): replacing
- * the U+FFFC with a longer string makes the replace-decoration
- * *stretch* over the inserted text under auto-mapping rather than
- * collapse, so neither the field's mapping nor the collapse-detection
- * in `atomInvertedEffects` sees a deletion — removal and its undo both
- * need this explicit record.
- */
-export const removeAtomsEffect = StateEffect.define<readonly DemotedAtom[]>();
-
 // ---------------------------------------------------------------------------
 // atomDecorationField
 // ---------------------------------------------------------------------------
 
 /**
  * The single source of truth for atom decorations in a `TugTextEditor`
- * instance. Maps automatically through document changes: deleting a
- * range that covers a U+FFFC character drops the decoration with it.
+ * instance. Maps through document changes, and an atom whose U+FFFC a
+ * change takes is gone with it — whatever the change put in its place
+ * ({@link changesTake}). Mapping alone drops it only when the range
+ * collapses: a paste of one U+FFFC over a selected chip replaces its
+ * character with one character, so the old decoration would map onto the
+ * new one and stand on it beside the pasted atom, the old chip still drawn.
  */
 export const atomDecorationField = StateField.define<DecorationSet>({
   create(): DecorationSet {
@@ -311,7 +294,9 @@ export const atomDecorationField = StateField.define<DecorationSet>({
   },
 
   update(deco: DecorationSet, tr: Transaction): DecorationSet {
-    let next = deco.map(tr.changes);
+    let next = (
+      tr.docChanged ? deco.update({ filter: (from, to) => !changesTake(tr.changes, from, to) }) : deco
+    ).map(tr.changes);
 
     for (const effect of tr.effects) {
       if (effect.is(addAtomsEffect)) {
@@ -321,11 +306,6 @@ export const atomDecorationField = StateField.define<DecorationSet>({
         });
       } else if (effect.is(replaceAtomsEffect)) {
         next = Decoration.set(effect.value.map(toAtomRange));
-      } else if (effect.is(removeAtomsEffect)) {
-        const positions = new Set(effect.value.map((d) => d.position));
-        next = next.update({
-          filter: (from) => !positions.has(from),
-        });
       } else if (effect.is(regenerateAtomsEffect)) {
         next = regenerateWidgets(next, tr.state);
       }
@@ -336,6 +316,20 @@ export const atomDecorationField = StateField.define<DecorationSet>({
 
   provide: (f) => EditorView.decorations.from(f),
 });
+
+/**
+ * Whether `changes` replace or delete the whole of `[from, to)` — an atom's
+ * U+FFFC — so the atom standing there is gone. An exact `[from, to)` change
+ * counts; `touchesRange`'s `"cover"` would not, since it asks for a change
+ * reaching past both ends.
+ */
+function changesTake(changes: ChangeDesc, from: number, to: number): boolean {
+  let taken = false;
+  changes.iterChangedRanges((fromA, toA) => {
+    if (fromA <= from && toA >= to) taken = true;
+  });
+  return taken;
+}
 
 /** Build a `Decoration.replace` range for a positioned atom. */
 function toAtomRange(p: PositionedAtom): Range<Decoration> {
@@ -485,10 +479,9 @@ export function atomInsertSpec(
 // History integration — inverted effects for atom deletions
 // ---------------------------------------------------------------------------
 //
-// `atomDecorationField`'s decorations are auto-mapped through document
-// changes — a deletion that covers a U+FFFC drops its decoration along
-// with the character. That's correct for the forward direction, but
-// breaks `undo`: when the inverse change re-inserts the U+FFFC text,
+// `atomDecorationField` drops an atom whose U+FFFC a change takes —
+// deleted, or replaced by anything at all. That's correct for the forward
+// direction, but breaks `undo`: when the inverse change re-inserts the U+FFFC text,
 // the decoration field has no record of the atom segment that used to
 // live there, so the restored character renders as a tofu glyph
 // instead of an atom widget.
@@ -498,24 +491,17 @@ export function atomInsertSpec(
 // transaction recorded in history, we register effects that should
 // be applied when the transaction is later undone. Here we examine
 // the pre-change atom set and emit `addAtomsEffect.of(removed)` for
-// any atom whose range was entirely deleted by `tr.changes`.
-//
-// Detection uses `mapPos` rather than `touchesRange` because
-// `touchesRange === "cover"` requires *strict* containment (change
-// extends past both ends of the queried range); an exact-match
-// deletion of `[0, 1)` against an atom at `[0, 1)` returns `true`,
-// not `"cover"`. The `mapPos` collapse test is the correct predicate:
-// if the atom's start (mapped right) and end (mapped left) land at
-// the same post-change position, the range collapsed to a point —
-// i.e. the atom was deleted.
+// any atom `tr.changes` took, by the same predicate the field drops it on
+// (`changesTake`), so what the field forgets is exactly what undo restores:
+// a deletion, a paste or a typed character over a chip, a command demoted
+// to its literal text.
 //
 // Forward additions (paste, insertAtom, replace-state) don't need an
 // inverted effect from us: the history undoes the underlying change
 // (which deletes the inserted U+FFFC) and our field's auto-mapping
 // drops the matching decoration along with it. So the only direction
 // that needs explicit help is "atom existed before the transaction
-// and was removed by it" — exactly the case `touchesRange === "cover"`
-// detects.
+// and was removed by it" — exactly the atoms `changesTake` names.
 //
 // Laws: [L02] field state participates in CM6's history machinery
 //        rather than being copied through React state, [L19] file
@@ -526,24 +512,10 @@ export const atomInvertedEffects: Extension = invertedEffects.of((tr) => {
   const removed: PositionedAtom[] = [];
   before.between(0, tr.startState.doc.length, (from, to, value) => {
     const widget = (value.spec as { widget?: WidgetType }).widget;
-    if (widget instanceof AtomWidget) {
-      const mappedFrom = tr.changes.mapPos(from, 1);
-      const mappedTo = tr.changes.mapPos(to, -1);
-      if (mappedFrom >= mappedTo) {
-        // Atom range collapsed under the change — it was deleted.
-        removed.push({ position: from, segment: widget.segment });
-      }
+    if (widget instanceof AtomWidget && changesTake(tr.changes, from, to)) {
+      removed.push({ position: from, segment: widget.segment });
     }
   });
-  // Demotions (atom → literal text) replace the U+FFFC rather than
-  // delete it, so the collapse test above never sees them; the
-  // `removeAtomsEffect` carries the original atom record for exactly
-  // this — re-add it when the demoting transaction is undone.
-  for (const effect of tr.effects) {
-    if (effect.is(removeAtomsEffect)) {
-      removed.push(...effect.value.map((d) => d.original));
-    }
-  }
   if (removed.length > 0) {
     result.push(addAtomsEffect.of(removed));
   }
