@@ -167,6 +167,12 @@ jobs:
       - name: Lint
         run: just lint
 
+      # tugcast refuses to boot without tmux, and `tugdeck`'s many-pages
+      # suite (`src/lib/ingest/testing/real-tugcast.ts`) spawns the real
+      # binary. The macOS image has none.
+      - name: Install tmux
+        run: brew install tmux
+
       - name: TypeScript tests
         run: just test-ts
 

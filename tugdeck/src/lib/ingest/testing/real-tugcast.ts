@@ -165,7 +165,11 @@ export async function startRealTugcast(): Promise<RealTugcast> {
   const stop = async () => {
     child.kill();
     await child.exited;
-    Bun.spawnSync(["tmux", "kill-session", "-t", session], { stdout: "ignore", stderr: "ignore" });
+    // A host with no tmux has no session to kill — and is the host where
+    // tugcast exits before answering, so a throw here would hide its log.
+    if (Bun.which("tmux") !== null) {
+      Bun.spawnSync(["tmux", "kill-session", "-t", session], { stdout: "ignore", stderr: "ignore" });
+    }
     rmSync(scratch, { recursive: true, force: true });
   };
 

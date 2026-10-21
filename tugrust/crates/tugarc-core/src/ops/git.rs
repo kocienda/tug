@@ -316,9 +316,14 @@ mod tests {
         );
 
         fs::write(repo.join("a.txt"), "b\n").unwrap();
-        let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * (INDEX_LOCK_ATTEMPTS + 4));
+        // Held until the retries are spent, not for a duration: the window is
+        // counted in sleeps, and each attempt's git spawn adds wall time on
+        // top, so a lock timed to outlast the sleeps can lift before the
+        // last attempt on a slow host and let it land.
+        let lock = index_lock_path(repo);
+        fs::write(&lock, b"").unwrap();
         let err = add().unwrap_err().to_string();
-        held.join().unwrap();
+        fs::remove_file(&lock).unwrap();
         assert!(err.starts_with("git add failed: "), "{err}");
         assert!(err.contains("index.lock"), "git's own message: {err}");
     }
