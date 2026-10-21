@@ -112,6 +112,17 @@ describe("pickerGroupSpecsFrom — which projects the sheet shows", () => {
       { projectDir: "/Users/k/eucit", inWorkspace: false },
     ]);
   });
+
+  it("marks a path the server has not answered for as unresolved, under its own spelling", () => {
+    // Until the answer lands the group is drawn pending and lists nothing, so
+    // no listing is keyed on a spelling the answer would replace ([L29]).
+    const canonicalOf = (p: string): string | undefined =>
+      p === "/Users/k/eucit" ? "/Users/k/eucit" : undefined;
+    expect(pickerGroupSpecsFrom([], ["/Users/k/eucit", "/u/src/tug"], "", "", canonicalOf)).toEqual([
+      { projectDir: "/Users/k/eucit", inWorkspace: false },
+      { projectDir: "/u/src/tug", inWorkspace: false, unresolved: true },
+    ]);
+  });
 });
 
 describe("isRecentGroup — which bands offer to leave the recents", () => {

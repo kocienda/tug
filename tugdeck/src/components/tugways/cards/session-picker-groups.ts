@@ -38,9 +38,8 @@ import { useMemo } from "react";
 import { basename } from "@/lib/display-path";
 import {
   canonicalDirStore,
-  readCanonicalOf,
-  useCanonicalDirs,
-  type CanonicalOf,
+  useCanonicalLookup,
+  type CanonicalLookup,
 } from "@/lib/canonical-dir-store";
 import {
   useWorkspaceProjectDirs,
@@ -72,6 +71,14 @@ export interface PickerGroupSpec {
    * so there is nothing to remove it from.
    */
   fallback?: boolean;
+  /**
+   * The server has not yet named this path's canonical spelling, so
+   * `projectDir` is the spelling it was handed. Such a group is drawn pending
+   * and its listing is not asked for: a listing keyed on an unconfirmed
+   * spelling would be thrown away the moment the answer re-keyed the group,
+   * and the rows would vanish and come back ([L29]).
+   */
+  unresolved?: boolean;
 }
 
 /**
@@ -88,7 +95,7 @@ export function pickerGroupSpecsFrom(
   recents: readonly string[],
   fallbackDir = "",
   typedDir = "",
-  canonicalOf: CanonicalOf = (path) => path,
+  canonicalOf: CanonicalLookup = (path) => path,
 ): PickerGroupSpec[] {
   const specs: PickerGroupSpec[] = [];
   const seen = new Set<string>();
@@ -97,13 +104,18 @@ export function pickerGroupSpecsFrom(
     seen.add(spec.projectDir);
     specs.push(spec);
   };
-  const id = (dir: string): string => (dir === "" ? "" : canonicalOf(dir));
-  for (const dir of workspaceDirs) add({ projectDir: id(dir), inWorkspace: true });
-  for (const dir of recents) add({ projectDir: id(dir), inWorkspace: false });
+  // A path's identity, and whether the server has confirmed it.
+  const id = (dir: string): { projectDir: string; unresolved?: true } => {
+    if (dir === "") return { projectDir: "" };
+    const canonical = canonicalOf(dir);
+    return canonical === undefined ? { projectDir: dir, unresolved: true } : { projectDir: canonical };
+  };
+  for (const dir of workspaceDirs) add({ ...id(dir), inWorkspace: true });
+  for (const dir of recents) add({ ...id(dir), inWorkspace: false });
   if (specs.length === 0) {
-    add({ projectDir: id(fallbackDir), inWorkspace: false, fallback: true });
+    add({ ...id(fallbackDir), inWorkspace: false, fallback: true });
   }
-  add({ projectDir: id(typedDir), inWorkspace: false, typed: true });
+  add({ ...id(typedDir), inWorkspace: false, typed: true });
   return specs;
 }
 
@@ -222,7 +234,9 @@ export function readPickerGroupSpecs(): { specs: PickerGroupSpec[]; resolved: bo
     fallbackDir,
   ]);
   return {
-    specs: pickerGroupSpecsFrom(workspaceDirs, recents, fallbackDir, "", readCanonicalOf),
+    specs: pickerGroupSpecsFrom(workspaceDirs, recents, fallbackDir, "", (path) =>
+      canonicalDirStore.canonicalOf(path),
+    ),
     resolved,
   };
 }
@@ -237,12 +251,17 @@ export function usePickerGroups(typedDir = ""): readonly PickerGroup[] {
   const workspaceDirs = useWorkspaceProjectDirs();
   const recents = useRecents();
   const fallbackDir = useFallbackProjectDir();
-  const canonicalOf = useCanonicalDirs();
+  const canonicalOf = useCanonicalLookup();
   const specs = useMemo(
     () => pickerGroupSpecsFrom(workspaceDirs, recents, fallbackDir, typedDir, canonicalOf),
     [workspaceDirs, recents, fallbackDir, typedDir, canonicalOf],
   );
-  const dirs = useMemo(() => specs.map((s) => s.projectDir), [specs]);
+  // An unresolved group asks for no listing; the empty path reads as idle,
+  // which the group draws as pending.
+  const dirs = useMemo(
+    () => specs.map((s) => (s.unresolved === true ? "" : s.projectDir)),
+    [specs],
+  );
   const snapshots = useSessionLedgers(dirs);
   return useMemo(
     () => specs.map((spec, i) => pickerGroupFrom(spec, snapshots[i])),

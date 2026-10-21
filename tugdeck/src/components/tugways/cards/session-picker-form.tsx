@@ -13,9 +13,9 @@
  * project — the workspace's own projects first and unfolded, the recents after
  * them folded — and the project a session opens in is a consequence of the row
  * picked, never a prior decision: each group carries its own "New session in
- * X" row, and Open names the project it is about to use. A folder the list does
- * not know is the exception, behind one row at the end, which shows a path
- * field while it is chosen. Which groups, which rows, and where a stale
+ * X" row. A folder the list does not know is the exception, behind one row at
+ * the end, which shows a path field while it is chosen. Which groups, which
+ * rows, and where a stale
  * selection falls back to are pure functions in `session-picker-groups.ts` and
  * `session-picker-rows.ts`; this component holds the user's choices and draws.
  *
@@ -59,7 +59,6 @@ import { rowGridOrder, type SpatialOrder } from "../spatial-order";
 import { useSpatialOrder } from "../use-spatial-order";
 import type { ActionEvent } from "../responder-chain";
 import { TUG_ACTIONS } from "../action-vocabulary";
-import { basename } from "@/lib/display-path";
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import type { PickerNotice } from "@/lib/picker-notice-store";
 import type { CardSessionMode } from "@/lib/card-session-binding-store";
@@ -297,6 +296,9 @@ export function SessionProjectPickerForm({
     const store = getSessionLedgerStore();
     if (store === null) return;
     for (const group of groups) {
+      // A group the server has not named yet has no listing to refresh, and
+      // a refresh under its raw spelling would key one ([L29]).
+      if (group.unresolved === true) continue;
       if (refreshedDirsRef.current.has(group.projectDir)) continue;
       refreshedDirsRef.current.add(group.projectDir);
       store.refresh(group.projectDir);
@@ -481,7 +483,6 @@ export function SessionProjectPickerForm({
   const openGroup = selection?.kind === "other" ? typedGroup : selectedGroup;
   const dirMissing = openGroup?.status === "missing";
   const openDisabled = openDir === "" || dirMissing;
-  const openName = openDir === "" ? "" : (openGroup?.name ?? basename(openDir));
 
   const submit = useCallback((): void => {
     if (selection === null || openDisabled) return;
@@ -800,7 +801,7 @@ export function SessionProjectPickerForm({
             persistentDefaultRing
             data-testid="session-card-picker-open"
           >
-            {openName === "" ? "Open" : `Open in ${openName}`}
+            Open
           </TugPushButton>
         </div>
         {/* One confirm for the per-row trash, anchored to the requesting row's

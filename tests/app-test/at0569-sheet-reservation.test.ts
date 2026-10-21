@@ -246,6 +246,22 @@ const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 /**
+ * Let the deck land before a reading: the landing window, then until no settle
+ * is in flight. The picker's claim can reach its height in more than one
+ * report, and a later one arms a second settle late in the window — the deck
+ * trace shows that settle planned and not yet landed at the reading — so a
+ * reading taken on the clock alone catches the frames mid-flight, short of
+ * what the store already says.
+ */
+async function landed(app: App): Promise<void> {
+  await wait(AFTER_LAND_MS);
+  await app.waitForCondition<boolean>(
+    `document.querySelector("[data-imposer-settling]") === null`,
+    { timeoutMs: 8_000 },
+  );
+}
+
+/**
  * Launch with `default-project-path` pointed at an empty directory.
  *
  * An unbound card's picker opens on that project. Left unseeded, a debug build
@@ -488,7 +504,7 @@ function bandBeneath(frames: Record<string, Rect>): number {
 async function assertFitAtListCap(app: App): Promise<void> {
   if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
   await pointPickerAt(kindBody(app, "session"), fixture);
-  await wait(AFTER_LAND_MS);
+  await landed(app);
   const natural = await pickerPanelNaturalHeight(kindBody(app, "session"));
   const claimed = await reservations(app);
   const frames = await rects(app, ["p1", "p2", "p3"]);
@@ -536,7 +552,7 @@ async function seed(app: App, shares: Record<string, number>): Promise<void> {
     `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
     { timeoutMs: 8_000 },
   );
-  await wait(AFTER_LAND_MS);
+  await landed(app);
 }
 
 /** Activate the Session card by its title bar, in its own page, and wait for its picker. */
@@ -547,7 +563,7 @@ async function raisePicker(app: App): Promise<void> {
     `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
     { timeoutMs: 8_000 },
   );
-  await wait(AFTER_LAND_MS);
+  await landed(app);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least at its picker's height", () => {
@@ -683,7 +699,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) === null`,
           { timeoutMs: 8_000 },
         );
-        await wait(AFTER_LAND_MS);
+        await landed(app);
 
         expect(
           await pins(app),
@@ -808,7 +824,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) === null`,
           { timeoutMs: 8_000 },
         );
-        await wait(AFTER_LAND_MS);
+        await landed(app);
 
         const settled = await rects(app, ["p1", "p2"]);
         note(
@@ -887,7 +903,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
           `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
           { timeoutMs: 8_000 },
         );
-        await wait(AFTER_LAND_MS);
+        await landed(app);
 
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("show-card", { component: "session" }), null)`,
@@ -897,7 +913,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
           { timeoutMs: 15_000 },
         );
-        await wait(AFTER_LAND_MS);
+        await landed(app);
 
         const newcomer = await app.evalJS<string | null>(
           `(function () {
@@ -946,7 +962,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
           throw new Error("the picker sessions fixture was not seeded");
         }
         await pointPickerAt(kindBody(app, "session"), fixture);
-        await wait(AFTER_LAND_MS);
+        await landed(app);
         const cappedPanel = await pickerPanelNaturalHeight(kindBody(app, "session"));
         const cappedHeld = (await reservations(app))?.[newcomer ?? ""] ?? -1;
         note(

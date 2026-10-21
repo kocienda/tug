@@ -110,13 +110,29 @@ export type CanonicalOf = (path: string) => string;
  * so a `useMemo` keyed on it recomputes then and only then.
  */
 export function useCanonicalDirs(): CanonicalOf {
+  const lookup = useCanonicalLookup();
+  return useCallback((path: string) => lookup(path) ?? path, [lookup]);
+}
+
+/**
+ * A path's canonical spelling, or `undefined` while the server has not
+ * answered — for a reader that must not act on a spelling the server has not
+ * confirmed, such as one about to key a listing.
+ */
+export type CanonicalLookup = (path: string) => string | undefined;
+
+/**
+ * React hook: a {@link CanonicalLookup} that re-renders its reader when
+ * answers land ([L02]), a new reference whenever the store has moved.
+ */
+export function useCanonicalLookup(): CanonicalLookup {
   const version = useSyncExternalStore(
     canonicalDirStore.subscribe,
     canonicalDirStore.getVersion,
     canonicalDirStore.getVersion,
   );
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `version` is the store's change signal: the function reads the store, which moved
-  return useCallback((path: string) => canonicalDirStore.canonicalOf(path) ?? path, [version]);
+  return useCallback((path: string) => canonicalDirStore.canonicalOf(path), [version]);
 }
 
 /** {@link CanonicalOf} as the store stands, for a reader outside a render. */
