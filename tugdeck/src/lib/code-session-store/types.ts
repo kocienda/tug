@@ -1402,6 +1402,14 @@ export interface CodeSessionSnapshot {
   loadingPrevious: boolean;
 
   /**
+   * True while a dormant body's catch-up is outstanding — from
+   * `CodeSessionStore.catchUp()` until the bracket it asked for closes, or
+   * `CATCH_UP_DEADLINE_MS` when none comes. The body leaves dormant when it
+   * falls. Mirrors the reducer's internal `replayCatchUpActive`.
+   */
+  catchingUp: boolean;
+
+  /**
    * Determinate progress for the in-flight load-previous, in **turns**:
    * `loadingPreviousLoaded` of `loadingPreviousTarget`. Both `0` when no
    * load is in flight. Drives the load sheet's progress bar in the same

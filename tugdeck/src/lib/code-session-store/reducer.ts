@@ -723,6 +723,15 @@ export interface CodeSessionState {
    */
   replayPrependActive: boolean;
   /**
+   * True while a dormant body's catch-up is outstanding: set by
+   * `begin_catch_up` (the store dispatches it just before it asks for the
+   * turns it missed, or for the turn in flight), cleared when that bracket
+   * closes, when a shadow over it lifts, or at `CATCH_UP_DEADLINE_MS`. Read
+   * by `replay_complete` to keep the loaded window's start, since a
+   * catch-up's turns continue the transcript. Surfaced as `catchingUp`.
+   */
+  replayCatchUpActive: boolean;
+  /**
    * True while a replay bracket is open over a live turn without the
    * store having entered it. A `replay_started` that lands mid-turn is
    * a rehydration of what this card already shows: the JSONL it reads
@@ -1063,6 +1072,15 @@ export const REPLAY_BRACKET_DEADLINE_MS = 150_000;
  * back the live turn, so it ends where a bracket would.
  */
 export const REPLAY_SHADOW_DEADLINE_MS = REPLAY_BRACKET_DEADLINE_MS;
+
+/**
+ * How long a catch-up waits for its bracket before it ends without one. A
+ * session whose tugcode is not live answers neither `request_replay` nor
+ * `request_inflight`, and then there was nothing to miss: the turns the
+ * card holds are all there are. A bracket that does open is closed by its
+ * own `replay_complete`, inside its own deadlines.
+ */
+export const CATCH_UP_DEADLINE_MS = 5_000;
 
 /**
  * How long the deck waits for *any* answer to a stop before it stops
@@ -1411,6 +1429,7 @@ export function createInitialState(
     replayWindow: null,
     sessionCreatedAtMs: null,
     replayPrependActive: false,
+    replayCatchUpActive: false,
     replayShadowActive: false,
     replayShadowSnapshot: false,
     replayShadowInert: false,
@@ -6243,8 +6262,17 @@ function handleReplayComplete(
   // absent (a full / legacy / error replay) keep whatever the prior
   // window recorded rather than nulling it.
   const replayWindow: ReplayWindowMeta | null =
-    typeof event.firstLoadedTurnIndex === "number" &&
-    typeof event.totalTurns === "number"
+    // A catch-up's turns continue the transcript, so the window keeps its
+    // start and what lies older; only the total moves.
+    state.replayCatchUpActive
+      ? state.replayWindow === null
+        ? null
+        : {
+            ...state.replayWindow,
+            totalTurns: Math.max(state.replayWindow.totalTurns, event.totalTurns ?? 0),
+          }
+      : typeof event.firstLoadedTurnIndex === "number" &&
+          typeof event.totalTurns === "number"
       ? {
           firstLoadedTurnIndex: event.firstLoadedTurnIndex,
           totalTurns: event.totalTurns,
@@ -7320,6 +7348,47 @@ function isEmptyToolInput(input: unknown): boolean {
 }
 
 /**
+ * `begin_catch_up` — a dormant body, shown again, is about to ask for what
+ * it missed; the store wrapper sends the request. Marks the catch-up
+ * outstanding until its bracket closes, or `CATCH_UP_DEADLINE_MS`.
+ *
+ * A card that went dormant mid-turn holds a cycle that ran on without it:
+ * the turn streamed on, and may have ended, while the page heard nothing.
+ * That cycle is dropped here, and the card stands settled, so the bracket the
+ * catch-up asks for is entered rather than shadowed and brings the turn back
+ * whole — committed from the JSONL if it ended, or as tugcode's snapshot of
+ * the turn in flight if it has not. A shadowed bracket keeps only the
+ * snapshot, and a turn that ended has none. The dropped cycle is never
+ * committed: the bracket carries the turn, not a guess at it.
+ */
+function handleBeginCatchUp(state: CodeSessionState): { state: CodeSessionState; effects: Effect[] } {
+  const marked: Effect[] = [
+    { kind: "schedule_timer", name: "catch_up", ms: CATCH_UP_DEADLINE_MS, fire: { type: "tick_catch_up" } },
+  ];
+  if (state.phase === "idle" || state.phase === "errored") {
+    return { state: { ...state, replayCatchUpActive: true }, effects: marked };
+  }
+  return {
+    state: {
+      ...state,
+      phase: "idle",
+      pendingTurn: null,
+      activeMsgId: null,
+      scratch: new Map(),
+      toolUseStartedAt: new Map(),
+      pendingApproval: null,
+      pendingQuestion: null,
+      prevPhase: null,
+      interruptInFlight: false,
+      stopStalled: false,
+      streamStalled: false,
+      replayCatchUpActive: true,
+    },
+    effects: [...marked, { kind: "clear-inflight" }],
+  };
+}
+
+/**
  * `tick_replay_shadow` — `REPLAY_SHADOW_DEADLINE_MS` passed since a
  * bracket was shadowed and no `replay_complete` lifted it. The shadow
  * lifts on its own so the live turn's frames flow again; no error is
@@ -8313,10 +8382,26 @@ export function reduce(
       return handleWireError(state, event);
     case "resume_failed":
       return handleResumeFailed(state, event);
-    case "replay_started":
-      return handleReplayStarted(state, event);
+    case "replay_started": {
+      const opened = handleReplayStarted(state, event);
+      // A catch-up's horizon is for a bracket that never comes. Once one
+      // opens, its own deadlines govern, and a tick landing inside it would
+      // end the catch-up early and let the close re-base the loaded window
+      // on the slice the catch-up asked for.
+      return state.replayCatchUpActive
+        ? { state: opened.state, effects: [...opened.effects, { kind: "cancel_timer" as const, name: "catch_up" }] }
+        : opened;
+    }
     case "replay_complete": {
-      const result = handleReplayComplete(state, event);
+      const closed = handleReplayComplete(state, event);
+      // The bracket a dormant body's catch-up asked for has closed, entered
+      // or shadowed: the catch-up is over.
+      const result = state.replayCatchUpActive
+        ? {
+            state: { ...closed.state, replayCatchUpActive: false },
+            effects: [...closed.effects, { kind: "cancel_timer" as const, name: "catch_up" }],
+          }
+        : closed;
       // The session-created anchor is invariant and rides every success
       // `replay_complete` (windowed or full). Thread it onto whatever
       // state the handler's many branches returned — retaining the prior
@@ -8352,6 +8437,13 @@ export function reduce(
       // Mark the next replay bracket as a prepend (older range). Pure
       // flag flip; the request itself is sent by the store wrapper.
       return { state: { ...state, replayPrependActive: true }, effects: [] };
+    case "begin_catch_up":
+      return handleBeginCatchUp(state);
+    case "tick_catch_up":
+      // Never inside an open bracket, entered or shadowed: its close ends the catch-up.
+      return state.replayCatchUpActive && state.phase !== "replaying" && !state.replayShadowActive
+        ? { state: { ...state, replayCatchUpActive: false }, effects: [] }
+        : { state, effects: [] };
     case "transcript_evicted":
       return handleTranscriptEvicted(state, event);
     case "tick_soft_budget":

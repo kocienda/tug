@@ -45,6 +45,7 @@ async function setup(): Promise<{
       titleBar: null,
       canInterrupt: false,
       compacted: false,
+      dormant: false,
     },
     waive: true,
     guarded: true,

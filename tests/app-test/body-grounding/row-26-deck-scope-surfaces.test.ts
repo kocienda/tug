@@ -132,6 +132,27 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
         // Each turn's one message arrives whole: the placard needs the turns, not their text.
         await spawnStub(app, A, stubDir, 1, TURNS, undefined, 1);
         await waitForBody(app, A);
+        // The unbound card's picker claimed its floor in the split; the bind
+        // closes the picker and drops the claim, and the column divides again,
+        // carrying the body from a third of it to most of it. Every press
+        // below waits for the body to stand still where that leaves it: the
+        // claim gone, and the body presented where it is placed, unmoved
+        // across reads 250 ms apart.
+        let lastAt = "";
+        const rested = await pollFor(
+          async () => {
+            await Bun.sleep(250);
+            const claimed = await app.evalJS<boolean>(`(window.tugdeck.diag.getDeckState().sheetReservations || {})[${JSON.stringify(`${A}-pane`)}] !== undefined`);
+            const b = await bodyOf(app, A);
+            const at = b === null ? "" : JSON.stringify(b.presentedFrame);
+            const still = at !== "" && at === lastAt;
+            lastAt = at;
+            return { claimed, still, b };
+          },
+          (r) => !r.claimed && r.still && r.b !== null && Math.abs(r.b.presentedFrame.height - r.b.frame.height) < 0.5,
+          SETTLE_MS * 3,
+        );
+        note(`at rest after the bind: ${JSON.stringify(rested.b?.frame)}`);
         await focusBody(app, A);
         const body = app.body(A);
         // Each prompt replays the stub's next turn: the turns the TIME

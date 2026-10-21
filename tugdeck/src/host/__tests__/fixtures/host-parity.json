@@ -1457,6 +1457,30 @@
       ]
     },
     {
+      "member": "onBodyVisibility",
+      "to": "body",
+      "samples": [
+        {
+          "shown": true,
+          "since": 1760000000000
+        },
+        {
+          "shown": false,
+          "since": 1760000060000.5
+        }
+      ],
+      "refused": [
+        true,
+        {
+          "shown": "yes",
+          "since": 0
+        },
+        {
+          "shown": false
+        }
+      ]
+    },
+    {
       "member": "onSettingsLoaded",
       "to": "any",
       "samples": [

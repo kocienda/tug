@@ -1,10 +1,9 @@
 /**
  * The `card.context` the shell publishes for a body reads the card's own deck: a
- * parked card's fold is its parked record's, and the card a warm workspace's
- * first visit will make key is told so (`parkedKey`) — only in a workspace
- * nobody has shown, so a visited workspace's key card is deactivated when it
- * parks, as ever. It carries the moves and resizes the shell counted for the
- * card, which its body fires its own events from.
+ * parked card's fold is its parked record's, and a parked card is never key
+ * there: the shell's first responder stays the shown workspace's. It carries
+ * the moves and resizes the shell counted for the card, which its body fires
+ * its own events from.
  *
  * @covers tugdeck/src/lib/body-shell.ts
  */
@@ -38,8 +37,8 @@ function deckOf(cards: string[], activePaneId: string, folded: string[] = []): D
   };
 }
 
-/** A shell with `one` shown and `two` parked, warm unless `visited`. */
-function shell(options: { visited?: boolean; folded?: string[] } = {}): IDeckManagerStore {
+/** A shell with `one` shown and `two` parked and visited. */
+function shell(options: { folded?: string[] } = {}): IDeckManagerStore {
   const live = deckOf(["a"], "p-a");
   const parked = deckOf(["k", "n"], "p-k", options.folded ?? []);
   const spaces = {
@@ -49,7 +48,6 @@ function shell(options: { visited?: boolean; folded?: string[] } = {}): IDeckMan
     ],
     activeSpaceId: "one",
     mountedSpaceIds: ["one", "two"],
-    warmSpaceIds: options.visited === true ? [] : ["two"],
     mountedDecks: new Map([["two", parked]]),
   };
   return {
@@ -62,23 +60,15 @@ function shell(options: { visited?: boolean; folded?: string[] } = {}): IDeckMan
 }
 
 describe("cardContextFor", () => {
-  test("a warm workspace's key card is told it is the parked key, and nothing else there is", () => {
-    const deck = shell();
-    expect(cardContextFor(deck, "k")).toEqual({
+  test("a parked workspace's key card is told its own layer is hidden and another card is first responder", () => {
+    expect(cardContextFor(shell(), "k")).toEqual({
       folded: false,
       arriving: false,
       firstResponderCardId: "a",
       layerShown: false,
       spaceId: "two",
-      parkedKey: true,
       geometry: { moves: 0, resizes: 0 },
     });
-    expect(cardContextFor(deck, "n").parkedKey).toBeUndefined();
-    expect(cardContextFor(deck, "a").parkedKey).toBeUndefined();
-  });
-
-  test("a visited workspace's key card is not the parked key", () => {
-    expect(cardContextFor(shell({ visited: true }), "k").parkedKey).toBeUndefined();
   });
 
   test("a parked card's fold is its own deck's", () => {

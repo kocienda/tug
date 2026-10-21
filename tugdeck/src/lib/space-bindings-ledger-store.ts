@@ -49,8 +49,7 @@ class SpaceBindingsLedgerStore extends Subscribable {
   /**
    * Whether the ledger has answered at all. Before its first frame a card
    * with no row is merely unasked about; after it, it is a card the ledger
-   * binds to nothing — which is what lets a warm workspace's unbound Session
-   * card have its body before anybody shows it.
+   * binds to nothing.
    */
   loaded = (): boolean => this.hasLoaded;
 

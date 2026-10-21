@@ -93,6 +93,7 @@ import type {
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
 import { errorFrame } from "./ipc.ts";
+import type { ReplayWindow } from "@tugproto/inbound";
 
 /**
  * Schema version of the transcript document. Bumped when the
@@ -293,6 +294,13 @@ export class StubReplayEngine {
    * describes its turn from `ActiveTurn`.
    */
   private turnSent: OutboundMessage[] = [];
+  /**
+   * Every turn that has put its end on the wire, in order: what a replay
+   * with a `turnRange` reads back, as production reads its JSONL.
+   */
+  private turnsDone: OutboundMessage[][] = [];
+  /** Whether the turn dispatched last has put its end on the wire (true before any). */
+  private turnEnded = true;
 
   constructor(args: {
     transcript: TugcodeTranscript;
@@ -356,6 +364,7 @@ export class StubReplayEngine {
     const paceMs = this.transcript.paceMs ?? 0;
     if (paceMs <= 0) {
       this.turnSent = [];
+      this.turnEnded = false;
       for (const output of turn.outputs) {
         this.sendTurnOutput(output);
       }
@@ -363,6 +372,7 @@ export class StubReplayEngine {
     }
     this.pacing = this.pacing.then(async () => {
       this.turnSent = [];
+      this.turnEnded = false;
       for (let i = 0; i < turn.outputs.length; i++) {
         if (i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
         this.sendTurnOutput(turn.outputs[i]);
@@ -374,6 +384,10 @@ export class StubReplayEngine {
   private sendTurnOutput(output: OutboundMessage): void {
     this.turnSent.push(output);
     this.emit(output);
+    if (output.type === "turn_complete" || output.type === "turn_cancelled") {
+      this.turnEnded = true;
+      this.turnsDone.push([...this.turnSent]);
+    }
   }
 
   /**
@@ -388,51 +402,87 @@ export class StubReplayEngine {
    */
   requestInflight(): void {
     this.emit({ type: "replay_started", inflight_only: true, ipc_version: IPC_VERSION } as OutboundMessage);
-    if (this.turnSent.length > 0) {
-      this.emit({
-        type: "add_user_message",
-        content: [],
-        inflightSnapshot: true,
-        ipc_version: IPC_VERSION,
-      } as unknown as OutboundMessage);
-      const blocks = new Map<string, { start: ContentBlockStart | null; text: AssistantText | null; whole: string }>();
-      let end: OutboundMessage | null = null;
-      for (const output of this.turnSent) {
-        if (output.type === "content_block_start") {
-          const key = `${output.msg_id}:${output.block_index}`;
-          const block = blocks.get(key) ?? { start: null, text: null, whole: "" };
-          block.start = output;
-          blocks.set(key, block);
-        } else if (output.type === "assistant_text") {
-          const key = `${output.msg_id}:${output.block_index}`;
-          const block = blocks.get(key) ?? { start: null, text: null, whole: "" };
-          block.whole = output.is_partial ? block.whole + output.text : output.text;
-          block.text = output;
-          blocks.set(key, block);
-        } else if (output.type === "turn_complete" || output.type === "turn_cancelled") {
-          end = output;
-        }
-      }
-      for (const block of blocks.values()) {
-        if (block.start !== null) this.emit(block.start);
-        if (block.text !== null) {
-          this.emit({ ...block.text, text: block.whole, is_partial: false, status: "streaming" });
-        }
-      }
-      if (end !== null) this.emit(end);
-    }
+    if (this.turnSent.length > 0) this.emitSnapshot(this.turnSent);
     this.emit({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION } as OutboundMessage);
   }
 
   /**
-   * Answer `request_replay`: a stub session keeps no JSONL, so it has nothing
-   * to read back, and says so the way production tugcode does for a session
-   * with nothing to read — an empty bracket. Without it a stub card never
-   * finishes its first read, which a real one always does.
+   * A turn as a snapshot of what it has put on the wire: its opener marked
+   * `inflightSnapshot`, each block opened and its text whole as it now
+   * stands, and its end if it has been sent.
    */
-  answerReplay(): void {
+  private emitSnapshot(sent: readonly OutboundMessage[]): void {
+    this.emit({
+      type: "add_user_message",
+      content: [],
+      inflightSnapshot: true,
+      ipc_version: IPC_VERSION,
+    } as unknown as OutboundMessage);
+    const blocks = new Map<string, { start: ContentBlockStart | null; text: AssistantText | null; whole: string }>();
+    let end: OutboundMessage | null = null;
+    for (const output of sent) {
+      if (output.type === "content_block_start") {
+        const key = `${output.msg_id}:${output.block_index}`;
+        const block = blocks.get(key) ?? { start: null, text: null, whole: "" };
+        block.start = output;
+        blocks.set(key, block);
+      } else if (output.type === "assistant_text") {
+        const key = `${output.msg_id}:${output.block_index}`;
+        const block = blocks.get(key) ?? { start: null, text: null, whole: "" };
+        block.whole = output.is_partial ? block.whole + output.text : output.text;
+        block.text = output;
+        blocks.set(key, block);
+      } else if (output.type === "turn_complete" || output.type === "turn_cancelled") {
+        end = output;
+      }
+    }
+    for (const block of blocks.values()) {
+      if (block.start !== null) this.emit(block.start);
+      if (block.text !== null) {
+        this.emit({ ...block.text, text: block.whole, is_partial: false, status: "streaming" });
+      }
+    }
+    if (end !== null) this.emit(end);
+  }
+
+  /**
+   * Answer `request_replay`. A stub session keeps no JSONL, so a read of the
+   * session — a launch, an open — has nothing to read back, and says so the
+   * way production tugcode does for a session with nothing to read: an empty
+   * bracket. Without it a stub card never finishes its first read, which a
+   * real one always does.
+   *
+   * A read of a `turnRange` — a dormant body catching up on what it missed —
+   * is answered from the turns this engine has finished, as production
+   * answers from its JSONL: each finished turn in the range as replay
+   * carries a committed one (its opener, each block whole, its end), then a
+   * snapshot of a turn still streaming, and the window the bracket covered.
+   */
+  answerReplay(window?: ReplayWindow): void {
     this.emit({ type: "replay_started", ipc_version: IPC_VERSION } as OutboundMessage);
-    this.emit({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION } as OutboundMessage);
+    if (window === undefined || !("turnRange" in window)) {
+      this.emit({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION } as OutboundMessage);
+      return;
+    }
+    const total = this.turnsDone.length;
+    const first = Math.max(0, Math.min(Math.floor(window.turnRange[0]), total));
+    const end = Math.max(first, Math.min(Math.floor(window.turnRange[1]), total));
+    for (let i = first; i < end; i++) {
+      this.emit({ type: "add_user_message", content: [], ipc_version: IPC_VERSION } as unknown as OutboundMessage);
+      for (const output of this.turnsDone[i]) {
+        if (output.type === "assistant_text" && output.is_partial) continue;
+        this.emit(output);
+      }
+    }
+    if (!this.turnEnded && this.turnSent.length > 0) this.emitSnapshot(this.turnSent);
+    this.emit({
+      type: "replay_complete",
+      count: end - first,
+      firstLoadedTurnIndex: first,
+      totalTurns: total,
+      hasOlder: first > 0,
+      ipc_version: IPC_VERSION,
+    } as unknown as OutboundMessage);
   }
 
   /** Resolves when every paced turn dispatched so far has emitted its last output. */

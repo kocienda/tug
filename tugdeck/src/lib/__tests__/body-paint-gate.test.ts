@@ -23,6 +23,7 @@ const FACTS: CardFactsValue = {
   titleBar: null,
   canInterrupt: false,
   compacted: false,
+  dormant: false,
 };
 
 describe("the shell's paint gate", () => {

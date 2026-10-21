@@ -11,7 +11,7 @@
  * Beside them, the behaviours the deck is built for: the synthesized
  * one-pane deck answers fold, arrival and first responder from each
  * `card.context`; the card's activation fires on a flip to it and only on
- * one, and a warm workspace's key card is key while it stands parked; a card
+ * one; a card
  * added takes the id the page minted; an arrangement card reads the shell's
  * panes, band and workspaces and is told when they move; a following card
  * reads the card it follows; and a rail card the edge it is pinned to.
@@ -369,11 +369,6 @@ const CARD_DECK_EVIDENCE: { [K in keyof CardDeck]-?: Evidence<CardDeck> } = {
     deck.applyContext(context({ spaceId: "s-own" }));
     expect(d.spaceOf(CARD)).toBe("s-own");
   },
-  isParkedKey: (d, { deck }) => {
-    deck.applyContext(context({ firstResponderCardId: "shown", layerShown: false, parkedKey: true }));
-    expect(d.isParkedKey!(CARD)).toBe(true);
-    expect(d.isParkedKey!("another")).toBe(false);
-  },
   registerSaveCallback: (d) => {
     const c = counter();
     d.registerSaveCallback(CARD, c.fn);
@@ -630,41 +625,14 @@ describe("activation", () => {
     expect(events).toEqual(["activate", "deactivate"]);
   });
 
-  test("a warm workspace's key card activates while parked, and its first visit does not activate it again", async () => {
+  test("a parked card is not key: it activates only when the shell names it first responder", async () => {
     const { deck: b } = await bodyPage();
     const events: string[] = [];
     b.observeCardDidActivate(CARD, () => events.push("activate"));
-    b.observeCardDidDeactivate(CARD, () => events.push("deactivate"));
-
-    b.applyContext(context({ firstResponderCardId: "shown", layerShown: false, spaceId: "two", parkedKey: true }));
-    expect(b.isParkedKey(CARD)).toBe(true);
-    expect(b.getFirstResponderCardId()).toBe("shown");
+    b.applyContext(context({ firstResponderCardId: "shown", layerShown: false, spaceId: "two" }));
+    expect(b.getFocusedCardId()).toBeNull();
+    expect(events).toEqual([]);
     b.applyContext(context({ firstResponderCardId: CARD, spaceId: "two" }));
-    expect(b.isParkedKey(CARD)).toBe(false);
-    b.applyContext(context({ firstResponderCardId: "another", spaceId: "two" }));
-
-    expect(events).toEqual(["activate", "deactivate"]);
-  });
-
-  test("a parked key card's bag focus waits for its first visit to name it first responder", async () => {
-    const { deck: b } = await bodyPage();
-    let peeked = 0;
-    const peek = b.peekCardHostRoot;
-    b.peekCardHostRoot = (cardId: string) => {
-      peeked += 1;
-      return peek(cardId);
-    };
-    b.applyContext(context({ firstResponderCardId: "shown", layerShown: false, spaceId: "two", parkedKey: true }));
-    expect(peeked).toBe(0);
-    b.applyContext(context({ firstResponderCardId: CARD, spaceId: "two" }));
-    expect(peeked).toBeGreaterThan(0);
-  });
-
-  test("a picker that subscribes after its parked key context came is told it is active", async () => {
-    const { deck: b } = await bodyPage();
-    b.applyContext(context({ firstResponderCardId: "shown", layerShown: false, spaceId: "two", parkedKey: true }));
-    const events: string[] = [];
-    b.observeCardDidActivate(CARD, () => events.push("activate"));
     expect(events).toEqual(["activate"]);
   });
 });

@@ -51,7 +51,6 @@ const deck: ArrangementDeck = {
     spaces: [{ id: "s1", name: "Main", theme: "ironclad" }, { id: "s2", name: "Side" }],
     activeSpaceId: "s1",
     mountedSpaceIds: ["s1", "s2"],
-    warmSpaceIds: [],
     mountedDecks: new Map([["s2", PARKED]]),
   }),
   getSpaceDeck: (id) => (id === "s1" ? LIVE : id === "s2" ? PARKED : null),

@@ -80,6 +80,9 @@ split row by its pieces' glob.
 | `row-29-voiceover-order.test.ts` | VoiceOver reads the shell, then each showing body in deck order, whichever pane stands in front. | ✓ | ✓ |
 | `row-32-overview-insert.test.ts` | The Overview's Insert into Prompt lands an atom in its own composer, in its body; the post reaches the body through the ledger. | — | ✓ |
 | `row-33-arrangement.test.ts` | The Cards and Layout bodies read the shell's arrangement and act on it through the shell: the Layout row press and window drag reach the shell's deck and come back; the Cards body's session rows, row ×, new workspace, go-there and the menu's delete confirm all reach the shell. Each leg is also its card's kind check. | — | n/a: the arrangement cards' own row |
+| `row-35-dormancy.test.ts` | A body hidden past its delay goes dormant and hears nothing of its session; shown again, it catches up on what it missed and wakes, and the reveal's stale window is read against the display period. | ✓ | n/a: Session-only by construction |
+| `row-36-first-visit.test.ts` | A workspace nobody has shown has no bodies; its first visit makes its card a body, at a recorded cost, and parking it again puts the body to sleep without evicting it. | n/a: a Text card stands for every kind | ✓ |
+| `row-37-terminated.test.ts` | A Session body whose WebContent process is killed comes back ready and visible, settled with its last turn and its draft, within the rebuild bound (twice `at0749`'s reading). | ✓ | n/a: Session-only by construction |
 | `floor-host.test.ts` | The host draws the canvas floor: its colour and grid match the page's own by composite at zoom 0.8, 1.0 and 1.25, and it never shows before the window's reveal. | ✓ | — |
 
 A row's file lands with the step that builds the row; a file not yet here is a

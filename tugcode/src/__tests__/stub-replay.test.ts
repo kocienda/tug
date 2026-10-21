@@ -381,6 +381,69 @@ describe("request_replay", () => {
     expect(captured.map((m) => m.type)).toEqual(["replay_started", "replay_complete"]);
     expect(captured[1]).toMatchObject({ count: 0 });
   });
+
+  const out = (o: Record<string, unknown>) => ({ ipc_version: 2, ...o }) as unknown as TranscriptOutboundMessage;
+  const turn = (id: string) => [
+    out({ type: "content_block_start", msg_id: id, block_index: 0, kind: "text" }),
+    out({ type: "assistant_text", msg_id: id, block_index: 0, seq: 0, rev: 0, text: "Half ", is_partial: true, status: "partial" }),
+    out({ type: "assistant_text", msg_id: id, block_index: 0, seq: 0, rev: 1, text: `All of ${id}`, is_partial: false, status: "complete" }),
+    out({ type: "turn_complete", msg_id: id, seq: 1, result: "success" }),
+  ];
+
+  test("a turn range is answered from the turns streamed: each finished turn whole, and the window", () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: {
+        schemaVersion: TRANSCRIPT_SCHEMA_VERSION,
+        tugcodeVersion: "stub",
+        turns: [
+          { index: 0, outputs: turn("a") },
+          { index: 1, outputs: turn("b") },
+        ],
+      },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.dispatchTurn();
+    engine.dispatchTurn();
+    captured.length = 0;
+    engine.answerReplay({ turnRange: [1, Number.MAX_SAFE_INTEGER] });
+    expect(captured.map((m) => m.type)).toEqual([
+      "replay_started",
+      "add_user_message",
+      "content_block_start",
+      "assistant_text",
+      "turn_complete",
+      "replay_complete",
+    ]);
+    expect(captured[3]).toMatchObject({ msg_id: "b", text: "All of b", is_partial: false });
+    expect(captured[5]).toMatchObject({ count: 1, firstLoadedTurnIndex: 1, totalTurns: 2, hasOlder: true });
+  });
+
+  test("a turn still streaming rides the bracket as its snapshot, after the finished turns", () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: {
+        schemaVersion: TRANSCRIPT_SCHEMA_VERSION,
+        tugcodeVersion: "stub",
+        turns: [{ index: 0, outputs: turn("a").slice(0, 2) }],
+      },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.dispatchTurn();
+    captured.length = 0;
+    engine.answerReplay({ turnRange: [0, Number.MAX_SAFE_INTEGER] });
+    expect(captured.map((m) => m.type)).toEqual([
+      "replay_started",
+      "add_user_message",
+      "content_block_start",
+      "assistant_text",
+      "replay_complete",
+    ]);
+    expect(captured[1]).toMatchObject({ inflightSnapshot: true });
+    expect(captured[4]).toMatchObject({ count: 0, totalTurns: 0, hasOlder: false });
+  });
 });
 
 describe("stubTranscriptForSession", () => {

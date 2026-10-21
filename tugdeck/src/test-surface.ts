@@ -125,6 +125,7 @@ import {
 import { renderIncremental } from "./lib/markdown/render-incremental";
 import { isRenderedPending, isRenderedRecord } from "./lib/ingest/rendered-merge";
 import { bodyCardsStore } from "./lib/body-cards-store";
+import { bodyVisibilityStore } from "./lib/body-visibility-store";
 import {
   annotateCounters,
   type AnnotateCountersSnapshot,
@@ -561,8 +562,13 @@ import {
  * the decided deadline is 15 s, longer than an app-test file's budget, so a
  * test of what the deadline does shortens it and waits the production path
  * out. Additive; major stays `2`.
+ *
+ * `2.50.0`: adds {@link TugTestSurface.bodyDormancy}, on every page: what the
+ * host last told the page of its visibility and whether it is dormant, from
+ * the page's own visibility store. The shell is never told and reads as
+ * shown. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.49.0" as const;
+export const SURFACE_VERSION = "2.50.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -2052,6 +2058,13 @@ export interface TugTestSurface {
 
   /** The card the Cards list's cursor stands on, as this page holds it (SURFACE_VERSION 2.46.0). */
   getLayoutCursor(): string | null;
+
+  /**
+   * This page's visibility as the host last told it, and whether the page is
+   * dormant — hidden past its delay and not yet caught up (SURFACE_VERSION
+   * 2.50.0).
+   */
+  bodyDormancy(): { shown: boolean; since: number; dormant: boolean };
 }
 
 // ---------------------------------------------------------------------------
@@ -3874,6 +3887,11 @@ function pageStoreSurfaceMethods() {
 
     getLayoutCursor(): string | null {
       return getLayoutCursorCard();
+    },
+
+    bodyDormancy(): { shown: boolean; since: number; dormant: boolean } {
+      const { shown, since, dormant } = bodyVisibilityStore.getSnapshot();
+      return { shown, since, dormant };
     },
 
     publishDraftFrame(payloadJson: string): boolean {

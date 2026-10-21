@@ -56,6 +56,7 @@ import { cardSessionBindingStore } from "../lib/card-session-binding-store";
 import type { CodeSessionSnapshot } from "../lib/code-session-store";
 import { deriveRestoreGateHold } from "../lib/session-card-restore-gate";
 import { readPageContent } from "../lib/rail-fit";
+import { bodyVisibilityStore } from "../lib/body-visibility-store";
 
 /** What the publisher reads, each answered fresh on every call. */
 export interface BodyPublisherSources {
@@ -156,6 +157,8 @@ export function readBodyCardFacts(cardId: string): CardFactsValue {
     activity: snapshot === null ? null : sessionPhaseFromSnapshot(snapshot, cardJoinReady(cardId)),
     canInterrupt: snapshot?.canInterrupt === true,
     compacted: snapshot !== null && snapshot.compactionSeed !== null,
+    // This page's own dormancy, which the masthead and the Cards rows read.
+    dormant: bodyVisibilityStore.getSnapshot().dormant,
     // What the card holds as this page's own registries know it; the shell's
     // identity reads for the card answer from it.
     identity: ownLiveCardIdentity(cardId),
@@ -168,6 +171,17 @@ export function readBodyCardFacts(cardId: string): CardFactsValue {
         return { ...item, enabled: entry !== undefined && validateCommand(entry, commandValidationSource()) };
       }) ?? null,
   };
+}
+
+/** Call `listener` when the page goes dormant or wakes, and on no other visibility change. */
+function followDormancy(listener: () => void): () => void {
+  let dormant = bodyVisibilityStore.getSnapshot().dormant;
+  return bodyVisibilityStore.subscribe(() => {
+    const next = bodyVisibilityStore.getSnapshot().dormant;
+    if (next === dormant) return;
+    dormant = next;
+    listener();
+  });
 }
 
 /** An installed publisher: publish now, synchronously, or uninstall. */
@@ -302,6 +316,11 @@ export function installBodyPublisher(
     // The card's arc binding, which the phase key's join offer reads.
     cardSessionBindingStore.subscribe(publish),
     cardTitleStore.subscribe(publish),
+    // The page going dormant, or waking — and only that. The facts carry
+    // `dormant` and nothing else of the page's visibility, and a publish on
+    // every shown/hidden edge — a placement's hide and show — lands inside a
+    // crossing, where it held a resized body's page at its old height.
+    followDormancy(publish),
     paneTitleBarItemsStore.subscribe(publish),
     // A run's hold moves the fold guard as well as the hold itself.
     cardModalHoldStore.subscribe(publish),

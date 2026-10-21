@@ -54,7 +54,7 @@ import { join } from "node:path";
 import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, composerText, focusBody, paneOf, pollFor, popoverPresent, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, closePopoverPage, closePopoverUp, composerText, focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind, kindPane, kindSidebars, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
@@ -134,23 +134,25 @@ async function expectBodiesMatchCards(app: App, label: string, expected: string[
  * waive the confirmation, a rail always asks (`tug-pane.tsx`'s
  * `paneConfirmClose`), and so does a pane of several tabs, so the shell's
  * popover rises and its confirm button is clicked; any other card closes at
- * once.
+ * once. The popover stands in `cardId`'s own page, where its pane's chrome
+ * is drawn, and is read and pressed there.
  */
-async function closeThrough(app: App, identifier: string, want: number, label: string, asks: boolean): Promise<void> {
+async function closeThrough(app: App, cardId: string, identifier: string, want: number, label: string, asks: boolean): Promise<void> {
   const item = await app.performMenuItem(identifier);
   note(`${label}: ${identifier} ${JSON.stringify(item)}`);
   expect(item.found && item.performed, `${label}: ${identifier} performs`).toBe(true);
   const seen = await pollFor(
-    async () => ({ popover: await app.evalJS<boolean>(popoverPresent), cards: await app.evalJS<number>(`${CARD_IDS}.length`) }),
+    async () => ({ popover: await closePopoverUp(app, cardId), cards: await app.evalJS<number>(`${CARD_IDS}.length`) }),
     (r) => r.popover || r.cards <= want,
     SETTLE_MS,
   );
   note(`${label}: popover ${seen.popover}, cards ${seen.cards}`);
-  expect(seen.popover, asks ? `${label}: the close raises the shell's popover` : `${label}: the close lands without asking`).toBe(asks);
+  expect(seen.popover, asks ? `${label}: the close raises its Close popover` : `${label}: the close lands without asking`).toBe(asks);
   if (asks) {
-    expect(await app.evalJS<boolean>(present(CONFIRM_OK)), `${label}: the popover has a confirm button`).toBe(true);
-    await app.nativeClickAtElement(CONFIRM_OK);
-    await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS);
+    const page = await closePopoverPage(app, cardId);
+    expect(page !== null && (await page.evalJS<boolean>(present(CONFIRM_OK))), `${label}: the popover has a confirm button`).toBe(true);
+    await page!.nativeClickAtElement(CONFIRM_OK);
+    await pollFor(() => closePopoverUp(app, cardId), (v) => !v, SETTLE_MS);
   }
   const cards = await pollFor(() => app.evalJS<number>(`${CARD_IDS}.length`), (n) => n <= want, SETTLE_MS);
   expect(cards, `${label}: the cards closed`).toBe(want);
@@ -194,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
           await standUpKind(app, kind, K);
           await expectBodiesMatchCards(app, "at the start", [K, A]);
           await app.dispatchControlAction("focus-session-card", { cardId: K });
-          await closeThrough(app, "file.closeCard", 1, `close ${K}`, kind.rail);
+          await closeThrough(app, K, "file.closeCard", 1, `close ${K}`, kind.rail);
           expect(await pollFor(() => bodyOf(app, K), (b) => b === null, SETTLE_MS), "the host holds no body for the card after the close").toBeNull();
           await expectBodiesMatchCards(app, "after the close", [A]);
 
@@ -277,7 +279,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         expect(typed, "the Text body holds an unsaved edit").toContain("EDIT");
 
         // ---- The pane's close: the Save sheet in the body, Cancel keeps the card ----
-        await app.nativeClickAtElement(`${paneOf(X)} [data-testid="tug-pane-close-button"]`);
+        // The pane's chrome is drawn in the card's own page, and its close button is pressed there.
+        await text.nativeClickAtElement(`[data-testid="tug-pane-close-button"]`);
         const asked = await pollFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => v, SETTLE_MS);
         expect(asked, "the pane's close puts the Save sheet up in the Text body").toBe(true);
         await text.nativeClickAtElement(SHEET_CANCEL);
@@ -344,14 +347,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         // ---- Close: A holds a draft, so the shell asks; Close, and A goes with its body ----
         await typeDraft(app, A, "row11 draft in A");
         await focusBody(app, A, { composer: false });
-        await closeThrough(app, "file.closeCard", 3, "close A", true);
+        await closeThrough(app, A, "file.closeCard", 3, "close A", true);
         expect(await pollFor(() => bodyOf(app, A), (b) => b === null, SETTLE_MS), "the host holds no body for A after the close").toBeNull();
         await expectBodiesMatchCards(app, "after closing A", [B, D, T]);
 
         // ---- Close all: B holds a draft, so the shell asks; B's pane empties, the text card and the body card together ----
         await typeDraft(app, B, "row11 draft in B");
         await focusBody(app, B, { composer: false });
-        await closeThrough(app, "file.closeAllCardTabs", 1, "close all in B's pane", true);
+        await closeThrough(app, B, "file.closeAllCardTabs", 1, "close all in B's pane", true);
         expect(await pollFor(() => bodyOf(app, B), (b) => b === null, SETTLE_MS), "the host holds no body for B after close all").toBeNull();
         await expectBodiesMatchCards(app, "after close all", [D]);
 

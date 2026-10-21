@@ -27,6 +27,7 @@ import {
   bodyHelloToHost,
   bodyStateToPage,
   bodySurfaceToHost,
+  bodyVisibilityToPage,
   crossingReadyToHost,
   frontendLaunchStalledToHost,
   launchLapToHost,
@@ -126,6 +127,7 @@ export const TO_PAGE: readonly ToPage<unknown>[] = [
   // lifecycle
   bodyBindToPage,
   bodyStateToPage,
+  bodyVisibilityToPage,
   // services
   settingsLoadedToPage,
   pathChosenToPage,

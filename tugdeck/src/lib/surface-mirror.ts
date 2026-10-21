@@ -114,6 +114,16 @@ export interface SurfaceMirror extends SurfaceHost {
   activate(path: readonly number[]): void;
   /** The drawn surface was dismissed. */
   dismiss(): void;
+  /**
+   * Withdraw the drawn surface while `on`, and draw it again as it now
+   * stands when it ends: a dormant body raises nothing over the deck.
+   */
+  withhold(on: boolean): void;
+}
+
+/** Withdraw this body's drawn surface while `on` (a body gone dormant), if it has one. */
+export function withholdBodySurface(on: boolean): void {
+  bodyMirror?.withhold(on);
 }
 
 /**
@@ -123,13 +133,21 @@ export interface SurfaceMirror extends SurfaceHost {
  */
 export function createSurfaceMirror(send: (surface: CardSurface | null) => void): SurfaceMirror {
   let current: { content: HTMLElement; dismissed: () => void } | null = null;
+  // What was last published, and whether publishing is withheld: a withheld
+  // mirror keeps reading its surface and sends the last of it on release.
+  let last: CardSurface | null = null;
+  let withheld = false;
+  const publishOut = (surface: CardSurface | null): void => {
+    last = surface;
+    if (!withheld) send(surface);
+  };
   return {
     show(content, meta, dismissed) {
       const shown = { content, dismissed };
       current = shown;
       let sent = meta();
       let html = content.innerHTML;
-      send({ ...sent, html, scroll: scrollsOf(content) });
+      publishOut({ ...sent, html, scroll: scrollsOf(content) });
       let frame: number | null = null;
       const publish = (): void => {
         frame = null;
@@ -138,7 +156,7 @@ export function createSurfaceMirror(send: (surface: CardSurface | null) => void)
         if (content.innerHTML === html && JSON.stringify(next) === JSON.stringify(sent)) return;
         sent = next;
         html = content.innerHTML;
-        send({ ...sent, html, scroll: [] });
+        publishOut({ ...sent, html, scroll: [] });
       };
       const schedule = (): void => {
         if (frame === null) frame = requestAnimationFrame(publish);
@@ -152,7 +170,7 @@ export function createSurfaceMirror(send: (surface: CardSurface | null) => void)
         if (frame !== null) cancelAnimationFrame(frame);
         if (current !== shown) return;
         current = null;
-        send(null);
+        publishOut(null);
       };
     },
     activate(path) {
@@ -163,6 +181,11 @@ export function createSurfaceMirror(send: (surface: CardSurface | null) => void)
     },
     dismiss() {
       current?.dismissed();
+    },
+    withhold(on) {
+      if (on === withheld) return;
+      withheld = on;
+      send(on ? null : last);
     },
   };
 }

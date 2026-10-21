@@ -34,6 +34,7 @@ const FACTS: CardFactsValue = {
   titleBar: null,
   canInterrupt: false,
   compacted: false,
+  dormant: false,
 };
 
 const HOLD = { turnsLoaded: 3, turnsTarget: 10 };

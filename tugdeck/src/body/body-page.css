@@ -52,8 +52,12 @@ html[data-body-page][data-chrome-frame] #deck-container {
 
 /* The content lid: chrome paints at once, and the content box stands in the
    pane's surface until the card's own content has painted (`card.painted`),
-   so no frame shows a card's content half drawn under its finished chrome. */
-.body-chrome-frame:not([data-content-painted]) .tug-pane-content::after {
+   so no frame shows a card's content half drawn under its finished chrome.
+   A dormant body wears it too, from the moment it sleeps until it has caught
+   up (`data-body-dormant`, `body-dormancy.ts`): its reveal shows the pane
+   whole and the content it missed only once it has it. */
+.body-chrome-frame:not([data-content-painted]) .tug-pane-content::after,
+[data-body-dormant] .body-chrome-frame .tug-pane-content::after {
   content: "";
   position: absolute;
   inset: 0;

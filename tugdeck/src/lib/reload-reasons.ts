@@ -30,10 +30,11 @@ export function isReloadReason(value: unknown): value is ReloadReason {
 /**
  * What a `request_replay` says about itself on the wire. A reload carries its
  * {@link ReloadReason}; `page` is the transcript asking for the turns older
- * than the ones it holds, which extends a loaded card rather than reloading
- * it.
+ * than the ones it holds, and `catch-up` a body that was dormant asking for
+ * the turns it missed while hidden — each extends a loaded card rather than
+ * reloading it.
  */
-export type ReplayRequestReason = ReloadReason | "page";
+export type ReplayRequestReason = ReloadReason | "page" | "catch-up";
 
 /**
  * Why a `spawn_session` is sent. Every reload is one, and so is `rebind`: a

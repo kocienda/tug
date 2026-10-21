@@ -148,6 +148,11 @@ export interface DiscardPrependEffect {
  * `replay_started` lands on a live turn, cancelled by the `replay_complete`
  * that lifts the shadow or by transport loss, and lifting the shadow itself
  * when it fires.
+ *
+ * And `"catch_up"` — the horizon of a dormant body's catch-up
+ * (`replayCatchUpActive`): armed by `begin_catch_up`, cancelled when the
+ * bracket it asked for opens, and ending the catch-up when it fires — for a
+ * session whose tugcode was not live to answer.
  */
 export interface ScheduleTimerEffect {
   kind: "schedule_timer";

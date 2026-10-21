@@ -579,8 +579,9 @@ async function main() {
       // answers from the turn in hand.
       stubReplay.requestInflight();
     } else if (msg.type === "request_replay" && stubReplay !== null) {
-      // Stub mode has no JSONL; it answers the read with an empty bracket.
-      stubReplay.answerReplay();
+      // Stub mode has no JSONL: a read of the session is an empty bracket,
+      // and a read of a turn range is answered from the turns it has streamed.
+      stubReplay.answerReplay(msg.window);
     } else {
       // Every other inbound verb dispatches through the registry
       // ([#step-13c1]). Unknown verbs can't reach here — `isInboundMessage`

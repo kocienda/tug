@@ -126,31 +126,12 @@ describe("SpacesStore mounting and the live deck", () => {
   });
 });
 
-describe("SpacesStore warm workspaces", () => {
-  test("warming mounts every parked workspace once, and notifies once", () => {
-    const { store, calls } = seeded();
-    expect(store.warmParked()).toBe(true);
-    expect(store.warmParked()).toBe(false);
-    expect(calls()).toBe(1);
-    const snapshot = store.getSnapshot();
-    expect(snapshot.mountedSpaceIds).toEqual(["a", "b"]);
-    expect(snapshot.warmSpaceIds).toEqual(["b"]);
-    expect([...snapshot.mountedDecks.keys()]).toEqual(["b"]);
-  });
-
-  test("a warm workspace is warm until it is first shown", () => {
+describe("SpacesStore parked workspaces", () => {
+  test("a parked workspace nobody has shown is not mounted, and its first visit mounts it", () => {
     const { store } = seeded();
-    store.warmParked();
-    store.activate("b");
-    expect(store.getSnapshot().warmSpaceIds).toEqual([]);
-    expect(store.getSnapshot().mountedSpaceIds).toEqual(["a", "b"]);
-  });
-
-  test("a seed starts with nothing warm", () => {
-    const { store } = seeded();
-    store.warmParked();
-    store.seed([{ id: "a", name: "Main", deck: null }, { id: "b", name: "Side", deck: deck("cb") }], "a");
-    expect(store.getSnapshot().warmSpaceIds).toEqual([]);
     expect(store.getSnapshot().mountedSpaceIds).toEqual(["a"]);
+    expect([...store.getSnapshot().mountedDecks.keys()]).toEqual([]);
+    store.activate("b");
+    expect(store.getSnapshot().mountedSpaceIds).toEqual(["a", "b"]);
   });
 });

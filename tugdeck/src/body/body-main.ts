@@ -118,6 +118,7 @@ import {
   crossingReadyToHost,
   frontendReadyToHost,
   bodyBindToPage,
+  bodyVisibilityToPage,
   paintedToHost,
   type BodyBind,
   prepareForTerminationCall,
@@ -138,6 +139,16 @@ import { cardTitleStore } from "../lib/card-title-store";
 import { movedFacets } from "../lib/deck-cards";
 import { appInfoStore } from "../lib/app-info-store";
 import { relayFrontmostProjectBinding, relayWorkspaceProjectDirs } from "../lib/frontmost-project";
+import { bodyVisibilityStore } from "../lib/body-visibility-store";
+import { withholdBodySurface } from "../lib/surface-mirror";
+import { BODY_DORMANT_ATTRIBUTE, installBodyDormancy } from "./body-dormancy";
+import { CATCH_UP_DEADLINE_MS } from "../lib/code-session-store/reducer";
+import {
+  DORMANT_AFTER_DOMAIN,
+  DORMANT_AFTER_KEY,
+  parseDormantAfterMs,
+  resolveDormantAfterMs,
+} from "../lib/dormant-after-pref";
 import { applyCrossingMirror } from "../lib/fold-crossing";
 import { telemetryInspectionStore } from "../lib/telemetry-inspection-store";
 import { installInspectionPublisher } from "./body-inspection";
@@ -304,6 +315,55 @@ function follow<T>(store: SharedStore<T>, apply: (value: T) => void): void {
   if (store.arrived()) apply(store.getSnapshot());
 }
 
+/**
+ * The motion switch's two writers in a body: the shell's hand switch,
+ * followed from its deck facts, and the body's own dormancy, which stills its
+ * loops while it is hidden past its delay. Either stills them.
+ */
+let shellMotionDemoted = false;
+let dormantLoopsStilled = false;
+function applyMotion(): void {
+  motionBreaker.demote(shellMotionDemoted || dormantLoopsStilled);
+}
+
+/**
+ * Ask `cardId`'s session for what a dormant body missed, and call `done` when
+ * the bracket that answers has closed: the store's `catchingUp` rises when
+ * the ask is recorded and falls when the bracket closes, or at the store's
+ * own deadline when none comes. A card with no session has nothing to catch
+ * up on. Returns the release for the wait.
+ */
+function catchUpCard(cardId: string, done: () => void): () => void {
+  const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
+  if (store === null) {
+    done();
+    return () => {};
+  }
+  let rose = false;
+  let finished = false;
+  const finish = (): void => {
+    if (finished) return;
+    finished = true;
+    release();
+    clearTimeout(backstop);
+    done();
+  };
+  const release = store.subscribe(() => {
+    const catchingUp = store.getSnapshot().catchingUp;
+    if (catchingUp) rose = true;
+    else if (rose) finish();
+  });
+  // The store ends a catch-up nobody answered on its own deadline; this only
+  // covers a store torn down mid-wait, so the page never stays dormant.
+  const backstop = setTimeout(finish, CATCH_UP_DEADLINE_MS * 2);
+  store.catchUp();
+  return () => {
+    finished = true;
+    release();
+    clearTimeout(backstop);
+  };
+}
+
 /** Take the shell's deck facts this page renders against. */
 function applyDeckFacts(facts: Partial<DeckFactsValue>, deck: BodyCardDeck | null): Promise<void> {
   if (typeof facts.keyboardAccess === "boolean") {
@@ -318,7 +378,10 @@ function applyDeckFacts(facts: Partial<DeckFactsValue>, deck: BodyCardDeck | nul
   if (typeof facts.appActive === "boolean") deck?.setHasFocus(facts.appActive);
   // The shell's hand switch, followed: the body's own root attribute stills
   // its loops, and clearing it resumes them through the body's breaker.
-  if (typeof facts.motionDemoted === "boolean") motionBreaker.demote(facts.motionDemoted);
+  if (typeof facts.motionDemoted === "boolean") {
+    shellMotionDemoted = facts.motionDemoted;
+    applyMotion();
+  }
   if (typeof facts.zoom === "number") {
     if (deck === null) pageZoomStore.report(facts.zoom);
     else void pageZoomStore.apply(facts.zoom);
@@ -537,17 +600,36 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // The session set follows the card's binding: a rotation seats a new
   // segment. The store also reads every other card's binding, from the
   // shell's `deck.cards`, so only a change to this card's own sessions re-scopes the
-  // connection: a re-scope is a message to the worker, not a no-op.
+  // connection: a re-scope is a message to the worker, not a no-op. A body
+  // asleep — dormant, hidden past its delay — is scoped to nothing.
   let scopedSessions = "";
-  cardSessionBindingStore.subscribe(() => {
+  let dormancy: { readonly asleep: boolean } | null = null;
+  const rescope = (): void => {
     const binding = cardSessionBindingStore.getBinding(cardId);
     if (binding === undefined) return;
-    const sessions =
-      binding.seatedSessionId === undefined ? [binding.tugSessionId] : [binding.tugSessionId, binding.seatedSessionId];
+    const sessions = dormancy?.asleep
+      ? []
+      : binding.seatedSessionId === undefined
+        ? [binding.tugSessionId]
+        : [binding.tugSessionId, binding.seatedSessionId];
     const key = sessions.join(" ");
     if (key === scopedSessions) return;
     scopedSessions = key;
     connection.setSessions(sessions);
+  };
+  cardSessionBindingStore.subscribe(rescope);
+  // Hidden past its delay, the body sleeps: no subscription, its loops
+  // still, its deck-scope surface withdrawn. Shown again, it re-scopes and
+  // asks its session for what it missed, and wakes when that has landed.
+  dormancy = installBodyDormancy({
+    rescope,
+    stillLoops: (on) => {
+      dormantLoopsStilled = on;
+      applyMotion();
+    },
+    lidContent: (on) => document.documentElement.toggleAttribute(BODY_DORMANT_ATTRIBUTE, on),
+    withholdSurface: withholdBodySurface,
+    catchUp: (done) => catchUpCard(cardId, done),
   });
 
   // The host's bind facts stand until the shell's arrive: they are what the
@@ -747,6 +829,14 @@ async function bindBody(bind: BodyBind): Promise<void> {
   tugbankClient.onDomainChanged((domain, entries) => {
     if (domain === KEYMAP_DOMAIN) keymapOverrideStore.applyRemote(entries);
   });
+  // How long this body may stay hidden before it goes dormant: the Layout
+  // card's row, written anywhere, reaches every body's clock here.
+  const readDormantAfter = () =>
+    resolveDormantAfterMs(parseDormantAfterMs(tugbankClient.get(DORMANT_AFTER_DOMAIN, DORMANT_AFTER_KEY)));
+  bodyVisibilityStore.setDormantAfterMs(readDormantAfter());
+  tugbankClient.onDomainChanged((domain) => {
+    if (domain === DORMANT_AFTER_DOMAIN) bodyVisibilityStore.setDormantAfterMs(readDormantAfter());
+  });
   initMotionObserver();
   // The body's own motion guard: its loops take holds in this page's
   // registry, so the probe, the input-latency observer and
@@ -770,6 +860,10 @@ async function bindBody(bind: BodyBind): Promise<void> {
 
   onHostMessage(bodyBindToPage, (bind) => {
     void bindBody(bind);
+  });
+  // Whether the host has this body shown; hidden long enough, it goes dormant.
+  onHostMessage(bodyVisibilityToPage, (visibility) => {
+    bodyVisibilityStore.apply(visibility);
   });
   // The host is about to carry this card's box to a new size: pin every
   // preserve scroller across it, as the shell's own crossing does for an

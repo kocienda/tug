@@ -88,6 +88,7 @@ describe("unknown liveness reads idle, never danger", () => {
       titleBar: null,
       canInterrupt: true,
       compacted: false,
+      dormant: false,
     });
     await bus.flush();
     expect(reportedPhaseOf("c-mirrored")).toBe("streaming");

@@ -294,6 +294,13 @@ struct BodyStateReport: Codable, Equatable {
     }
 }
 
+/// `onBodyVisibility`: whether the body is shown — its container paints, a
+/// sibling's included — and since when, wall-clock ms.
+struct BodyVisibility: Codable, Equatable {
+    var shown: Bool
+    var since: Double
+}
+
 // MARK: - The host's services
 //
 // The pickers, the clipboard, the OS, the window's settings, the launch's
@@ -885,7 +892,7 @@ enum ToPageMember: String, CaseIterable {
     // Placement and gestures.
     case onCardGesture, onCardInsets, onBodyCrossing
     // Page lifecycle.
-    case onBodyBind, onBodyState
+    case onBodyBind, onBodyState, onBodyVisibility
     // The host's services.
     case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
@@ -898,6 +905,7 @@ enum ToPage {
     case bodyCrossing(BodyCrossing)
     case bodyBind(BodyBind)
     case bodyState(BodyStateReport)
+    case bodyVisibility(BodyVisibility)
     case settingsLoaded(SettingsLoaded)
     case pathChosen(PathChosen)
     case exportDone(ExportDone)
@@ -919,6 +927,7 @@ enum ToPage {
         case .bodyCrossing: return .onBodyCrossing
         case .bodyBind: return .onBodyBind
         case .bodyState: return .onBodyState
+        case .bodyVisibility: return .onBodyVisibility
         case .settingsLoaded: return .onSettingsLoaded
         case .pathChosen: return .onPathChosen
         case .exportDone: return .onExportDone
@@ -944,6 +953,7 @@ enum ToPage {
         case .bodyCrossing(let crossing): return try? encoder.encode(crossing)
         case .bodyBind(let bind): return try? encoder.encode(bind)
         case .bodyState(let report): return try? encoder.encode(report)
+        case .bodyVisibility(let visibility): return try? encoder.encode(visibility)
         case .settingsLoaded(let settings): return try? encoder.encode(settings)
         case .pathChosen(let chosen): return try? encoder.encode(chosen)
         case .exportDone(let done): return try? encoder.encode(done)
@@ -972,6 +982,7 @@ enum ToPage {
             case .onBodyCrossing: return .success(.bodyCrossing(try read(BodyCrossing.self)))
             case .onBodyBind: return .success(.bodyBind(try read(BodyBind.self)))
             case .onBodyState: return .success(.bodyState(try read(BodyStateReport.self)))
+            case .onBodyVisibility: return .success(.bodyVisibility(try read(BodyVisibility.self)))
             case .onSettingsLoaded: return .success(.settingsLoaded(try read(SettingsLoaded.self)))
             case .onPathChosen: return .success(.pathChosen(try read(PathChosen.self)))
             case .onExportDone: return .success(.exportDone(try read(ExportDone.self)))

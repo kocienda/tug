@@ -249,6 +249,29 @@ export const bodyStateToPage = defineToPage<BodyStateReport>({
   refused: ["ready", { cardId: "c1", state: "asleep" }, { cardId: "c1", state: "landed", planId: "7" }, { state: "ready" }],
 });
 
+/**
+ * Whether anyone can see the body: shown while its container paints (a
+ * sibling behind its pane's active card included), not while the host has
+ * hidden it (a parked or folded body). `since` is when it last changed,
+ * wall-clock ms, comparable with the page's `Date.now()`.
+ */
+export interface BodyVisibility {
+  readonly shown: boolean;
+  readonly since: number;
+}
+
+/** A body is told whether it is shown, on bind and on every change. */
+export const bodyVisibilityToPage = defineToPage<BodyVisibility>({
+  member: "onBodyVisibility",
+  to: "body",
+  codec: obj({ shown: bool, since: num }),
+  samples: [
+    { shown: true, since: 1_760_000_000_000 },
+    { shown: false, since: 1_760_000_060_000.5 },
+  ],
+  refused: [true, { shown: "yes", since: 0 }, { shown: false }],
+});
+
 // The host's calls into `window.tugdeck`.
 
 /** Write every card's state now, synchronously: the degraded save and the reload's. */

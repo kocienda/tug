@@ -1301,6 +1301,12 @@ export interface BodyViewSnapshot {
   presentedFrame: { x: number; y: number; width: number; height: number };
   /** Placed visible and ready — what the user can see. */
   visible: boolean;
+  /**
+   * Whether the page is told it is shown: its container paints, a sibling
+   * behind its pane's active card included; false once the host hides it
+   * (a parked or folded body).
+   */
+  shown: boolean;
   /** The pane's stacking order the last placement gave it. */
   z: number;
   /** Whether the body's web view is the window's first responder: it has the keyboard. */
@@ -1313,6 +1319,8 @@ export interface BodyViewSnapshot {
   start: "warm" | "cold";
   /** Bind → ready, once the body has reported ready; null before. */
   readyMs: number | null;
+  /** The window's display period, ms: what a reading counts frames in. */
+  displayPeriodMs: number;
   url: string | null;
 }
 

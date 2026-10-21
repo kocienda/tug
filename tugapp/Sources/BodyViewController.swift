@@ -226,6 +226,12 @@ final class BodyViewController {
         /// is hidden by layer opacity, never `isHidden`, so WebKit keeps
         /// painting the frame the showing will reveal.
         var shownOnce = false
+        /// Whether the container paints — not hidden by `isHidden`; a
+        /// sibling at opacity 0 paints — and since when, wall-clock ms.
+        var shown: (value: Bool, since: Double)?
+        /// The `shown` its page was last told; nil until the page is bound,
+        /// and again when a reload binds a new one.
+        var toldShown: Bool?
         /// The page's surface as it last posted it, which the container wears
         /// behind a content box, never behind a whole card.
         var surface: CGColor?
@@ -534,6 +540,9 @@ final class BodyViewController {
         body.state = .bound
         body.boundAt = CACurrentMediaTime()
         send(.bodyBind(BodyBind(cardId: cardId, componentId: componentId, intent: intent, facts: window.bodyFacts())), to: body)
+        // A page bound afresh has not heard whether it is shown.
+        body.toldShown = nil
+        reportVisibility(body)
         // A page bound afresh — a reload, a spare taking a card — has not
         // been told where its pane stands in its view.
         if let insets = body.insets {
@@ -585,6 +594,7 @@ final class BodyViewController {
     private func applyVisibility(_ body: Body) {
         let showing = body.visible && body.canShow
         guard let layer = body.container.layer else { return }
+        defer { reportVisibility(body) }
         if showing {
             let wasHidden = body.container.isHidden
             body.container.isHidden = false
@@ -623,6 +633,20 @@ final class BodyViewController {
             layer.opacity = 0
         }
         refreshRegion()
+    }
+
+    /// Tell a bound body's page whether it is shown, when that has changed
+    /// since it was last told. Shown is the container painting: a sibling at
+    /// opacity 0 is shown, a body hidden by `isHidden` is not.
+    private func reportVisibility(_ body: Body) {
+        let shown = !body.container.isHidden
+        if body.shown?.value != shown {
+            body.shown = (shown, Date().timeIntervalSince1970 * 1000)
+        }
+        guard let current = body.shown, body.state == .bound || body.state == .ready,
+              body.toldShown != current.value else { return }
+        body.toldShown = current.value
+        send(.bodyVisibility(BodyVisibility(shown: current.value, since: current.since)), to: body)
     }
 
     private func refreshRegion() {
@@ -1548,6 +1572,7 @@ final class BodyViewController {
             entry["state"] = .string(body.state.rawValue)
             entry["frame"] = Self.json(body.frame)
             entry["visible"] = .bool(body.visible && body.canShow)
+            entry["shown"] = .bool(!body.container.isHidden)
             entry["painted"] = .bool(body.painted)
             entry["z"] = .number(Double(body.z))
             entry["firstResponder"] = .bool(window.firstResponder === body.webView)

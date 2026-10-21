@@ -575,6 +575,7 @@ describe("pages on the deck's own connection", () => {
         titleBar: null,
         canInterrupt: false,
         compacted: false,
+        dormant: false,
       });
       const fact = await until(() => cardFacts.on(shellBus).getFor("c-deck") ?? undefined, "the shell's card.facts");
       expect(fact).toMatchObject({ title: "deck/odd-kiln", activity: "idle" });

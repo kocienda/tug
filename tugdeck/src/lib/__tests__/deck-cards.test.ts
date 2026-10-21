@@ -77,7 +77,6 @@ const DECK = {
     ],
     activeSpaceId: "s1",
     mountedSpaceIds: ["s1", "s2"],
-    warmSpaceIds: [],
     mountedDecks: new Map([["s2", PARKED]]),
   }),
   getSpaceDeck: (id: string) => (id === "s1" ? LIVE : id === "s2" ? PARKED : null),

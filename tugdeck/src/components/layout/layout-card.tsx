@@ -226,6 +226,12 @@ import {
 } from "@/lib/page-zoom-store";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import {
+  DORMANT_AFTER_CHOICES,
+  dormantAfterLabel,
+  useDormantAfterMs,
+  writeDormantAfterMs,
+} from "@/lib/dormant-after-pref";
+import {
   LAYOUT_MIXER_OPEN_DOMAIN,
   LAYOUT_MIXER_OPEN_KEY,
   putLayoutMixerOpen,
@@ -246,6 +252,7 @@ const KIND_SENDER_ID = "layout-card-kind";
 const LAYOUT_SENDER_ID = "layout-card-layout";
 const WIDTH_SENDER_ID = "layout-card-width";
 const ZOOM_SENDER_ID = "layout-card-zoom";
+const DORMANT_SENDER_ID = "layout-card-dormant";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
 
@@ -258,6 +265,7 @@ const KIND_CAPTION_ID = "layout-card-kind-caption";
 const LAYOUT_CAPTION_ID = "layout-card-layout-caption";
 const WIDTH_CAPTION_ID = "layout-card-width-caption";
 const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
+const DORMANT_CAPTION_ID = "layout-card-dormant-caption";
 
 /** The deck rows' focus orders. Distinct, and declared rather than defaulted,
  *  because they are separate stops: sharing an order would give two groups one
@@ -296,6 +304,11 @@ const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 4;
  *  one door that shows it. The deck-wide rows above never move. */
 const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER =
   LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER + slotCount("six-up");
+
+/** The Rest row's order — how long a hidden card works before it goes
+ *  dormant: the last row, past every sidebar row the registry
+ *  can grow, and short of the picture's stop and the fold cue. */
+const LAYOUTS_DORMANT_FOCUS_ORDER = 19;
 
 /** The fold cue's stop, PAST every row rather than ahead of them. The card
  *  engages KBF at rest ([P10]), so whatever holds order 0 wears the cursor's
@@ -1087,6 +1100,7 @@ export function LayoutContent(
   const sidebars = sidebarEntries();
   // The View › Zoom factor, for the Zoom row and the note ([L02]).
   const zoom = usePageZoom().factor;
+  const dormantAfterMs = useDormantAfterMs();
   // Whether the mixer rows stand open. Deck-wide tugbank state, read through
   // `useTugbankValue` ([L02]) rather than held in a `useState` cell, so the
   // fold survives a reload and a card remount alike. Absent means open: the
@@ -1357,6 +1371,11 @@ export function LayoutContent(
           if (Number.isFinite(factor)) requestPageZoom(factor);
           return;
         }
+        if (sender === DORMANT_SENDER_ID) {
+          const ms = Number(value);
+          if (Number.isInteger(ms) && ms > 0) writeDormantAfterMs(ms);
+          return;
+        }
         if (sender === KIND_SENDER_ID && isImpositionKind(value)) {
           dispatchCommand("set-imposition", { kind: value });
         }
@@ -1589,6 +1608,23 @@ export function LayoutContent(
   const zoomValue = String(
     zoomRow.find((level) => Math.abs(level - zoom) < 0.005) ?? zoom,
   );
+
+  // How long a hidden card keeps working before it goes dormant. A delay
+  // written elsewhere (a harness, `tugbank write`) that is none of the
+  // everyday choices shows as a further segment, selected, as Zoom's does.
+  const dormantChoices: number[] = DORMANT_AFTER_CHOICES.includes(
+    dormantAfterMs as (typeof DORMANT_AFTER_CHOICES)[number],
+  )
+    ? [...DORMANT_AFTER_CHOICES]
+    : [...DORMANT_AFTER_CHOICES, dormantAfterMs].sort((a, b) => a - b);
+  const dormantItems: TugChoiceItem[] = dormantChoices.map((ms) => ({
+    value: String(ms),
+    label: dormantAfterLabel(ms),
+    tooltip:
+      ms === dormantAfterMs
+        ? `Hidden cards rest after ${dormantAfterLabel(ms)}`
+        : `Let hidden cards rest after ${dormantAfterLabel(ms)}`,
+  }));
 
   // One row per registered sidebar card: Off, or a side — show/hide and
   // placement as one question, because "where is it" and "is it there at all"
@@ -1962,6 +1998,33 @@ export function LayoutContent(
               </div>
             );
           })}
+
+          {/* How long a card the deck has hidden — a parked workspace's, a
+              folded pane's — keeps working before it goes dormant and
+              catches up when shown. It is about the window, not the
+              arrangement, so it does not audition. */}
+          <div className="layouts-section-row">
+            <TugLabel
+              id={DORMANT_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Rest
+            </TugLabel>
+            <TugChoiceGroup
+              items={dormantItems}
+              value={String(dormantAfterMs)}
+              senderId={DORMANT_SENDER_ID}
+              size="xs"
+              sidePadding="xs"
+              reselect
+              focusGroup={LAYOUT_FOCUS_GROUP}
+              focusOrder={LAYOUTS_DORMANT_FOCUS_ORDER}
+              aria-labelledby={DORMANT_CAPTION_ID}
+              data-testid="layout-card-dormant"
+            />
+          </div>
         </div>
         ) : null}
         </div>

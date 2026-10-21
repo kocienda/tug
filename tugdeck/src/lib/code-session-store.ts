@@ -826,6 +826,7 @@ export class CodeSessionStore extends Subscribable {
       replayWindow: this.state.replayWindow,
       sessionCreatedAtMs: this.state.sessionCreatedAtMs,
       loadingPrevious: this.state.replayPrependActive,
+      catchingUp: this.state.replayCatchUpActive,
       // Determinate load-previous progress: target turns requested vs
       // turns staged so far. Both 0 when no load is in flight.
       loadingPreviousTarget: this.state.replayPrependActive
@@ -1195,6 +1196,27 @@ export class CodeSessionStore extends Subscribable {
         Math.max(0, win.firstLoadedTurnIndex - turns),
         win.firstLoadedTurnIndex,
       ],
+    });
+    this.write(frame.feedId, frame.payload);
+  }
+
+  /**
+   * Catch up on what a dormant body missed: called on its reveal, after its
+   * session subscription is restored. It asks for the committed turns from
+   * the one before the first it lacks — one turn of overlap, which the
+   * reducer's msg-id dedupe drops, against drift between the transcript's
+   * count and tugcode's turn boundaries — to the end; a turn still in flight
+   * rides the bracket's snapshot. A card that slept mid-turn drops the cycle
+   * it holds first (`begin_catch_up`), so the bracket is entered and brings
+   * that turn back too. `catchingUp` stands until the bracket closes, or for
+   * `CATCH_UP_DEADLINE_MS` when no bracket comes.
+   */
+  catchUp(): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "begin_catch_up" });
+    const next = (this.state.replayWindow?.firstLoadedTurnIndex ?? 0) + this._transcript.length;
+    const frame = encodeRequestReplay(this.tugSessionId, "catch-up", {
+      turnRange: [Math.max(0, next - 1), Number.MAX_SAFE_INTEGER],
     });
     this.write(frame.feedId, frame.payload);
   }

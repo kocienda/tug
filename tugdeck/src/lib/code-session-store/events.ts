@@ -1333,6 +1333,24 @@ export interface BeginLoadPreviousEvent {
 }
 
 /**
+ * Mark the next replay bracket as a catch-up: a body that went dormant
+ * asking, on its reveal, for the turns it missed. The bracket's turns append
+ * as a normal bracket's do, deduped against what the card holds, and its
+ * `replay_complete` keeps the loaded window's start, since the turns it
+ * carries continue the transcript rather than replacing it. Cleared when the
+ * bracket closes, a shadow over it lifts, or `CATCH_UP_DEADLINE_MS` passes
+ * with no bracket at all.
+ */
+export interface BeginCatchUpEvent {
+  type: "begin_catch_up";
+}
+
+/** Internal action: `CATCH_UP_DEADLINE_MS` passed since `begin_catch_up`. */
+export interface TickCatchUpEvent {
+  type: "tick_catch_up";
+}
+
+/**
  * Internal action dispatched by the store after the transcript cap evicted
  * the oldest committed turns from the loaded window. The reducer advances
  * the recency window past them — `firstLoadedTurnIndex` by `evicted`,
@@ -1539,6 +1557,8 @@ export type CodeSessionEvent =
   | ClearJobsActionEvent
   | BindResumeAcknowledgedEvent
   | BeginLoadPreviousEvent
+  | BeginCatchUpEvent
+  | TickCatchUpEvent
   | TranscriptEvictedEvent
   | TickSoftBudgetEvent
   | TickTimeoutDwellDoneEvent

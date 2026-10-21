@@ -165,4 +165,5 @@ export const SURFACE_CENSUS: readonly SurfaceCensusEntry[] = [
   { module: "components/tugways/use-focus-trap.tsx", page: "infrastructure", why: "Traps focus inside a surface drawn in the root." },
   { module: "components/tugways/responder-chain-provider.tsx", page: "infrastructure", why: "Reads the root to keep the responder chain on a drawn surface." },
   { module: "lib/surface-mirror.ts", page: "infrastructure", why: "A body's mirror of a surface the overlay draws: its markup, line and anchor, published as `card.surface`." },
+  { module: "body/body-main.ts", page: "infrastructure", why: "A body gone dormant withholds its mirror's surface, and draws it again when it wakes." },
 ];

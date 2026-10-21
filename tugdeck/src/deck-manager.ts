@@ -1280,16 +1280,6 @@ export class DeckManager implements IDeckManagerStore {
     this.spacesStore.spaceOf(cardId, this.getPicture());
 
   /**
-   * Mount every parked workspace ahead of its first visit
-   * ({@link SpacesSnapshot.warmSpaceIds}): the body shell asks once the
-   * shown workspace's bodies have painted, so a first visit finds its cards
-   * standing. Idempotent; notifies only when a workspace joined.
-   */
-  public warmParkedSpaces = (): void => {
-    this.spacesStore.warmParked();
-  };
-
-  /**
    * The deck of any space, active or parked. The active space answers with the
    * live {@link deckState}, so no caller has to know which one it asked about.
    */
@@ -5679,11 +5669,11 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Claim `height` for `memberId` in the PARKED workspace `spaceId`, or drop
    * the claim with `null` — the report of a sheet standing on a parked card,
-   * which a warm workspace's unbound Session card makes before anybody has
-   * shown it ([B24] of the bodies migration). Its picker presents while
-   * parked and its claim lands on the record a first visit swaps in, so the
-   * arrival is laid out at the floor the picker needs and nothing resizes
-   * after the switch. The supersede rule is {@link sheetClaimWith}'s, as for
+   * which a visited workspace's Session card makes when its picker opens or
+   * closes after the workspace was parked. Its claim lands on the record the
+   * return swaps in, so the arrival is laid out at the floor the picker needs
+   * and nothing resizes after the switch. The supersede rule is
+   * {@link sheetClaimWith}'s, as for
    * the active deck; a parked member has no reveal, so no report of its is a
    * first report held to a bid. A no-op on the active workspace, whose claims
    * are {@link setSheetReservation}'s.

@@ -1,7 +1,7 @@
 /**
  * A parked workspace keeps its sheets' floor claims, and a claim whose sheet
  * goes while its workspace is parked is dropped from the parked record. A
- * sheet that reports while its workspace is parked — a warm workspace's
+ * sheet that reports while its workspace is parked — a visited workspace's
  * picker — claims on the parked record.
  *
  * A parked layer stays mounted with its sheets up, so the claim is still the

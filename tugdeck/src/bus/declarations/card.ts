@@ -54,15 +54,6 @@ export interface CardContextValue {
    */
   railSide?: "left" | "right";
   /**
-   * Present, and true, on a parked workspace's card that the workspace's
-   * arrival will make key: its parked deck's first responder. A body treats
-   * it as key for activation — an unbound Session card raises its picker
-   * there, so a first visit finds it presented and claimed — without the
-   * shell naming it first responder, which stays the shown workspace's.
-   * Absent for every other card.
-   */
-  parkedKey?: true;
-  /**
    * How many moves and resizes the shell's deck has committed for the card
    * since its body attached. A body fires `cardDidResize`, then `cardDidMove`,
    * for each that rose over the context before; the first context a page
@@ -145,7 +136,6 @@ export const cardContext = defineSharedStore<CardContextValue>({
     layerShown: bool,
     spaceId: nullable(str),
     railSide: optional(literal("left", "right")),
-    parkedKey: optional(opaque((v: unknown): v is true => v === true, true)),
     geometry: obj({ moves: num, resizes: num }),
   }),
   initial: NO_CARD_CONTEXT,
@@ -183,6 +173,11 @@ export interface CardFactsValue {
   canInterrupt: boolean;
   /** Whether the card's session has been compacted. */
   compacted: boolean;
+  /**
+   * Whether the card's page is dormant: hidden past its delay, its session
+   * subscription dropped, until it has caught up on being shown.
+   */
+  dormant: boolean;
 }
 
 export const cardFacts = defineSharedStore<CardFactsValue | null>({
@@ -204,6 +199,7 @@ export const cardFacts = defineSharedStore<CardFactsValue | null>({
       ),
       canInterrupt: bool,
       compacted: bool,
+      dormant: bool,
     }),
   ),
   initial: null,

@@ -185,8 +185,8 @@ export interface IDeckManagerStore extends DeckView {
 
   /**
    * The same claim for a member of the PARKED workspace `spaceId`, written on
-   * its parked record: a warm workspace's picker reports while nobody has
-   * shown it. Only the shell's manager holds parked workspaces; a body's
+   * its parked record: a parked card's picker can report while its
+   * workspace is hidden. Only the shell's manager holds parked workspaces; a body's
    * one-card deck has none, and leaves this out.
    */
   setParkedSheetReservation?: (spaceId: string, memberId: string, height: number | null) => void;
@@ -388,13 +388,6 @@ export interface IDeckManagerStore extends DeckView {
    * ([D03])
    */
   initialFocusedCardId?: string;
-
-  /**
-   * Mount every parked workspace ahead of its first visit
-   * (`SpacesSnapshot.warmSpaceIds`). Only the shell's manager mounts
-   * workspaces; a body's one-card deck leaves this out.
-   */
-  warmParkedSpaces?: () => void;
 
   /**
    * Add a workspace, activate it, and stand its factory rail ([P05]). The

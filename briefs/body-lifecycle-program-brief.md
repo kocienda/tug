@@ -59,9 +59,9 @@ Four tiers rather than two because the user asked for dormant to be built: it is
 
 ## Open Questions {#open-questions}
 
-- **What does a dormant body still cost at rest?** With its subscription dropped and its worker parked, a WebContent process holding a 500-turn DOM is a resident-memory number nobody has read. The dormant stage reads it, and that number against [F06]'s streaming cost is what sets the dormant → evicted time.
-- **Does a dormant body's reveal need the lid?** Its DOM stands and only the missed turns arrive; if the replay lands inside a frame the reveal is a show, not an arrival. Read in the dormant stage against row 1's bar.
-- **What does the overlay do about a dormant card's surface?** A card that goes dormant with a popover escaping its box has an `overlay.surfaces` entry; dormancy should withdraw it as a move does. Decided in the dormant stage from the surface relay's rules.
+- **What does a dormant body still cost at rest?** *Read in stage 1 (the record):* about 550 MB resident for a 500-turn body, unchanged by dormancy, and under 1% CPU while its session streams. Hidden and awake, the same body spends 6.8%. That memory against [F06]'s streaming cost is what sets the dormant → evicted time.
+- **Does a dormant body's reveal need the lid?** *Read in stage 1:* yes. A body that slept mid-turn stood 4–6 display periods between being shown and its catch-up landing, more than a frame, so it wears the content lid from sleep to wake.
+- **What does the overlay do about a dormant card's surface?** A card that goes dormant with a popover escaping its box has an `overlay.surfaces` entry; dormancy should withdraw it as a move does. *Decided in stage 1:* a body that sleeps withholds its surface mirror, which withdraws the entry, and resends what it held when it wakes.
 
 ---
 
@@ -90,3 +90,4 @@ Three arcs, one per brief, in this order:
 | Stage | Joined | Reading | Notes |
 |---|---|---|---|
 | before | 2026-10-21 | kill → ready 419–463 ms, → visible same frame, → settled 470–500 ms; replay 2–3 ms / 43 frames at 50, 200 and 500 turns; body 227–244 MB before and after | `at0749`, harness, M4 Max; terminated path fixed to be visible at all ([F04]) |
+| 1 | 2026-10-21 | Body of 500 stub turns: 225 MB empty, 536 MB full at rest. While a turn streamed, it used 6.8% CPU hidden and awake (20 s) and 0.73% dormant (60 s). RSS held at 550 MB across the dormant minute. Reveal: shown 13 ms and awake with the missed turn in 59 ms after the switch; the page's longest frame gap was 36 ms (2.2 periods). First visit to a never-shown workspace: shown 112 ms after the switch. Terminated rebuild: settled 552 ms after the kill. | `at0750`, `row-36`, `row-37`, harness, M4 Max. Dormancy stops the work, not the memory. The worker parks: the 500 turns add 312 MB to the body, held across its DOM, store and worker, so stopping the worker alone frees part of that and leaves the DOM; the memory is eviction's to free, at a rebuild of about half a second. |

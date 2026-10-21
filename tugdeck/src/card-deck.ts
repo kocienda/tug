@@ -384,14 +384,6 @@ export interface CardDeck {
   /** Which space holds `cardId`, active or parked — `null` when none does. */
   spaceOf: (cardId: string) => string | null;
 
-  /**
-   * Whether `cardId` is a warm workspace's card that its first visit will
-   * make key (the context's `parkedKey`), and so is presented to as the key
-   * card while it stands parked. Only a body's deck answers: the shell's
-   * key card is its first responder.
-   */
-  isParkedKey?: (cardId: string) => boolean;
-
   // ---- Phase 5f3: Save callbacks for close-time state flush ([D01]) ----
 
   /**

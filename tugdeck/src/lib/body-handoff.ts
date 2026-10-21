@@ -122,8 +122,8 @@ export function _resetHandOffForTest(): void {
 }
 
 /**
- * `cardId`'s card, read from its own workspace's deck: a warm workspace's
- * card has its body while parked, and is asked for again there.
+ * `cardId`'s card, read from its own workspace's deck: a visited workspace's
+ * card keeps its body while parked, and is asked for again there.
  */
 function cardInItsSpace(cardId: string): DeckState["cards"][number] | undefined {
   const deck = getShellDeck();

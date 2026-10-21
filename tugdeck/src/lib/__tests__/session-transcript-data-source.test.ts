@@ -183,6 +183,7 @@ function snapshotWith(args: {
     replayWindow: null,
     sessionCreatedAtMs: null,
     loadingPrevious: false,
+    catchingUp: false,
     loadingPreviousTarget: 0,
     loadingPreviousLoaded: 0,
     replayPreflightActive: false,

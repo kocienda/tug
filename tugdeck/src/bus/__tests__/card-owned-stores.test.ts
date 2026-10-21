@@ -31,6 +31,7 @@ const FACTS: CardFactsValue = {
   titleBar: null,
   canInterrupt: false,
   compacted: false,
+  dormant: false,
 };
 
 const SURFACE = {

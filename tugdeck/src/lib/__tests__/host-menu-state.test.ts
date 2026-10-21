@@ -64,7 +64,7 @@ function spacesOf(
   spaces: readonly { id: string; name: string; theme?: string }[],
   activeSpaceId: string,
 ): SpacesSnapshot {
-  return { spaces, activeSpaceId, mountedSpaceIds: [], warmSpaceIds: [], mountedDecks: new Map() };
+  return { spaces, activeSpaceId, mountedSpaceIds: [], mountedDecks: new Map() };
 }
 
 // Pane names resolve through the card registry now, so the projection tests
