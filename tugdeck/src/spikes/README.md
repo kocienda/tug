@@ -67,9 +67,7 @@ Compose existing `Tug*` components rather than hand-rolling equivalents ([L20]) 
 
 ## Getting to it on the deck
 
-**Maker ▸ New Spikes Card** (debug builds, Maker mode on) opens the Spikes index: one row per spike, showing its title and blurb. Clicking a row mounts that spike as a tab in the same pane.
-
-The index rows are the way in to a *second* spike, not just a convenience. A pane opened from the menu holds one card, and a single-card pane's `+` picker only offers the `"standard"` family — no spikes appear in it. Once an index row has added one, the pane is multi-card and its `+` picker lists every spike as well.
+**Maker ▸ New Spikes Card** (debug builds, Maker mode on) opens the Spikes index: one row per spike, showing its title and blurb. Clicking a row opens that spike in a new card of its own, placed beside the index.
 
 ## Getting out
 

@@ -1272,7 +1272,10 @@ export function initActionDispatch(
   // card each time, so ⌘N always opens a new session card. The about
   // invocation additionally carries the app's build identity (version,
   // build, commit, branch, profile, copyright), parked in appInfoStore
-  // for the About card to read.
+  // for the About card to read. A fresh card is placed from
+  // `originCardId` when the payload names one — the Spikes index sends its
+  // own id, so a spike opens beside the index rather than at the deck's
+  // choice.
   //
   // The Spikes index is a singleton for the same reason the others are: a
   // second index onto the same list is never the thing anyone wanted.
@@ -1289,7 +1292,7 @@ export function initActionDispatch(
     if (SINGLETON_CARDS.has(component)) {
       deckManager.showSingletonCard(component);
     } else {
-      deckManager.addCard(component);
+      deckManager.addCard(component, undefined, { origin: originOf(payload) });
     }
   });
 

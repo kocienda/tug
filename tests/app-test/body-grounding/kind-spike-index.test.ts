@@ -1,13 +1,11 @@
 /**
  * kind-spike-index.test.ts — a Spikes index row, clicked in its body, opens
- * that spike as a tab of the shell's pane.
+ * that spike in a new card of its own, never as a tab of the index's pane.
  *
- * The row says `ADD_TAB` to its pane. `ADD_TAB` is pane currency rather
- * than a command, so the body's unhandled-target hook never forwards it;
- * the body's pane responder answers it itself, through the bridge's
- * `addCardToPane`, which reaches the shell as `add-card` advice and lands on
- * the pane the index stands in. Before that route existed the click died
- * silently in the body — this is the check that it does not.
+ * The row dispatches the registry command `show-card`, which the body has no
+ * handler for and so hands to the shell; the shell's deck adds the spike as a
+ * fresh card, placed from the index. This is the check that the click
+ * crosses the body boundary and lands as a card, not as a tab.
  *
  * @foreground
  * @covers tugdeck/src/spikes/spike-home.tsx
@@ -54,17 +52,17 @@ const DECK = {
 const present = (selector: string): string => `document.querySelector(${JSON.stringify(selector)}) !== null`;
 /** The spike the first row names, read off the row itself. */
 const firstRowSpike = `(function () { var r = document.querySelector(${JSON.stringify(FIRST_ROW)}); return r ? r.getAttribute("data-spike") : null; })()`;
-/** The component ids of the cards in the index's pane, in the shell's deck. */
-const paneKinds = `(function () {
+/** Each pane's card component ids, in the shell's deck. */
+const deckKinds = `(function () {
   var s = window.tugdeck.diag.getDeckState();
-  var p = s.panes.find(function (p) { return p.cardIds.indexOf(${JSON.stringify(HOME)}) !== -1; });
-  if (!p) return [];
-  return p.cardIds.map(function (id) { var c = s.cards.find(function (c) { return c.id === id; }); return c ? c.componentId : null; });
+  return s.panes.map(function (p) {
+    return p.cardIds.map(function (id) { var c = s.cards.find(function (c) { return c.id === id; }); return c ? c.componentId : null; });
+  });
 })()`;
 
 describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the Spikes index's rows open their spike", () => {
   test(
-    "a row clicked in the index's body adds that spike to the index's pane in the shell",
+    "a row clicked in the index's body opens that spike in a new card in the shell",
     async () => {
       const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
       try {
@@ -79,13 +77,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the Spikes index's rows
         const spike = await body.evalJS<string | null>(firstRowSpike);
         expect(spike, "the first row names a spike").not.toBeNull();
         const expected = `spike-${spike}`;
-        expect(await app.evalJS<string[]>(paneKinds), "the pane holds the index alone before the click").toEqual(["spike-home"]);
+        expect(await app.evalJS<string[][]>(deckKinds), "the deck holds the index alone before the click").toEqual([["spike-home"]]);
 
         await Bun.sleep(300);
         await body.nativeClickAtElement(FIRST_ROW);
-        const kinds = await pollFor(() => app.evalJS<string[]>(paneKinds), (k) => k.length > 1, READ_MS);
-        note(`pane after the click: ${kinds.join(", ")}`);
-        expect(kinds, "the clicked row's spike is a tab of the index's pane").toEqual(["spike-home", expected]);
+        const panes = await pollFor(() => app.evalJS<string[][]>(deckKinds), (p) => p.length > 1, READ_MS);
+        note(`panes after the click: ${panes.map((p) => p.join("+")).join(", ")}`);
+        expect(panes, "the index's pane still holds the index alone").toContainEqual(["spike-home"]);
+        expect(panes, "the clicked row's spike stands in a card of its own").toContainEqual([expected]);
       } finally {
         await app.close();
       }

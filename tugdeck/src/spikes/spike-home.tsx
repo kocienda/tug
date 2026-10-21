@@ -2,29 +2,16 @@
  * spike-home.tsx — the Spikes index card.
  *
  * One row per entry in `SPIKES`: the spike's title, and under it the one-line
- * question that spike explores. Activating a row mounts that spike as a tab in
- * the same pane.
+ * question that spike explores. Activating a row opens that spike in a card of
+ * its own, placed beside the index.
  *
  * The card holds no state of its own. `SPIKES` is a module constant the
  * registry hands in as a prop — passed rather than imported, because the
  * registry imports this card to register it — row selection belongs to
- * `TugListView`, and the mutation belongs to the pane:
- * a row emits the `add-tab` action and `TugPane`'s responder answers it with
- * `store.addCardToPane` ([L11]). That is why this card never needs to know its
- * own paneId.
- *
- * The dispatch reaching the pane at all is worth stating, because the DOM makes
- * it look impossible: `.tug-pane-content` is an empty ref'd div that card
- * content is mounted into, so a card is not a React child of the pane's
- * `ResponderScope`. `CardHost` closes the gap by registering with an explicit
- * `parentId` of its host pane, re-parenting every card's responder node onto
- * the pane it lives in.
- *
- * Rows are also the way *in* to a second spike. A pane opened straight from the
- * Maker menu holds one card, and a single-card pane's `+` picker offers only
- * the `"standard"` family — no spikes. `addCardToPane` consults no family
- * filter, so an index row mounts a spike regardless; once it has, the pane is
- * multi-card and its `+` picker lists every spike too.
+ * `TugListView`, and the mutation belongs to the deck: a row dispatches the
+ * `show-card` command with the spike's componentId and the index's own card id
+ * as `originCardId` ([L11]). `show-card` is registry-routed, so from a body
+ * page it is handed to the shell, whose deck adds the card.
  *
  * Laws: [L11] controls emit actions, responders own state; [L20] composes
  * `TugListView` / `TugListRow` rather than hand-rolling rows or list focus;
@@ -37,8 +24,8 @@ import "./spike-home.css";
 
 import React, { useMemo } from "react";
 
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { useControlDispatch } from "@/components/tugways/use-control-dispatch";
+import { dispatchCommand } from "@/command-dispatch";
+import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import {
   TugListView,
@@ -109,7 +96,8 @@ export function SpikeHome({
   /** The registry's `SPIKES`, in declaration order. */
   spikes: readonly SpikeDef[];
 }): React.ReactElement {
-  const { dispatch } = useControlDispatch();
+  // The index's own card, which an opened spike is placed beside.
+  const hostCardId = useCardId();
   const dataSource = useMemo(() => new SpikeRowsDataSource(spikes), [spikes]);
 
   const delegate = useMemo<TugListViewDelegate>(
@@ -117,14 +105,13 @@ export function SpikeHome({
       onSelect: (index: number) => {
         const def = spikes[index];
         if (def === undefined) return;
-        dispatch({
-          action: TUG_ACTIONS.ADD_TAB,
-          value: spikeComponentId(def.name),
-          phase: "discrete",
+        dispatchCommand("show-card", {
+          component: spikeComponentId(def.name),
+          ...(hostCardId !== null ? { originCardId: hostCardId } : {}),
         });
       },
     }),
-    [dispatch, spikes],
+    [hostCardId, spikes],
   );
 
   if (spikes.length === 0) {
