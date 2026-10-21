@@ -60,12 +60,13 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-/** The imposition gaps (`lib/layout-imposer.ts`). */
-const GAP = 5;
+/** The imposition gaps (`lib/layout-imposer.ts`), at the default card gap. */
+const GAP = IMPOSITION_GAP_PX;
 /**
  * The bottom gap, which is the profile's rather than a constant. A maker's
  * canvas reserves `IMPOSITION_GAP_BOTTOM_MAKER_PX` at the foot for the host's

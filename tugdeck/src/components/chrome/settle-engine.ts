@@ -3582,6 +3582,45 @@ export function useSettleEngine({
                 ],
               };
             }),
+            // A split's revealed members, at their committed tiles at once
+            // ([B02] of `briefs/column-flip-cover-brief.md`): a revealed
+            // member is simply there at its tile as the survivor retreats off
+            // it. The shell's frame already is, and its body has to be too —
+            // left where the stack had it, the view would stand over the
+            // whole run, in front and taking the pointer, for as long as the
+            // settle runs. A zero-length beat from the stacked rect its body
+            // was posted at to its tile lands it before the first frame; a
+            // retiring member on a stack is held at its old tile instead,
+            // which is where its body already stands, so it is not here.
+            ...covered
+              .filter(({ paneId }) => !holdPlan.held.has(paneId))
+              .map(({ paneId, frame }) => {
+                const firstLayout = firstRects.get(paneId);
+                const lastLayout = lastRectOf(frame);
+                return {
+                  frame,
+                  first: firstLayout === undefined ? null : viewportRectOf(firstLayout, factor),
+                  last: viewportRectOf(lastLayout, factor),
+                  beats: [
+                    {
+                      kind: "move" as const,
+                      terms: {
+                        dx: firstLayout === undefined ? 0 : firstLayout.x - lastLayout.x,
+                        dy: firstLayout === undefined ? 0 : firstLayout.y - lastLayout.y,
+                        ...(firstLayout === undefined
+                          ? {}
+                          : {
+                              width: [firstLayout.width, lastLayout.width] as [number, number],
+                              height: [firstLayout.height, lastLayout.height] as [number, number],
+                            }),
+                      },
+                      delayMs: 0,
+                      durationMs: 0,
+                      progress: [0, 1],
+                    },
+                  ],
+                };
+              }),
           ],
         });
       }

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  DEFAULT_GAP,
+  GAP_PX,
   IMPOSITION_GAP_BOTTOM_MAKER_PX,
   IMPOSITION_GAP_BOTTOM_PROPERTY,
   impositionGapBottomPx,
@@ -10,6 +12,7 @@ import {
   IMPOSITION_KINDS,
   RAIL_EDGE_INSET_PX,
   RAIL_EDGE_INSET_PROPERTY,
+  RAIL_GUTTER_EXTRA_PX,
   RAIL_GUTTER_PX,
   RAIL_GUTTER_PROPERTY,
   RAIL_SEAM_PX,
@@ -199,7 +202,7 @@ describe("kinds", () => {
 
 describe("gaps", () => {
   test("the horizontal gap is the one the drag snap holds", () => {
-    expect(IMPOSITION_GAP_PX).toBe(5);
+    expect(IMPOSITION_GAP_PX).toBe(GAP_PX[DEFAULT_GAP]);
   });
 
   test("the rail's two lengths are named apart from the card gap", () => {
@@ -208,7 +211,7 @@ describe("gaps", () => {
     // air are what tell a rail from a card, and neither moves the deck's own
     // rhythm, which stays the card gap everywhere else.
     expect(RAIL_EDGE_INSET_PX).toBe(0);
-    expect(RAIL_GUTTER_PX).toBe(12);
+    expect(RAIL_GUTTER_PX).toBe(IMPOSITION_GAP_PX + RAIL_GUTTER_EXTRA_PX);
     expect(RAIL_GUTTER_PX).toBeGreaterThan(IMPOSITION_GAP_PX);
     expect(RAIL_EDGE_INSET_PROPERTY).toBe("--tug-rail-edge-inset");
     expect(RAIL_GUTTER_PROPERTY).toBe("--tug-rail-gutter");
@@ -395,14 +398,16 @@ describe("imposeRect", () => {
     expect(imposeRect(slotOne, 400, FULL).position.x).toBe(
       imposeRect(resolvePlacement("two-up", 1), 400, FULL).position.x,
     );
-    // Two-up, 990 of band, a 400 card: 590 of travel.
-    expect(imposeRect(slotOne, 400, FULL).position.x).toBe(GAP + 590);
+    // Two-up: the band less a 400 card is the travel, all of it spent.
+    expect(imposeRect(slotOne, 400, FULL).position.x).toBe(
+      GAP + (FULL.width - 2 * GAP - 400),
+    );
   });
 
   test("one-up centers the card, with the slack split evenly", () => {
-    // 990 of band, a 400 card: 590 of travel, half of it on each side.
+    // The band less a 400 card is the travel, half of it on each side.
     const r = imposeRect(resolvePlacement("one-up", 0), 400, FULL);
-    expect(r.position.x).toBe(GAP + 295);
+    expect(r.position.x).toBe(GAP + (FULL.width - 2 * GAP - 400) / 2);
     expect(r.position.x - GAP).toBe(FULL.width - GAP - (r.position.x + r.size.width));
   });
 
@@ -410,7 +415,8 @@ describe("imposeRect", () => {
     const xs = [0, 1, 2].map(
       (k) => imposeRect(at(k, 3), 300, FULL).position.x,
     );
-    expect(xs).toEqual([5, 350, 695]);
+    const travel = FULL.width - 2 * GAP - 300;
+    expect(xs).toEqual([GAP, GAP + travel / 2, GAP + travel]);
     // Equal air between neighbours, rather than pooled at one end.
     expect(xs[1] - (xs[0] + 300)).toBe(xs[2] - (xs[1] + 300));
   });
@@ -463,13 +469,14 @@ describe("imposeRect", () => {
   });
 
   test("a crowded band overlaps instead of running past it", () => {
-    // Three 500s in a 990 band: 510 too many, shared over two intervals.
+    // Three 500s in the band: the overrun is shared over two intervals.
     const rects = [0, 1, 2].map((k) => imposeRect(at(k, 3), 500, FULL));
-    expect(rects.map((r) => r.position.x)).toEqual([5, 250, 495]);
+    const travel = FULL.width - 2 * GAP - 500;
+    expect(rects.map((r) => r.position.x)).toEqual([GAP, GAP + travel / 2, GAP + travel]);
     const overlaps = [0, 1].map(
       (i) => rects[i].position.x + rects[i].size.width - rects[i + 1].position.x,
     );
-    expect(overlaps).toEqual([255, 255]);
+    expect(overlaps).toEqual([500 - travel / 2, 500 - travel / 2]);
     for (const r of rects) expect(r.size.width).toBe(500);
     const last = rects[2];
     expect(last.position.x + last.size.width).toBe(FULL.width - GAP);
@@ -480,8 +487,9 @@ describe("imposeRect", () => {
     const overlaps = [0, 1, 2].map(
       (i) => rects[i].position.x + rects[i].size.width - rects[i + 1].position.x,
     );
-    // 990 of band, a 500 card: 490 of travel over three intervals.
-    for (const o of overlaps) expect(o).toBeCloseTo(500 - 490 / 3, 9);
+    // The band less a 500 card is the travel, over three intervals.
+    const travel = FULL.width - 2 * GAP - 500;
+    for (const o of overlaps) expect(o).toBeCloseTo(500 - travel / 3, 9);
     const last = rects[3];
     expect(last.position.x + last.size.width).toBeCloseTo(FULL.width - GAP, 9);
   });
@@ -519,7 +527,7 @@ describe("imposeRect", () => {
     // the rail. The rail's side moves the band, never the numbering.
     expect(a.position.x).toBe(RAIL_LEFT.x + GAP);
     // The last slot's right edge lands a gap short of the canvas's right.
-    expect(b.position.x + b.size.width).toBe(995);
+    expect(b.position.x + b.size.width).toBe(RAIL_LEFT.x + RAIL_LEFT.width - GAP);
   });
 
   test("a right-docked rail leaves slot 0 exactly where a closed one does", () => {
@@ -634,12 +642,13 @@ describe("imposeStyle", () => {
   });
 
   test("a pinned rect centres on both axes, and clamps at the near edges", () => {
-    // FULL is 1000 × 800: a run of 800 - 5 - 32 = 763, so a 363-tall card
-    // leaves 400 of slack and takes 200 of it above. A 320 card in an 800
-    // slot takes 240 of the 480 to its left.
+    // FULL is 1000 × 800: the run is the height less the top gap and the
+    // maker bottom gap, so a 363-tall card takes half the slack above. A 320
+    // card in an 800 slot takes 240 of the 480 to its left.
+    const run = FULL.height - GAP - impositionGapBottomPx();
     const centred = imposeRect(at(0, 3), 800, FULL, { width: 320, height: 363 });
     expect(centred.size).toEqual({ width: 320, height: 363 });
-    expect(centred.position).toEqual({ x: GAP + 240, y: GAP + 200 });
+    expect(centred.position).toEqual({ x: GAP + 240, y: GAP + (run - 363) / 2 });
     // Larger than the slot on either axis: no negative offset, so it starts at
     // the near edge rather than hanging off the canvas.
     const overhang = imposeRect(at(0, 3), 320, FULL, {
@@ -1746,11 +1755,12 @@ describe("the space allocator", () => {
         },
         { right },
       );
-    // 321px of occlusion is still a bad deck. It is 40px better than the width
-    // the rail's owner chose, and every pixel of that is a card edge the user
-    // can see.
-    expect(pictureAt(320).worstOverlap).toBe(321);
-    expect(pictureAt(400).worstOverlap).toBe(361);
+    // Hundreds of px of occlusion is still a bad deck — half the shortfall
+    // at the one interior seam, less the gap the seam was owed. It is 40px
+    // better than the width the rail's owner chose, and every pixel of that
+    // is a card edge the user can see.
+    expect(pictureAt(320).worstOverlap).toBe((332 + 320) / 2 - GAP);
+    expect(pictureAt(400).worstOverlap).toBe((332 + 400) / 2 - GAP);
   });
 
   test("growth is bounded by the slim width, and reaches it", () => {
@@ -1995,8 +2005,9 @@ describe("the total is chosen by the picture it paints", () => {
   test("comfort is spent to REDUCE an overlap it cannot remove", () => {
     // Three 800px cards genuinely do not fit on a 2000–3000px canvas at any
     // rail total. The rails go to their hard floors anyway, because every
-    // pixel they give up is a pixel of card the user gets back: at 3000 the
-    // lap closes from 126px to 70px for 112px of Overview measure.
+    // pixel they give up is a pixel of card the user gets back: on the canvas
+    // whose fit wants 570 of rail, the floors' 720 leave 150 to be carried by
+    // the two seams, and the lap closes to that half less the gap.
     //
     // This is the content-first rule, and it is the one the old tier gate got
     // wrong. That gate asked whether surrendering comfort reached a better
@@ -2008,7 +2019,7 @@ describe("the total is chosen by the picture it paints", () => {
     }
     expect(
       seamPicture(at(canvasFor(570)), answerAt(canvasFor(570))).worstOverlap,
-    ).toBe(70);
+    ).toBe((720 - 570) / 2 - GAP);
   });
 
   test("a hopeless deck returns the rails to their preferences", () => {
@@ -2082,20 +2093,20 @@ describe("the total is chosen by the picture it paints", () => {
 });
 
 describe("greed order decides which rail is the wide one", () => {
-  /** The plan's worked example: a full two-up of 800px cards. One 5px seam
-   *  between them wants a band of exactly 1605, so with two rails standing the
-   *  fit wants a rail TOTAL of `canvas − 1605 − 2·rail air`.
+  /** The plan's worked example: a full two-up of 800px cards. One seam
+   *  between them wants a band of exactly 1600 plus a gap, so with two rails
+   *  standing the fit wants a rail TOTAL of `canvas − band − 2·rail air`.
    *
    *  Written as a full two-up rather than as three-up with slots 0 and 2 —
    *  same travel fractions, same arithmetic, but the chain is now every slot
    *  the kind defines, so a three-up with a hole in the middle is a chain of
-   *  THREE and wants a band of 2410. */
+   *  THREE and wants a band of 2400 plus two gaps. */
   const TWO_CARDS = [
     { slot: 0, width: 800 },
     { slot: 1, width: 800 },
   ] as const;
   /** The canvas whose fit wants the two rails to total `total`. */
-  const canvasFor = (total: number): number => total + RAIL_AIR * 2 + 1605;
+  const canvasFor = (total: number): number => total + RAIL_AIR * 2 + 1600 + GAP;
 
   /** The Overview: the greediest rail, at the ch-derived magnitudes the plan's
    *  example uses. Fed first, drained last. */
@@ -2122,7 +2133,6 @@ describe("greed order decides which rail is the wide one", () => {
     // Σ preferred is 980, and a canvas whose fit wants exactly that leaves
     // every rail at the width its owner chose.
     expect(solve(canvasFor(980))).toEqual({ left: 420, right: 560 });
-    expect(canvasFor(980)).toBe(2609);
   });
 
   test("a deficit drains the least greedy rail first, to its floor", () => {
@@ -2138,8 +2148,9 @@ describe("greed order decides which rail is the wide one", () => {
   test("a deficit past every floor stands both rails on their floors", () => {
     // The plan's worked case: the fit wants 805 of rail and the floors total
     // 816, so the target clamps UP and the 11px the rails refuse to give is
-    // carried by the chain instead — the cards overlap by 6px at the single
-    // interior seam, reported honestly rather than repaired.
+    // carried by the chain instead — the single interior seam falls 11px
+    // short of the gap, reported honestly rather than repaired, and overlaps
+    // only once the shortfall exceeds the gap itself.
     const canvasWidth = canvasFor(805);
     expect(solve(canvasWidth)).toEqual({ left: 320, right: 496 });
     const picture = seamPicture(
@@ -2152,7 +2163,8 @@ describe("greed order decides which rail is the wide one", () => {
       },
       { left: 320, right: 496 },
     );
-    expect(picture.worstOverlap).toBe(6);
+    expect(picture.worstShortfall).toBe(11);
+    expect(picture.worstOverlap).toBe(Math.max(0, 11 - GAP));
   });
 
   test("a surplus feeds the greediest rail first, to its ceiling", () => {
@@ -2164,7 +2176,6 @@ describe("greed order decides which rail is the wide one", () => {
       left: 505,
       right: CONTENT_WIDTH_SLIM_PX,
     });
-    expect(canvasFor(1180)).toBe(2809);
   });
 
   test("the two rails answer with different widths", () => {
@@ -2296,7 +2307,7 @@ describe("the stacking folds a rail is built from", () => {
     // is rank 1, so Cards drains first even though Jots alone would not
     // outrank it.
     const widths = allocateSidebarWidths({
-      canvasWidth: 880 + RAIL_AIR * 2 + 1605,
+      canvasWidth: 880 + RAIL_AIR * 2 + 1600 + GAP,
       kind: "two-up",
       occupied: [
         { slot: 0, width: 800 },

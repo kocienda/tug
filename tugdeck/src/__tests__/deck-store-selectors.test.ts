@@ -25,6 +25,7 @@ import {
 } from "../deck-store-selectors";
 import {
   allocatePlaceHeights,
+  impositionGapPx,
   type PlaceMember,
 } from "@/lib/layout-imposer";
 import { registerCard, _resetForTest } from "../card-registry";
@@ -364,11 +365,13 @@ describe("deckColumnsOf", () => {
       ),
     );
     expect(columns[0].members).toEqual(["pane-a", "pane-b"]);
-    // A share divides the RUN less its gaps ([P04]): 995px of the 1000px run,
-    // of which the upper member takes three quarters — 746.25px, well clear
-    // of the 180 floor. The gap's centre is half a gap past its bottom edge,
-    // and the fraction the seam property carries is that centre over the run.
-    expect(columns[0].seams).toEqual([0.74875]);
+    // A share divides the RUN less its gaps ([P04]): the 1000px run less one
+    // gap, of which the upper member takes three quarters — well clear of
+    // the 180 floor. The gap's centre is half a gap past its bottom edge, and
+    // the fraction the seam property carries is that centre over the run.
+    const upper = (1000 - impositionGapPx()) * 0.75;
+    expect(columns[0].seams).toHaveLength(1);
+    expect(columns[0].seams[0]).toBeCloseTo((upper + impositionGapPx() / 2) / 1000, 9);
   });
 
   test("the fallback order is NOT the panes array's order", () => {
@@ -446,15 +449,17 @@ describe("a split column in flow", () => {
     const strip = deckFlowStrip(state);
     expect(strip?.positions.get(0)).toBe(0);
     // 900 (the widest member) + one gap, not 500 + 900 + gaps.
-    expect(strip?.positions.get(1)).toBe(905);
+    expect(strip?.positions.get(1)).toBe(900 + impositionGapPx());
     // And slot 2, which nothing stands in, holds a card's width open behind
-    // them: 905 + 400 + a gap. The strip is the arrangement, not the run.
-    expect(strip?.positions.get(2)).toBe(1310);
+    // them: slot 1's place + 400 + a gap. The strip is the arrangement, not
+    // the run.
+    const slot2 = 900 + impositionGapPx() + 400 + impositionGapPx();
+    expect(strip?.positions.get(2)).toBe(slot2);
     // The reserved extent is the widest card standing in the chain — 900, the
     // split column's wider member — not the deck's content preset: a place among
     // cards should look like the cards it is among.
     expect(strip?.extents.get(2)).toBe(900);
-    expect(strip?.width).toBe(1310 + 900);
+    expect(strip?.width).toBe(slot2 + 900);
   });
 
   test("a card assigned past an empty slot stands where its number says", () => {
@@ -479,8 +484,8 @@ describe("a split column in flow", () => {
     const strip = deckFlowStrip(state);
     // Both cards are 600 wide, so the held-open slot 1 reserves 600 too.
     expect([...(strip?.positions.keys() ?? [])].sort()).toEqual([0, 1, 2]);
-    expect(strip?.positions.get(1)).toBe(605);
-    expect(strip?.positions.get(2)).toBe(605 + 600 + 5);
+    expect(strip?.positions.get(1)).toBe(600 + impositionGapPx());
+    expect(strip?.positions.get(2)).toBe(2 * (600 + impositionGapPx()));
   });
 });
 

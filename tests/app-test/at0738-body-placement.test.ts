@@ -283,6 +283,18 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
 
         await app.dispatchControlAction("focus-session-card", { cardId: NEIGHBOUR });
         await pollFor(() => app.getFocusedCardId(), (id) => id === NEIGHBOUR, PLACED_MS);
+        // Focusing the neighbour re-divides the column (its picker's bid comes
+        // and goes with the focus), so the body card slides. The click is
+        // aimed at the composer where the card lands; fired mid-slide it lands
+        // where the card is not yet, so it waits for the deck to come to rest.
+        await app.waitForCondition<boolean>(
+          `(function () {
+            var p = window.tugdeck.diag.getBodyPlacement();
+            return document.querySelector("[data-imposer-settling]") === null &&
+              p !== null && p.inFlight.length === 0;
+          })()`,
+          { timeoutMs: PLACED_MS },
+        );
         const body = app.body(BODY_CARD);
         await body.nativeClickAtElement(PROMPT_INPUT);
         await body.waitForCondition<boolean>(composerFocused, { timeoutMs: PLACED_MS });

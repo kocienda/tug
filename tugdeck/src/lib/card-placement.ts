@@ -110,6 +110,7 @@ import {
 } from "./card-plan";
 import { motionKeyframes } from "./imposer-motion";
 import { IMPOSITION_SETTLE_MS } from "./layout-imposer";
+import { impositionGapPx } from "./layout-imposer";
 import { getTugTiming } from "./scale-timing";
 import { deckTrace } from "../deck-trace";
 import { CARD_APRON_PX } from "./chrome-placement";
@@ -238,6 +239,10 @@ export interface PlaceCards {
   readonly canvas: Rect | null;
   /** The page zoom the canvas's layout is drawn at. */
   readonly zoom: number;
+  /** The deck's live card gap, layout px: the air an Option-snap leaves
+   *  between two adjacent card edges, so a hand-snapped pane lands on the
+   *  imposer's rhythm. */
+  readonly gap: number;
   readonly cards: readonly CardPlacementEntry[];
 }
 
@@ -248,6 +253,7 @@ type CardFrameFacts = Pick<CardPlacementEntry, "grips" | "free" | "min" | "maxHe
 export interface CardFacts {
   readonly canvas: Rect | null;
   readonly zoom: number;
+  readonly gap: number;
   readonly byCard: ReadonlyMap<string, CardFrameFacts>;
 }
 
@@ -283,6 +289,7 @@ export function readCardFacts(
   return {
     canvas: c === undefined ? null : { x: c.x, y: c.y, width: c.width, height: c.height },
     zoom: pageZoomStore.getFactor(),
+    gap: impositionGapPx(),
     byCard,
   };
 }
@@ -298,6 +305,7 @@ export function placeCardsOf(placement: Placement, facts: CardFacts): PlaceCards
     apron: CARD_APRON_PX,
     canvas: facts.canvas,
     zoom: facts.zoom,
+    gap: facts.gap,
     cards: placement.bodies.map((b) => {
       const f = facts.byCard.get(b.cardId) ?? none;
       return {
@@ -912,13 +920,25 @@ export class CardPlacer {
       // Each carried card's rect is its landing, named by the plan. A carried
       // arrival is shown by the host with its tracks, so it is posted visible
       // from here: the frame it rides in on is what the reader sees arrive.
-      this.poster.adopt({
+      //
+      // And every card's shell controls are read again here. The place seams
+      // stand at their Last positions from the commit the settle plans, while
+      // the placement standing carries them where the last measurement at
+      // rest read them — and no measurement runs until the settle ends. The
+      // host keeps a seam's points for the shell, so a stale strip lying
+      // across a card that is moving under it takes that card's presses for
+      // the length of the settle. Posted at once, naming the plan, so the
+      // host keeps its beats and only learns where the seams are.
+      const adopted: Placement = {
         bodies: last.bodies.map((b) => {
           const r = landings.get(b.cardId);
-          if (r === undefined) return b;
-          return { ...b, x: r.x, y: r.y, width: r.width, height: r.height, planId, ...(arrived.has(b.cardId) ? { visible: true } : {}) };
+          const placed = r === undefined ? b : { ...b, x: r.x, y: r.y, width: r.width, height: r.height, planId, ...(arrived.has(b.cardId) ? { visible: true } : {}) };
+          const shell = shellControlRects(placed);
+          return sameRects(shell, placed.shell) ? placed : { ...placed, shell };
         }),
-      });
+      };
+      this.poster.adopt(adopted);
+      this.postCards(adopted);
     }
     this.lastPlan = {
       planId,
@@ -1080,6 +1100,7 @@ export class CardPlacer {
       this.inFlight.delete(cardId);
       this.clearHorizon(cardId);
       if (flight.lands) this.deck.noteCardDidLand(cardId);
+      this.measureAtRest();
     }
     if (this.lastPlan?.planId === planId) this.lastPlan.landed.push({ cardId, lateMs });
   }
@@ -1092,8 +1113,21 @@ export class CardPlacer {
       this.inFlight.delete(cardId);
       this.clearHorizon(cardId);
       if (flight.lands) this.deck.noteCardDidLand(cardId);
+      this.measureAtRest();
     }
     if (this.lastPlan?.planId === planId) this.lastPlan.cancelled.push(cardId);
+  }
+
+  /**
+   * The last card a plan carried is down: measure the deck at rest, once.
+   * The settle's own end measured while a body was still in flight, so the
+   * placement standing names the plan and carries what the shell read then —
+   * a place seam where it stood mid-settle, before its final write. The host
+   * keeps a seam's points for the shell, so a stale one over a card takes
+   * that card's presses until something else happens to re-measure.
+   */
+  private measureAtRest(): void {
+    if (this.inFlight.size === 0) this.schedule();
   }
 
   /** The `body-beat` row that closes the one `runPlan` wrote for `cardId`. */

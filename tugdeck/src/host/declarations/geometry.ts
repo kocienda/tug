@@ -70,6 +70,7 @@ const placeCardsCodec: Codec<PlaceCards> = obj({
   apron: num,
   canvas: nullable(rect),
   zoom: num,
+  gap: num,
   cards: arr(
     obj({
       cardId: str,
@@ -126,6 +127,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
       apron: 10,
       canvas: { x: 0, y: 28, width: 1440, height: 872 },
       zoom: 1,
+      gap: 15,
       cards: [
         {
           cardId: "c1",
@@ -168,7 +170,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
         },
       ],
     },
-    { apron: 10, canvas: null, zoom: 1.25, cards: [] },
+    { apron: 10, canvas: null, zoom: 1.25, gap: 5, cards: [] },
   ],
   refused: [
     [{ cardId: "c1" }],

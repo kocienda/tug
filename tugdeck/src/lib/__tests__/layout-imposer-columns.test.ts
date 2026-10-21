@@ -413,7 +413,7 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
         weight: 1,
       })),
       run,
-      5,
+      IMPOSITION_GAP_PX,
     );
 
   test("the standing is decided by the floors against the run, not by the count", () => {
@@ -426,10 +426,11 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
   });
 
   test("the boundary is exactly where the floors and the seams stop fitting", () => {
-    // Three floors of 240 and two 5px seams need 730. At 730 the column
+    // Three floors of 240 and two seams need 720 plus two gaps. There the column
     // divides with nothing left over; a pixel short and it stacks.
-    expect(columnOf([240, 240, 240], 730).standing).toBe("shared");
-    expect(columnOf([240, 240, 240], 729).standing).toBe("overflow");
+    const exact = 720 + 2 * IMPOSITION_GAP_PX;
+    expect(columnOf([240, 240, 240], exact).standing).toBe("shared");
+    expect(columnOf([240, 240, 240], exact - 1).standing).toBe("overflow");
   });
 
   test("a place of one or none never overflows", () => {
@@ -470,7 +471,7 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
         `calc(${GAP_CSS} + ${at(0, 0, strip)} - ${offset(0, count, strip)})`,
       );
       expect(first.bottom).toBe(
-        `calc(100% - ${GAP_CSS} - ${at(0, 1, strip)} + 5px + ${offset(0, count, strip)})`,
+        `calc(100% - ${GAP_CSS} - ${at(0, 1, strip)} + ${IMPOSITION_GAP_PX}px + ${offset(0, count, strip)})`,
       );
     }
   });

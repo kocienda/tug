@@ -85,7 +85,7 @@ final class CardGeometryTests: XCTestCase {
     func testAPressBelowTheThresholdMovesNothing() {
         var tracker = CardGestureTracker(
             kind: .move, startRect: pane, startPointer: CGPoint(x: 200, y: 110),
-            canvas: CGRect(x: 0, y: 0, width: 1200, height: 900), minSize: .zero, free: true, others: []
+            canvas: CGRect(x: 0, y: 0, width: 1200, height: 900), minSize: .zero, free: true, gap: 15, others: []
         )
         let still = tracker.step(pointer: CGPoint(x: 202, y: 111), alt: false)
         check("a click stands still", still == CardGestureTracker.Step(rect: pane, moved: false), "\(still)")
@@ -101,7 +101,7 @@ final class CardGeometryTests: XCTestCase {
             kind: .resize(.s), startRect: start, startPointer: CGPoint(x: 300, y: 440),
             canvas: CGRect(x: 0, y: 0, width: 1200, height: 900),
             minSize: CGSize(width: 400, height: 145), maxSize: CGSize(width: CGFloat.greatestFiniteMagnitude, height: 820),
-            free: false, others: []
+            free: false, gap: 15, others: []
         )
         let past = tracker.step(pointer: CGPoint(x: 300, y: 899), alt: false)
         check("the bottom edge stands at the run's end", past.rect == CGRect(x: 40, y: 40, width: 560, height: 820), "\(past)")

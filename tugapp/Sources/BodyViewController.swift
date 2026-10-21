@@ -835,6 +835,8 @@ final class BodyViewController {
     /// layout is drawn at; nil before the shell has said.
     private(set) var cardCanvas: CGRect?
     private var cardZoom: CGFloat = 1
+    /// The deck's card gap the last `placeCards` named, layout px.
+    private var cardGap: CGFloat = 0
     private(set) var cardApron: CGFloat = CardGeometry.apron
 
     /// The gesture the host is tracking now, one at a time.
@@ -919,6 +921,7 @@ final class BodyViewController {
         // A canvas the shell does not show leaves the last one standing.
         if let canvas = placement.canvas { cardCanvas = canvas.cgRect }
         if placement.zoom > 0 { cardZoom = CGFloat(placement.zoom) }
+        if placement.gap >= 0 { cardGap = CGFloat(placement.gap) }
         var placements: [String: CardPlacement] = [:]
         // Each named card with where the placement lists it: the deck's
         // reading order, which is the window's VoiceOver order.
@@ -1032,6 +1035,7 @@ final class BodyViewController {
             // not the canvas's: held past it, the edge stands there.
             maxSize: placement?.maxHeight.map { CGSize(width: CGFloat.greatestFiniteMagnitude, height: $0) },
             free: placement?.free ?? true,
+            gap: cardGap,
             others: others
         )
         let pressed = Gesture(

@@ -43,8 +43,6 @@ enum CardGeometry {
     static let canvasPadding: CGFloat = 2
     /// How far the pointer travels before a press is a drag.
     static let moveThreshold: CGFloat = 3
-    /// The gap between imposed panes; a snap overlaps adjacent edges by its negation.
-    static let impositionGap: CGFloat = 5
     /// How far a card's view reaches past its pane rect on every side: room
     /// for the grips' overhang, the frame's shadow and a rail's shadow into
     /// its gutter.
@@ -381,13 +379,17 @@ struct CardGestureTracker {
     let maxSize: CGSize?
     /// Whether the pane is free: only a free pane snaps a drag.
     let free: Bool
+    /// The deck's card gap, layout px — `placeCards`' `gap`. An Option-snap
+    /// leaves exactly this between two adjacent edges, which is what puts a
+    /// hand-snapped pane on the imposer's rhythm.
+    let gap: CGFloat
     /// The other visible cards' pane rects, for the snap.
     let others: [CGRect]
     private(set) var moved = false
 
     init(
         kind: Kind, startRect: CGRect, startPointer: CGPoint, canvas: CGRect, zoom: CGFloat = 1,
-        minSize: CGSize, maxSize: CGSize? = nil, free: Bool, others: [CGRect]
+        minSize: CGSize, maxSize: CGSize? = nil, free: Bool, gap: CGFloat, others: [CGRect]
     ) {
         self.kind = kind
         self.startRect = startRect
@@ -397,6 +399,7 @@ struct CardGestureTracker {
         self.minSize = minSize
         self.maxSize = maxSize
         self.free = free
+        self.gap = gap
         self.others = others
     }
 
@@ -438,7 +441,7 @@ struct CardGestureTracker {
             if alt && free {
                 let snap = CardGeometry.computeSnap(
                     moving: CGRect(origin: position, size: start.size), others: otherRects,
-                    borderWidth: -CardGeometry.impositionGap
+                    borderWidth: -gap
                 )
                 if let x = snap.x { position.x = x; snapX = canvas.minX + x * zoom }
                 if let y = snap.y { position.y = y; snapY = canvas.minY + y * zoom }
@@ -457,7 +460,7 @@ struct CardGestureTracker {
                 if edge.movesBottom { resizing.bottom = r.minY + r.height }
                 if edge.movesLeft { resizing.left = r.minX }
                 if edge.movesRight { resizing.right = r.minX + r.width }
-                let snapped = CardGeometry.computeResizeSnap(resizing, others: otherRects, borderWidth: -CardGeometry.impositionGap).edges
+                let snapped = CardGeometry.computeResizeSnap(resizing, others: otherRects, borderWidth: -gap).edges
                 var left = r.minX, top = r.minY, width = r.width, height = r.height
                 if let s = snapped.left {
                     let newW = max(minSize.width, left + width - s)

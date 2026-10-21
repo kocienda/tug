@@ -116,6 +116,10 @@ struct PlaceCards: Decodable, Equatable {
     /// The canvas's viewport rect; nil when the shell shows none.
     var canvas: PlanRect?
     var zoom: Double
+    /// The deck's live card gap, layout px: what an Option-snap leaves
+    /// between two adjacent card edges, so a hand-snapped pane lands on the
+    /// imposer's rhythm.
+    var gap: Double
     var cards: [CardPlacementEntry]
 }
 

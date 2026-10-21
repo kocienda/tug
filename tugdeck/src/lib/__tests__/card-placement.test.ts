@@ -67,6 +67,7 @@ describe("placeCardsOf", () => {
   const facts: CardFacts = {
     canvas: { x: 0, y: 28, width: 1440, height: 872 },
     zoom: 1.25,
+    gap: 15,
     byCard: new Map([["a", { grips: ["e", "s"], free: true, min: { width: 240, height: 160 }, maxHeight: 820 }]]),
   };
 
