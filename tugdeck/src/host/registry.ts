@@ -23,8 +23,10 @@ import {
   bodyBindToPage,
   bodyCreateToHost,
   bodyDestroyToHost,
+  bodyEvictAfterToHost,
   bodyFocusToHost,
   bodyHelloToHost,
+  bodyPressureToPage,
   bodyStateToPage,
   bodySurfaceToHost,
   bodyVisibilityToPage,
@@ -95,6 +97,7 @@ export const TO_HOST: readonly ToHost<unknown>[] = [
   bodySurfaceToHost,
   bodyCreateToHost,
   bodyDestroyToHost,
+  bodyEvictAfterToHost,
   bodyFocusToHost,
   hmrUpdateToHost,
   // services
@@ -126,6 +129,7 @@ export const TO_PAGE: readonly ToPage<unknown>[] = [
   bodyCrossingToPage,
   // lifecycle
   bodyBindToPage,
+  bodyPressureToPage,
   bodyStateToPage,
   bodyVisibilityToPage,
   // services

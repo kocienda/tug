@@ -464,7 +464,7 @@ const LANDING_GUARD_MS = 250;
  * The facts that decide whether `cardId`'s body shows, read from the deck
  * and the body store alone — no DOM — or null when the card is in no pane.
  */
-function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShownFacts | null {
+export function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShownFacts | null {
   const state = deck.getSnapshot();
   const pane = state.panes.find((p) => p.cardIds.includes(cardId));
   if (pane === undefined) return null;
@@ -472,12 +472,26 @@ function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShownFacts |
   const activeSpaceId = deck.getSpacesSnapshot().activeSpaceId;
   return {
     // A card shows at its first chrome frame, its content lidded in its own
-    // page until that has painted.
-    painted: bodyCardsStore.stateOf(cardId) === "painted" || bodyCardsStore.chromeShown(cardId),
+    // page until that has painted — and a revived card from its hand-off,
+    // under the cover of its last frame the host stands until then.
+    painted:
+      bodyCardsStore.stateOf(cardId) === "painted" ||
+      bodyCardsStore.chromeShown(cardId) ||
+      bodyCardsStore.revivedNow(cardId),
     active: pane.activeCardId === cardId,
     arriving: cardArrivingOf(state, cardId),
     layerShown: spaceId === null || spaceId === activeSpaceId,
   };
+}
+
+/**
+ * Whether `cardId`'s body would be placed visible were it painted: its card
+ * is its pane's active one, in the shown workspace, not arriving. An
+ * evicted card the deck wants this way is asked for again.
+ */
+export function wantsBodyShown(deck: IDeckManagerStore, cardId: string): boolean {
+  const facts = shownFactsOf(deck, cardId);
+  return facts !== null && bodyVisible({ ...facts, painted: true });
 }
 
 /**

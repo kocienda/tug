@@ -2707,6 +2707,8 @@ extension MainWindow {
             bodies.claimGesture(from: fromBody, begin: begin)
         case .bodyDestroy(let destroy):
             bodies.destroy(cardId: destroy.cardId, save: destroy.save)
+        case .bodyEvictAfter(let evictAfter):
+            bodies.setEvictAfter(ms: evictAfter.ms)
         case .bodyFocus(let focus):
             bodies.focus(cardId: focus.cardId)
         case .overlayCreate:

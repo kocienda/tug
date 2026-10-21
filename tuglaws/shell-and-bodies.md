@@ -69,7 +69,7 @@ Bodies speak to the shell and the shell speaks to bodies. A body never addresses
 
 ## Snapshot on attach, and the hold {#attach}
 
-**The library owns liveness, so no feature queues by hand.** Every page announces itself with a `hello` when its bus is bound and again after a reconnect. Every hello that is not itself an answer gets one answer. A spare body with no card yet stays silent until it is bound. A page marks a peer attached when it hears that peer's hello. The shell detaches a card when the host reports its body `terminated` or `failed`, and when the card is destroyed.
+**The library owns liveness, so no feature queues by hand.** Every page announces itself with a `hello` when its bus is bound and again after a reconnect. Every hello that is not itself an answer gets one answer. A spare body with no card yet stays silent until it is bound. A page marks a peer attached when it hears that peer's hello. The shell detaches a card when the host reports its body `terminated`, `failed` or `evicted`, and when the card is destroyed.
 
 Anything addressed to a target that is not attached is held for that target, in order: a store's snapshot (only the latest per key), an action, a request. **On attach the owner sends every store the new peer is scoped to before it drains the hold**, so a body never reads a store that has not arrived.
 

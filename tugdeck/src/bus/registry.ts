@@ -64,7 +64,7 @@ import {
   cardSurface,
   devtoolsInspection,
 } from "./declarations/card";
-import { deckCards, deckFacts, deckFrontmostProject, deckMenu } from "./declarations/deck";
+import { deckBodies, deckCards, deckFacts, deckFrontmostProject, deckMenu } from "./declarations/deck";
 import {
   paneArrangePlace,
   paneChrome,
@@ -137,6 +137,7 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
   deckMenu,
   deckFrontmostProject,
   deckCards,
+  deckBodies,
   cardCrossing,
   cardRailHold,
   cardContext,

@@ -150,7 +150,12 @@ final class TestHarnessConnection {
     /// `1.18.0`: adds `accessibilityOrder` — the web views the window's
     /// accessibility tree reaches, in the order it reaches them, each named
     /// `shell`, `overlay`, or by its body's card. Additive; major stays `1`.
-    static let surfaceVersion = "1.18.0"
+    ///
+    /// `1.19.0`: adds `simulateMemoryPressure` — the body controller is told
+    /// a memory-pressure level as the dispatch source would tell it, so a
+    /// row can drive eviction without real pressure. Additive; major stays
+    /// `1`.
+    static let surfaceVersion = "1.19.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -318,6 +323,8 @@ final class TestHarnessConnection {
             dispatchBodies(id: id)
         case "accessibilityOrder":
             dispatchAccessibilityOrder(id: id)
+        case "simulateMemoryPressure":
+            dispatchSimulateMemoryPressure(id: id, verbObj: obj)
         default:
             respondError(id: id, name: "NotImplemented", message: "Unknown method: \(method)")
         }
@@ -359,6 +366,28 @@ final class TestHarnessConnection {
                 return
             }
             self.respond(id: id, ok: true, payload: ["value": bodies.snapshot().map(\.foundation)])
+        }
+    }
+
+    /// `simulateMemoryPressure {level}` → the body controller hears `level`
+    /// (`normal`, `warning` or `critical`) as it hears the dispatch source,
+    /// and acts on it the same way. Answers once the level is taken; the
+    /// evictions it starts finish on their own clocks, and a row reads them
+    /// through `bodies` and the shell's `evicted` marks.
+    private func dispatchSimulateMemoryPressure(id: Int, verbObj: [String: Any]) {
+        guard let raw = verbObj["level"] as? String,
+              let level = BodyViewController.PressureLevel(rawValue: raw) else {
+            respondError(id: id, name: "ProtocolError", message: "simulateMemoryPressure: 'level' must be normal, warning or critical")
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let mainWindow = self.webView?.window as? MainWindow, let bodies = mainWindow.bodies else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            bodies.memoryPressure(level)
+            self.respond(id: id, ok: true, payload: ["value": level.rawValue])
         }
     }
 

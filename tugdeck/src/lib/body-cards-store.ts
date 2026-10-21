@@ -4,7 +4,9 @@
  * A card enters at its hand-off (`creating`), and the host's
  * `onBodyState` moves it on: `ready` when the body's card is mounted and
  * quiet, `painted` when its first frame of real content has gone to the
- * compositor, `failed` when the body never answered. A card leaves when it
+ * compositor, `failed` when the body never answered, `evicted` when the host
+ * gave its process up under memory pressure and the card waits, its facts
+ * standing, for a placement to want it shown again. A card leaves when it
  * is destroyed or when its body fails and the shell takes the card back.
  * `CardHost` reads membership to decide between the card's content and the
  * body's placeholder; the placer shows a body only once it is `painted`;
@@ -18,12 +20,18 @@
 import type { ArrivalQuiet } from "./arrival-reveal";
 import { Subscribable } from "./subscribable";
 
-export type BodyCardState = "creating" | "ready" | "painted" | "failed";
+export type BodyCardState = "creating" | "ready" | "painted" | "failed" | "evicted";
 
 export class BodyCardsStore extends Subscribable {
   private readonly states = new Map<string, BodyCardState>();
   /** Cards that draw their own chrome whose page has put its first chrome frame on screen. */
   private readonly chrome = new Set<string>();
+  /**
+   * Evicted cards asked for again because a placement wants them shown: the
+   * host stands the card's last frame over the new body until it paints, so
+   * the placer shows the card from the hand-off rather than from its paint.
+   */
+  private readonly revived = new Set<string>();
   private ids: readonly string[] = [];
 
   /** Mark `cardId` a body card, in `creating`. A card already marked keeps its state. */
@@ -39,9 +47,21 @@ export class BodyCardsStore extends Subscribable {
     if (prev === undefined || prev === state) return;
     this.states.set(cardId, state);
     // A page starting again, or gone, has no chrome on screen.
-    if (state === "creating" || state === "failed") this.chrome.delete(cardId);
+    if (state === "creating" || state === "failed" || state === "evicted") this.chrome.delete(cardId);
+    // A revived card that has painted, or failed, stands on its own again.
+    if (state === "painted" || state === "failed" || state === "evicted") this.revived.delete(cardId);
     this.changed();
   }
+
+  /** `cardId`, evicted, is being asked for again to be shown ({@link revived}). */
+  markRevived(cardId: string): void {
+    if (this.states.get(cardId) !== "evicted" || this.revived.has(cardId)) return;
+    this.revived.add(cardId);
+    this.changed();
+  }
+
+  /** Whether `cardId` is an evicted card coming back, shown from its hand-off under the host's cover. */
+  revivedNow = (cardId: string): boolean => this.revived.has(cardId);
 
   /**
    * The host has shown the first frame of `cardId`'s page with its chrome:
@@ -59,6 +79,7 @@ export class BodyCardsStore extends Subscribable {
   /** The card is no longer a body card. */
   drop(cardId: string): void {
     this.chrome.delete(cardId);
+    this.revived.delete(cardId);
     if (!this.states.delete(cardId)) return;
     this.changed();
   }
@@ -74,6 +95,7 @@ export class BodyCardsStore extends Subscribable {
   _reset(): void {
     this.states.clear();
     this.chrome.clear();
+    this.revived.clear();
     this.changed();
   }
 

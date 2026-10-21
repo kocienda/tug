@@ -205,8 +205,15 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
           rows.filter((id) => id.startsWith("layout-card-rail-")),
           "a rail has no arrangement row",
         ).toEqual([]);
-        // The section closes on the sidebar rows.
-        const sidebarRows = rows.slice(4 + placeRows.length);
+        // Then the sidebar rows, and the section closes on the window's two
+        // delays for a hidden card — how long it works before it rests, and
+        // how long it keeps its memory before it releases it — which are
+        // about the window rather than the arrangement.
+        expect(rows.slice(-2), "the section closes on Rest and Release").toEqual([
+          "layout-card-dormant",
+          "layout-card-evict",
+        ]);
+        const sidebarRows = rows.slice(4 + placeRows.length, -2);
         expect(
           sidebarRows.length,
           "every remaining row is a sidebar card's",

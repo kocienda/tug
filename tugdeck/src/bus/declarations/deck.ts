@@ -18,6 +18,7 @@ import type { CardMastheadPayload } from "../../lib/card-title-store";
 import { arr, bool, literal, nullable, num, obj, opaque, rec, str, type Codec } from "../codec";
 import { defineSharedStore } from "../shared-store";
 import { cardIdentity, cardMasthead } from "./card";
+import type { BodyCensus } from "../../lib/body-census";
 
 /** A value the bus carries without reading: anything but absent. */
 const carried: Codec<unknown> = opaque((v: unknown): v is unknown => v !== undefined, null);
@@ -162,4 +163,21 @@ export const deckCards = defineSharedStore<Record<string, DeckCardFacts>>({
     }),
   ),
   initial: {},
+});
+
+/**
+ * What the deck holds of its bodies — how many are shown, sibling, hidden,
+ * dormant and evicted — and the host's last memory-pressure event, which the
+ * Layout card's Bodies row reads (`lib/body-census.ts`). Readings: nothing
+ * decides anything from them.
+ */
+export const deckBodies = defineSharedStore<BodyCensus>({
+  key: "deck.bodies",
+  owner: "shell",
+  scope: { deck: true },
+  codec: obj({
+    counts: obj({ shown: num, sibling: num, hidden: num, dormant: num, evicted: num }),
+    pressure: nullable(obj({ level: literal("normal", "warning", "critical"), at: num })),
+  }),
+  initial: { counts: { shown: 0, sibling: 0, hidden: 0, dormant: 0, evicted: 0 }, pressure: null },
 });

@@ -601,6 +601,21 @@
       ]
     },
     {
+      "name": "bodyEvictAfter",
+      "from": "shell",
+      "samples": [
+        {
+          "ms": 900000
+        }
+      ],
+      "refused": [
+        900000,
+        {
+          "ms": "900000"
+        }
+      ]
+    },
+    {
       "name": "bodyFocus",
       "from": "shell",
       "samples": [
@@ -1410,6 +1425,30 @@
       ]
     },
     {
+      "member": "onBodyPressure",
+      "to": "shell",
+      "samples": [
+        {
+          "level": "warning",
+          "at": 1760000000000
+        },
+        {
+          "level": "normal",
+          "at": 1760000060000.5
+        }
+      ],
+      "refused": [
+        "warning",
+        {
+          "level": "low",
+          "at": 0
+        },
+        {
+          "level": "critical"
+        }
+      ]
+    },
+    {
       "member": "onBodyState",
       "to": "shell",
       "samples": [
@@ -1438,6 +1477,11 @@
           "cardId": "c1",
           "state": "failed",
           "cause": "deadline"
+        },
+        {
+          "cardId": "c1",
+          "state": "evicted",
+          "cause": "pressure-critical"
         }
       ],
       "refused": [

@@ -132,6 +132,7 @@ import React, {
 } from "react";
 
 import { deepEqual } from "@/lib/deep-equal";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useAfterMotion } from "@/lib/use-after-motion";
 
 import { LayoutMiniature } from "@/components/layout/layout-miniature";
@@ -237,6 +238,14 @@ import {
   writeDormantAfterMs,
 } from "@/lib/dormant-after-pref";
 import {
+  EVICT_AFTER_CHOICES,
+  evictAfterLabel,
+  useEvictAfterMs,
+  writeEvictAfterMs,
+} from "@/lib/evict-after-pref";
+import { deckBodies } from "@/bus/declarations/deck";
+import { countsLine, pressureLine } from "@/lib/body-census";
+import {
   LAYOUT_MIXER_OPEN_DOMAIN,
   LAYOUT_MIXER_OPEN_KEY,
   putLayoutMixerOpen,
@@ -259,6 +268,7 @@ const WIDTH_SENDER_ID = "layout-card-width";
 const GAP_SENDER_ID = "layout-card-gap";
 const ZOOM_SENDER_ID = "layout-card-zoom";
 const DORMANT_SENDER_ID = "layout-card-dormant";
+const EVICT_SENDER_ID = "layout-card-evict";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
 
@@ -273,6 +283,9 @@ const WIDTH_CAPTION_ID = "layout-card-width-caption";
 const GAP_CAPTION_ID = "layout-card-gap-caption";
 const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
 const DORMANT_CAPTION_ID = "layout-card-dormant-caption";
+const EVICT_CAPTION_ID = "layout-card-evict-caption";
+const BODIES_CAPTION_ID = "layout-card-bodies-caption";
+const PRESSURE_CAPTION_ID = "layout-card-pressure-caption";
 
 /** The deck rows' focus orders. Distinct, and declared rather than defaulted,
  *  because they are separate stops: sharing an order would give two groups one
@@ -318,6 +331,11 @@ const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER =
  *  can grow, and short of the picture's stop and the fold cue. */
 const LAYOUTS_DORMANT_FOCUS_ORDER = 19;
 
+/** The Release row's order — how long a hidden card keeps its memory: right
+ *  under Rest, short of the picture's stop and the fold cue. The Bodies and
+ *  Pressure rows beside them are readings and take no stop. */
+const LAYOUTS_EVICT_FOCUS_ORDER = 20;
+
 /** The fold cue's stop, PAST every row rather than ahead of them. The card
  *  engages KBF at rest ([P10]), so whatever holds order 0 wears the cursor's
  *  ring the whole time the card is the key card — and a lid drawn lit, from
@@ -329,7 +347,7 @@ const LAYOUTS_DORMANT_FOCUS_ORDER = 19;
  *  picture's own stop — because folded, the rows are gone and the lowest order
  *  still standing is what wears the ring, and the answer there has to be the
  *  drawing rather than the lid over what is no longer drawn. */
-const LAYOUTS_MIXER_CUE_FOCUS_ORDER = 21;
+const LAYOUTS_MIXER_CUE_FOCUS_ORDER = 22;
 
 /** The picture's stop — the toggle row under the strip. One stop for every
  *  slot's toggle rather than one per toggle: a stop per affordance would make
@@ -339,7 +357,7 @@ const LAYOUTS_MIXER_CUE_FOCUS_ORDER = 21;
  *  the card can grow — two stops sharing an order would share one focus key
  *  ([Q12]) and the engine resolves a key to exactly one stop, leaving the other
  *  unreachable by any addressed placement. */
-const LAYOUTS_PLACES_FOCUS_ORDER = 20;
+const LAYOUTS_PLACES_FOCUS_ORDER = 21;
 
 
 /** User-facing label for each kind. */
@@ -1110,6 +1128,10 @@ export function LayoutContent(
   // The View › Zoom factor, for the Zoom row and the note ([L02]).
   const zoom = usePageZoom().factor;
   const dormantAfterMs = useDormantAfterMs();
+  const evictAfterMs = useEvictAfterMs();
+  // What the deck holds of its bodies and the host's last pressure event,
+  // which the shell publishes ([L02]).
+  const bodies = useSyncExternalStore(deckBodies.subscribe, deckBodies.getSnapshot);
   // Whether the mixer rows stand open. Deck-wide tugbank state, read through
   // `useTugbankValue` ([L02]) rather than held in a `useState` cell, so the
   // fold survives a reload and a card remount alike. Absent means open: the
@@ -1391,6 +1413,11 @@ export function LayoutContent(
           if (Number.isInteger(ms) && ms > 0) writeDormantAfterMs(ms);
           return;
         }
+        if (sender === EVICT_SENDER_ID) {
+          const ms = Number(value);
+          if (Number.isInteger(ms) && ms > 0) writeEvictAfterMs(ms);
+          return;
+        }
         if (sender === KIND_SENDER_ID && isImpositionKind(value)) {
           dispatchCommand("set-imposition", { kind: value });
         }
@@ -1644,6 +1671,23 @@ export function LayoutContent(
       ms === dormantAfterMs
         ? `Hidden cards rest after ${dormantAfterLabel(ms)}`
         : `Let hidden cards rest after ${dormantAfterLabel(ms)}`,
+  }));
+
+  // How long a hidden card keeps its memory before it gives its page up and
+  // comes back as an arrival, with the same further segment for a delay
+  // written elsewhere.
+  const evictChoices: number[] = EVICT_AFTER_CHOICES.includes(
+    evictAfterMs as (typeof EVICT_AFTER_CHOICES)[number],
+  )
+    ? [...EVICT_AFTER_CHOICES]
+    : [...EVICT_AFTER_CHOICES, evictAfterMs].sort((a, b) => a - b);
+  const evictItems: TugChoiceItem[] = evictChoices.map((ms) => ({
+    value: String(ms),
+    label: evictAfterLabel(ms),
+    tooltip:
+      ms === evictAfterMs
+        ? `Hidden cards release their memory after ${evictAfterLabel(ms)}`
+        : `Let hidden cards release their memory after ${evictAfterLabel(ms)}`,
   }));
 
   // One row per registered sidebar card: Off, or a side — show/hide and
@@ -2071,6 +2115,70 @@ export function LayoutContent(
               aria-labelledby={DORMANT_CAPTION_ID}
               data-testid="layout-card-dormant"
             />
+          </div>
+
+          {/* How long a hidden card keeps its memory: past this it gives
+              its page up and comes back as an arrival when shown. Memory
+              pressure releases sooner; this is the quiet machine's clock. */}
+          <div className="layouts-section-row">
+            <TugLabel
+              id={EVICT_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Release
+            </TugLabel>
+            <TugChoiceGroup
+              items={evictItems}
+              value={String(evictAfterMs)}
+              senderId={EVICT_SENDER_ID}
+              size="xs"
+              sidePadding="xs"
+              reselect
+              focusGroup={LAYOUT_FOCUS_GROUP}
+              focusOrder={LAYOUTS_EVICT_FOCUS_ORDER}
+              aria-labelledby={EVICT_CAPTION_ID}
+              data-testid="layout-card-evict"
+            />
+          </div>
+
+          {/* What the deck holds of its bodies, and the machine's last word
+              on memory. Readings: nothing here is a threshold, and no count
+              of cards decides anything. */}
+          <div className="layouts-section-row">
+            <TugLabel
+              id={BODIES_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Bodies
+            </TugLabel>
+            <span
+              className="layouts-section-reading"
+              aria-labelledby={BODIES_CAPTION_ID}
+              data-testid="layout-card-bodies"
+            >
+              {countsLine(bodies.counts)}
+            </span>
+          </div>
+          <div className="layouts-section-row">
+            <TugLabel
+              id={PRESSURE_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Pressure
+            </TugLabel>
+            <span
+              className="layouts-section-reading"
+              aria-labelledby={PRESSURE_CAPTION_ID}
+              data-testid="layout-card-pressure"
+            >
+              {pressureLine(bodies.pressure)}
+            </span>
           </div>
         </div>
         ) : null}

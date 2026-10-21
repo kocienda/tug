@@ -186,9 +186,10 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
 
 /**
  * Read `leg` on one card already at rest with the keyboard. The unfold
- * folds first, unmeasured, and the crop is the open frame's either way.
+ * folds first, unmeasured, and the crop is the open frame's either way;
+ * `folded`, when given, runs while the card stands folded, before the unfold.
  */
-async function readLeg(app: App, card: string, leg: Leg, standing: Standing, keep: string, carried: boolean): Promise<void> {
+async function readLeg(app: App, card: string, leg: Leg, standing: Standing, keep: string, carried: boolean, folded?: Folded): Promise<void> {
   const frame = (await rectOf(app, frameOf(card)))!;
   const crop = { x: 0, y: Math.max(0, Math.floor(frame.y) - 8), width: standing.contentWidth, height: Math.ceil(frame.height) + 16 };
   mkdirSync(keep, { recursive: true });
@@ -202,8 +203,12 @@ async function readLeg(app: App, card: string, leg: Leg, standing: Standing, kee
   await cameToRest(app, card, true);
   await Bun.sleep(600);
   note(`fold (set-up) landed; before the unfold: focused card ${await app.getFocusedCardId()}; host ${await responders(app)}`);
+  if (folded !== undefined) await folded(app, card);
   await foldLeg(app, card, "unfold", false, standing, crop, keep, carried);
 }
+
+/** What a piece does to a card while it stands folded, between the set-up fold and the unfold. */
+export type Folded = (app: App, card: string) => Promise<void>;
 
 /** Every other kind: a card of `kind` folded or unfolded by the chord it reads. */
 export async function foldKind(launch: Launch, kind: CardKind, leg: Leg): Promise<void> {
@@ -222,11 +227,11 @@ export async function foldKind(launch: Launch, kind: CardKind, leg: Leg): Promis
   }
 }
 
-/** The Session card, bound to a stub session, folded or unfolded. */
-export async function foldSession(launch: Launch, leg: Leg): Promise<void> {
+/** The Session card, bound to a stub session, folded or unfolded; `folded` as {@link readLeg} takes it. */
+export async function foldSession(launch: Launch, leg: Leg, folded?: Folded, testName?: string): Promise<void> {
   const stubDir = stubDirectory();
   const app = await launchTugApp({
-    testName: `${TEST_NAME}-${leg}`,
+    testName: testName ?? `${TEST_NAME}-${leg}`,
     foreground: launch.foreground,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
@@ -238,7 +243,7 @@ export async function foldSession(launch: Launch, leg: Leg): Promise<void> {
     await Bun.sleep(400);
     const start = await expectAtRest(app, A, "at the start");
     const standing = await readStanding(app, A, start);
-    await readLeg(app, A, leg, standing, join(tmpdir(), `tug-row09-${leg}-${Date.now()}`), true);
+    await readLeg(app, A, leg, standing, join(tmpdir(), `tug-row09-${leg}-${Date.now()}`), true, folded);
   } finally {
     await app.close();
   }

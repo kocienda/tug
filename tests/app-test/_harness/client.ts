@@ -27,6 +27,7 @@ import type {
   MenuItemSnapshot,
   MenuItemState,
   MenuItemPerformed,
+  MemoryPressureLevel,
   NativeModifier,
   NativeMouseButton,
   ScreenRect,
@@ -1313,8 +1314,14 @@ export interface BodyViewSnapshot {
   firstResponder: boolean;
   /** The container's presented opacity (mid-fade reads between 0 and 1). */
   opacity: number;
-  /** The body has posted `painted`: its first frame of content is composited. `visible` requires it. */
+  /**
+   * The body has posted `painted`: its first frame of content is composited.
+   * `visible` requires it, but for a body brought back from an eviction,
+   * which shows from its hand-off under its cover.
+   */
   painted: boolean;
+  /** The card's last frame before an eviction stands over the body until it paints. */
+  covered: boolean;
   /** Whether the body began as the warm spare (`warm`) or was made for its card (`cold`). */
   start: "warm" | "cold";
   /** Bind → ready, once the body has reported ready; null before. */
@@ -1327,6 +1334,16 @@ export interface BodyViewSnapshot {
 /** Every body view the host holds, the spare included. */
 export function bodies(caller: HarnessCaller): Promise<BodyViewSnapshot[]> {
   return caller.rpcCall("bodies", {});
+}
+
+/**
+ * Tell the host a memory-pressure level as its dispatch source would: on
+ * `warning` hidden bodies are evicted oldest-hidden first, on `critical`
+ * every body not placed visible and the spare (surface `1.19.0`). Resolves
+ * once the level is taken; the evictions finish after.
+ */
+export function simulateMemoryPressure(caller: HarnessCaller, level: MemoryPressureLevel): Promise<string> {
+  return caller.rpcCall("simulateMemoryPressure", { level });
 }
 
 /**

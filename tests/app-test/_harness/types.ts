@@ -49,7 +49,11 @@ export type RpcMethod =
   | "startTugcast"
   | "hostFrames"
   | "spikeBody"
-  | "bodies";
+  | "bodies"
+  | "simulateMemoryPressure";
+
+/** A memory-pressure level, as the host's dispatch source reports one. */
+export type MemoryPressureLevel = "normal" | "warning" | "critical";
 
 /**
  * Viewport-space point passed to the native-gesture verbs. `{x, y}` is
@@ -264,6 +268,11 @@ export type Request =
   | {
       id: number;
       method: "bodies";
+    }
+  | {
+      id: number;
+      method: "simulateMemoryPressure";
+      level: MemoryPressureLevel;
     }
   | {
       id: number;

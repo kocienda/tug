@@ -116,7 +116,7 @@ import { bodyCardsStore } from "./body-cards-store";
 import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfaceAhead } from "./body-command-route";
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
-import { cardPlanCancelled, cardPlanLanded, cardPlacementDiag } from "./card-placement";
+import { cardPlanCancelled, cardPlanLanded, cardPlacementDiag, shownFactsOf, wantsBodyShown } from "./card-placement";
 import { mergeBandOf } from "./drop-zones";
 import { CANVAS_BACKGROUND_ATTRIBUTE, paneCanvasOf, SHOWN_PANE_FRAMES } from "./pane-frame-selectors";
 import { getTugTiming } from "./scale-timing";
@@ -203,6 +203,7 @@ import {
 import {
   deckCards,
   deckFacts,
+  deckBodies,
   deckFrontmostProject,
   deckMenu,
   type DeckFactsValue,
@@ -221,8 +222,18 @@ import {
   setBodyReloader,
 } from "./body-handoff";
 import { onHostMessage, postToHost } from "../host/channel";
-import { bodyDestroyToHost, bodyFocusToHost, bodyStateToPage } from "../host/declarations/lifecycle";
+import {
+  bodyDestroyToHost,
+  bodyEvictAfterToHost,
+  bodyFocusToHost,
+  bodyPressureToPage,
+  bodyStateToPage,
+  type BodyPressure,
+} from "../host/declarations/lifecycle";
+import { bodyTier, countTiers, sameCounts } from "./body-census";
 import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
+import { EVICT_AFTER_DOMAIN, readEvictAfterMs } from "./evict-after-pref";
+import { getTugbankClient } from "./tugbank-singleton";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { openingBidForCard } from "./opening-bid";
 import { deckRootElement, layoutPxOf, pageZoomStore } from "./page-zoom-store";
@@ -1538,6 +1549,18 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         bus.detach(cardId);
         paintGate.forget(cardId);
         return;
+      case "evicted":
+        // The host gave the body's process up under memory pressure, once its
+        // page had written the card's state. The card stays a body card, and
+        // its facts stand — the masthead says what it said — while what only
+        // the page held clears with the detach, as at a termination. A
+        // placement that wants it shown asks for it again; one that already
+        // does, a reveal racing the eviction, asks now.
+        bodyCardsStore.setState(cardId, "evicted");
+        bus.detach(cardId);
+        paintGate.forget(cardId);
+        reviveWanted();
+        return;
       case "failed": {
         // The host has destroyed the body. The card stays a body card —
         // every card is one, so the shell has no other place for it — and
@@ -1572,6 +1595,76 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     }
   });
   releases.push(releaseBodyState);
+
+  // ---- Evicted cards, brought back when they are wanted ----
+
+  /**
+   * Ask again for every evicted card the deck now wants shown — its tab
+   * chosen, its workspace shown, its pane unfolded. It comes back as an
+   * arrival, never by un-evicting a view that is gone: a new body on the
+   * restore path, which reads the state the evicted page wrote as it went,
+   * and the host stands the card's last frame over it until it paints, so
+   * the placer shows it from the hand-off.
+   */
+  function reviveWanted(): void {
+    for (const cardId of bodyCardsStore.cardIds()) {
+      if (bodyCardsStore.stateOf(cardId) !== "evicted" || !wantsBodyShown(deck, cardId)) continue;
+      bodyCardsStore.markRevived(cardId);
+      askAgain(cardId);
+    }
+  }
+  releases.push(deck.subscribe(reviveWanted), deck.subscribeSpaces(reviveWanted));
+
+  // How long a hidden body keeps its process: the host's clock, so the
+  // reader's setting, written anywhere, is told to the host — once now and
+  // again whenever it changes.
+  const tugbank = getTugbankClient();
+  if (tugbank !== null) {
+    let toldEvictAfter: number | null = null;
+    const tellEvictAfter = () => {
+      const ms = readEvictAfterMs((domain, key) => tugbank.get(domain, key));
+      if (ms === toldEvictAfter) return;
+      toldEvictAfter = ms;
+      postToHost(bodyEvictAfterToHost, { ms });
+    };
+    tellEvictAfter();
+    releases.push(
+      tugbank.onDomainChanged((domain) => {
+        if (domain === EVICT_AFTER_DOMAIN) tellEvictAfter();
+      }),
+    );
+  }
+
+  // What the deck holds of its bodies, for the Layout card's Bodies row:
+  // each body card's tier from its body's state, its page's dormancy and its
+  // placement, and the host's last pressure event. Readings; nothing here
+  // decides anything.
+  let lastPressure: BodyPressure | null = null;
+  const publishCensus = (): void => {
+    const counts = countTiers(
+      bodyCardsStore.cardIds().map((cardId) =>
+        bodyTier({
+          evicted: bodyCardsStore.stateOf(cardId) === "evicted",
+          dormant: cardFacts.getFor(cardId)?.dormant === true,
+          placed: shownFactsOf(deck, cardId),
+        }),
+      ),
+    );
+    const standing = deckBodies.getSnapshot();
+    if (sameCounts(standing.counts, counts) && standing.pressure === lastPressure) return;
+    deckBodies.set({ counts, pressure: lastPressure });
+  };
+  releases.push(
+    onHostMessage(bodyPressureToPage, (pressure) => {
+      lastPressure = pressure;
+      publishCensus();
+    }),
+    deck.subscribe(publishCensus),
+    deck.subscribeSpaces(publishCensus),
+    bodyCardsStore.subscribe(publishCensus),
+    cardFacts.subscribe(publishCensus),
+  );
+  publishCensus();
 
   // A failed card's Reload, from its placard.
   setBodyReloader(askAgain);

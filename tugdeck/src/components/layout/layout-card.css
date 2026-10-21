@@ -327,3 +327,11 @@
 .layouts-section-row [data-slot="tug-choice-group"] {
   justify-self: start;
 }
+
+/* A reading row's value: text, not a control, left-aligned with the controls. */
+.layouts-section-reading {
+  justify-self: start;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}

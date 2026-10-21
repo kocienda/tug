@@ -149,6 +149,19 @@ export const bodyDestroyToHost = defineToHost<BodyDestroy>({
   refused: ["c1", { cardId: "c1" }],
 });
 
+/** How long a body may stay hidden before the host evicts it, in ms: the reader's `evictAfterMs`. */
+export interface BodyEvictAfter {
+  readonly ms: number;
+}
+
+export const bodyEvictAfterToHost = defineToHost<BodyEvictAfter>({
+  name: "bodyEvictAfter",
+  from: "shell",
+  codec: obj({ ms: num }),
+  samples: [{ ms: 900_000 }],
+  refused: [900_000, { ms: "900000" }],
+});
+
 /** The card whose body takes the keyboard, or null for the shell. */
 export interface BodyFocus {
   readonly cardId: string | null;
@@ -213,7 +226,7 @@ export const bodyBindToPage = defineToPage<BodyBind>({
 /** What the host reports of a body to the shell. */
 export interface BodyStateReport {
   readonly cardId: string;
-  readonly state: "ready" | "painted" | "landed" | "beatsCancelled" | "failed" | "terminated";
+  readonly state: "ready" | "painted" | "landed" | "beatsCancelled" | "failed" | "terminated" | "evicted";
   /** `ready`: bind → ready, ms. */
   readonly readyMs?: number;
   /** `ready`: whether the body began as the spare. */
@@ -222,7 +235,11 @@ export interface BodyStateReport {
   readonly planId?: number;
   /** `landed`: how far past its start the plan reached the host, ms. */
   readonly lateMs?: number;
-  /** `failed`: why the host gave the body up. */
+  /**
+   * `failed`: why the host gave the body up. `evicted`: what took its
+   * process — `pressure-warning`, `pressure-critical`, or `hidden` for a
+   * body hidden past `evictAfterMs`.
+   */
   readonly cause?: string;
 }
 
@@ -232,7 +249,7 @@ export const bodyStateToPage = defineToPage<BodyStateReport>({
   to: "shell",
   codec: obj({
     cardId: str,
-    state: literal("ready", "painted", "landed", "beatsCancelled", "failed", "terminated"),
+    state: literal("ready", "painted", "landed", "beatsCancelled", "failed", "terminated", "evicted"),
     readyMs: optional(num),
     start: optional(literal("warm", "cold")),
     planId: optional(num),
@@ -245,6 +262,7 @@ export const bodyStateToPage = defineToPage<BodyStateReport>({
     { cardId: "c1", state: "landed", planId: 7, lateMs: 3.5 },
     { cardId: "c1", state: "beatsCancelled", planId: 7 },
     { cardId: "c1", state: "failed", cause: "deadline" },
+    { cardId: "c1", state: "evicted", cause: "pressure-critical" },
   ],
   refused: ["ready", { cardId: "c1", state: "asleep" }, { cardId: "c1", state: "landed", planId: "7" }, { state: "ready" }],
 });
@@ -270,6 +288,27 @@ export const bodyVisibilityToPage = defineToPage<BodyVisibility>({
     { shown: false, since: 1_760_000_060_000.5 },
   ],
   refused: [true, { shown: "yes", since: 0 }, { shown: false }],
+});
+
+/**
+ * How short of memory the machine said it was, and when, wall-clock ms: the
+ * host's memory-pressure source, told to the shell at every event. A reading
+ * for the Layout card; the host acts on it itself.
+ */
+export interface BodyPressure {
+  readonly level: "normal" | "warning" | "critical";
+  readonly at: number;
+}
+
+export const bodyPressureToPage = defineToPage<BodyPressure>({
+  member: "onBodyPressure",
+  to: "shell",
+  codec: obj({ level: literal("normal", "warning", "critical"), at: num }),
+  samples: [
+    { level: "warning", at: 1_760_000_000_000 },
+    { level: "normal", at: 1_760_000_060_000.5 },
+  ],
+  refused: ["warning", { level: "low", at: 0 }, { level: "critical" }],
 });
 
 // The host's calls into `window.tugdeck`.

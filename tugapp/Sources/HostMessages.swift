@@ -180,6 +180,12 @@ struct BodyDestroy: Decodable, Equatable {
     var save: Bool
 }
 
+/// `bodyEvictAfter`: how long a body may stay hidden before the host evicts
+/// it, ms — the reader's `evictAfterMs`.
+struct BodyEvictAfter: Decodable, Equatable {
+    var ms: Double
+}
+
 /// `bodyFocus`: the card whose body takes the keyboard, or nil for the shell.
 struct BodyFocus: Decodable, Equatable {
     var cardId: String?
@@ -262,10 +268,21 @@ struct BodyBind: Codable, Equatable {
     var facts: BindFacts
 }
 
+/// `onBodyPressure`: how short of memory the machine said it was, and when,
+/// wall-clock ms — told to the shell at every pressure event.
+struct BodyPressure: Codable, Equatable {
+    enum Level: String, Codable, Equatable {
+        case normal, warning, critical
+    }
+
+    var level: Level
+    var at: Double
+}
+
 /// `onBodyState`: what the host reports of a body to the shell.
 struct BodyStateReport: Codable, Equatable {
     enum State: String, Codable, Equatable {
-        case ready, painted, landed, beatsCancelled, failed, terminated
+        case ready, painted, landed, beatsCancelled, failed, terminated, evicted
     }
 
     enum Start: String, Codable, Equatable {
@@ -644,7 +661,7 @@ enum ToHostName: String, CaseIterable {
     case overlayCreate, overlayClaim
     // Page lifecycle.
     case bodyHello, painted, frontendReady, frontendLaunchStalled, launchLap, pageFault
-    case crossingReady, bodySurface, bodyCreate, bodyDestroy, bodyFocus, hmrUpdate
+    case crossingReady, bodySurface, bodyCreate, bodyDestroy, bodyEvictAfter, bodyFocus, hmrUpdate
     // The host's services.
     case sourceTree, choosePath, getSettings, setTheme
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
@@ -658,7 +675,7 @@ enum ToHostName: String, CaseIterable {
     var shellOnly: Bool {
         switch self {
         case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap, .hmrUpdate,
-             .bodyCreate, .bodyDestroy, .bodyFocus, .hostFrames,
+             .bodyCreate, .bodyDestroy, .bodyEvictAfter, .bodyFocus, .hostFrames,
              .cardPlan, .placeCards, .overlayCreate:
             return true
         default:
@@ -716,6 +733,7 @@ enum ToHost {
     case bodySurface(BodySurface)
     case bodyCreate(BodyCreate)
     case bodyDestroy(BodyDestroy)
+    case bodyEvictAfter(BodyEvictAfter)
     case bodyFocus(BodyFocus)
     case hmrUpdate
     case sourceTree
@@ -765,6 +783,7 @@ enum ToHost {
         case .bodySurface: return .bodySurface(try read(BodySurface.self))
         case .bodyCreate: return .bodyCreate(try read(BodyCreate.self))
         case .bodyDestroy: return .bodyDestroy(try read(BodyDestroy.self))
+        case .bodyEvictAfter: return .bodyEvictAfter(try read(BodyEvictAfter.self))
         case .bodyFocus: return .bodyFocus(try read(BodyFocus.self))
         case .frontendLaunchStalled: return .frontendLaunchStalled(try read(FrontendLaunchStalled.self))
         case .launchLap: return .launchLap(try read(LaunchLap.self))
@@ -892,7 +911,7 @@ enum ToPageMember: String, CaseIterable {
     // Placement and gestures.
     case onCardGesture, onCardInsets, onBodyCrossing
     // Page lifecycle.
-    case onBodyBind, onBodyState, onBodyVisibility
+    case onBodyBind, onBodyState, onBodyPressure, onBodyVisibility
     // The host's services.
     case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
@@ -905,6 +924,7 @@ enum ToPage {
     case bodyCrossing(BodyCrossing)
     case bodyBind(BodyBind)
     case bodyState(BodyStateReport)
+    case bodyPressure(BodyPressure)
     case bodyVisibility(BodyVisibility)
     case settingsLoaded(SettingsLoaded)
     case pathChosen(PathChosen)
@@ -927,6 +947,7 @@ enum ToPage {
         case .bodyCrossing: return .onBodyCrossing
         case .bodyBind: return .onBodyBind
         case .bodyState: return .onBodyState
+        case .bodyPressure: return .onBodyPressure
         case .bodyVisibility: return .onBodyVisibility
         case .settingsLoaded: return .onSettingsLoaded
         case .pathChosen: return .onPathChosen
@@ -953,6 +974,7 @@ enum ToPage {
         case .bodyCrossing(let crossing): return try? encoder.encode(crossing)
         case .bodyBind(let bind): return try? encoder.encode(bind)
         case .bodyState(let report): return try? encoder.encode(report)
+        case .bodyPressure(let pressure): return try? encoder.encode(pressure)
         case .bodyVisibility(let visibility): return try? encoder.encode(visibility)
         case .settingsLoaded(let settings): return try? encoder.encode(settings)
         case .pathChosen(let chosen): return try? encoder.encode(chosen)
@@ -982,6 +1004,7 @@ enum ToPage {
             case .onBodyCrossing: return .success(.bodyCrossing(try read(BodyCrossing.self)))
             case .onBodyBind: return .success(.bodyBind(try read(BodyBind.self)))
             case .onBodyState: return .success(.bodyState(try read(BodyStateReport.self)))
+            case .onBodyPressure: return .success(.bodyPressure(try read(BodyPressure.self)))
             case .onBodyVisibility: return .success(.bodyVisibility(try read(BodyVisibility.self)))
             case .onSettingsLoaded: return .success(.settingsLoaded(try read(SettingsLoaded.self)))
             case .onPathChosen: return .success(.pathChosen(try read(PathChosen.self)))

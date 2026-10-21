@@ -60,6 +60,7 @@ import type {
   MenuItemSnapshot,
   MenuItemState,
   MenuItemPerformed,
+  MemoryPressureLevel,
   NativeModifier,
   NativeMouseButton,
   ScreenRect,
@@ -221,8 +222,12 @@ export type {
  * `1.18.0`: adds `accessibilityOrder` — the web views the window's
  * accessibility tree reaches, in order, each named `shell` or by its body's
  * card. Additive; major stays `1`.
+ *
+ * `1.19.0`: adds `simulateMemoryPressure` — the body controller is told a
+ * memory-pressure level as its dispatch source would tell it. Additive;
+ * major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.18.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.19.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -1003,6 +1008,14 @@ export class App {
    */
   bodies(): Promise<client.BodyViewSnapshot[]> {
     return client.bodies(this as HarnessCaller);
+  }
+
+  /**
+   * Tell the host a memory-pressure level as its dispatch source would; the
+   * evictions it starts finish after the answer.
+   */
+  simulateMemoryPressure(level: MemoryPressureLevel): Promise<string> {
+    return client.simulateMemoryPressure(this as HarnessCaller, level);
   }
 
   /** The window's accessibility reading order: `shell`, body card ids, then `overlay`. */
