@@ -626,7 +626,18 @@ pub(crate) fn server_id() -> &'static str {
 ///
 /// Returns the page identity the hello stated (a tool when it stated none),
 /// or `None` when the handshake failed and the socket is done.
-async fn perform_handshake(socket: &mut WebSocket, client_id: u64) -> Option<PageIdentity> {
+///
+/// The page is registered BEFORE the reply is sent: the reply is the page's
+/// licence to act as connected, so by the time it can read it the page must
+/// already be listed and addressable. Registering after the send left a
+/// window where a page holding its reply was absent from `/api/pages` and
+/// unreachable by anything addressed to it. A reply that fails to send
+/// departs the page again.
+async fn perform_handshake(
+    socket: &mut WebSocket,
+    client_id: u64,
+    pages: &PageRegistry,
+) -> Option<PageIdentity> {
     let hello = tokio::time::timeout(HANDSHAKE_TIMEOUT, socket.recv()).await;
 
     let hello_text = match hello {
@@ -727,12 +738,14 @@ async fn perform_handshake(socket: &mut WebSocket, client_id: u64) -> Option<Pag
     };
 
     let response = build_handshake_response(client_id, &identity);
+    pages.register(client_id, &identity);
     if socket
         .send(Message::Text(response.to_string().into()))
         .await
         .is_err()
     {
         info!("Client disconnected during handshake response");
+        pages.depart(client_id);
         return None;
     }
 
@@ -1529,10 +1542,9 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
     info!(client_id, "Client connected");
 
     // --- Protocol handshake (v1) ---
-    let Some(identity) = perform_handshake(&mut socket, client_id).await else {
+    let Some(identity) = perform_handshake(&mut socket, client_id, &router.pages).await else {
         return;
     };
-    router.pages.register(client_id, &identity);
     // A body page's card: what lets it write the session its card seats. A
     // spare's changes once, at `page_bind`.
     let mut page_card = identity.card_id.clone();
