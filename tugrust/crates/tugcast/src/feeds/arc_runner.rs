@@ -784,9 +784,15 @@ fn arc_key(arc: &BoundArc) -> String {
 
 /// The runner's key for one arc: `"{project}\0{name}"`. One spelling, so a
 /// stop performed outside the runner evicts the entry the runner wrote rather
-/// than a lookalike.
+/// than a lookalike — and that spelling is the gateway's ([L29]): the runner
+/// reads `project` off a ledger row and a stop reads it off a CONTROL frame,
+/// and two spellings of one directory must be one key.
 pub(crate) fn arc_key_for(project: &Path, name: &str) -> String {
-    format!("{}\u{0}{}", project.display(), name)
+    format!(
+        "{}\u{0}{}",
+        crate::path_resolver::resolve_to_claude_form(project).display(),
+        name
+    )
 }
 
 /// Evict a stopped arc's memory and put back only the stop's own marks.
@@ -6053,7 +6059,13 @@ Some context.
 
         let frames = queued(&entry).await;
         let texts = prompt_texts(&frames);
-        let where_line = format!("where: worktree {}", worktree.display());
+        // The seat is made under the project the ledger names, which is the
+        // gateway's spelling of `root` ([L29]).
+        let seat = tugarc_core::ops::worktree_path(
+            &crate::path_resolver::resolve_to_claude_form(root),
+            "demo",
+        );
+        let where_line = format!("where: worktree {}", seat.display());
         assert!(
             texts.iter().any(|t| t.contains(&where_line)),
             "the where line names the seat the dispatch made: {texts:?}"
@@ -6999,7 +7011,7 @@ Some context.
     /// The arc's own key for the harness's project and arc, which is what the
     /// per-arc memory is filed under.
     fn demo_key(root: &Path) -> String {
-        format!("{}\u{0}demo", root.display())
+        arc_key_for(root, "demo")
     }
 
     /// The regression [P04] fixes: with `last_done_count` cleared at rotation,

@@ -267,6 +267,7 @@ import { closeGuardWalk } from "./close-guard-walk";
 import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
 import { frontmostProjectBinding, workspaceProjectDirs } from "./frontmost-project";
+import { canonicalDirStore } from "./canonical-dir-store";
 import { motionBreaker } from "./motion-guard/breaker";
 import { holdOverviewDraftInShell } from "./overview-composer-draft";
 import { CROSSING_FRAME_ATTRS, crossingMirrorOf } from "./fold-crossing";
@@ -1130,6 +1131,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     focusRingModalityStore.subscribe(publishDeckFacts),
     subscribeModifierLatch(publishDeckFacts),
     cardSessionBindingStore.subscribe(publishDeckFacts),
+    // The workspace's project set is keyed by the server's canonical spelling
+    // of each binding's directory ([L29]); an answer landing can merge two.
+    canonicalDirStore.subscribe(publishDeckFacts),
     motionBreaker.onChange(publishDeckFacts),
   );
   publishDeckFacts();

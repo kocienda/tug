@@ -67,6 +67,7 @@ import type { ResumeDisplayMetadata } from "@/lib/session-restore";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { putSessionRecentProjects } from "@/settings-api";
 import { getSessionLedgerStore } from "@/lib/session-ledger-store";
+import { useCanonicalDirs } from "@/lib/canonical-dir-store";
 import {
   GROUPED_CELL_RENDERERS,
   GroupedPickerCellProvider,
@@ -217,6 +218,11 @@ export function SessionProjectPickerForm({
   // projects, the recents, and every group's listing.
   const groups = usePickerGroups(typedDir);
   const recents = useRecents();
+  // A path's identity for comparison is the server's canonical spelling
+  // ([L29]): groups are keyed by it, so the typed folder and a recent are
+  // matched to their group through it, never by the spelling they carry.
+  const canonicalOf = useCanonicalDirs();
+  const typedKey = typedDir === "" ? "" : canonicalOf(typedDir);
 
   // Which groups are unfolded: the workspace's (or the first group, when no
   // card is bound) and the typed folder, each flipped by the user's toggles.
@@ -226,8 +232,8 @@ export function SessionProjectPickerForm({
   const defaultOpen = useMemo(() => new Set(defaultOpenDirs(groups)), [groups]);
   const isExpanded = useCallback(
     (dir: string): boolean =>
-      (defaultOpen.has(dir) || dir === typedDir) !== toggled.has(dir),
-    [defaultOpen, typedDir, toggled],
+      (defaultOpen.has(dir) || dir === typedKey) !== toggled.has(dir),
+    [defaultOpen, typedKey, toggled],
   );
   const toggleGroup = useCallback((dir: string): void => {
     setToggled((prev) => {
@@ -254,7 +260,8 @@ export function SessionProjectPickerForm({
   const selection = effectiveSelection(rows, chosen);
   const selectedRowId = selection === null ? null : pickerSelectionRowId(selection);
   const selectedGroup = groupOfSelection(groups, selection);
-  const typedGroup = groups.find((g) => g.projectDir === typedDir) ?? null;
+  const typedGroup =
+    typedKey === "" ? null : (groups.find((g) => g.projectDir === typedKey) ?? null);
 
   // The listing frame this render drew is in the DOM once this runs, and
   // nothing before it can say so: the store's tick precedes the render, and the
@@ -416,18 +423,20 @@ export function SessionProjectPickerForm({
     [],
   );
 
-  // Optimistically update the tugbank cache (so the list re-renders at once),
-  // then persist.
+  // Every recent that is this directory goes, whatever its spelling ([L29]):
+  // a band stands for the directory, and leaving a second spelling behind
+  // would put the band straight back. Optimistically update the tugbank cache
+  // (so the list re-renders at once), then persist.
   const removeRecent = useCallback(
     (dir: string): void => {
-      const next = recents.filter((p) => p !== dir);
+      const next = recents.filter((p) => canonicalOf(p) !== dir);
       getTugbankClient()?.setLocalValue(RECENT_PROJECTS_DOMAIN, RECENT_PROJECTS_KEY, {
         kind: "json",
         value: { paths: next },
       });
       putSessionRecentProjects(next);
     },
-    [recents],
+    [recents, canonicalOf],
   );
 
   const handleConfirmRemove = useCallback(() => {
@@ -467,7 +476,7 @@ export function SessionProjectPickerForm({
     selection === null
       ? ""
       : selection.kind === "other"
-        ? typedDir
+        ? (typedGroup?.projectDir ?? typedDir)
         : selection.projectDir;
   const openGroup = selection?.kind === "other" ? typedGroup : selectedGroup;
   const dirMissing = openGroup?.status === "missing";

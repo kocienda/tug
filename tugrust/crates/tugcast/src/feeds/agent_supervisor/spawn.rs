@@ -1122,11 +1122,12 @@ impl AgentSupervisor {
             // the seat *is* the address.
             "seated_session_id": seated_session_id,
             "workspace_key": workspace_key.as_ref(),
-            // Echo the pre-canonical path the client sent so tugdeck's
-            // binding store carries the form the user actually chose.
-            // The filter identity comes from `workspace_key`, not this
-            // field — `project_dir` is informational for UI display.
-            "project_dir": project_dir_str,
+            // The project in the gateway's spelling ([L29]), never the one
+            // the client sent: tugdeck's binding stores this, compares it
+            // (the workspace's project set) and persists it (the recents), so
+            // two spellings of one directory must arrive as one.
+            "project_dir": crate::path_resolver::resolve_to_claude_form(&project_dir)
+                .to_string_lossy(),
             "session_mode": effective_mode.as_wire_str(),
             // The line this card is on ([P03]). Every identity-shaped store on
             // the deck keys by it, and the ack is where a fresh spawn learns

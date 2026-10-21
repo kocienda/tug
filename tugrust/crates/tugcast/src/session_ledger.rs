@@ -2301,6 +2301,9 @@ impl SessionLedger {
         // rewrites `sessions` — both of which the batch has just guaranteed
         // exist. On a ledger that already speaks lines this is a no-op.
         Self::migrate_sessions_to_lines(conn)?;
+        // After the batch and the lines migration, because it rewrites
+        // `lines` and `overview_posts`, which both have to exist.
+        Self::migrate_project_dirs_to_claude_form(conn)?;
         // After the migration, because a pre-lines `sessions` has no
         // `line_id` for the index to name until it has run. Idempotent on
         // both paths, which is why it is not inside either.
@@ -3290,6 +3293,42 @@ impl SessionLedger {
         Ok(())
     }
 
+    /// Rewrite every stored `project_dir` to the gateway's spelling ([L29]).
+    ///
+    /// The columns used to hold whatever spelling a spawn was typed under, so
+    /// one directory reached through a symlink and its target sat under two
+    /// keys and every comparison against them split it in two. Each distinct
+    /// stored value is resolved through [`resolve_to_claude_form`] and, where
+    /// that differs, rewritten in place. Idempotent: a ledger already in the
+    /// Claude form resolves to itself and nothing is written. A directory
+    /// that no longer exists resolves to its own spelling and is left as it
+    /// was, which is all the gateway can say about it.
+    fn migrate_project_dirs_to_claude_form(conn: &Connection) -> Result<(), LedgerError> {
+        for table in ["sessions", "lines", "overview_posts", "external_scan_cache"] {
+            if Self::table_columns(conn, table)?.is_empty() {
+                continue;
+            }
+            let stored: Vec<String> = {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT DISTINCT project_dir FROM {table}
+                     WHERE project_dir IS NOT NULL AND project_dir != ''"
+                ))?;
+                stmt.query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            for raw in stored {
+                let canonical = stored_project_dir(&raw);
+                if canonical != raw {
+                    conn.execute(
+                        &format!("UPDATE {table} SET project_dir = ?2 WHERE project_dir = ?1"),
+                        params![raw, canonical],
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Self-healing add of `overview_posts.project_dir` — the root the post's
     /// refs resolve against. Same ALTER-only posture as `elapsed_ms`, for the
     /// same reason: the table is permanent history. Pre-column rows read
@@ -3570,13 +3609,19 @@ impl SessionLedger {
         rows.into_iter().collect()
     }
 
-    /// All rows whose `project_dir` matches `project_dir` literally,
+    /// All rows recorded under `project_dir` in ANY of its spellings,
     /// ordered newest-first by `last_used_at`. The picker uses this for
-    /// its "what sessions did I have under this typed path?" query — the
-    /// raw user-typed path matches the value originally recorded at
-    /// `record_spawn` time, so no client-side canonicalization is needed.
-    /// `list_for_workspace` matches against the canonical key and stays
-    /// for the supervisor's resume-resolution path.
+    /// its "what sessions did I have in this directory?" query.
+    ///
+    /// `project_dir` is stored as the spelling the spawn was typed under, so
+    /// one directory reached through a symlink and its target (`/u/src/tug`
+    /// and `/Users/…/u/src/tug`) holds rows under two keys. Matching the
+    /// request literally split one project's sessions between two listings
+    /// and showed it twice. The comparison routes through the gateway
+    /// instead ([L29], [`Self::project_dir_spellings`]): every stored
+    /// spelling that resolves to the same Claude-form directory as the
+    /// request is the same project. `list_for_workspace` matches against the
+    /// canonical key and stays for the supervisor's resume-resolution path.
     ///
     /// **Line-first, not session-first.** The listing enumerates the lines of
     /// work in this directory and attaches their segments, rather than walking
@@ -3594,17 +3639,22 @@ impl SessionLedger {
     /// into and nothing to point at, and a row that names neither is worse
     /// than an honest absence.
     pub fn list_for_project_dir(&self, project_dir: &str) -> Result<Vec<SessionRow>, LedgerError> {
+        let spellings = self.project_dir_spellings(project_dir)?;
+        let marks = (1..=spellings.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let conn = self.db.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
-             WHERE s.project_dir = ?1
+             WHERE s.project_dir IN ({marks})
              UNION ALL
              SELECT m.session_id, l.project_dir, l.project_dir, l.created_at,
                     l.last_used_at, 0, NULL, 'closed', NULL,
                     l.name, l.name_user_set, l.tag, NULL, 0, NULL, NULL, l.line_id
              FROM lines l
              JOIN minted_tags m ON m.line_id = l.line_id
-             WHERE l.project_dir = ?1
+             WHERE l.project_dir IN ({marks})
                AND l.name_user_set = 1
                AND NOT EXISTS (
                    SELECT 1 FROM sessions s2 WHERE s2.line_id = l.line_id
@@ -3618,9 +3668,33 @@ impl SessionLedger {
              ORDER BY last_used_at DESC"
         ))?;
         let rows = stmt
-            .query_map(params![project_dir], row_from_query)?
+            .query_map(rusqlite::params_from_iter(spellings.iter()), row_from_query)?
             .collect::<Result<Vec<_>, _>>()?;
         rows.into_iter().collect()
+    }
+
+    /// Every spelling of `project_dir` the ledger holds rows under: the
+    /// request itself, and each stored `project_dir` (on `sessions` or
+    /// `lines`) that resolves through [`resolve_to_claude_form`] to the same
+    /// directory ([L29]). The stored spellings are read under the lock and
+    /// resolved after it is released, since resolution touches the
+    /// filesystem.
+    fn project_dir_spellings(&self, project_dir: &str) -> Result<Vec<String>, LedgerError> {
+        let stored: Vec<String> = {
+            let conn = self.db.lock();
+            let mut stmt = conn
+                .prepare("SELECT project_dir FROM sessions UNION SELECT project_dir FROM lines")?;
+            stmt.query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let canonical = resolve_to_claude_form(Path::new(project_dir));
+        let mut spellings = vec![project_dir.to_owned()];
+        for dir in stored {
+            if dir != project_dir && resolve_to_claude_form(Path::new(&dir)) == canonical {
+                spellings.push(dir);
+            }
+        }
+        Ok(spellings)
     }
 
     /// All non-failed rows that carry a `card_id`, ordered newest-first
@@ -4441,6 +4515,9 @@ impl SessionLedger {
         line_id: &str,
         tag: Option<&str>,
     ) -> Result<(), LedgerError> {
+        // The column is a persisted key, so it holds the gateway's spelling,
+        // never the one the spawn was typed under ([L29]).
+        let project_dir = &stored_project_dir(project_dir);
         let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let existing_created_at: Option<i64> = tx
@@ -7746,7 +7823,7 @@ impl SessionLedger {
                 post.body,
                 refs_json,
                 post.elapsed_ms,
-                post.project_dir,
+                post.project_dir.as_deref().map(stored_project_dir),
                 attachments_json,
                 subword_tokens(&[&post.body, &refs_json]),
             ],
@@ -8533,6 +8610,9 @@ fn birth_line_in(
     tag: Option<&str>,
     now: i64,
 ) -> Result<LineRow, LedgerError> {
+    // Every line birth goes through here, so this is where `lines.project_dir`
+    // takes the gateway's spelling ([L29]).
+    let project_dir = &stored_project_dir(project_dir);
     let line_id = line_id
         .filter(|id| !id.is_empty())
         .map(str::to_owned)
@@ -8985,6 +9065,19 @@ pub fn claude_project_dir(claude_home: &ClaudeHome, project_dir: &str) -> (PathB
         .unwrap_or_else(|| project_dir.to_owned());
     let dir = claude_home.project_dir(&canonical);
     (dir, canonical)
+}
+
+/// The spelling a `project_dir` column stores: the Claude form from the
+/// canonicalization gateway ([L29], [`resolve_to_claude_form`]), so two
+/// spellings of one directory are one key. Every ledger write of the column
+/// routes through here; an empty value stays empty.
+fn stored_project_dir(project_dir: &str) -> String {
+    if project_dir.is_empty() {
+        return String::new();
+    }
+    resolve_to_claude_form(Path::new(project_dir))
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// How much of a transcript's tail the anchor read looks at.
@@ -13473,6 +13566,91 @@ mod tests {
             row.session_id, "seg-1",
             "the minted_tags join names a session recorded, never guessed"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_project_lists_its_rows_under_every_spelling() {
+        // One directory, reached through a symlink and through its target:
+        // a row recorded under either spelling lists under both ([L29]).
+        let tmp = tempfile::tempdir().unwrap();
+        let real = resolve_to_claude_form(tmp.path()).join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = resolve_to_claude_form(tmp.path()).join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let real = real.to_str().unwrap().to_owned();
+        let link = link.to_str().unwrap().to_owned();
+
+        let l = fresh();
+        l.record_spawn("via-real", WS_A, &real, "c1", millis(1), "via-real", None)
+            .unwrap();
+        l.record_spawn("via-link", WS_A, &link, "c2", millis(2), "via-link", None)
+            .unwrap();
+        l.record_spawn(
+            "elsewhere",
+            WS_A,
+            "/proj",
+            "c3",
+            millis(3),
+            "elsewhere",
+            None,
+        )
+        .unwrap();
+
+        for spelling in [&real, &link] {
+            let mut ids: Vec<String> = l
+                .list_for_project_dir(spelling)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.session_id)
+                .collect();
+            ids.sort();
+            assert_eq!(
+                ids,
+                vec!["via-link".to_owned(), "via-real".to_owned()],
+                "listing {spelling} finds both spellings' rows and nothing else"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stored_project_dirs_take_the_gateway_spelling() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = resolve_to_claude_form(tmp.path()).join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = resolve_to_claude_form(tmp.path()).join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let real = real.to_str().unwrap().to_owned();
+        let link = link.to_str().unwrap().to_owned();
+
+        // A spawn typed under the link stores the target ([L29]).
+        let l = fresh();
+        l.record_spawn("s1", WS_A, &link, "c1", millis(1), "line-1", None)
+            .unwrap();
+        let stored = |table: &str| -> String {
+            l.db.lock()
+                .query_row(&format!("SELECT project_dir FROM {table}"), [], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(stored("sessions"), real);
+        assert_eq!(stored("lines"), real);
+
+        // A row written raw before this rule is rewritten by the migration,
+        // and a second run changes nothing.
+        {
+            let conn = l.db.lock();
+            conn.execute("UPDATE sessions SET project_dir = ?1", params![link])
+                .unwrap();
+            conn.execute("UPDATE lines SET project_dir = ?1", params![link])
+                .unwrap();
+            SessionLedger::migrate_project_dirs_to_claude_form(&conn).unwrap();
+            SessionLedger::migrate_project_dirs_to_claude_form(&conn).unwrap();
+        }
+        assert_eq!(stored("sessions"), real);
+        assert_eq!(stored("lines"), real);
     }
 
     #[test]
@@ -18113,7 +18291,9 @@ mod tests {
         let row = index_row(&path, "s_index").expect("an index row");
         assert_eq!(row.callsign.as_deref(), Some(ledger_tag.as_str()));
         assert_eq!(row.line_id, "line-index");
-        assert_eq!(row.project_dir, "/u/src/tug");
+        // The index carries the ledger's spelling, the gateway's ([L29]):
+        // `/u` is a synthetic firmlink on a machine that has one.
+        assert_eq!(row.project_dir, stored_project_dir("/u/src/tug"));
         assert_eq!(row.project_leaf, "tug");
         assert_eq!(row.title, None);
         assert_eq!(

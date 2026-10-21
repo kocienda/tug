@@ -6175,12 +6175,17 @@ Some context.
         );
     }
 
-    /// `sessions.project_dir` stays the raw typed path so the picker's
-    /// `list_for_project_dir` (raw-path lookup) keeps working — only
-    /// `file_events.project_dir` is canonicalized ([P05]).
+    /// `sessions.project_dir` is a persisted key, so it holds the gateway's
+    /// Claude-form spelling, not the path the spawn was typed under ([L29]),
+    /// and `list_for_project_dir` finds the row under either spelling.
+    ///
+    /// This REVERSES the earlier rule ([P05]) that kept the column raw so a
+    /// raw-string lookup would match it: that left one directory under two
+    /// keys, and the Choose Session sheet showed a project twice, split
+    /// between its symlink and its target.
     #[cfg(unix)]
     #[tokio::test]
-    async fn sessions_project_dir_stays_raw() {
+    async fn sessions_project_dir_is_canonical() {
         let (_dir, root) = init_repo();
         let link_home = tempfile::tempdir().unwrap();
         let link = link_home.path().join("link");
@@ -6198,9 +6203,18 @@ Some context.
             1,
             "picker finds the session by its raw typed path"
         );
+        let canonical = crate::path_resolver::resolve_to_claude_form(&link)
+            .to_string_lossy()
+            .into_owned();
+        assert_ne!(canonical, raw, "the link resolves to its target");
         assert_eq!(
-            rows[0].project_dir, raw,
-            "sessions.project_dir stays the raw spelling"
+            rows[0].project_dir, canonical,
+            "sessions.project_dir holds the gateway's spelling"
+        );
+        assert_eq!(
+            ledger.list_for_project_dir(&canonical).unwrap().len(),
+            1,
+            "the canonical spelling finds the same session"
         );
     }
 

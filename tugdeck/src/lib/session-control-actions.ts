@@ -222,11 +222,11 @@ export function registerSessionControlActions(filter?: SessionControlFilter): vo
       );
       return;
     }
-    // `project_dir` is the pre-canonical path the client sent in
-    // `spawn_session`. Tugcast doesn't currently echo it in the ack
-    // (only `workspace_key`), so fall back to the canonical form when
-    // the ack omits it. The binding's `projectDir` is informational —
-    // the filter uses `workspaceKey`.
+    // `project_dir` is the server's canonical spelling of the directory the
+    // spawn named ([L29]) — the binding's `projectDir` is compared and
+    // persisted downstream, so it is never the raw path the client sent.
+    // `workspace_key` is the same canonical form, and stands in for an ack
+    // from a server that omits `project_dir`.
     const projectDirResolved =
       typeof projectDir === "string" ? projectDir : workspaceKey;
     // Pre-`session_mode` server acks omit the field; default to

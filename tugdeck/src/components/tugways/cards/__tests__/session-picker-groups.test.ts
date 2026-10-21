@@ -89,6 +89,29 @@ describe("pickerGroupSpecsFrom — which projects the sheet shows", () => {
       { projectDir: "/b", inWorkspace: false },
     ]);
   });
+
+  it("makes one group of two spellings of one directory, under its canonical spelling", () => {
+    // The screenshot's case: the workspace's card bound under the long
+    // spelling, a recent under the short symlink — one project ([L29]).
+    const canonical: Record<string, string> = {
+      "/u/src/tug": "/Users/k/Mounts/u/src/tug",
+      "/Users/k/Mounts/u/src/tug": "/Users/k/Mounts/u/src/tug",
+      "/Users/k/eucit": "/Users/k/eucit",
+    };
+    const canonicalOf = (p: string): string => canonical[p] ?? p;
+    expect(
+      pickerGroupSpecsFrom(
+        ["/Users/k/Mounts/u/src/tug"],
+        ["/Users/k/eucit", "/u/src/tug"],
+        "",
+        "/u/src/tug",
+        canonicalOf,
+      ),
+    ).toEqual([
+      { projectDir: "/Users/k/Mounts/u/src/tug", inWorkspace: true },
+      { projectDir: "/Users/k/eucit", inWorkspace: false },
+    ]);
+  });
 });
 
 describe("isRecentGroup — which bands offer to leave the recents", () => {

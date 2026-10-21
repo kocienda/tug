@@ -23,7 +23,7 @@ import { TEXT_CARD_DOMAIN } from "./lib/text-card-settings";
 import { IMAGE_CARD_DOMAIN } from "./lib/image-card-settings";
 import { PDF_CARD_DOMAIN } from "./lib/pdf-card-settings";
 import { getTugbankClient } from "./lib/tugbank-singleton";
-import { canonicalizeDirPath } from "./lib/dir-existence";
+import { canonicalizeDirPath, probeDirs } from "./lib/dir-existence";
 import type { FindOptions } from "./lib/transcript-search";
 
 const CARDSTATE_DOMAIN = "dev.tugapp.deck.cardstate";
@@ -1208,11 +1208,35 @@ export function putSessionRecentProjects(paths: string[]): void {
 }
 
 /**
- * Prepend `projectDir` onto `existing`, dedup case-sensitively, and cap at
- * `SESSION_RECENT_PROJECTS_MAX`. Pure helper so callers can compose the new
- * list before handing it to `putSessionRecentProjects`.
+ * Record `projectDir` as the most recent project — the bind-success write.
+ *
+ * The recents are a persisted list of paths, so each goes through the
+ * server's canonicalization gateway first ([L29]): the stored spelling is the
+ * server's canonical one, and an entry already in the list under another
+ * spelling of the same directory is that directory, so it is replaced rather
+ * than kept beside it. A project reached through a symlink and its target is
+ * then one recent, not two. A path the gateway won't resolve is not stored —
+ * a refusal, logged — rather than stored raw.
  */
-export function insertSessionRecentProject(existing: string[], projectDir: string): string[] {
-  const next = [projectDir, ...existing.filter((p) => p !== projectDir)];
-  return next.slice(0, SESSION_RECENT_PROJECTS_MAX);
+export async function recordSessionRecentProject(
+  client: TugbankClient,
+  projectDir: string,
+): Promise<void> {
+  const before = readSessionRecentProjects(client);
+  const { canonical } = await probeDirs([projectDir, ...before]);
+  const key = canonical[projectDir];
+  if (key === undefined) {
+    tugDevLogStore.warn("settings", "recent project not canonical", { path: projectDir });
+    return;
+  }
+  // Re-read after the round trip: another write may have landed meanwhile. An
+  // entry the probe did not cover stands for itself.
+  const current = readSessionRecentProjects(client);
+  const identity = (p: string): string => canonical[p] ?? p;
+  const next = [key, ...current.filter((p) => identity(p) !== key)].slice(
+    0,
+    SESSION_RECENT_PROJECTS_MAX,
+  );
+  if (next.length === current.length && next.every((p, i) => p === current[i])) return;
+  putSessionRecentProjects(next);
 }

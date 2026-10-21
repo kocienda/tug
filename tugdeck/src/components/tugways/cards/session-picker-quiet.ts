@@ -129,9 +129,12 @@ export function pickerContentQuiet(
  * the rows, so that is a Summarize lane writing mid-arrival, which the
  * bound covers and a later reservation corrects.
  *
- * The group set is read once, at the arrival, because a hidden picker takes no
- * input and nothing it shows can be unfolded under it. The ledger store
- * fetches a path it has never seen the first time it is asked, so the
+ * The group set is read at each ask rather than once: a hidden picker takes
+ * no input, but its groups are identified by the server's canonical spelling
+ * of each path ([L29]), and until those answers land two spellings of one
+ * directory read as two groups — so the picker is not quiet until they have.
+ * The answers re-render the picker, whose draw is what re-asks. The ledger
+ * store fetches a path it has never seen the first time it is asked, so the
  * `getSnapshot` here is also what starts an open group's listing.
  *
  * `null` when there is no ledger store — a gallery, a fixture — in which case
@@ -140,12 +143,13 @@ export function pickerContentQuiet(
 export function sessionPickerQuiet(): ArrivalQuiet | null {
   const ledger = getSessionLedgerStore();
   if (ledger === null) return null;
-  const specs = readPickerGroupSpecs();
-  const open = new Set(defaultOpenDirs(specs));
   return {
     subscribe: (listener) => drawnListeners.subscribe(listener),
-    isQuiet: () =>
-      pickerContentQuiet(
+    isQuiet: () => {
+      const { specs, resolved } = readPickerGroupSpecs();
+      if (!resolved) return false;
+      const open = new Set(defaultOpenDirs(specs));
+      return pickerContentQuiet(
         specs.map((spec) => {
           const isOpen = open.has(spec.projectDir);
           return {
@@ -154,7 +158,8 @@ export function sessionPickerQuiet(): ArrivalQuiet | null {
           };
         }),
         (lineId) => sessionSynopsisStore.getSynopsis(lineId) !== null,
-      ),
+      );
+    },
   };
 }
 

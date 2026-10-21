@@ -14,6 +14,13 @@
  * whether or not it holds sessions, so a workspace project with none still
  * offers somewhere to start one.
  *
+ * A group is a DIRECTORY, not a spelling. One directory reached through a
+ * symlink and through its target is two strings and one project, and only the
+ * server can say so ([L29]), so every candidate path is identified by its
+ * canonical spelling from the server's gateway (`canonical-dir-store`) and a
+ * group's `projectDir` is that spelling — the one it is listed, compared and
+ * opened under. Until the server has answered, a path stands for itself.
+ *
  * Each group's rows come from its own `list_sessions` listing: there is no
  * cross-project listing on the wire, and the store already caches one
  * snapshot per path. So a group settles on its own, and until it does it
@@ -29,6 +36,12 @@
 import { useMemo } from "react";
 
 import { basename } from "@/lib/display-path";
+import {
+  canonicalDirStore,
+  readCanonicalOf,
+  useCanonicalDirs,
+  type CanonicalOf,
+} from "@/lib/canonical-dir-store";
 import {
   useWorkspaceProjectDirs,
   workspaceProjectDirs,
@@ -65,15 +78,17 @@ export interface PickerGroupSpec {
  * The groups the sheet shows, in order: the workspace's projects, then the
  * recents not already among them — or, when those two name nothing, the
  * fallback project — then the typed folder when it is none of those.
- * Duplicates and empty paths are dropped, so a path appears exactly once
- * whichever list named it first. The first group is the seed path
- * (`seedPathFrom`), by construction.
+ * Every path is identified by `canonicalOf` — the server's canonical spelling
+ * ([L29]) — and a group's `projectDir` is that identity, so two spellings of
+ * one directory are one group whichever list named it first. Empty paths are
+ * dropped. The first group is the seed path (`seedPathFrom`), by construction.
  */
 export function pickerGroupSpecsFrom(
   workspaceDirs: readonly string[],
   recents: readonly string[],
   fallbackDir = "",
   typedDir = "",
+  canonicalOf: CanonicalOf = (path) => path,
 ): PickerGroupSpec[] {
   const specs: PickerGroupSpec[] = [];
   const seen = new Set<string>();
@@ -82,12 +97,13 @@ export function pickerGroupSpecsFrom(
     seen.add(spec.projectDir);
     specs.push(spec);
   };
-  for (const dir of workspaceDirs) add({ projectDir: dir, inWorkspace: true });
-  for (const dir of recents) add({ projectDir: dir, inWorkspace: false });
+  const id = (dir: string): string => (dir === "" ? "" : canonicalOf(dir));
+  for (const dir of workspaceDirs) add({ projectDir: id(dir), inWorkspace: true });
+  for (const dir of recents) add({ projectDir: id(dir), inWorkspace: false });
   if (specs.length === 0) {
-    add({ projectDir: fallbackDir, inWorkspace: false, fallback: true });
+    add({ projectDir: id(fallbackDir), inWorkspace: false, fallback: true });
   }
-  add({ projectDir: typedDir, inWorkspace: false, typed: true });
+  add({ projectDir: id(typedDir), inWorkspace: false, typed: true });
   return specs;
 }
 
@@ -190,13 +206,25 @@ export function pickerGroupFrom(
   };
 }
 
-/** The group set as it stands, read outside a render (no typed folder: none is typed yet). */
-export function readPickerGroupSpecs(): PickerGroupSpec[] {
-  return pickerGroupSpecsFrom(
-    workspaceProjectDirs(),
-    readRecents(),
-    readFallbackProjectDir(),
-  );
+/**
+ * The group set as it stands, read outside a render (no typed folder: none is
+ * typed yet), and whether the server has named every candidate's canonical
+ * spelling — until it has, two spellings of one directory may still read as
+ * two groups.
+ */
+export function readPickerGroupSpecs(): { specs: PickerGroupSpec[]; resolved: boolean } {
+  const workspaceDirs = workspaceProjectDirs();
+  const recents = readRecents();
+  const fallbackDir = readFallbackProjectDir();
+  const resolved = canonicalDirStore.allResolved([
+    ...workspaceDirs,
+    ...recents,
+    fallbackDir,
+  ]);
+  return {
+    specs: pickerGroupSpecsFrom(workspaceDirs, recents, fallbackDir, "", readCanonicalOf),
+    resolved,
+  };
 }
 
 /**
@@ -209,9 +237,10 @@ export function usePickerGroups(typedDir = ""): readonly PickerGroup[] {
   const workspaceDirs = useWorkspaceProjectDirs();
   const recents = useRecents();
   const fallbackDir = useFallbackProjectDir();
+  const canonicalOf = useCanonicalDirs();
   const specs = useMemo(
-    () => pickerGroupSpecsFrom(workspaceDirs, recents, fallbackDir, typedDir),
-    [workspaceDirs, recents, fallbackDir, typedDir],
+    () => pickerGroupSpecsFrom(workspaceDirs, recents, fallbackDir, typedDir, canonicalOf),
+    [workspaceDirs, recents, fallbackDir, typedDir, canonicalOf],
   );
   const dirs = useMemo(() => specs.map((s) => s.projectDir), [specs]);
   const snapshots = useSessionLedgers(dirs);

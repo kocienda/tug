@@ -923,8 +923,9 @@ fn parse_control_payload_owned(payload: &[u8]) -> Result<OwnedControlPayload, Co
 }
 
 /// Parse a CONTROL payload that carries `{ project_dir: "..." }`. The
-/// picker's `list_sessions` request uses this so the lookup matches the
-/// raw user-typed path (the value originally recorded by `record_spawn`).
+/// picker's `list_sessions` request uses this; the ledger lookup matches
+/// every stored spelling of the directory through the canonicalization
+/// gateway ([L29], `SessionLedger::list_for_project_dir`).
 /// `MissingSessionId`-shaped error semantics: a missing identifier the
 /// lookup needs.
 fn parse_project_dir_payload(payload: &[u8]) -> Result<String, ControlError> {
@@ -9051,6 +9052,35 @@ mod tests {
         assert_eq!(registry_map_len(&sup), 0);
     }
 
+    /// The ack names the project in the gateway's spelling, not the one the
+    /// client sent ([L29]): a card bound through a symlink binds to its
+    /// target, so the deck compares and persists one spelling per directory.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn spawn_ack_names_the_project_in_the_gateway_spelling() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let real = tmp.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+
+        let payload = spawn_payload_in("card-1", "sess-1", link.to_str().unwrap());
+        sup.handle_control("spawn_session", &payload, 10)
+            .await
+            .expect_handled();
+
+        let ack = control_rx.try_recv().expect("spawn_session_ok ack");
+        let v: serde_json::Value = serde_json::from_slice(&ack.payload).unwrap();
+        assert_eq!(v["action"], "spawn_session_ok");
+        let canonical = crate::path_resolver::resolve_to_claude_form(&real);
+        assert_eq!(
+            v["project_dir"].as_str(),
+            Some(canonical.to_str().unwrap()),
+            "the ack carries the target, not the link"
+        );
+    }
+
     #[tokio::test]
     async fn test_spawn_session_success_ack_includes_workspace_key() {
         let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
@@ -11779,8 +11809,14 @@ mod tests {
     async fn request_replay_names_the_relocation_of_a_moved_card() {
         let dir_a = tempfile::tempdir().expect("tempdir");
         let dir_b = tempfile::tempdir().expect("tempdir");
-        let a = dir_a.path().to_string_lossy().to_string();
-        let b = dir_b.path().to_string_lossy().to_string();
+        // The gateway's spelling, which is how the ledger stores and reads
+        // back a project dir ([L29]).
+        let a = crate::path_resolver::resolve_to_claude_form(dir_a.path())
+            .to_string_lossy()
+            .to_string();
+        let b = crate::path_resolver::resolve_to_claude_form(dir_b.path())
+            .to_string_lossy()
+            .to_string();
         let (sup, _ledger, _rx) =
             make_supervisor_for_ledger(seed_dir_chain(&["parent", "moved"], &[&a, &b]), None);
 

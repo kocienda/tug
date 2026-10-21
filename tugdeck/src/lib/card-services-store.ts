@@ -68,11 +68,7 @@ import {
   type CardSessionBinding,
 } from "./card-session-binding-store";
 import { sendCloseSession, sendRequestReplay } from "./session-lifecycle";
-import {
-  readSessionRecentProjects,
-  insertSessionRecentProject,
-  putSessionRecentProjects,
-} from "../settings-api";
+import { recordSessionRecentProject } from "../settings-api";
 import type { DeckManager } from "../deck-manager";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import { runOpeningCommand } from "./opening-command-runner";
@@ -789,14 +785,12 @@ class CardServicesStore {
     // else. Its sessions and transcripts are untouched: the cap bounds a
     // convenience menu, and is never the user saying they are done with a
     // project [L23]. Only the user's own Trash gesture removes a session.
+    //
+    // The path is persisted, so it goes through the canonicalization gateway
+    // first ([L29]) — `recordSessionRecentProject` stores the server's
+    // spelling and folds any other spelling of the same directory into it.
     const tugbank = getTugbankClient();
-    if (tugbank) {
-      const current = readSessionRecentProjects(tugbank);
-      const updated = insertSessionRecentProject(current, binding.projectDir);
-      if (updated[0] !== current[0] || updated.length !== current.length) {
-        putSessionRecentProjects(updated);
-      }
-    }
+    if (tugbank) void recordSessionRecentProject(tugbank, binding.projectDir);
 
     logSessionLifecycle("services_store.construct", {
       card_id: cardId,

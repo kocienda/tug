@@ -20,7 +20,7 @@ import {
   readDeckState,
   readCardStates,
   readSessionRecentProjects,
-  insertSessionRecentProject,
+  recordSessionRecentProject,
   capDurableCardState,
   pruneOrphanedCardDefaults,
   CARD_KEYED_DOMAINS,
@@ -334,26 +334,71 @@ describe("pruneOrphanedCardDefaults", () => {
 // dev recent-projects (step 4m)
 // ---------------------------------------------------------------------------
 
-describe("insertSessionRecentProject", () => {
-  test("prepends a new path to an empty list", () => {
-    expect(insertSessionRecentProject([], "/tmp")).toEqual(["/tmp"]);
+describe("recordSessionRecentProject", () => {
+  afterEach(() => {
+    mock.restore();
   });
 
-  test("moves an existing path to the front (dedup)", () => {
-    expect(insertSessionRecentProject(["/a", "/b", "/c"], "/b")).toEqual([
-      "/b",
-      "/a",
-      "/c",
-    ]);
+  /** A client holding `paths` as the recents. */
+  function clientWith(paths: string[]): TugbankClient {
+    return makeMockClient({
+      "dev.tugapp.dev": { "recent-projects": { kind: "json", value: { paths } } },
+    });
+  }
+
+  /**
+   * Stub the gateway (`/api/fs/stat`) with `canonical`, and capture the
+   * recents PUT. A path absent from `canonical` is one the server refused.
+   */
+  function stubGateway(canonical: Record<string, string>): { put: string[][] } {
+    const put: string[][] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (url === "/api/fs/stat") {
+        return makeResponse(200, { exists: {}, canonical });
+      }
+      if (init?.method === "PUT") {
+        put.push((JSON.parse(init.body as string) as { value: { paths: string[] } }).value.paths);
+      }
+      return makeResponse(200, {});
+    }) as unknown as typeof fetch;
+    return { put };
+  }
+
+  test("stores the gateway's spelling, not the one it was handed", async () => {
+    const { put } = stubGateway({ "/u/src/tug": "/Users/k/u/src/tug" });
+    await recordSessionRecentProject(clientWith([]), "/u/src/tug");
+    expect(put).toEqual([["/Users/k/u/src/tug"]]);
   });
 
-  test("caps the list at SESSION_RECENT_PROJECTS_MAX", () => {
+  test("folds another spelling of the same directory into one entry", async () => {
+    const { put } = stubGateway({
+      "/Users/k/u/src/tug": "/Users/k/u/src/tug",
+      "/u/src/tug": "/Users/k/u/src/tug",
+      "/a": "/a",
+    });
+    await recordSessionRecentProject(clientWith(["/a", "/u/src/tug"]), "/Users/k/u/src/tug");
+    expect(put).toEqual([["/Users/k/u/src/tug", "/a"]]);
+  });
+
+  test("caps the list at SESSION_RECENT_PROJECTS_MAX, dropping the oldest", async () => {
     const over = ["/a", "/b", "/c", "/d", "/e"];
-    const next = insertSessionRecentProject(over, "/f");
-    expect(next.length).toBe(SESSION_RECENT_PROJECTS_MAX);
-    expect(next[0]).toBe("/f");
-    // Oldest entry drops off.
-    expect(next).not.toContain("/e");
+    const { put } = stubGateway(Object.fromEntries([...over, "/f"].map((p) => [p, p])));
+    await recordSessionRecentProject(clientWith(over), "/f");
+    expect(put[0].length).toBe(SESSION_RECENT_PROJECTS_MAX);
+    expect(put[0][0]).toBe("/f");
+    expect(put[0]).not.toContain("/e");
+  });
+
+  test("writes nothing when the project already leads under its canonical spelling", async () => {
+    const { put } = stubGateway({ "/u/src/tug": "/Users/k/u/src/tug", "/Users/k/u/src/tug": "/Users/k/u/src/tug" });
+    await recordSessionRecentProject(clientWith(["/Users/k/u/src/tug"]), "/u/src/tug");
+    expect(put).toEqual([]);
+  });
+
+  test("stores nothing for a path the gateway will not resolve", async () => {
+    const { put } = stubGateway({});
+    await recordSessionRecentProject(clientWith(["/a"]), "relative/path");
+    expect(put).toEqual([]);
   });
 });
 

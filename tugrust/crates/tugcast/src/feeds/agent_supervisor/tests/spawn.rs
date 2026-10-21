@@ -678,8 +678,12 @@ fn ledger_in(tmp: &tempfile::TempDir) -> Arc<SessionLedger> {
 }
 
 fn two_project_dirs(tmp: &tempfile::TempDir) -> (String, String) {
-    let a = tmp.path().join("dir-a");
-    let b = tmp.path().join("dir-b");
+    // In the gateway's spelling ([L29]): the ledger stores a project dir as
+    // the Claude form, so the fixtures name the dirs the way rows read back
+    // (`/var` → `/private/var` on macOS).
+    let root = crate::path_resolver::resolve_to_claude_form(tmp.path());
+    let a = root.join("dir-a");
+    let b = root.join("dir-b");
     std::fs::create_dir_all(&a).unwrap();
     std::fs::create_dir_all(&b).unwrap();
     (a.display().to_string(), b.display().to_string())

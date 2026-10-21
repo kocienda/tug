@@ -27,6 +27,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createSubscribable } from "@/lib/subscribable";
 
 import { getCardDeck } from "./deck-store-registry";
+import { canonicalDirStore, readCanonicalOf } from "./canonical-dir-store";
 import {
   cardSessionBindingStore,
   type CardSessionBinding,
@@ -101,11 +102,17 @@ const NO_DIRS: readonly string[] = Object.freeze([]);
 let lastDirs: readonly string[] = NO_DIRS;
 
 /**
- * The workspace's project set: the `projectDir` of every bound card in the
- * deck, deduplicated, in the order {@link frontmostProjectBinding} walks them
- * (topmost pane first, its active card before its background tabs). Empty
- * when no card is bound. Referentially stable while the set is unchanged, so a
- * `useSyncExternalStore` snapshot may return it directly.
+ * The workspace's project set: the directory of every bound card in the deck,
+ * one entry per DIRECTORY, in the order {@link frontmostProjectBinding} walks
+ * them (topmost pane first, its active card before its background tabs).
+ * Empty when no card is bound. Referentially stable while the set is
+ * unchanged, so a `useSyncExternalStore` snapshot may return it directly.
+ *
+ * Two cards bound under two spellings of one directory are one project, and
+ * only the server can say so ([L29]): each binding's `projectDir` is
+ * identified by the server's canonical spelling (`canonical-dir-store`), and
+ * that spelling is what the set holds. Until the server has answered, a path
+ * stands for itself; the answer landing re-reads the set.
  */
 export function workspaceProjectDirs(): readonly string[] {
   if (relayedDirs !== undefined) return relayedDirs;
@@ -114,8 +121,10 @@ export function workspaceProjectDirs(): readonly string[] {
   const { panes } = store.getSnapshot();
   const dirs: string[] = [];
   const take = (cardId: string): void => {
-    const dir = cardSessionBindingStore.getBinding(cardId)?.projectDir;
-    if (dir !== undefined && dir !== "" && !dirs.includes(dir)) dirs.push(dir);
+    const raw = cardSessionBindingStore.getBinding(cardId)?.projectDir;
+    if (raw === undefined || raw === "") return;
+    const dir = readCanonicalOf(raw);
+    if (!dirs.includes(dir)) dirs.push(dir);
   };
   for (let i = panes.length - 1; i >= 0; i--) {
     const pane = panes[i];
@@ -126,16 +135,21 @@ export function workspaceProjectDirs(): readonly string[] {
   return lastDirs;
 }
 
-/** Subscribe to everything the two walks read. */
+/**
+ * Subscribe to everything the two walks read — the canonical answers too,
+ * since they decide which bindings are one project.
+ */
 function subscribeToProjects(onChange: () => void): () => void {
   const deck = getCardDeck();
   const unDeck = deck ? deck.subscribe(onChange) : () => {};
   const unBind = cardSessionBindingStore.subscribe(onChange);
   const unRelay = relayedChanged.subscribe(onChange);
+  const unCanonical = canonicalDirStore.subscribe(onChange);
   return () => {
     unDeck();
     unBind();
     unRelay();
+    unCanonical();
   };
 }
 

@@ -700,10 +700,10 @@ export function encodeResetSession(cardId: string, tugSessionId: string): Frame 
 /**
  * Build a `list_sessions` CONTROL request frame.
  *
- * The picker passes the user's typed path (the value originally recorded
- * at `record_spawn` time on the server). The supervisor matches against
- * the ledger's `project_dir` column — no client-side canonicalization is
- * needed. The response broadcasts `list_sessions_ok` carrying
+ * The supervisor resolves `projectDir` through its canonicalization gateway
+ * and lists every ledger row recorded under any spelling of that directory
+ * ([L29]), so a symlink and its target list the same sessions. The response
+ * echoes `projectDir` as sent: `list_sessions_ok` carrying
  * `{ project_dir, sessions: SessionRow[] }` ordered by `last_used_at
  * DESC`. Errors broadcast `list_sessions_err { project_dir, reason }`.
  */

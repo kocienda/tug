@@ -1122,7 +1122,11 @@ mod tests {
         assert_eq!(seated[0].session_id, "claude-1");
         assert_eq!(seated[0].arc_name, "alpha");
         assert_eq!(seated[0].stage, tugarc_core::arc::ArcStage::Review);
-        assert_eq!(seated[0].project_dir, root.to_string_lossy());
+        assert_eq!(
+            seated[0].project_dir,
+            crate::path_resolver::resolve_to_claude_form(root).to_string_lossy(),
+            "the seat names its project in the gateway's spelling ([L29])"
+        );
     }
 
     #[test]
