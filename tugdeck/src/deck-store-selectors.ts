@@ -782,13 +782,18 @@ export function placeMembers(
     // and an unbound height is the one card's own sheet rather than a box that
     // has to fit two.
     const unbound = kind === "column" && isUnboundMember(state, id);
+    // The sheet's claim and the opening bid are the picker's WANT rather than
+    // its floor ([B07], [B08]): the height the card asks for when the run has
+    // room, paid only after every member's hard floor. A column too short to
+    // pay it gives the card less, and the picker lays out for less — its list
+    // gives way — instead of the column overflowing into a strip with the
+    // card's bottom off the canvas.
+    const floor = getStackSizePolicy(componentIds, { unbound }).min.height;
+    const want = Math.max(state.sheetReservations?.[id] ?? 0, declared ?? 0);
     return {
       id,
-      floor: Math.max(
-        getStackSizePolicy(componentIds, { unbound }).min.height,
-        state.sheetReservations?.[id] ?? 0,
-        declared ?? 0,
-      ),
+      floor,
+      ...(want > floor ? { want } : {}),
       weight: railWeightOf(shares, id),
     };
   });

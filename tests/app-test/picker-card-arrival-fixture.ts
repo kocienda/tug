@@ -20,9 +20,23 @@
  * @module tests/app-test/picker-card-arrival-fixture
  */
 
-import { note, type App, type BodyApp } from "./_harness";
-import { cardPage, kindBody } from "./_harness/card-reach";
+import { expect } from "bun:test";
+
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
+import { testTmpDir } from "./_harness/test-cleanup";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import {
+  mkTempTugbank,
+  rmTempTugbank,
+  seedTugbankForLaunch,
+  tugbankWrite,
+} from "./_harness/tugbank-helpers";
+import {
+  describePickerFit,
+  pickerFit,
+  pickerFitProblems,
+  pickerListScrolls,
   pickerPanelNaturalHeight,
   pointPickerAt,
   removePickerSessions,
@@ -76,6 +90,34 @@ export function seedArrivalPickerSessions(): void {
 export function removeArrivalPickerSessions(): void {
   removePickerSessions(fixture);
   fixture = null;
+  for (const path of tugbanks.splice(0)) rmTempTugbank(path);
+}
+
+/** The tugbanks {@link launchArrivalApp} made, removed with the fixture. */
+const tugbanks: string[] = [];
+
+/**
+ * Launch with `default-project-path` pointed at an empty directory, so the
+ * arriving card's picker opens on one empty group.
+ *
+ * Left unseeded, a debug build opens the picker on the source tree, and
+ * whatever sessions this machine holds there are rows in it — rows that move
+ * between the bid `addCard` measures off-screen and the live panel the claim
+ * is compared against, so the comparison would be this machine's rather than
+ * the app's.
+ */
+export async function launchArrivalApp(testName: string): Promise<App> {
+  const tugbankPath = mkTempTugbank();
+  tugbanks.push(tugbankPath);
+  seedTugbankForLaunch(tugbankPath);
+  tugbankWrite(
+    tugbankPath,
+    "dev.tugapp.app",
+    "default-project-path",
+    "string",
+    testTmpDir("at0571-quiet-project-"),
+  );
+  return launchTugApp({ testName, env: { TUGBANK_PATH: tugbankPath } });
 }
 
 /** The seeded panes. Everything else on the canvas arrived at run time. */
@@ -507,50 +549,6 @@ export async function arrivedPaneId(app: App): Promise<string | null> {
   );
 }
 
-/**
- * Whether the picker's panel is capped short inside pane `paneId`, and how far
- * its bottom edge sits inside that pane's frame.
- *
- * `at0569`'s two readings, in its own words: `overflow` is the panel capped
- * against the canvas, and `bottomSlack` is the panel hanging past the FRAME,
- * which the clip's `overflow: hidden` would cut without touching
- * `scrollHeight`. A card that took the room has to hold the picker whole, and
- * this is the half of that claim the roomy case can make.
- *
- * The frame is the shell's and the panel is in the card's own page, so the
- * two edges are compared in screen coordinates, each mapped from its own page.
- */
-export async function panelFit(
-  app: App,
-  paneId: string,
-): Promise<{ overflow: number; bottomSlack: number } | null> {
-  const paneSel = `.tug-pane[data-pane-id="${paneId}"]`;
-  const cardId = await app.evalJS<string | null>(
-    `(function () {
-      if (document.querySelector(${JSON.stringify(paneSel)}) === null) return null;
-      var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
-        return p.id === ${JSON.stringify(paneId)};
-      });
-      return pane === undefined ? null : pane.activeCardId;
-    })()`,
-  );
-  if (cardId === null) return null;
-  const page = await cardPage(app, cardId);
-  const overflow = await page.evalJS<number | null>(
-    `(function () {
-      var el = document.querySelector(${JSON.stringify(SHEET_PANEL)});
-      return el === null ? null : el.scrollHeight - el.clientHeight;
-    })()`,
-  );
-  if (overflow === null) return null;
-  const frame = await app.getElementScreenBounds(paneSel);
-  const panel = await page.getElementScreenBounds(SHEET_PANEL);
-  return {
-    overflow,
-    bottomSlack: frame.y + frame.height - (panel.y + panel.height),
-  };
-}
-
 /** The weights `slot`'s column holds, or `null` when it holds none. */
 export async function columnShares(
   app: App,
@@ -591,14 +589,36 @@ export async function heldFor(app: App, paneId: string): Promise<number> {
 
 /**
  * Point the open picker at the seeded project, let the list reach its cap,
- * and print the panel's natural height as it then stands.
+ * and assert the picker fits the frame it arrived in ([B07]).
+ *
+ * With the list at its cap the picker claims more than a member of a split
+ * column in the harness window can hold, so the card stands under its claim
+ * and the picker lays out for that: the header, the filter, the trash row
+ * and the actions all wholly inside the frame, and — whenever the panel
+ * stands shorter than its natural height — the Sessions list the element
+ * that gave way. Read in the card's own page, against the frame that page
+ * draws.
  */
-export async function measureAtListCap(app: App, label: string): Promise<void> {
+export async function assertFitAtListCap(app: App, label: string): Promise<void> {
   if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
-  await pointPickerAt(kindBody(app, "session"), fixture);
+  const page = kindBody(app, "session");
+  await pointPickerAt(page, fixture);
   await wait(AFTER_LAND_MS);
-  const natural = await pickerPanelNaturalHeight(kindBody(app, "session"));
-  note(label, `panel natural ${natural ?? -1}px with the list at its cap`);
+  const natural = await pickerPanelNaturalHeight(page);
+  const fit = await pickerFit(page);
+  note(label, `panel natural ${natural ?? -1}px with the list at its cap; ${describePickerFit(fit)}`);
+  expect(fit, `${label}: the picker's parts are all on screen`).not.toBeNull();
+  if (fit === null) return;
+  expect(
+    pickerFitProblems(fit, PIXEL_TOL),
+    `${label}: the header, filter, trash row and actions all stand inside the frame`,
+  ).toEqual([]);
+  if (fit.panelWants - fit.panelHas > PIXEL_TOL) {
+    expect(
+      pickerListScrolls(fit, PIXEL_TOL),
+      `${label}: the panel stands short of its natural height, so the Sessions list gave way`,
+    ).toBe(true);
+  }
 }
 
 // Kept local: every file's `seed` builds its own deck and waits on its own

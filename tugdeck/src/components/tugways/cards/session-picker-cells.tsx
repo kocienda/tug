@@ -1,6 +1,9 @@
 /**
- * session-picker-cells.tsx — cell renderers for the Dev picker's Sessions
- * `TugListView`.
+ * session-picker-cells.tsx — cell renderers for the two session pickers'
+ * `TugListView`s: the Choose Session sheet's grouped list
+ * (`GROUPED_CELL_RENDERERS` over `PickerRowsDataSource`) and the `/resume`
+ * sheet's flat one (`SESSIONS_CELL_RENDERERS` over `SessionsDataSource`). Both
+ * draw a session with the one `SessionResumeRow`.
  *
  * Each renderer is a `TugListViewCellRenderer<...>` that takes the
  * typed row payload from `dataSource.rowAt(p.index)` and paints the
@@ -10,9 +13,16 @@
  * no `useState`, no `useRef`, no `useEffect` / `useLayoutEffect`, no
  * `useImperativeHandle`. Selection state and the confirmation flow live above
  * the list — in `SessionProjectPickerForm`, the chain responder. The cells read
- * what they need through `PickerCellContext`. (The recent project paths are no
- * longer a list here — they seed the path combo box's dropdown in
- * `session-card.tsx`.)
+ * what they need through their context — `PickerCellContext` for the flat
+ * list, `GroupedPickerCellContext` for the grouped one.
+ *
+ * Grouped cells:
+ *  - `group` — a project's two-line band: chevron, name and facts, then the
+ *    whole path. Its click folds the group (and is swallowed, so it is not
+ *    also a pick); a recent project's band carries a remove button.
+ *  - `session-new` — "New session in X", naming its project.
+ *  - `session-resume` — the shared session row.
+ *  - `other` — "New session in another folder…", the door to a typed path.
  *
  * Sessions cells:
  *  - `session-new` — single-row "New session". Selected when
@@ -59,7 +69,7 @@
  */
 
 import React, { createContext, useContext } from "react";
-import { Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderPlus, Trash2 } from "lucide-react";
 
 import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
@@ -68,6 +78,8 @@ import type {
   TugListViewCellRenderer,
 } from "@/components/tugways/tug-list-view";
 import { TugListRow } from "@/components/tugways/tug-list-row";
+import { TugLabel } from "@/components/tugways/tug-label";
+import { TugPath } from "@/components/tugways/tug-path";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -81,6 +93,10 @@ import {
   sessionIdentityContextFrom,
   useSessionIdentity,
 } from "@/lib/session-identity";
+import type { SessionRow } from "@/protocol";
+
+import { isRecentGroup, type PickerGroup } from "./session-picker-groups";
+import type { PickerRow, PickerRowsDataSource } from "./session-picker-rows";
 
 // ---------------------------------------------------------------------------
 // Row-accessory focus authoring
@@ -173,6 +189,35 @@ export const SessionResumeCell: TugListViewCellRenderer<SessionsDataSource> = ({
     { kind: "session-resume" }
   >;
   const row = data.row;
+  return (
+    <SessionResumeRow
+      row={row}
+      selected={
+        selection?.kind === "session-resume" &&
+        selection.sessionId === row.session_id
+      }
+      pendingTrash={pendingTrashSessionId === row.session_id}
+      filterQuery={filterQuery}
+    />
+  );
+};
+
+/**
+ * One session, as both pickers list it — the `/resume` sheet's flat list and
+ * the Choose Session sheet's grouped one. A function of its props alone, so a
+ * cell of either list stays a pure renderer ([D17]).
+ */
+function SessionResumeRow({
+  row,
+  selected: isSelected,
+  pendingTrash: isPendingTrash,
+  filterQuery,
+}: {
+  row: SessionRow;
+  selected: boolean;
+  pendingTrash: boolean;
+  filterQuery: string;
+}): React.ReactElement {
   const isLive = row.state === "live";
   const isFailed = row.state === "failed";
   // A session currently held by a live process outside this Tug — the
@@ -180,14 +225,10 @@ export const SessionResumeCell: TugListViewCellRenderer<SessionsDataSource> = ({
   // untrashable until that process exits (the supervisor hard-refuses
   // both); the row renders disabled with an "in use" badge.
   const isTerminalLive = row.terminal_live !== null;
-  const isSelected =
-    selection?.kind === "session-resume" &&
-    selection.sessionId === row.session_id;
   // While a trash-confirmation popover is pending FOR THIS ROW, the
   // row marks itself so CSS can keep the trash icon visible AND
-  // highlighted (Mac-menu-open style). Pure render derivation from
-  // the context value — no per-cell state.
-  const isPendingTrash = pendingTrashSessionId === row.session_id;
+  // highlighted (Mac-menu-open style) — `isPendingTrash`, derived by the
+  // caller from its context, never per-cell state.
 
   // The title leads with the user's own name when there is one, then the
   // callsign — the same grammar every other surface in the app shows for this
@@ -334,7 +375,7 @@ export const SessionResumeCell: TugListViewCellRenderer<SessionsDataSource> = ({
       data-pending-trash={isPendingTrash ? "true" : undefined}
     />
   );
-};
+}
 
 export const LoadingCell: TugListViewCellRenderer<SessionsDataSource> = () => (
   <div
@@ -354,4 +395,223 @@ export const SESSIONS_CELL_RENDERERS: Record<
   "session-new": SessionNewCell,
   "session-resume": SessionResumeCell,
   "loading": LoadingCell,
+};
+
+// ---------------------------------------------------------------------------
+// The Choose Session sheet's grouped list — band, New session, session, other
+// ---------------------------------------------------------------------------
+
+interface GroupedPickerCellContextValue {
+  /** The row id the picker's effective selection names, or `null`. */
+  readonly selectedRowId: string | null;
+  /** Session id whose trash confirm is open, as for the flat list. */
+  readonly pendingTrashSessionId: string | null;
+  /** Project whose remove-from-recents confirm is open, or `null`. */
+  readonly pendingRemoveDir: string | null;
+  readonly filterQuery: string;
+  /**
+   * Fold or unfold a group. A band's click is the fold, as a disclosure row's
+   * is, and the band swallows it so the list does not ALSO read it as a pick —
+   * the precedent the Cards card's group headers set.
+   */
+  readonly onToggleGroup: (projectDir: string) => void;
+  /** Ask to drop a recent project from the list, anchored to its button. */
+  readonly onRemoveRecent: (projectDir: string, anchor: HTMLElement) => void;
+}
+
+const GROUPED_NULL_CONTEXT: GroupedPickerCellContextValue = {
+  selectedRowId: null,
+  pendingTrashSessionId: null,
+  pendingRemoveDir: null,
+  filterQuery: "",
+  onToggleGroup: () => {},
+  onRemoveRecent: () => {},
+};
+
+const GroupedPickerCellContext =
+  createContext<GroupedPickerCellContextValue>(GROUPED_NULL_CONTEXT);
+
+/** Provider for the Choose Session sheet's grouped list. */
+export const GroupedPickerCellProvider = GroupedPickerCellContext.Provider;
+
+function rowOf<K extends PickerRow["kind"]>(
+  { index, dataSource }: TugListViewCellProps<PickerRowsDataSource>,
+  kind: K,
+): Extract<PickerRow, { kind: K }> | null {
+  const row = dataSource.rowAt(index);
+  return row !== undefined && row.kind === kind
+    ? (row as Extract<PickerRow, { kind: K }>)
+    : null;
+}
+
+/** What a band says about its group on its first line, after the name. */
+function groupFacts(group: PickerGroup): string {
+  switch (group.status) {
+    case "pending":
+      return "checking…";
+    case "missing":
+      return "folder not found";
+    case "error":
+      return "couldn't list sessions";
+    case "ready": {
+      const count = group.rows.length;
+      const sessions =
+        count === 0 ? "no sessions" : count === 1 ? "1 session" : `${count} sessions`;
+      return group.live > 0 ? `${group.live} live · ${sessions}` : sessions;
+    }
+  }
+}
+
+/**
+ * A project's band: a list row of two lines, so the keyboard cursor reaches
+ * it and a click folds it. The first line is the chevron, the project's name
+ * and its facts; the second is the whole path, mounted as `TugPath` straight in
+ * the row's content column so it takes the column's width — the row's own
+ * subtitle slot clamps through a `TugLabel`, which sizes a path to fit rather
+ * than to the line. The cursor resting on a band picks the project: Open then
+ * starts a new session there.
+ *
+ * A recent project carries a remove button, revealed while the band is engaged
+ * and always shown when its folder is gone; the workspace's own projects carry
+ * none, since a bound card is what put them here.
+ */
+export const PickerGroupCell: TugListViewCellRenderer<PickerRowsDataSource> = (
+  props,
+) => {
+  const ctx = useContext(GroupedPickerCellContext);
+  const r = rowOf(props, "group");
+  if (r === null) return null;
+  const { group, expanded } = r;
+  const removable = isRecentGroup(group);
+  const missing = group.status === "missing";
+  return (
+    <TugListRow
+      className="session-card-picker-group"
+      selected={ctx.selectedRowId === `group:${group.projectDir}`}
+      data-testid="session-card-picker-group"
+      data-project-dir={group.projectDir}
+      data-expanded={expanded ? "true" : "false"}
+      data-status={group.status}
+      data-workspace={group.inWorkspace ? "true" : undefined}
+      data-pending-remove={
+        ctx.pendingRemoveDir === group.projectDir ? "true" : undefined
+      }
+      aria-expanded={expanded}
+      onClick={(e) => {
+        e.stopPropagation();
+        ctx.onToggleGroup(group.projectDir);
+      }}
+      leading={
+        <span className="session-card-picker-group-chevron" aria-hidden="true">
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+      }
+      trailing={
+        <span className="session-card-picker-group-facts">
+          {group.inWorkspace ? (
+            <TugBadge emphasis="tinted" role="action" size="sm">
+              this workspace
+            </TugBadge>
+          ) : null}
+          <span
+            className="session-card-picker-group-count"
+            data-testid="session-card-picker-group-facts"
+          >
+            {groupFacts(group)}
+          </span>
+          {removable ? (
+            <TugIconButton
+              icon={<Trash2 size={14} aria-hidden="true" />}
+              aria-label={`Remove ${group.name} from recent projects`}
+              title={`Remove ${group.name} from recent projects`}
+              tone="danger"
+              className="session-card-picker-group-remove"
+              data-reveal={missing ? "always" : "engaged"}
+              focusGroup={PICKER_ROW_TRASH_FOCUS_GROUP}
+              focusOrder={0}
+              onClick={(e) => {
+                e?.stopPropagation();
+                if (e?.currentTarget instanceof HTMLElement) {
+                  ctx.onRemoveRecent(group.projectDir, e.currentTarget);
+                }
+              }}
+            />
+          ) : null}
+        </span>
+      }
+      trailingReveal="always"
+    >
+      <TugLabel className="session-card-picker-group-name" size="md" maxLines={1}>
+        {group.name}
+      </TugLabel>
+      <TugPath className="session-card-picker-group-path" path={group.projectDir} />
+    </TugListRow>
+  );
+};
+
+/** A group's New session row, which names the project it starts the session in. */
+export const PickerNewCell: TugListViewCellRenderer<PickerRowsDataSource> = (
+  props,
+) => {
+  const ctx = useContext(GroupedPickerCellContext);
+  const r = rowOf(props, "session-new");
+  if (r === null) return null;
+  return (
+    <TugListRow
+      className="session-card-picker-new"
+      title={`New session in ${r.group.name}`}
+      selected={ctx.selectedRowId === `new:${r.group.projectDir}`}
+      data-testid="session-card-picker-session-new"
+      data-project-dir={r.group.projectDir}
+    />
+  );
+};
+
+/** One of a group's sessions — the same row the `/resume` sheet lists. */
+export const PickerResumeCell: TugListViewCellRenderer<PickerRowsDataSource> = (
+  props,
+) => {
+  const ctx = useContext(GroupedPickerCellContext);
+  const r = rowOf(props, "session-resume");
+  if (r === null) return null;
+  return (
+    <SessionResumeRow
+      row={r.row}
+      selected={ctx.selectedRowId === `resume:${r.row.session_id}`}
+      pendingTrash={ctx.pendingTrashSessionId === r.row.session_id}
+      filterQuery={ctx.filterQuery}
+    />
+  );
+};
+
+/**
+ * The one door to a folder the list does not know: typing a path and Browse
+ * live behind it, in the field the picker shows while this row is chosen. It
+ * is the exception and reads as one — last, and quiet.
+ */
+export const PickerOtherCell: TugListViewCellRenderer<PickerRowsDataSource> = (
+  props,
+) => {
+  const ctx = useContext(GroupedPickerCellContext);
+  if (rowOf(props, "other") === null) return null;
+  return (
+    <TugListRow
+      className="session-card-picker-other"
+      leading={<FolderPlus size={14} aria-hidden="true" />}
+      title="New session in another folder…"
+      subtitle="Type a path, or choose one with Browse"
+      selected={ctx.selectedRowId === "other"}
+      data-testid="session-card-picker-other"
+    />
+  );
+};
+
+export const GROUPED_CELL_RENDERERS: Record<
+  PickerRow["kind"],
+  TugListViewCellRenderer<PickerRowsDataSource>
+> = {
+  group: PickerGroupCell,
+  "session-new": PickerNewCell,
+  "session-resume": PickerResumeCell,
+  other: PickerOtherCell,
 };

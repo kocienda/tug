@@ -13,6 +13,7 @@ import type { TaggedValue } from "@/lib/tugbank-client";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import { hostFactsStore, useHostFacts } from "@/lib/host-facts-store";
+import { useWorkspaceProjectDirs } from "@/lib/frontmost-project";
 import {
   DEFAULT_PROJECT_PATH_DOMAIN,
   DEFAULT_PROJECT_PATH_KEY,
@@ -58,9 +59,14 @@ export function parseString(entry: TaggedValue | undefined): string {
 }
 
 /**
- * The seed precedence: the most-recent project, then the user's default project
- * directory, then the Swift-provided hint, then the backend home directory,
- * then nothing.
+ * The seed precedence: the workspace's frontmost project, then the most-recent
+ * project, then the user's default project directory, then the Swift-provided
+ * hint, then the backend home directory, then nothing.
+ *
+ * The workspace leads because the recents are machine-global: after a stint in
+ * another workspace, the most-recent project is that workspace's, and a new
+ * session opened here would land there. The workspace's own bound cards say
+ * which project it is for (`workspaceProjectDirs`).
  *
  * The default tier reads the *explicit* setting, never the `<home>/tug`
  * resolution: an unset key falls through to the Swift hint (which seeds the
@@ -74,11 +80,13 @@ export function parseString(entry: TaggedValue | undefined): string {
  * height read before a card commits is read off that first render.
  */
 export function seedPathFrom(
+  workspaceDirs: readonly string[],
   recents: readonly string[],
   defaultProjectPath: string,
   initialProjectPath: string,
   homeDir: string | undefined,
 ): string {
+  if (workspaceDirs.length > 0) return workspaceDirs[0];
   if (recents.length > 0) return recents[0];
   if (defaultProjectPath !== "") return defaultProjectPath;
   if (initialProjectPath !== "") return initialProjectPath;
@@ -86,21 +94,27 @@ export function seedPathFrom(
 }
 
 /**
- * The seed path as it stands right now, read straight off the stores the
- * picker's render reads through hooks — the same four inputs through the same
- * precedence, so the path the deck readies a listing for before it measures
- * the picker is the path the picker then opens on.
- *
- * Called by the Session card's opening form ([Spec S02]) from outside any
- * render, which is why it reads the tugbank client and the host-facts store
- * directly rather than through `useTugbankValue` / `useHostFacts`.
+ * The seed's last three rungs — the default-project setting, the host's hint,
+ * home — as one path: the project the picker offers when no bound card and no
+ * recent project names one, so a first launch opens on somewhere rather than
+ * on an empty list.
  */
-export function readSeedPath(): string {
+export function fallbackProjectDirFrom(
+  defaultProjectPath: string,
+  initialProjectPath: string,
+  homeDir: string | undefined,
+): string {
+  return seedPathFrom([], [], defaultProjectPath, initialProjectPath, homeDir);
+}
+
+/**
+ * {@link fallbackProjectDirFrom} as it stands right now, read straight off the
+ * stores — for the arriving card's quiet source, which runs outside any render
+ * and so cannot read them through `useTugbankValue` / `useHostFacts`.
+ */
+export function readFallbackProjectDir(): string {
   const client = getTugbankClient();
-  return seedPathFrom(
-    client === null
-      ? []
-      : parseRecents(client.get(RECENT_PROJECTS_DOMAIN, RECENT_PROJECTS_KEY)),
+  return fallbackProjectDirFrom(
     client === null
       ? ""
       : parseString(
@@ -115,25 +129,8 @@ export function readSeedPath(): string {
   );
 }
 
-const NO_RECENTS: string[] = [];
-
-/**
- * The seed path, live — the same four inputs through the same precedence,
- * each read through its store's hook ([L02]).
- *
- * For a surface that has to say where a Session card that has not connected
- * yet is about to open, without being the picker: the Workspaces card names
- * such a card by this path's project. It is the path the picker OPENS on, not
- * whatever the user has since typed into its field — that edit is the
- * picker's own state and is not published.
- */
-export function useSeedPath(): string {
-  const recents = useTugbankValue(
-    RECENT_PROJECTS_DOMAIN,
-    RECENT_PROJECTS_KEY,
-    parseRecents,
-    NO_RECENTS,
-  );
+/** {@link fallbackProjectDirFrom}, live ([L02]). */
+export function useFallbackProjectDir(): string {
   const defaultProjectPath = useTugbankValue(
     DEFAULT_PROJECT_PATH_DOMAIN,
     DEFAULT_PROJECT_PATH_KEY,
@@ -147,10 +144,46 @@ export function useSeedPath(): string {
     "",
   );
   const hostFacts = useHostFacts();
-  return seedPathFrom(
-    recents,
+  return fallbackProjectDirFrom(
     defaultProjectPath,
     initialProjectPath,
     hostFacts?.home,
   );
+}
+
+const NO_RECENTS: string[] = [];
+
+/** The recents as they stand, read outside a render. */
+export function readRecents(): string[] {
+  const client = getTugbankClient();
+  return client === null
+    ? NO_RECENTS
+    : parseRecents(client.get(RECENT_PROJECTS_DOMAIN, RECENT_PROJECTS_KEY));
+}
+
+/** The recents, live ([L02]). */
+export function useRecents(): string[] {
+  return useTugbankValue(
+    RECENT_PROJECTS_DOMAIN,
+    RECENT_PROJECTS_KEY,
+    parseRecents,
+    NO_RECENTS,
+  );
+}
+
+/**
+ * The seed path, live — the same five inputs through the same precedence,
+ * each read through its store's hook ([L02]).
+ *
+ * For a surface that has to say where a Session card that has not connected
+ * yet is about to open, without being the picker: the Workspaces card names
+ * such a card by this path's project. It is the project of the group the
+ * picker OPENS on — the first group, which holds the initial selection — not
+ * whatever the user has since picked in it.
+ */
+export function useSeedPath(): string {
+  const workspaceDirs = useWorkspaceProjectDirs();
+  const recents = useRecents();
+  const fallback = useFallbackProjectDir();
+  return seedPathFrom(workspaceDirs, recents, fallback, "", undefined);
 }

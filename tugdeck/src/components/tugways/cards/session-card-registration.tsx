@@ -165,6 +165,18 @@ export function registerSessionCard(): void {
     // ([P01]). Declaring it is what makes this card arrive hidden and reveal
     // at its picker's own height ([B01]). No handlers: a form declared for its
     // box has nothing to open or cancel.
+    //
+    // That height is the picker with its Sessions list at its PREFERRED
+    // height — every row it has, up to the list's `max-height` — and not the
+    // picker at its tallest, because the grouped picker has no tallest: the
+    // list is the part that gives way when the card is shorter, and the
+    // header, filter, trash row and actions stay inside the frame. So the
+    // number is the height the card asks for when it has room, and a card
+    // standing below it is laid out for rather than a defect. Read off the
+    // built app (at0569): one empty group stands the panel at 415px, which
+    // the deck holds as 479px for the member; a group open over five
+    // two-line sessions stands the list at its cap and the panel at 850px,
+    // held as 914px.
     openingForm: (cardId) => sessionPickerPanel({ cardId }),
     // What the hidden card waits on before it is revealed ([B03]): the
     // picker's listing settling or filling its cap, and its rows' synopses.

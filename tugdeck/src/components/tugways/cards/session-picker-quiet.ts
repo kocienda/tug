@@ -2,39 +2,41 @@
  * session-picker-quiet — when the Choose Session picker's content has stopped
  * moving, for a card that arrived hidden ([B03]).
  *
- * The picker is fed by one CONTROL request answered in two frames that do not
- * carry the same data ([F01]): phase one is the ledger's rows with
- * `scanning: true`, phase two the union with the on-disk scan and
- * `scanning: false`. Rows can arrive, and grow a synopsis, between the two —
- * which is exactly what moved the card under the old off-screen measure. So
- * an arriving Session card is held hidden until this module says the picker
- * is quiet, or the deck's bound expires, whichever is first.
+ * The picker is one list of sessions grouped by project, and each group is
+ * fed by its own CONTROL request answered in two frames that do not carry the
+ * same data ([F01]): phase one is the ledger's rows with `scanning: true`,
+ * phase two the union with the on-disk scan and `scanning: false`. Rows can
+ * arrive, and grow a synopsis, between the two — which is exactly what moved
+ * the card under the old off-screen measure. So an arriving Session card is
+ * held hidden until this module says the picker is quiet, or the deck's bound
+ * expires, whichever is first.
  *
- * Quiet is defined by the DATA, not by a timer ([B03]):
+ * Only the UNFOLDED groups can move the list: a folded group is its band
+ * alone, and a band is the same height whether it says "checking…" or a
+ * count. Quiet is defined by their DATA, not by a timer ([B03]):
  *
- * - the listing has settled (`scanning: false`), or
- * - the rows already on screen are numerous enough to fill the list cap
- *   ([F03]): the list is `max-height: 14.5rem` over a `3.5rem` row floor, so
- *   once five rows stand in it no later frame can change its height;
+ * - every open group's listing has settled (`scanning: false`), or
+ * - the rows already on screen are numerous enough to fill the list's cap
+ *   ([F03]): the list is `max-height: 34rem` over a `3.5rem` row floor, so
+ *   once ten rows stand in it no later frame can change its height;
  *
- * and, while the listing is still scanning, every row on screen has its
+ * and, while a listing is still scanning, every session row on screen has its
  * synopsis — the description line is what a synopsis fills, and a row whose
  * description lands with the union is a row that changes height. A settled
- * listing is quiet whatever its synopses say: they ride the rows, so a row
- * the settled frame delivered without one is not getting one during this
- * arrival, and holding the card for it only spends the bound.
+ * listing is quiet whatever its synopses say: they ride the rows, so a row the
+ * settled frame delivered without one is not getting one during this arrival,
+ * and holding the card for it only spends the bound.
  *
- * The rule is pure over a {@link WorkspaceSnapshot} and a synopsis lookup so
- * it can be tested without a deck; {@link sessionPickerQuiet} is the same rule
- * bound to the live stores, in the shape the registration declares.
+ * The rule is pure over the groups' snapshots and a synopsis lookup so it can
+ * be tested without a deck; {@link sessionPickerQuiet} is the same rule bound
+ * to the live stores, in the shape the registration declares.
  *
  * WHEN the deck is told to re-ask is the other half, and it is the picker's
  * draw rather than the stores' tick ([L04]): `SessionProjectPickerForm`
  * calls {@link notifyPickerDrawn} from a layout effect after rendering a
  * listing frame, having first had its sheet re-measure. A source that fired
  * on the store's tick would fire BEFORE the rows it announces are in the
- * DOM, and a reveal decided then would commit the placeholder's height —
- * which was the third motion, wearing a one-frame race.
+ * DOM, and a reveal decided then would commit the placeholder's height.
  *
  * @module components/tugways/cards/session-picker-quiet
  */
@@ -47,65 +49,79 @@ import {
 } from "@/lib/session-ledger-store";
 import { sessionSynopsisStore } from "@/lib/session-synopsis-store";
 import type { SessionRow } from "@/protocol";
-import { readSeedPath } from "./session-picker-seed";
+import {
+  defaultOpenDirs,
+  hasResumableContent,
+  readPickerGroupSpecs,
+} from "./session-picker-groups";
 
 /**
- * How many rows fill the picker's list to its cap ([F03]): `14.5rem` of list
- * over a `3.5rem` row floor is four rows and a fraction, so the fifth row is
- * the one past which the list's height is fixed. The count includes the
- * "New session" row the list always leads with.
+ * How many rows fill the picker's list to its cap ([F03]): `34rem` of list
+ * over a `3.5rem` row floor is nine rows and a fraction, so the tenth row is
+ * the one past which the list's height is fixed. Bands and New session rows
+ * count: they stand in the list like any other row.
  */
-export const PICKER_ROWS_TO_FILL_CAP = 5;
+export const PICKER_ROWS_TO_FILL_CAP = 10;
 
-/**
- * The rows the picker will actually show for `snapshot`, in the order it
- * shows them — the same visibility rule `session-picker-data-source` applies:
- * a row with resumable content by any signal (on-disk bytes, a canonical
- * turn, or a live process), in the ledger's newest-first order.
- */
-function shownRows(snapshot: WorkspaceSnapshot): readonly SessionRow[] {
-  return snapshot.rows.filter(
-    (row) =>
-      (row.file_size ?? 0) > 0 || row.turn_count > 0 || row.state === "live",
-  );
+/** One group as the rule reads it: unfolded or not, and its listing when it is. */
+export interface QuietGroup {
+  open: boolean;
+  /** The group's listing; read only for an open group. */
+  snapshot: WorkspaceSnapshot | null;
 }
 
 /**
- * Whether the picker's content over `snapshot` is quiet — see the module note
- * for the rule.
+ * Whether the picker's content over `groups` (in list order) is quiet — see
+ * the module note for the rule.
  *
  * `hasSynopsis` answers for a row's `line_id`, off whatever store holds
  * synopses; the rows consulted are the ones ON SCREEN — the first
- * {@link PICKER_ROWS_TO_FILL_CAP} less one for the "New session" row, or all
- * of them when there are fewer — because a row below the fold changing height
- * moves nothing the eye sees.
+ * {@link PICKER_ROWS_TO_FILL_CAP} rows of the list — because a row below the
+ * fold changing height moves nothing the eye sees.
  *
- * A snapshot that is not `ready` is never quiet: `pending` is the placeholder
- * the rows will replace, and `idle` is a path nobody has asked about. An
- * `error` snapshot IS quiet — the notice it shows is the picker's settled
- * form for that path, and nothing further is coming.
+ * An open group whose listing is not `ready` is never quiet: `pending` is the
+ * placeholder the rows will replace, and `idle` is a path nobody has asked
+ * about. An `error` listing IS quiet — the band's note is the group's settled
+ * form, and nothing further is coming.
  */
 export function pickerContentQuiet(
-  snapshot: WorkspaceSnapshot,
+  groups: readonly QuietGroup[],
   hasSynopsis: (lineId: string) => boolean,
 ): boolean {
-  if (snapshot.status === "error") return true;
-  if (snapshot.status !== "ready") return false;
-  const rows = shownRows(snapshot);
-  // One row of the cap is the "New session" affordance the list leads with.
-  const onScreen = rows.slice(0, PICKER_ROWS_TO_FILL_CAP - 1);
-  const filled = rows.length + 1 >= PICKER_ROWS_TO_FILL_CAP;
-  const settled = snapshot.scanning !== true;
+  const open = groups.filter((g) => g.open);
+  const statusOf = (g: QuietGroup) => g.snapshot?.status ?? "idle";
+  if (open.some((g) => statusOf(g) === "pending" || statusOf(g) === "idle")) {
+    return false;
+  }
+  const settled = open.every(
+    (g) => statusOf(g) === "error" || g.snapshot?.scanning !== true,
+  );
   if (settled) return true;
-  if (!filled) return false;
-  return onScreen.every((row) => hasSynopsis(row.line_id));
+  // Still scanning: quiet only once the rows on screen fill the cap and each
+  // session among them has the synopsis its description line waits on. A band
+  // or a New session row is `null` here — it has no synopsis to wait for.
+  const slots: (SessionRow | null)[] = [];
+  for (const g of groups) {
+    slots.push(null);
+    const snapshot = g.snapshot;
+    if (!g.open || snapshot === null || snapshot.status !== "ready") continue;
+    if (snapshot.dirExists !== false) slots.push(null);
+    for (const row of snapshot.rows) {
+      if (hasResumableContent(row)) slots.push(row);
+    }
+  }
+  if (slots.length < PICKER_ROWS_TO_FILL_CAP) return false;
+  return slots
+    .slice(0, PICKER_ROWS_TO_FILL_CAP)
+    .every((row) => row === null || hasSynopsis(row.line_id));
 }
 
 /**
  * The picker's quiet source for an arriving Session card, in the shape the
  * deck reads ({@link ArrivalQuiet}): {@link pickerContentQuiet} over the
- * ledger store's snapshot for the seed path the picker opens on, and the
- * synopsis store's answer for each row.
+ * groups the picker opens on — the same group set and the same unfolded
+ * groups its own render derives — and the synopsis store's answer for each
+ * row.
  *
  * `subscribe` fires on {@link notifyPickerDrawn} — the picker's own word
  * that a frame is in the DOM — and on nothing else. A synopsis that lands on
@@ -113,11 +129,10 @@ export function pickerContentQuiet(
  * the rows, so that is a Summarize lane writing mid-arrival, which the
  * bound covers and a later reservation corrects.
  *
- * The seed path is read once, at the arrival — the same path the picker's
- * own render reads through its hooks, by the same precedence — because a
- * hidden picker takes no input and the path cannot change under it. The
- * ledger store fetches a path it has never seen the first time it is asked,
- * so the `getSnapshot` here is also what starts the listing.
+ * The group set is read once, at the arrival, because a hidden picker takes no
+ * input and nothing it shows can be unfolded under it. The ledger store
+ * fetches a path it has never seen the first time it is asked, so the
+ * `getSnapshot` here is also what starts an open group's listing.
  *
  * `null` when there is no ledger store — a gallery, a fixture — in which case
  * the deck treats the content as quiet from the first ask.
@@ -125,12 +140,19 @@ export function pickerContentQuiet(
 export function sessionPickerQuiet(): ArrivalQuiet | null {
   const ledger = getSessionLedgerStore();
   if (ledger === null) return null;
-  const projectDir = readSeedPath();
+  const specs = readPickerGroupSpecs();
+  const open = new Set(defaultOpenDirs(specs));
   return {
     subscribe: (listener) => drawnListeners.subscribe(listener),
     isQuiet: () =>
       pickerContentQuiet(
-        ledger.getSnapshot(projectDir),
+        specs.map((spec) => {
+          const isOpen = open.has(spec.projectDir);
+          return {
+            open: isOpen,
+            snapshot: isOpen ? ledger.getSnapshot(spec.projectDir) : null,
+          };
+        }),
         (lineId) => sessionSynopsisStore.getSynopsis(lineId) !== null,
       ),
   };
@@ -140,9 +162,9 @@ const drawnListeners = createSubscribable();
 
 /**
  * The picker has DRAWN a listing frame — called by `SessionProjectPickerForm`
- * from a layout effect keyed on the ledger snapshot it rendered, after it has
- * asked its sheet to re-measure. Every arriving card's quiet source re-asks
- * its rule now, over a DOM that matches the store ([L04]).
+ * from a layout effect keyed on the rows it rendered, after it has asked its
+ * sheet to re-measure. Every arriving card's quiet source re-asks its rule
+ * now, over a DOM that matches the store ([L04]).
  */
 export function notifyPickerDrawn(): void {
   drawnListeners.notify();

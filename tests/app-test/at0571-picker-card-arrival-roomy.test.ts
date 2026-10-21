@@ -34,7 +34,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { launchTugApp, note } from "./_harness";
+import { note } from "./_harness";
 import { kindBody } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
@@ -50,8 +50,8 @@ import {
   columnShares,
   heldFor,
   isFolded,
-  measureAtListCap,
-  panelFit,
+  launchArrivalApp,
+  assertFitAtListCap,
   paneRects,
   removeArrivalPickerSessions,
   seed,
@@ -67,7 +67,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   test(
     "a newcomer onto a ROOMY split column takes the room, and leaves no band beneath it",
     async () => {
-      const app = await launchTugApp({ testName: "at0571-roomy-column" });
+      const app = await launchArrivalApp("at0571-roomy-column");
       try {
         await seed(app);
         // The sitter folds first, which is what makes the column roomy: a
@@ -176,19 +176,11 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         ).toBeGreaterThan(1);
 
         // ── And the other half of the claim: the card that took the room
-        //    holds the picker whole, with the list at its cap. ──
-        await measureAtListCap(app, "roomy picker");
-        const fit = await panelFit(app, newcomer ?? "");
-        note("roomy fit", JSON.stringify(fit));
-        expect(fit, "the picker's panel is on screen").not.toBeNull();
-        expect(
-          fit?.overflow ?? 999,
-          "the panel stands at its natural height rather than capped short",
-        ).toBeLessThanOrEqual(PIXEL_TOL);
-        expect(
-          fit?.bottomSlack ?? -1,
-          "and its bottom edge sits inside the frame that took the room",
-        ).toBeGreaterThanOrEqual(0);
+        //    holds the picker with the list at its cap. Everything the
+        //    folded tier leaves is still short of what that picker claims,
+        //    so the list is the part that gives way and every other part
+        //    stands inside the frame ([B07]). ──
+        await assertFitAtListCap(app, "roomy picker");
       } finally {
         await app.close();
       }

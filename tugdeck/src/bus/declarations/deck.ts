@@ -103,17 +103,23 @@ export const sessionBinding: Codec<CardSessionBinding> = opaque(isBinding, {
 /**
  * The deck's frontmost bound card's session binding, null when no card is
  * bound: the project a card with no session of its own (the Jots card)
- * resolves a relative path against. A body's one-card deck cannot say which
- * card stands in front.
+ * resolves a relative path against. Beside it, `projectDirs` is every bound
+ * card's project, deduplicated and frontmost first — the workspace's project
+ * set, which the Choose Session sheet opens on. A body's one-card deck can
+ * say neither which card stands in front nor which projects the rest hold.
  */
-export const deckFrontmostProject = defineSharedStore<{ binding: CardSessionBinding | null }>({
+export const deckFrontmostProject = defineSharedStore<{
+  binding: CardSessionBinding | null;
+  projectDirs: string[];
+}>({
   key: "deck.frontmostProject",
   owner: "shell",
   scope: { deck: true },
   codec: obj({
     binding: nullable(sessionBinding),
+    projectDirs: arr(str),
   }),
-  initial: { binding: null },
+  initial: { binding: null, projectDirs: [] },
 });
 
 /** What every page reads of a card the arrangement holds. */

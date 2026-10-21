@@ -1126,6 +1126,10 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  /* The sheet lays its body out as a column ([data-body-scroll]); the form
+     takes the room it is given and passes any shortfall down to the list. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* "Directory doesn't exist" warning in the picker action row. Sits
@@ -1230,6 +1234,8 @@
   flex-direction: column;
   gap: var(--tug-space-md);
   width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* List hosts — content-sized wrappers that grow with their content up to a
@@ -1246,10 +1252,23 @@
 .session-card-picker-sessions-host {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  /* The list is the one thing in the sheet that gives under limited height:
+     the host shrinks ahead of the header, the filter, the trash row and the
+     actions, which never do, down to a floor of three rows — a band, a New
+     session row and one session at the 3.5rem floor. Below that the sheet
+     stands past its frame rather than crush the list further. */
+  flex: 0 1 auto;
+  min-height: calc(3.25rem + 2 * 3.5rem);
   --tugx-list-view-radius: var(--tug-radius-sm);
   --tugx-list-view-frame-width: 1px;
   --tugx-list-view-frame-color: var(--tug7-element-global-border-normal-muted-rest);
+}
+
+/* A list of fewer rows than the floor holds — a filter that kept one match, or
+   none — is shorter than the floor, and a floor under it would only stand a
+   void beneath its rows. It sizes to its content, as the host always did. */
+.session-card-picker-sessions-host[data-sparse="true"] {
+  min-height: 0;
 }
 
 /* Empty-state placeholder — content-sized now (the host no longer reserves a
@@ -1269,14 +1288,17 @@
 }
 
 /* The embedded Sessions TugListView — zero row gap so adjacent cells share
-   their borders. Content-height (the scroller grows with its rows) capped at
-   the section's max; beyond the cap the list scrolls. */
+   their borders. Content-height (the scroller grows with its rows) up to its
+   preferred cap, ~8 session rows and two bands; beyond it the list scrolls.
+   Its cap under limited height is the room left: it shrinks with the host. */
 .session-card-picker-list-view.tug-list-view {
   --tugx-list-view-padding-block: 0;
   --tugx-list-view-padding-inline: 0;
   --tugx-list-view-row-gap: 0;
   height: auto;
-  max-height: 14.5rem;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 34rem;
 }
 
 /* Match-range highlight (the matcher attaches ranges when the typed input is a
@@ -1319,6 +1341,104 @@
     var(--tugx-list-row-padding-inline) + var(--tugx-list-row-indicator-gutter) +
       var(--tug-space-xs)
   );
+}
+
+/* A New session row names its project, so it reads at title weight — the one
+   row in a group the eye lands on to start something. */
+.session-card-picker-new .tug-list-row-title {
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* ---- The project band -----------------------------------------------------
+   Two lines: the name, then the whole path. The chevron and the facts sit on
+   the NAME line rather than centering across both, so the band's first line
+   reads as one row of facts and the path hangs beneath it. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.session-card-picker-sessions-list .session-card-picker-group.tug-list-row {
+  --tugx-list-row-min-height: 3.25rem;
+  background: var(--tug7-surface-global-primary-normal-default-rest);
+  align-items: flex-start;
+}
+
+.session-card-picker-group.tug-list-row .tug-list-row-leading,
+.session-card-picker-group.tug-list-row .tug-list-row-trailing {
+  /* The name line's box: its font size at the row's line height. */
+  min-height: calc(var(--tug-font-size-md) * 1.4);
+}
+
+/* A folded band sits a touch quieter than an open one, so the open group reads
+   as the subject and the folded ones as the margin. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.session-card-picker-group.tug-list-row[data-expanded="false"] .session-card-picker-group-name {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.session-card-picker-group-chevron {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.session-card-picker-group-name {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-md);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  white-space: nowrap;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.session-card-picker-group-path {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  margin-top: 2px;
+}
+
+.session-card-picker-group-facts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-md);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.session-card-picker-group-count {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A folder that is gone says so in the danger voice, where the count was. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.session-card-picker-group[data-status="missing"] .session-card-picker-group-count {
+  color: var(--tug7-element-global-text-normal-danger-rest);
+}
+
+/* A recent project's remove button shows while its band is engaged — hover,
+   focus within, the cursor — and always while its folder is gone or its
+   confirm is open. Hidden with `visibility` so the facts never move. */
+.session-card-picker-group-remove[data-reveal="engaged"] {
+  visibility: hidden;
+}
+.session-card-picker-group:hover .session-card-picker-group-remove,
+.session-card-picker-group:focus-within .session-card-picker-group-remove,
+.session-card-picker-group[data-selected="true"] .session-card-picker-group-remove,
+.session-card-picker-group[data-pending-remove="true"] .session-card-picker-group-remove {
+  visibility: visible;
+}
+
+/* ---- The other-folder row ---------------------------------------------------
+   The door to a typed path and Browse. Quiet: it is the exception, not the
+   way in. */
+.session-card-picker-other.tug-list-row .tug-list-row-leading {
+  color: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.session-card-picker-other .tug-list-row-title {
+  color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
 /* Trailing affordance — the trash icon button lives in the row's

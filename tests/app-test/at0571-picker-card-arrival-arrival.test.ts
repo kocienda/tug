@@ -47,7 +47,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { launchTugApp, note } from "./_harness";
+import { note } from "./_harness";
 import { kindBody, waitForBodyReady } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
@@ -67,7 +67,8 @@ import {
   beatOrder,
   census,
   heldFor,
-  measureAtListCap,
+  launchArrivalApp,
+  assertFitAtListCap,
   openDeckShape,
   removeArrivalPickerSessions,
   seed,
@@ -85,7 +86,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   test(
     "the column makes room and the card rides in on the picker it already measured",
     async () => {
-      const app = await launchTugApp({ testName: "at0571-arrival" });
+      const app = await launchArrivalApp("at0571-arrival");
       try {
         await seed(app);
         const runBefore = await app.evalJS<number>(
@@ -269,7 +270,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         // filling the list changes the panel and so the claim above is only
         // readable before it ([P05]: a genuinely-changed picker is an honest
         // update, not a defect).
-        await measureAtListCap(app, "arrival picker");
+        await assertFitAtListCap(app, "arrival picker");
       } finally {
         await app.close();
       }
@@ -279,7 +280,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   test(
     "with an empty slot beside the split, the card opens there instead",
     async () => {
-      const app = await launchTugApp({ testName: "at0571-open-slot" });
+      const app = await launchArrivalApp("at0571-open-slot");
       try {
         await app.seedDeckState({ state: openDeckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

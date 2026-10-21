@@ -266,7 +266,7 @@ import { cardModalHoldStore, isCardHeld, refuseCardModalHold } from "./card-moda
 import { closeGuardWalk } from "./close-guard-walk";
 import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
-import { frontmostProjectBinding } from "./frontmost-project";
+import { frontmostProjectBinding, workspaceProjectDirs } from "./frontmost-project";
 import { motionBreaker } from "./motion-guard/breaker";
 import { holdOverviewDraftInShell } from "./overview-composer-draft";
 import { CROSSING_FRAME_ATTRS, crossingMirrorOf } from "./fold-crossing";
@@ -978,9 +978,13 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const publishDeckFacts = (): void => {
     deckFacts.set(readDeckFacts(deck));
     deckMenu.set(readDeckMenu(deck));
-    // The project a card with no session of its own resolves against, which
-    // a body's one-card deck cannot find.
-    deckFrontmostProject.set({ binding: frontmostProjectBinding() });
+    // The project a card with no session of its own resolves against, and
+    // the workspace's project set a Choose Session sheet opens on, which a
+    // body's one-card deck cannot find.
+    deckFrontmostProject.set({
+      binding: frontmostProjectBinding(),
+      projectDirs: [...workspaceProjectDirs()],
+    });
   };
 
   /**

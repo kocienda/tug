@@ -54,30 +54,25 @@
  *
  * ## The picker this file measures, and why it is not the one a fresh instance shows
  *
- * Every app-test launches on a fresh per-instance `sessions.db`, so the picker
- * a card raises here lists one row — "New session" — and its panel is some
- * 380px tall. The Sessions list is capped at 14.5rem with a 3.5rem floor per
- * row, so on any real project with more than three sessions the list stands
- * at its cap and the panel is about 174px taller than that. A pin measured
- * against the one-row picker fits the one-row picker, and the first real
- * project cut the Choose Session header off above the path field and the
- * action row off below the list, with nothing in this file able to say so —
- * every fit assertion it made was against the picker that fit.
+ * Every test launches on a quiet project, so the picker a card raises here
+ * lists one empty group and its panel is some 415px tall. The Sessions list
+ * is capped at 34rem with a 3.5rem floor per row, so on a real project the
+ * list stands at its cap and the panel is 850px — more than the lower member
+ * of a split column in this window can hold. A fit measured against the short
+ * picker fits the short picker, and says nothing about the card a real
+ * project presents.
  *
  * So the fit claim that matters is made over a SEEDED project
  * (`picker-sessions-fixture.ts`): five two-line sessions, enough to stand the
  * list at its cap. The Session card is the LOWER member of a split column,
- * which is the case from the screenshot — the sheet's top-anchor clamp caps
- * the panel against the canvas bottom, and the lower member is the one whose
- * frame can be too short for that. With the list at its cap the panel's
- * overflow is within a pixel, the Choose Session header sits wholly below the
- * title bar, and the action row sits wholly above the FRAME's bottom edge. The
- * frame is the edge that matters and the clip is not: `.tug-sheet-clip` is
- * `height: 100vh` on purpose ("it must NOT bound the panel"), so a reading
- * against its bottom is a reading against something a viewport below anything
- * on screen, and could not go negative for any clipping this card can produce.
- * The one-row picker's fit is still read before the list fills, because a
- * panel that fits the cap must also fit less.
+ * standing UNDER the height its picker claims, which is the case the grouped
+ * picker lays out for ([B07]): the Choose Session header, the filter, the
+ * trash row and the actions all stand wholly inside the FRAME, and the
+ * Sessions list is the element that gave way. The frame is the edge that
+ * matters and the clip is not: `.tug-sheet-clip` is `height: 100vh` on
+ * purpose ("it must NOT bound the panel"), so a reading against its bottom is
+ * a reading against something a viewport below anything on screen. The short
+ * picker's fit is still read before the list fills.
  *
  * ## Two fixtures, and what each of them can say
  *
@@ -135,6 +130,10 @@ import {
 } from "./_harness/tugbank-helpers";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 import {
+  describePickerFit,
+  pickerFit,
+  pickerFitProblems,
+  pickerListScrolls,
   pickerPanelNaturalHeight,
   pointPickerAt,
   removePickerSessions,
@@ -208,23 +207,26 @@ const SHEET_PANEL_TO_MEMBER_PX = 64;
  * and the share the hand gives the member, which is what makes a reading here
  * distinguishable from either.
  *
- * And it is deliberately a number no picker will ever report: above the most
- * any picker claims, its list at the cap (554px of panel, 618px for the
- * member). 618 itself was this number until bodies, where the picker's first
- * report is its loaded list at the cap and so agreed with it; in one document
- * the first report came before the list loaded, which is all that made 618
- * disagree. A seeded bid is a number nobody measured, so the first live
- * report disagrees with it — and
- * the first-report rule refusing that report, with a row in the trace naming
- * both numbers, is what this file asserts below ([P04], [Spec S04]).
+ * And it is deliberately above what the picker first reports here. Every test
+ * launches on a quiet project ({@link launchOnQuietProject}), so the picker
+ * raises one empty group, and its claim sits well under this number. A seeded
+ * bid is a number nobody measured, so that first live report disagrees with
+ * it — and the first-report rule refusing that report, with a row in the
+ * trace naming both numbers, is what this file asserts below ([P04],
+ * [Spec S04]).
+ *
+ * It is NOT above every picker. The grouped picker with its list at the cap
+ * claims more than this, which is the honest update {@link assertFitAtListCap}
+ * makes: a report that follows a genuine change to the picker, landing over
+ * the bid ([P05]).
  */
 const SEEDED_OPENING_BID_PX = 640;
 
 /**
- * A project whose Sessions list stands at its 14.5rem cap. The picker a fresh
- * instance opens lists one row, and a height measured against that picker is
- * wrong on every real project; the fixture is what makes the panel's height
- * here the height the pin has to hold.
+ * A project whose Sessions list stands at its cap. The picker a quiet project
+ * opens lists one empty group, and a fit read against that picker says
+ * nothing about a real project's; the fixture is what makes the card here too
+ * short for the picker it holds.
  */
 let fixture: PickerSessionsFixture | null = null;
 
@@ -242,6 +244,30 @@ const SHEET_PANEL = '[data-slot="tug-sheet"].tug-sheet-content';
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Launch with `default-project-path` pointed at an empty directory.
+ *
+ * An unbound card's picker opens on that project. Left unseeded, a debug build
+ * opens it on the source tree, and whatever sessions this machine holds there
+ * fill the picker's list — so the picker's first height, and every reading
+ * that leans on it, would be this machine's rather than this file's.
+ */
+async function launchOnQuietProject(
+  testName: string,
+): Promise<{ app: App; tugbankPath: string }> {
+  const tugbankPath = mkTempTugbank();
+  seedTugbankForLaunch(tugbankPath);
+  tugbankWrite(
+    tugbankPath,
+    "dev.tugapp.app",
+    "default-project-path",
+    "string",
+    testTmpDir("at0569-quiet-project-"),
+  );
+  const app = await launchTugApp({ testName, env: { TUGBANK_PATH: tugbankPath } });
+  return { app, tugbankPath };
+}
 
 interface Rect {
   top: number;
@@ -439,108 +465,66 @@ function bandBeneath(frames: Record<string, Rect>): number {
 }
 
 /**
- * The picker's edges against the chrome around it, read inside pane `p2`: how
- * far the Choose Session header's top sits below the title bar's bottom, and
- * how far the action row's bottom sits above the PANE FRAME's bottom. Either
- * negative is the sheet cut off at that end — the screenshot's failure, read
- * at the two edges it showed.
- *
- * The two edges are not symmetric, and reading them both against the clip
- * would get one of them wrong. The clip's TOP is a real edge: it sits at
- * `chrome-height + 1px` with `overflow: hidden`, so a panel riding up under
- * the title bar is genuinely cut there. Its BOTTOM is not an edge at all —
- * `.tug-sheet-clip` is `height: 100vh` deliberately ("it must NOT bound the
- * panel"; `tug-sheet.css`), because the panel is capped in JS against the
- * measured canvas instead. So the bottom reading is against the frame the
- * panel has to fit inside, which is the same box `panelMeasure`'s
- * `bottomSlack` reads and the one a height constant a pixel too small
- * overruns.
- *
- * The pane is the shell's stand-in; its title bar, and the sheet's header and
- * action row, are in the Session card's body (card `B`, the one in `p2`),
- * which draws its own chrome. Each edge is read in screen coordinates from
- * its own page.
- */
-async function pickerEdges(app: App): Promise<{
-  headerBelowTitleBar: number;
-  actionsAbovePaneBottom: number;
-} | null> {
-  const paneSel = '.tug-pane[data-pane-id="p2"]';
-  const barSel = '[data-testid="tug-pane-title-bar"]';
-  const shellHas = await app.evalJS<boolean>(
-    `document.querySelector(${JSON.stringify(paneSel)}) !== null`,
-  );
-  if (!shellHas) return null;
-  const body = app.body("B");
-  const bodyHas = await body.evalJS<boolean>(
-    `document.querySelector(${JSON.stringify(barSel)}) !== null && document.querySelector('.tug-sheet-header') !== null && document.querySelector('.tug-sheet-actions') !== null`,
-  );
-  if (!bodyHas) return null;
-  const pane = await app.getElementScreenBounds(paneSel);
-  const bar = await body.getElementScreenBounds(barSel);
-  const header = await body.getElementScreenBounds(".tug-sheet-header");
-  const actions = await body.getElementScreenBounds(".tug-sheet-actions");
-  return {
-    headerBelowTitleBar: header.y - (bar.y + bar.height),
-    actionsAbovePaneBottom: pane.y + pane.height - (actions.y + actions.height),
-  };
-}
-
-/**
- * Point the open picker at the seeded project, let the list reach its cap,
- * and assert the panel fits the pinned card whole.
+ * Point the open picker at the seeded project, which stands its Sessions list
+ * at its cap and raises the claim to what the picker wants, and assert the
+ * picker fits the card it stands in ([B07]).
  *
  * Filling the list is a genuine change to the picker, so the report it
  * provokes is an ordinary one rather than a first one ([P05]) — which is why
  * this is where the claim lands on a fixture whose bid was seeded rather than
- * measured. The number it prints is the panel the deck derived that claim
- * from.
+ * measured. The claim is the picker with its list at its preferred height,
+ * the height the card asks for when it has room, and it is a want rather than
+ * a floor: the run pays the neighbour's hard floor first. In this window that
+ * leaves the lower member less than the claim at either division, so the card
+ * stands UNDER it — beside its neighbour, inside the run, never pushing the
+ * column into a strip — and that is the case [B07] lays out for: the header,
+ * the filter, the trash row and the actions all wholly inside the frame, and
+ * the Sessions list the element that gave way.
+ *
+ * Every part is read in the card's own page, against the frame that page
+ * draws, so a part hanging past the frame is a reading rather than a
+ * coordinate error.
  */
 async function assertFitAtListCap(app: App): Promise<void> {
   if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
   await pointPickerAt(kindBody(app, "session"), fixture);
   await wait(AFTER_LAND_MS);
   const natural = await pickerPanelNaturalHeight(kindBody(app, "session"));
-  const full = await panelMeasure(app);
-  const edges = await pickerEdges(app);
   const claimed = await reservations(app);
+  const frames = await rects(app, ["p1", "p2", "p3"]);
+  const fit = await pickerFit(kindBody(app, "session"));
   note(
-    `with the list at its cap: panel natural ${natural ?? -1}px, overflow ${full?.overflow ?? -1}, bottom slack ${(full?.bottomSlack ?? -1).toFixed(1)}px, header ${(edges?.headerBelowTitleBar ?? -1).toFixed(1)}px below the title bar, actions ${(edges?.actionsAbovePaneBottom ?? -1).toFixed(1)}px above the frame's bottom`,
+    `with the list at its cap: panel natural ${natural ?? -1}px, the deck claims ${claimed?.p2 ?? -1}px, the card stands at ${frames.p2.height.toFixed(1)}px beside ${frames.p1.height.toFixed(1)}px`,
   );
-  note(
-    `with the list at its cap the deck claims ${claimed?.p2 ?? -1}px for the member; this fixture seeded a bid of ${SEEDED_OPENING_BID_PX}`,
-  );
-  // ── The reservation is NOT inert on a Session card any more ([B03]). The
-  //    deck derives the member's floor from the panel the sheet measured, so
-  //    with the list at its cap that derivation and the height the card
-  //    declared are the same number — one quantity where there were two, and
-  //    the whole of why the claim used to decide nothing here. ──
+  note(`the picker in its frame: ${describePickerFit(fit)}`);
+  // ── The claim is still what the member needs for this panel — the
+  //    reservation's own arithmetic, with the list at its preferred height.
+  //    ──
   expect(
     Math.abs((claimed?.p2 ?? -1) - ((natural ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
     "the claim is what the member needs for this panel, not the panel's own height",
   ).toBeLessThanOrEqual(REPORTER_DRIFT);
-  expect(full, "the picker's panel is on screen with the list at its cap").not.toBeNull();
+  expect(fit, "the picker's parts are all on screen").not.toBeNull();
+  if (fit === null) return;
   expect(
-    full?.overflow ?? 999,
-    "with the list at its cap the panel stands at its natural height rather than capped short",
+    pickerFitProblems(fit, PIXEL_TOL),
+    "the header, filter, trash row and actions all stand inside the frame",
+  ).toEqual([]);
+  // ── This column cannot pay the claim, which is what makes this the short
+  //    card rather than one that happened to fit — and it stands inside the
+  //    run beside its neighbour's floor, rather than overflowing it. ──
+  expect(
+    frames.p2.height,
+    "the card stands under the claim — the column has less to give",
+  ).toBeLessThan((claimed?.p2 ?? 0) - PIXEL_TOL);
+  expect(
+    Math.abs(bandBeneath(frames)),
+    "and it ends where the run ends — read against slot 1's frame, which spans it",
   ).toBeLessThanOrEqual(PIXEL_TOL);
-  // The panel not hanging past the frame it stands in. This is the reading
-  // that catches a height constant one pixel too small: the clip's
-  // `overflow: hidden` cuts the panel there without touching `scrollHeight`,
-  // so the overflow reading above stays 0 while the card clips.
   expect(
-    full?.bottomSlack ?? -1,
-    "the panel's bottom edge sits inside the card's frame",
-  ).toBeGreaterThanOrEqual(0);
-  expect(edges, "the header, the action row and the title bar are all on screen").not.toBeNull();
-  expect(
-    edges?.headerBelowTitleBar ?? -1,
-    "the Choose Session header sits wholly below the title bar",
-  ).toBeGreaterThanOrEqual(0);
-  expect(
-    edges?.actionsAbovePaneBottom ?? -1,
-    "and the action row sits wholly above the frame's bottom edge",
-  ).toBeGreaterThanOrEqual(0);
+    pickerListScrolls(fit, PIXEL_TOL),
+    "and the Sessions list is the element that gave way",
+  ).toBe(true);
 }
 
 // Kept local: every file's `seed` builds its own deck and waits on its own
@@ -570,7 +554,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
   test(
     "the card opens at the pinned height, the neighbour holds the rest, and a session opening gives it back",
     async () => {
-      const app = await launchTugApp({ testName: "at0569-sheet-reservation" });
+      const { app, tugbankPath } = await launchOnQuietProject("at0569-sheet-reservation");
       try {
         // Three parts to one. Without the pin the Session card's own share
         // would leave it a sliver and its 600px floor would hold it up; the
@@ -730,6 +714,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         ).toBeGreaterThan(PIXEL_TOL);
       } finally {
         await app.close();
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,
@@ -738,9 +723,9 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
   test(
     "a large stored share DOES lift the unbound member — the declaration is a floor, not a ceiling",
     async () => {
-      const app = await launchTugApp({
-        testName: "at0569-sheet-reservation-share-lifts",
-      });
+      const { app, tugbankPath } = await launchOnQuietProject(
+        "at0569-sheet-reservation-share-lifts",
+      );
       try {
         // The shares the other way up, which is the case from the screenshot:
         // three parts of four is well clear of everything the member declares,
@@ -843,6 +828,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         ).toBeLessThanOrEqual(PIXEL_TOL);
       } finally {
         await app.close();
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,
@@ -851,23 +837,9 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
   test(
     "a card added on the production path bids what it measured, and the picker reports the same number",
     async () => {
-      // The picker opens on `default-project-path`, seeded here with an empty
-      // directory. Left unseeded, a debug build opens it on the source tree,
-      // and whatever sessions are live there on this machine add rows to the
-      // picker this test needs to be the one-row one.
-      const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath);
-      tugbankWrite(
-        tugbankPath,
-        "dev.tugapp.app",
-        "default-project-path",
-        "string",
-        testTmpDir("at0569-quiet-project-"),
-      );
-      const app = await launchTugApp({
-        testName: "at0569-measured-bid",
-        env: { TUGBANK_PATH: tugbankPath },
-      });
+      // The quiet project matters most here: this test needs the picker's
+      // first form to be the short one.
+      const { app, tugbankPath } = await launchOnQuietProject("at0569-measured-bid");
       try {
         // No Session card and no seeded bid in this fixture: the card arrives
         // through `addCard`, which is the only thing that MEASURES one. Slot 0

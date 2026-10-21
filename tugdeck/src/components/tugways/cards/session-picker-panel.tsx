@@ -62,6 +62,9 @@ export function sessionPickerPanel({
     // three-line summary plus two trailing controls — the decision width
     // truncates all three.
     displayWidth: "lg",
+    // On a card too short for the whole picker, the header and the actions
+    // stay on screen and the body is what gives.
+    bodyScroll: true,
     panel: (
       <SessionProjectPickerForm
         key={cardId}

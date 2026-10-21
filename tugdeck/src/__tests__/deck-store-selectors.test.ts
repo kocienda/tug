@@ -698,7 +698,7 @@ describe("placeMembers reads the folded flag", () => {
 // placeMembers and a sheet's reservation ([B01], [B07], [B08])
 // ---------------------------------------------------------------------------
 
-describe("placeMembers reads a reservation as a floor", () => {
+describe("placeMembers reads a reservation as the member's want", () => {
   const FLOOR = 200;
   const RESERVED = 420;
 
@@ -745,18 +745,24 @@ describe("placeMembers reads a reservation as a floor", () => {
     return placeMembers(state, "column", ["pane-a", "pane-b"], shares);
   }
 
-  test("a reserving member's floor is the reservation, not its stack policy's", () => {
+  test("a reserving member wants the reservation, over its stack policy's floor", () => {
+    // The claim is a SOFT floor ([B07], [B08]): the height the card asks for
+    // when the run has room. Its hard floor stays its stack policy's, so a
+    // column too short to pay the claim gives it less rather than overflowing.
     registerPlain();
     const members = columnMembers(splitState({ "pane-b": RESERVED }));
-    expect(members[1].floor).toBe(RESERVED);
+    expect(members[1].want).toBe(RESERVED);
+    expect(members[1].floor).toBe(FLOOR);
     // Only the member that claimed. Its neighbour is untouched.
     expect(members[0].floor).toBe(FLOOR);
+    expect(members[0].want).toBeUndefined();
   });
 
-  test("the floor is the GREATER of the two, so a claim under it changes nothing", () => {
+  test("a claim under the floor asks for nothing the floor does not hold", () => {
     registerPlain();
     const members = columnMembers(splitState({ "pane-b": FLOOR - 50 }));
     expect(members[1].floor).toBe(FLOOR);
+    expect(members[1].want).toBeUndefined();
   });
 
   test("a FOLDED member reads no reservation — it pins at its tier", () => {
@@ -804,7 +810,7 @@ describe("placeMembers reads a reservation as a floor", () => {
       sheetReservations: { railcard: RESERVED },
     };
     const members = placeMembers(state, "rail", ["railcard"], undefined);
-    expect(members[0].floor).toBe(RESERVED);
+    expect(members[0].want).toBe(RESERVED);
   });
 });
 
@@ -876,10 +882,11 @@ describe("placeMembers reads an unbound card's declared height as one more floor
       "pane-b": 1,
     });
 
-  test("the declared height is the member's floor, with NO ceiling and its weight kept", () => {
+  test("the declared height is the member's want, with NO ceiling and its weight kept", () => {
     registerPinnable();
     const members = columnMembers(splitState({ "pane-a": DECLARED }));
-    expect(members[0].floor).toBe(DECLARED);
+    expect(members[0].want).toBe(DECLARED);
+    expect(members[0].floor).toBe(FLOOR);
     // The whole of what changed: no ceiling, so a column with room to spare
     // can give it to this member instead of leaving a band beneath.
     expect(members[0].ceiling).toBeUndefined();
@@ -907,20 +914,20 @@ describe("placeMembers reads an unbound card's declared height as one more floor
     expect(members[0].weight).toBe(3);
   });
 
-  test("a declaration and a sheet reservation are both floors, and the larger wins", () => {
-    // [B01] in one assertion: every contributor goes into the same `max`, so
+  test("a declaration and a sheet reservation are both wants, and the larger wins", () => {
+    // [B01] in one assertion: both contributors go into the same `max`, so
     // neither is read ahead of the other.
     registerPinnable();
     const under = columnMembers({
       ...splitState({ "pane-a": DECLARED }),
       sheetReservations: { "pane-a": DECLARED - 50 },
     });
-    expect(under[0].floor).toBe(DECLARED);
+    expect(under[0].want).toBe(DECLARED);
     const over = columnMembers({
       ...splitState({ "pane-a": DECLARED }),
       sheetReservations: { "pane-a": DECLARED + 50 },
     });
-    expect(over[0].floor).toBe(DECLARED + 50);
+    expect(over[0].want).toBe(DECLARED + 50);
     expect(over[0].ceiling).toBeUndefined();
   });
 
@@ -1063,12 +1070,15 @@ describe("a reserving member's place divides around the claim", () => {
     );
   });
 
-  test("two claims that do not fit the run put the place in OVERFLOW", () => {
-    // Nothing new: a run that cannot hold its floors is already a strip by
-    // arithmetic, and a reservation reaches that standing by the one door
-    // every other floor does.
+  test("two claims that do not fit the run share what is left, and the place stays divided", () => {
+    // A claim is a want, not a floor ([B07], [B08]): the run pays every hard
+    // floor and the seam first, and the claims share what is left in
+    // proportion to what each is short. This reverses the earlier reading, in
+    // which a claim reached the strip by the floor door: a column too short
+    // for the picker it holds overflowed with the card's bottom off the
+    // canvas, where the picker can lay itself out for less.
     registerPlain();
-    const standing = allocatePlaceHeights(
+    const allocation = allocatePlaceHeights(
       placeMembers(
         splitState({ "pane-a": 700, "pane-b": 700 }),
         "column",
@@ -1077,8 +1087,48 @@ describe("a reserving member's place divides around the claim", () => {
       ),
       RUN,
       SEAM,
-    ).standing;
-    expect(standing).toBe("overflow");
+    );
+    expect(allocation.standing).toBe("shared");
+    // Equal shortfalls, equal shares of the room: the run less the seam,
+    // halved.
+    expect(allocation.heights[0]).toBeCloseTo((RUN - SEAM) / 2, 6);
+    expect(allocation.heights[1]).toBeCloseTo((RUN - SEAM) / 2, 6);
+  });
+
+  test("one claim the run cannot pay stands at everything the neighbour's floor leaves", () => {
+    // The short split row: the neighbour holds its hard floor, and the
+    // claimant takes the rest of the run rather than pushing the column into
+    // a strip.
+    registerPlain();
+    const allocation = allocatePlaceHeights(
+      placeMembers(
+        splitState({ "pane-b": RUN }),
+        "column",
+        ["pane-a", "pane-b"],
+        { "pane-a": 3, "pane-b": 1 },
+      ),
+      RUN,
+      SEAM,
+    );
+    expect(allocation.standing).toBe("shared");
+    expect(allocation.heights[0]).toBeCloseTo(FLOOR, 6);
+    expect(allocation.heights[1]).toBeCloseTo(RUN - SEAM - FLOOR, 6);
+  });
+
+  test("hard floors that overflow still make a strip, and the claim adds nothing to it", () => {
+    registerPlain();
+    const allocation = allocatePlaceHeights(
+      placeMembers(
+        splitState({ "pane-b": RESERVED }),
+        "column",
+        ["pane-a", "pane-b"],
+        { "pane-a": 1, "pane-b": 1 },
+      ),
+      FLOOR * 2,
+      SEAM,
+    );
+    expect(allocation.standing).toBe("overflow");
+    expect(allocation.heights).toEqual([FLOOR, FLOOR]);
   });
 });
 
@@ -1222,13 +1272,14 @@ describe("placeMembers floors an unbound member at its own sheet's height", () =
     };
   }
 
-  test("a 524 reservation stands at 524 while the card is unbound", () => {
+  test("a 524 reservation is the want while the card is unbound, over no floor at all", () => {
     // The defect this arc is about: the picker measured 524 and the column
     // floored it at 600, so the panel carried 76 px of dead air and the column
     // overflowed further than it needed to ([F03]).
     registerOpener();
     const members = placeMembers(state(), "column", ["pane-a"], undefined);
-    expect(members[0].floor).toBe(RESERVED);
+    expect(members[0].want).toBe(RESERVED);
+    expect(members[0].floor).toBe(0);
   });
 
   test("the member is back at its ordinary floor when the reservation clears", () => {
@@ -1254,7 +1305,7 @@ describe("placeMembers floors an unbound member at its own sheet's height", () =
       ["pane-a"],
       undefined,
     );
-    expect(members[0].floor).toBe(560);
+    expect(members[0].want).toBe(560);
   });
 
   test("the member keeps its weight — an unbound floor is not a band", () => {

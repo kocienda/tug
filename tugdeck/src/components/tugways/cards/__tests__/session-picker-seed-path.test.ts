@@ -8,8 +8,9 @@
  * writing state a tick later would measure a picker listing no sessions.
  *
  * The precedence is a chain, so each test states one rung by supplying the one
- * above it as empty — a recent over a default, a default over the Swift hint,
- * the hint over the backend home, and nothing at all yielding `""`.
+ * above it as empty — the workspace's project over a recent, a recent over a
+ * default, a default over the Swift hint, the hint over the backend home, and
+ * nothing at all yielding `""`.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -17,33 +18,48 @@ import { describe, it, expect } from "bun:test";
 import { seedPathFrom } from "../session-picker-seed";
 
 describe("seedPathFrom — the picker's opening project path", () => {
-  it("prefers the most-recent project over every other source", () => {
+  it("prefers the workspace's frontmost project over every other source", () => {
+    // The recents are machine-global: after a stint in another workspace the
+    // most-recent project is that workspace's. The bound cards here say which
+    // project this workspace is for.
     expect(
-      seedPathFrom(["/recent/one", "/recent/two"], "/default", "/hint", "/home"),
+      seedPathFrom(
+        ["/work/front", "/work/back"],
+        ["/recent/one"],
+        "/default",
+        "/hint",
+        "/home",
+      ),
+    ).toBe("/work/front");
+  });
+
+  it("falls to the most-recent project when no card is bound", () => {
+    expect(
+      seedPathFrom([], ["/recent/one", "/recent/two"], "/default", "/hint", "/home"),
     ).toBe("/recent/one");
   });
 
   it("falls to the user's explicit default when there are no recents", () => {
-    expect(seedPathFrom([], "/default", "/hint", "/home")).toBe("/default");
+    expect(seedPathFrom([], [], "/default", "/hint", "/home")).toBe("/default");
   });
 
   it("falls to the Swift hint when the default setting is unset", () => {
-    expect(seedPathFrom([], "", "/hint", "/home")).toBe("/hint");
+    expect(seedPathFrom([], [], "", "/hint", "/home")).toBe("/hint");
   });
 
   it("falls to the backend home when there is no hint either", () => {
-    expect(seedPathFrom([], "", "", "/home")).toBe("/home");
+    expect(seedPathFrom([], [], "", "", "/home")).toBe("/home");
   });
 
   it("yields the empty string when every source is empty", () => {
-    expect(seedPathFrom([], "", "", undefined)).toBe("");
-    expect(seedPathFrom([], "", "", "")).toBe("");
+    expect(seedPathFrom([], [], "", "", undefined)).toBe("");
+    expect(seedPathFrom([], [], "", "", "")).toBe("");
   });
 
   it("reads the default as the EXPLICIT setting, never a computed <home>/tug", () => {
     // An unset default must fall THROUGH to the hint. Shadowing it with a
     // path derived from home would seed a directory the user never chose —
     // and on a debug build would hide the repo source tree the hint carries.
-    expect(seedPathFrom([], "", "/repo/source", "/home")).toBe("/repo/source");
+    expect(seedPathFrom([], [], "", "/repo/source", "/home")).toBe("/repo/source");
   });
 });

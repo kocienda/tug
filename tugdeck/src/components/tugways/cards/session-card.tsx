@@ -1189,6 +1189,7 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       // call never reaches the host while the card is folded anyway.
       foldPresentation: "defer",
       displayWidth: openingForm.displayWidth,
+      bodyScroll: openingForm.bodyScroll,
       // The picker has no entrance and no exit of its own ([P07]). It is the
       // card — an unbound Session card is its picker and nothing else — so the
       // card's own arrival IS the motion, and a panel sliding in on top of a

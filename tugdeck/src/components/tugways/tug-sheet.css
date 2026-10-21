@@ -303,6 +303,30 @@ body {
   min-height: 0;
 }
 
+/* ---- Body scroll ([data-body-scroll]) ----
+ *
+ * The resizable layout above without its handles: a flex column that clips,
+ * so a panel capped against the canvas gives its shortfall to the body and
+ * never cuts off its header. The body is a flex column too, so a consumer's
+ * root can take `flex: 1 1 auto; min-height: 0` and pass the shortfall down
+ * to the one region of its own that should give, keeping its footer on
+ * screen. A consumer whose content cannot shrink overflows the body, which
+ * scrolls, bar-less like the panel it replaces as the scroll region. [L06] */
+.tug-sheet-content[data-body-scroll="true"] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tug-sheet-content[data-body-scroll="true"] .tug-sheet-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
 /* Aspect-locked: the panel height is content-driven (the body's aspect
    region sets it from the width), so the content is NOT a fixed-height flex
    column — it lays out in normal flow and grows with its content. `overflow:

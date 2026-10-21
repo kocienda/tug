@@ -10,14 +10,19 @@
  * that's very likely the one the user means, and Open Quickly stays live.
  * When no card is bound, the result is `null` and Open Quickly is disabled.
  *
+ * The same walk, deduplicated over `projectDir`, is the **workspace's project
+ * set** ({@link workspaceProjectDirs}): every project a bound card in this deck
+ * has open, frontmost first. The Choose Session sheet opens on those groups,
+ * so a new session lands in the project the workspace is for.
+ *
  * A body page cannot walk the deck: its deck holds its own card and its
- * binding store that card's binding alone. The shell sends its answer in its
- * deck facts, and a body answers with that ({@link relayFrontmostProjectBinding}).
+ * binding store that card's binding alone. The shell sends both answers in its
+ * deck facts, and a body answers with those ({@link relayFrontmostProjectBinding},
+ * {@link relayWorkspaceProjectDirs}).
  *
  * @module lib/frontmost-project
  */
 
-import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createSubscribable } from "@/lib/subscribable";
 
@@ -44,9 +49,28 @@ export function relayFrontmostProjectBinding(binding: CardSessionBinding | null)
   relayedChanged.notify();
 }
 
+/** The shell's workspace project set, on a body page that has heard it. */
+let relayedDirs: readonly string[] | undefined;
+
+/**
+ * Take the shell's workspace project set on a body page. An equal list keeps
+ * the held reference, so a reader's snapshot does not churn.
+ */
+export function relayWorkspaceProjectDirs(dirs: readonly string[]): void {
+  if (relayedDirs !== undefined && sameDirs(relayedDirs, dirs)) return;
+  relayedDirs = dirs;
+  relayedChanged.notify();
+}
+
 /** For tests: back to a page that has heard nothing. */
 export function _resetRelayedFrontmostProjectForTest(): void {
   relayed = undefined;
+  relayedDirs = undefined;
+  lastDirs = NO_DIRS;
+}
+
+function sameDirs(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((dir, i) => dir === b[i]);
 }
 
 /**
@@ -72,6 +96,58 @@ export function frontmostProjectBinding(): CardSessionBinding | null {
   return null;
 }
 
+const NO_DIRS: readonly string[] = Object.freeze([]);
+/** The last answer, so an unchanged set is the same reference. */
+let lastDirs: readonly string[] = NO_DIRS;
+
+/**
+ * The workspace's project set: the `projectDir` of every bound card in the
+ * deck, deduplicated, in the order {@link frontmostProjectBinding} walks them
+ * (topmost pane first, its active card before its background tabs). Empty
+ * when no card is bound. Referentially stable while the set is unchanged, so a
+ * `useSyncExternalStore` snapshot may return it directly.
+ */
+export function workspaceProjectDirs(): readonly string[] {
+  if (relayedDirs !== undefined) return relayedDirs;
+  const store = getCardDeck();
+  if (store === null) return NO_DIRS;
+  const { panes } = store.getSnapshot();
+  const dirs: string[] = [];
+  const take = (cardId: string): void => {
+    const dir = cardSessionBindingStore.getBinding(cardId)?.projectDir;
+    if (dir !== undefined && dir !== "" && !dirs.includes(dir)) dirs.push(dir);
+  };
+  for (let i = panes.length - 1; i >= 0; i--) {
+    const pane = panes[i];
+    take(pane.activeCardId);
+    for (const cardId of pane.cardIds) take(cardId);
+  }
+  if (!sameDirs(lastDirs, dirs)) lastDirs = dirs.length === 0 ? NO_DIRS : dirs;
+  return lastDirs;
+}
+
+/** Subscribe to everything the two walks read. */
+function subscribeToProjects(onChange: () => void): () => void {
+  const deck = getCardDeck();
+  const unDeck = deck ? deck.subscribe(onChange) : () => {};
+  const unBind = cardSessionBindingStore.subscribe(onChange);
+  const unRelay = relayedChanged.subscribe(onChange);
+  return () => {
+    unDeck();
+    unBind();
+    unRelay();
+  };
+}
+
+/** Reactive {@link workspaceProjectDirs} ([L02]). */
+export function useWorkspaceProjectDirs(): readonly string[] {
+  return useSyncExternalStore(
+    subscribeToProjects,
+    workspaceProjectDirs,
+    workspaceProjectDirs,
+  );
+}
+
 /**
  * Reactive {@link frontmostProjectBinding}: re-reads whenever the deck reorders
  * or a binding lands/clears, so a consumer tracks the topmost bound project
@@ -79,19 +155,8 @@ export function frontmostProjectBinding(): CardSessionBinding | null {
  * `useSyncExternalStore`. `null` when no card is bound.
  */
 export function useFrontmostProjectBinding(): CardSessionBinding | null {
-  const subscribe = useCallback((onChange: () => void): (() => void) => {
-    const deck = getCardDeck();
-    const unDeck = deck ? deck.subscribe(onChange) : () => {};
-    const unBind = cardSessionBindingStore.subscribe(onChange);
-    const unRelay = relayedChanged.subscribe(onChange);
-    return () => {
-      unDeck();
-      unBind();
-      unRelay();
-    };
-  }, []);
   return useSyncExternalStore(
-    subscribe,
+    subscribeToProjects,
     frontmostProjectBinding,
     frontmostProjectBinding,
   );

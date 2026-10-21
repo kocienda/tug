@@ -3662,6 +3662,21 @@ export interface PlaceMember {
    * tier, which is not a wall but five stretched cards.
    */
   ceiling?: number;
+  /**
+   * Soft floor, px — the height this member asks for WHEN THE RUN HAS ROOM
+   * for it, above its hard {@link floor}. `undefined` for every ordinary
+   * member.
+   *
+   * It exists for the unbound Session card, whose picker claims the height it
+   * wants with its Sessions list at its preferred length, and lays itself out
+   * for less when it gets less: the list gives way and every other part of the
+   * picker stays in the frame. A claim that was a hard floor would instead
+   * push a column too short to pay it into a strip, with the card's bottom
+   * hanging off the canvas. So the run pays every member's hard floor first,
+   * and only what is left over raises members toward their wants
+   * ({@link settledMembers}); a want never makes a place overflow.
+   */
+  want?: number;
 }
 
 /**
@@ -3731,12 +3746,60 @@ function sanitizedMembers(
       member.ceiling >= floor
         ? member.ceiling
         : undefined;
+    // A want at or below the hard floor asks for nothing the floor does not
+    // already hold, and one above a ceiling cannot be stood at; both read as
+    // no want, the way an unreadable ceiling reads as none.
+    const want =
+      member.want !== undefined &&
+      Number.isFinite(member.want) &&
+      member.want > floor
+        ? Math.min(member.want, ceiling ?? member.want)
+        : undefined;
     return {
       id: member.id,
       floor,
       weight,
       ...(ceiling !== undefined ? { ceiling } : {}),
+      ...(want !== undefined ? { want } : {}),
     };
+  });
+}
+
+/**
+ * The members with every soft floor settled against `run`: sanitized, then
+ * each {@link PlaceMember.want} turned into as much floor as the run can pay
+ * once every member's hard floor and every seam is paid. Where the room covers
+ * every want each member's floor becomes its want; where it does not, the
+ * room is shared in proportion to what each member is short. A place whose
+ * hard floors already overflow its run settles every want to nothing.
+ *
+ * The members that come back carry no `want`, so settling is idempotent and
+ * every reader past this point — the standing, the division, the inverse and
+ * the drag bounds — reads one floor per member, the same floor for all of
+ * them. That is what keeps a drag from writing a height the allocator would
+ * not give back ([P10]).
+ */
+function settledMembers(
+  members: readonly PlaceMember[],
+  run: number,
+  seam: number,
+): PlaceMember[] {
+  const sane = sanitizedMembers(members);
+  if (!sane.some((member) => member.want !== undefined)) return sane;
+  const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
+  const required =
+    sane.reduce((sum, member) => sum + member.floor, 0) +
+    Math.max(0, sane.length - 1) * gap;
+  const room = Number.isFinite(run) ? run - required : 0;
+  const deficit = sane.reduce(
+    (sum, member) => sum + Math.max(0, (member.want ?? 0) - member.floor),
+    0,
+  );
+  const paid = room <= 0 || deficit <= 0 ? 0 : Math.min(1, room / deficit);
+  return sane.map((member) => {
+    if (member.want === undefined) return member;
+    const { want, ...rest } = member;
+    return { ...rest, floor: member.floor + Math.max(0, want - member.floor) * paid };
   });
 }
 
@@ -3971,7 +4034,7 @@ export function allocatePlaceHeights(
   run: number,
   seam: number,
 ): PlaceAllocation {
-  const sane = sanitizedMembers(members);
+  const sane = settledMembers(members, run, seam);
   const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
   if (sane.length === 0) {
     return placeAllocationOf("shared", sane, [], run, gap);
@@ -4056,7 +4119,7 @@ export function placeSharesFromHeights(
   run: number,
   seam = 0,
 ): Record<string, number> {
-  const sane = sanitizedMembers(members);
+  const sane = settledMembers(members, run, seam);
   if (sane.length < 2) return {};
   const gap = Number.isFinite(seam) && seam > 0 ? seam : 0;
   if (placeStandingOf(sane, run, gap) === "overflow") return {};
@@ -4195,7 +4258,7 @@ export function seamDragBounds(
   members: readonly PlaceMember[],
   index: number,
 ): { lower: number; upper: number } {
-  const sane = sanitizedMembers(members);
+  const sane = settledMembers(members, allocation.run, allocation.seam);
   const heights = allocation.heights;
   const held = heights[index] ?? 0;
   if (index < 0 || index + 1 >= sane.length) return { lower: held, upper: held };
@@ -4253,7 +4316,7 @@ export function cascadedHeights(
   index: number,
   height: number,
 ): number[] {
-  const sane = sanitizedMembers(members);
+  const sane = settledMembers(members, allocation.run, allocation.seam);
   const heights = sane.map((_, i) => allocation.heights[i] ?? 0);
   if (index < 0 || index + 1 >= sane.length) return heights;
   const delta = height - heights[index];

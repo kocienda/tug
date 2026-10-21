@@ -889,6 +889,11 @@ export interface TugSheetContentProps {
    */
   resizable?: boolean;
   /**
+   * Lay the panel out so its body is the part that gives under a short
+   * canvas. See {@link ShowSheetOptions.bodyScroll}.
+   */
+  bodyScroll?: boolean;
+  /**
    * Cap the panel to this fraction (0–1) of the host card's box on BOTH
    * axes — the panel never exceeds `fraction × pane-frame width/height`,
    * so it stays visibly nested inside the card rather than bleeding to
@@ -1031,6 +1036,14 @@ export interface TugSheetContentProps {
  * room a report wins — and the margins are in because the panel's own gutters
  * are part of what it occupies.
  *
+ * A {@link ShowSheetOptions.bodyScroll} panel is the exception that
+ * `scrollHeight` alone gets wrong. It is a flex column that clips, so a biting
+ * cap shrinks the body rather than overflowing the panel, and `scrollHeight`
+ * reads the capped box. So its cap is lifted for the read and put straight
+ * back: one synchronous write-read-write inside the caller's layout phase,
+ * which no observer sees, since an observer compares boxes at delivery and the
+ * box at delivery is the one the cap left.
+ *
  * This is the ONE copy in the deck: the bottom-anchor effect's `needed` and the
  * natural-height report both call it. `tests/app-test/picker-sessions-fixture.ts`
  * carries a deliberate copy as `pickerPanelNaturalHeight` — the harness runs in
@@ -1039,8 +1052,17 @@ export interface TugSheetContentProps {
 export function sheetPanelNaturalHeight(el: HTMLElement): number {
   const cs = getComputedStyle(el);
   const px = (value: string): number => Number.parseFloat(value) || 0;
+  let scrollHeight: number;
+  if (el.dataset.bodyScroll === "true") {
+    const cap = el.style.maxHeight;
+    el.style.maxHeight = "none";
+    scrollHeight = el.scrollHeight;
+    el.style.maxHeight = cap;
+  } else {
+    scrollHeight = el.scrollHeight;
+  }
   return (
-    el.scrollHeight +
+    scrollHeight +
     px(cs.borderTopWidth) +
     px(cs.borderBottomWidth) +
     px(cs.marginTop) +
@@ -1091,6 +1113,8 @@ export interface TugSheetPanelProps {
   displayWidth?: TugSheetDisplayWidth;
   /** Marks the panel resizable (`data-resizable`); the handles are {@link trailing}. */
   resizable?: boolean;
+  /** Marks the panel's body as the part that gives (`data-body-scroll`). */
+  bodyScroll?: boolean;
   /** Marks the panel aspect-locked (`data-aspect-lock`). */
   aspectLockContent?: boolean;
   /** Suppress the header block. */
@@ -1138,6 +1162,7 @@ export function TugSheetPanel({
   presentation,
   displayWidth,
   resizable = false,
+  bodyScroll = false,
   aspectLockContent = false,
   hideHeader = false,
   hideHeaderRule = false,
@@ -1214,6 +1239,7 @@ export function TugSheetPanel({
       data-tug-sheet-presentation={presentation}
       data-display-width={displayWidth}
       data-resizable={resizable ? "true" : undefined}
+      data-body-scroll={bodyScroll ? "true" : undefined}
       data-aspect-lock={aspectLockContent ? "true" : undefined}
       onKeyDown={onKeyDown}
       onMouseDown={onMouseDown}
@@ -1252,6 +1278,7 @@ export function TugSheetContent({
   presentation = "scale-fade",
   displayWidth = "sm",
   resizable = false,
+  bodyScroll = false,
   maxHostFraction,
   aspectLockContent = false,
   hideHeader = false,
@@ -2646,6 +2673,7 @@ export function TugSheetContent({
             presentation={presentation}
             displayWidth={displayWidth}
             resizable={resizable}
+            bodyScroll={bodyScroll}
             aspectLockContent={aspectLockContent}
             hideHeader={hideHeader}
             hideHeaderRule={hideHeaderRule}
@@ -2813,6 +2841,18 @@ export interface ShowSheetOptions {
    * life of the open sheet. Defaults to `false`.
    */
   resizable?: boolean;
+  /**
+   * When `true`, the panel is a column whose body is the part that gives:
+   * under a canvas too short for the whole panel, the header stays put and
+   * the body shrinks and scrolls, rather than the panel scrolling as one
+   * piece. It is the layout {@link resizable} has, reached without the drag
+   * handles, for a sheet whose body knows how to lay out in less room — the
+   * body is itself a flex column, so a consumer's root may take
+   * `flex: 1 1 auto; min-height: 0` and hand the shortfall to one region of
+   * its own (a list) while its footer stays on screen. A consumer that does
+   * not flex is still safe: the body scrolls. Defaults to `false`.
+   */
+  bodyScroll?: boolean;
   /**
    * Cap the panel to this fraction (0–1) of the host card's box on both
    * axes (e.g. `0.9` for the image preview). Re-measured on resize and
@@ -3350,6 +3390,7 @@ export function useTugSheet(): {
           presentation={options.presentation}
           displayWidth={options.displayWidth}
           resizable={options.resizable}
+          bodyScroll={options.bodyScroll}
           maxHostFraction={options.maxHostFraction}
           aspectLockContent={options.aspectLockContent}
           hideHeader={options.hideHeader}

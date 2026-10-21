@@ -192,8 +192,29 @@ export function removePickerSessions(
   }
 }
 
-/** The picker's path field — stop 0 of the picker's keyboard cycle. */
-export const PICKER_PATH_FIELD = '[data-tug-focus-key="session-picker-cycle:0"]';
+/**
+ * The picker's other-folder row — the last row of its list, and the door to the
+ * path field.
+ */
+export const PICKER_OTHER_ROW = '[data-testid="session-card-picker-other"]';
+/**
+ * The picker's path field, shown while the other-folder row is chosen — the
+ * stop between the Sessions list and Move-all-to-Trash in its keyboard cycle.
+ */
+export const PICKER_PATH_FIELD = '[data-tug-focus-key="session-picker-cycle:2.5"]';
+
+/**
+ * In-page script: choose the other-folder row, so the path field mounts. A
+ * click on the row is the pick, as a reader's would be. `true` once the field
+ * stands.
+ */
+export const CHOOSE_OTHER_FOLDER = `(function(){
+  var row = document.querySelector(${JSON.stringify(PICKER_OTHER_ROW)});
+  if (row === null) return false;
+  row.scrollIntoView({ block: "nearest" });
+  row.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  return true;
+})()`;
 /** One `session-resume` row in the Sessions list. */
 export const PICKER_RESUME_ROW =
   '[data-testid="session-card-picker-session-resume"]';
@@ -218,16 +239,25 @@ export interface PickerDriver {
  * Point an OPEN picker at the fixture's project and wait until every seeded
  * session is a row in its list.
  *
- * The picker seeds its own path on open — from recents, then the default
- * project, then the host's hint — so the fixture types over it, through the
- * prototype value setter so React's input tracker sees the change the way a
- * keystroke lands it. The path drives the ledger fetch; the JSONL scan is its
- * second phase, so the wait is on the rows rather than on the field.
+ * The fixture's project is none of the picker's groups, so the helper takes
+ * the door a reader would: it chooses the other-folder row, and types the path
+ * into the field that row shows, through the prototype value setter so
+ * React's input tracker sees the change the way a keystroke lands it. The
+ * typed folder becomes a group of its own, unfolded, and its listing is what
+ * the path drives; the JSONL scan is that listing's second phase, so the wait
+ * is on the rows rather than on the field.
  */
 export async function pointPickerAt(
   app: PickerDriver,
   fixture: PickerSessionsFixture,
 ): Promise<void> {
+  if (!(await app.evalJS<boolean>(CHOOSE_OTHER_FOLDER))) {
+    throw new Error("picker other-folder row not found");
+  }
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(PICKER_PATH_FIELD)}) !== null`,
+    { timeoutMs: 5_000 },
+  );
   await app.evalJS<null>(`(function(){
     var el = document.querySelector(${JSON.stringify(PICKER_PATH_FIELD)});
     if (!el) throw new Error("picker path field not found");
@@ -266,8 +296,17 @@ export async function pickerPanelNaturalHeight(
       if (el === null) return null;
       var cs = getComputedStyle(el);
       var px = function (v) { return parseFloat(v) || 0; };
+      var scrollHeight;
+      if (el.dataset.bodyScroll === "true") {
+        var cap = el.style.maxHeight;
+        el.style.maxHeight = "none";
+        scrollHeight = el.scrollHeight;
+        el.style.maxHeight = cap;
+      } else {
+        scrollHeight = el.scrollHeight;
+      }
       return (
-        el.scrollHeight +
+        scrollHeight +
         px(cs.borderTopWidth) +
         px(cs.borderBottomWidth) +
         px(cs.marginTop) +
@@ -275,4 +314,124 @@ export async function pickerPanelNaturalHeight(
       );
     })()`,
   );
+}
+
+/** A box's vertical extent, in the picker's own page. */
+export interface PickerSpan {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Where every part of an open picker stands against the card frame around it,
+ * read in the card's OWN page — the frame, its title bar and the sheet are all
+ * in that page, so no screen mapping stands between them and a part hanging
+ * past the frame is a reading rather than a coordinate error.
+ *
+ * `list` and `body` carry scroll extents: on a card too short for the picker
+ * the Sessions list is the part that gives way, so it is the one whose content
+ * outruns its box, and the sheet's body is not. `panelMaxHeight` is the cap the
+ * sheet wrote on the panel (`""` when it wrote none), carried for the note.
+ */
+export interface PickerFit {
+  viewportHeight: number;
+  frame: PickerSpan;
+  titleBarBottom: number;
+  header: PickerSpan;
+  filter: PickerSpan;
+  trash: PickerSpan;
+  actions: PickerSpan;
+  panel: PickerSpan;
+  panelMaxHeight: string;
+  /** The panel's content height with its cap lifted, and the height it has. */
+  panelWants: number;
+  panelHas: number;
+  list: { clientHeight: number; scrollHeight: number };
+  body: { clientHeight: number; scrollHeight: number };
+}
+
+/** Read {@link PickerFit} off the picker's page, or `null` when a part is missing. */
+export async function pickerFit(app: PickerDriver): Promise<PickerFit | null> {
+  return app.evalJS<PickerFit | null>(
+    `(function () {
+      var panel = document.querySelector('[data-slot="tug-sheet"].tug-sheet-content');
+      if (panel === null) return null;
+      var frame = panel.closest(".tug-pane");
+      var bar = document.querySelector('[data-testid="tug-pane-title-bar"]');
+      var parts = {
+        header: panel.querySelector(".tug-sheet-header"),
+        filter: panel.querySelector('[data-testid="session-card-picker-filter"]'),
+        trash: panel.querySelector(".session-card-picker-trash-all"),
+        actions: panel.querySelector(".tug-sheet-actions"),
+      };
+      var list = panel.querySelector(".session-card-picker-list-view");
+      var body = panel.querySelector(".tug-sheet-body");
+      if (frame === null || bar === null || list === null || body === null) return null;
+      var span = function (el) {
+        var r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom };
+      };
+      var cap = panel.style.maxHeight;
+      panel.style.maxHeight = "none";
+      var wants = panel.scrollHeight;
+      panel.style.maxHeight = cap;
+      var out = {
+        viewportHeight: window.innerHeight,
+        frame: span(frame),
+        titleBarBottom: bar.getBoundingClientRect().bottom,
+        panel: span(panel),
+        panelMaxHeight: panel.style.maxHeight,
+        panelWants: wants,
+        panelHas: panel.clientHeight,
+        list: { clientHeight: list.clientHeight, scrollHeight: list.scrollHeight },
+        body: { clientHeight: body.clientHeight, scrollHeight: body.scrollHeight },
+      };
+      for (var k in parts) {
+        if (parts[k] === null) return null;
+        out[k] = span(parts[k]);
+      }
+      return out;
+    })()`,
+  );
+}
+
+/**
+ * Every way `fit` breaks the picker's short-card contract, as sentences; empty
+ * when it holds. The header, the filter, the trash row and the actions each
+ * stand wholly inside the frame, below its title bar; and when the panel is
+ * shorter than it wants to be, the Sessions list is the element that scrolled
+ * — its content outruns its box — while the sheet's body holds still.
+ *
+ * `tol` absorbs sub-pixel layout rounding.
+ */
+export function pickerFitProblems(fit: PickerFit, tol: number): string[] {
+  const problems: string[] = [];
+  const inside = (name: string, s: PickerSpan): void => {
+    if (s.top < fit.titleBarBottom - tol) {
+      problems.push(`${name} top ${s.top.toFixed(1)} is above the title bar's bottom ${fit.titleBarBottom.toFixed(1)}`);
+    }
+    if (s.bottom > fit.frame.bottom + tol) {
+      problems.push(`${name} bottom ${s.bottom.toFixed(1)} is below the frame's bottom ${fit.frame.bottom.toFixed(1)}`);
+    }
+  };
+  inside("the header", fit.header);
+  inside("the filter", fit.filter);
+  inside("the trash row", fit.trash);
+  inside("the actions", fit.actions);
+  if (fit.body.scrollHeight - fit.body.clientHeight > tol) {
+    problems.push(`the sheet's body scrolls (${fit.body.scrollHeight} over ${fit.body.clientHeight}) — the list should give way instead`);
+  }
+  return problems;
+}
+
+/** Whether the Sessions list is holding more than it shows — the list scrolled. */
+export function pickerListScrolls(fit: PickerFit, tol: number): boolean {
+  return fit.list.scrollHeight - fit.list.clientHeight > tol;
+}
+
+/** `fit` as one line for a note. */
+export function describePickerFit(fit: PickerFit | null): string {
+  if (fit === null) return "picker not on screen";
+  const s = (p: PickerSpan) => `${p.top.toFixed(0)}–${p.bottom.toFixed(0)}`;
+  return `frame ${s(fit.frame)} (viewport ${fit.viewportHeight}), title bar to ${fit.titleBarBottom.toFixed(0)}, panel ${s(fit.panel)} max-height "${fit.panelMaxHeight}" (wants ${fit.panelWants}, has ${fit.panelHas}), header ${s(fit.header)}, filter ${s(fit.filter)}, trash ${s(fit.trash)}, actions ${s(fit.actions)}, list ${fit.list.clientHeight}/${fit.list.scrollHeight}, body ${fit.body.clientHeight}/${fit.body.scrollHeight}`;
 }

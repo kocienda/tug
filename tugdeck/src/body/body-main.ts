@@ -137,7 +137,7 @@ import { cardIdentityElsewhere } from "../lib/card-identity";
 import { cardTitleStore } from "../lib/card-title-store";
 import { movedFacets } from "../lib/deck-cards";
 import { appInfoStore } from "../lib/app-info-store";
-import { relayFrontmostProjectBinding } from "../lib/frontmost-project";
+import { relayFrontmostProjectBinding, relayWorkspaceProjectDirs } from "../lib/frontmost-project";
 import { applyCrossingMirror } from "../lib/fold-crossing";
 import { telemetryInspectionStore } from "../lib/telemetry-inspection-store";
 import { installInspectionPublisher } from "./body-inspection";
@@ -557,7 +557,10 @@ async function bindBody(bind: BodyBind): Promise<void> {
   follow(deckMenu, (menu) => {
     if (menu !== null) applyShellMenuFacts(menu);
   });
-  follow(deckFrontmostProject, ({ binding }) => relayFrontmostProjectBinding(binding));
+  follow(deckFrontmostProject, ({ binding, projectDirs }) => {
+    relayFrontmostProjectBinding(binding);
+    relayWorkspaceProjectDirs(projectDirs);
+  });
   // The crossing the shell's pane stands under, held here on this page's
   // own frame so the card root holds through it as an in-document one does.
   follow(cardCrossing, (crossing) => {

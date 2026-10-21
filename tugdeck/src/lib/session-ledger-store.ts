@@ -32,6 +32,8 @@
  * @module lib/session-ledger-store
  */
 
+import { useMemo } from "react";
+
 import { createSubscribable, Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
@@ -635,5 +637,46 @@ export function useSessionLedger(projectDir: string): WorkspaceSnapshot {
       return store.getSnapshot(projectDir);
     },
     () => IDLE_SNAPSHOT,
+  );
+}
+
+/**
+ * React hook: {@link useSessionLedger} over several paths at once — one
+ * snapshot per path, in the order given. The grouped Choose Session sheet
+ * fans out this way because there is no cross-project listing on the wire:
+ * each path is its own `list_sessions`, kicked by its first read here, and
+ * each settles on its own.
+ *
+ * One subscription for the lot. The returned array is the same reference
+ * while every path's snapshot is, which is what `useSyncExternalStore` needs;
+ * the store's snapshots are themselves stable until a settle. `projectDirs`
+ * should itself be stable across renders that did not change it, or the read
+ * is rebuilt each time and its first answer is a fresh array.
+ */
+export function useSessionLedgers(
+  projectDirs: readonly string[],
+): readonly WorkspaceSnapshot[] {
+  const read = useMemo(() => {
+    let last: readonly WorkspaceSnapshot[] = [];
+    return (): readonly WorkspaceSnapshot[] => {
+      const store = _activeStore;
+      const next = projectDirs.map((dir) =>
+        dir.length === 0 || store === null
+          ? IDLE_SNAPSHOT
+          : store.getSnapshot(dir),
+      );
+      if (
+        next.length !== last.length ||
+        next.some((snapshot, i) => snapshot !== last[i])
+      ) {
+        last = next;
+      }
+      return last;
+    };
+  }, [projectDirs]);
+  return useSyncExternalStore(
+    projectDirs.length === 0 ? NOOP_SUBSCRIBE : subscribeToLedger,
+    read,
+    read,
   );
 }

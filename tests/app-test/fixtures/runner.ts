@@ -15,6 +15,7 @@ import { expect } from "bun:test";
 import type { App, BodyApp } from "../_harness";
 import { waitForBodyReady } from "../_harness/card-reach";
 import type { SeededFixtureSession } from "./resolve";
+import { CHOOSE_OTHER_FOLDER, PICKER_PATH_FIELD } from "../picker-sessions-fixture";
 
 export const PICKER_FORM = ".session-card-picker-form";
 export const OPEN = '[data-tug-focus-key="session-picker-cycle:5"]';
@@ -58,15 +59,15 @@ function clickElement(page: App | BodyApp, selector: string): Promise<boolean> {
 }
 
 /**
- * Set the picker's project-path combo box to `path` via a React-compatible
- * value write (the native `HTMLInputElement.value` setter + an `input` event),
- * then blur so the dropdown the typing opened doesn't overlay the sessions list.
- * Returns false if the field isn't present.
+ * Set the picker's path field — the one the other-folder row shows — to `path`
+ * via a React-compatible value write (the native `HTMLInputElement.value`
+ * setter + an `input` event), then blur so the completion dropdown the typing
+ * opened doesn't overlay the list. Returns false if the field isn't present.
  */
 function setPickerPath(page: App | BodyApp, path: string): Promise<boolean> {
   return page.evalJS<boolean>(
     `(function(){
-      var input = document.querySelector(".session-card-picker-form input");
+      var input = document.querySelector(${JSON.stringify(PICKER_PATH_FIELD)});
       if (input === null) return false;
       var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
       setter.call(input, ${JSON.stringify(path)});
@@ -109,15 +110,19 @@ export async function openFixtureSession(
     `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
     { timeoutMs: 8000 },
   );
-  // The recents now seed the path combo box's dropdown (not a separate list).
-  // The picker one-shot-seeds the field from the host hint on mount, so it can't
-  // be assumed to hold the seeded project dir — drive the field directly with a
-  // React-compatible value write (the native setter + an `input` event), then
-  // blur so the combo box dropdown the typing opened doesn't overlay the list.
+  // The fixture's project is none of the picker's groups, so take the door a
+  // reader would: choose the other-folder row, and type the path into the field
+  // it shows. The typed folder becomes a group of its own, unfolded, whose
+  // listing carries the seeded session.
+  expect(await page.evalJS<boolean>(CHOOSE_OTHER_FOLDER)).toBe(true);
+  await page.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(PICKER_PATH_FIELD)}) !== null`,
+    { timeoutMs: 5000 },
+  );
   expect(await setPickerPath(page, seeded.projectDir)).toBe(true);
   await page.waitForCondition<boolean>(
     `(function(){
-      var el = document.querySelector(".session-card-picker-form input");
+      var el = document.querySelector(${JSON.stringify(PICKER_PATH_FIELD)});
       return el !== null && el.value === ${JSON.stringify(seeded.projectDir)};
     })()`,
     { timeoutMs: 8000 },

@@ -673,6 +673,11 @@ export interface OpeningForm {
   title: string;
   /** The sheet's optional Lucide icon name, for the same reason. */
   icon?: string;
+  /**
+   * The sheet's `bodyScroll` layout, because it decides how the box answers a
+   * cap: a body-scroll panel gives its shortfall to the body, not the panel.
+   */
+  bodyScroll?: boolean;
 }
 
 /**

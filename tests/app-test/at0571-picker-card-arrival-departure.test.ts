@@ -34,7 +34,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { launchTugApp, note } from "./_harness";
+import { note } from "./_harness";
 import { kindBody } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import {
@@ -50,7 +50,8 @@ import {
   beatOrder,
   cancelPicker,
   census,
-  measureAtListCap,
+  launchArrivalApp,
+  assertFitAtListCap,
   paneRects,
   removeArrivalPickerSessions,
   seed,
@@ -67,7 +68,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   test(
     "cancelling the picker takes the card away, on its own frame, where it stood",
     async () => {
-      const app = await launchTugApp({ testName: "at0571-departure" });
+      const app = await launchArrivalApp("at0571-departure");
       try {
         await seed(app);
         await app.evalJS<null>(`(${addSessionCard}, null)`);
@@ -77,7 +78,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           { timeoutMs: 15_000 },
         );
         await wait(AFTER_LAND_MS);
-        await measureAtListCap(app, "departure picker");
+        await assertFitAtListCap(app, "departure picker");
 
         // The height the leaving card stands at, read before it goes: the
         // survivor's travel is measured against it below, and once the card
