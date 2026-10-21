@@ -1,13 +1,22 @@
 //! `tugtool host sweep` — the machine-wide janitor verb.
 //!
-//! Runs every `tugcore::janitor` pass and then the bundle-missing half
-//! of `instance prune`, so one command reclaims every class of leaked
-//! runtime debris: dead control/notify sockets, orphaned app-test tmux
-//! servers, aged `$TMPDIR` test litter, finished app-test data dirs, and
-//! `tugcode`/`claude` processes reparented to launchd.
+//! Runs every `tugcore::janitor` pass, so one command reclaims every class
+//! of leaked runtime debris: dead control/notify sockets, orphaned app-test
+//! tmux servers, aged `$TMPDIR` test litter, finished app-test data dirs,
+//! and `tugcode`/`claude` processes reparented to launchd.
 //!
 //! Nothing here deletes by name pattern alone. Each class is gated by
 //! the strongest liveness signal it has — see `tugcore::janitor`.
+//!
+//! **A sweep never touches a dev or release instance's data dir.** It once
+//! finished with the bundle-missing half of `instance prune`, and on
+//! 2026-10-21 that deleted the user's live `release-main` state — every
+//! workspace and session — because the Release bundle happened to be
+//! absent between a clean and a rebuild when an app-test run swept
+//! (`--yes --quiet`, from a script). A missing bundle is not evidence that
+//! the data is unwanted; it is evidence that a build is missing. User
+//! state leaves only by the user's own `instance remove`, which confirms
+//! and retires the directory rather than deleting it ([L23]).
 
 use tugcore::janitor::{self, SweepMode, SweepReport};
 
@@ -58,10 +67,6 @@ pub fn run_sweep(yes: bool, json: bool, quiet: bool, dry_run: bool) -> Result<i3
         return Ok(0);
     }
     print_report(&report, "swept", quiet);
-
-    // Bundle-missing dirs need the full removal path, which also has
-    // LaunchServices bookkeeping to do — that stays in `prune`.
-    super::instance::run_prune_bundle_missing(true, false)?;
     Ok(0)
 }
 

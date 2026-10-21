@@ -1071,6 +1071,15 @@ impl SessionLedger {
         // instrument pointed at a copy must not write the machine-wide
         // index any more than it may claim the changes writer role.
         ledger.session_index = open_session_index(&tugcore::instance::session_index_db_path());
+        // The index outlives any one ledger, so a ledger that disagrees with
+        // it about which line a session is on — a ledger rebuilt from
+        // transcripts, whose scan minted fresh callsigns over the user's —
+        // takes the index's memory back before anything reads it.
+        match ledger.repair_lines_from_index() {
+            Ok(0) => {}
+            Ok(rebound) => tracing::info!(rebound, "session lines restored from the index"),
+            Err(err) => tracing::warn!(error = %err, "line repair from the index failed"),
+        }
         Ok(ledger)
     }
 
@@ -4393,13 +4402,23 @@ impl SessionLedger {
         let line_id = match found {
             Some(line_id) => line_id,
             None => {
+                // The machine-wide index remembers the line and callsign this
+                // session wore in an earlier ledger ([P04]). A ledger that is
+                // meeting a transcript for the first time — rebuilt after a
+                // loss, or opened by another instance — revives that line
+                // rather than minting a stranger's callsign over the user's.
+                let remembered = self.remembered_line(session_id);
+                let (line_id, tag) = match remembered.as_ref() {
+                    Some((line_id, tag, _)) => (Some(line_id.as_str()), Some(tag.as_str())),
+                    None => (None, None),
+                };
                 birth_line_in(
                     &tx,
-                    None,
+                    line_id,
                     session_id,
                     None,
                     &project_dir,
-                    None,
+                    tag,
                     if created_at > 0 { created_at } else { now },
                 )?
                 .line_id
@@ -4415,6 +4434,154 @@ impl SessionLedger {
         )?;
         tx.commit()?;
         Ok(Some(line_id))
+    }
+
+    /// What the machine-wide session index remembers of `session_id`: the
+    /// line it belonged to, the callsign that line wore, and its title —
+    /// `None` when the index has no row, or a row with no line or callsign.
+    fn remembered_line(&self, session_id: &str) -> Option<(String, String, Option<String>)> {
+        let index = self.session_index.as_ref()?;
+        let entry = index.lookup_uuid(session_id)?;
+        let tag = entry.callsign.filter(|t| !t.is_empty())?;
+        if entry.line_id.is_empty() {
+            return None;
+        }
+        Some((entry.line_id, tag, entry.title.filter(|t| !t.is_empty())))
+    }
+
+    /// Rebind every session this ledger holds to the line and callsign the
+    /// machine-wide index remembers for it, where the two disagree.
+    ///
+    /// This is the repair for a ledger that was rebuilt from transcripts
+    /// alone: the external scan found every file but birthed each one a
+    /// fresh line with a fresh callsign, so the user's `warm-alder` came
+    /// back as a stranger and its segments as separate lines. The index
+    /// outlived the ledger, so the memory is there to put back. Runs at
+    /// every production open and is idempotent — a ledger that agrees with
+    /// the index does nothing.
+    ///
+    /// A remembered callsign is taken back only when this ledger can honour
+    /// it: a tag another session already minted here, or a line other than
+    /// the remembered one already wearing it, leaves the session as it is.
+    /// A line left with no segment after its sessions move is deleted; the
+    /// tag it spent stays spent in `minted_tags`, as every tag does.
+    ///
+    /// Returns the number of sessions rebound.
+    pub fn repair_lines_from_index(&self) -> Result<usize, LedgerError> {
+        if self.session_index.is_none() {
+            return Ok(0);
+        }
+        let now = now_millis();
+        let held: Vec<(String, Option<String>, String)> = {
+            let conn = self.db.lock();
+            let mut stmt = conn.prepare(
+                "SELECT session_id, line_id, project_dir FROM sessions
+                 UNION
+                 SELECT session_id, line_id, project_dir FROM external_scan_cache",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get(0)?, row.get::<_, Option<String>>(1)?, row.get(2)?))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let mut rebound = 0usize;
+        for (session_id, current, project_dir) in held {
+            let Some((line_id, tag, title)) = self.remembered_line(&session_id) else {
+                continue;
+            };
+            let current = current.filter(|id| !id.is_empty());
+            if current.as_deref() == Some(line_id.as_str()) {
+                continue;
+            }
+            let mut conn = self.db.lock();
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            // Either the remembered line already wears the callsign here —
+            // a sibling segment revived it, and this one joins — or no line
+            // does and this session must be able to claim it. A line other
+            // than the remembered one wearing it, or a mint by another
+            // session, leaves this session as it is.
+            let worn_by: Option<String> = tx
+                .query_row(
+                    "SELECT line_id FROM lines WHERE tag = ?1",
+                    params![tag],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            match worn_by.as_deref() {
+                Some(worn) if worn == line_id => {}
+                Some(_) => {
+                    tracing::warn!(
+                        session_id,
+                        tag,
+                        "line repair: another line already wears the remembered callsign; left as is"
+                    );
+                    continue;
+                }
+                None => {
+                    if claim_tag(&tx, &tag, &session_id, now)? == TagClaim::TakenByOther {
+                        tracing::warn!(
+                            session_id,
+                            tag,
+                            "line repair: the remembered callsign was minted to another session here; left as is"
+                        );
+                        continue;
+                    }
+                }
+            }
+            let line = birth_line_in(
+                &tx,
+                Some(&line_id),
+                &session_id,
+                None,
+                &project_dir,
+                Some(&tag),
+                now,
+            )?;
+            if line.tag != tag {
+                // The claim held but the birth still rerolled: nothing was
+                // put back, so do not move the session onto it.
+                tx.rollback()?;
+                continue;
+            }
+            if line.name.is_none()
+                && let Some(title) = title.as_deref()
+            {
+                // The index keeps one title: the user's name when there was
+                // one, else the auto title. A short, spaceless title is the
+                // user's own word; a sentence is the auto title, which the
+                // transcript's own `aiTitle` outranks on the next scan.
+                let user_set = !title.contains(char::is_whitespace) && title.chars().count() <= 40;
+                tx.execute(
+                    "UPDATE lines SET name = ?2, name_user_set = ?3 WHERE line_id = ?1",
+                    params![line_id, title, user_set as i64],
+                )?;
+            }
+            tx.execute(
+                "UPDATE sessions SET line_id = ?2 WHERE session_id = ?1",
+                params![session_id, line_id],
+            )?;
+            tx.execute(
+                "UPDATE external_scan_cache SET line_id = ?2 WHERE session_id = ?1",
+                params![session_id, line_id],
+            )?;
+            if let Some(old) = current.as_deref() {
+                let referenced: i64 = tx.query_row(
+                    "SELECT (SELECT COUNT(*) FROM sessions WHERE line_id = ?1)
+                          + (SELECT COUNT(*) FROM external_scan_cache WHERE line_id = ?1)",
+                    params![old],
+                    |row| row.get(0),
+                )?;
+                if referenced == 0 {
+                    tx.execute("DELETE FROM lines WHERE line_id = ?1", params![old])?;
+                }
+            }
+            tx.commit()?;
+            rebound += 1;
+        }
+        if rebound > 0 {
+            tracing::info!(rebound, "line repair: sessions rebound to the lines the index remembers");
+        }
+        Ok(rebound)
     }
 
     /// Record a segment in the machine-wide index ([P04]).
@@ -18255,6 +18422,84 @@ mod tests {
         tugcore::session_index::lookup_uuid(path, session_id)
             .into_iter()
             .next()
+    }
+
+    /// What the index remembers of a session: the line and callsign it wore
+    /// in the ledger that recorded it, as `release-main` had for `warm-alder`.
+    fn remember(path: &Path, session_id: &str, line_id: &str, tag: &str, title: Option<&str>) {
+        let index = tugcore::session_index::SessionIndex::open(path).expect("open index");
+        index
+            .upsert(&tugcore::session_index::IndexEntry {
+                session_id: session_id.to_owned(),
+                line_id: line_id.to_owned(),
+                callsign: Some(tag.to_owned()),
+                project_dir: "/u/src/tug".to_owned(),
+                project_leaf: String::new(),
+                instance: "release-main".to_owned(),
+                title: title.map(str::to_owned),
+                created_at_ms: 1,
+                updated_at_ms: 2,
+            })
+            .expect("index upsert");
+    }
+
+    /// A ledger meeting a transcript for the first time revives the line the
+    /// index remembers for it instead of minting a fresh callsign — the
+    /// 2026-10-21 shape, where a rebuilt ledger listed every one of the
+    /// user's sessions under a stranger's name.
+    #[test]
+    fn a_scanned_session_revives_the_line_the_index_remembers() {
+        let (_dir, l, path) = indexed();
+        remember(&path, "seg-1", "line-warm", "warm-alder", None);
+        remember(&path, "seg-2", "line-warm", "warm-alder", None);
+        l.upsert_scan_cache(&scan_cache_row("seg-1", None)).unwrap();
+        l.upsert_scan_cache(&scan_cache_row("seg-2", None)).unwrap();
+        let one = l.ensure_scan_line("seg-1", millis(0)).unwrap().expect("a line");
+        let two = l.ensure_scan_line("seg-2", millis(0)).unwrap().expect("a line");
+        assert_eq!(one, "line-warm", "the remembered line, not a fresh one");
+        assert_eq!(two, one, "both segments fold onto the one remembered line");
+        let row = l.get_line(&one).unwrap().expect("the line");
+        assert_eq!(row.tag, "warm-alder");
+    }
+
+    /// A ledger that already minted fresh lines over the user's — the scan
+    /// ran before this fix — is put right at open: every session goes back
+    /// onto the remembered line, the stranded fresh line is deleted, and a
+    /// second pass changes nothing.
+    #[test]
+    fn repair_rebinds_sessions_to_the_lines_the_index_remembers() {
+        let (_dir, l, path) = indexed();
+        l.upsert_scan_cache(&scan_cache_row("seg-1", None)).unwrap();
+        l.upsert_scan_cache(&scan_cache_row("seg-2", None)).unwrap();
+        // The index knows nothing yet, so the scan mints two strangers.
+        let fresh_1 = l.ensure_scan_line("seg-1", millis(0)).unwrap().expect("a line");
+        let fresh_2 = l.ensure_scan_line("seg-2", millis(0)).unwrap().expect("a line");
+        assert_ne!(fresh_1, fresh_2);
+
+        remember(&path, "seg-1", "line-warm", "warm-alder", Some("launch-perf"));
+        remember(&path, "seg-2", "line-warm", "warm-alder", Some("launch-perf"));
+        assert_eq!(l.repair_lines_from_index().unwrap(), 2);
+        assert_eq!(l.line_of("seg-1").as_deref(), Some("line-warm"));
+        assert_eq!(l.line_of("seg-2").as_deref(), Some("line-warm"));
+        let row = l.get_line("line-warm").unwrap().expect("the remembered line");
+        assert_eq!(row.tag, "warm-alder");
+        assert_eq!(row.name.as_deref(), Some("launch-perf"));
+        assert!(row.name_user_set, "a short spaceless title is the user's own word");
+        assert!(l.get_line(&fresh_1).unwrap().is_none(), "the stranded line is gone");
+        assert!(l.get_line(&fresh_2).unwrap().is_none(), "the stranded line is gone");
+        assert_eq!(l.repair_lines_from_index().unwrap(), 0, "idempotent");
+
+        // A callsign another session already minted here is never taken
+        // from it: the repair leaves that session as it is.
+        l.upsert_scan_cache(&scan_cache_row("seg-3", None)).unwrap();
+        let fresh_3 = l.ensure_scan_line("seg-3", millis(0)).unwrap().expect("a line");
+        {
+            let conn = l.db.lock();
+            mint(&conn, "stolen-fox", "someone-else", 10);
+        }
+        remember(&path, "seg-3", "line-other", "stolen-fox", None);
+        assert_eq!(l.repair_lines_from_index().unwrap(), 0);
+        assert_eq!(l.line_of("seg-3").as_deref(), Some(fresh_3.as_str()));
     }
 
     #[test]

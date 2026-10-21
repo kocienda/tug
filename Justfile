@@ -855,9 +855,11 @@ tail-replay:
 # sessions, aged $TMPDIR test litter, finished app-test data dirs, and
 # tugcode / claude processes reparented to PID 1.
 #
-# Reports only (removal can delete a possibly-shared app bundle, so it
-# stays deliberate): data dirs whose bundle is gone → `tugtool host
-# instance prune`.
+# Never touched, by sweep or by prune: a dev or release instance's data
+# dir, bundle or no bundle — it is the user's workspaces and sessions,
+# and a missing bundle is a missing build (D218, the 2026-10-21 loss).
+# Only `tugtool host instance remove <id>` takes one, and it retires the
+# dir under `<data root>/retired/` rather than deleting it.
 #
 # Usage:
 #   just reap          # diagnose only — report what's leaked, change nothing

@@ -4,55 +4,55 @@
     "canvas": 1400,
     "left": 420,
     "right": null,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "five-up/cards-left",
     "canvas": 1800,
     "left": 420,
     "right": null,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "five-up/cards-left",
     "canvas": 2200,
-    "left": 420,
+    "left": 533,
     "right": null,
-    "sliver": 153
+    "sliver": 0
   },
   {
     "config": "five-up/cards-left",
     "canvas": 2600,
     "left": 420,
     "right": null,
-    "sliver": 247
+    "sliver": 287
   },
   {
     "config": "five-up/cards-left",
     "canvas": 3000,
-    "left": 420,
+    "left": 518,
     "right": null,
-    "sliver": 148
+    "sliver": 0
   },
   {
     "config": "five-up/cards-left",
     "canvas": 3400,
     "left": 420,
     "right": null,
-    "sliver": 252
+    "sliver": 302
   },
   {
     "config": "five-up/cards-left+overview-right",
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "five-up/cards-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -60,13 +60,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "five-up/cards-left+overview-right",
     "canvas": 2600,
-    "left": 420,
-    "right": 546,
+    "left": 396,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -74,12 +74,12 @@
     "canvas": 3000,
     "left": 420,
     "right": 545,
-    "sliver": 399
+    "sliver": 361
   },
   {
     "config": "five-up/cards-left+overview-right",
     "canvas": 3400,
-    "left": 420,
+    "left": 381,
     "right": 545,
     "sliver": 0
   },
@@ -88,97 +88,97 @@
     "canvas": 1400,
     "left": 600,
     "right": 545,
-    "sliver": 231
+    "sliver": 211
   },
   {
     "config": "five-up/dragged-left+overview-right",
     "canvas": 1800,
     "left": 600,
     "right": 545,
-    "sliver": 169
+    "sliver": 189
   },
   {
     "config": "five-up/dragged-left+overview-right",
     "canvas": 2200,
     "left": 600,
     "right": 545,
-    "sliver": 226
+    "sliver": 196
   },
   {
     "config": "five-up/dragged-left+overview-right",
     "canvas": 2600,
     "left": 600,
     "right": 545,
-    "sliver": 174
+    "sliver": 204
   },
   {
     "config": "five-up/dragged-left+overview-right",
     "canvas": 3000,
     "left": 600,
     "right": 545,
-    "sliver": 221
+    "sliver": 181
   },
   {
     "config": "five-up/dragged-left+overview-right",
     "canvas": 3400,
     "left": 600,
     "right": 545,
-    "sliver": 179
+    "sliver": 219
   },
   {
     "config": "five-up/equal-rank-pair",
     "canvas": 1400,
     "left": 400,
     "right": 400,
-    "sliver": 224
+    "sliver": 244
   },
   {
     "config": "five-up/equal-rank-pair",
     "canvas": 1800,
     "left": 400,
     "right": 400,
-    "sliver": 171
+    "sliver": 141
   },
   {
     "config": "five-up/equal-rank-pair",
     "canvas": 2200,
     "left": 400,
     "right": 400,
-    "sliver": 229
+    "sliver": 259
   },
   {
     "config": "five-up/equal-rank-pair",
     "canvas": 2600,
     "left": 400,
     "right": 400,
-    "sliver": 166
+    "sliver": 126
   },
   {
     "config": "five-up/equal-rank-pair",
     "canvas": 3000,
     "left": 400,
     "right": 400,
-    "sliver": 234
+    "sliver": 274
   },
   {
     "config": "five-up/equal-rank-pair",
     "canvas": 3400,
-    "left": 400,
-    "right": 400,
-    "sliver": 161
+    "left": 456,
+    "right": 455,
+    "sliver": 0
   },
   {
     "config": "five-up/jots-left+overview-right",
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "five-up/jots-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -186,13 +186,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "five-up/jots-left+overview-right",
     "canvas": 2600,
-    "left": 420,
-    "right": 546,
+    "left": 396,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -200,12 +200,12 @@
     "canvas": 3000,
     "left": 420,
     "right": 545,
-    "sliver": 399
+    "sliver": 361
   },
   {
     "config": "five-up/jots-left+overview-right",
     "canvas": 3400,
-    "left": 420,
+    "left": 381,
     "right": 545,
     "sliver": 0
   },
@@ -214,55 +214,55 @@
     "canvas": 1400,
     "left": null,
     "right": 420,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "five-up/jots-right",
     "canvas": 1800,
     "left": null,
     "right": 420,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "five-up/jots-right",
     "canvas": 2200,
     "left": null,
-    "right": 420,
-    "sliver": 153
+    "right": 533,
+    "sliver": 0
   },
   {
     "config": "five-up/jots-right",
     "canvas": 2600,
     "left": null,
     "right": 420,
-    "sliver": 247
+    "sliver": 287
   },
   {
     "config": "five-up/jots-right",
     "canvas": 3000,
     "left": null,
-    "right": 420,
-    "sliver": 148
+    "right": 518,
+    "sliver": 0
   },
   {
     "config": "five-up/jots-right",
     "canvas": 3400,
     "left": null,
     "right": 420,
-    "sliver": 252
+    "sliver": 302
   },
   {
     "config": "five-up/overview-dragged-under-comfort-right",
     "canvas": 1400,
     "left": 420,
     "right": 450,
-    "sliver": 294
+    "sliver": 314
   },
   {
     "config": "five-up/overview-dragged-under-comfort-right",
     "canvas": 1800,
     "left": 420,
-    "right": 551,
+    "right": 521,
     "sliver": 0
   },
   {
@@ -270,13 +270,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 450,
-    "sliver": 299
+    "sliver": 329
   },
   {
     "config": "five-up/overview-dragged-under-comfort-right",
     "canvas": 2600,
     "left": 420,
-    "right": 546,
+    "right": 506,
     "sliver": 0
   },
   {
@@ -284,20 +284,20 @@
     "canvas": 3000,
     "left": 420,
     "right": 450,
-    "sliver": 304
+    "sliver": 344
   },
   {
     "config": "five-up/overview-dragged-under-comfort-right",
     "canvas": 3400,
     "left": 420,
-    "right": 541,
+    "right": 491,
     "sliver": 0
   },
   {
     "config": "five-up/overview-jots-stacked-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -305,13 +305,13 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "five-up/overview-jots-stacked-right",
     "canvas": 2200,
     "left": null,
-    "right": 573,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -319,13 +319,13 @@
     "canvas": 2600,
     "left": null,
     "right": 545,
-    "sliver": 372
+    "sliver": 388
   },
   {
     "config": "five-up/overview-jots-stacked-right",
     "canvas": 3000,
     "left": null,
-    "right": 568,
+    "right": 533,
     "sliver": 0
   },
   {
@@ -333,13 +333,13 @@
     "canvas": 3400,
     "left": null,
     "right": 545,
-    "sliver": 377
+    "sliver": 373
   },
   {
     "config": "five-up/overview-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -347,13 +347,13 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "five-up/overview-right",
     "canvas": 2200,
     "left": null,
-    "right": 573,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -361,13 +361,13 @@
     "canvas": 2600,
     "left": null,
     "right": 545,
-    "sliver": 372
+    "sliver": 388
   },
   {
     "config": "five-up/overview-right",
     "canvas": 3000,
     "left": null,
-    "right": 568,
+    "right": 533,
     "sliver": 0
   },
   {
@@ -375,62 +375,62 @@
     "canvas": 3400,
     "left": null,
     "right": 545,
-    "sliver": 377
+    "sliver": 373
   },
   {
     "config": "four-up/cards-left",
     "canvas": 1400,
     "left": 420,
     "right": null,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "four-up/cards-left",
     "canvas": 1800,
     "left": 420,
     "right": null,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "four-up/cards-left",
     "canvas": 2200,
-    "left": 420,
+    "left": 533,
     "right": null,
-    "sliver": 153
+    "sliver": 0
   },
   {
     "config": "four-up/cards-left",
     "canvas": 2600,
     "left": 420,
     "right": null,
-    "sliver": 247
+    "sliver": 287
   },
   {
     "config": "four-up/cards-left",
     "canvas": 3000,
-    "left": 420,
+    "left": 518,
     "right": null,
-    "sliver": 148
+    "sliver": 0
   },
   {
     "config": "four-up/cards-left",
     "canvas": 3400,
     "left": 420,
     "right": null,
-    "sliver": 252
+    "sliver": 302
   },
   {
     "config": "four-up/cards-left+overview-right",
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "four-up/cards-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -438,13 +438,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "four-up/cards-left+overview-right",
     "canvas": 2600,
-    "left": 420,
-    "right": 546,
+    "left": 396,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -452,12 +452,12 @@
     "canvas": 3000,
     "left": 420,
     "right": 545,
-    "sliver": 399
+    "sliver": 361
   },
   {
     "config": "four-up/cards-left+overview-right",
     "canvas": 3400,
-    "left": 420,
+    "left": 381,
     "right": 545,
     "sliver": 0
   },
@@ -466,97 +466,97 @@
     "canvas": 1400,
     "left": 600,
     "right": 545,
-    "sliver": 231
+    "sliver": 211
   },
   {
     "config": "four-up/dragged-left+overview-right",
     "canvas": 1800,
     "left": 600,
     "right": 545,
-    "sliver": 169
+    "sliver": 189
   },
   {
     "config": "four-up/dragged-left+overview-right",
     "canvas": 2200,
     "left": 600,
     "right": 545,
-    "sliver": 226
+    "sliver": 196
   },
   {
     "config": "four-up/dragged-left+overview-right",
     "canvas": 2600,
     "left": 600,
     "right": 545,
-    "sliver": 174
+    "sliver": 204
   },
   {
     "config": "four-up/dragged-left+overview-right",
     "canvas": 3000,
     "left": 600,
     "right": 545,
-    "sliver": 221
+    "sliver": 181
   },
   {
     "config": "four-up/dragged-left+overview-right",
     "canvas": 3400,
     "left": 600,
     "right": 545,
-    "sliver": 179
+    "sliver": 219
   },
   {
     "config": "four-up/equal-rank-pair",
     "canvas": 1400,
     "left": 400,
     "right": 400,
-    "sliver": 224
+    "sliver": 244
   },
   {
     "config": "four-up/equal-rank-pair",
     "canvas": 1800,
     "left": 400,
     "right": 400,
-    "sliver": 171
+    "sliver": 141
   },
   {
     "config": "four-up/equal-rank-pair",
     "canvas": 2200,
     "left": 400,
     "right": 400,
-    "sliver": 229
+    "sliver": 259
   },
   {
     "config": "four-up/equal-rank-pair",
     "canvas": 2600,
     "left": 400,
     "right": 400,
-    "sliver": 166
+    "sliver": 126
   },
   {
     "config": "four-up/equal-rank-pair",
     "canvas": 3000,
     "left": 400,
     "right": 400,
-    "sliver": 234
+    "sliver": 274
   },
   {
     "config": "four-up/equal-rank-pair",
     "canvas": 3400,
-    "left": 400,
-    "right": 400,
-    "sliver": 161
+    "left": 456,
+    "right": 455,
+    "sliver": 0
   },
   {
     "config": "four-up/jots-left+overview-right",
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "four-up/jots-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -564,13 +564,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "four-up/jots-left+overview-right",
     "canvas": 2600,
-    "left": 420,
-    "right": 546,
+    "left": 396,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -578,12 +578,12 @@
     "canvas": 3000,
     "left": 420,
     "right": 545,
-    "sliver": 399
+    "sliver": 361
   },
   {
     "config": "four-up/jots-left+overview-right",
     "canvas": 3400,
-    "left": 420,
+    "left": 381,
     "right": 545,
     "sliver": 0
   },
@@ -592,55 +592,55 @@
     "canvas": 1400,
     "left": null,
     "right": 420,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "four-up/jots-right",
     "canvas": 1800,
     "left": null,
     "right": 420,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "four-up/jots-right",
     "canvas": 2200,
     "left": null,
-    "right": 420,
-    "sliver": 153
+    "right": 533,
+    "sliver": 0
   },
   {
     "config": "four-up/jots-right",
     "canvas": 2600,
     "left": null,
     "right": 420,
-    "sliver": 247
+    "sliver": 287
   },
   {
     "config": "four-up/jots-right",
     "canvas": 3000,
     "left": null,
-    "right": 420,
-    "sliver": 148
+    "right": 518,
+    "sliver": 0
   },
   {
     "config": "four-up/jots-right",
     "canvas": 3400,
     "left": null,
     "right": 420,
-    "sliver": 252
+    "sliver": 302
   },
   {
     "config": "four-up/overview-dragged-under-comfort-right",
     "canvas": 1400,
     "left": 420,
     "right": 450,
-    "sliver": 294
+    "sliver": 314
   },
   {
     "config": "four-up/overview-dragged-under-comfort-right",
     "canvas": 1800,
     "left": 420,
-    "right": 551,
+    "right": 521,
     "sliver": 0
   },
   {
@@ -648,13 +648,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 450,
-    "sliver": 299
+    "sliver": 329
   },
   {
     "config": "four-up/overview-dragged-under-comfort-right",
     "canvas": 2600,
     "left": 420,
-    "right": 546,
+    "right": 506,
     "sliver": 0
   },
   {
@@ -662,20 +662,20 @@
     "canvas": 3000,
     "left": 420,
     "right": 450,
-    "sliver": 304
+    "sliver": 344
   },
   {
     "config": "four-up/overview-dragged-under-comfort-right",
     "canvas": 3400,
     "left": 420,
-    "right": 541,
+    "right": 491,
     "sliver": 0
   },
   {
     "config": "four-up/overview-jots-stacked-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -683,13 +683,13 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "four-up/overview-jots-stacked-right",
     "canvas": 2200,
     "left": null,
-    "right": 573,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -697,13 +697,13 @@
     "canvas": 2600,
     "left": null,
     "right": 545,
-    "sliver": 372
+    "sliver": 388
   },
   {
     "config": "four-up/overview-jots-stacked-right",
     "canvas": 3000,
     "left": null,
-    "right": 568,
+    "right": 533,
     "sliver": 0
   },
   {
@@ -711,13 +711,13 @@
     "canvas": 3400,
     "left": null,
     "right": 545,
-    "sliver": 377
+    "sliver": 373
   },
   {
     "config": "four-up/overview-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -725,13 +725,13 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "four-up/overview-right",
     "canvas": 2200,
     "left": null,
-    "right": 573,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -739,13 +739,13 @@
     "canvas": 2600,
     "left": null,
     "right": 545,
-    "sliver": 372
+    "sliver": 388
   },
   {
     "config": "four-up/overview-right",
     "canvas": 3000,
     "left": null,
-    "right": 568,
+    "right": 533,
     "sliver": 0
   },
   {
@@ -753,7 +753,7 @@
     "canvas": 3400,
     "left": null,
     "right": 545,
-    "sliver": 377
+    "sliver": 373
   },
   {
     "config": "one-up/cards-left",
@@ -802,12 +802,12 @@
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "one-up/cards-left+overview-right",
     "canvas": 1800,
-    "left": 420,
+    "left": 411,
     "right": 545,
     "sliver": 0
   },
@@ -844,14 +844,14 @@
     "canvas": 1400,
     "left": 600,
     "right": 545,
-    "sliver": 231
+    "sliver": 211
   },
   {
     "config": "one-up/dragged-left+overview-right",
     "canvas": 1800,
     "left": 600,
     "right": 545,
-    "sliver": 169
+    "sliver": 189
   },
   {
     "config": "one-up/dragged-left+overview-right",
@@ -886,7 +886,7 @@
     "canvas": 1400,
     "left": 400,
     "right": 400,
-    "sliver": 224
+    "sliver": 244
   },
   {
     "config": "one-up/equal-rank-pair",
@@ -928,12 +928,12 @@
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "one-up/jots-left+overview-right",
     "canvas": 1800,
-    "left": 420,
+    "left": 411,
     "right": 545,
     "sliver": 0
   },
@@ -1012,7 +1012,7 @@
     "canvas": 1400,
     "left": 420,
     "right": 450,
-    "sliver": 294
+    "sliver": 314
   },
   {
     "config": "one-up/overview-dragged-under-comfort-right",
@@ -1138,55 +1138,55 @@
     "canvas": 1400,
     "left": 420,
     "right": null,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "six-up/cards-left",
     "canvas": 1800,
     "left": 420,
     "right": null,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "six-up/cards-left",
     "canvas": 2200,
-    "left": 420,
+    "left": 533,
     "right": null,
-    "sliver": 153
+    "sliver": 0
   },
   {
     "config": "six-up/cards-left",
     "canvas": 2600,
     "left": 420,
     "right": null,
-    "sliver": 247
+    "sliver": 287
   },
   {
     "config": "six-up/cards-left",
     "canvas": 3000,
-    "left": 420,
+    "left": 518,
     "right": null,
-    "sliver": 148
+    "sliver": 0
   },
   {
     "config": "six-up/cards-left",
     "canvas": 3400,
     "left": 420,
     "right": null,
-    "sliver": 252
+    "sliver": 302
   },
   {
     "config": "six-up/cards-left+overview-right",
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "six-up/cards-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1194,13 +1194,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "six-up/cards-left+overview-right",
     "canvas": 2600,
-    "left": 420,
-    "right": 546,
+    "left": 396,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1208,12 +1208,12 @@
     "canvas": 3000,
     "left": 420,
     "right": 545,
-    "sliver": 399
+    "sliver": 361
   },
   {
     "config": "six-up/cards-left+overview-right",
     "canvas": 3400,
-    "left": 420,
+    "left": 381,
     "right": 545,
     "sliver": 0
   },
@@ -1222,97 +1222,97 @@
     "canvas": 1400,
     "left": 600,
     "right": 545,
-    "sliver": 231
+    "sliver": 211
   },
   {
     "config": "six-up/dragged-left+overview-right",
     "canvas": 1800,
     "left": 600,
     "right": 545,
-    "sliver": 169
+    "sliver": 189
   },
   {
     "config": "six-up/dragged-left+overview-right",
     "canvas": 2200,
     "left": 600,
     "right": 545,
-    "sliver": 226
+    "sliver": 196
   },
   {
     "config": "six-up/dragged-left+overview-right",
     "canvas": 2600,
     "left": 600,
     "right": 545,
-    "sliver": 174
+    "sliver": 204
   },
   {
     "config": "six-up/dragged-left+overview-right",
     "canvas": 3000,
     "left": 600,
     "right": 545,
-    "sliver": 221
+    "sliver": 181
   },
   {
     "config": "six-up/dragged-left+overview-right",
     "canvas": 3400,
     "left": 600,
     "right": 545,
-    "sliver": 179
+    "sliver": 219
   },
   {
     "config": "six-up/equal-rank-pair",
     "canvas": 1400,
     "left": 400,
     "right": 400,
-    "sliver": 224
+    "sliver": 244
   },
   {
     "config": "six-up/equal-rank-pair",
     "canvas": 1800,
     "left": 400,
     "right": 400,
-    "sliver": 171
+    "sliver": 141
   },
   {
     "config": "six-up/equal-rank-pair",
     "canvas": 2200,
     "left": 400,
     "right": 400,
-    "sliver": 229
+    "sliver": 259
   },
   {
     "config": "six-up/equal-rank-pair",
     "canvas": 2600,
     "left": 400,
     "right": 400,
-    "sliver": 166
+    "sliver": 126
   },
   {
     "config": "six-up/equal-rank-pair",
     "canvas": 3000,
     "left": 400,
     "right": 400,
-    "sliver": 234
+    "sliver": 274
   },
   {
     "config": "six-up/equal-rank-pair",
     "canvas": 3400,
-    "left": 400,
-    "right": 400,
-    "sliver": 161
+    "left": 456,
+    "right": 455,
+    "sliver": 0
   },
   {
     "config": "six-up/jots-left+overview-right",
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "six-up/jots-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1320,13 +1320,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "six-up/jots-left+overview-right",
     "canvas": 2600,
-    "left": 420,
-    "right": 546,
+    "left": 396,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1334,12 +1334,12 @@
     "canvas": 3000,
     "left": 420,
     "right": 545,
-    "sliver": 399
+    "sliver": 361
   },
   {
     "config": "six-up/jots-left+overview-right",
     "canvas": 3400,
-    "left": 420,
+    "left": 381,
     "right": 545,
     "sliver": 0
   },
@@ -1348,55 +1348,55 @@
     "canvas": 1400,
     "left": null,
     "right": 420,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "six-up/jots-right",
     "canvas": 1800,
     "left": null,
     "right": 420,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "six-up/jots-right",
     "canvas": 2200,
     "left": null,
-    "right": 420,
-    "sliver": 153
+    "right": 533,
+    "sliver": 0
   },
   {
     "config": "six-up/jots-right",
     "canvas": 2600,
     "left": null,
     "right": 420,
-    "sliver": 247
+    "sliver": 287
   },
   {
     "config": "six-up/jots-right",
     "canvas": 3000,
     "left": null,
-    "right": 420,
-    "sliver": 148
+    "right": 518,
+    "sliver": 0
   },
   {
     "config": "six-up/jots-right",
     "canvas": 3400,
     "left": null,
     "right": 420,
-    "sliver": 252
+    "sliver": 302
   },
   {
     "config": "six-up/overview-dragged-under-comfort-right",
     "canvas": 1400,
     "left": 420,
     "right": 450,
-    "sliver": 294
+    "sliver": 314
   },
   {
     "config": "six-up/overview-dragged-under-comfort-right",
     "canvas": 1800,
     "left": 420,
-    "right": 551,
+    "right": 521,
     "sliver": 0
   },
   {
@@ -1404,13 +1404,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 450,
-    "sliver": 299
+    "sliver": 329
   },
   {
     "config": "six-up/overview-dragged-under-comfort-right",
     "canvas": 2600,
     "left": 420,
-    "right": 546,
+    "right": 506,
     "sliver": 0
   },
   {
@@ -1418,20 +1418,20 @@
     "canvas": 3000,
     "left": 420,
     "right": 450,
-    "sliver": 304
+    "sliver": 344
   },
   {
     "config": "six-up/overview-dragged-under-comfort-right",
     "canvas": 3400,
     "left": 420,
-    "right": 541,
+    "right": 491,
     "sliver": 0
   },
   {
     "config": "six-up/overview-jots-stacked-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -1439,13 +1439,13 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "six-up/overview-jots-stacked-right",
     "canvas": 2200,
     "left": null,
-    "right": 573,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1453,13 +1453,13 @@
     "canvas": 2600,
     "left": null,
     "right": 545,
-    "sliver": 372
+    "sliver": 388
   },
   {
     "config": "six-up/overview-jots-stacked-right",
     "canvas": 3000,
     "left": null,
-    "right": 568,
+    "right": 533,
     "sliver": 0
   },
   {
@@ -1467,13 +1467,13 @@
     "canvas": 3400,
     "left": null,
     "right": 545,
-    "sliver": 377
+    "sliver": 373
   },
   {
     "config": "six-up/overview-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -1481,13 +1481,13 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "six-up/overview-right",
     "canvas": 2200,
     "left": null,
-    "right": 573,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1495,13 +1495,13 @@
     "canvas": 2600,
     "left": null,
     "right": 545,
-    "sliver": 372
+    "sliver": 388
   },
   {
     "config": "six-up/overview-right",
     "canvas": 3000,
     "left": null,
-    "right": 568,
+    "right": 533,
     "sliver": 0
   },
   {
@@ -1509,35 +1509,35 @@
     "canvas": 3400,
     "left": null,
     "right": 545,
-    "sliver": 377
+    "sliver": 373
   },
   {
     "config": "three-up/cards-left",
     "canvas": 1400,
     "left": 420,
     "right": null,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "three-up/cards-left",
     "canvas": 1800,
     "left": 420,
     "right": null,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "three-up/cards-left",
     "canvas": 2200,
-    "left": 420,
+    "left": 533,
     "right": null,
-    "sliver": 153
+    "sliver": 0
   },
   {
     "config": "three-up/cards-left",
     "canvas": 2600,
     "left": 420,
     "right": null,
-    "sliver": 247
+    "sliver": 287
   },
   {
     "config": "three-up/cards-left",
@@ -1558,13 +1558,13 @@
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "three-up/cards-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1572,13 +1572,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "three-up/cards-left+overview-right",
     "canvas": 2600,
-    "left": 420,
-    "right": 546,
+    "left": 396,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1586,12 +1586,12 @@
     "canvas": 3000,
     "left": 420,
     "right": 545,
-    "sliver": 399
+    "sliver": 361
   },
   {
     "config": "three-up/cards-left+overview-right",
     "canvas": 3400,
-    "left": 420,
+    "left": 381,
     "right": 545,
     "sliver": 0
   },
@@ -1600,77 +1600,77 @@
     "canvas": 1400,
     "left": 600,
     "right": 545,
-    "sliver": 231
+    "sliver": 211
   },
   {
     "config": "three-up/dragged-left+overview-right",
     "canvas": 1800,
     "left": 600,
     "right": 545,
-    "sliver": 169
+    "sliver": 189
   },
   {
     "config": "three-up/dragged-left+overview-right",
     "canvas": 2200,
     "left": 600,
     "right": 545,
-    "sliver": 226
+    "sliver": 196
   },
   {
     "config": "three-up/dragged-left+overview-right",
     "canvas": 2600,
     "left": 600,
     "right": 545,
-    "sliver": 174
+    "sliver": 204
   },
   {
     "config": "three-up/dragged-left+overview-right",
     "canvas": 3000,
     "left": 600,
     "right": 545,
-    "sliver": 221
+    "sliver": 181
   },
   {
     "config": "three-up/dragged-left+overview-right",
     "canvas": 3400,
     "left": 600,
     "right": 545,
-    "sliver": 179
+    "sliver": 219
   },
   {
     "config": "three-up/equal-rank-pair",
     "canvas": 1400,
     "left": 400,
     "right": 400,
-    "sliver": 224
+    "sliver": 244
   },
   {
     "config": "three-up/equal-rank-pair",
     "canvas": 1800,
     "left": 400,
     "right": 400,
-    "sliver": 171
+    "sliver": 141
   },
   {
     "config": "three-up/equal-rank-pair",
     "canvas": 2200,
     "left": 400,
     "right": 400,
-    "sliver": 229
+    "sliver": 259
   },
   {
     "config": "three-up/equal-rank-pair",
     "canvas": 2600,
     "left": 400,
     "right": 400,
-    "sliver": 166
+    "sliver": 126
   },
   {
     "config": "three-up/equal-rank-pair",
     "canvas": 3000,
     "left": 400,
     "right": 400,
-    "sliver": 234
+    "sliver": 274
   },
   {
     "config": "three-up/equal-rank-pair",
@@ -1684,13 +1684,13 @@
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "three-up/jots-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1698,13 +1698,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "three-up/jots-left+overview-right",
     "canvas": 2600,
-    "left": 420,
-    "right": 546,
+    "left": 396,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1712,12 +1712,12 @@
     "canvas": 3000,
     "left": 420,
     "right": 545,
-    "sliver": 399
+    "sliver": 361
   },
   {
     "config": "three-up/jots-left+overview-right",
     "canvas": 3400,
-    "left": 420,
+    "left": 381,
     "right": 545,
     "sliver": 0
   },
@@ -1726,28 +1726,28 @@
     "canvas": 1400,
     "left": null,
     "right": 420,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "three-up/jots-right",
     "canvas": 1800,
     "left": null,
     "right": 420,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "three-up/jots-right",
     "canvas": 2200,
     "left": null,
-    "right": 420,
-    "sliver": 153
+    "right": 533,
+    "sliver": 0
   },
   {
     "config": "three-up/jots-right",
     "canvas": 2600,
     "left": null,
     "right": 420,
-    "sliver": 247
+    "sliver": 287
   },
   {
     "config": "three-up/jots-right",
@@ -1768,13 +1768,13 @@
     "canvas": 1400,
     "left": 420,
     "right": 450,
-    "sliver": 294
+    "sliver": 314
   },
   {
     "config": "three-up/overview-dragged-under-comfort-right",
     "canvas": 1800,
     "left": 420,
-    "right": 551,
+    "right": 521,
     "sliver": 0
   },
   {
@@ -1782,13 +1782,13 @@
     "canvas": 2200,
     "left": 420,
     "right": 450,
-    "sliver": 299
+    "sliver": 329
   },
   {
     "config": "three-up/overview-dragged-under-comfort-right",
     "canvas": 2600,
     "left": 420,
-    "right": 546,
+    "right": 506,
     "sliver": 0
   },
   {
@@ -1796,7 +1796,7 @@
     "canvas": 3000,
     "left": 420,
     "right": 450,
-    "sliver": 304
+    "sliver": 344
   },
   {
     "config": "three-up/overview-dragged-under-comfort-right",
@@ -1809,7 +1809,7 @@
     "config": "three-up/overview-jots-stacked-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -1817,13 +1817,13 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "three-up/overview-jots-stacked-right",
     "canvas": 2200,
     "left": null,
-    "right": 573,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1831,13 +1831,13 @@
     "canvas": 2600,
     "left": null,
     "right": 545,
-    "sliver": 372
+    "sliver": 388
   },
   {
     "config": "three-up/overview-jots-stacked-right",
     "canvas": 3000,
     "left": null,
-    "right": 545,
+    "right": 533,
     "sliver": 0
   },
   {
@@ -1851,7 +1851,7 @@
     "config": "three-up/overview-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -1859,13 +1859,13 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "three-up/overview-right",
     "canvas": 2200,
     "left": null,
-    "right": 573,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1873,13 +1873,13 @@
     "canvas": 2600,
     "left": null,
     "right": 545,
-    "sliver": 372
+    "sliver": 388
   },
   {
     "config": "three-up/overview-right",
     "canvas": 3000,
     "left": null,
-    "right": 545,
+    "right": 533,
     "sliver": 0
   },
   {
@@ -1894,14 +1894,14 @@
     "canvas": 1400,
     "left": 420,
     "right": null,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "two-up/cards-left",
     "canvas": 1800,
     "left": 420,
     "right": null,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "two-up/cards-left",
@@ -1936,13 +1936,13 @@
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "two-up/cards-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -1950,12 +1950,12 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "two-up/cards-left+overview-right",
     "canvas": 2600,
-    "left": 420,
+    "left": 396,
     "right": 545,
     "sliver": 0
   },
@@ -1978,28 +1978,28 @@
     "canvas": 1400,
     "left": 600,
     "right": 545,
-    "sliver": 231
+    "sliver": 211
   },
   {
     "config": "two-up/dragged-left+overview-right",
     "canvas": 1800,
     "left": 600,
     "right": 545,
-    "sliver": 169
+    "sliver": 189
   },
   {
     "config": "two-up/dragged-left+overview-right",
     "canvas": 2200,
     "left": 600,
     "right": 545,
-    "sliver": 226
+    "sliver": 196
   },
   {
     "config": "two-up/dragged-left+overview-right",
     "canvas": 2600,
     "left": 600,
     "right": 545,
-    "sliver": 174
+    "sliver": 204
   },
   {
     "config": "two-up/dragged-left+overview-right",
@@ -2020,21 +2020,21 @@
     "canvas": 1400,
     "left": 400,
     "right": 400,
-    "sliver": 224
+    "sliver": 244
   },
   {
     "config": "two-up/equal-rank-pair",
     "canvas": 1800,
     "left": 400,
     "right": 400,
-    "sliver": 171
+    "sliver": 141
   },
   {
     "config": "two-up/equal-rank-pair",
     "canvas": 2200,
     "left": 400,
     "right": 400,
-    "sliver": 229
+    "sliver": 259
   },
   {
     "config": "two-up/equal-rank-pair",
@@ -2062,13 +2062,13 @@
     "canvas": 1400,
     "left": 420,
     "right": 545,
-    "sliver": 389
+    "sliver": 391
   },
   {
     "config": "two-up/jots-left+overview-right",
     "canvas": 1800,
-    "left": 420,
-    "right": 551,
+    "left": 411,
+    "right": 545,
     "sliver": 0
   },
   {
@@ -2076,12 +2076,12 @@
     "canvas": 2200,
     "left": 420,
     "right": 545,
-    "sliver": 394
+    "sliver": 376
   },
   {
     "config": "two-up/jots-left+overview-right",
     "canvas": 2600,
-    "left": 420,
+    "left": 396,
     "right": 545,
     "sliver": 0
   },
@@ -2104,14 +2104,14 @@
     "canvas": 1400,
     "left": null,
     "right": 420,
-    "sliver": 158
+    "sliver": 128
   },
   {
     "config": "two-up/jots-right",
     "canvas": 1800,
     "left": null,
     "right": 420,
-    "sliver": 242
+    "sliver": 272
   },
   {
     "config": "two-up/jots-right",
@@ -2146,13 +2146,13 @@
     "canvas": 1400,
     "left": 420,
     "right": 450,
-    "sliver": 294
+    "sliver": 314
   },
   {
     "config": "two-up/overview-dragged-under-comfort-right",
     "canvas": 1800,
     "left": 420,
-    "right": 551,
+    "right": 521,
     "sliver": 0
   },
   {
@@ -2160,7 +2160,7 @@
     "canvas": 2200,
     "left": 420,
     "right": 450,
-    "sliver": 299
+    "sliver": 329
   },
   {
     "config": "two-up/overview-dragged-under-comfort-right",
@@ -2187,7 +2187,7 @@
     "config": "two-up/overview-jots-stacked-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -2195,7 +2195,7 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "two-up/overview-jots-stacked-right",
@@ -2229,7 +2229,7 @@
     "config": "two-up/overview-right",
     "canvas": 1400,
     "left": null,
-    "right": 578,
+    "right": 548,
     "sliver": 0
   },
   {
@@ -2237,7 +2237,7 @@
     "canvas": 1800,
     "left": null,
     "right": 545,
-    "sliver": 367
+    "sliver": 397
   },
   {
     "config": "two-up/overview-right",

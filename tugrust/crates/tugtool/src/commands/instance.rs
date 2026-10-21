@@ -10,6 +10,16 @@
 //! remove / prune. Cleanup primitives are conservative by default —
 //! `remove` and `prune` confirm before they delete unless `--yes` is
 //! passed.
+//!
+//! **A dev or release instance's data dir is user state** — its workspaces,
+//! sessions, drafts — and nothing here deletes it. `prune` reclaims only
+//! ephemeral app-test dirs; a dev/release dir whose bundle is missing is
+//! a build that is missing, not data that is unwanted, and it is left
+//! alone. `remove` is the one explicit door, and it retires the dir under
+//! `<data root>/retired/` rather than deleting it, so a wrong call is
+//! undone by moving a directory back. The 2026-10-21 loss — an app-test
+//! run's `sweep --yes` pruned the live `release-main` dir while the
+//! Release bundle was between a clean and a rebuild — is why ([L23]).
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -72,7 +82,8 @@ pub enum InstanceCommands {
     ///    `<data-dir>/bundle-path` marker.
     /// 3. If the bundle exists: `lsregister -u <bundle>` then
     ///    `rm -rf` the parent DerivedData directory and the bundle.
-    /// 4. `rm -rf <data-dir>/<id>`.
+    /// 4. Retire the data dir to `<data root>/retired/<id>-<unix-secs>/`
+    ///    (an app-test dir, which is ephemeral, is deleted instead).
     /// 5. With `--with-tcc`: `tccutil reset Accessibility <bundle-id>`.
     Remove {
         /// Instance ID to remove.
@@ -101,21 +112,19 @@ pub enum InstanceCommands {
         yes: bool,
     },
 
-    /// Discover and (optionally) remove orphaned data dirs.
+    /// Discover and (optionally) remove orphaned app-test data dirs.
     ///
     /// Walks `~/Library/Application Support/Tug/instances/*/`. A data
-    /// dir is an orphan when either:
-    ///   - its bundle-path marker points at a bundle that no longer
-    ///     exists on disk (a removed worktree / deleted build), or
-    ///   - it belongs to an ephemeral `apptest-<uuid>` instance that is
-    ///     not currently live in the registry. App-test IDs are
-    ///     single-use, so once the run ends the dir is garbage even
-    ///     though its shared `Tug-apptest.app` bundle still exists —
-    ///     the bundle-missing test alone never reclaims these, so they
-    ///     accumulate without this rule.
+    /// dir is an orphan only when it belongs to an ephemeral
+    /// `apptest-<uuid>` instance that is not currently live in the
+    /// registry. App-test IDs are single-use, so once the run ends the
+    /// dir is garbage even though its shared `Tug-apptest.app` bundle
+    /// still exists.
     ///
-    /// Ephemeral orphans are removed data-only (their shared bundle is
-    /// left intact); bundle-missing orphans get the full removal.
+    /// A dev or release dir is never an orphan, whatever its bundle-path
+    /// marker says: a missing bundle is a missing build, and the dir is
+    /// the user's workspaces and sessions. Only `instance remove <id>`
+    /// touches one, and it retires rather than deletes.
     Prune {
         /// Skip the interactive confirmation prompt.
         #[arg(long)]
@@ -526,8 +535,13 @@ fn run_remove(
     }
 
     if data_dir.exists() {
-        println!("removing data dir: {}", data_dir.display());
-        std::fs::remove_dir_all(&data_dir).map_err(|e| format!("rm data dir: {e}"))?;
+        if tugcore::ports::is_apptest_id(instance_id) {
+            println!("removing data dir: {}", data_dir.display());
+            std::fs::remove_dir_all(&data_dir).map_err(|e| format!("rm data dir: {e}"))?;
+        } else {
+            let dest = retire_data_dir(&data_dir, instance_id)?;
+            println!("retired data dir: {} → {}", data_dir.display(), dest.display());
+        }
     }
 
     // 5. TCC reset (optional).
@@ -574,20 +588,44 @@ struct Orphan {
     mtime: Option<i64>,
 }
 
-/// Remove only the bundle-missing orphans — the half of `prune` that
-/// needs the full removal path (and its LaunchServices bookkeeping).
-///
-/// `tugtool host sweep` runs this after the janitor, which has already
-/// reclaimed the data-only class.
-pub(crate) fn run_prune_bundle_missing(yes: bool, with_tcc: bool) -> Result<i32, String> {
-    let Some(orphans) = discover_orphans(false)? else {
-        return Ok(0);
-    };
-    let orphans: Vec<Orphan> = orphans.into_iter().filter(|o| !o.data_only).collect();
-    if orphans.is_empty() {
-        return Ok(0);
+/// Move a dev/release instance's data dir aside instead of deleting it:
+/// `<data root>/retired/<id>-<unix-secs>/`, a rename on the same volume.
+/// What `remove` takes away is the user's workspaces and sessions, and a
+/// rename is the one removal a wrong call can undo by hand.
+pub(crate) fn retire_data_dir(data_dir: &Path, instance_id: &str) -> Result<PathBuf, String> {
+    let root = data_dir
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| format!("data dir has no data root: {}", data_dir.display()))?;
+    retire_data_dir_under(data_dir, instance_id, &root.join("retired"))
+}
+
+fn retire_data_dir_under(
+    data_dir: &Path,
+    instance_id: &str,
+    retired: &Path,
+) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(retired).map_err(|e| format!("mkdir {}: {e}", retired.display()))?;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut dest = retired.join(format!("{instance_id}-{secs}"));
+    let mut n = 1;
+    while dest.exists() {
+        dest = retired.join(format!("{instance_id}-{secs}-{n}"));
+        n += 1;
     }
-    remove_orphans(&orphans, yes, with_tcc)
+    std::fs::rename(data_dir, &dest)
+        .map_err(|e| format!("retire {} → {}: {e}", data_dir.display(), dest.display()))?;
+    Ok(dest)
+}
+
+/// Whether a data dir may be reclaimed by `prune`: only an app-test id
+/// with no live registry entry. A dev or release dir never is, whether or
+/// not its bundle still exists.
+pub(crate) fn prunable(instance_id: &str, live: bool) -> bool {
+    tugcore::ports::is_apptest_id(instance_id) && !live
 }
 
 fn run_prune(yes: bool, with_tcc: bool, json: bool) -> Result<i32, String> {
@@ -629,24 +667,19 @@ fn discover_orphans(json: bool) -> Result<Option<Vec<Orphan>>, String> {
         };
         let bundle_path = PathBuf::from(bundle_path_str.trim());
 
-        // Bundle gone → orphan regardless of identity (full removal).
-        // Bundle present → only ephemeral app-test IDs that are no
-        // longer live are reclaimable (data-only). A live instance has
-        // a registry entry (filtered to live PIDs by `find_by_id`), so
-        // an in-flight app-test run is never swept out from under
-        // itself. Dev/release dirs with a present bundle are kept.
-        let data_only = if bundle_path.exists() {
-            let is_dead_apptest = tugcore::ports::is_apptest_id(&id)
-                && registry::find_by_id(&id)
-                    .map(|e| e.is_none())
-                    .unwrap_or(false);
-            if !is_dead_apptest {
-                continue;
-            }
-            true
-        } else {
-            false
-        };
+        // Only an ephemeral app-test id that is no longer live is
+        // reclaimable, and only data-only (its bundle is shared). A live
+        // instance has a registry entry (filtered to live PIDs by
+        // `find_by_id`), so an in-flight app-test run is never swept out
+        // from under itself. A dev/release dir is never an orphan: its
+        // bundle being gone means a build is gone, not that the user's
+        // workspaces and sessions are. A registry read that fails counts
+        // as live — the safe side.
+        let live = registry::find_by_id(&id).map(|e| e.is_some()).unwrap_or(true);
+        if !prunable(&id, live) {
+            continue;
+        }
+        let data_only = true;
 
         let mtime = std::fs::metadata(&dir)
             .ok()
@@ -786,5 +819,42 @@ mod tests {
     fn pid_alive_rejects_zero_or_negative() {
         assert!(!pid_alive(0));
         assert!(!pid_alive(-1));
+    }
+
+    /// The 2026-10-21 loss: a dev/release dir whose bundle was missing was
+    /// an orphan, and a scripted `sweep --yes` deleted it. Never again —
+    /// only a dead app-test id is prunable, bundle or no bundle.
+    #[test]
+    fn prune_never_reclaims_a_dev_or_release_dir() {
+        assert!(!prunable("release-main", false));
+        assert!(!prunable("release-main", true));
+        assert!(!prunable("debug-main", false));
+        assert!(!prunable("debug-tugarc-foo", false));
+        assert!(prunable("apptest-tugarc-foo-1234", false));
+        assert!(!prunable("apptest-tugarc-foo-1234", true));
+    }
+
+    /// `remove` retires a data dir by rename; the bytes survive under
+    /// `retired/` and nothing is deleted.
+    #[test]
+    fn remove_retires_a_data_dir_instead_of_deleting_it() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let data_dir = root.path().join("instances").join("release-main");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(data_dir.join("tugbank.db"), b"workspaces").unwrap();
+        let retired = root.path().join("retired");
+        let dest = retire_data_dir_under(&data_dir, "release-main", &retired).unwrap();
+        assert!(!data_dir.exists(), "the original path is vacated");
+        assert!(dest.starts_with(&retired));
+        assert_eq!(
+            std::fs::read(dest.join("tugbank.db")).unwrap(),
+            b"workspaces",
+            "every byte survives the retirement"
+        );
+        // The data-root form resolves `<root>/retired` from the dir itself.
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let dest2 = retire_data_dir(&data_dir, "release-main").unwrap();
+        assert!(dest2.starts_with(&retired));
+        assert_ne!(dest, dest2, "a second retirement never overwrites the first");
     }
 }

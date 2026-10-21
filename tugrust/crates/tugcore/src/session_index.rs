@@ -172,6 +172,17 @@ impl SessionIndex {
         })
     }
 
+    /// The row recorded under one full session uuid, through this handle's
+    /// own connection — the ledger's way to ask the index what it knew about
+    /// a session before asking nothing and minting fresh.
+    pub fn lookup_uuid(&self, uuid: &str) -> Option<IndexEntry> {
+        let conn = self.db.lock();
+        let sql = format!("SELECT {INDEX_COLUMNS} FROM session_index WHERE session_id = ?1");
+        let mut stmt = conn.prepare(&sql).ok()?;
+        let mut rows = stmt.query_map([uuid], |r| Ok(decode(r))).ok()?;
+        rows.next().and_then(|r| r.ok())
+    }
+
     /// Record a segment, or update the one already recorded under its uuid.
     ///
     /// An update keeps `created_at_ms` — when the segment was first seen is
