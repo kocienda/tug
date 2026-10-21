@@ -55,7 +55,7 @@ export const TEST_TIMEOUT_MS = 180_000;
  * the `@` alias this file does not resolve.
  *
  * 37 (the pane's title bar and the 1px its sheet clip drops below it) + 32
- * (`SHEET_CANVAS_GAP`) − 5 (`IMPOSITION_GAP_PX`, the gap already under a
+ * (`SHEET_CANVAS_GAP`) − the card gap (`IMPOSITION_GAP_PX`, already under a
  * column's last member). This is the ONLY number in this file, and it is a
  * shape rather than a height: it is what turns the panel the app measured into
  * the member floor the app bid, so claim 4 can put the two on the same footing

@@ -25,8 +25,8 @@
  *      seam. Fit rather than flow, because fit pins the last slot's far edge
  *      to the band's end, which is what makes the rail's gutter readable as a
  *      rect; a flow strip wider than the band runs on under the rail by design.
- *   2. At rest the frames stand on today's gap (5px), the default.
- *   3. Press Roomy on the Gap row.
+ *   2. At rest the frames stand on the default gap (`IMPOSITION_GAP_PX`).
+ *   3. Press Airy on the Gap row — a non-default, so the move shows.
  *   4. Every pin is now the preset's pixels: top, side, seam, bottom, gutter.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
@@ -48,8 +48,8 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
 /** The preset pressed, and the pixels it carries. A non-default so the move shows. */
-const PRESET = "roomy";
-const ROOMY = GAP_PX[PRESET];
+const PRESET = "airy";
+const AIRY = GAP_PX[PRESET];
 const DEFAULT = IMPOSITION_GAP_PX;
 
 const RAIL_WIDTH = 420;
@@ -202,7 +202,7 @@ function expectPins(r: Record<string, Rect>, gap: number, label: string): void {
 
 describe.skipIf(!SHOULD_RUN)("at0750 — the Gap row moves every card distance", () => {
   test(
-    "pressing Roomy re-pins the top, side, seam, bottom and gutter to the preset",
+    "pressing Airy re-pins the top, side, seam, bottom and gutter to the preset",
     async () => {
       const app = await launchTugApp({ testName: "at0750-gap-preset-moves-frames" });
       try {
@@ -220,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)("at0750 — the Gap row moves every card distance",
         note("at0750 default canvas", await canvasProperties(app));
         expectPins(await rects(app), DEFAULT, "default");
 
-        // ── Roomy, from the real control. ──
+        // ── Airy, from the real control. ──
         await app.body("L").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(GAP_TILE(PRESET))}) !== null`,
           { timeoutMs: 8_000 },
@@ -228,7 +228,7 @@ describe.skipIf(!SHOULD_RUN)("at0750 — the Gap row moves every card distance",
         await awaitLayoutBodyAtRest(app);
         await app.body("L").nativeClickAtElement(GAP_TILE(PRESET));
         await app.waitForCondition<boolean>(
-          `Math.abs((${TOP_GAP_JS}) - ${ROOMY}) < ${PIXEL_TOL}`,
+          `Math.abs((${TOP_GAP_JS}) - ${AIRY}) < ${PIXEL_TOL}`,
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);
@@ -240,8 +240,8 @@ describe.skipIf(!SHOULD_RUN)("at0750 — the Gap row moves every card distance",
         ).toBe(PRESET);
 
         // ── Every pin is the preset's, in one commit. ──
-        note("at0750 roomy canvas", await canvasProperties(app));
-        expectPins(await rects(app), ROOMY, PRESET);
+        note("at0750 airy canvas", await canvasProperties(app));
+        expectPins(await rects(app), AIRY, PRESET);
       } finally {
         await app.close();
       }

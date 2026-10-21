@@ -192,7 +192,7 @@ const MEASURED_BID_DRIFT = 1;
  * the `@` alias this file does not resolve.
  *
  * 37 (the pane's title bar and the 1px its sheet clip drops below it) + 32
- * (`SHEET_CANVAS_GAP`) − 5 (`IMPOSITION_GAP_PX`, the gap already under a
+ * (`SHEET_CANVAS_GAP`) − the card gap (`IMPOSITION_GAP_PX`, already under a
  * column's last member). A copy that drifts fails the assertions below rather
  * than passing quietly.
  */

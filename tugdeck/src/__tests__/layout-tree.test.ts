@@ -424,9 +424,9 @@ describe("serialize and deserialize (v4 wire)", () => {
 
   test("the gap preset round-trips, and absent or unreadable reads as the default", () => {
     // The gap is the deck's, so a reload keeps "roomy" once chosen. It is
-    // additive-optional with the default reading as snug — today's 5px — so a
-    // deck that never chose, and one whose blob carries a value nobody wrote,
-    // stands exactly where every deck stood before the presets existed.
+    // additive-optional with the default reading as `DEFAULT_GAP`, so a deck
+    // that never chose, and one whose blob carries a value nobody wrote, both
+    // stand at the deck-wide default.
     const base = { cards: [], panes: [], hasFocus: true };
     const roomy = deserializeDeck(
       JSON.stringify(

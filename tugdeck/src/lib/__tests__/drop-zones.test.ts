@@ -592,7 +592,8 @@ describe("a split column advertises one position per place a member can stand", 
       kind: "three-up",
       columns: { 1: { mode: "split" } },
     });
-    const rects = splitRects(1, [300, 295]);
+    // Two members filling the run: 300 on top, the rest under one seam.
+    const rects = splitRects(1, [300, RUN_HEIGHT - 300 - IMPOSITION_GAP_PX]);
     const { zones } = enumerateDropZones(
       state,
       "p1",
@@ -606,8 +607,7 @@ describe("a split column advertises one position per place a member can stand", 
         ]),
       }),
     );
-    const run = 300 + IMPOSITION_GAP_PX + 295;
-    const memberH = overflowHeightOf(run);
+    const memberH = overflowHeightOf(RUN_HEIGHT);
     const columnZones = zones.filter((zone) => zone.kind === "column-index");
     expect(columnZones).toHaveLength(3);
     for (const zone of columnZones) {

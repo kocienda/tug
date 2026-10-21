@@ -139,7 +139,7 @@ describe("arrivalSharesOf: the newcomer divides what nobody claimed", () => {
       open("pane-c", 100),
     ];
     const unnamed = allocatePlaceHeights(members, 1000, SEAM).heights;
-    expect(unnamed[2]).toBeCloseTo(198, 6);
+    expect(unnamed[2]).toBeCloseTo((1000 - 2 * SEAM) / 5, 6);
     const heights = heightsAfterArrival(members, "pane-c", 1000);
     expect(heights[2]).toBeCloseTo(100, 6);
     expect(heights[0] / heights[1]).toBeCloseTo(3, 6);

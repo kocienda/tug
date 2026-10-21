@@ -51,12 +51,13 @@ afterEach(() => {
 });
 
 describe("the default", () => {
-  test("is 5, and the derived constants hold today's numbers", () => {
-    expect(IMPOSITION_GAP_PX).toBe(5);
+  test("is roomy, and the derived constants hold today's numbers", () => {
+    expect(DEFAULT_GAP).toBe("roomy");
+    expect(IMPOSITION_GAP_PX).toBe(15);
     expect(impositionGapPx()).toBe(IMPOSITION_GAP_PX);
-    expect(RAIL_GUTTER_PX).toBe(12);
+    expect(RAIL_GUTTER_PX).toBe(22);
     expect(RAIL_GUTTER_PX).toBe(IMPOSITION_GAP_PX + RAIL_GUTTER_EXTRA_PX);
-    expect(IMPOSITION_GAP_BOTTOM_MAKER_PX).toBe(32);
+    expect(IMPOSITION_GAP_BOTTOM_MAKER_PX).toBe(42);
     expect(IMPOSITION_GAP_BOTTOM_MAKER_PX).toBe(
       IMPOSITION_GAP_BOTTOM_CLEARANCE_PX + IMPOSITION_GAP_PX,
     );
@@ -72,9 +73,10 @@ describe("the default", () => {
 });
 
 describe("the presets", () => {
-  test("the default preset is today's gap, and every preset has pixels and a label", () => {
+  test("the default preset is today's gap, snug is the gap decks once stood at, and every preset has pixels and a label", () => {
     expect(GAP_PX[DEFAULT_GAP]).toBe(IMPOSITION_GAP_PX);
-    expect(GAP_PRESETS[0]).toBe(DEFAULT_GAP);
+    expect(GAP_PRESETS).toContain(DEFAULT_GAP);
+    expect(GAP_PX.snug).toBe(5);
     expect(GAP_PRESETS).toHaveLength(4);
     for (const preset of GAP_PRESETS) {
       expect(GAP_PX[preset]).toBeGreaterThan(0);
@@ -162,9 +164,9 @@ describe("the CSS twin", () => {
     const gap = `var(${IMPOSITION_GAP_PROPERTY}, ${IMPOSITION_GAP_PX}px)`;
     expect(style.top).toBe(gap);
     expect(String(style.left)).toContain(gap);
-    // The only `5px` left is the fallback inside a `var()`; none stands
-    // bare as a term of its own.
-    expect(String(style.left)).not.toMatch(/[+-] 5px/);
+    // The only literal gap left is the fallback inside a `var()`; none
+    // stands bare as a term of its own.
+    expect(String(style.left)).not.toMatch(new RegExp(`[+-] ${IMPOSITION_GAP_PX}px`));
   });
 
   test("the three properties stamp together from the live value", () => {

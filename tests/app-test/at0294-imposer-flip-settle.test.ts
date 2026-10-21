@@ -389,8 +389,9 @@ function expectedLeft(
 ): number {
   // The band's edges are the PRODUCT's answer, not a second reading of it.
   // This used to take the inset as `railWidth + GAP`, which is only right
-  // when the rail gutter equals the imposition gap — RAIL_GUTTER_PX is 12
-  // against a 5px gap, so every pin here ran 2px shy of the imposer's.
+  // when the rail gutter equals the imposition gap — the gutter is the gap
+  // plus `RAIL_GUTTER_EXTRA_PX`, so every pin here ran that much shy of the
+  // imposer's.
   const railWidths =
     railSide === "left" ? { left: railWidth } : { right: railWidth };
   const edges = flowBandEdges(viewport, railWidths);

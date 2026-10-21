@@ -72,7 +72,7 @@ const CENSUS_MS = 2_000;
 // tolerance is this file's decision, so the table does not flatten it.
 /**
  * Geometry tolerance, in px: sub-pixel layout rounding, never a real
- * disagreement. The strip gap alone is `IMPOSITION_GAP_PX` (5px).
+ * disagreement. The strip gap alone is `IMPOSITION_GAP_PX`.
  */
 const EPSILON = 1;
 

@@ -381,9 +381,13 @@ export const DEFAULT_SIDEBAR_SIDE: SidebarSide = "right";
 /** The width content cards open at when the deck has never said otherwise. */
 export const DEFAULT_CONTENT_WIDTH: ContentWidth = "comfy";
 
-/** The card gap a deck stands at when it has never said otherwise — the
- *  preset whose pixels are {@link IMPOSITION_GAP_PX}. */
-export const DEFAULT_GAP: GapPreset = "snug";
+/**
+ * The card gap a deck stands at when it has never said otherwise — a record
+ * with no `gap` reads as this preset. It is the ONE knob for the default:
+ * {@link IMPOSITION_GAP_PX} is this preset's pixels, and the gutter and
+ * maker bottom gap constants derive from that.
+ */
+export const DEFAULT_GAP: GapPreset = "roomy";
 
 /**
  * The side `componentId` holds, or the default when it has never been placed.
@@ -936,6 +940,39 @@ export const IMPOSITION_KINDS: readonly ImpositionKind[] = [
  */
 export const DEFAULT_IMPOSITION_KIND: ImpositionKind = "three-up";
 
+/* ---------------------------------------------------------------------------
+ * Gap presets
+ * ---------------------------------------------------------------------------*/
+
+/** The gaps in the order every picker offers them: tight to airy. */
+export const GAP_PRESETS: readonly GapPreset[] = ["snug", "cozy", "roomy", "airy"];
+
+/**
+ * Pixels per gap preset. **Snug** is the 5px every deck stood at before the
+ * presets existed; the rest were settled by looking at the deck rather than
+ * by prose, and each is one line here. {@link DEFAULT_GAP} names which of
+ * these a deck stands at until it chooses.
+ */
+export const GAP_PX: Readonly<Record<GapPreset, number>> = {
+  snug: 5,
+  cozy: 10,
+  roomy: 15,
+  airy: 25,
+};
+
+/** How each gap is named in the UI — one spelling, every surface. */
+export const GAP_LABELS: Readonly<Record<GapPreset, string>> = {
+  snug: "Snug",
+  cozy: "Cozy",
+  roomy: "Roomy",
+  airy: "Airy",
+};
+
+/** The gap preset an imposition stands at — its own, or the default. */
+export function impositionGapOf(imposition: DeckImposition): GapPreset {
+  return imposition.gap ?? DEFAULT_GAP;
+}
+
 /**
  * The **imposition gap**: the space an imposed pane keeps from the canvas
  * edges, from the rail, and from the pane in the neighbouring slot.
@@ -945,12 +982,13 @@ export const DEFAULT_IMPOSITION_KIND: ImpositionKind = "three-up";
  * declaring its own. A pane placed by the imposer and a pane snapped by hand
  * therefore land on the same rhythm.
  *
- * This is the DEFAULT — the value the gap holds until a setting moves it. The
- * live value is {@link impositionGapPx}, and every numeric read in this
- * module goes through it; the constant survives as the default's name, so a
- * test that reads it symbolically keeps meaning what it meant.
+ * This is the DEFAULT — {@link DEFAULT_GAP}'s pixels, the value the gap holds
+ * until a setting moves it. The live value is {@link impositionGapPx}, and
+ * every numeric read in this module goes through it; the constant survives
+ * as the default's name, so a test that reads it symbolically keeps meaning
+ * what it meant.
  */
-export const IMPOSITION_GAP_PX = 5;
+export const IMPOSITION_GAP_PX: number = GAP_PX[DEFAULT_GAP];
 
 /**
  * The property the card gap crosses into CSS on, so every emitted `calc()`
@@ -1232,39 +1270,6 @@ export const CONTENT_WIDTH_LABELS: Readonly<Record<ContentWidth, string>> = {
   comfy: "Comfy",
   wide: "Wide",
 };
-
-/* ---------------------------------------------------------------------------
- * Gap presets
- * ---------------------------------------------------------------------------*/
-
-/** The gaps in the order every picker offers them: tight to airy. */
-export const GAP_PRESETS: readonly GapPreset[] = ["snug", "cozy", "roomy", "airy"];
-
-/**
- * Pixels per gap preset. **Snug** is {@link IMPOSITION_GAP_PX}, the gap every
- * deck stood at before the presets existed, which is why a record with no
- * `gap` reads as snug; the other three are a starting proposal, settled by
- * looking at the deck rather than by prose, and each is one line here.
- */
-export const GAP_PX: Readonly<Record<GapPreset, number>> = {
-  snug: IMPOSITION_GAP_PX,
-  cozy: 12,
-  roomy: 20,
-  airy: 32,
-};
-
-/** How each gap is named in the UI — one spelling, every surface. */
-export const GAP_LABELS: Readonly<Record<GapPreset, string>> = {
-  snug: "Snug",
-  cozy: "Cozy",
-  roomy: "Roomy",
-  airy: "Airy",
-};
-
-/** The gap preset an imposition stands at — its own, or the default. */
-export function impositionGapOf(imposition: DeckImposition): GapPreset {
-  return imposition.gap ?? DEFAULT_GAP;
-}
 
 /**
  * The width a pane actually lands on when `preset` is applied to it: the

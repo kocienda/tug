@@ -11,6 +11,7 @@
 import { describe, test, expect } from "bun:test";
 import type { CardState, DeckState, TugPaneState } from "../layout-tree";
 import type { ImpositionKind } from "../lib/layout-imposer";
+import { impositionGapPx } from "../lib/layout-imposer";
 import { deckFlowStrip } from "../deck-store-selectors";
 import {
   chooseOpeningSlot,
@@ -233,11 +234,14 @@ describe("chooseOpeningSlot — from the deck", () => {
 
     test("a clipped slot answers when no whole one qualifies", () => {
       // Whole: 2 (split). Clipped: 1 (stack) and 3 (split).
+      // The band reaches a gap and a little more past slot 2 on each side, so
+      // it clips into both neighbours rather than stopping in the air.
+      const reach = impositionGapPx() + 5;
       const deck = flowDeck(
         ["empty", "stack", "split", "split", "empty"],
         (s) => ({
-          offset: left(s, 2) - 10,
-          band: right(s, 2) - left(s, 2) + 20,
+          offset: left(s, 2) - reach,
+          band: right(s, 2) - left(s, 2) + 2 * reach,
         }),
       );
       expect(deck.band?.whole).toEqual([2]);

@@ -2225,7 +2225,7 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
    Place seam — the boundary between two split members, of a rail or a column
    ========================================================================= */
 
-/* The hit strip is wider than the gap it sits in (a 5px drag target is under
+/* The hit strip is wider than the gap it sits in (a gap-wide drag target is under
    every pointing-comfort floor the deck holds), so the element itself is
    transparent and the hairline is drawn by a centred pseudo-element. Pressing
    anywhere in the strip starts the drag; only the hairline is visible. */

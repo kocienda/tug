@@ -39,11 +39,12 @@ import type { DeckState } from "../layout-tree";
 describe("memberFloorForSheetPanel does the chrome arithmetic once", () => {
   test("adds the chrome above and the canvas gap below, less the member gap", () => {
     // The Choose Session picker with its sessions list at the cap: the sheet
-    // reports 850 and the member under it needs 914. That 64px is exactly what
-    // the measured reservation used to be short by, which is why it decided
+    // reports 850 and the member under it needs the chrome above plus the
+    // canvas gap below, less the card gap already under it. That difference
+    // (64px at the 5px gap the deck once stood at) is exactly what the
+    // measured reservation used to be short by, which is why it decided
     // nothing on a Session card.
-    expect(memberFloorForSheetPanel(850)).toBe(914);
-    expect(memberFloorForSheetPanel(850) - 850).toBe(64);
+    expect(memberFloorForSheetPanel(850) - 850).toBe(37 + 32 - IMPOSITION_GAP_PX);
   });
 
   test("is the sum of its named terms and nothing else", () => {

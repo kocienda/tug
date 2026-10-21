@@ -28,6 +28,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { chromePoint } from "./card-chrome-fixture";
+import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -42,9 +43,6 @@ const B = { x: 460, y: 40, width: 340, height: 260 };
 /** Pointer travel for the plain drag and the resize, viewport px. */
 const DRAG = { dx: 60, dy: 40 };
 const RESIZE_DX = 40;
-
-/** The gap an adjacent-edge snap leaves (`IMPOSITION_GAP_PX`, `layout-imposer.ts`). */
-const IMPOSITION_GAP_PX = 5;
 
 /** How far a body's frame stands out from its pane's rect (`placeCards`'s `apron`), viewport px. */
 const APRON_PX = 10;
