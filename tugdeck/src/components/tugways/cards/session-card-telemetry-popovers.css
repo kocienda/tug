@@ -514,38 +514,14 @@
   min-width: 0;
 }
 
-/* The head is the session masthead's title line, in its order: the phase
-   dot, the identity with its `^<arc>` run, then the lifecycle mark. The dot
-   stands in the step rows' lead column, so it is centred over their dots;
-   the identity is the one run that gives up width, eliding as it does on the
-   masthead, and the mark keeps its whole reading. */
+/* The head is the Arcs card's row block — arc, hairline, worker over the
+   track — at the row's own sizes and the row's own air: a full step above
+   and below, so the block reads as the arc rather than as a caption crowded
+   onto the first step. */
 .session-arc-popover-head {
   display: flex;
-  align-items: center;
   min-width: 0;
-  padding: var(--tug-space-xs) var(--tug-space-sm) var(--tug-space-xs) 0;
-}
-
-.session-arc-popover-head-dot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: var(--tugx-arc-popover-lead-width);
-  margin-inline: var(--tug-space-sm);
-}
-
-.session-arc-popover-head > .tug-session-identity {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
-/* The masthead's step off the `^<arc>` run into the mark. */
-.session-arc-popover-head-mark {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  margin-inline-start: var(--tugx-session-identity-progress-lead, 8px);
+  padding: var(--tug-space-md) var(--tug-space-sm);
 }
 
 /* The trouble notes, at the head's own inset so a sentence starts under the

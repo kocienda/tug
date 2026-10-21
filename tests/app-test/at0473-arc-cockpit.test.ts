@@ -619,9 +619,9 @@ describe.skipIf(!SHOULD_RUN)(
             rows: Array<{ text: string; status: string | null }>;
             blocks: number;
             tracks: number;
-            dots: number;
-            identities: number;
-            marks: number;
+            arcAtoms: number;
+            workers: number;
+            rules: number;
           }>(
             `(() => {
              const body = document.querySelector(${JSON.stringify(ARC_PLACARD)});
@@ -635,24 +635,24 @@ describe.skipIf(!SHOULD_RUN)(
                })),
                blocks: body?.querySelectorAll('[data-slot="tug-arc-lifecycle-block"]').length ?? 0,
                tracks: body?.querySelectorAll('[data-slot="tug-arc-track"]').length ?? 0,
-               dots: body?.querySelectorAll('.session-arc-popover-head-dot').length ?? 0,
-               identities: body?.querySelectorAll('.session-arc-popover-head > .tug-session-identity[data-tier="line"]').length ?? 0,
-               marks: body?.querySelectorAll('.session-arc-popover-head [data-slot="tug-arc-lifecycle-mark"]').length ?? 0,
+               arcAtoms: body?.querySelectorAll('.session-arc-popover-head [data-slot="tug-arc-lifecycle-eyebrow"] > .tug-arc-atom').length ?? 0,
+               workers: body?.querySelectorAll('.session-arc-popover-head [data-slot="tug-arc-lifecycle-worker"]').length ?? 0,
+               rules: body?.querySelectorAll('.session-arc-popover-head .tug-arc-lifecycle-rule').length ?? 0,
              };
            })()`,
           );
           note("at0473 arc placard", JSON.stringify(placard));
-          // The cockpit detail heads with the session masthead's title line,
-          // in its order — the phase dot, the identity with its `^<arc>` run,
-          // the compact lifecycle mark — composed from the same components,
-          // so the placard and the masthead cannot disagree. The two-line
-          // block and its track were the head once; the user replaced them
-          // with the masthead's line, so neither is drawn here.
-          expect(placard.dots).toBe(1);
-          expect(placard.identities).toBe(1);
-          expect(placard.marks).toBe(1);
-          expect(placard.blocks).toBe(0);
-          expect(placard.tracks).toBe(0);
+          // The cockpit detail heads with the Arcs card's row block — the arc
+          // atom, the hairline, the bound worker's atom, over the track and
+          // its reading — the same component the sidebar row renders, so the
+          // placard and the row cannot disagree. The masthead's title line
+          // (dot, `session^arc`, compact mark) was the head for a while; the
+          // user put the block back.
+          expect(placard.blocks).toBe(1);
+          expect(placard.tracks).toBe(1);
+          expect(placard.arcAtoms).toBe(1);
+          expect(placard.workers).toBe(1);
+          expect(placard.rules).toBe(1);
           expect(placard.text).toContain(ARC_NAME);
           expect(placard.text).toContain("1/3");
           // **The list is the plan's ledger**, not the [D100] task list it used
@@ -784,7 +784,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.body("A").click(CELL);
           }
           await app.body("A").waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${ARC_PLACARD} .session-arc-popover-head [data-slot="tug-arc-lifecycle-mark"][data-phase="audit"]`)}) !== null`,
+            `document.querySelector(${JSON.stringify(`${ARC_PLACARD} .session-arc-popover-head [data-slot="tug-arc-track"][data-phase="audit"]`)}) !== null`,
             { timeoutMs: 10000 },
           );
         } finally {
