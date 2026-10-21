@@ -114,7 +114,11 @@ test-ts:
     # The many-pages suite spawns a real `tugcast` from the same directory;
     # it builds one itself, and building it here keeps a cold compile out of
     # a bun hook.
-    (cd tugrust && cargo build -p tugtool -p tugcast) || exit 1
+    # tugcast is built ALONE, exactly as `real-tugcast.ts` builds it: `-p
+    # tugtool -p tugcast` unifies features across both crates, so its tugcast
+    # is not the artifact `cargo build -p tugcast` looks for, and the hook
+    # recompiled tugcast and its deps inside the suite (97 s on CI).
+    (cd tugrust && cargo build -p tugtool && cargo build -p tugcast) || exit 1
     TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
     [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
     [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" test run --help >/dev/null 2>&1 || TUGTOOL_BIN=""

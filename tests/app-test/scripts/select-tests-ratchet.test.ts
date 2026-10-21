@@ -68,6 +68,12 @@ const KNOWN_N = (() => {
 })();
 
 let root: string;
+/**
+ * Every case spawns `bun select-tests.ts` over the whole corpus, once or twice. Half
+ * a second here is several on a CI runner, past bun's 5 s default.
+ */
+const SPAWN_TIMEOUT_MS = 30_000;
+
 let script: string;
 
 function git(...args: string[]): void {
@@ -110,7 +116,7 @@ beforeAll(() => {
     git("config", "user.name", "t");
     git("add", "-A");
     git("commit", "-q", "-m", "corpus");
-});
+}, SPAWN_TIMEOUT_MS);
 
 afterAll(() => {
     rmSync(root, { recursive: true, force: true });
@@ -119,7 +125,7 @@ afterAll(() => {
 describe("the accepted-fan-out ratchet", () => {
     test("the committed corpus passes as-is", () => {
         expect(check().code).toBe(0);
-    });
+    }, SPAWN_TIMEOUT_MS);
 
     test("raising an entry fails, and the message names the key and both numbers", () => {
         setKnownFanout(KNOWN_N + 1);
@@ -129,7 +135,7 @@ describe("the accepted-fan-out ratchet", () => {
         expect(r.err).toContain(KNOWN_KEY);
         expect(r.err).toContain(`${KNOWN_N} raised to ${KNOWN_N + 1}`);
         expect(r.err).toContain("delete the entry and re-add it");
-    });
+    }, SPAWN_TIMEOUT_MS);
 
     test("lowering an entry passes", () => {
         // Lowering below the real fan-out would trip the budget rule instead, so the
@@ -149,7 +155,7 @@ describe("the accepted-fan-out ratchet", () => {
         restoreScript();
         git("checkout", "--", "tests/app-test");
         expect(r.code).toBe(0);
-    });
+    }, SPAWN_TIMEOUT_MS);
 
     test("a wholly new key is not subject to the rule", () => {
         setFanout((s) =>
@@ -162,7 +168,7 @@ describe("the accepted-fan-out ratchet", () => {
         restoreScript();
         expect(r.code).toBe(0);
         expect(r.err).not.toContain("went UP");
-    });
+    }, SPAWN_TIMEOUT_MS);
 
     test("an unreadable committed version warns and stands down", () => {
         // A repo with no HEAD at all: `git show HEAD:` cannot resolve, so the rule has
@@ -178,5 +184,5 @@ describe("the accepted-fan-out ratchet", () => {
         } finally {
             rmSync(bare, { recursive: true, force: true });
         }
-    });
+    }, SPAWN_TIMEOUT_MS);
 });
