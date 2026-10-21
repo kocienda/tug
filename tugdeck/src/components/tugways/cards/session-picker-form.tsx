@@ -510,6 +510,10 @@ export function SessionProjectPickerForm({
     });
     onOpen(openDir, mode, sessionId, display);
   }, [selection, openDisabled, openDir, findSessionRow, onOpen]);
+  // The delegate is memoized on the data source alone, so a double-click
+  // reaches the latest `submit` through this ref rather than a stale closure.
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
 
   // ---- The list ----
   const delegate = useMemo<TugListViewDelegate>(
@@ -521,6 +525,14 @@ export function SessionProjectPickerForm({
       onSelect: (index) => {
         const next = pickerSelectionOf(dataSource.rowAt(index));
         if (next !== null) setChosen(next);
+      },
+      // A double-click opens the row it lands on: its first click selected the
+      // row, so `submit` already acts on it. Only a session row opens this way
+      // — a band's clicks fold it, and Other still needs a folder typed.
+      onActivate: (index) => {
+        const next = pickerSelectionOf(dataSource.rowAt(index));
+        if (next?.kind !== "session-new" && next?.kind !== "session-resume") return;
+        submitRef.current();
       },
     }),
     [dataSource],
@@ -698,6 +710,7 @@ export function SessionProjectPickerForm({
                   focusOrder={PICKER_ORDER_SESSIONS}
                   attachedFilter={pickerFilter}
                   singleSelect
+                  activateOnDoubleClick
                   initialSelectedIndex={
                     selectedRowId === null
                       ? undefined
