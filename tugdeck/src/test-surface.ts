@@ -49,7 +49,7 @@ import { listViewProbeForScroller } from "./components/tugways/tug-list-view";
 import { smartScrollForElement } from "./lib/smart-scroll";
 import { getShellDeck } from "./lib/deck-store-registry";
 import { raiseCard } from "./focus-transfer";
-import { getFocusManager } from "./components/tugways/focus-manager";
+import { BASE_FOCUS_MODE, getFocusManager } from "./components/tugways/focus-manager";
 import { currentGesture } from "./gesture-interpreter";
 import { gestureScope } from "./lib/gesture-scope";
 import { tearDownSettleForTest } from "./components/chrome/settle-engine";
@@ -567,8 +567,14 @@ import {
  * host last told the page of its visibility and whether it is dormant, from
  * the page's own visibility store. The shell is never told and reads as
  * shown. Additive; major stays `2`.
+ *
+ * `2.51.0`: adds {@link TugTestSurface.focusModeIsBase}, on every page: whether
+ * the page's focus engine is at its base mode — no surface, scope or trap
+ * descended — read where the keyboard is before a test posts an Escape, since
+ * at the base mode nothing on the page claims Escape and the key falls
+ * through to AppKit's no-responder beep. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.50.0" as const;
+export const SURFACE_VERSION = "2.51.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1248,6 +1254,17 @@ export interface TugTestSurface {
    * `null` when no `FocusManager` is mounted.
    */
   kbfEngaged(): boolean | null;
+
+  /**
+   * Whether this page's focus engine is at its **base mode** — no dismissable
+   * surface, descended scope, or trapped cycle on its stack. At the base mode
+   * with the manual bit off, the Escape ladder claims nothing: the key is
+   * left to the browser, and a WKWebView hands an unhandled key back up the
+   * responder chain, where AppKit beeps at it. A test that means to dismiss
+   * "whatever an action raised" reads this first and posts no Escape at a
+   * page that has nothing to dismiss. `null` when no `FocusManager` is mounted.
+   */
+  focusModeIsBase(): boolean | null;
 
   /**
    * The live pointer gesture's classification, or `null` between gestures.
@@ -3883,6 +3900,11 @@ function pageStoreSurfaceMethods() {
 
     kbfEngaged(): boolean | null {
       return getFocusManager()?.kbfEngaged() ?? null;
+    },
+
+    focusModeIsBase(): boolean | null {
+      const manager = getFocusManager();
+      return manager === null ? null : manager.currentFocusMode() === BASE_FOCUS_MODE;
     },
 
     getLayoutCursor(): string | null {

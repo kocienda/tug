@@ -22,7 +22,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/open-quickly-store.ts
  * @covers tugdeck/src/components/chrome/open-quickly-overlay.tsx
  * @covers tugdeck/src/components/tugways/tug-modal-input-dialog.tsx

@@ -6,7 +6,7 @@
  * cards, one per column of a two-up; slot 0 stacks, so the mover crosses into
  * it as one move beat, the Last pass's.
  *
- * @foreground
+ * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift

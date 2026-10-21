@@ -14,7 +14,7 @@
  * Two legs: a Session card with a transcript, pressed at its grab handle;
  * and a rail card, Jots, pressed on its bar and dragged loose of its rail.
  *
- * @foreground
+ * @visible
  * @covers tugdeck/src/body/body-root.tsx
  * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugdeck/src/lib/chrome-placement.ts
@@ -43,7 +43,7 @@ describe.skipIf(!SHOULD_RUN)("at0744: a card is one view", () => {
     "dragged by its title bar, the card's chrome and content stand the chrome's height apart on every frame",
     async () => {
       const stubDir = stubDirectory();
-      const app = await launchTugApp({ testName: "at0744-drag", foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: "at0744-drag", visible: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         await app.seedDeckState({ state: sessionPaneDeck([A]), focusCardId: A });
         await spawnWithTranscript(app, stubDir, A);
@@ -72,7 +72,7 @@ describe.skipIf(!SHOULD_RUN)("at0744: a card is one view", () => {
   test(
     "a rail card dragged loose by its bar is one view on every frame",
     async () => {
-      const app = await launchTugApp({ testName: "at0744-rail", foreground: true });
+      const app = await launchTugApp({ testName: "at0744-rail", visible: true });
       try {
         const jots = cardKind("jots");
         await app.seedDeckState({ state: kindDeck(jots, RAIL), focusCardId: RAIL });

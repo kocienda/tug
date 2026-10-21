@@ -405,7 +405,7 @@ fmt:
 # `@tug-optical-nudge:` comment saying what it corrects, which is what makes
 # the remaining ones countable. The runtime half is `at0625-type-baseline`,
 # because no stylesheet scan can see a rendered baseline.
-lint: tugplug-lint recipe-lint shellcheck wasm-check
+lint: tugplug-lint recipe-lint shellcheck wasm-check app-test-foreground-check
     cd tugdeck && bun run audit:visibility
     cd tugdeck && bun run audit:motion
     cd tugdeck && bun run check
@@ -1800,12 +1800,16 @@ app-test-covers-check:
 app-test-body-scope-check:
     @cd tests/app-test && bun scripts/card-dom-census.ts --check
 
-# A test that takes the screen declares it with `@foreground`; the app-test
-# recipe reads that declaration before it launches anything, so it can warn
-# before a run seizes the machine. The declaration is only worth trusting if
-# it matches behavior, which is what this checks — in both directions. An
-# untagged `foreground: true` seizes the screen unannounced; a tag with no
-# such launch prompts about a test that was never disruptive.
+# A test that takes the screen declares it with `@foreground activation` or
+# `@foreground lifecycle`; the app-test recipe reads that declaration before
+# it launches anything, so it can warn before a run seizes the machine. The
+# declaration is only worth trusting if it matches behavior, which is what
+# this checks — in both directions, and for the reason. An untagged
+# `foreground: true` seizes the screen unannounced; a tag with no such launch
+# prompts about a test that was never disruptive; a bare tag, a reason outside
+# the list, or `lifecycle` on a file that calls no lifecycle verb is a
+# screen-taker nobody has justified. Part of `just lint`, so a new one cannot
+# land unannounced.
 app-test-foreground-check:
     @cd tests/app-test && bun scripts/select-tests.ts --foreground-check
 

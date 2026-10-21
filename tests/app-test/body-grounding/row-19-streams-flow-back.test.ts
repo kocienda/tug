@@ -6,7 +6,7 @@
  * slid to slot 2 as the set-up, then three body cards stream while it slides
  * back to slot 1.
  *
- * @foreground
+ * @foreground activation
  * @family row-19-streams
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/connection.ts

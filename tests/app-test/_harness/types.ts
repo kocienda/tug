@@ -20,6 +20,7 @@ export type RpcMethod =
   | "waitForCondition"
   | "version"
   | "getHostPid"
+  | "windowState"
   | "checkAccessibilityPermission"
   | "getElementScreenBounds"
   | "menuSnapshot"
@@ -169,6 +170,23 @@ export interface MenuItemSnapshot {
 }
 
 /**
+ * Result of `windowState`: what the keyboard would find in the app.
+ * `isKeyWindow` is the harness window's own key status; `appKeyWindow` is
+ * whether `NSApp.keyWindow` names any window, which AppKit reports only
+ * while the app is active; `firstResponder` is the class name of the
+ * window's first responder, or `null`. A pid-mode launch is inactive and
+ * has no key window — AppKit refuses key status to an inactive app's
+ * window — so the host resolves nil-target action sends from the window's
+ * first responder instead (`AppDelegate.sendToKeyChain`).
+ */
+export interface WindowState {
+  isKeyWindow: boolean;
+  appKeyWindow: boolean;
+  isActive: boolean;
+  firstResponder: string | null;
+}
+
+/**
  * Result of `menuItemState`: the matched item's snapshot fields plus a
  * `found` discriminator. When `found` is `false`, the other fields are
  * absent.
@@ -230,6 +248,10 @@ export type Request =
   | {
       id: number;
       method: "getHostPid";
+    }
+  | {
+      id: number;
+      method: "windowState";
     }
   | {
       id: number;
@@ -687,15 +709,39 @@ export interface LaunchTugAppOptions {
    *
    * Defaults to false: an app-test launches in the background and the
    * in-app harness addresses events to its own process, so a run never
-   * takes the developer's focus, cursor, or key window.
+   * takes the developer's focus, cursor, or key window. An inactive app
+   * cannot hold a key window, so the host gives the harness window what one
+   * would have supplied: each ⌘ chord is offered to the window's views
+   * before the main menu, and the Edit menu's nil-target actions resolve
+   * from the window's first responder (`AppDelegate.sendToKeyChain`). A
+   * chord, a menu command or a pasteboard read is therefore a background
+   * test.
    *
    * Pass `true` only for tests whose SUBJECT is activation — key-window
-   * status, app resign / become-active, responder-chain routing that
-   * AppKit gates on being active. Those cannot be observed in an
-   * inactive app. A foreground launch takes the screen for its
-   * duration, so it is the marked, minority case.
+   * status, app resign / become-active, `document.hasFocus()`, or the
+   * keyboard arriving through WindowServer as the user's does. Those
+   * cannot be observed in an inactive app. A foreground launch takes the
+   * screen for its duration, so it is the marked, minority case, declared
+   * on the file as `@foreground activation` or `@foreground lifecycle`.
    */
   foreground?: boolean;
+
+  /**
+   * Launch in the background, as every test does, but keep the web views
+   * rendering while the harness window is covered.
+   *
+   * WebKit suspends `requestAnimationFrame` in an occluded window, and the
+   * background launch puts the window a level below normal, so a reading
+   * of frames, paint or motion would hang there rather than read. This
+   * tier turns the WKWebViews' occlusion detection off in the app (WebKit's
+   * `_windowOcclusionDetectionEnabled` SPI), so the window stays where the
+   * background launch left it and still renders; where that SPI is absent
+   * the app falls back to ordering the window front at normal level without
+   * activating, so the user keeps keyboard, cursor and key window and only
+   * sees a window. Declared on the file with `@visible`. A test whose
+   * subject is activation is `foreground`, never this.
+   */
+  visible?: boolean;
 
   /**
    * Disable test-mode's persistence-bypass so tugbank writes from

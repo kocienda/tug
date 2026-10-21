@@ -5,7 +5,7 @@
  * A piece of row 19 ([B02] row 19; the row is `_row-19.ts`'s): three body
  * cards stream while the flow band slides to slot 2.
  *
- * @foreground
+ * @foreground activation
  * @family row-19-streams
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/connection.ts

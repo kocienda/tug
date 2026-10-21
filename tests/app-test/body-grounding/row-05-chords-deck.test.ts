@@ -6,7 +6,7 @@
  * session card holding the keyboard, ⌃⌘Y folds and unfolds it, ⌘2 and ⌘1
  * move it, and ⇧⌥⌘] and ⇧⌥⌘[ nudge it, each read in the shell's deck state.
  *
- * @foreground
+ * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts

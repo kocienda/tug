@@ -7,7 +7,7 @@
  * `_row-10.ts`'s): two body Session cards at home, a third opened by ⌘N in a
  * second workspace, switched home through `activate-space`.
  *
- * @foreground
+ * @foreground activation
  * @family row-10-workspace
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts

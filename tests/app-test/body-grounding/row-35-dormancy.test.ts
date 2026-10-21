@@ -17,7 +17,7 @@
  * long the revealed body stood lidded before the catch-up landed, against the
  * display period — what decided that a reveal needs the lid.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/body/body-dormancy.ts
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/lib/body-visibility-store.ts

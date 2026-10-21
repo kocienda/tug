@@ -19,7 +19,7 @@
  * Every other kind that is a body is closed the same way, standing focused
  * beside an unbound Session card.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css

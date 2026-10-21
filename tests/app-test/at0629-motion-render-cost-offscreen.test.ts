@@ -121,10 +121,10 @@
  * ## Occlusion
  *
  * An occluded window suspends `requestAnimationFrame` outright, so every
- * reading would hang rather than read high. The window is launched
- * `foreground: true`, and the first reading is taken behind a bounded wait that
- * fails saying so — a timeout with no explanation is the standing failure mode
- * this repo has met before.
+ * reading would hang rather than read high. The launch is `visible: true`,
+ * which keeps the web views rendering under cover without taking the screen,
+ * and the first reading is taken behind a bounded wait that fails saying so — a
+ * timeout with no explanation is the standing failure mode this repo has met before.
  *
  * ## The cut
  *
@@ -157,8 +157,8 @@
  * @covers tugdeck/src/components/tugways/tug-text-editor/session-dot-layer.tsx
  * @covers tugdeck/src/lib/perf-monitor.ts
  *
- * @foreground — the probe measures a deck that is actually rendering, so the
- * launch takes the screen (`foreground: true` below).
+ * @visible — the probe measures a deck that is actually rendering, so the
+ * launch asks for a rendering viewport (`visible: true` below), not the screen.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -190,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
     async () => {
       const app = await launchTugApp({
         testName: "at0629-motion-render-cost",
-        foreground: true,
+        visible: true,
       });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "B" });

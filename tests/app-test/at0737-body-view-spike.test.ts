@@ -23,8 +23,8 @@
  * are read off `ps` before and after the child exists, and every number is
  * noted for the program brief's record.
  *
- * @foreground — WebKit suspends rAF in a covered window, and display rate is
- * the whole of what is read, so the launch takes the screen.
+ * @visible — WebKit suspends rAF in a covered window, and display rate is
+ * the whole of what is read, so the launch asks for the visible tier, which keeps the web views rendering under cover.
  *
  * @motion
  * @covers tugapp/Sources/HostFrameMeter.swift
@@ -76,7 +76,7 @@ describe.skipIf(!SHOULD_RUN)("at0737: a child web view holds display rate under 
   test(
     "the spike's reading meets the bar",
     async () => {
-      const app = await launchTugApp({ foreground: true, testName: TEST_NAME });
+      const app = await launchTugApp({ visible: true, testName: TEST_NAME });
       try {
         const before = webContentProcesses();
         const created = await app.spikeCreate();

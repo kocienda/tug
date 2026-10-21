@@ -44,12 +44,12 @@
  * **Typing only — this test never submits a turn.** A real send into a
  * replay-backed harness session is out of bounds.
  *
- * Foreground: ⌘A is an Edit-menu key equivalent, so AppKit resolves it
- * against the main menu before the web view sees a keydown. A background
- * instance has no key window for that resolution to land in, and the
- * select-all that clears the editor never happens.
- *
- * @foreground
+ * Background: ⌘A is an Edit-menu key equivalent, and a pid-mode launch has
+ * no key window — AppKit refuses one to an inactive app — so the host offers
+ * every ⌘ chord to its window's views before the main menu (the pid-mode
+ * `keyDown` monitor in `AppDelegate.swift`), the order a key window takes;
+ * the editor claims ⌘A as it does for a user, and the select-all that clears
+ * the editor lands with nobody's screen.
  *
  * @covers tugdeck/src/lib/shared-agent-store.ts
  * @covers tugdeck/src/lib/shell-classify-store.ts
@@ -162,7 +162,6 @@ describe.skipIf(!SHOULD_RUN)(
         const app = await launchTugApp({
           testName: "at0280-shared-agent-absent",
           env: { TUGBANK_PATH: tugbankPath },
-          foreground: true,
         });
         try {
           await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });

@@ -24,9 +24,10 @@
  * the app's own registry rather than anything claude has to have reported —
  * what the paste resolves against is present from the drop.
  *
- * Foreground: the native pasteboard write and read want a key window.
- *
- * @foreground
+ * Background: a pid-mode launch has no key window — AppKit refuses one to an
+ * inactive app — so the host resolves the Edit actions from its window's own
+ * first responder (`AppDelegate.sendToKeyChain`), and the native pasteboard
+ * write and read take the path they take for a user, with nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/tug-text-editor/clipboard-filters.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
@@ -96,7 +97,6 @@ describe.skipIf(!SHOULD_RUN)("at0474 — a pasted slash command chips", () => {
     async () => {
       const app = await launchTugApp({
         testName: "at0474-paste-command-chip",
-        foreground: true,
       });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });

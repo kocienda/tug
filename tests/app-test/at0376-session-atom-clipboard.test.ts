@@ -63,9 +63,10 @@
  * ⌘V does not reach the web layer in this harness at all. D covers the branch
  * that keystroke lands in, which is the part that was broken.
  *
- * Foreground: the copy and the pasteboard reads want a key window.
- *
- * @foreground
+ * Background: a pid-mode launch has no key window — AppKit refuses one to an
+ * inactive app — so the host resolves the Edit actions from its window's own
+ * first responder (`AppDelegate.sendToKeyChain`), and the copy and the
+ * pasteboard reads take the path they take for a user, with nobody's screen.
  *
  * @covers tugdeck/src/lib/session-atom.ts
  * @covers tugdeck/src/lib/session-atom-shape.ts
@@ -170,7 +171,6 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
     async () => {
       const app = await launchTugApp({
         testName: "at0376-session-atom-clipboard",
-        foreground: true,
       });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });

@@ -16,7 +16,7 @@
  * The pid mode the rest of the corpus runs in is never evidence for any of
  * this (`NativeEventHandlers.swift`, "Which mode is evidence for what").
  *
- * @foreground
+ * @foreground activation
  * @covers tugapp/Sources/TestHarness/NativeEventHandlers.swift
  * @covers tugapp/Sources/TestHarness/TestHarnessConnection.swift
  * @covers tests/app-test/_harness/client.ts

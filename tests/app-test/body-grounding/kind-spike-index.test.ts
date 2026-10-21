@@ -7,7 +7,7 @@
  * fresh card, placed from the index. This is the check that the click
  * crosses the body boundary and lands as a card, not as a tab.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/spikes/spike-home.tsx
  * @covers tugdeck/src/body/body-root.tsx
  * @covers tugdeck/src/body/body-card-deck.ts

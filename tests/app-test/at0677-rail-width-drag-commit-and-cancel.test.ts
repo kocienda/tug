@@ -43,7 +43,7 @@
  * works only on an app that was active, so the file launches in the
  * foreground.
  *
- * @foreground
+ * @foreground lifecycle
  * @covers tugdeck/src/lib/resize-episode.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts

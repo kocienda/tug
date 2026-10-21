@@ -1,8 +1,8 @@
 /**
  * at0175-session-mount-focus.test.ts — when a session card mounts as the
  * focused card and its session binds, the prompt-entry editor
- * (CodeMirror's contentDOM) gains DOM focus AND the custom caret
- * layer renders, all without a user click.
+ * (CodeMirror's contentDOM) gains DOM focus and the engine's first
+ * responder is that editor, all without a user click.
  *
  * Pins TWO related contracts:
  *
@@ -42,7 +42,7 @@
  *     the mode-gate on banner-spec branch 5.
  *
  * Test strategy: seed a session card + bind a fake session, wait for
- * the editor to mount, capture focus + caret + banner-mount state
+ * the editor to mount, capture focus + responder + banner-mount state
  * at multiple timepoints. The harness skips the picker UI by
  * binding the session directly — the production picker has its
  * own UI surface that's awkward to drive in the harness, but the
@@ -51,9 +51,9 @@
  *
  * The two test blocks below cover the two contracts independently:
  *   - The first ("after seed + bind…") asserts the focus contract:
- *     contentDOM is activeElement, `.cm-focused` is set, exactly
- *     one caret renders, and state is stable across a 1s settling
- *     window.
+ *     contentDOM is activeElement, the chain's first responder is the
+ *     responder that element sits in, and the state is stable across a
+ *     1s settling window.
  *   - The second ("new-mode bind: no banner mounts…") installs a
  *     MutationObserver before bind to record any banner-element
  *     addition under the card subtree, then asserts the count is
@@ -61,12 +61,15 @@
  *     and ensuring that focus is never gated on a banner exit for
  *     new-mode sessions.
  *
- * FOREGROUND: the caret layer paints only while `.cm-focused` is set, and CM6
- * derives that from real DOM focus. A background-mode window's document never
- * has focus, so `.cm-content` becomes activeElement but `.cm-focused` never
- * applies and no caret renders — the very thing this test asserts.
+ * Background. The assertion is the focus state the mount is supposed to
+ * produce — `document.activeElement` and the responder chain's first
+ * responder — not the painted caret. The caret layer paints only while CM6's
+ * `view.hasFocus` is true, which WebKit ties to `document.hasFocus()` and so
+ * to the application being active; a background window's document never has
+ * focus, so a caret assertion is an assertion about activation, not about
+ * the mount. The engine's own focus state is set either way, so this reads
+ * what the claim actually moved and runs with nobody's screen.
  *
- * @foreground
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/
@@ -87,12 +90,12 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 // CodeMirror's editable surface is `.cm-content[contenteditable]`
-// inside the `<div data-slot="tug-text-editor">` host. The custom
-// caret is rendered by `tug-text-editor/caret-layer.ts` as
-// `.tug-text-editor-caret`, which only paints when CM6's
-// `view.hasFocus` is true (see `caret-layer.ts:181`). Asserting on
-// the caret element existence is the user-visible test for "is the
-// caret blinking?".
+// inside the `<div data-slot="tug-text-editor">` host. The responder that
+// element sits in carries `data-responder-id` (written by `useResponder`),
+// and the chain's first responder is read off the engine as
+// `getFirstResponderId()`; the two agreeing is the focus claim having landed.
+// `caretCount` and `hasFocus` ride along for the failure message only: the
+// caret paints only in an active app (see the header).
 const PROMPT_INPUT_SELECTOR = '[data-slot="tug-text-editor"] .cm-content';
 
 const SESSION_DECK_STATE = {
@@ -117,6 +120,10 @@ const SESSION_DECK_STATE = {
 interface FocusState {
   matchesPromptEntry: boolean;
   underCardId: string | null;
+  /** The responder id enclosing `document.activeElement`, or null. */
+  activeResponderId: string | null;
+  /** The chain's first responder, from the engine. */
+  firstResponderId: string | null;
   hasFocus: boolean;
   caretCount: number;
   cmFocused: boolean;
@@ -128,12 +135,15 @@ async function captureFocus(app: App, cardId: string): Promise<FocusState> {
     `(function(){
       var el = document.activeElement;
       var card = el && el.closest ? el.closest("[data-card-id]") : null;
+      var responder = el && el.closest ? el.closest("[data-responder-id]") : null;
       var matches = el !== null && el.matches ? el.matches(${JSON.stringify(promptSelector)}) : false;
       var carets = document.querySelectorAll(${JSON.stringify(`[data-card-id="${cardId}"] .tug-text-editor-caret`)});
       var cmEditor = document.querySelector(${JSON.stringify(`[data-card-id="${cardId}"] .cm-editor`)});
       return {
         matchesPromptEntry: matches,
         underCardId: card ? card.getAttribute("data-card-id") : null,
+        activeResponderId: responder ? responder.getAttribute("data-responder-id") : null,
+        firstResponderId: window.__tug.getFirstResponderId(),
         hasFocus: document.hasFocus(),
         caretCount: carets.length,
         cmFocused: cmEditor !== null && cmEditor.classList.contains("cm-focused"),
@@ -265,10 +275,10 @@ async function waitForEditor(app: App, cardId: string): Promise<void> {
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "AT0175: session card mount-time focus + caret claim",
+  "AT0175: session card mount-time focus claim",
   () => {
     test(
-      "after seed + bind: editor's contentDOM is activeElement, .cm-focused is set, exactly one caret renders",
+      "after seed + bind: editor's contentDOM is activeElement and the chain's first responder",
       async () => {
         const tugbankPath = mkTempTugbank();
         try {
@@ -278,7 +288,6 @@ describe.skipIf(!SHOULD_RUN)(
             testName: "at0175-session-mount-focus",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,
-            foreground: true,
           });
 
           try {
@@ -295,28 +304,28 @@ describe.skipIf(!SHOULD_RUN)(
             await new Promise<void>((r) => setTimeout(r, 1000));
             const t1000 = await captureFocus(app, "A");
 
-            // The user-visible contract: caret renders on the
-            // editor for cardId "A", and stays there.
+            // The focus contract: the editor for cardId "A" is the active
+            // element and the chain's first responder, and stays so.
             expect(
               t1000.matchesPromptEntry,
               `expected editor contentDOM activeElement at t+1s; saw ${JSON.stringify(t1000)}`,
             ).toBe(true);
             expect(t1000.underCardId).toBe("A");
             expect(
-              t1000.cmFocused,
-              `expected .cm-focused on .cm-editor (CM6 view.hasFocus=true); saw ${JSON.stringify(t1000)}`,
-            ).toBe(true);
+              t1000.activeResponderId,
+              `expected the active element inside a registered responder; saw ${JSON.stringify(t1000)}`,
+            ).not.toBeNull();
             expect(
-              t1000.caretCount,
-              `expected exactly one caret element rendered; saw ${JSON.stringify(t1000)}`,
-            ).toBe(1);
+              t1000.firstResponderId,
+              `expected the chain's first responder to be the editor's responder; saw ${JSON.stringify(t1000)}`,
+            ).toBe(t1000.activeResponderId);
 
-            // Also ensure the caret didn't appear-then-disappear:
+            // Also ensure the focus didn't land-then-leave:
             // both timepoints should agree.
             expect(
-              t0.caretCount,
-              `expected caret rendered at t+0 too; saw t0=${JSON.stringify(t0)} t1000=${JSON.stringify(t1000)}`,
-            ).toBe(1);
+              t0.matchesPromptEntry,
+              `expected editor contentDOM activeElement at t+0 too; saw t0=${JSON.stringify(t0)} t1000=${JSON.stringify(t1000)}`,
+            ).toBe(true);
           } finally {
             await app.close();
           }
@@ -328,7 +337,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "new-mode bind: no banner mounts during the bind window; caret stays focused",
+      "new-mode bind: no banner mounts during the bind window; focus stays on the editor",
       async () => {
         // Pins Spec [S01] from `tugplan-session-init-orchestration.md`:
         // for `sessionMode === "new"`, `deriveSessionCardBannerSpec`
@@ -336,7 +345,7 @@ describe.skipIf(!SHOULD_RUN)(
         // branch, so the JSONL-missing replay round-trip that fires
         // for every binding-land doesn't paint a "Loading session…"
         // banner with no referent. This in turn means the editor's
-        // caret claim from `cardDidActivate` is never interrupted by
+        // focus claim from `cardDidActivate` is never interrupted by
         // a banner-induced `inert`/blur cycle.
         //
         // Method: install a MutationObserver before the bind that
@@ -347,7 +356,7 @@ describe.skipIf(!SHOULD_RUN)(
         // every mutation and gives a monotonic, sample-free witness
         // that "the banner never mounted."
         //
-        // Also asserts the caret-presence claim from the focus
+        // Also asserts the first-responder claim from the focus
         // contract holds for the new-mode path — same expectations
         // as the test above, but explicitly under
         // `sessionMode: "new"` to document the path.
@@ -359,7 +368,6 @@ describe.skipIf(!SHOULD_RUN)(
             testName: "at0175-session-mount-focus-new-mode",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,
-            foreground: true,
           });
 
           try {
@@ -400,20 +408,20 @@ describe.skipIf(!SHOULD_RUN)(
               `expected no banner element in the DOM at end of bind window; saw ${banner.current}`,
             ).toBe(0);
 
-            // Focus contract: caret claimed without banner gate.
+            // Focus contract: focus claimed without banner gate.
             expect(
               focus.matchesPromptEntry,
               `expected editor contentDOM activeElement after new-mode bind; saw ${JSON.stringify(focus)}`,
             ).toBe(true);
             expect(focus.underCardId).toBe("A");
             expect(
-              focus.cmFocused,
-              `expected .cm-focused on .cm-editor for new-mode bind; saw ${JSON.stringify(focus)}`,
-            ).toBe(true);
+              focus.activeResponderId,
+              `expected the active element inside a registered responder after new-mode bind; saw ${JSON.stringify(focus)}`,
+            ).not.toBeNull();
             expect(
-              focus.caretCount,
-              `expected exactly one caret element rendered after new-mode bind; saw ${JSON.stringify(focus)}`,
-            ).toBe(1);
+              focus.firstResponderId,
+              `expected the chain's first responder to be the editor's responder after new-mode bind; saw ${JSON.stringify(focus)}`,
+            ).toBe(focus.activeResponderId);
           } finally {
             await app.close();
           }

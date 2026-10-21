@@ -6,7 +6,7 @@
  * folded through the session tap (⌃⌘Y), read by the composite and the
  * shell's record together.
  *
- * @foreground
+ * @foreground activation
  * @family row-09-fold
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/card-fold.ts

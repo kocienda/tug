@@ -6,7 +6,7 @@
  * pressed at its grab handle, a rail at its whole title bar. A Session card
  * draws its own chrome and is one view; `at0744` reads its drag.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugapp/Sources/BodyViewController.swift

@@ -6,7 +6,7 @@
  * Edit chords, ⌃⌘[ and ⌃⌘] page its column by post, and ⌘D starts and stops
  * dictation in its composer.
  *
- * @foreground
+ * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts

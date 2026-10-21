@@ -596,6 +596,35 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// hundreds.
     static let harnessBackgroundLevel = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
 
+    /// The harness's visible tier (`TUGAPP_HARNESS_VISIBLE=1`, pid mode only):
+    /// the launch needs a rendering viewport, not an active app. WebKit
+    /// suspends `requestAnimationFrame` in an occluded window, and the
+    /// background launch's window sits a level below normal where anything
+    /// covers it, so a test of frames, paint or motion read nothing there and
+    /// went foreground for a viewport it could have had without the screen.
+    static let harnessVisibleViewport = ProcessInfo.processInfo.environment["TUGAPP_HARNESS_VISIBLE"] == "1"
+
+    /// Whether the visible tier's occlusion switch took on the shell's web
+    /// view. When it did not — a WebKit without the SPI — `AppDelegate` falls
+    /// back to ordering the window front at normal level without activating.
+    private(set) var harnessRendersWhenCovered = false
+
+    /// Keep `webView` rendering while its window is covered, by turning off
+    /// WebKit's window-occlusion detection — the one input of
+    /// `WebViewImpl::isViewVisible` that reads `NSWindow.occlusionState`.
+    /// Private SPI (`_setWindowOcclusionDetectionEnabled:`), reached by
+    /// selector so a WebKit without it declines rather than crashes; accepted
+    /// for test mode only, and never called outside the visible tier. Returns
+    /// whether the switch was there to throw.
+    @discardableResult
+    static func keepRenderingWhenCovered(_ webView: WKWebView) -> Bool {
+        let setter = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+        guard webView.responds(to: setter), let imp = webView.method(for: setter) else { return false }
+        typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(imp, to: Setter.self)(webView, setter, false)
+        return true
+    }
+
     /// How long the splash may hold before the app says what it is waiting
     /// on. Twenty seconds is long enough that no healthy launch reaches it,
     /// even on a slow or heavily loaded machine — the recorded laps put a
@@ -752,6 +781,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         webView = clickThroughWebView
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        if MainWindow.harnessVisibleViewport {
+            harnessRendersWhenCovered = MainWindow.keepRenderingWhenCovered(webView)
+        }
         webView.allowsBackForwardNavigationGestures = false
 
         // The microphone, wired to the bridge. `audioDisabled` under the
@@ -1101,6 +1133,21 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         bodies?.cancelGesture()
         super.resignKey()
     }
+
+    #if DEBUG
+    /// The no-responder beep's one chokepoint. AppKit raises the beep for a
+    /// `keyDown:` that reaches the end of the responder chain unhandled by
+    /// calling this. The test-mode tripwire records it and swallows it so the
+    /// run stays silent; outside the harness it is not armed, so the beep plays
+    /// for a real user. See `TestHarness/BeepTripwire.swift`.
+    override func noResponder(for eventSelector: Selector) {
+        if eventSelector == #selector(NSResponder.keyDown(with:)),
+           BeepTripwire.shared.record(origin: "noResponder(for: keyDown:)") {
+            return
+        }
+        super.noResponder(for: eventSelector)
+    }
+    #endif
 
     /// Make the WKWebView the window's first responder so keyboard focus lands
     /// inside the web content. A menu key equivalent (⌘L) fires even when the

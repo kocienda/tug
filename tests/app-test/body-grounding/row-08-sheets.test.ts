@@ -20,7 +20,7 @@
  * none of the connection-scoped stores the shell boots, so its shade
  * waited on a project scan forever.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/cards/session-history/session-history-view.tsx

@@ -26,7 +26,7 @@
  * body holding the keyboard, or one of the card's stops in the shell, the
  * shell holding it.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/focus-walk-edge.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts

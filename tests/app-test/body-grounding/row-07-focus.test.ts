@@ -24,7 +24,7 @@
  * keyboard to the card focused before it. The slash popup and the session
  * picker are the Session card's own surfaces.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-publisher.ts
  * @covers tugdeck/src/lib/keyboard-yield.ts

@@ -23,7 +23,7 @@
  * settled with the last turn in it and its composer holding the draft, and the
  * time from the choosing to its own first paint is the row's cold reading.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-cards-store.ts
  * @covers tugapp/Sources/BodyViewController.swift

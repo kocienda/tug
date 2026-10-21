@@ -13,7 +13,7 @@
  * critical alone takes it. The Release row stands at its default, fifteen
  * minutes, and a press on another delay is what it then shows.
  *
- * @foreground
+ * @foreground activation
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugdeck/src/components/layout/layout-card.tsx
  * @covers tugdeck/src/lib/body-census.ts

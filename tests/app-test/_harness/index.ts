@@ -44,6 +44,7 @@ import {
 import { bodyEvidenceCause, selectorProbe, selectorsQueried, shellTimeoutCause, type BodyEvidence } from "./timeout-cause";
 import { shortToken, tmuxSocketLabel } from "./fnv1a";
 import { unionReachMaps, type ReachMap } from "./reach-map";
+import { type BeepReport, recordBeeps } from "./beep-report";
 import { onTestRunEnd } from "./test-cleanup";
 import { RpcClient, WAIT_CEILING_MS, type RpcTransport } from "./rpc";
 import { scopeToCard } from "./scope-to-card";
@@ -59,6 +60,7 @@ import type {
   LedgerSeedSpec,
   MenuItemSnapshot,
   MenuItemState,
+  WindowState,
   MenuItemPerformed,
   MemoryPressureLevel,
   NativeModifier,
@@ -124,6 +126,7 @@ export { TUGCODE_TRANSCRIPT_SCHEMA_VERSION } from "./client";
 export type {
   AccessibilityStatus,
   MenuItemState,
+  WindowState,
   MenuItemPerformed,
   LedgerSeedFileEvent,
   LedgerSeedSession,
@@ -226,8 +229,12 @@ export type {
  * `1.19.0`: adds `simulateMemoryPressure` — the body controller is told a
  * memory-pressure level as its dispatch source would tell it. Additive;
  * major stays `1`.
+ *
+ * `1.20.0`: adds `beepReport` — the no-responder beeps the test-mode tripwire
+ * caught since the last read, each with its origin, verb and stack. Additive;
+ * major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.19.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.20.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -274,6 +281,8 @@ interface ResolvedLaunch {
   expectedSurfaceVersion: string;
   skipAccessibilityPreflight: boolean;
   instanceId: string;
+  /** The `testName` the test gave `launchTugApp`, when it gave one. */
+  testName: string | null;
   /**
    * True when `instanceId` was auto-minted (`<prefix>-<uuid>`) rather
    * than supplied by the caller. An auto-minted id is single-use — no
@@ -897,6 +906,17 @@ export class App {
    */
   menuItemState(identifier: string): Promise<MenuItemState> {
     return client.menuItemState(this as HarnessCaller, identifier);
+  }
+
+  /**
+   * What the keyboard would find in the app: whether the harness window is
+   * key, whether the app is active, and the first responder's class. A
+   * pid-mode launch is inactive with no key window; the first responder is
+   * where the host starts the chain walk that lets a ⌘ chord and an
+   * Edit-menu item resolve in the background.
+   */
+  windowState(): Promise<WindowState> {
+    return client.windowState(this as HarnessCaller);
   }
 
   /**
@@ -1576,6 +1596,7 @@ export class App {
   async quitGracefully(opts?: { timeoutMs?: number }): Promise<void> {
     if (this.closed) return;
     await this.dumpReach();
+    await this.drainBeeps();
     // Fire the RPC. The Swift handler writes its `ok` response BEFORE
     // scheduling the terminate, so under normal flow the call resolves
     // cleanly. If the kernel buffer hasn't drained the response by the
@@ -1874,6 +1895,26 @@ export class App {
   }
 
   /**
+   * Read the app's beep tripwire and fold it into the file's running total,
+   * before the process is torn down. The preload's `afterAll` turns a non-zero
+   * total into the file's failure (`beep-report.ts`). Each beep is stamped
+   * with this launch — its `testName`, else its instance id — so a file that
+   * launches several apps says which one beeped. Best-effort: a report
+   * the app cannot give — an older build with no `beepReport` verb, a socket
+   * already closing — folds in nothing, because a missing tripwire is not a
+   * beep. Called from every teardown that ends the process, never from
+   * `appReload`, whose app process keeps its tripwire buffer across the reload.
+   */
+  private async drainBeeps(): Promise<void> {
+    try {
+      const report = await this.rpcCall<BeepReport>("beepReport", {});
+      recordBeeps(report, this.resolvedLaunch.testName ?? this.instanceId);
+    } catch {
+      // No tripwire to read (older app, or the connection is already gone).
+    }
+  }
+
+  /**
    * SIGTERM the subprocess, wait out the shared `tug-quiesce` teardown
    * deadline for exit, SIGKILL on timeout. Unlinks the socket file,
    * flushes the log stream, and detaches process-level signal handlers.
@@ -1882,6 +1923,7 @@ export class App {
   async close(): Promise<void> {
     if (this.closed) return;
     await this.dumpReach();
+    await this.drainBeeps();
     this.closed = true;
     // Primary teardown: signal the GUI Tug.app process by PID. The app
     // has no SIGTERM handler, so SIGTERM ends it promptly, and its
@@ -2570,6 +2612,7 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
   const baseEnv: Record<string, string> = {
     ...forwardableEnv(),
     TUGAPP_NATIVE_EVENT_MODE: opts.foreground ? "session" : "pid",
+    ...(opts.visible && !opts.foreground ? { TUGAPP_HARNESS_VISIBLE: "1" } : {}),
     ...(opts.persistInTestMode ? { TUGAPP_PERSIST_IN_TEST_MODE: "1" } : {}),
     ...(opts.restoreInTestMode ? { TUGAPP_RESTORE_IN_TEST_MODE: "1" } : {}),
     ...(opts.keepSetup ? { TUGAPP_TEST_KEEP_SETUP: "1" } : {}),
@@ -2632,6 +2675,7 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
     expectedSurfaceVersion: opts.expectedSurfaceVersion ?? EXPECTED_SURFACE_VERSION,
     skipAccessibilityPreflight: opts.skipAccessibilityPreflight ?? false,
     instanceId,
+    testName: opts.testName ?? null,
     ephemeralInstanceId,
   };
 }

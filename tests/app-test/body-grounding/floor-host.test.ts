@@ -11,7 +11,7 @@
  * deck root's corner plus whole 24 px cells at the deck's zoom — none extra,
  * and none of the lattice's lines inside the crop missing.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/globals.css
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugapp/Sources/BodyViewController.swift

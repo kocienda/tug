@@ -112,14 +112,35 @@ async function keyboardFacts(app: App, card: string): Promise<string> {
 }
 
 /**
- * Dismiss whatever an item raised and give `card` the keyboard again.
+ * Whether the page holding the keyboard has something an Escape would
+ * dismiss. The key goes to the window's first responder — a body page when
+ * one holds it, else the shell — and that page's Escape ladder claims the key
+ * only off its base focus mode or with the manual focus bit on; at the base
+ * mode the key is left to the browser, WKWebView hands it back up the
+ * responder chain, and AppKit beeps at it. So an Escape is posted only where
+ * it has a taker: most items raise nothing, and a bare Escape after each of
+ * them was the row's beep.
+ */
+async function escapeHasTaker(app: App): Promise<boolean> {
+  const holder = (await app.bodies()).find((b) => b.firstResponder && b.cardId !== null);
+  const page = holder?.cardId == null ? app : app.body(holder.cardId);
+  const base = await page.evalJS<boolean | null>("window.__tug.focusModeIsBase()").catch(() => null);
+  const manual = await page.evalJS<boolean | null>("window.__tug.kbfManual()").catch(() => null);
+  return base === false || manual === true;
+}
+
+/**
+ * Dismiss whatever an item raised, if it raised anything, and give `card` the
+ * keyboard again.
  * Returns whether its body took it back, with what the shell and the host
  * said when it did not.
  */
 async function settleAfter(app: App, card: string): Promise<{ handedBack: boolean; facts: string }> {
-  await app.nativeKey("Escape");
-  await Bun.sleep(150);
-  if (await app.evalJS<boolean>(popoverPresent)) await app.nativeKey("Escape");
+  if (await escapeHasTaker(app)) {
+    await app.nativeKey("Escape");
+    await Bun.sleep(150);
+    if (await app.evalJS<boolean>(popoverPresent)) await app.nativeKey("Escape");
+  }
   // A surface the item raised or revealed may be settling onto the deck.
   await Bun.sleep(600);
   // An item that folded the card leaves its body hidden, and a hidden view holds

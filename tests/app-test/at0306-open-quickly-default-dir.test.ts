@@ -67,7 +67,7 @@
  * `describe.skipIf(!SHOULD_RUN)`. CI and `bun x tsc --noEmit` runs without
  * `TUGAPP_APP_TEST=1` skip every test.
  *
- * @foreground
+ * @foreground lifecycle
  * @covers tugdeck/src/components/chrome/open-quickly-overlay.tsx
  * @covers tugdeck/src/lib/overlay-shell.ts
  * @covers tugdeck/src/lib/default-workspace-store.ts

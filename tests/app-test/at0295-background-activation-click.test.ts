@@ -35,7 +35,7 @@
  * which is false whenever a card's body holds the keyboard, as card B's does
  * once the click lands.
  *
- * @foreground
+ * @foreground activation
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/lib/activation-click-bridge.ts

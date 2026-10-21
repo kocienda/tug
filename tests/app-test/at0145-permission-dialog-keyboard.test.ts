@@ -34,7 +34,13 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @foreground
+ * Foreground for activation: the dialog's trap and its key view are read only
+ * after the body page reports `document.hasFocus()`, which WebKit ties to the
+ * application being active — an inactive harness window never reports it. (The
+ * "(deactivated) editor" above is the trap's disabled editor, not app
+ * deactivation.)
+ *
+ * @foreground activation
  * @covers tugdeck/src/components/tugways/chrome/session-permission-dialog.tsx
  * @covers tugdeck/src/components/tugways/focus-manager.ts
  * @covers tugdeck/src/lib/permission-mode.ts

@@ -24,7 +24,7 @@
  * of Claude?" confirm in the overlay, which is cancelled — guarded on the button's words,
  * the way at0598 guards it, so nothing ever logs the machine out.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/overlay/overlay-surface-drawer.ts
  * @covers tugdeck/src/lib/surface-relay.ts
  * @covers tugdeck/src/lib/surface-mirror.ts

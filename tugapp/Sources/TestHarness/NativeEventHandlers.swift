@@ -17,16 +17,31 @@ import WebKit
 //
 // The session-tap mode is the user's keyboard: the app is activated and its
 // window made key before a key is posted, so the event reaches the window
-// through WindowServer, AppKit's key-equivalent scan offers it to the first
-// responder's view first, a WKWebView forwards it to its page, and only an
-// unconsumed equivalent reaches the menu — the order the app takes in the
-// field. The pid mode (`postToPid`) exists so a run can proceed without
-// taking the developer's screen, and it bypasses that order: an inactive app
-// is handed the event with no WindowServer routing and no activation, so
-// which view answers a chord there says nothing about which view answers it
-// for a user. **Pid mode is never evidence for a chord or a menu command.**
-// A test of either launches `foreground: true` (session mode) and asserts the
-// effect in the page that should have received it.
+// through WindowServer and AppKit routes it as it does in the field. The pid
+// mode (`postToPid`) exists so a run can proceed without taking the
+// developer's screen: the app stays an accessory and inactive, and an
+// inactive app cannot hold a key window — `makeKey()` leaves `isKeyWindow`
+// false and `NSApp.keyWindow` nil (the `windowState` verb reads it; the
+// native smoke pins it). What the mode skips is the WindowServer hop and the
+// activation. What it delivers is the same `NSEvent` to the same window, and
+// the host gives that window the two things a key window would have supplied
+// (`AppDelegate.swift`): a local `keyDown` monitor offers each ⌘ chord to the
+// window's views before the main menu — the order `-[NSApplication
+// sendEvent:]` takes for a key window — and `sendToKeyChain` resolves a
+// nil-target Edit action (cut, copy, paste, delete, select-all, undo, redo)
+// from the window's own first responder when AppKit names no key window. So
+// a chord or a menu command read in pid mode takes the view-then-menu order
+// and the first-responder action path the user's takes, and a test of either
+// runs backgrounded and asserts the effect in the page that should have
+// received it.
+//
+// The one evidence rule that survives: a test of WindowServer routing itself,
+// or of activation itself — resign and become-active cycles, key-window
+// status, `document.hasFocus()`, which WebKit ties to the application being
+// active — launches `foreground: true` and declares `@foreground` with its
+// reason; everything else does not. A reading of frames or paint that needs
+// only a window WebKit will render launches `visible: true` (`@visible`) and
+// still takes nothing from the user.
 //
 // ## Why this shape
 //
@@ -1189,7 +1204,8 @@ final class NativeEventHandlers {
     /// a window that already is stays as it is, first responder included.
     ///
     /// A no-op in pid mode, for `activateSelf`'s reason — and because a key
-    /// delivered there is not evidence for a chord anyway (see the header).
+    /// delivered there already takes the view-then-menu order the user's does
+    /// (see the header).
     private func activateForKeyboard() {
         if postToOwnPid { return }
         let work = {

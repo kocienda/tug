@@ -20,7 +20,7 @@
  * holders and the card's placeholder. The shell's pane is the arrangement's
  * model, and nothing in it is seen.
  *
- * @foreground
+ * @visible
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
  * @covers tugdeck/src/components/tugways/tug-pane.css
@@ -218,7 +218,7 @@ describe.skipIf(!SHOULD_RUN)("at0747: no frame shows the canvas through a card",
   test(
     "the front card dragged across two neighbours into a settle: no captured frame shows canvas or grid inside a card's pane",
     async () => {
-      const app = await launchTugApp({ testName: "at0747-no-hole", foreground: true });
+      const app = await launchTugApp({ testName: "at0747-no-hole", visible: true });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: FRONT });
         const hello = cardKind("hello");

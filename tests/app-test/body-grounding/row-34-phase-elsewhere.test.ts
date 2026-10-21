@@ -10,7 +10,7 @@
  * look here: with the Session card streaming, the Layout miniature's hover
  * over that card's slot reads Streaming with a running dot, never Idle.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/body-arrangement.ts
  * @covers tugdeck/src/lib/card-activity-elsewhere.ts
  * @covers tugdeck/src/lib/code-session-store/use-session-phase.ts

@@ -14,7 +14,7 @@
  * page says hello, the request is sent again, and the dialog stands in the new
  * page. Answered there, the caller exits with the chosen option's value.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/pending-ask-store.ts
  * @covers tugdeck/src/bus/request.ts
  * @covers tugdeck/src/lib/body-shell.ts

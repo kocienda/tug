@@ -50,12 +50,10 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * Foreground: ⌘Z are Edit-menu key equivalents, so AppKit resolves
- * them against the main menu before the web view sees a keydown. A
- * background instance has no key window for that resolution to land in,
- * and the chord dies there.
- *
- * @foreground
+ * Background: a pid-mode launch has no key window — AppKit refuses one to an
+ * inactive app — so the host resolves the Edit actions from its window's own
+ * first responder (`AppDelegate.sendToKeyChain`), and ⌘Z and the menu items
+ * take the path they take for a user, with nobody's screen.
  *
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MenuBarBuilder.swift
@@ -173,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "text input focused: Cut/Copy/Paste/Select All enable; Find stays off",
     async () => {
-      const app = await launchTugApp({ testName: "at0174-textinput", foreground: true });
+      const app = await launchTugApp({ testName: "at0174-textinput" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: paneOf("gallery-input"), focusCardId: "A" });
@@ -311,7 +309,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "native input: Undo rides the web view's NSUndoManager, cleared on blur",
     async () => {
-      const app = await launchTugApp({ testName: "at0174-nativeundo", foreground: true });
+      const app = await launchTugApp({ testName: "at0174-nativeundo" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: paneOf("gallery-input"), focusCardId: "A" });

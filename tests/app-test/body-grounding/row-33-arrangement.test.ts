@@ -20,7 +20,7 @@
  *   raises its confirm in the body, whose answer deletes the workspace in the
  *   shell.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/cards/cards-card-registration.tsx
  * @covers tugdeck/src/components/layout/layout-card-registration.tsx
  * @covers tugdeck/src/lib/card-close-commands.ts

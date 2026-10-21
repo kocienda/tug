@@ -14,7 +14,7 @@
  * A Session card holding nothing closes without asking, which is the rule,
  * so the card is given a draft first.
  *
- * @foreground
+ * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift

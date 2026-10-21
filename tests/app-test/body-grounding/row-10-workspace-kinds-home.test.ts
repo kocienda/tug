@@ -7,7 +7,7 @@
  * workspace — the one the workspace was made with, for a rail, or opened
  * there.
  *
- * @foreground
+ * @foreground activation
  * @family row-10-workspace
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts

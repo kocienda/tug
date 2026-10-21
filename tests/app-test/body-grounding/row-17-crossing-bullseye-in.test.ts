@@ -8,7 +8,7 @@
  * body's box, with `crossingReady` within a display period of the first
  * moving beat and the transcript pinned to its bottom before and after.
  *
- * @foreground
+ * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift

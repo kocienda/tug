@@ -10,8 +10,10 @@ the real app agrees. Every card is a body; there is no switch.
   launches `foreground: true` and declares `@foreground`, so `nativeKey` and
   `nativeType` post to the session event tap after activating the app and
   making its window key — the route the user's keyboard takes, through AppKit's
-  key-equivalent scan and the first responder's page. The pid mode the rest of
-  the corpus runs in is never evidence for a chord.
+  key-equivalent scan and the first responder's page. The rest of the corpus
+  reads its chords in pid mode, where the host gives the inactive window the
+  key window's view-then-menu order (`AppDelegate.swift`); the bar's rule is
+  stricter because a row is green only on WindowServer's own routing.
 - **Menu commands are performed, not dispatched.** `app.performMenuItem(id)`
   finds the real `NSMenuItem`, validates it as AppKit does at open, and sends
   its action through `NSApp.sendAction`, so validation, the action and

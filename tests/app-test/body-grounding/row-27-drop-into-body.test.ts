@@ -24,7 +24,7 @@
  *   card's page, the shell's page takes no drop, and the jot's text lands in
  *   the Session body's composer.
  *
- * @foreground
+ * @foreground activation
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugapp/Sources/BodyGeometry.swift
  * @covers tugdeck/src/components/tugways/use-composer-drop.ts

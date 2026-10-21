@@ -41,7 +41,6 @@
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugdeck/src/lib/flash-pane-border.ts
  * @covers tugdeck/src/body/body-verbs.ts
- * @foreground
  */
 
 import { describe, expect, test } from "bun:test";
@@ -262,17 +261,17 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
   );
 
   /**
-   * `foreground: true` because the chord is menu-promoted: AppKit resolves a
-   * key equivalent before the web view sees the keydown, and that scan needs
-   * the app to be active. A background run would report a silent no-op as a
-   * failure of the centering, which it would not be.
+   * The chord is menu-promoted: the page declines it, the main menu resolves
+   * the key equivalent, and the item's action is a control the host sends to
+   * the deck. A pid-mode launch has no key window — AppKit refuses one to an
+   * inactive app — and the host's own action needs none, so the chord lands
+   * in the background with nobody's screen.
    */
   test(
     "the chord commits the same centering the strip's own click does",
     async () => {
       const app = await launchTugApp({
         testName: "at0466-go-to-slot-chord",
-        foreground: true,
       });
       try {
         // Four cards in a five-up, so the last place is a held-open one. The

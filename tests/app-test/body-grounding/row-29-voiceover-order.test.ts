@@ -24,7 +24,7 @@
  * The overlay page stands over every card and is read last, after the
  * cards: what it holds covers the deck ([D216]).
  *
- * @foreground
+ * @foreground activation
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugdeck/src/lib/card-placement.ts

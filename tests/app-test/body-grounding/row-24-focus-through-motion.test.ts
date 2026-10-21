@@ -16,7 +16,7 @@
  * host is read throughout: the mover's body is first responder at every
  * reading. At rest the composer holds exactly what was typed.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/keyboard-yield.ts
  * @covers tugapp/Sources/BodyBeats.swift

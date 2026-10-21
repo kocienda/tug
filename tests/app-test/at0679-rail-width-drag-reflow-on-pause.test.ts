@@ -17,10 +17,10 @@
  * classed by that last figure, so the claims hold whatever the harness's
  * timing between RPCs happens to be.
  *
- * **The window is visible** (`foreground`): a covered app-test window gets
+ * **The window renders** (`visible`): a covered app-test window otherwise gets
  * no animation frames, and the preview is written in one.
  *
- * @foreground
+ * @visible
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
  * @covers tugdeck/src/components/overview/overview-card-registration.tsx
  */
@@ -221,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({
           testName: "at0679-rail-width-drag-reflow-on-pause",
-          foreground: true,
+          visible: true,
         });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });

@@ -24,7 +24,7 @@
  * shell sends it. Which stores a body attaches at all is enumerated by
  * `body/__tests__/body-stores.test.ts`.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  * @covers tugdeck/src/lib/arc-session-index.ts

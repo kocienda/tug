@@ -262,6 +262,26 @@ describe.skipIf(!SHOULD_RUN)("phase A native-gesture smoke", () => {
     }
   });
 
+  test("pid mode: the app stays inactive, has no key window, and its window has a first responder", async () => {
+    // The background launch never activates, and AppKit refuses key status
+    // to an inactive app's window (`makeKey()` leaves it non-key — measured
+    // 2026-10-21). So a nil-target action send has no key window to resolve
+    // against; the host walks the chain from this window's own first
+    // responder instead (`AppDelegate.sendToKeyChain`), which is what lets
+    // a ⌘ chord and an Edit-menu item reach the web view in the background.
+    // This pins the three facts that walk rests on.
+    const app = await launchTugApp({ testName: "smoke-native-key-window" });
+    try {
+      await waitForPaintSettled(app);
+      const state = await app.windowState();
+      expect(state.isActive, `the app must stay inactive; saw ${JSON.stringify(state)}`).toBe(false);
+      expect(state.appKeyWindow, `an inactive app names no key window; saw ${JSON.stringify(state)}`).toBe(false);
+      expect(state.firstResponder, `the window must have a first responder to walk from; saw ${JSON.stringify(state)}`).not.toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
   test("Cmd+A: nativeKey('a', ['cmd']) delivers trusted keydown with metaKey=true", async () => {
     // Phase-A fidelity thesis, modifier edition: the CGEvent-posted
     // keystroke must arrive at WebKit as
@@ -295,6 +315,15 @@ describe.skipIf(!SHOULD_RUN)("phase A native-gesture smoke", () => {
       // overlay, propagation continues and the event reaches our
       // listener. The listener fires once and stamps `isTrusted` +
       // `metaKey` + `code` onto a global the test reads afterward.
+      //
+      // The listener also claims the key. A ⌘A nobody claims is handed
+      // back to AppKit: WebKit reports the keydown unhandled, resends it,
+      // Edit › Select All validates dark (no Tug responder for a bare
+      // input), and the key falls off the responder chain into the
+      // no-responder beep — a red under the harness's silence contract.
+      // Every text control in Tug claims its own ⌘A through the text-input
+      // substrate; this overlay input is the one that has none, so it
+      // claims the key itself, the way the substrate would.
       await app.evalJS(`
         window.__smokeCmdAResult = null;
         document.getElementById("smoke-cmda-input").addEventListener(
@@ -309,6 +338,7 @@ describe.skipIf(!SHOULD_RUN)("phase A native-gesture smoke", () => {
                 e.code === "ControlLeft" || e.code === "ControlRight") {
               return;
             }
+            if (e.metaKey && e.code === "KeyA") e.preventDefault();
             if (window.__smokeCmdAResult !== null) return;
             window.__smokeCmdAResult = {
               isTrusted: e.isTrusted,

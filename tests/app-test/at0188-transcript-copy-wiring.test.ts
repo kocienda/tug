@@ -39,9 +39,10 @@
  * exercise a copy at all, and WebKit answers an unselectable selection by
  * writing an EMPTY pasteboard rather than by failing loudly.
  *
- * Foreground: the chord and the pasteboard reads want a key window.
- *
- * @foreground
+ * Background: a pid-mode launch has no key window — AppKit refuses one to an
+ * inactive app — so the host resolves Edit ▸ Copy from its window's own
+ * first responder (`AppDelegate.sendToKeyChain`), and ⌘C reaches the system
+ * pasteboard as it does for a user, with nobody's screen.
  *
  * @covers tugdeck/src/lib/transcript-export.ts
  * @covers tugdeck/src/lib/copy-as-plain-text.ts
@@ -261,7 +262,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "inline-accurate, atomic-widen, and cross-block selections via ⌘C",
       async () => {
-        const app = await launchTugApp({ testName: "at0188-transcript-copy-wiring", foreground: true });
+        const app = await launchTugApp({ testName: "at0188-transcript-copy-wiring" });
         try {
           await app.seedDeckState({
             state: {

@@ -22,7 +22,7 @@
  * read the same way: the Overview's row menu on a post, and its composer's
  * context menu.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/tugways/tug-editor-context-menu.tsx
  * @covers tugdeck/src/components/tugways/chrome/session-route-indicator-badge.tsx
  */

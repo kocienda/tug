@@ -16,7 +16,7 @@
  * - **Its surface** — the body paints the rail's sunken surface, read off the
  *   composite.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/jots/jots-card-registration.tsx
  * @covers tugdeck/src/components/jots/jots-card.tsx
  */

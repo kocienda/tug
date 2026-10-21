@@ -8,7 +8,7 @@
  * is opened behind it, inside the second the spare takes to be replaced,
  * so it is made cold.
  *
- * @foreground
+ * @foreground activation
  * @family row-01-arrival
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts

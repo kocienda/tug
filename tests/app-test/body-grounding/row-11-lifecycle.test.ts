@@ -40,7 +40,7 @@
  * asks in the Text body, and Cancel keeps the workspace. Neither writes the
  * file.
  *
- * @foreground
+ * @foreground activation
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts

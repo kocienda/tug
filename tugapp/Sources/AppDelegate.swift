@@ -344,8 +344,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // The level is what actually holds the line — AppKit raises the
             // window on click by a route no ordering override sees, and a raise
             // inside a below-normal level stays below every ordinary window.
-            window.level = MainWindow.harnessBackgroundLevel
-            window.orderBack(nil)
+            //
+            // The visible tier asks for a rendering viewport, not the screen.
+            // With the web views' occlusion detection off the window renders
+            // where the background launch leaves it, so the ordering is the
+            // same; only a WebKit without that switch gets the fallback — the
+            // window at normal level, ordered front without activation, so
+            // the user keeps keyboard, cursor and key window and only sees it.
+            if MainWindow.harnessVisibleViewport, !window.harnessRendersWhenCovered {
+                window.level = .normal
+                window.orderFrontRegardless()
+            } else {
+                window.level = MainWindow.harnessBackgroundLevel
+                window.orderBack(nil)
+            }
+            // Ask for key status without activating. AppKit refuses it to an
+            // inactive app's window — `isKeyWindow` reads false afterwards
+            // and `NSApp.keyWindow` stays nil (measured 2026-10-21) — and
+            // activating is what the mode exists to avoid. The call still
+            // matters: with it, a click into a body's web view promotes the
+            // clicked responder (the page sees its focus), and without it
+            // the click lands and nothing is promoted (measured the same
+            // day, at0352 with and without). A nil-target action send has
+            // no key window to resolve against either way; see
+            // `sendToKeyChain(_:from:)` for how the Edit actions reach the
+            // first responder.
+            window.makeKey()
+            // And give the window's views every ⌘ chord before the menu, the
+            // order `-[NSApplication sendEvent:]` takes for a key window: it
+            // asks the key window's views first and the main menu only when
+            // they decline. With no key window it asks the menu first, and
+            // a lit item — Edit ▸ Select All over a focused editor — fires
+            // and consumes the chord before the web view ever sees it, so
+            // a ⌘A the page would have claimed never arrives. The monitor
+            // puts the harness window in the key window's seat for that one
+            // question; a chord the views decline goes on to the menu as
+            // before, and a chord WebKit hands back unhandled re-enters by
+            // `sendEvent`, which no monitor sees, so nothing loops.
+            harnessChordMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard NSApp.keyWindow == nil,
+                      event.modifierFlags.contains(.command),
+                      let window = self?.window else { return event }
+                return window.performKeyEquivalent(with: event) ? nil : event
+            }
         } else {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -377,6 +418,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // the Unix-socket listener and hand it the live WKWebView.
         // All gated by `#if DEBUG`; zero bytes ship to release.
         if let socketPath = TestHarnessBridge.envSocketPath() {
+            // The harness contract is silence: a beep during a run is a red.
+            // Arm the tripwire so `MainWindow.noResponderFor` counts and
+            // swallows the no-responder beep instead of letting it play.
+            BeepTripwire.shared.arm()
             let bridge = TestHarnessBridge(socketPath: socketPath)
             bridge.start()
             bridge.attach(webView: window.testHarnessWebView())
@@ -1449,7 +1494,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     //     so the async control-frame round-trip is fine.
     @objc func performUndo(_ sender: Any?) {
         if menuState.edit.nativeUndoToken != 0 {
-            NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
+            sendToKeyChain(Selector(("undo:")), from: sender)
         } else {
             sendControl("undo")
         }
@@ -1457,7 +1502,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func performRedo(_ sender: Any?) {
         if menuState.edit.nativeUndoToken != 0 {
-            NSApp.sendAction(Selector(("redo:")), to: nil, from: sender)
+            sendToKeyChain(Selector(("redo:")), from: sender)
         } else {
             sendControl("redo")
         }
@@ -1471,15 +1516,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // have done: a synchronous responder-chain send that the WKWebView
     // services natively (system pasteboard, in-gesture clipboard).
     @objc func performCut(_ sender: Any?) {
-        NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: sender)
+        sendToKeyChain(#selector(NSText.cut(_:)), from: sender)
     }
 
     @objc func performCopy(_ sender: Any?) {
-        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: sender)
+        sendToKeyChain(#selector(NSText.copy(_:)), from: sender)
     }
 
     @objc func performPaste(_ sender: Any?) {
-        NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: sender)
+        sendToKeyChain(#selector(NSText.paste(_:)), from: sender)
     }
 
     // Edit ▸ Copy as Plain Text — a chain-action round-trip. Unlike Copy,
@@ -1491,12 +1536,48 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func performDelete(_ sender: Any?) {
-        NSApp.sendAction(#selector(NSText.delete(_:)), to: nil, from: sender)
+        sendToKeyChain(#selector(NSText.delete(_:)), from: sender)
     }
 
     @objc func performSelectAll(_ sender: Any?) {
-        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: sender)
+        sendToKeyChain(#selector(NSText.selectAll(_:)), from: sender)
     }
+
+    /// Send `action` down the key window's responder chain, the way a menu
+    /// item with a nil target is sent: `NSApp.sendAction(_:to: nil, from:)`.
+    ///
+    /// The harness's pid mode has no key window and cannot have one — AppKit
+    /// refuses key status to an inactive app's window, and activating is what
+    /// the mode exists to avoid — so a nil-target send there resolves against
+    /// nothing and the action is lost while the item reads enabled. The
+    /// harness window is the only window, so when AppKit names no key window
+    /// in that mode the walk starts at the window's own first responder and
+    /// follows `nextResponder`, which is the chain the key window's would be;
+    /// what the walk does not reach falls through to the nil-target send,
+    /// which still covers the app and its delegate. Outside pid mode, or with
+    /// a key window present, this is the nil-target send and nothing else.
+    @discardableResult
+    private func sendToKeyChain(_ action: Selector, from sender: Any?) -> Bool {
+        if NSApp.keyWindow == nil, AppDelegate.harnessPidMode, let window = window {
+            var responder = window.firstResponder
+            while let r = responder {
+                if r.responds(to: action) {
+                    return NSApp.sendAction(action, to: r, from: sender)
+                }
+                responder = r.nextResponder
+            }
+        }
+        return NSApp.sendAction(action, to: nil, from: sender)
+    }
+
+    /// `TUGAPP_NATIVE_EVENT_MODE=pid`: the harness drives the app without
+    /// ever activating it. See `MainWindow.harnessBackgroundLevel`.
+    static let harnessPidMode =
+        ProcessInfo.processInfo.environment["TUGAPP_NATIVE_EVENT_MODE"] == "pid"
+
+    /// Pid mode's ⌘-chord monitor (see the launch path); held so it lives as
+    /// long as the app does.
+    private var harnessChordMonitor: Any?
 
     // Edit ▸ Paste as Quote / Paste as Plain Text — chain-action
     // round-trips. Unlike Cut/Copy/Paste, these do NOT re-dispatch a

@@ -12,7 +12,7 @@
  * with its draft in its composer: the time trigger rides the same eviction
  * and the same arrival as pressure (row 38).
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/evict-after-pref.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugapp/Sources/BodyViewController.swift

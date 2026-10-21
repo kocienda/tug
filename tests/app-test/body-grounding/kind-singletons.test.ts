@@ -25,7 +25,7 @@
  * - **Each** body paints the content pane's surface, read off the composite,
  *   and asked the deck for nothing only the shell answers.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/devtools/devtools-card.tsx
  * @covers tugdeck/src/components/devtools/telemetry-inspector.tsx
  * @covers tugdeck/src/components/tugways/cards/settings-card.tsx

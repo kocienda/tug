@@ -12,7 +12,7 @@
  * standing content) and which tab is lit (by the active tab's colour): the
  * two must name the same card.
  *
- * @foreground
+ * @visible
  * @covers tugdeck/src/lib/pane-chrome-projection.ts
  * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugapp/Sources/BodyViewController.swift
@@ -48,7 +48,7 @@ describe.skipIf(!SHOULD_RUN)("at0746: a tab switch shows its own tab", () => {
     "no frame of a tab switch shows one card's content under the other card's tab",
     async () => {
       const stubDir = stubDirectory();
-      const app = await launchTugApp({ testName: "at0746-tabs", foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: "at0746-tabs", visible: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         await app.seedDeckState({ state: sessionPaneDeck([A, B]), focusCardId: A });
         await spawnWithTranscript(app, stubDir, A);

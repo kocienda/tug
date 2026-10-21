@@ -23,14 +23,13 @@
  *
  * A link that lights up therefore came from the pasteboard, not from the deck.
  *
- * Foreground: ⌘V is an Edit-menu key equivalent, so AppKit resolves it against
- * the main menu before the web view sees a keydown, and a background instance
- * has no key window for that resolution to land in. The editor-leaf responder
- * route is not an alternative here — a headless run cannot make an in-list
- * editor the chain leaf. The COPY half needs no chord (the row's own Copy
- * button is a click), so the chord is confined to the one step that needs it.
- *
- * @foreground
+ * Background: ⌘V is an Edit-menu key equivalent, and a pid-mode launch has
+ * no key window — AppKit refuses one to an inactive app — so the host
+ * resolves Paste from its window's own first responder
+ * (`AppDelegate.sendToKeyChain`), and the chord takes the path it takes for
+ * a user, with nobody's screen. The COPY half needs no chord (the row's own
+ * Copy button is a click), so the chord is confined to the one step that
+ * needs it.
  *
  * Asserts:
  *  - the pasted text lands in the jot (the ordinary paste still works);
@@ -137,7 +136,6 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           testName: "at0418-jot-origin-provenance",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
-          foreground: true,
         });
         const sessionA = app.body("A");
         const jots = kindBody(app, "jots");

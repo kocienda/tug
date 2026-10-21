@@ -27,7 +27,7 @@
  * - **The latch, body key.** With the body holding the keyboard, Shift held
  *   lands on the body's root from its own key events, and the release clears it.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/modifier-latch.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts

@@ -155,7 +155,13 @@ final class TestHarnessConnection {
     /// a memory-pressure level as the dispatch source would tell it, so a
     /// row can drive eviction without real pressure. Additive; major stays
     /// `1`.
-    static let surfaceVersion = "1.19.0"
+    ///
+    /// `1.20.0`: adds `beepReport` — the no-responder beeps the test-mode
+    /// tripwire caught since the last read, each with its origin, the last
+    /// harness verb, and a trimmed stack — and `windowState`, the harness
+    /// window's key status, the app's active status, and the first
+    /// responder's class. Additive; major stays `1`.
+    static let surfaceVersion = "1.20.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -218,9 +224,16 @@ final class TestHarnessConnection {
             return
         }
 
+        // Remember what the harness last asked, so a beep the tripwire catches
+        // can name the verb that provoked it.
+        BeepTripwire.shared.noteVerb(method)
+
         switch method {
         case "version":
             respond(id: id, ok: true, payload: ["value": Self.surfaceVersion])
+        case "beepReport":
+            // The no-responder beeps caught since the last read, and reset.
+            respond(id: id, ok: true, payload: ["value": BeepTripwire.shared.drain()])
         case "getHostPid":
             // PID of this GUI app process. The harness launches Tug.app
             // via `open -n -W`, so the subprocess handle it holds is the
@@ -231,6 +244,25 @@ final class TestHarnessConnection {
             // window the user sees; tugcast then self-exits via its
             // parent-watch.
             respond(id: id, ok: true, payload: ["value": Int(ProcessInfo.processInfo.processIdentifier)])
+        case "windowState":
+            // What the keyboard would find: whether the harness window is
+            // key, whether the app is active, and who the first responder
+            // is. Pid mode leaves the app inactive with no key window —
+            // AppKit refuses key status to an inactive app's window — and
+            // this is how a test reads that, and the first responder the
+            // host's chain walk starts from.
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                let window = self.webView?.window
+                let responder = window?.firstResponder
+                let payload: [String: Any] = [
+                    "isKeyWindow": window?.isKeyWindow ?? false,
+                    "appKeyWindow": NSApp.keyWindow != nil,
+                    "isActive": NSApp.isActive,
+                    "firstResponder": responder.map { String(describing: type(of: $0)) } ?? NSNull(),
+                ]
+                self.respond(id: id, ok: true, payload: ["value": payload])
+            }
         case "evalJS":
             guard let script = obj["script"] as? String else {
                 respondError(id: id, name: "ProtocolError", message: "evalJS: missing 'script'")

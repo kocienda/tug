@@ -6,7 +6,7 @@
  * made as the set-up, then Go to slot 1 in a four-up flow band holding two
  * body cards.
  *
- * @foreground
+ * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift

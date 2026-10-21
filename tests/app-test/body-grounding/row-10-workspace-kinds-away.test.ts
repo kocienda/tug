@@ -8,7 +8,7 @@
  * workspace; the switch home is made as the set-up, and the switch back is
  * read.
  *
- * @foreground
+ * @foreground activation
  * @family row-10-workspace
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts

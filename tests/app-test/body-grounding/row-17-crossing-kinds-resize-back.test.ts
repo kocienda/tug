@@ -8,7 +8,7 @@
  * Overview's column, given posts enough to scroll, is pinned to its bottom
  * across it.
  *
- * @foreground
+ * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift

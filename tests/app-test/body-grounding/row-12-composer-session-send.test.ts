@@ -5,7 +5,7 @@
  *
  * A piece of row 12 ([B02] row 12; the reading is `_row-12.ts`'s).
  *
- * @foreground
+ * @foreground activation
  * @family row-12-composer
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/lib/body-shell.ts

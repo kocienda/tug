@@ -6,7 +6,7 @@
  * in a four-up flow band holding two body cards, the strip's prelaunched
  * slide.
  *
- * @foreground
+ * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift

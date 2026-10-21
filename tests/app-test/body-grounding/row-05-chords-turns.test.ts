@@ -6,7 +6,7 @@
  * session card holding the keyboard, ⌃⌘[ and ⌃⌘] page its transcript and ⌘D
  * starts and stops its dictation, leaving the other body's untouched.
  *
- * @foreground
+ * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts

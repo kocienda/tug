@@ -6,7 +6,7 @@
  * card in front of a column it shares; splitting the column shares its
  * height, so the body's box must change.
  *
- * @foreground
+ * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift

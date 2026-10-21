@@ -585,6 +585,9 @@ final class BodyViewController {
         // No backing of its own: what the page does not paint is the
         // container's surface, the pane's colour, rather than white.
         webView.setValue(false, forKey: "drawsBackground")
+        // The harness's visible tier reads frames off bodies too, and a body
+        // is its own web view with its own occlusion switch.
+        if MainWindow.harnessVisibleViewport { MainWindow.keepRenderingWhenCovered(webView) }
         webView.navigationDelegate = window
         webView.uiDelegate = window
         webView.allowsBackForwardNavigationGestures = false

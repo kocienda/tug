@@ -6,7 +6,7 @@
  * `_row-01.ts`'s): a rail shown on its edge, a content card added as a
  * tab, each handed off the moment the deck holds it.
  *
- * @foreground
+ * @foreground activation
  * @family row-01-arrival
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts

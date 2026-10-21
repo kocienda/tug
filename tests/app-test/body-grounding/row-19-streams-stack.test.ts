@@ -6,7 +6,7 @@
  * cards, one per column of a two-up, stream while one crosses into the
  * other's stacked column.
  *
- * @foreground
+ * @foreground activation
  * @family row-19-streams
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/connection.ts

@@ -23,12 +23,11 @@
  * pasteboard with a sentinel first, so "unchanged" is distinguishable from
  * "copied the same thing again".
  *
- * `foreground: true` for that same reason: `NSApp.sendAction(_:to: nil)` walks
- * the KEY window's responder chain, and a background instance has none — the
- * enabled item fires, the send finds nobody, and the pasteboard never moves.
- * The menu path is only observable with the app active.
- *
- * @foreground
+ * Background: `NSApp.sendAction(_:to: nil)` walks the KEY window's responder
+ * chain, and a pid-mode launch has none — AppKit refuses key status to an
+ * inactive app's window — so the host resolves Edit ▸ Copy from its window's
+ * own first responder (`AppDelegate.sendToKeyChain`): the enabled item fires,
+ * the send finds the web view, and the pasteboard moves, with nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
@@ -125,7 +124,7 @@ describe.skipIf(!SHOULD_RUN)("AT0352: ⌘C copies a selection in a shell-route r
   test(
     "the commit receipt's header subject and message body both copy",
     async () => {
-      const app = await launchTugApp({ testName: "at0352-shell-row-copy", foreground: true });
+      const app = await launchTugApp({ testName: "at0352-shell-row-copy" });
       try {
         await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -156,7 +155,19 @@ describe.skipIf(!SHOULD_RUN)("AT0352: ⌘C copies a selection in a shell-route r
 
         // Promote the row to first responder the way a reader does — a
         // click inside it. Both the menu's enablement and ⌘C's routing
-        // start from there.
+        // start from there. The receipt lands at the foot of a transcript
+        // that is still scrolling it into view, so the click waits for the
+        // row's rect to hold still across two reads: a bounds read taken
+        // mid-scroll puts the click on whatever has moved under it since.
+        await app.body("A").waitForCondition<boolean>(`(function(){
+          var el = document.querySelector('${CARD} .commit-receipt-summary');
+          if (el === null) return false;
+          var r = el.getBoundingClientRect();
+          var now = [r.left, r.top, r.width, r.height].join(",");
+          var same = window.__at0352Rect === now;
+          window.__at0352Rect = now;
+          return same;
+        })()`, { timeoutMs: 5000 });
         await app.body("A").nativeClickAtElement(`${CARD} .commit-receipt-summary`);
         // card-dom: shell — the deck's own focus bit.
         await app.waitForCondition<boolean>(`window.__tug.getHasFocus() === true`, {
@@ -165,13 +176,13 @@ describe.skipIf(!SHOULD_RUN)("AT0352: ⌘C copies a selection in a shell-route r
 
         // The row registers a COPY handler, so Edit ▸ Copy validates lit —
         // the condition ⌘C's whole path hangs off. The row and the chain
-        // it registers in are A's body's.
-        const rowIsFirstResponder = await app.body("A").evalJS<boolean>(`(function(){
+        // it registers in are A's body's. The promotion rides the click's
+        // focusin, a beat after the deck's focus bit, so it is waited for.
+        await app.body("A").waitForCondition<boolean>(`(function(){
           var id = window.__tug.getFirstResponderId();
           var el = id === null ? null : document.querySelector('[data-responder-id="' + id + '"]');
           return el !== null && el.getAttribute("data-slot") === "session-transcript-shell-row";
-        })()`);
-        expect(rowIsFirstResponder).toBe(true);
+        })()`, { timeoutMs: 3000 });
         const copyItem = await app.menuItemState("edit.copy");
         expect(copyItem.found).toBe(true);
         expect(copyItem.found === true && copyItem.enabled).toBe(true);

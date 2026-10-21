@@ -11,7 +11,7 @@
  * here through the body's own tugbank key — it goes dormant and stays a body.
  * The return shows it and wakes it.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-dormancy.ts

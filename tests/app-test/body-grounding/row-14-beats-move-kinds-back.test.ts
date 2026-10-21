@@ -6,7 +6,7 @@
  * made as the set-up, then a pinned rail moved back to its edge, or a
  * content card by the flow slide back.
  *
- * @foreground
+ * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift

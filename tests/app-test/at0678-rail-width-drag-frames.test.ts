@@ -19,7 +19,7 @@
  * from the mark is what that frame cost the main thread. An interval between
  * callbacks would read the display's period instead, whatever the work was.
  *
- * **The window is visible** (`foreground`): a covered app-test window gets
+ * **The window renders** (`visible`): a covered app-test window otherwise gets
  * no animation frames at all, and a reading of no frames is no reading.
  *
  * The rail is three members including the Overview — the most expensive
@@ -35,7 +35,7 @@
  * up, which reads as the rail vanishing at the release. An end-state check
  * cannot see that; only a per-frame sample can.
  *
- * @foreground
+ * @visible
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
  * @covers tugdeck/src/lib/rail-width.ts
  */
@@ -297,7 +297,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({
           testName: "at0678-rail-width-drag-frames",
-          foreground: true,
+          visible: true,
         });
         try {
           expect(RAIL_WIDTH - SHRINK_PX + GROW_PX).toBeGreaterThan(MIN_OVERVIEW_WIDTH_PX);
@@ -363,7 +363,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({
           testName: "at0678-rail-width-drag-release",
-          foreground: true,
+          visible: true,
         });
         try {
           await seedRail(app);

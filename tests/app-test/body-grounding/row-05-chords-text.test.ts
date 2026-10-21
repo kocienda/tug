@@ -7,7 +7,7 @@
  * deck chords move and fold its card, while the session bodies beside it
  * stand untouched.
  *
- * @foreground
+ * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts

@@ -14,7 +14,7 @@
  * against the view slot and Z2) and by composite colour: a column through
  * the panel, where its paint ends, against the rest line in window points.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/body/body-root.tsx
  * @covers tugdeck/src/components/tugways/cards/session-compaction-run.tsx
  */

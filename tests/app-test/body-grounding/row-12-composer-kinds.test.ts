@@ -6,7 +6,7 @@
  * other kind with a field of its own is read the same way, and the Overview
  * is the one under test.
  *
- * @foreground
+ * @foreground activation
  * @family row-12-composer
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/lib/body-shell.ts

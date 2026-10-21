@@ -33,7 +33,7 @@
  *
  * Off-screen marks are stilled by an intersection observer, and an occluded
  * window reports nothing intersecting; the window is launched
- * `foreground: true` so the observer has a viewport to measure against.
+ * `visible: true` so the observer has a viewport to measure against.
  *
  * @covers tugdeck/src/lib/motion-guard/offscreen.ts
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
@@ -42,8 +42,8 @@
  * @covers tugdeck/src/components/overview/use-overview-window.ts
  * @covers tugdeck/styles/tug.css
  *
- * @foreground — the off-screen rule needs a viewport to measure against, so
- * the launch takes the screen (`foreground: true` below).
+ * @visible — the off-screen rule needs a viewport to measure against, so
+ * the launch asks for a rendering viewport (`visible: true` below), not the screen.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -179,7 +179,7 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
     async () => {
       const app = await launchTugApp({
         testName: "at0645-overview-visible-dots-pulse",
-        foreground: true,
+        visible: true,
       });
       try {
         // ---- A working session: the card, bound and mid-turn. -----------

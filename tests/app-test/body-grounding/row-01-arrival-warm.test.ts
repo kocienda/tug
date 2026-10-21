@@ -5,7 +5,7 @@
  * A piece of row 1 ([B02] row 1; the arrival and its reading are
  * `_row-01.ts`'s).
  *
- * @foreground
+ * @foreground activation
  * @family row-01-arrival
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts

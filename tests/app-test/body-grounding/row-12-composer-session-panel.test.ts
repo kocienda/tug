@@ -10,7 +10,7 @@
  * Session › Open Command Picker raises the body's completion popup, and an
  * Escape posted through the session tap closes it ([F17]).
  *
- * @foreground
+ * @foreground activation
  * @family row-12-composer
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/lib/body-shell.ts

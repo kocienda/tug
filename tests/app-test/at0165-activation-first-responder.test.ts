@@ -21,7 +21,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/tugways/responder-chain.ts
  * @covers tugdeck/src/components/tugways/responder-chain-provider.tsx
  * @covers tugdeck/src/action-dispatch.ts

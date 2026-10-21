@@ -6,7 +6,7 @@
  * session card holding the keyboard, its composer takes typing and the Edit
  * chords, ⌘K focuses it, and ⌘F, ⌘G, ⇧⌘G and Escape drive its find bar.
  *
- * @foreground
+ * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts

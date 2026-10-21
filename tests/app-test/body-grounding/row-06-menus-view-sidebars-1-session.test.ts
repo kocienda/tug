@@ -6,7 +6,7 @@
  * A sidebar shown from View › Sidebar once left its new body holding the
  * keyboard after the shell had handed it back ([B05], row 6).
  *
- * @foreground
+ * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift

@@ -11,7 +11,7 @@
  * the card. Any other kind closes at once. Either way its body goes with
  * the card.
  *
- * @foreground
+ * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift

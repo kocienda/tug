@@ -26,6 +26,7 @@ import type {
   InnerNativeVerb,
   MenuItemSnapshot,
   MenuItemState,
+  WindowState,
   MenuItemPerformed,
   MemoryPressureLevel,
   NativeModifier,
@@ -1167,6 +1168,14 @@ export function menuItemState(
   identifier: string,
 ): Promise<MenuItemState> {
   return caller.rpcCall<MenuItemState>("menuItemState", { identifier });
+}
+
+/**
+ * What the keyboard would find: the harness window's key status, the app's
+ * active status, and the first responder's class. See `WindowState`.
+ */
+export function windowState(caller: HarnessCaller): Promise<WindowState> {
+  return caller.rpcCall<WindowState>("windowState", {});
 }
 
 /**

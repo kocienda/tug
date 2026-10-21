@@ -1,5 +1,6 @@
 /**
- * select-tests-foreground.test.ts — the `@foreground` declaration and its drift check.
+ * select-tests-foreground.test.ts — the `@foreground` declaration, its reason, and its
+ * drift check.
  *
  * These run the real `select-tests.ts` as a subprocess. The drift cases run it against a
  * copy of the real corpus with one file's declaration deliberately broken, so what is
@@ -19,10 +20,12 @@ import { copyAppTestTree } from "./copy-app-test-tree";
 const APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
 
-/** A file that both declares `@foreground` and launches with `foreground: true`. */
-const TAGGED = "at0145-permission-dialog-keyboard.test.ts";
+/** A file that declares `@foreground activation` and launches with `foreground: true`. */
+const TAGGED = "at0213-open-quickly.test.ts";
 /** A background file whose name shares the `at0209` prefix with a foreground one. */
 const PREFIX_TWIN = "at0209-text-card-live-autosave-loop.test.ts";
+/** A file that both declares `@visible` and launches with `visible: true`. */
+const VISIBLE = "at0747-no-hole-under-cards.test.ts";
 
 function run(script: string, args: string[]): { code: number; out: string; err: string } {
     const proc = Bun.spawnSync(["bun", script, ...args], { cwd: APP_TEST_DIR });
@@ -92,7 +95,7 @@ describe("--foreground-check detects drift in both directions", () => {
     test("a launch option with no tag is reported", () => {
         const path = copyPath(TAGGED);
         const original = readFileSync(path, "utf8");
-        writeFileSync(path, original.replace(/^ \* @foreground\n/m, ""));
+        writeFileSync(path, original.replace(/^ \* @foreground activation\n/m, ""));
         const r = run(script, ["--foreground-check"]);
         writeFileSync(path, original);
 
@@ -104,7 +107,7 @@ describe("--foreground-check detects drift in both directions", () => {
     test("a tag with no screen-taking behavior is reported", () => {
         const path = copyPath(PREFIX_TWIN);
         const original = readFileSync(path, "utf8");
-        writeFileSync(path, original.replace(/^ \* @covers/m, " * @foreground\n * @covers"));
+        writeFileSync(path, original.replace(/^ \* @covers/m, " * @foreground activation\n * @covers"));
         const r = run(script, ["--foreground-check"]);
         writeFileSync(path, original);
 
@@ -129,5 +132,91 @@ describe("--foreground-check detects drift in both directions", () => {
         // Both findings: undeclared, and a verb that cannot fire without the option.
         expect(r.err).toContain("take the screen but carry no");
         expect(r.err).toContain("call an app-lifecycle verb without");
+    });
+
+    test("a visible launch option with no @visible tag is reported", () => {
+        const path = copyPath(VISIBLE);
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, original.replace(/^ \* @visible\n/m, ""));
+        const r = run(script, ["--foreground-check"]);
+        writeFileSync(path, original);
+
+        expect(r.code).toBe(1);
+        expect(r.err).toContain(VISIBLE);
+        expect(r.err).toContain("launch `visible: true` but carry no");
+    });
+
+    test("a @visible tag with no visible launch is reported", () => {
+        const path = copyPath(PREFIX_TWIN);
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, original.replace(/^ \* @covers/m, " * @visible\n * @covers"));
+        const r = run(script, ["--foreground-check"]);
+        writeFileSync(path, original);
+
+        expect(r.code).toBe(1);
+        expect(r.err).toContain(PREFIX_TWIN);
+        expect(r.err).toContain("declare @visible but pass no");
+    });
+
+    test("a `visible:` field outside a launch call is not a launch option", () => {
+        // Body snapshots and deck states carry a `visible` field; reading one as the
+        // launch option would demand a tag of a file that runs in the background.
+        const path = copyPath(PREFIX_TWIN);
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, `${original}\n// const snapshot = { card: "x", visible: true };\n`);
+        const r = run(script, ["--foreground-check"]);
+        writeFileSync(path, original);
+
+        expect(r.code).toBe(0);
+    });
+
+    test("a file that is both visible and foreground is reported", () => {
+        const path = copyPath(VISIBLE);
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, original.replace(/^ \* @visible\n/m, " * @visible\n * @foreground activation\n").replace("visible: true", "visible: true, foreground: true"));
+        const r = run(script, ["--foreground-check"]);
+        writeFileSync(path, original);
+
+        expect(r.code).toBe(1);
+        expect(r.err).toContain(VISIBLE);
+        expect(r.err).toContain("both visible and foreground");
+    });
+
+    test("a bare @foreground tag is refused — the tag says why", () => {
+        const path = copyPath(TAGGED);
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, original.replace(/^ \* @foreground activation\n/m, " * @foreground\n"));
+        const r = run(script, ["--foreground-check"]);
+        writeFileSync(path, original);
+
+        expect(r.code).toBe(1);
+        expect(r.err).toContain(TAGGED);
+        expect(r.err).toContain("declare @foreground with no reason");
+    });
+
+    test("a reason outside the closed list is refused", () => {
+        const path = copyPath(TAGGED);
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, original.replace(/^ \* @foreground activation\n/m, " * @foreground viewport\n"));
+        const r = run(script, ["--foreground-check"]);
+        writeFileSync(path, original);
+
+        expect(r.code).toBe(1);
+        expect(r.err).toContain(`${TAGGED} (viewport)`);
+        expect(r.err).toContain("reason outside the list");
+    });
+
+    test("a lifecycle reason on a file that calls no lifecycle verb is refused", () => {
+        // at0213 launches foreground for its subject and calls no simulateApp* verb,
+        // so `lifecycle` is a reason that is not the file's.
+        const path = copyPath(TAGGED);
+        const original = readFileSync(path, "utf8");
+        writeFileSync(path, original.replace(/^ \* @foreground activation\n/m, " * @foreground lifecycle\n"));
+        const r = run(script, ["--foreground-check"]);
+        writeFileSync(path, original);
+
+        expect(r.code).toBe(1);
+        expect(r.err).toContain(TAGGED);
+        expect(r.err).toContain("say @foreground lifecycle but call no");
     });
 });

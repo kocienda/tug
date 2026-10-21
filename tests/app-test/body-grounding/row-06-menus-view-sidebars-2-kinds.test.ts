@@ -6,7 +6,7 @@
  * A piece of row 6 ([B02] row 6); the sweep and its parts are `_row-06.ts`'s.
  * A rail's own rows are read, not performed.
  *
- * @foreground
+ * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift

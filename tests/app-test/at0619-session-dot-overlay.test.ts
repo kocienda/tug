@@ -70,9 +70,11 @@
  * naming a *chosen* session into the composer without a copy gesture in front
  * of it.
  *
- * Foreground: the typing and the editing gestures want a key window.
- *
- * @foreground
+ * Background: a pid-mode launch has no key window — AppKit refuses one to an
+ * inactive app — and its keys still reach the web view by `postToPid`; the
+ * one Edit-menu chord (⌘A) is offered to the window's views before the main
+ * menu by the host's pid-mode `keyDown` monitor (`AppDelegate.swift`), so the
+ * editor claims it as it does for a user. Nobody's screen.
  *
  * @covers tugdeck/src/lib/session-dot-overlay.ts
  * @covers tugdeck/src/lib/tug-atom-img.ts
@@ -167,7 +169,6 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
     async () => {
       const app = await launchTugApp({
         testName: "at0619-session-dot-overlay",
-        foreground: true,
       });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -527,7 +528,6 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
     async () => {
       const app = await launchTugApp({
         testName: "at0619-session-dot-phase-churn",
-        foreground: true,
       });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -724,7 +724,6 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
     async () => {
       const app = await launchTugApp({
         testName: "at0619-session-dot-weld",
-        foreground: true,
       });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });

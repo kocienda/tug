@@ -45,7 +45,7 @@
  * @covers tugdeck/src/components/tugways/tug-text-editor/dictation-span.ts
  * @covers tugapp/Sources/DictationEngine.swift
  *
- * @foreground
+ * @foreground lifecycle
  */
 
 import { describe, expect, test } from "bun:test";

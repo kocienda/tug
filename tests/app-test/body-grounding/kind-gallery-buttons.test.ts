@@ -14,7 +14,7 @@
  * - **Its surface** — the body paints the content pane's surface, read off
  *   the composite.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/tugways/cards/gallery-registrations.tsx
  * @covers tugdeck/src/components/tugways/cards/gallery-push-button.tsx
  * @covers tugdeck/src/spikes/spike-registry.tsx

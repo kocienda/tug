@@ -86,20 +86,24 @@ When the declarations name more than twenty tests, `just app-test-changed` runs 
 
 A few paths `@covers` cannot scope, because they run before any test's first assertion: `tests/app-test/_harness/`, `tugapp/Sources/TestHarness/`, `tugdeck/src/main.tsx`, `tugdeck/index.html`. The selector prints a **CORE TIER ADVISED** advisory when it sees one changed, and the answer is `just app-test` — the ~20-file core tier, which is what "did I break everything?" actually asks. The list is deliberately tiny: ordinary components, however widely used, are covered by name and do not trip it.
 
-### `@foreground` — the tests that take over the screen
+### Three tiers: background, `@visible`, `@foreground`
 
-App-tests run in the **background**. The app launches as an accessory, keyboard events go to its process and mouse events straight into its window, and you keep working while a run happens around you.
+App-tests run in the **background**. The app launches as an accessory, keyboard events go to its process and mouse events straight into its window, and you keep working while a run happens around you. An inactive app cannot hold a key window, so the host gives the harness window what a key window would have supplied (`tugapp/Sources/AppDelegate.swift`): a local `keyDown` monitor offers every ⌘ chord to the window's views before the main menu, and the Edit menu's nil-target actions resolve from the window's own first responder (`sendToKeyChain`). A test of a chord, a menu command, the pasteboard or responder promotion runs here, on the view-then-menu order the user's chord takes, and asserts the effect in the page that should have received it.
 
-A minority cannot work that way, because activation *is* their subject: app resign / become-active cycles, key-window-gated responder routing, `document.hasFocus()`. Those launch with `foreground: true`, which puts the app back in the activating event mode — and they really do take the screen out from under you. Each one declares itself with `@foreground` on its own docblock line, beside `@covers`:
+A reading of frames, paint or motion needs a window WebKit will render, and WebKit suspends `requestAnimationFrame` in a window it considers occluded. Those launch `visible: true` and declare `@visible`: the app turns the web views' occlusion detection off, and the window stays where the background launch left it, still rendering. You keep keyboard, cursor and key window; nothing is taken.
+
+A minority cannot work either way, because activation *is* their subject: app resign / become-active cycles, key-window status, `document.hasFocus()` (which WebKit ties to the application being active), the keyboard arriving through WindowServer as the user's does. Those launch with `foreground: true`, which puts the app back in the activating event mode — and they really do take the screen out from under you. Each one declares itself with `@foreground` and a reason on its own docblock line, beside `@covers`:
 
 ```ts
 /**
  * at0145-permission-dialog-keyboard.test.ts — …
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/tugways/chrome/session-permission-dialog.tsx
  */
 ```
+
+The reason is one of two words. `activation` says the test reads something only an active app shows. `lifecycle` says the test drives the app's activation itself, with `simulateAppResign` / `BecomeActive` / `Hide` / `Unhide`. A bare tag, a reason outside the list, or `lifecycle` on a file that calls no lifecycle verb fails the check below, and a file is never both `@visible` and `@foreground`.
 
 When a run contains any of them, `just app-test` raises the question in the Session card straight away — and then **gets on with the background tests while you decide.** The screen-takers are ordered last, so by the time the answer matters it is usually already in. Nothing that needed no permission ever waits on something that did. Declining skips them; the background run happened either way, and every skipped file shows as a `SKIP` row in the summary.
 
@@ -107,7 +111,7 @@ When a run contains any of them, `just app-test` raises the question in the Sess
 
 `TUG_APPTEST_ASSUME=all|background|cancel` answers ahead of time; scripted and non-interactive runs should set it. With no Tug instance to ask, a run proceeds after naming the tests that will take the screen — blocking a terminal-only run that could never have shown a dialog is worse than an unannounced one you started by hand.
 
-`just app-test-foreground-check` holds the declaration honest in both directions. A foreground launch with no tag would seize the screen unannounced, which is the real harm; a tag with no such launch would prompt about a test that was never disruptive.
+`just app-test-foreground-check` holds the declaration honest in both directions, and for the reason. A foreground launch with no tag would seize the screen unannounced, which is the real harm; a tag with no such launch would prompt about a test that was never disruptive. It is part of `just lint`, so a new screen-taker cannot land unannounced.
 
 The check reads the launch option statically, so anything that is not literally `foreground: false` counts as a screen-taker. A computed flag (`foreground: SOAK_SECS === 0`) cannot be resolved by reading the file, and the safe reading of "it might take the screen" is to declare it.
 
@@ -477,7 +481,9 @@ Step-by-step:
    - Smoke: `tests/app-test/harness-smoke/<descriptive>.test.ts`.
    - Body grounding bar row: `tests/app-test/body-grounding/row-NN-<slug>.test.ts`,
      one file per row of the bar in that directory's `README.md`, on the
-     app's own event path (`foreground: true`, `@foreground`).
+     app's own event path (`foreground: true`, `@foreground activation`),
+     which is the bar's rule rather than the corpus's: a row is green only
+     on the route the user's keyboard takes.
 
 3. **Declare `@covers` in the header docblock.** One line per source path
    or glob the test exercises, at the end of the docblock. Without it the

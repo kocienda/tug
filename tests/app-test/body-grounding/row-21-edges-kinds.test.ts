@@ -6,7 +6,7 @@
  * each other kind beside an in-document Text card, its edges read at three
  * zooms with each card key in turn.
  *
- * @foreground
+ * @foreground activation
  * @family row-21-edges
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugdeck/src/body/body-page.css

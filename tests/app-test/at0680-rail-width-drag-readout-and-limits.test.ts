@@ -16,11 +16,11 @@
  * rail's rendered width and whether the button is down, so the frames between
  * the release and the landing are counted rather than guessed at.
  *
- * **The window is visible** (`foreground`): a covered app-test window gets
+ * **The window renders** (`visible`): a covered app-test window otherwise gets
  * no animation frames, and the preview, the readout and the spring are all
  * written in one.
  *
- * @foreground
+ * @visible
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
  * @covers tugdeck/src/lib/rail-width.ts
  */
@@ -220,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({
           testName: "at0680-rail-width-readout",
-          foreground: true,
+          visible: true,
         });
         try {
           await seed(app);
@@ -276,7 +276,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({
           testName: "at0680-rail-width-limit",
-          foreground: true,
+          visible: true,
         });
         try {
           await seed(app);

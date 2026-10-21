@@ -15,7 +15,7 @@
  * resident size grew most across the resume. A kill that missed it is caught
  * at once, since the body would never leave `ready`.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/lib/session-restore.ts
  */
 

@@ -7,7 +7,7 @@
  * its neighbours ride the arrival's fused room beat, which carries size
  * terms, and the body card must move.
  *
- * @foreground
+ * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift

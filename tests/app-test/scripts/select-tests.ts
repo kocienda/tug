@@ -17,8 +17,15 @@
  * `@covers` values.
  *
  * A test that takes the screen also declares that, with `@foreground` on its own docblock
- * line. The `app-test` recipe reads the declaration before it launches anything, so it can
- * tell the developer that a run is about to seize the machine.
+ * line, followed by the reason it does from a closed list: `@foreground activation` when
+ * activation is the test's subject or its events can only route through the active app
+ * (key-window status, resign / become-active, WindowServer delivery through the session
+ * tap), or `@foreground lifecycle` when the file calls an app-lifecycle verb that cannot
+ * run in an inactive app. The `app-test` recipe reads the declaration before it launches
+ * anything, so it can tell the developer that a run is about to seize the machine; the
+ * reason is what lets a reader audit the screen-takers without opening each file, and
+ * `--foreground-check` refuses a bare tag, a word outside the list, and a `lifecycle`
+ * reason on a file that calls no lifecycle verb.
  *
  * There are two ways a test takes the screen, and the check knows both. The declared one is
  * the `foreground` launch option, which puts the app in the activating event mode. The other
@@ -520,10 +527,19 @@ interface TestCoverage {
     covers: string[];
     /** Declared by `@foreground`: this file takes the screen for its duration. */
     foreground: boolean;
+    /**
+     * The reason after `@foreground`, trimmed — `activation`, `lifecycle`, a word outside
+     * the list, or `""` for a bare tag. `null` when the file carries no tag.
+     */
+    foregroundReason: string | null;
+    /** Declared by `@visible`: this file needs a rendering viewport, and launches `visible: true`. */
+    visible: boolean;
     /** Declared by `@motion`: this file samples motion or a settle, and runs alone. */
     motion: boolean;
     /** Passes a possibly-true `foreground` launch option at some launch site. */
     foregroundOption: boolean;
+    /** Passes a possibly-true `visible` launch option at some launch site. */
+    visibleOption: boolean;
     /** Calls an app-lifecycle RPC verb, which takes the screen whatever the launch mode. */
     activatingVerb: boolean;
     /** Declared by `@family`: the split this file is one piece of, or null. */
@@ -550,7 +566,8 @@ function testFiles(): string[] {
 }
 
 const COVERS_LINE = /^\s*\*?\s*@covers\s+(\S+)/;
-const FOREGROUND_LINE = /^\s*\*?\s*@foreground\b/;
+const FOREGROUND_LINE = /^\s*\*?\s*@foreground\b(.*)$/;
+const VISIBLE_LINE = /^\s*\*?\s*@visible\b/;
 const MOTION_LINE = /^\s*\*?\s*@motion\b/;
 const FAMILY_LINE = /^\s*\*?\s*@family\s+(\S+)/;
 
@@ -563,6 +580,31 @@ const FAMILY_LINE = /^\s*\*?\s*@family\s+(\S+)/;
  * `foreground: false` is exempt, because that one says what it means.
  */
 const FOREGROUND_OPTION = /\bforeground:\s*(?!false\b)\S/;
+
+/**
+ * The launch option the `@visible` tag declares, read the same way — anything not literally
+ * `false` counts — but only inside a `launchTugApp({ … })` call, because `visible:` is also
+ * the name of a field on the body snapshots and deck states tests read all the time.
+ */
+const LAUNCH_CALL = /launchTugApp\(\{[\s\S]*?\}\)/g;
+const VISIBLE_OPTION = /\bvisible:\s*(?!false\b)\S/;
+
+function passesVisibleOption(text: string): boolean {
+    for (const call of text.match(LAUNCH_CALL) ?? []) {
+        if (VISIBLE_OPTION.test(call)) return true;
+    }
+    return false;
+}
+
+/**
+ * The reasons a `@foreground` tag may carry. `activation`: the test's subject is activation,
+ * or its events route only through the active app — key-window status, app resign and
+ * become-active, a chord or menu command delivered through the session tap as the user's
+ * keyboard would be. `lifecycle`: the file calls one of the app-lifecycle verbs below, which
+ * cannot run in an inactive app. Nothing else earns the screen — not a viewport (that is the
+ * visible tier), not the pasteboard — so the list is closed and a word outside it is refused.
+ */
+const FOREGROUND_REASONS: ReadonlySet<string> = new Set(["activation", "lifecycle"]);
 
 /**
  * The app-lifecycle RPC verbs. Each one reaches `AppLifecycleHandlers` in the app, which
@@ -582,12 +624,19 @@ function readCoverage(file: string): TestCoverage {
     const text = readFileSync(join(APP_TEST_DIR, file), "utf8");
     const covers: string[] = [];
     let foreground = false;
+    let foregroundReason: string | null = null;
+    let visible = false;
     let motion = false;
     let family: string | null = null;
     for (const line of text.split("\n")) {
         const m = COVERS_LINE.exec(line);
         if (m) covers.push(m[1]);
-        if (FOREGROUND_LINE.test(line)) foreground = true;
+        const fg = FOREGROUND_LINE.exec(line);
+        if (fg) {
+            foreground = true;
+            foregroundReason = fg[1].trim();
+        }
+        if (VISIBLE_LINE.test(line)) visible = true;
         if (MOTION_LINE.test(line)) motion = true;
         const f = FAMILY_LINE.exec(line);
         if (f) family = f[1];
@@ -598,8 +647,11 @@ function readCoverage(file: string): TestCoverage {
         file,
         covers,
         foreground,
+        foregroundReason,
+        visible,
         motion,
         foregroundOption: FOREGROUND_OPTION.test(text),
+        visibleOption: passesVisibleOption(text),
         activatingVerb: ACTIVATING_VERB.test(text),
         family,
     };
@@ -1071,6 +1123,20 @@ if (foregroundCheck) {
     const undeclared = coverage.filter((c) => !c.foreground && takesScreen(c));
     const overdeclared = coverage.filter((c) => c.foreground && !takesScreen(c));
     const verbWithoutOption = coverage.filter((c) => c.activatingVerb && !c.foregroundOption);
+    // The visible tier's two-way check, and its one exclusion: a file is background,
+    // visible or foreground, never two of them — a visible launch that also takes the
+    // screen is a foreground launch wearing the quieter tag.
+    const visibleUndeclared = coverage.filter((c) => !c.visible && c.visibleOption);
+    const visibleOverdeclared = coverage.filter((c) => c.visible && !c.visibleOption);
+    const visibleAndForeground = coverage.filter((c) => (c.visible || c.visibleOption) && (c.foreground || takesScreen(c)));
+    // The reason check: every tag says why, from the closed list, and `lifecycle` is only
+    // true of a file that calls a lifecycle verb. A bare tag is a screen-taker nobody has
+    // justified; an unknown word is a reason the list does not accept.
+    const bareTag = coverage.filter((c) => c.foreground && c.foregroundReason === "");
+    const unknownReason = coverage.filter(
+        (c) => c.foreground && c.foregroundReason !== "" && !FOREGROUND_REASONS.has(c.foregroundReason ?? ""),
+    );
+    const lifecycleWithoutVerb = coverage.filter((c) => c.foregroundReason === "lifecycle" && !c.activatingVerb);
 
     if (undeclared.length > 0) {
         process.stderr.write(
@@ -1095,11 +1161,67 @@ if (foregroundCheck) {
         );
         for (const c of verbWithoutOption) process.stderr.write(`  ${c.file}\n`);
     }
-    if (undeclared.length === 0 && overdeclared.length === 0 && verbWithoutOption.length === 0) {
+    if (visibleUndeclared.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${visibleUndeclared.length} test file(s) launch \`visible: true\` but carry no\n` +
+                `               @visible tag — the tier they need is undeclared:\n`,
+        );
+        for (const c of visibleUndeclared) process.stderr.write(`  ${c.file}\n`);
+    }
+    if (visibleOverdeclared.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${visibleOverdeclared.length} test file(s) declare @visible but pass no\n` +
+                `               \`visible: true\` launch option — the tag says what no launch does:\n`,
+        );
+        for (const c of visibleOverdeclared) process.stderr.write(`  ${c.file}\n`);
+    }
+    if (visibleAndForeground.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${visibleAndForeground.length} test file(s) are both visible and foreground —\n` +
+                `               a launch that takes the screen already has a viewport, so it is\n` +
+                `               @foreground alone:\n`,
+        );
+        for (const c of visibleAndForeground) process.stderr.write(`  ${c.file}\n`);
+    }
+    if (bareTag.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${bareTag.length} test file(s) declare @foreground with no reason — the tag\n` +
+                `               says \`@foreground activation\` or \`@foreground lifecycle\`:\n`,
+        );
+        for (const c of bareTag) process.stderr.write(`  ${c.file}\n`);
+    }
+    if (unknownReason.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${unknownReason.length} test file(s) give @foreground a reason outside the list\n` +
+                `               (\`activation\` or \`lifecycle\`) — nothing else earns the screen:\n`,
+        );
+        for (const c of unknownReason) process.stderr.write(`  ${c.file} (${c.foregroundReason})\n`);
+    }
+    if (lifecycleWithoutVerb.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${lifecycleWithoutVerb.length} test file(s) say @foreground lifecycle but call no\n` +
+                `               app-lifecycle verb — the reason is not the file's:\n`,
+        );
+        for (const c of lifecycleWithoutVerb) process.stderr.write(`  ${c.file}\n`);
+    }
+    if (
+        undeclared.length === 0 &&
+        overdeclared.length === 0 &&
+        verbWithoutOption.length === 0 &&
+        visibleUndeclared.length === 0 &&
+        visibleOverdeclared.length === 0 &&
+        visibleAndForeground.length === 0 &&
+        bareTag.length === 0 &&
+        unknownReason.length === 0 &&
+        lifecycleWithoutVerb.length === 0
+    ) {
         const n = coverage.filter((c) => c.foreground).length;
+        const a = coverage.filter((c) => c.foregroundReason === "activation").length;
+        const l = coverage.filter((c) => c.foregroundReason === "lifecycle").length;
+        const v = coverage.filter((c) => c.visible).length;
         process.stderr.write(
             `[select-tests] @foreground matches behavior across ${coverage.length} test files.\n` +
-                `               ${n} take the screen; the other ${coverage.length - n} run in the background.\n`,
+                `               ${n} take the screen (${a} activation, ${l} lifecycle); ${v} run visible but inactive; the other ${coverage.length - n - v} run in the background.\n`,
         );
         process.exit(0);
     }

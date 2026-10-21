@@ -15,7 +15,6 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @foreground
  *
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/clipboard-filters.ts
@@ -171,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("at0748 — paste over a selected atom", () => {
   test(
     "Edit ▸ Paste replaces a chip the hand selected, as it replaces selected text",
     async () => {
-      const app = await launchTugApp({ testName: "at0748-paste-over-atom", foreground: true });
+      const app = await launchTugApp({ testName: "at0748-paste-over-atom" });
       try {
         await seed(app, TWO_CHIPS);
         setPasteboard(PASTED);
@@ -224,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("at0748 — paste over a selected atom", () => {
   test(
     "plain text pasted over a lone session chip replaces it",
     async () => {
-      const app = await launchTugApp({ testName: "at0748-text-over-session-chip", foreground: true });
+      const app = await launchTugApp({ testName: "at0748-text-over-session-chip" });
       try {
         await seed(app, { text: "", atoms: [] });
         await focusComposer(app);
@@ -252,7 +251,7 @@ describe.skipIf(!SHOULD_RUN)("at0748 — paste over a selected atom", () => {
   test(
     "a session atom pasted over a lone chip replaces it",
     async () => {
-      const app = await launchTugApp({ testName: "at0748-session-over-chip", foreground: true });
+      const app = await launchTugApp({ testName: "at0748-session-over-chip" });
       try {
         await seed(app, LONE_CHIP);
         await focusComposer(app);

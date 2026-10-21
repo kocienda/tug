@@ -11,7 +11,7 @@
  * body. The insert never leaves the card's page: the shell's document holds
  * no Overview at all.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/overview/overview-insert-target.ts
  * @covers tugdeck/src/components/overview/overview-card-registration.tsx
  */

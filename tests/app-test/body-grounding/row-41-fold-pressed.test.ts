@@ -16,7 +16,7 @@
  * bare window, the content box never shows the floor while the chrome moves,
  * the host's container tracks the placeholder, and it lands on it.
  *
- * @foreground
+ * @foreground activation
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/card-fold.ts

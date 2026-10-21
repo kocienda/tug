@@ -36,9 +36,10 @@
  * confirm — the same footing at0459 stands on, and the reason the prose can
  * cite a real commit at all.
  *
- * Foreground: the pasteboard write and the reads want a key window.
- *
- * @foreground
+ * Background: a pid-mode launch has no key window — AppKit refuses one to an
+ * inactive app — so the host resolves the Edit actions from its window's own
+ * first responder (`AppDelegate.sendToKeyChain`), and the pasteboard write
+ * and the reads take the path they take for a user, with nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/tug-commit-atom.tsx
  * @covers tugdeck/src/lib/atom-identity-attrs.ts
@@ -164,7 +165,6 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({
           testName: "at0526-commit-mention-copies-as-pill",
-          foreground: true,
         });
         const ingest = (decoded: unknown) =>
           app.driveSession("A", {

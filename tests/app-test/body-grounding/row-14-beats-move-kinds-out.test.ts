@@ -6,7 +6,7 @@
  * rail moved to the other edge, which keeps its size, or a content card by
  * the flow slide out.
  *
- * @foreground
+ * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift

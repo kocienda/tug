@@ -6,7 +6,7 @@
  * card second in a four-up flow beside a Layout rail. The sidebars carry it
  * as a slide or not at all, and are read as whichever they are.
  *
- * @foreground
+ * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift

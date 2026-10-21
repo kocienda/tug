@@ -23,7 +23,7 @@
  * - **Each** body paints the content pane's surface, read off the composite,
  *   and asked the deck for nothing only the shell answers.
  *
- * @foreground
+ * @foreground activation
  * @covers tugdeck/src/components/tugways/cards/text-card-registration.tsx
  * @covers tugdeck/src/components/tugways/cards/file-view-card-registration.tsx
  * @covers tugdeck/src/components/tugways/cards/diff-card.tsx

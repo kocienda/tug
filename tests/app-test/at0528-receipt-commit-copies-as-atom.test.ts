@@ -40,11 +40,11 @@
  * confirm — the same footing at0512 and at0526 stand on, and the reason the
  * receipt can name a real commit at all.
  *
- * Foreground: ⌘C is Edit ▸ Copy's key equivalent, which AppKit resolves against
- * the main menu before the web view sees anything, and a background instance
- * has no key window for that resolution to land in.
- *
- * @foreground
+ * Background: ⌘C is Edit ▸ Copy's key equivalent, and a pid-mode launch has
+ * no key window — AppKit refuses one to an inactive app — so the host
+ * resolves Copy from its window's own first responder
+ * (`AppDelegate.sendToKeyChain`), and the chord reaches the pasteboard as it
+ * does for a user, with nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/commit-identity-menu.tsx
  * @covers tugdeck/src/components/tugways/session-identity-menu.tsx
@@ -178,7 +178,6 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({
           testName: "at0528-receipt-commit-copies-as-atom",
-          foreground: true,
         });
         const ingest = (decoded: unknown) =>
           app.driveSession("S", {

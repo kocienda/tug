@@ -39,9 +39,10 @@
  * `codeSessionStore.send(text, atoms)` — the production submit, the same call
  * the composer makes. The row under test is the one that paints from it.
  *
- * Foreground: the pasteboard write and the reads want a key window.
- *
- * @foreground
+ * Background: a pid-mode launch has no key window — AppKit refuses one to an
+ * inactive app — so the host resolves the Edit actions from its window's own
+ * first responder (`AppDelegate.sendToKeyChain`), and the pasteboard write
+ * and the reads take the path they take for a user, with nobody's screen.
  *
  * @covers tugdeck/src/lib/atom-text.ts
  * @covers tugdeck/src/lib/atom-plain-text.ts
@@ -134,7 +135,6 @@ describe.skipIf(!SHOULD_RUN)("at0477 — a copied prompt keeps its atoms", () =>
     async () => {
       const app = await launchTugApp({
         testName: "at0477-transcript-copy-atoms",
-        foreground: true,
       });
       try {
         // `isEngineReady` is a deck-trace probe — without the trace on, the
