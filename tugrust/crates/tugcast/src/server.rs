@@ -1045,6 +1045,10 @@ struct SessionApiRequest {
     /// running under, for the attachment's needle rule.
     #[serde(default)]
     needles: Option<Vec<String>>,
+    /// `report`: whether the run is a parent whose units are runs of their
+    /// own, so a report under another label nests beneath it on the block.
+    #[serde(default)]
+    nests: Option<bool>,
 }
 
 /// Why a `resolve` could not answer, in the vocabulary the CLI's
@@ -1254,6 +1258,7 @@ async fn session_handler(
             // without it rather than being refused.
             units: req.units.clone().filter(|u| u.is_array()),
             needles: req.needles.clone().unwrap_or_default(),
+            nests: req.nests.unwrap_or(false),
         };
         let Some((on_block, attached)) = supervisor.publish_report(&live, report).await else {
             return err(StatusCode::NOT_FOUND, "unknown_session");

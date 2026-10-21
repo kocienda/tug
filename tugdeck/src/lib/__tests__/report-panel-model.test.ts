@@ -120,6 +120,45 @@ describe("reportPanelModel", () => {
     expect(reportPanelModel(MID_RUN, "running", NOW).phases).toEqual([]);
   });
 
+  test("a nesting run exposes its child's model under the running row, and none once over", () => {
+    const verify: Report = {
+      toolUseId: "t",
+      label: "arc verify",
+      done: 1,
+      total: 3,
+      unit: "surface",
+      nests: true,
+      units: [
+        file("docs", 0, { status: "pass", passed: 1, total: 1 }),
+        file("rust", 1, { status: "running", startedAtMs: NOW - 20_000 }),
+        file("deck", 2, {}),
+      ],
+      child: {
+        toolUseId: "t",
+        label: "rust",
+        text: "a FAIL",
+        unit: "test",
+        done: 120,
+        total: 748,
+        failures: 1,
+        units: [file("a", 0, { status: "fail", title: "assertion failed" })],
+      },
+    };
+    const running = reportPanelModel(verify, "running", NOW);
+    expect(running.nestedUnder).toBe("rust");
+    expect(running.child?.label).toBe("rust");
+    expect(running.child?.unit).toBe("test");
+    expect(running.child?.done).toBe(120);
+    expect(running.child?.counts.red).toBe(1);
+    expect(running.child?.reds.map((u) => u.name)).toEqual(["a"]);
+    expect(running.units.map((u) => u.name)).toEqual(["docs", "rust", "deck"]);
+
+    const finished = reportPanelModel(verify, "finished", NOW, { callFailed: true });
+    expect(finished.child).toBeNull();
+    expect(finished.nestedUnder).toBeNull();
+    expect(reportPanelModel(MID_RUN, "running", NOW).child).toBeNull();
+  });
+
   test("a report carrying only some units is a band, and its tally comes from the counts", () => {
     const tests: Report = {
       toolUseId: "t",

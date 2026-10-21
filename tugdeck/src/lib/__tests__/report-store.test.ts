@@ -205,6 +205,58 @@ describe("ReportStore — a run that names its unit", () => {
     expect(store.get("u")?.units?.[1]?.status).toBe("pass");
   });
 
+  test("a nesting run's report under another label is its child; the parent's own report replaces the entry whole", () => {
+    const store = new ReportStore();
+    const surfaces = (rust: string) => [
+      { name: "rust", status: rust, index: 0 },
+      { name: "docs", status: "pending", index: 1 },
+    ];
+    store.applyReport(
+      { tool_use_id: "t", label: "arc verify", text: "checking rust", done: 0, total: 2, unit: "surface", units: surfaces("running"), nests: true },
+      1000,
+    );
+    expect(store.get("t")?.nests).toBe(true);
+
+    // The wrapped child reports under its own label: it lands beneath, not in place.
+    store.applyReport(
+      { tool_use_id: "t", label: "rust", text: "compiling", unit: "test", done: 0, total: 748, units: [] },
+      2000,
+    );
+    let p = store.get("t")!;
+    expect(p.label).toBe("arc verify");
+    expect(p.units?.[0]?.status).toBe("running");
+    expect(p.child?.label).toBe("rust");
+    expect(p.child?.unit).toBe("test");
+    expect(p.reportAtMs).toBe(2000);
+
+    // The child's own relations hold inside the slot: its later report replaces it, and a
+    // phase run under a third label rides beside the child's units.
+    store.applyReport({ tool_use_id: "t", label: "cargo", unit: "phase", units: [{ name: "build", status: "running", index: 0 }] }, 2500);
+    store.applyReport(
+      { tool_use_id: "t", label: "rust", text: "a FAIL", unit: "test", done: 10, total: 748, failures: 1, units: [{ name: "a", status: "fail", index: 0 }] },
+      3000,
+    );
+    p = store.get("t")!;
+    expect(p.child?.done).toBe(10);
+    expect(p.child?.units?.[0]?.name).toBe("a");
+    expect(p.child?.phases?.[0]?.name).toBe("build");
+
+    // The parent's next report, under its label, is the whole entry again.
+    store.applyReport(
+      { tool_use_id: "t", label: "arc verify", text: "rust FAIL (747/748)", done: 1, total: 2, failures: 1, unit: "surface", units: surfaces("fail"), nests: true },
+      4000,
+    );
+    p = store.get("t")!;
+    expect(p.child).toBeUndefined();
+    expect(p.units?.[0]?.status).toBe("fail");
+
+    // A run that does not nest is replaced by another label's report, as ever.
+    store.applyReport({ tool_use_id: "u", label: "app-test", unit: "file", units: ROWS }, 1000);
+    store.applyReport({ tool_use_id: "u", label: "rust", unit: "test", units: [] }, 2000);
+    expect(store.get("u")?.label).toBe("rust");
+    expect(store.get("u")?.child).toBeUndefined();
+  });
+
   test("a row with no name or a status it does not know is dropped; a mistyped field is absent", () => {
     expect(
       narrowRunUnits([

@@ -1239,16 +1239,22 @@ fn run_verify(
     // verify draws on the block it runs under while its checks run.
     let reporting = crate::session_identity::have_calling_session();
     let mut surfaces = crate::report_unit::SurfaceReport::new(vec!["arc verify".to_string()]);
+    let wrap = verify_wrapper(&tugarc_core::ops::worktree_path(&repo, name));
+    let mut verdict = verify_verdicts();
     let report = match tugarc_core::surfaces::verify_watched(
         paths,
         &repo,
         name,
         base.as_deref(),
         head.as_deref(),
-        &mut |event| {
-            if reporting {
-                let _ = post_report(&surfaces.event(event, now_ms()));
-            }
+        tugarc_core::surfaces::VerifyHooks {
+            wrap: &wrap,
+            verdict: &mut verdict,
+            watch: &mut |event| {
+                if reporting {
+                    let _ = post_report(&surfaces.event(event, now_ms()));
+                }
+            },
         },
     ) {
         Ok(r) => r,
@@ -1261,6 +1267,71 @@ fn run_verify(
         print_verify(&report);
     }
     ExitCode::from(report.exit_code())
+}
+
+/// The wrapper a verify runs its checks through: the hook's own rewrite, over
+/// the same runner table the hook reads for a call made from the worktree —
+/// the built-ins and the project's `[[tugtool.report.runner]]` rows — so a
+/// check a hand-typed call would have wrapped is wrapped here the same way.
+/// A known kind gets this binary's `test run --kind …`, a row that reports
+/// itself runs as declared (the children inherit the call id already), and
+/// a command the table does not know runs as declared. No second table, and
+/// no hook protocol: one rewrite, read from a string.
+pub(crate) fn verify_wrapper(worktree: &std::path::Path) -> impl Fn(&str) -> String + use<> {
+    let cwd = worktree.to_string_lossy().into_owned();
+    let runners = crate::runners::for_cwd(Some(&cwd));
+    let tugtool = crate::commands::hook::hook_binary();
+    move |command: &str| {
+        crate::commands::hook::rewrite_command(command, Some(&cwd), None, &tugtool, &runners)
+            .unwrap_or_else(|| command.to_string())
+    }
+}
+
+/// The reader a verify asks after each check exits: what the wrapped child
+/// recorded, read from the test ledger under this call's id. The runs under
+/// the call are read in order and each check is credited with the ones
+/// recorded since the last ask, so a check whose runner wrote two records
+/// carries both. With no call id, or no ledger, every answer is `None` and
+/// the row falls back to the check and its exit code. The read is
+/// telemetry-grade: a ledger that cannot be opened or read never fails the
+/// verify.
+fn verify_verdicts() -> impl FnMut(&str) -> Option<tugarc_core::surfaces::ChildVerdict> + use<> {
+    use tugtool_core::test_ledger::{default_path, open_ledger, runs_for_call};
+    let call = crate::report::tool_use_id();
+    let conn = call.as_ref().and_then(|_| open_ledger(default_path()).ok());
+    let mut seen = match (&conn, &call) {
+        (Some(conn), Some(call)) => runs_for_call(conn, call, None).map(|r| r.len()).unwrap_or(0),
+        _ => 0,
+    };
+    move |_command: &str| {
+        let (conn, call) = (conn.as_ref()?, call.as_deref()?);
+        let runs = runs_for_call(conn, call, None).ok()?;
+        let fresh = runs.get(seen..).unwrap_or(&[]);
+        seen = runs.len();
+        verdict_of_runs(fresh)
+    }
+}
+
+/// One check's verdict from the runs its child recorded: tests passed of
+/// total when any run counted tests, and the first failure's name and message
+/// across them. `None` when no run was recorded.
+pub(crate) fn verdict_of_runs(
+    runs: &[tugtool_core::test_ledger::SuiteRun],
+) -> Option<tugarc_core::surfaces::ChildVerdict> {
+    if runs.is_empty() {
+        return None;
+    }
+    let total: i64 = runs.iter().map(|r| r.tests).sum();
+    let failed: i64 = runs.iter().map(|r| r.failed).sum();
+    let first = runs.iter().find_map(|r| r.failures.first());
+    Some(tugarc_core::surfaces::ChildVerdict {
+        passed: (total > 0).then(|| (total - failed).max(0) as u64),
+        total: (total > 0).then_some(total as u64),
+        title: first.map(|f| f.name.clone()),
+        message: first
+            .map(|f| f.message.clone())
+            .filter(|m| !m.is_empty()),
+    })
 }
 
 fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
@@ -1289,7 +1360,12 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
                 .filter(|c| c.status == "ran")
                 .count();
             let result = if surface.red {
-                "red".to_string()
+                match (surface.passed, surface.total) {
+                    (Some(passed), Some(total)) if total > 0 => {
+                        format!("red ({} of {total} failed)", total - passed)
+                    }
+                    _ => "red".to_string(),
+                }
             } else if surface.commands.is_empty() {
                 "claimed, unchecked".to_string()
             } else if surface.borrowed_from.is_empty() {
@@ -1314,16 +1390,31 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
                     "not-reached" => {
                         println!("               not reached: {}", command.command)
                     }
-                    _ if command.exit_code.is_some_and(|code| code != 0) => println!(
-                        "               failed (exit {}): {}",
-                        command.exit_code.unwrap_or(-1),
-                        command.command
-                    ),
+                    _ if command.exit_code.is_some_and(|code| code != 0) => {
+                        println!(
+                            "               failed (exit {}): {}",
+                            command.exit_code.unwrap_or(-1),
+                            command.command
+                        );
+                        if let Some(title) = &command.title {
+                            match &command.message {
+                                Some(message) => {
+                                    println!("               first failure: {title}: {message}")
+                                }
+                                None => println!("               first failure: {title}"),
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         println!();
+        if report.verdict == "red"
+            && let Some(call) = crate::report::tool_use_id()
+        {
+            println!("every red recorded under this call: tugtool test last --call {call} --failures\n");
+        }
     }
 
     println!("{}", report.receipt);
@@ -2784,6 +2875,59 @@ fn run_show(paths: &Paths, name: &str, json: bool, quiet: bool) -> Result<(), Ap
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every check this project's own surface table declares wraps the way
+    /// the hook would wrap it typed by hand: a known runner under `test run`
+    /// with the suite and kind the table gives it, a `just` recipe that
+    /// reports itself left as declared.
+    #[test]
+    fn verify_wraps_this_projects_surface_checks_as_the_hook_would() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let config = tugtool_core::config::Config::load_from_project(&root).unwrap();
+        let wrap = verify_wrapper(&root);
+        let mut seen = std::collections::BTreeMap::new();
+        for surface in &config.tugtool.arc.surfaces {
+            for check in &surface.check {
+                seen.insert(check.clone(), wrap(check));
+            }
+        }
+        assert!(!seen.is_empty(), "the project declares checks");
+        for (check, wrapped) in &seen {
+            if check.contains("just ") {
+                assert_eq!(wrapped, check, "a recipe reports itself and is left alone");
+            } else {
+                assert!(
+                    wrapped.contains(" test run --suite "),
+                    "a runner is wrapped: {check} → {wrapped}"
+                );
+                assert!(
+                    wrapped.ends_with(&format!("-- {}", check.rsplit("&& ").next().unwrap())),
+                    "the declared command runs after the `--`: {wrapped}"
+                );
+                assert!(
+                    !wrapped.contains("TUG_TOOL_USE_ID"),
+                    "the child inherits the call id; nothing is exported: {wrapped}"
+                );
+            }
+        }
+        let expect = |check: &str, suite: &str, kind: &str| {
+            let wrapped = &seen[check];
+            assert!(
+                wrapped.contains(&format!("--suite {suite} --kind {kind} ")),
+                "{check} → {wrapped}"
+            );
+        };
+        expect(
+            "cd tugrust && cargo clippy --workspace --all-targets -- -D warnings",
+            "cargo",
+            "cargo",
+        );
+        expect("cd tugrust && cargo nextest run", "rust", "nextest");
+        expect("cd tugdeck && bunx tsc --noEmit", "tsc", "tsc");
+        expect("cd tugdeck && bunx vite build", "vite", "vite");
+        expect("cd tugdeck && bun test", "tugdeck", "bun");
+        expect("cd tugcode && bunx tsc --noEmit", "tsc", "tsc");
+    }
 
     /// A git failure's code names a lock another process holds, so a caller
     /// that retries contention reads a code instead of git's prose.

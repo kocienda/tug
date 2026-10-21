@@ -397,6 +397,8 @@ describe("unwrapped before admission", () => {
       tug_session_id: "s",
     };
     expect(decodeOutbound("report", frame)).toEqual(frame);
+    expect(decodeOutbound("report", { ...frame, nests: true })).toEqual({ ...frame, nests: true });
+    expect(failPath("report", { ...frame, nests: "yes" })).toBe("$.nests");
     expect(failPath("report", { ...frame, unit: 7 })).toBe("$.unit");
     expect(failPath("report", { ...frame, jobs: "4" })).toBe("$.jobs");
     expect(failPath("report", { ...frame, units: "rows" })).toBe("$.units");

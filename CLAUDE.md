@@ -59,6 +59,8 @@ Run Rust tests with:
 cd tugrust && cargo nextest run
 ```
 
+Run it in the foreground, read its last three lines, and let `tugtool test last --failures` name the reds; the rule, the `timeout` that replaces backgrounding, and the ban on piping a runner into `grep` or `head` are in `tugplug/tool-calls.md` under *Tail the screen, never the record*.
+
 ### App-tests: run a selection, never a sweep
 
 Every app-test launches its own `Tug.app` subprocess and the whole invocation is serialized behind a machine-wide gate, so running the corpus is expensive. **Selective runs are the default.**

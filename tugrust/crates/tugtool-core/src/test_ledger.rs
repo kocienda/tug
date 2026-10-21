@@ -26,12 +26,16 @@ use serde::Serialize;
 use crate::apptest_ledger::resolve_base_root;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const TEST_RESULTS_SCHEMA_VERSION: i64 = 1;
+pub const TEST_RESULTS_SCHEMA_VERSION: i64 = 2;
 
 /// Registered migrations, each keyed by the on-disk version it upgrades
 /// *from*. A schema change adds an entry here and bumps
 /// [`TEST_RESULTS_SCHEMA_VERSION`] — never edits the DDL alone.
-const TEST_RESULTS_MIGRATIONS: &[(i64, &str)] = &[];
+const TEST_RESULTS_MIGRATIONS: &[(i64, &str)] = &[
+    // v1 → v2: a run remembers the Bash call it ran under, so every suite a
+    // verify ran is read back together.
+    (1, "ALTER TABLE runs ADD COLUMN tool_use_id TEXT;"),
+];
 
 /// How many runs are kept per base root. Older runs are deleted at record
 /// time, and their file and failure rows follow by cascade.
@@ -53,6 +57,7 @@ const CREATE_TEST_RESULTS_SQL: &str = "
         dirty       INTEGER NOT NULL,
         suite       TEXT    NOT NULL,
         session_id  TEXT,
+        tool_use_id TEXT,
         command     TEXT    NOT NULL,
         exit_code   INTEGER NOT NULL,
         wall_secs   REAL    NOT NULL,
@@ -63,6 +68,7 @@ const CREATE_TEST_RESULTS_SQL: &str = "
         verdict     TEXT    NOT NULL
     );
     CREATE INDEX IF NOT EXISTS runs_by_suite ON runs (base_root, suite, id);
+    CREATE INDEX IF NOT EXISTS runs_by_call ON runs (tool_use_id, id);
     CREATE TABLE IF NOT EXISTS files (
         run_id      INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
         file        TEXT    NOT NULL,
@@ -315,6 +321,10 @@ pub struct TestRun {
     pub suite: String,
     /// The live session segment that ran it, when one was reachable.
     pub session_id: Option<String>,
+    /// The Bash call the run ran under (`TUG_TOOL_USE_ID`), when the harness
+    /// said so. Every child a verify wraps inherits the same one, which is
+    /// what lets [`runs_for_call`] read a whole verify back as one.
+    pub tool_use_id: Option<String>,
     pub command: String,
     pub exit_code: i64,
     pub wall_secs: f64,
@@ -354,10 +364,10 @@ pub fn record_run(
     tx.execute(
         "INSERT INTO runs
             (started_at, ended_at, base_root, run_root, branch, head_sha, dirty,
-             suite, session_id, command, exit_code, wall_secs, tests, failed,
-             skipped, has_record, verdict)
+             suite, session_id, tool_use_id, command, exit_code, wall_secs,
+             tests, failed, skipped, has_record, verdict)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                 ?15, ?16, ?17)",
+                 ?15, ?16, ?17, ?18)",
         params![
             run.started_at,
             run.ended_at,
@@ -368,6 +378,7 @@ pub fn record_run(
             i64::from(run.dirty),
             run.suite,
             run.session_id,
+            run.tool_use_id,
             run.command,
             run.exit_code,
             run.wall_secs,
@@ -428,6 +439,8 @@ pub struct SuiteRun {
     pub head_sha: String,
     pub dirty: bool,
     pub session_id: Option<String>,
+    /// The Bash call the run ran under, when one was known.
+    pub tool_use_id: Option<String>,
     pub command: String,
     pub exit_code: i64,
     pub wall_secs: f64,
@@ -442,6 +455,38 @@ pub struct SuiteRun {
     pub failures: Vec<JunitFailure>,
 }
 
+/// The columns every run query selects, in the order [`suite_run_of`] reads.
+const RUN_COLUMNS: &str = "r.id, r.suite, r.started_at, r.ended_at, r.run_root, r.branch,
+                r.head_sha, r.dirty, r.session_id, r.tool_use_id, r.command,
+                r.exit_code, r.wall_secs, r.tests, r.failed, r.skipped,
+                r.has_record, r.verdict";
+
+/// One `runs` row as a [`SuiteRun`], its file and failure rows still to come.
+fn suite_run_of(row: &rusqlite::Row<'_>) -> rusqlite::Result<SuiteRun> {
+    Ok(SuiteRun {
+        run_id: row.get(0)?,
+        suite: row.get(1)?,
+        started_at: row.get(2)?,
+        ended_at: row.get(3)?,
+        run_root: row.get(4)?,
+        branch: row.get(5)?,
+        head_sha: row.get(6)?,
+        dirty: row.get::<_, i64>(7)? != 0,
+        session_id: row.get(8)?,
+        tool_use_id: row.get(9)?,
+        command: row.get(10)?,
+        exit_code: row.get(11)?,
+        wall_secs: row.get(12)?,
+        tests: row.get(13)?,
+        failed: row.get(14)?,
+        skipped: row.get(15)?,
+        has_record: row.get::<_, i64>(16)? != 0,
+        verdict: row.get(17)?,
+        files: Vec::new(),
+        failures: Vec::new(),
+    })
+}
+
 /// The newest run of each suite recorded for `base_root`, newest first —
 /// or of one suite, when `suite` names it.
 pub fn latest_per_suite(
@@ -449,50 +494,83 @@ pub fn latest_per_suite(
     base_root: &str,
     suite: Option<&str>,
 ) -> Result<Vec<SuiteRun>, TestLedgerError> {
-    let mut stmt = conn.prepare(
-        "SELECT r.id, r.suite, r.started_at, r.ended_at, r.run_root, r.branch,
-                r.head_sha, r.dirty, r.session_id, r.command, r.exit_code,
-                r.wall_secs, r.tests, r.failed, r.skipped, r.has_record, r.verdict
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {RUN_COLUMNS}
            FROM runs r
           WHERE r.base_root = ?1
             AND (?2 IS NULL OR r.suite = ?2)
             AND r.id = (SELECT MAX(id) FROM runs
                          WHERE base_root = ?1 AND suite = r.suite)
-          ORDER BY r.id DESC",
-    )?;
+          ORDER BY r.id DESC"
+    ))?;
     let mut runs: Vec<SuiteRun> = stmt
-        .query_map(params![base_root, suite], |row| {
-            Ok(SuiteRun {
-                run_id: row.get(0)?,
-                suite: row.get(1)?,
-                started_at: row.get(2)?,
-                ended_at: row.get(3)?,
-                run_root: row.get(4)?,
-                branch: row.get(5)?,
-                head_sha: row.get(6)?,
-                dirty: row.get::<_, i64>(7)? != 0,
-                session_id: row.get(8)?,
-                command: row.get(9)?,
-                exit_code: row.get(10)?,
-                wall_secs: row.get(11)?,
-                tests: row.get(12)?,
-                failed: row.get(13)?,
-                skipped: row.get(14)?,
-                has_record: row.get::<_, i64>(15)? != 0,
-                verdict: row.get(16)?,
-                files: Vec::new(),
-                failures: Vec::new(),
-            })
-        })?
+        .query_map(params![base_root, suite], suite_run_of)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    attach_rows(conn, &mut runs)?;
+    Ok(runs)
+}
 
+/// The median wall time, in seconds, of a suite's newest `recent` runs under
+/// `base_root` — what the suite usually takes here, which is what a
+/// foreground timeout for it is read from. `None` when no run is recorded.
+pub fn median_wall_secs(
+    conn: &Connection,
+    base_root: &str,
+    suite: &str,
+    recent: usize,
+) -> Result<Option<f64>, TestLedgerError> {
+    let mut stmt = conn.prepare(
+        "SELECT wall_secs FROM runs
+          WHERE base_root = ?1 AND suite = ?2
+          ORDER BY id DESC LIMIT ?3",
+    )?;
+    let mut secs: Vec<f64> = stmt
+        .query_map(params![base_root, suite, recent as i64], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if secs.is_empty() {
+        return Ok(None);
+    }
+    secs.sort_by(|a, b| a.total_cmp(b));
+    let mid = secs.len() / 2;
+    Ok(Some(if secs.len() % 2 == 0 {
+        (secs[mid - 1] + secs[mid]) / 2.0
+    } else {
+        secs[mid]
+    }))
+}
+
+/// Every run recorded under one Bash call, oldest first — the order the
+/// call ran them in, which for a verify is its surface order. A call id is
+/// the harness's and unique on its own, so no root narrows it; `suite`
+/// narrows to one suite's runs under the call when it names one.
+pub fn runs_for_call(
+    conn: &Connection,
+    tool_use_id: &str,
+    suite: Option<&str>,
+) -> Result<Vec<SuiteRun>, TestLedgerError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {RUN_COLUMNS}
+           FROM runs r
+          WHERE r.tool_use_id = ?1
+            AND (?2 IS NULL OR r.suite = ?2)
+          ORDER BY r.id ASC"
+    ))?;
+    let mut runs: Vec<SuiteRun> = stmt
+        .query_map(params![tool_use_id, suite], suite_run_of)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    attach_rows(conn, &mut runs)?;
+    Ok(runs)
+}
+
+/// Fill each run's file and failure rows.
+fn attach_rows(conn: &Connection, runs: &mut [SuiteRun]) -> Result<(), TestLedgerError> {
     let mut files = conn
         .prepare("SELECT file, tests, failed, secs FROM files WHERE run_id = ?1 ORDER BY rowid")?;
     let mut failures = conn.prepare(
         "SELECT file, name, classname, message, detail FROM failures
           WHERE run_id = ?1 ORDER BY rowid",
     )?;
-    for run in &mut runs {
+    for run in runs.iter_mut() {
         run.files = files
             .query_map(params![run.run_id], |row| {
                 Ok(JunitFile {
@@ -515,7 +593,7 @@ pub fn latest_per_suite(
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
     }
-    Ok(runs)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -586,6 +664,7 @@ assertion `left == right` failed
             dirty: false,
             suite: suite.into(),
             session_id: None,
+            tool_use_id: None,
             command: "bun test".into(),
             exit_code,
             wall_secs: 10.0,
@@ -594,6 +673,27 @@ assertion `left == right` failed
 
     fn count(conn: &Connection, sql: &str) -> i64 {
         conn.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    /// The median reads the newest runs of one suite under one root, and an
+    /// unrecorded suite has none.
+    #[test]
+    fn a_suites_median_wall_time_is_read_from_its_newest_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = ledger(dir.path());
+        let root = dir.path().join("proj");
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.to_string_lossy().into_owned();
+        for (at, secs) in [(1_000, 10.0), (2_000, 40.0), (3_000, 20.0), (4_000, 30.0)] {
+            let mut run = run(&root, "rust", at, 0);
+            run.wall_secs = secs;
+            record_run(&mut conn, &run, None).unwrap();
+        }
+        let base = resolve_base_root(Path::new(&root));
+        assert_eq!(median_wall_secs(&conn, &base, "rust", 10).unwrap(), Some(25.0));
+        assert_eq!(median_wall_secs(&conn, &base, "rust", 3).unwrap(), Some(30.0), "the newest three");
+        assert_eq!(median_wall_secs(&conn, &base, "tugdeck", 10).unwrap(), None);
+        assert_eq!(median_wall_secs(&conn, "/elsewhere", "rust", 10).unwrap(), None);
     }
 
     #[test]
@@ -741,6 +841,107 @@ assertion `left == right` failed
         let one = latest_per_suite(&conn, &base, Some("rust")).unwrap();
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].suite, "rust");
+    }
+
+    #[test]
+    fn the_runs_under_one_call_come_back_oldest_first_whatever_their_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let doc = parse_junit(NEXTEST_JUNIT).unwrap();
+        let green = JunitRun {
+            tests: 4,
+            ..JunitRun::default()
+        };
+        let under = |suite: &str, at: i64, exit_code: i64| TestRun {
+            tool_use_id: Some("toolu_01A".into()),
+            ..run(&root, suite, at, exit_code)
+        };
+        // A verify: rust red, then deck green, under one call; a later rust
+        // run under another call, which the call read must not show.
+        record_run(&mut conn, &under("rust", 1_000, 1), Some(&doc)).unwrap();
+        record_run(&mut conn, &under("tugdeck", 2_000, 0), Some(&green)).unwrap();
+        record_run(
+            &mut conn,
+            &TestRun {
+                tool_use_id: Some("toolu_02B".into()),
+                ..run(&root, "rust", 3_000, 0)
+            },
+            Some(&green),
+        )
+        .unwrap();
+
+        let runs = runs_for_call(&conn, "toolu_01A", None).unwrap();
+        assert_eq!(
+            runs.iter()
+                .map(|r| (r.suite.as_str(), r.verdict.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("rust", "FAIL"), ("tugdeck", "PASS")],
+            "the call's runs, in the order they ran"
+        );
+        assert_eq!(runs[0].tool_use_id.as_deref(), Some("toolu_01A"));
+        assert_eq!(runs[0].failures.len(), 1, "the failures ride along");
+        assert_eq!(runs[0].failures[0].name, "ledger_db::tests::fails");
+
+        let one = runs_for_call(&conn, "toolu_01A", Some("tugdeck")).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].suite, "tugdeck");
+        assert!(runs_for_call(&conn, "toolu_none", None).unwrap().is_empty());
+
+        // The per-suite read still answers the newest run, call or no call.
+        let base = resolve_base_root(Path::new(&root));
+        let latest = latest_per_suite(&conn, &base, Some("rust")).unwrap();
+        assert_eq!(latest[0].tool_use_id.as_deref(), Some("toolu_02B"));
+    }
+
+    /// A ledger written before the call column existed opens, gains the
+    /// column, and records a run that carries one.
+    #[test]
+    fn a_v1_ledger_gains_the_call_column_on_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_results.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                &CREATE_TEST_RESULTS_SQL
+                    .replace("        tool_use_id TEXT,\n", "")
+                    .replace(
+                        "    CREATE INDEX IF NOT EXISTS runs_by_call ON runs (tool_use_id, id);\n",
+                        "",
+                    ),
+            )
+            .unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute(
+                "INSERT INTO runs (started_at, ended_at, base_root, run_root, branch,
+                    head_sha, dirty, suite, command, exit_code, wall_secs, tests,
+                    failed, skipped, has_record, verdict)
+                 VALUES (1, 2, 'r', 'r', 'main', 'abc', 0, 'old', 'x', 0, 1.0, 1, 0, 0, 1, 'PASS')",
+                [],
+            )
+            .unwrap();
+        }
+        let mut conn = open_ledger(&path).unwrap();
+        assert_eq!(count(&conn, "PRAGMA user_version"), TEST_RESULTS_SCHEMA_VERSION);
+        let root = dir.path().to_string_lossy().into_owned();
+        record_run(
+            &mut conn,
+            &TestRun {
+                tool_use_id: Some("toolu_01A".into()),
+                ..run(&root, "rust", 1_000, 0)
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(runs_for_call(&conn, "toolu_01A", None).unwrap().len(), 1);
+        let old: Option<String> = conn
+            .query_row(
+                "SELECT tool_use_id FROM runs WHERE suite = 'old'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(old, None, "the row from before the column has none");
     }
 
     #[test]

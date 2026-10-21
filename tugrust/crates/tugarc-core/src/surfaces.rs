@@ -291,6 +291,14 @@ pub struct SurfaceResult {
     pub borrowed_from: Vec<String>,
     /// True when a command in this surface exited non-zero.
     pub red: bool,
+    /// The tests its checks' children passed, summed over the checks whose
+    /// child recorded; `None` when none did.
+    pub passed: Option<u64>,
+    /// The tests its checks' children ran, summed the same way.
+    pub total: Option<u64>,
+    /// The first red check's first failure, when its child recorded one.
+    pub title: Option<String>,
+    pub message: Option<String>,
 }
 
 /// One command's outcome.
@@ -307,6 +315,36 @@ pub struct CommandResult {
     pub exit_code: Option<i32>,
     /// The surface credited with having already run this exact string.
     pub already_run_for: Option<String>,
+    /// What the record keyed to the call says the child did: tests passed of
+    /// total, and the first failure's title and message. `None` throughout
+    /// when the child recorded nothing — a command no runner wrapped.
+    pub passed: Option<u64>,
+    pub total: Option<u64>,
+    pub title: Option<String>,
+    pub message: Option<String>,
+}
+
+/// A check's verdict as its wrapped child recorded it: tests passed of total,
+/// and the first red's title and message. The caller's `verdict` reads one
+/// after each check exits — from the record keyed to the call, which this
+/// crate does not open — and `None` says nothing was recorded.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChildVerdict {
+    pub passed: Option<u64>,
+    pub total: Option<u64>,
+    pub title: Option<String>,
+    pub message: Option<String>,
+}
+
+/// What a caller puts around a verify's checks. `wrap` rewrites each check
+/// before it runs; `verdict` is asked, after it exits, what its child
+/// recorded; `watch` is told each surface as it starts and lands. This crate
+/// knows no runner table and opens no record, so all three are the caller's,
+/// and [`verify_in`] supplies the ones that do nothing.
+pub struct VerifyHooks<'a> {
+    pub wrap: &'a dyn Fn(&str) -> String,
+    pub verdict: &'a mut dyn FnMut(&str) -> Option<ChildVerdict>,
+    pub watch: &'a mut dyn FnMut(VerifyEvent<'_>),
 }
 
 /// What a verify run tells whoever watches it, as it goes: the surfaces it
@@ -323,13 +361,20 @@ pub enum VerifyEvent<'a> {
     Finished(&'a SurfaceResult),
 }
 
-/// Run a surface plan and report what happened.
+/// Run a surface plan and report what happened. Each command is passed
+/// through `wrap` before it runs — the caller's chance to put a reporting
+/// wrapper in front of a runner it recognises — and is recorded as declared,
+/// so the report reads the config's own words. After each command exits,
+/// `verdict` is asked what its child recorded, and the answer rides the
+/// command's result and, summed, its surface's.
 ///
 /// A red command ends its own surface and nothing else: every surface runs, so
 /// one report names every failure rather than the first one.
 fn run_plans(
     worktree: &Path,
     plans: Vec<SurfacePlan>,
+    wrap: &dyn Fn(&str) -> String,
+    verdict: &mut dyn FnMut(&str) -> Option<ChildVerdict>,
     watch: &mut dyn FnMut(VerifyEvent<'_>),
 ) -> Vec<SurfaceResult> {
     let planned: Vec<(String, usize)> = plans
@@ -350,6 +395,10 @@ fn run_plans(
                     status: "not-reached".to_string(),
                     exit_code: None,
                     already_run_for: planned.already_run_for,
+                    passed: None,
+                    total: None,
+                    title: None,
+                    message: None,
                 });
                 continue;
             }
@@ -360,12 +409,16 @@ fn run_plans(
                     status: "already-run".to_string(),
                     exit_code: None,
                     already_run_for: planned.already_run_for,
+                    passed: None,
+                    total: None,
+                    title: None,
+                    message: None,
                 });
                 continue;
             }
             let status = Command::new("sh")
                 .arg("-c")
-                .arg(&planned.command)
+                .arg(wrap(&planned.command))
                 .current_dir(worktree)
                 .status();
             let exit_code = match status {
@@ -375,17 +428,33 @@ fn run_plans(
             if exit_code != 0 {
                 red = true;
             }
+            let child = verdict(&planned.command).unwrap_or_default();
             commands.push(CommandResult {
                 command: planned.command,
                 declared_by: planned.declared_by,
                 status: "ran".to_string(),
                 exit_code: Some(exit_code),
                 already_run_for: None,
+                passed: child.passed,
+                total: child.total,
+                title: child.title,
+                message: child.message,
             });
         }
+        let recorded = commands.iter().filter(|c| c.total.is_some());
+        let total = recorded.clone().map(|c| c.total.unwrap_or(0)).sum::<u64>();
+        let passed = recorded.clone().map(|c| c.passed.unwrap_or(0)).sum::<u64>();
+        let any_recorded = recorded.count() > 0;
+        let first_red = commands
+            .iter()
+            .find(|c| c.exit_code.is_some_and(|code| code != 0));
         let result = SurfaceResult {
             name: plan.name,
             paths: plan.paths,
+            passed: any_recorded.then_some(passed),
+            total: any_recorded.then_some(total),
+            title: first_red.and_then(|c| c.title.clone()),
+            message: first_red.and_then(|c| c.message.clone()),
             commands,
             borrowed_from: plan.borrowed_from,
             red,
@@ -416,7 +485,7 @@ fn touched_paths(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, Arc
 }
 
 /// Verify the fit of an arc: resolve the range it would land, check every
-/// surface it touched, and report.
+/// surface it touched, and report. Each check runs as declared, unwrapped.
 ///
 /// The range is derived live rather than remembered — `merge-base(base,
 /// branch)..branch` is an arc's own contribution, which is what a join lands
@@ -435,19 +504,28 @@ pub fn verify_in(
         name,
         base_override,
         head_override,
-        &mut |_| {},
+        VerifyHooks {
+            wrap: &|command| command.to_string(),
+            verdict: &mut |_| None,
+            watch: &mut |_| {},
+        },
     )
 }
 
-/// [`verify_in`], telling `watch` each surface as it starts and lands, so a
-/// caller can show the run while it is still running.
+/// [`verify_in`] with the caller's [`VerifyHooks`]: each check passes through
+/// `wrap` before it runs, `verdict` is asked what its child recorded once it
+/// exits, and `watch` is told each surface as it starts and lands, so a
+/// caller can put its own reporting wrapper in front of the runners it knows,
+/// read the record those runners write, and show the run while it is still
+/// running. A check is recorded as the config declared it whatever `wrap`
+/// ran.
 pub fn verify_watched(
     paths: &Paths,
     repo_root: &Path,
     name: &str,
     base_override: Option<&str>,
     head_override: Option<&str>,
-    watch: &mut dyn FnMut(VerifyEvent<'_>),
+    hooks: VerifyHooks<'_>,
 ) -> Result<VerifyReport, ArcError> {
     let repo = crate::ops::main_repo_root(repo_root);
     let branch = crate::ops::branch_name(name);
@@ -523,7 +601,7 @@ pub fn verify_watched(
             claimed_unchecked: 0,
         },
         Resolution::Planned(plans) => {
-            let results = run_plans(&worktree, plans, watch);
+            let results = run_plans(&worktree, plans, hooks.wrap, hooks.verdict, hooks.watch);
             let checked = results.iter().filter(|r| !r.commands.is_empty()).count();
             let claimed_unchecked = results.iter().filter(|r| r.commands.is_empty()).count();
             let reds: Vec<&SurfaceResult> = results.iter().filter(|r| r.red).collect();
@@ -544,10 +622,14 @@ pub fn verify_watched(
                             .find(|c| c.exit_code.is_some_and(|code| code != 0))
                             .map(|c| {
                                 format!(
-                                    "{}: `{}` (exit {})",
+                                    "{}: `{}` (exit {}){}",
                                     surface.name,
                                     c.command,
-                                    c.exit_code.unwrap_or(-1)
+                                    c.exit_code.unwrap_or(-1),
+                                    c.title
+                                        .as_deref()
+                                        .map(|t| format!(" · first red {t}"))
+                                        .unwrap_or_default()
                                 )
                             })
                     })
@@ -900,6 +982,89 @@ mod fit_tests {
     const RED: &str =
         "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"false\"]\n";
 
+    /// The wrapper runs in place of the declared text and the report still
+    /// reads the declaration: a `false` wrapped to `true` is a green surface
+    /// whose command is `false`.
+    #[test]
+    fn a_check_runs_through_the_wrapper_and_is_recorded_as_declared() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        project(&root, RED, &[("src/a.rs", "a\n")]);
+
+        let seen = std::cell::RefCell::new(Vec::new());
+        let wrap = |command: &str| {
+            seen.borrow_mut().push(command.to_string());
+            command.replace("false", "true")
+        };
+        let hooks = VerifyHooks {
+            wrap: &wrap,
+            verdict: &mut |_| None,
+            watch: &mut |_| {},
+        };
+        let report = verify_watched(&paths, &root, "demo", None, None, hooks).unwrap();
+        assert_eq!(*seen.borrow(), vec!["false".to_string()], "every check is offered");
+        assert_eq!(report.verdict, "verified", "the wrapped command is what ran");
+        let command = &report.surfaces[0].commands[0];
+        assert_eq!(command.command, "false", "the report reads the declaration");
+        assert_eq!(command.exit_code, Some(0));
+
+        let report = verify_in(&paths, &root, "demo", None, None).unwrap();
+        assert_eq!(report.verdict, "red", "unwrapped, the check runs as declared");
+    }
+
+    /// A red check whose child recorded carries the child's verdict: its
+    /// tests passed of total on the command and the surface, and the first
+    /// failure's name where the receipt and the table read it.
+    #[test]
+    fn a_red_surface_carries_the_test_its_child_recorded_as_the_red() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        project(&root, RED, &[("src/a.rs", "a\n")]);
+
+        let mut asked = Vec::new();
+        let mut verdict = |command: &str| {
+            asked.push(command.to_string());
+            Some(ChildVerdict {
+                passed: Some(3),
+                total: Some(4),
+                title: Some("b".into()),
+                message: Some("expected 2, got 3".into()),
+            })
+        };
+        let unwrapped = |command: &str| command.to_string();
+        let hooks = VerifyHooks {
+            wrap: &unwrapped,
+            verdict: &mut verdict,
+            watch: &mut |_| {},
+        };
+        let report = verify_watched(&paths, &root, "demo", None, None, hooks).unwrap();
+        assert_eq!(asked, vec!["false".to_string()], "asked once, after the check exits");
+        assert_eq!(report.verdict, "red");
+        let surface = &report.surfaces[0];
+        let command = &surface.commands[0];
+        assert_eq!((command.passed, command.total), (Some(3), Some(4)));
+        assert_eq!(command.title.as_deref(), Some("b"));
+        assert_eq!((surface.passed, surface.total), (Some(3), Some(4)));
+        assert_eq!(surface.title.as_deref(), Some("b"));
+        assert_eq!(surface.message.as_deref(), Some("expected 2, got 3"));
+        assert!(
+            report.receipt.ends_with("src: `false` (exit 1) · first red b"),
+            "the receipt names the test: {}",
+            report.receipt
+        );
+
+        let report = verify_in(&paths, &root, "demo", None, None).unwrap();
+        let surface = &report.surfaces[0];
+        assert_eq!((surface.passed, surface.total, surface.title.as_deref()), (None, None, None));
+        assert!(report.receipt.ends_with("src: `false` (exit 1)"), "{}", report.receipt);
+    }
+
     fn verified_lines(paths: &Paths, root: &Path) -> Vec<String> {
         let log = tugtool_core::paths::project_state_dir_at(paths, root)
             .join(tugtool_core::paths::ARC_LOG);
@@ -947,7 +1112,8 @@ mod fit_tests {
         project(&root, config, &[("src/a.rs", "a\n"), ("docs/a.md", "a\n")]);
 
         let mut seen = Vec::new();
-        let report = verify_watched(&paths, &root, "demo", None, None, &mut |event| {
+        let unwrapped = |command: &str| command.to_string();
+        let mut watch = |event: VerifyEvent<'_>| {
             seen.push(match event {
                 VerifyEvent::Planned(surfaces) => format!("planned {surfaces:?}"),
                 VerifyEvent::Started(name) => format!("started {name}"),
@@ -955,8 +1121,13 @@ mod fit_tests {
                     format!("finished {} red={}", result.name, result.red)
                 }
             })
-        })
-        .unwrap();
+        };
+        let hooks = VerifyHooks {
+            wrap: &unwrapped,
+            verdict: &mut |_| None,
+            watch: &mut watch,
+        };
+        let report = verify_watched(&paths, &root, "demo", None, None, hooks).unwrap();
         assert_eq!(report.verdict, "red");
         assert_eq!(
             seen,

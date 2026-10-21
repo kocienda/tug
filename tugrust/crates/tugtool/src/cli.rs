@@ -822,6 +822,10 @@ pub enum TestCommands {
     },
     /// The latest recorded run of each suite, and the failures it named.
     ///
+    /// With `--call <id>`, every run recorded under that Bash call instead,
+    /// in the order they ran: a `tugtool arc verify` records each check it
+    /// wraps under its own call id, so one tailed verify is read back whole.
+    ///
     /// Always exits 0: it is a reader, and "nothing recorded" is an answer.
     Last {
         /// Print only the failing tests, across suites.
@@ -830,6 +834,11 @@ pub enum TestCommands {
         /// Only this suite.
         #[arg(long)]
         suite: Option<String>,
+        /// Every run recorded under this Bash call (its `TUG_TOOL_USE_ID`),
+        /// oldest first. A call id is unique on its own, so `--root` does not
+        /// narrow it.
+        #[arg(long)]
+        call: Option<String>,
         /// The checkout to read for (default: cwd), resolved the same way a
         /// run's root is.
         #[arg(long)]

@@ -1223,6 +1223,10 @@ pub struct Report {
     pub units: Option<serde_json::Value>,
     /// Substrings of the command the reporter expects to be running under.
     pub needles: Vec<String>,
+    /// Whether the run is a parent whose units are runs of their own: a
+    /// report under another label while it holds the call is its running
+    /// unit's child. Carried to the block, which is what nests them.
+    pub nests: bool,
 }
 
 /// A live Bash `tool_use`'s `(tool_use_id, OpenRun)`, or `None` for any other
@@ -1303,6 +1307,9 @@ fn report_payload(
     }
     if let Some(units) = &report.units {
         body.insert("units".into(), units.clone());
+    }
+    if report.nests {
+        body.insert("nests".into(), true.into());
     }
     body.insert("at_ms".into(), at_ms.into());
     let bytes = serde_json::to_vec(&body).expect("a json object of plain values serializes");
@@ -7988,6 +7995,24 @@ mod tests {
             needles: needles.iter().map(|n| (*n).to_owned()).collect(),
             ..Report::default()
         }
+    }
+
+    /// `nests` rides the frame only when the reporter set it, so a block
+    /// nests nothing under a run that did not ask to be a parent.
+    #[test]
+    fn a_nesting_report_says_so_on_its_frame_and_a_plain_one_does_not() {
+        let plain = report_payload("sess-1", Ok("tu_1"), &report(&[]), 7);
+        let plain: serde_json::Value = serde_json::from_slice(&plain).unwrap();
+        assert!(plain.get("nests").is_none());
+        let nesting = Report {
+            nests: true,
+            unit: Some("surface".into()),
+            ..report(&[])
+        };
+        let frame = report_payload("sess-1", Ok("tu_1"), &nesting, 7);
+        let frame: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+        assert_eq!(frame["nests"], true);
+        assert_eq!(frame["unit"], "surface");
     }
 
     /// The published frame, parsed, after its raw bytes are checked to lead

@@ -567,8 +567,10 @@ const toolProgress = obj({
  * call, and absent numbers are omitted. A report that names its `unit` is a
  * report panel's, carrying `jobs` and its unit rows; the rows are the
  * reporter's to write and the deck's to narrow (`narrowRunUnits`), so they
- * pass here as an array of anything. This is that JSON's shape, and the
- * deck's store reads its fields from this type, so the three cannot drift.
+ * pass here as an array of anything. A report that says `nests` is a parent
+ * whose units are runs of their own, and the store nests a report under
+ * another label beneath it. This is that JSON's shape, and the deck's store
+ * reads its fields from this type, so the three cannot drift.
  */
 export interface ReportFrame {
   type: "report";
@@ -581,6 +583,7 @@ export interface ReportFrame {
   unit?: string;
   jobs?: number;
   units?: unknown[];
+  nests?: boolean;
   at_ms?: number;
   tug_session_id?: string;
   /** Why no call claimed it, on a card-level report (`tool_use_id: null`). */
@@ -601,6 +604,7 @@ const report = obj({
   unit: opt(str),
   jobs: opt(num),
   units: opt(arr(raw)),
+  nests: opt(bool),
   at_ms: opt(num),
   tug_session_id: opt(str),
   unattached: opt(str),

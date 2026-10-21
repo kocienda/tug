@@ -30,8 +30,17 @@ fn last_report(stdout: &str) -> serde_json::Value {
 }
 
 fn run(db: &Path, cwd: &Path, args: &[&str]) -> Output {
-    tugtool()
-        .args(args)
+    run_under(db, cwd, None, args)
+}
+
+/// The same, under a Bash call: `TUG_TOOL_USE_ID` set as the hook's rewrite
+/// exports it.
+fn run_under(db: &Path, cwd: &Path, call: Option<&str>, args: &[&str]) -> Output {
+    let mut cmd = tugtool();
+    if let Some(id) = call {
+        cmd.env("TUG_TOOL_USE_ID", id);
+    }
+    cmd.args(args)
         .current_dir(cwd)
         .env("TUG_TEST_RESULTS_DB", db)
         .output()
@@ -318,4 +327,77 @@ fn test_run_tap_records_a_node_test_run() {
     assert_eq!(report["runs"][0]["skipped"], 1);
     let out = run(&db, &scratch, &["test", "last", "--failures"]);
     assert_eq!(stdout(&out), "node  (fail) subtracts wrong\n");
+}
+
+/// A verify's shape: several suites recorded under one call id, each from
+/// its own directory. `test last --call` reads them back as one, in the order
+/// they ran, from any directory, and the no-flag form still answers the
+/// newest run of each suite for the checkout.
+#[test]
+fn test_last_call_reads_every_suite_recorded_under_one_call_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("test_results.db");
+    let a = dir.path().join("a");
+    let b = dir.path().join("b");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let lines = |suite: &str, script: &str| -> Vec<String> {
+        [
+            "test",
+            "run",
+            "--suite",
+            suite,
+            "--kind",
+            "lines",
+            "--item",
+            r"^(?P<status>PASS|FAIL) (?P<name>\S+)",
+            "--",
+            "sh",
+            "-c",
+            script,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+    };
+    fn as_refs(v: &[String]) -> Vec<&str> {
+        v.iter().map(String::as_str).collect()
+    }
+
+    let rust = lines("rust", "printf 'FAIL tests::bad\\n'; exit 1");
+    let out = run_under(&db, &a, Some("toolu_verify"), &as_refs(&rust));
+    assert_eq!(out.status.code(), Some(1));
+    let deck = lines("deck", "printf 'PASS fine\\n'");
+    let out = run_under(&db, &b, Some("toolu_verify"), &as_refs(&deck));
+    assert_eq!(out.status.code(), Some(0));
+    // A later rust run under another call: the verify's read must not show it.
+    let rust_again = lines("rust", "printf 'PASS tests::bad\\n'");
+    let out = run_under(&db, &a, Some("toolu_later"), &as_refs(&rust_again));
+    assert_eq!(out.status.code(), Some(0));
+
+    let out = run(&db, dir.path(), &["test", "last", "--call", "toolu_verify", "--failures"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(stdout(&out), "rust  (fail) tests::bad\n");
+
+    let out = run(&db, dir.path(), &["test", "last", "--call", "toolu_verify", "--json"]);
+    let report = last_report(&stdout(&out));
+    assert_eq!(report["call"], "toolu_verify");
+    let suites: Vec<&str> = report["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["suite"].as_str().unwrap())
+        .collect();
+    assert_eq!(suites, ["rust", "deck"], "the call's runs, oldest first");
+    assert_eq!(report["runs"][0]["toolUseId"], "toolu_verify");
+    assert_eq!(report["runs"][0]["verdict"], "FAIL");
+
+    let out = run(&db, &a, &["test", "last", "--failures"]);
+    assert_eq!(
+        stdout(&out),
+        "no failures in the latest run of rust\n",
+        "the no-flag form is still the newest run of each suite"
+    );
+    let out = run(&db, dir.path(), &["test", "last", "--call", "toolu_none"]);
+    assert_eq!(stdout(&out), "no recorded test runs under call toolu_none\n");
 }

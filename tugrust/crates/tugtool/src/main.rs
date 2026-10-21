@@ -240,8 +240,9 @@ fn main() -> ExitCode {
                 cli::TestCommands::Last {
                     failures,
                     suite,
+                    call,
                     root,
-                } => test_ledger_cli::run_last(failures, suite, root, json),
+                } => test_ledger_cli::run_last(failures, suite, call, root, json),
             };
             changes::finish(command, json, result)
         }
@@ -307,6 +308,7 @@ fn main() -> ExitCode {
                 jobs,
                 units,
                 needles,
+                nests: false,
             });
             ExitCode::SUCCESS
         }

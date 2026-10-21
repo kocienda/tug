@@ -21,6 +21,11 @@
  *      its time on the right. A run counting tests has no row here: it lists
  *      only its reds, so the masthead's fraction and the band are its
  *      progress, and its total is the runner's own count, never an estimate.
+ *      A run that **nests** — a verify whose surfaces are checks that are
+ *      runs themselves — draws the run its running unit is beneath these
+ *      rows: the child's own masthead, track, in-flight rows and reds,
+ *      indented under the parent band, which keeps its place as children
+ *      come and go.
  *   4. **Reds** — the most recent failed or stalled unit open as a card, its
  *      first failure and what the record said of it before this run, and
  *      every earlier red folded under it, newest first, one tap away. While
@@ -474,6 +479,38 @@ function InFlight({ m, text, nowMs }: { m: ReportPanelModel; text: string | unde
   );
 }
 
+/**
+ * The run the running unit is, beneath the parent band: a report panel's own
+ * running rows — masthead, track, in-flight, reds — for the child, indented
+ * under the row it runs for. The band above it is the parent's masthead and
+ * track, which this never redraws.
+ */
+function NestedRun({
+  m,
+  text,
+  nowMs,
+  under,
+}: {
+  m: ReportPanelModel;
+  text: string | undefined;
+  nowMs: number;
+  under: string | null;
+}): React.ReactElement {
+  const counted = m.unit === "test";
+  return (
+    <div
+      className="tug-report-panel-child"
+      data-slot="tug-report-panel-child"
+      {...(under !== null ? { "data-under": under } : {})}
+    >
+      <Masthead m={m} state="running" wallSecs={undefined} text={counted && m.total === undefined ? text : undefined} />
+      <TugReportTrack m={m} />
+      {!counted && <InFlight m={m} text={text} nowMs={nowMs} />}
+      <Reds reds={m.reds} foldKey={undefined} />
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The panel
 // ---------------------------------------------------------------------------
@@ -576,6 +613,9 @@ export function TugReportPanel({
       {!running && <Verdict m={m} />}
 
       {running && !counted && <InFlight m={m} text={run.text} nowMs={nowMs} />}
+      {running && m.child !== null && (
+        <NestedRun m={m.child} text={run.child?.text} nowMs={nowMs} under={m.nestedUnder} />
+      )}
       {!running && m.unit === "phase" && <InFlight m={m} text={undefined} nowMs={nowMs} />}
 
       {!running && reds}

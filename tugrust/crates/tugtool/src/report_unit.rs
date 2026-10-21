@@ -307,6 +307,7 @@ impl UnitRun {
             jobs: self.plan.jobs,
             units: serde_json::to_value(self.rows()).ok(),
             needles: self.plan.needles.clone(),
+            nests: false,
         }
     }
 
@@ -569,12 +570,18 @@ impl SurfaceReport {
         }
     }
 
-    /// The report a verify event makes. A surface whose check failed is the
-    /// red, titled with the check; one that declares no checks is skipped as
-    /// claimed and unchecked, which is what the verify's table calls it.
+    /// The report a verify event makes — one that nests, since a surface's
+    /// checks are runs of their own and a wrapped child's report arriving
+    /// under the call belongs beneath the surface row that is running, not in
+    /// place of the verify. A surface whose check failed is the
+    /// red, titled with the test its child recorded as the first failure, or
+    /// with the check itself when nothing was recorded; its count is the
+    /// child's tests when recorded, else its checks. One that declares no
+    /// checks is skipped as claimed and unchecked, which is what the verify's
+    /// table calls it.
     pub fn event(&mut self, event: tugarc_core::surfaces::VerifyEvent<'_>, now: i64) -> RunReport {
         use tugarc_core::surfaces::VerifyEvent;
-        match event {
+        let report = match event {
             VerifyEvent::Planned(surfaces) => {
                 self.run.plan.names = surfaces.iter().map(|(name, _)| name.clone()).collect();
                 self.run.plan.medians = vec![None; surfaces.len()];
@@ -586,8 +593,8 @@ impl SurfaceReport {
                 self.run.report(&format!("checking {name}"))
             }
             VerifyEvent::Finished(result) => {
-                let total = result.commands.len() as u64;
-                let passed = result
+                let checks = result.commands.len() as u64;
+                let checks_passed = result
                     .commands
                     .iter()
                     .filter(|c| c.status == "already-run" || c.exit_code == Some(0))
@@ -599,10 +606,14 @@ impl SurfaceReport {
                 let (status, title, message) = match failed {
                     Some(c) => (
                         UnitStatus::Fail,
-                        Some(c.command.clone()),
-                        Some(format!("exit {}", c.exit_code.unwrap_or(-1))),
+                        Some(c.title.clone().unwrap_or_else(|| c.command.clone())),
+                        Some(
+                            c.message
+                                .clone()
+                                .unwrap_or_else(|| format!("exit {}", c.exit_code.unwrap_or(-1))),
+                        ),
                     ),
-                    None if total == 0 => (
+                    None if checks == 0 => (
                         UnitStatus::Skipped,
                         None,
                         Some("claimed, unchecked".to_string()),
@@ -611,15 +622,16 @@ impl SurfaceReport {
                 };
                 let landing = Landing {
                     secs: None,
-                    passed: Some(passed),
-                    total: Some(total),
+                    passed: Some(result.passed.unwrap_or(checks_passed)),
+                    total: Some(result.total.unwrap_or(checks)),
                     title,
                     message,
                 };
                 let index = self.run.done(&result.name, status, landing, now);
                 self.run.report(&self.run.done_text(index))
             }
-        }
+        };
+        RunReport { nests: true, ..report }
     }
 }
 
@@ -636,6 +648,10 @@ mod tests {
             status: "ran".into(),
             exit_code: Some(exit),
             already_run_for: None,
+            passed: None,
+            total: None,
+            title: None,
+            message: None,
         };
         let surface = |name: &str, commands: Vec<CommandResult>| SurfaceResult {
             name: name.into(),
@@ -643,6 +659,10 @@ mod tests {
             red: commands.iter().any(|c| c.exit_code.is_some_and(|e| e != 0)),
             commands,
             borrowed_from: vec![],
+            passed: None,
+            total: None,
+            title: None,
+            message: None,
         };
         let mut report = SurfaceReport::new(vec!["arc verify".into()]);
         let planned = [
@@ -653,6 +673,7 @@ mod tests {
         let first = report.event(VerifyEvent::Planned(&planned), 1_000);
         assert_eq!(first.label.as_deref(), Some("arc verify"));
         assert_eq!(first.unit.as_deref(), Some("surface"));
+        assert!(first.nests, "a verify's surfaces are runs of their own");
         assert_eq!((first.done, first.total), (Some(0), Some(3)));
 
         report.event(VerifyEvent::Started("rust"), 1_000);
@@ -684,6 +705,47 @@ mod tests {
         assert_eq!(rows[2]["status"], "skipped");
         assert_eq!(rows[2]["message"], "claimed, unchecked");
         assert_eq!(last.needles, vec!["arc verify".to_string()]);
+    }
+
+    /// A red surface whose child recorded names the test on its row, and
+    /// counts the child's tests rather than its checks.
+    #[test]
+    fn a_red_surface_whose_child_recorded_names_its_test_on_the_row() {
+        use tugarc_core::surfaces::{CommandResult, SurfaceResult, VerifyEvent};
+        let rust = SurfaceResult {
+            name: "rust".into(),
+            paths: vec![],
+            commands: vec![CommandResult {
+                command: "cargo nextest run".into(),
+                declared_by: "rust".into(),
+                status: "ran".into(),
+                exit_code: Some(100),
+                already_run_for: None,
+                passed: Some(747),
+                total: Some(748),
+                title: Some("tugtool::hook a_dark_runner_is_refused".into()),
+                message: Some("assertion failed: denied".into()),
+            }],
+            borrowed_from: vec![],
+            red: true,
+            passed: Some(747),
+            total: Some(748),
+            title: Some("tugtool::hook a_dark_runner_is_refused".into()),
+            message: Some("assertion failed: denied".into()),
+        };
+        let mut report = SurfaceReport::new(vec!["arc verify".into()]);
+        report.event(VerifyEvent::Planned(&[("rust".to_string(), 1)]), 1_000);
+        report.event(VerifyEvent::Started("rust"), 1_000);
+        let landed = report.event(VerifyEvent::Finished(&rust), 9_000);
+        let rows = landed.units.unwrap();
+        assert_eq!(rows[0]["status"], "fail");
+        assert_eq!(rows[0]["title"], "tugtool::hook a_dark_runner_is_refused");
+        assert_eq!(rows[0]["message"], "assertion failed: denied");
+        assert_eq!(
+            (rows[0]["passed"].clone(), rows[0]["total"].clone()),
+            (747.into(), 748.into())
+        );
+        assert_eq!(landed.text, "rust FAIL (747/748) 8s");
     }
 
     fn planned(names: &[&str], medians: &[&str]) -> UnitRun {

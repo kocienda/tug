@@ -74,6 +74,15 @@ export interface ReportPanelModel {
   recovered: RunUnit[];
   /** The phase rows a run carried beside its units, a finished phase landed. */
   phases: RunUnit[];
+  /**
+   * The run the running unit is, while a nesting run goes — a surface's
+   * check, a loop's runner — as a model of its own, drawn beneath the parent
+   * band. Null once the run is over: the row carries what the child ended
+   * with, and the child's rows are not the record.
+   */
+  child: ReportPanelModel | null;
+  /** The running unit the child runs under, by name, when there is one. */
+  nestedUnder: string | null;
   /** A red run's next act: the command, or the place, that names the reds. */
   nextAct: string | null;
   verdict: "running" | "green" | "red";
@@ -200,6 +209,9 @@ export function reportPanelModel(
   const verdict: ReportPanelModel["verdict"] =
     state === "running" ? "running" : red > 0 || callFailed ? "red" : "green";
 
+  const child = state === "running" && p.child !== undefined ? reportPanelModel(p.child, "running", nowMs) : null;
+  const nestedUnder = child === null ? null : (units.find((u) => u.status === "running")?.name ?? null);
+
   return {
     unit: p.unit ?? "unit",
     label: p.label ?? "",
@@ -225,6 +237,8 @@ export function reportPanelModel(
     paceFraction,
     recovered: greens.filter((u) => u.history !== undefined),
     phases,
+    child,
+    nestedUnder,
     nextAct: verdict === "red" ? nextActFor(p.label ?? "", p.unit ?? "unit") : null,
     verdict,
   };

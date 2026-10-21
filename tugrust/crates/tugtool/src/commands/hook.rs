@@ -27,7 +27,7 @@
 //! Bash block elides the export, so the header shows what the model typed.
 
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
 use serde::Serialize;
@@ -372,33 +372,18 @@ pub(crate) fn rewrite_command(
     runners: &[RunnerSpec],
 ) -> Option<String> {
     let mut inserts: Vec<(usize, String)> = Vec::new();
-    let mut dir: Option<&str> = None;
     let id = tool_use_id.filter(|id| is_plain_word(id));
-    for span in simple_commands(command)? {
-        let words = words_of(command, span);
-        if let [(_, "cd"), (_, d)] = words.as_slice() {
-            dir = Some(d);
+    for (at, spec, suite) in planned_wraps(command, cwd, runners)? {
+        let RunnerAction::Wrap { kind, flags } = &spec.action else {
             continue;
-        }
-        let Some((at, spec)) = runner_in(&words, runners) else {
-            continue;
-        };
-        let (kind, flags) = match &spec.action {
-            RunnerAction::Wrap { kind, flags } => (*kind, flags),
-            // The export below is all a command that reports itself needs.
-            RunnerAction::ExportId => continue,
         };
         let head = spec.head_text();
-        let suite = match &spec.suite {
-            SuiteRule::Fixed(name) => name.as_str(),
-            SuiteRule::DirName(fallback) => dir_name(dir.or(cwd)).unwrap_or(fallback),
-        };
         let mut wrap = String::new();
         wrap.push_str(&format!(
             "{} test run --suite {} --kind {} ",
             shell_word(tugtool),
-            shell_word(suite),
-            kind_name(kind),
+            shell_word(&suite),
+            kind_name(*kind),
         ));
         for (flag, value) in flags.pairs() {
             wrap.push_str(&format!("{flag} {} ", shell_word(value)));
@@ -424,6 +409,172 @@ pub(crate) fn rewrite_command(
         out.insert_str(0, &export);
     }
     Some(out)
+}
+
+/// Every runner [`rewrite_command`] wraps, in line order: the offset of its
+/// first word, its row, and the suite its run records under — a fixed name,
+/// or the directory the run is in: the last `cd <dir>` before it, else the
+/// call's own. A row that reports itself ([`RunnerAction::ExportId`]) is not
+/// among them. `None` when the line cannot be read.
+fn planned_wraps<'r>(
+    command: &str,
+    cwd: Option<&str>,
+    runners: &'r [RunnerSpec],
+) -> Option<Vec<(usize, &'r RunnerSpec, String)>> {
+    let mut out = Vec::new();
+    let mut dir: Option<&str> = None;
+    for span in simple_commands(command)? {
+        let words = words_of(command, span);
+        if let [(_, "cd"), (_, d)] = words.as_slice() {
+            dir = Some(d);
+            continue;
+        }
+        let Some((at, spec)) = runner_in(&words, runners) else {
+            continue;
+        };
+        if matches!(spec.action, RunnerAction::ExportId) {
+            continue;
+        }
+        let suite = match &spec.suite {
+            SuiteRule::Fixed(name) => name.clone(),
+            SuiteRule::DirName(fallback) => dir_name(dir.or(cwd)).unwrap_or(fallback).to_string(),
+        };
+        out.push((at, spec, suite));
+    }
+    Some(out)
+}
+
+/// The first known or declared runner the line runs, however the line reads:
+/// at a command position of a readable line, or where [`dark_runner`] finds
+/// one in a line that does not read. `None` when the line runs no runner.
+fn runner_on_line<'r>(command: &str, runners: &'r [RunnerSpec]) -> Option<&'r RunnerSpec> {
+    match simple_commands(command) {
+        Some(spans) => spans
+            .into_iter()
+            .find_map(|span| runner_in(&words_of(command, span), runners).map(|(_, spec)| spec)),
+        None => dark_runner(command, runners).map(|(_, spec)| spec),
+    }
+}
+
+/// What a `run_in_background: true` call holding a runner is refused with: a
+/// build or a test run never runs in the background, because a background
+/// run reports to no block and leaves its verdict in a file to be recovered.
+/// The correction is the foreground `timeout` to pass — the one the hook
+/// would supply from the suite's record, or the harness ceiling when there is
+/// none — and the one exception is named so it is not read as a ban on
+/// servers.
+fn background_refusal(spec: &RunnerSpec, supplied_ms: Option<u64>) -> String {
+    let head = spec.head_text();
+    let known = known_as(spec);
+    let timeout = supplied_ms.unwrap_or(HARNESS_MAX_TIMEOUT_MS);
+    let basis = if supplied_ms.is_some() {
+        "from the suite's recorded median"
+    } else {
+        "the harness ceiling, since no run of this suite is recorded yet"
+    };
+    format!(
+        "`{head}` never runs in the background: it is {known}, and a background run reports to \
+         no block and leaves its verdict in a file to recover. Run it in the foreground with \
+         `timeout: {timeout}` ({basis}); the block reports as it goes and ends with the verdict. \
+         Only a server, watcher or sampler meant to outlive the call is background work."
+    )
+}
+
+/// What a runner piped into `grep` or `head` is refused with: a filter before
+/// the run's exit guesses at its output, hides any red the guess did not
+/// cover, and gives the call the filter's exit status in place of the run's.
+/// `None` for a line that pipes no runner into one — a `| tail -N` keeps the
+/// verdict line a wrapped run ends with and is left as typed.
+pub(crate) fn filtered_runner_refusal(command: &str, runners: &[RunnerSpec]) -> Option<String> {
+    const FILTERS: [&str; 4] = ["grep", "egrep", "fgrep", "head"];
+    let spans = simple_commands(command)?;
+    let bytes = command.as_bytes();
+    for pair in spans.windows(2) {
+        let [(_, end), next] = pair else { continue };
+        // The operator between the two is the byte the first span ended on:
+        // a lone `|` is a pipe, `||` is not.
+        if bytes.get(*end) != Some(&b'|') || bytes.get(end + 1) == Some(&b'|') {
+            continue;
+        }
+        let words = words_of(command, pair[0]);
+        let Some((_, spec)) = runner_in(&words, runners) else {
+            continue;
+        };
+        // A runner piped into anything else — a `tail`, a `tee` — is fine,
+        // and the rest of the line is still read.
+        let Some(filter) = words_of(command, *next)
+            .into_iter()
+            .map(|(_, w)| w)
+            .find(|w| !is_assignment(w))
+            .filter(|w| FILTERS.contains(w))
+        else {
+            continue;
+        };
+        let head = spec.head_text();
+        return Some(format!(
+            "`{head} … | {filter}` guesses at the run's output: a filter before the run's exit \
+             hides any red the guess did not cover and gives the call `{filter}`'s exit status in \
+             place of the run's. Run it bare, or end it with `2>&1 | tail -3`, which keeps the \
+             verdict line a wrapped run ends with; a red's names are in `tugtool test last \
+             --failures`, never in a re-run."
+        ));
+    }
+    None
+}
+
+/// How a refusal names the runner's provenance.
+fn known_as(spec: &RunnerSpec) -> &'static str {
+    match spec.source {
+        runners::Source::BuiltIn => "a runner tugtool knows",
+        runners::Source::Config => "a runner this project declares",
+    }
+}
+
+/// The Bash tool's own limits, in milliseconds: what a call runs under when
+/// it passes no `timeout`, and the most it may ask for. Both are the
+/// harness's; the hook works inside them.
+pub(crate) const HARNESS_DEFAULT_TIMEOUT_MS: u64 = 120_000;
+pub(crate) const HARNESS_MAX_TIMEOUT_MS: u64 = 600_000;
+
+/// How many of a suite's newest runs its median is read over.
+const MEDIAN_OVER_RUNS: usize = 10;
+
+/// The foreground timeout a wrapped run is given from its suites' recorded
+/// medians, summed: twice the usual time plus half a minute — a run at twice
+/// its usual length is slow rather than hung, and the margin keeps a short
+/// suite's compile from being the cliff — clamped to the harness ceiling.
+pub(crate) fn supplied_timeout_ms(median_secs: f64) -> u64 {
+    let ms = ((median_secs * 2.0 + 30.0) * 1000.0).round();
+    (ms.max(0.0) as u64).min(HARNESS_MAX_TIMEOUT_MS)
+}
+
+/// The recorded medians of the suites a line's wrapped runners record under,
+/// summed, in seconds — read from the test ledger for the project the call's
+/// `cwd` is in. `None` when no suite among them has a run recorded, or there
+/// is no ledger to read: a call then keeps the harness's own timeout.
+fn recorded_median_secs(cwd: Option<&str>, suites: &[String]) -> Option<f64> {
+    use tugtool_core::test_ledger::{default_path, median_wall_secs, open_ledger, run_root_for};
+    if suites.is_empty() {
+        return None;
+    }
+    let path = default_path();
+    if !path.exists() {
+        return None;
+    }
+    let dir = cwd
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())?;
+    let base_root = tugtool_core::apptest_ledger::resolve_base_root(&run_root_for(Path::new(&dir)));
+    let conn = open_ledger(path).ok()?;
+    let mut total = 0.0;
+    let mut any = false;
+    for suite in suites {
+        if let Ok(Some(secs)) = median_wall_secs(&conn, &base_root, suite, MEDIAN_OVER_RUNS) {
+            total += secs;
+            any = true;
+        }
+    }
+    any.then_some(total)
 }
 
 /// Why a line [`simple_commands`] cannot read is refused, when a runner is in
@@ -598,6 +749,29 @@ fn shell_word(word: &str) -> String {
 /// rewritten input untouched. A command that cannot be read and holds a
 /// runner is a [`Decision::Deny`] instead ([`dark_runner_refusal`]).
 pub(crate) fn bash_rewrite(payload: &Value, tugtool: &str) -> Option<Decision> {
+    bash_rewrite_with(payload, tugtool, &recorded_median_secs)
+}
+
+/// What answers the summed recorded median, in seconds, of the suites a line
+/// records under, given the call's `cwd`: the ledger read, or a test's stand-in.
+pub(crate) type MedianReader<'a> = &'a dyn Fn(Option<&str>, &[String]) -> Option<f64>;
+
+/// [`bash_rewrite`], with the ledger read injected: `median` answers the
+/// summed recorded median of the suites a line records under, so a unit test
+/// hands in a record rather than writing one under the developer's HOME.
+///
+/// Three refusals come before the rewrite, each naming its correction: a
+/// runner the line hides ([`dark_runner_refusal`]), a runner asked to run in
+/// the background ([`background_refusal`]), and a runner piped into a
+/// guessing filter ([`filtered_runner_refusal`]). Then the rewrite, which
+/// also supplies the call's `timeout` from the record when the call passed
+/// none or passed less — never shortening one — so the harness's default is
+/// not the cliff every runner it knows runs toward.
+pub(crate) fn bash_rewrite_with(
+    payload: &Value,
+    tugtool: &str,
+    median: MedianReader<'_>,
+) -> Option<Decision> {
     let input = payload.get("tool_input")?.as_object()?;
     let command = input.get("command")?.as_str()?;
     let cwd = payload.get("cwd").and_then(Value::as_str);
@@ -606,15 +780,36 @@ pub(crate) fn bash_rewrite(payload: &Value, tugtool: &str) -> Option<Decision> {
     if let Some(reason) = dark_runner_refusal(command, &runners) {
         return Some(Decision::Deny(reason));
     }
+    let suites: Vec<String> = planned_wraps(command, cwd, &runners)
+        .map(|wraps| wraps.into_iter().map(|(_, _, suite)| suite).collect())
+        .unwrap_or_default();
+    let supplied = median(cwd, &suites).map(supplied_timeout_ms);
+    if input.get("run_in_background").and_then(Value::as_bool) == Some(true)
+        && let Some(spec) = runner_on_line(command, &runners)
+    {
+        return Some(Decision::Deny(background_refusal(spec, supplied)));
+    }
+    if let Some(reason) = filtered_runner_refusal(command, &runners) {
+        return Some(Decision::Deny(reason));
+    }
     let wrapped = rewrite_command(command, cwd, id, tugtool, &runners)?;
     let mut updated = input.clone();
     updated.insert("command".into(), wrapped.into());
+    if let Some(supplied) = supplied {
+        let passed = input
+            .get("timeout")
+            .and_then(Value::as_u64)
+            .unwrap_or(HARNESS_DEFAULT_TIMEOUT_MS);
+        if supplied > passed {
+            updated.insert("timeout".into(), supplied.into());
+        }
+    }
     Some(Decision::Rewrite(Value::Object(updated)))
 }
 
 /// This binary, by the path it runs from — the one `tugtool` the rewritten
 /// command is sure to find whatever the model's shell has on its PATH.
-fn hook_binary() -> String {
+pub(crate) fn hook_binary() -> String {
     std::env::current_exe()
         .ok()
         .map(|p| p.to_string_lossy().into_owned())
@@ -1702,6 +1897,118 @@ mod tests {
         assert!(pre_tool_use(&bash("cat > /tmp/notes.md <<EOF\nhi\nEOF")).is_none());
         let out = Decision::Deny("x".into()).render();
         assert!(out.contains("\"permissionDecision\":\"deny\""), "{out}");
+    }
+
+    fn bash_background(command: &str) -> Value {
+        json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": command, "run_in_background": true },
+            "cwd": "/proj",
+            "tool_use_id": "toolu_01A",
+        })
+    }
+
+    /// A runner asked to run in the background is refused and told the
+    /// foreground timeout to pass, from the record when there is one; a
+    /// command that is no runner may still run in the background.
+    #[test]
+    fn a_background_runner_is_refused_and_named_the_timeout_to_pass() {
+        let no_record = |_: Option<&str>, _: &[String]| None;
+        match bash_rewrite_with(&bash_background("cargo nextest run -p tugtool"), TUGTOOL, &no_record) {
+            Some(Decision::Deny(reason)) => {
+                assert!(reason.starts_with("`cargo nextest run` never runs in the background"), "{reason}");
+                assert!(reason.contains("`timeout: 600000`"), "the ceiling when nothing is recorded: {reason}");
+                assert!(reason.contains("server, watcher or sampler"), "{reason}");
+            }
+            other => panic!("expected a deny, got {other:?}"),
+        }
+        let recorded = |_: Option<&str>, suites: &[String]| {
+            assert_eq!(suites, ["rust".to_string()]);
+            Some(100.0)
+        };
+        match bash_rewrite_with(&bash_background("cd tugrust && cargo nextest run"), TUGTOOL, &recorded) {
+            Some(Decision::Deny(reason)) => {
+                assert!(reason.contains("`timeout: 230000`"), "twice the median plus 30s: {reason}");
+            }
+            other => panic!("expected a deny, got {other:?}"),
+        }
+        // A runner the line hides is refused as a background run too, since
+        // the dark-runner refusal reads it first.
+        assert!(matches!(
+            bash_rewrite_with(&bash_background("x=$(bun test); echo $x"), TUGTOOL, &no_record),
+            Some(Decision::Deny(_))
+        ));
+        // A server is the exception: not refused, only given its call id.
+        assert!(!matches!(
+            bash_rewrite_with(&bash_background("bun run dev"), TUGTOOL, &no_record),
+            Some(Decision::Deny(_))
+        ));
+        // Through the hook itself, with the field as Claude Code sends it.
+        assert!(matches!(
+            pre_tool_use(&bash_background("cargo build")),
+            Some(Decision::Deny(_))
+        ));
+    }
+
+    /// A runner piped into `grep` or `head` is refused with the `tail` form;
+    /// a `tail` is left as it was, and so is a filter after one.
+    #[test]
+    fn a_runner_piped_into_grep_or_head_is_refused_with_the_tail_form() {
+        let runners = runners::built_in();
+        let refusal = |command: &str| filtered_runner_refusal(command, &runners);
+        let reason = refusal("cargo build 2>&1 | grep -E '^(error|warning)' -A 6 | head -80")
+            .expect("a grep on a build is refused");
+        assert!(reason.starts_with("`cargo build … | grep` guesses"), "{reason}");
+        assert!(reason.contains("`2>&1 | tail -3`"), "{reason}");
+        let reason = refusal("cd tugdeck && bun test 2>&1 | head -40").unwrap();
+        assert!(reason.starts_with("`bun test … | head`"), "{reason}");
+        assert!(refusal("cargo nextest run 2>&1 | tail -5").is_none(), "tail keeps the verdict");
+        assert!(refusal("cargo nextest run || grep -r x src").is_none(), "`||` is not a pipe");
+        assert!(refusal("ls | grep rs").is_none(), "no runner, no opinion");
+        assert!(refusal("cargo nextest run 2>&1 | tail -20 | grep FAIL").is_none(), "the filter is on tail");
+        assert!(
+            refusal("cargo build 2>&1 | tail -3; bun test 2>&1 | grep fail").is_some(),
+            "a tailed runner earlier in the line does not hide a filtered one after it"
+        );
+        // Through the hook: denied, not rewritten.
+        match pre_tool_use(&bash("cargo nextest run -p tugtool 2>&1 | grep -c FAIL")) {
+            Some(Decision::Deny(reason)) => assert!(reason.contains("tail -3"), "{reason}"),
+            other => panic!("expected a deny, got {other:?}"),
+        }
+    }
+
+    /// The rewrite supplies the call's timeout from the record and never
+    /// shortens one; with no record the call keeps whatever it passed.
+    #[test]
+    fn the_supplied_timeout_comes_from_the_record_and_never_shortens_a_call() {
+        let payload = |timeout: Option<u64>| {
+            let mut input = json!({ "command": "cargo nextest run -p tugtool" });
+            if let Some(t) = timeout {
+                input["timeout"] = t.into();
+            }
+            json!({ "tool_name": "Bash", "tool_input": input, "cwd": "/proj", "tool_use_id": "toolu_01A" })
+        };
+        let rewritten = |payload: &Value, median: Option<f64>| -> Value {
+            let median = move |_: Option<&str>, _: &[String]| median;
+            match bash_rewrite_with(payload, TUGTOOL, &median) {
+                Some(Decision::Rewrite(input)) => input,
+                other => panic!("expected a rewrite, got {other:?}"),
+            }
+        };
+        assert_eq!(supplied_timeout_ms(100.0), 230_000);
+        assert_eq!(supplied_timeout_ms(400.0), HARNESS_MAX_TIMEOUT_MS, "clamped to the ceiling");
+
+        let input = rewritten(&payload(None), Some(100.0));
+        assert_eq!(input["timeout"], 230_000, "none passed: the default was less");
+        let input = rewritten(&payload(Some(600_000)), Some(100.0));
+        assert_eq!(input["timeout"], 600_000, "a longer timeout is kept");
+        let input = rewritten(&payload(Some(60_000)), Some(20.0));
+        assert_eq!(input["timeout"], 70_000, "a shorter one is raised");
+        let input = rewritten(&payload(None), Some(10.0));
+        assert!(input.get("timeout").is_none(), "50s is under the default, which stands");
+        let input = rewritten(&payload(None), None);
+        assert!(input.get("timeout").is_none(), "no record, no opinion");
+        assert!(input["command"].as_str().unwrap().contains("--suite rust"));
     }
 
     #[test]

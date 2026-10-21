@@ -294,6 +294,20 @@ body {
   list-style: none;
 }
 
+/* The run the running unit is, beneath the parent band: indented under its
+   row, ruled at the left, on the card surface. Text on --tugx-report-card-surface. */
+.tug-report-panel-child {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  margin-left: var(--tug-space-md);
+  padding: var(--tug-space-2xs) var(--tug-space-sm);
+  border-left: 2px solid var(--tugx-report-rule-color);
+  border-radius: var(--tug-radius-sm);
+  background-color: var(--tugx-report-card-surface);
+  color: var(--tugx-report-text-color);
+}
+
 /* ---- Reds --------------------------------------------------------------- */
 
 .tug-report-panel-red {

@@ -30,6 +30,10 @@ pub struct RunReport {
     /// Substrings of the command this report expects to be running under,
     /// for when the session has several calls open.
     pub needles: Vec<String>,
+    /// Whether this run is a parent whose units are themselves runs: a report
+    /// under another label arriving while it holds the call is its running
+    /// unit's child, drawn beneath it, rather than a report that replaces it.
+    pub nests: bool,
 }
 
 /// The units a reporter handed over, from a path or `-` for stdin: a JSON
@@ -80,6 +84,9 @@ fn report_fields(report: &RunReport, tool_use_id: Option<String>) -> serde_json:
     }
     if let Some(units) = &report.units {
         fields.insert("units".into(), units.clone());
+    }
+    if report.nests {
+        fields.insert("nests".into(), true.into());
     }
     fields.insert("needles".into(), report.needles.clone().into());
     serde_json::Value::Object(fields)
@@ -421,6 +428,7 @@ impl PhaseRun {
             jobs: None,
             units: Some(self.rows()),
             needles,
+            nests: false,
         }
     }
 
@@ -548,6 +556,17 @@ mod tests {
         assert_eq!(fields["unit"], "file");
         assert_eq!(fields["jobs"], 4);
         assert_eq!(fields["units"], rows);
+        assert!(fields.get("nests").is_none(), "a run that does not nest says nothing");
+        let nesting = report_fields(
+            &RunReport {
+                text: "checking rust".into(),
+                unit: Some("surface".into()),
+                nests: true,
+                ..RunReport::default()
+            },
+            None,
+        );
+        assert_eq!(nesting["nests"], true);
     }
 
     fn names(list: &[&str]) -> Vec<String> {

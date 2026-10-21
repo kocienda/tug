@@ -3,7 +3,9 @@
 //! The way into and out of the unit-test results ledger. `record` reads one
 //! junit document into it; `last` names what the latest run of each suite
 //! failed, so a red run whose output was filtered or scrolled away is
-//! answered without running the suite a second time.
+//! answered without running the suite a second time. `last --call <id>`
+//! reads every suite recorded under one Bash call instead — a verify's
+//! children, in the order they ran — so one tailed verify is read back whole.
 //!
 //! `record` prints bare JSON, the same convention as `apptest record`. `last`
 //! prints text, or the same report as JSON under the global `--json` — both
@@ -104,6 +106,7 @@ pub fn run_record(
         dirty,
         suite,
         session_id: None,
+        tool_use_id: crate::report::tool_use_id(),
         command: command.unwrap_or_default(),
         exit_code,
         wall_secs: (ended_at - started_at).max(0) as f64,
@@ -126,25 +129,38 @@ pub fn run_record(
 #[serde(rename_all = "camelCase")]
 struct LastReport {
     base_root: String,
+    /// The Bash call the runs were read for, under `--call`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    call: Option<String>,
     runs: Vec<SuiteRun>,
 }
 
-/// `tugtool test last`. A ledger that cannot be opened is reported on stderr
-/// and answered as nothing recorded: the verb is a reader, and exits 0.
+/// `tugtool test last`. With no `--call`, the newest run of each suite for
+/// the checkout; with one, every run recorded under that call, oldest first.
+/// A ledger that cannot be opened is reported on stderr and answered as
+/// nothing recorded: the verb is a reader, and exits 0.
 pub fn run_last(
     failures_only: bool,
     suite: Option<String>,
+    call: Option<String>,
     root: Option<PathBuf>,
     json: bool,
 ) -> Result<(), AppError> {
     let base_root = resolve_base_root(&test_ledger::run_root_for(&root_or_cwd(root)?));
     let runs = test_ledger::open_ledger(test_ledger::default_path())
-        .and_then(|conn| test_ledger::latest_per_suite(&conn, &base_root, suite.as_deref()))
+        .and_then(|conn| match &call {
+            Some(id) => test_ledger::runs_for_call(&conn, id, suite.as_deref()),
+            None => test_ledger::latest_per_suite(&conn, &base_root, suite.as_deref()),
+        })
         .unwrap_or_else(|err| {
             eprintln!("[test] cannot read the test results ledger: {err}");
             Vec::new()
         });
-    let report = LastReport { base_root, runs };
+    let report = LastReport {
+        base_root,
+        call,
+        runs,
+    };
     if json {
         crate::output::print_ok("test last", &report);
     } else {
@@ -156,7 +172,10 @@ pub fn run_last(
 fn render_last(report: &LastReport, failures_only: bool) -> String {
     let mut out = String::new();
     if report.runs.is_empty() {
-        out.push_str(&format!("no recorded test runs for {}\n", report.base_root));
+        match &report.call {
+            Some(id) => out.push_str(&format!("no recorded test runs under call {id}\n")),
+            None => out.push_str(&format!("no recorded test runs for {}\n", report.base_root)),
+        }
         return out;
     }
     if failures_only {
@@ -173,10 +192,16 @@ fn render_last(report: &LastReport, failures_only: bool) -> String {
         }
         if !any {
             let suites: Vec<&str> = report.runs.iter().map(|r| r.suite.as_str()).collect();
-            out.push_str(&format!(
-                "no failures in the latest run of {}\n",
-                suites.join(", ")
-            ));
+            match &report.call {
+                Some(id) => out.push_str(&format!(
+                    "no failures in the runs under call {id}: {}\n",
+                    suites.join(", ")
+                )),
+                None => out.push_str(&format!(
+                    "no failures in the latest run of {}\n",
+                    suites.join(", ")
+                )),
+            }
         }
         return out;
     }
@@ -266,6 +291,7 @@ mod tests {
             head_sha: "0123456789abcdef".into(),
             dirty: true,
             session_id: Some("0d75d27c-a1ed-4f32".into()),
+            tool_use_id: None,
             command: "bun test".into(),
             exit_code: 1,
             wall_secs: 3.5,
@@ -303,6 +329,7 @@ mod tests {
     fn failures_only_prefixes_each_failure_with_its_suite() {
         let report = LastReport {
             base_root: "/r".into(),
+            call: None,
             runs: vec![
                 suite_run(
                     "tugdeck",
@@ -325,11 +352,53 @@ mod tests {
         green.verdict = "PASS".into();
         let report = LastReport {
             base_root: "/r".into(),
+            call: None,
             runs: vec![green],
         };
         assert_eq!(
             render_last(&report, true),
             "no failures in the latest run of rust\n"
+        );
+    }
+
+    /// Under `--call` the runs are a verify's children in the order they
+    /// ran, each red prefixed with its suite, and the empty answers name
+    /// the call rather than the checkout.
+    #[test]
+    fn a_call_s_runs_are_rendered_in_order_and_its_empty_answers_name_it() {
+        let mut rust = suite_run("rust", vec![failure("tests::bad", "left: 1")], true);
+        rust.tool_use_id = Some("toolu_01A".into());
+        let mut deck = suite_run("tugdeck", vec![failure("bad two", "")], true);
+        deck.tool_use_id = Some("toolu_01A".into());
+        let report = LastReport {
+            base_root: "/r".into(),
+            call: Some("toolu_01A".into()),
+            runs: vec![rust, deck],
+        };
+        assert_eq!(
+            render_last(&report, true),
+            "rust  (fail) a.test.ts › tests::bad\n      left: 1\n\
+             tugdeck  (fail) a.test.ts › bad two\n"
+        );
+        let mut green = suite_run("rust", Vec::new(), true);
+        green.verdict = "PASS".into();
+        let report = LastReport {
+            base_root: "/r".into(),
+            call: Some("toolu_01A".into()),
+            runs: vec![green],
+        };
+        assert_eq!(
+            render_last(&report, true),
+            "no failures in the runs under call toolu_01A: rust\n"
+        );
+        let report = LastReport {
+            base_root: "/r".into(),
+            call: Some("toolu_01A".into()),
+            runs: Vec::new(),
+        };
+        assert_eq!(
+            render_last(&report, false),
+            "no recorded test runs under call toolu_01A\n"
         );
     }
 

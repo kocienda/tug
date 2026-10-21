@@ -327,6 +327,7 @@ fn report_of(progress: &Progress, label: &str, unit: &str, needles: &[String]) -
         jobs: None,
         units: Some(serde_json::Value::Array(units)),
         needles: needles.to_vec(),
+        nests: false,
     }
 }
 
@@ -754,6 +755,9 @@ struct Follow {
     /// The first error a cargo build printed since its last red, which the
     /// `could not compile` line it leads to carries as its message.
     compile_error: Option<String>,
+    /// vite printed `error during build:`, so its next line is the failed
+    /// build's message.
+    vite_error: bool,
     progress: Progress,
 }
 
@@ -773,6 +777,7 @@ impl Follow {
             nextest_summary: false,
             crates: 0,
             compile_error: None,
+            vite_error: false,
             progress: Progress {
                 text: "running".into(),
                 ..Progress::default()
@@ -982,6 +987,21 @@ impl Follow {
             self.progress.done = self.crates;
             return;
         }
+        if self.cargo_error_line(text) {
+            return;
+        }
+        if strip_ansi(text).trim().starts_with("Finished ") {
+            self.progress.text = "finished".into();
+        }
+    }
+
+    /// One line of cargo's stderr that may be an error: the first `error`
+    /// line since the last red is kept, and `error: could not compile` is
+    /// the red itself, carrying that line as its message. Every cargo kind
+    /// reads it, so a test run whose crate does not compile is recorded as
+    /// the crate and its error rather than as a run of no tests. Returns
+    /// whether the line was one.
+    fn cargo_error_line(&mut self, text: &str) -> bool {
         let line = strip_ansi(text);
         let t = line.trim();
         if let Some(rest) = t.strip_prefix("error: could not compile `") {
@@ -990,11 +1010,34 @@ impl Follow {
             self.progress.failures += 1;
             self.progress.note_failure(&name, &message);
             self.progress.text = format!("{name} did not compile");
+            true
         } else if t.starts_with("error") && self.compile_error.is_none() {
             self.compile_error = Some(t.to_string());
-        } else if t.starts_with("Finished ") {
-            self.progress.text = "finished".into();
+            true
+        } else {
+            false
         }
+    }
+
+    /// vite's `error during build:` is followed by the error's own line,
+    /// which becomes the failed build's message — the `✗ Build failed` item
+    /// line carries none. Returns whether the line was one of the two.
+    fn vite_error_line(&mut self, text: &str) -> bool {
+        let t = text.trim();
+        if t == "error during build:" {
+            self.vite_error = true;
+            return true;
+        }
+        if !self.vite_error || t.is_empty() {
+            return false;
+        }
+        self.vite_error = false;
+        if let Some(red) = self.progress.failed.last_mut()
+            && red.message.is_empty()
+        {
+            red.message = t.to_string();
+        }
+        true
     }
 
     /// Read one whole line; returns whether nextest's line is forwarded.
@@ -1032,7 +1075,9 @@ impl Follow {
                         self.progress.text = test;
                     }
                     NextestLine::Summary => self.nextest_summary = true,
-                    NextestLine::Other => {}
+                    NextestLine::Other => {
+                        self.cargo_error_line(text);
+                    }
                 }
                 true
             }
@@ -1055,7 +1100,9 @@ impl Follow {
                         self.progress.note_failure(&test, "");
                         self.progress.text = test;
                     }
-                    CargoTestLine::Other => {}
+                    CargoTestLine::Other => {
+                        self.cargo_error_line(text);
+                    }
                 }
                 true
             }
@@ -1075,6 +1122,9 @@ impl Follow {
             }
             kind if kind.reads_by_rule() => {
                 if self.stopped {
+                    return true;
+                }
+                if kind == RunKind::Vite && self.vite_error_line(&strip_ansi(text)) {
                     return true;
                 }
                 if let Some(read) = self.rule.as_ref().map(|r| r.read(&strip_ansi(text))) {
@@ -1351,6 +1401,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
         dirty,
         suite: args.suite.clone(),
         session_id: session.lock().clone(),
+        tool_use_id: crate::report::tool_use_id(),
         command: args.command.join(" "),
         exit_code: i64::from(code),
         wall_secs: clock.elapsed().as_secs_f64(),
@@ -1362,15 +1413,28 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
         .as_ref()
         .map(|d| d.failed as u64)
         .unwrap_or(follow.progress.failures);
-    if failed > 0 {
-        eprintln!(
-            "[test] {}: {failed} failed — tugtool test last --failures names them",
-            args.suite
-        );
-    }
+    let tests = doc.as_ref().map(|d| d.tests as u64).unwrap_or(0);
+    eprintln!("{}", closing_line(&args.suite, &unit, failed, tests, code));
     match code {
         0 => Ok(()),
         c => Err(AppError::ExitStatus(c)),
+    }
+}
+
+/// The line every wrapped run ends with, so the last lines of a tailed run
+/// always carry its verdict: the reds and where they are named, a red exit
+/// that counted none and where the run is recorded, or the green and its
+/// count, in the run's own unit, when it had one.
+fn closing_line(suite: &str, unit: &str, failed: u64, tests: u64, code: u8) -> String {
+    if failed > 0 {
+        format!("[test] {suite}: {failed} failed — tugtool test last --failures names them")
+    } else if code != 0 {
+        format!("[test] {suite}: exit {code} — tugtool test last names the run")
+    } else if tests > 0 {
+        let plural = if tests == 1 { "" } else { "s" };
+        format!("[test] {suite}: {tests} {unit}{plural}, none failed")
+    } else {
+        format!("[test] {suite}: green")
     }
 }
 
@@ -1584,6 +1648,63 @@ mod tests {
         // The record is the tally: two crates, one red.
         let record = follow.tally();
         assert_eq!((record.tests, record.failed), (2, 1));
+    }
+
+    /// Every run ends on a line that carries its verdict, red or green, so
+    /// the last lines of a tailed run are always enough to read it.
+    #[test]
+    fn every_run_closes_on_its_verdict_line() {
+        assert_eq!(
+            closing_line("rust", "test", 2, 748, 100),
+            "[test] rust: 2 failed — tugtool test last --failures names them"
+        );
+        assert_eq!(
+            closing_line("tsc", "error", 0, 0, 2),
+            "[test] tsc: exit 2 — tugtool test last names the run"
+        );
+        assert_eq!(closing_line("rust", "test", 0, 748, 0), "[test] rust: 748 tests, none failed");
+        assert_eq!(closing_line("cargo", "crate", 0, 1, 0), "[test] cargo: 1 crate, none failed");
+        assert_eq!(closing_line("tsc", "error", 0, 0, 0), "[test] tsc: green");
+    }
+
+    /// A test run that never reaches its tests: the crate that did not
+    /// compile is the red the record names, with the error that stopped it,
+    /// instead of a run of no tests and no failures.
+    #[test]
+    fn a_test_run_whose_crate_does_not_compile_records_the_crate_as_its_red() {
+        let fixture = include_str!("../tests/fixtures/runner-output/cargo-build-error.txt");
+        for kind in [RunKind::Nextest, RunKind::CargoTest] {
+            let (follow, _, out) = follow_stderr(kind, fixture);
+            assert_eq!(out, fixture, "{kind:?}: cargo's stderr passes through whole");
+            assert_eq!(follow.progress.failures, 1, "{kind:?}");
+            assert_eq!(follow.progress.text, "beta did not compile", "{kind:?}");
+            let record = follow.tally();
+            assert_eq!(record.failed, 1, "{kind:?}");
+            assert_eq!(record.failures[0].name, "beta", "{kind:?}");
+            assert_eq!(
+                record.failures[0].message, "error[E0308]: mismatched types",
+                "{kind:?}"
+            );
+        }
+    }
+
+    /// vite names the build's error on the line after `error during build:`,
+    /// and that line is the failed build's message in the record.
+    #[test]
+    fn a_failed_vite_build_carries_the_error_line_as_its_message() {
+        let fixture = include_str!("../tests/fixtures/runner-output/vite-error.txt");
+        let (follow, _, out) = follow_stderr(RunKind::Vite, fixture);
+        assert_eq!(out, fixture, "vite's output passes through whole");
+        assert_eq!((follow.progress.done, follow.progress.failures), (1, 1));
+        let record = follow.tally();
+        assert_eq!(record.failures[0].name, "build");
+        assert_eq!(
+            record.failures[0].message,
+            "Could not resolve \"./missing\" from \"main.ts\""
+        );
+        let green = include_str!("../tests/fixtures/runner-output/vite.txt");
+        let (follow, _, _) = follow_stderr(RunKind::Vite, green);
+        assert_eq!((follow.progress.done, follow.progress.failures), (1, 0));
     }
 
     #[test]

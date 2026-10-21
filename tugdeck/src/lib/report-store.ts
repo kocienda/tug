@@ -23,6 +23,14 @@
  *
  * A report that names its **unit** (`file`, `test`, `phase`) carries the
  * run's unit rows, and the block draws it as a report panel rather than a line.
+ * A unit run that says it **nests** is a parent whose units are runs of their
+ * own — a verify's surfaces, a loop of runners — and a report under another
+ * label arriving while it holds the call is its running unit's child: it
+ * lands in the parent's child slot, folded there by the same rules, and the
+ * panel draws it beneath the parent band. The parent's own next report
+ * replaces the entry whole, child and all, since its row now carries what the
+ * child ended with. That is the third relation beside "replace" and "phases
+ * beside units".
  * When such a call closes, its last report is kept as the call's **settled**
  * run, so the block can show how the run ended. Settled runs live as long as
  * the page: they are a view of a run, never part of the record, and a block
@@ -95,6 +103,13 @@ export interface Report {
    * above the unit rows rather than the second report replacing the first.
    */
   phases?: readonly RunUnit[];
+  /** Whether this run's units are runs of their own; see {@link child}. */
+  nests?: boolean;
+  /**
+   * The run the running unit is, when this run nests one: the latest report
+   * under another label since this run's own, folded as a report of its own.
+   */
+  child?: Report;
   /** When the latest report arrived (local ms). */
   reportAtMs?: number;
   /**
@@ -211,40 +226,16 @@ export class ReportStore {
     if (id !== null && this.closed.has(id) && !isRunningJob(id)) return;
     const key = keyOf(id);
     const prev = this.entries.get(key);
-    // A report replaces the previous report's fields whole — a field absent
-    // now was not carried forward by the reporter, so it is not stale-kept
-    // here — while the heartbeat fields ride along untouched.
-    const unit = str(frame.unit);
-    const units = unit === undefined ? undefined : narrowRunUnits(frame.units);
-    // A phase run and a unit run under one call, by two labels: the units
-    // own the entry and the phases ride beside them, whichever came first.
-    const otherLabel = prev?.label !== frame.label;
-    if (unit === "phase" && prev?.unit !== undefined && prev.unit !== "phase" && otherLabel) {
-      this.put(key, { ...prev, ...(units !== undefined ? { phases: units } : {}), reportAtMs: nowMs });
-      return;
-    }
-    const phases =
-      unit !== undefined && unit !== "phase"
-        ? prev?.unit === "phase" && otherLabel
-          ? prev.units
-          : prev?.phases
-        : undefined;
-    this.put(key, {
-      toolUseId: id,
-      label: frame.label,
-      text: frame.text,
-      done: frame.done,
-      total: frame.total,
-      failures: frame.failures,
-      ...(unit !== undefined ? { unit } : {}),
-      ...(unit !== undefined && num(frame.jobs) !== undefined ? { jobs: num(frame.jobs) } : {}),
-      ...(units !== undefined ? { units } : {}),
-      ...(phases !== undefined ? { phases } : {}),
-      ...(id === null && str(frame.unattached) !== undefined ? { unattached: str(frame.unattached) } : {}),
-      reportAtMs: nowMs,
-      engineElapsedMs: prev?.engineElapsedMs,
-      heartbeatAtMs: prev?.heartbeatAtMs,
-    });
+    // A nesting parent holds the call: a report under another label is its
+    // running unit's child and folds into the child slot, by the same rules
+    // a report of its own follows. The parent's own report, under its label,
+    // replaces the entry whole — child and all. Either way the heartbeat
+    // fields ride along untouched.
+    const next =
+      prev?.nests === true && frame.label !== prev.label
+        ? { ...prev, child: foldReport(prev.child, frame, nowMs), reportAtMs: nowMs }
+        : foldReport(prev, frame, nowMs);
+    this.put(key, { ...next, engineElapsedMs: prev?.engineElapsedMs, heartbeatAtMs: prev?.heartbeatAtMs });
   }
 
   /**
@@ -325,6 +316,45 @@ export class ReportStore {
     if (set === undefined) return;
     for (const cb of [...set]) cb();
   }
+}
+
+/**
+ * The entry a report makes over the one before it. A report replaces the
+ * previous report's fields whole — a field absent now was not carried forward
+ * by the reporter, so it is not stale-kept here. The one thing kept across
+ * labels is the phase relation: a phase run and a unit run under one call,
+ * by two labels, share the entry — the units own it and the phases ride
+ * beside them, whichever came first.
+ */
+function foldReport(prev: Report | undefined, frame: ReportFrame, nowMs: number): Report {
+  const id = frame.tool_use_id;
+  const unit = str(frame.unit);
+  const units = unit === undefined ? undefined : narrowRunUnits(frame.units);
+  const otherLabel = prev?.label !== frame.label;
+  if (unit === "phase" && prev?.unit !== undefined && prev.unit !== "phase" && otherLabel) {
+    return { ...prev, ...(units !== undefined ? { phases: units } : {}), reportAtMs: nowMs };
+  }
+  const phases =
+    unit !== undefined && unit !== "phase"
+      ? prev?.unit === "phase" && otherLabel
+        ? prev.units
+        : prev?.phases
+      : undefined;
+  return {
+    toolUseId: id,
+    label: frame.label,
+    text: frame.text,
+    done: frame.done,
+    total: frame.total,
+    failures: frame.failures,
+    ...(unit !== undefined ? { unit } : {}),
+    ...(unit !== undefined && num(frame.jobs) !== undefined ? { jobs: num(frame.jobs) } : {}),
+    ...(units !== undefined ? { units } : {}),
+    ...(phases !== undefined ? { phases } : {}),
+    ...(unit !== undefined && frame.nests === true ? { nests: true } : {}),
+    ...(id === null && str(frame.unattached) !== undefined ? { unattached: str(frame.unattached) } : {}),
+    reportAtMs: nowMs,
+  };
 }
 
 /**

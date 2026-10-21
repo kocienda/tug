@@ -313,3 +313,69 @@ fn a_name_that_is_no_arc_refuses_the_way_status_does() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// A check the runner table knows runs wrapped: the project declares a
+/// `lines` runner and names it as a surface's check, so the verify records
+/// the run under its own call id and `test last --call` names the red item
+/// — the retrieval path after a tailed verify, without a block to read.
+#[test]
+fn a_declared_runner_in_a_check_is_wrapped_and_its_red_is_recorded_under_the_call() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    std::fs::create_dir_all(&root).unwrap();
+    let config = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"sh src/run-checks.sh\"]\n\n\
+                  [[tugtool.report.runner]]\nmatch = \"sh src/run-checks.sh\"\nkind = \"lines\"\nsuite = \"checks\"\n\
+                  item = '^(?P<status>PASS|FAIL) (?P<name>\\S+)'\n";
+    project(
+        &root,
+        config,
+        &[
+            ("src/a.rs", "a\n"),
+            ("src/run-checks.sh", "printf 'PASS a\\nFAIL b\\n'; exit 1\n"),
+        ],
+    );
+    let db = tmp.path().join("test_results.db");
+
+    let output = tug(tmp.path())
+        .args(["arc", "verify", "demo"])
+        .env("TUG_TEST_RESULTS_DB", &db)
+        .env("TUG_TOOL_USE_ID", "toolu_verify")
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    let text = stdout_of(&output);
+    assert_eq!(output.status.code(), Some(1), "a red check is a red verify: {text}");
+    assert!(text.contains("PASS a\nFAIL b\n"), "the child's output passes through: {text}");
+    assert!(
+        text.contains("failed (exit 1): sh src/run-checks.sh"),
+        "the table reads the declaration, not the wrap: {text}"
+    );
+    assert!(
+        text.contains("src              2       1  red (1 of 2 failed)\n"),
+        "the surface row counts the child's tests: {text}"
+    );
+    assert!(
+        text.contains("               first failure: b\n"),
+        "the red surface names the test its child recorded: {text}"
+    );
+    assert!(
+        text.contains("tugtool test last --call toolu_verify --failures"),
+        "the verify says where every red is recorded: {text}"
+    );
+    assert!(
+        text.contains("TUG-VERIFY-RECEIPT: red 1 surfaces · src: `sh src/run-checks.sh` (exit 1) · first red b"),
+        "the receipt names the test: {text}"
+    );
+
+    let output = tug(tmp.path())
+        .args(["test", "last", "--call", "toolu_verify", "--failures"])
+        .env("TUG_TEST_RESULTS_DB", &db)
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(
+        stdout_of(&output),
+        "checks  (fail) b\n",
+        "the wrapped child recorded under the verify's call"
+    );
+}
