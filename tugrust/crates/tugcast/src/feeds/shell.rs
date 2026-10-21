@@ -709,6 +709,11 @@ async fn spawn_shell_child(
     //   - `trap - TERM QUIT`: an interactive shell IGNORES SIGTERM, which would
     //     defeat the kill/timeout reap (the shell would outlive the group
     //     signal). Reset the disposition so `reap_group` kills it as before.
+    //   - `set +m`: turn job control off. An interactive bash keeps `monitor`
+    //     on even with no TTY, so it puts every command in a process group of
+    //     its own, which the group signal to the shell's pgid never reaches;
+    //     the orphaned command then holds stdout open and the exchange never
+    //     settles. With it off, commands run in the shell's own group.
     //   - clear precmd/preexec/chpwd hooks and `unfunction` the standalone
     //     `precmd`/`preexec` a theme may have defined (the array clear misses
     //     those) so the prompt is not re-armed after each command.
@@ -721,6 +726,7 @@ async fn spawn_shell_child(
         .write_all(
             b"exec 2>&1\n\
               trap - TERM QUIT\n\
+              set +m\n\
               precmd_functions=() preexec_functions=() chpwd_functions=()\n\
               unfunction precmd preexec chpwd 2>/dev/null\n\
               unsetopt promptsp promptcr 2>/dev/null\n\

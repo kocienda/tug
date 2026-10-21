@@ -397,15 +397,17 @@ mod tests {
         let mut auth = AuthState {
             pending_token: None,
             sessions: HashMap::new(),
-            session_ttl: Duration::from_millis(200),
+            session_ttl: Duration::from_millis(800),
             port: 7890,
             dev_port: None,
             no_auth: false,
         };
 
+        // Four touches 250ms apart span past the TTL; each leaves 550ms of
+        // slack, so a slow sleep on a loaded runner cannot expire the session.
         let session_id = auth.create_session();
         for _ in 0..4 {
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(250));
             assert!(auth.validate_session(&session_id));
         }
     }

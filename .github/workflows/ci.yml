@@ -56,6 +56,11 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
+      # tugcast refuses to boot without tmux, and the integration tests under
+      # `crates/tugcast/tests/` spawn the real binary. The macOS image has none.
+      - name: Install tmux
+        run: brew install tmux
+
       # nextest, not `cargo test`: the shell feed tests set `$SHELL`/`$ZDOTDIR`
       # and seed a process-global PATH cache, which only holds when each test
       # owns its own process. It is also what `just test` runs.
@@ -134,6 +139,10 @@ jobs:
 
       - name: Install just
         uses: taiki-e/install-action@just
+
+      # `just lint` runs `shellcheck`, which the macOS image does not carry.
+      - name: Install shellcheck
+        run: brew install shellcheck
 
       # `just lint` runs `wasm-check`, which rebuilds every WASM package and
       # fails if it differs from the committed one. The bytes depend on the
