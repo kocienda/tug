@@ -348,6 +348,23 @@ export interface PickerFit {
   panelHas: number;
   list: { clientHeight: number; scrollHeight: number };
   body: { clientHeight: number; scrollHeight: number };
+  /**
+   * Open's ring — its border box grown by the outline's reach (width plus
+   * offset, `0` when it draws no outline) — and the sheet body's clip box,
+   * which is its padding box: a body that scrolls clips everything inside it
+   * there, the action row included.
+   */
+  openRing: PickerBox;
+  ringReach: number;
+  bodyClip: PickerBox;
+}
+
+/** A box on all four sides, in the picker's own page. */
+export interface PickerBox {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
 }
 
 /** Read {@link PickerFit} off the picker's page, or `null` when a part is missing. */
@@ -366,6 +383,8 @@ export async function pickerFit(app: PickerDriver): Promise<PickerFit | null> {
       };
       var list = panel.querySelector(".session-card-picker-list-view");
       var body = panel.querySelector(".tug-sheet-body");
+      var open = panel.querySelector('[data-testid="session-card-picker-open"]');
+      if (open === null) return null;
       if (frame === null || bar === null || list === null || body === null) return null;
       var span = function (el) {
         var r = el.getBoundingClientRect();
@@ -385,11 +404,24 @@ export async function pickerFit(app: PickerDriver): Promise<PickerFit | null> {
         panelHas: panel.clientHeight,
         list: { clientHeight: list.clientHeight, scrollHeight: list.scrollHeight },
         body: { clientHeight: body.clientHeight, scrollHeight: body.scrollHeight },
+        ringReach: 0,
+        openRing: null,
+        bodyClip: null,
       };
       for (var k in parts) {
         if (parts[k] === null) return null;
         out[k] = span(parts[k]);
       }
+      var ocs = getComputedStyle(open);
+      var reach =
+        ocs.outlineStyle === "none"
+          ? 0
+          : (parseFloat(ocs.outlineWidth) || 0) + (parseFloat(ocs.outlineOffset) || 0);
+      var o = open.getBoundingClientRect();
+      out.ringReach = reach;
+      out.openRing = { top: o.top - reach, bottom: o.bottom + reach, left: o.left - reach, right: o.right + reach };
+      var b = body.getBoundingClientRect();
+      out.bodyClip = { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
       return out;
     })()`,
   );
@@ -418,6 +450,20 @@ export function pickerFitProblems(fit: PickerFit, tol: number): string[] {
   inside("the filter", fit.filter);
   inside("the trash row", fit.trash);
   inside("the actions", fit.actions);
+  // Open's ring is drawn outside its border, and the body that holds it is a
+  // scroll box: a ring past the body's padding edge is cut there.
+  const ring = fit.openRing;
+  const clip = fit.bodyClip;
+  if (
+    ring.top < clip.top - tol ||
+    ring.bottom > clip.bottom + tol ||
+    ring.left < clip.left - tol ||
+    ring.right > clip.right + tol
+  ) {
+    problems.push(
+      `Open's ring (${ring.left.toFixed(1)},${ring.top.toFixed(1)})–(${ring.right.toFixed(1)},${ring.bottom.toFixed(1)}) crosses the sheet body's clip (${clip.left.toFixed(1)},${clip.top.toFixed(1)})–(${clip.right.toFixed(1)},${clip.bottom.toFixed(1)})`,
+    );
+  }
   if (fit.body.scrollHeight - fit.body.clientHeight > tol) {
     problems.push(`the sheet's body scrolls (${fit.body.scrollHeight} over ${fit.body.clientHeight}) — the list should give way instead`);
   }
@@ -433,5 +479,5 @@ export function pickerListScrolls(fit: PickerFit, tol: number): boolean {
 export function describePickerFit(fit: PickerFit | null): string {
   if (fit === null) return "picker not on screen";
   const s = (p: PickerSpan) => `${p.top.toFixed(0)}–${p.bottom.toFixed(0)}`;
-  return `frame ${s(fit.frame)} (viewport ${fit.viewportHeight}), title bar to ${fit.titleBarBottom.toFixed(0)}, panel ${s(fit.panel)} max-height "${fit.panelMaxHeight}" (wants ${fit.panelWants}, has ${fit.panelHas}), header ${s(fit.header)}, filter ${s(fit.filter)}, trash ${s(fit.trash)}, actions ${s(fit.actions)}, list ${fit.list.clientHeight}/${fit.list.scrollHeight}, body ${fit.body.clientHeight}/${fit.body.scrollHeight}`;
+  return `frame ${s(fit.frame)} (viewport ${fit.viewportHeight}), title bar to ${fit.titleBarBottom.toFixed(0)}, panel ${s(fit.panel)} max-height "${fit.panelMaxHeight}" (wants ${fit.panelWants}, has ${fit.panelHas}), header ${s(fit.header)}, filter ${s(fit.filter)}, trash ${s(fit.trash)}, actions ${s(fit.actions)}, list ${fit.list.clientHeight}/${fit.list.scrollHeight}, body ${fit.body.clientHeight}/${fit.body.scrollHeight}, Open ring reach ${fit.ringReach}px, right ${fit.openRing.right.toFixed(1)} of clip ${fit.bodyClip.right.toFixed(1)}`;
 }

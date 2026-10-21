@@ -327,6 +327,24 @@ body {
   scrollbar-width: none;
 }
 
+/* Room for the rings. A body that scrolls clips at its padding edge on every
+   side — `overflow-y: auto` makes it a clip in both axes — and it sits flush
+   inside the panel's padding, so a focus ring or the default button's ring,
+   which is drawn outside the control's border, was cut wherever a control met
+   the body's edge: Open's ring at the bottom-right corner, the filter's at the
+   top. The body takes the ring's whole reach as padding and gives it straight
+   back as a negative margin, so nothing in the layout moves and the clip edge
+   sits in the panel's padding, past any ring. Both layouts whose body scrolls
+   take it. */
+.tug-sheet-content[data-body-scroll="true"] .tug-sheet-body,
+.tug-sheet-content[data-resizable="true"]:not([data-aspect-lock="true"]) .tug-sheet-body {
+  --tugx-sheet-body-ring-room: calc(
+    var(--tugx-focus-ring-offset) + var(--tugx-focus-ring-width) + 1px
+  );
+  padding: var(--tugx-sheet-body-ring-room);
+  margin: calc(-1 * var(--tugx-sheet-body-ring-room));
+}
+
 /* Aspect-locked: the panel height is content-driven (the body's aspect
    region sets it from the width), so the content is NOT a fixed-height flex
    column — it lays out in normal flow and grows with its content. `overflow:
