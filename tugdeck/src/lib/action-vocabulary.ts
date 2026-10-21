@@ -1097,6 +1097,11 @@ export const TUG_ACTIONS = {
   //                    per-pane widths the title-bar popup had set. Its door is
   //                    the rail Layouts section's Card Width group.
   SET_CONTENT_WIDTH:      "set-content-width",
+  // SET_GAP: payload — `{ preset }`. Set the deck's card gap — the air an
+  //          imposed card keeps from the window edges, its neighbours, and
+  //          (plus a fixed extra) the rails. Its door is the Layout card's Gap
+  //          row.
+  SET_GAP:                "set-gap",
   // SET_IMPOSITION_LAYOUT: payload — `{ layout }`. Choose how the deck resolves
   //                        its slots: `"fit"`, where each slot is an anchor at
   //                        a fraction of the band and a narrow deck overlaps

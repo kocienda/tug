@@ -23,7 +23,7 @@
 
 import { isSidebarCard } from "@/card-registry";
 import { getCardDeck } from "@/lib/deck-store-registry";
-import { IMPOSITION_GAP_PX, isSidebarPinned } from "@/lib/layout-imposer";
+import { impositionGapPx, isSidebarPinned } from "@/lib/layout-imposer";
 import type { DeckState } from "@/layout-tree";
 
 /**
@@ -73,7 +73,7 @@ export function memberFloorForSheetPanel(panelNaturalPx: number): number {
     panelNaturalPx +
     PANE_TITLE_BAR_AND_CLIP_PX +
     SHEET_CANVAS_GAP -
-    IMPOSITION_GAP_PX
+    impositionGapPx()
   );
 }
 

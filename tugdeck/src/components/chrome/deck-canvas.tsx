@@ -225,7 +225,7 @@ import {
   type ColumnMode,
   slotCount,
   DEFAULT_CONTENT_WIDTH,
-  IMPOSITION_GAP_PX,
+  impositionGapPx,
   RESIZE_RETUNE_QUIET_MS,
   FLOW_STRIP_PROPERTY,
   clampFlowOffset,
@@ -430,7 +430,7 @@ function offsetPropertyOf(place: SeamPlace): string {
  *  top and a column keeps the card gap — the same distinction the imposer's
  *  member pins draw. */
 function placeRunTopPx(place: SeamPlace): number {
-  return place.kind === "rail" ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+  return place.kind === "rail" ? RAIL_EDGE_INSET_PX : impositionGapPx();
 }
 
 /** Where `place`'s run ends, in px from the foot: a rail keeps the strip's
@@ -442,7 +442,7 @@ function placeRunBottomPx(place: SeamPlace): number {
 /** The air two of `place`'s members keep between them, in px: a rail's
  *  members meet at nothing, a column's at the card gap. */
 function placeSeamPx(place: SeamPlace): number {
-  return place.kind === "rail" ? RAIL_SEAM_PX : IMPOSITION_GAP_PX;
+  return place.kind === "rail" ? RAIL_SEAM_PX : impositionGapPx();
 }
 
 /**
@@ -3937,8 +3937,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               kind: "column",
               slot: column.slot,
               axis: "y",
-              bandStart: IMPOSITION_GAP_PX,
-              bandEnd: IMPOSITION_GAP_PX + run,
+              bandStart: impositionGapPx(),
+              bandEnd: impositionGapPx() + run,
               offset: state.columnOffsets?.[column.slot] ?? 0,
               maxOffset: Math.max(0, allocation.stripLength - run),
             };
@@ -4847,8 +4847,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // overlay draws them above the cards from these widths ([B09]). The caps
   // below still stand here, where they read as the canvas they are and take
   // the presses no card's hit shape claims.
-  const capLeft = railWidthOf("left") > 0 ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
-  const capRight = railWidthOf("right") > 0 ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+  const capLeft = railWidthOf("left") > 0 ? RAIL_EDGE_INSET_PX : impositionGapPx();
+  const capRight = railWidthOf("right") > 0 ? RAIL_EDGE_INSET_PX : impositionGapPx();
   useLayoutEffect(() => {
     if (hostKeepsOverlay()) overlayMarginCaps.set({ left: capLeft, right: capRight });
   }, [capLeft, capRight]);
@@ -5119,7 +5119,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // reads, so the cap and the band can never disagree about whether a
         // rail stands there.
         const bare =
-          railWidthOf(side) > 0 ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+          railWidthOf(side) > 0 ? RAIL_EDGE_INSET_PX : impositionGapPx();
         // Nothing bare, no cap. An element of no width is not harmless here:
         // it is a claim in the DOM that something is being covered, and the
         // pin in at0454 reads these by their boxes.

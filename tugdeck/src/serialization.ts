@@ -53,6 +53,7 @@ import {
   isImpositionKind,
   isImpositionLayout,
   isResizeSlot,
+  isGapPreset,
   isColumnMode,
   isSidebarSide,
   DEFAULT_IMPOSITION_KIND,
@@ -655,6 +656,9 @@ function parseV4(
   // Additive-optional too, and dropped the same way when unreadable: absent
   // already means "keeps its slot", so a stray value falls to the default.
   const rawResizeSlot = impositionRecord?.["resizeSlot"];
+  // Additive-optional on the same terms: absent reads as the default gap, and
+  // an unreadable value is dropped rather than recorded as a choice.
+  const rawGap = impositionRecord?.["gap"];
   const imposition: DeckImposition = {
     kind,
     contentWidth: isContentWidth(rawContentWidth)
@@ -665,6 +669,7 @@ function parseV4(
     ...(columns !== undefined ? { columns } : {}),
     ...(isImpositionLayout(rawLayout) ? { layout: rawLayout } : {}),
     ...(isResizeSlot(rawResizeSlot) ? { resizeSlot: rawResizeSlot } : {}),
+    ...(isGapPreset(rawGap) ? { gap: rawGap } : {}),
   };
 
   const panes: TugPaneState[] = [];

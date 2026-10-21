@@ -99,7 +99,7 @@ import { computeResizeSnap } from "@/snap";
 import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { pageZoomFactor } from "@/lib/page-zoom-store";
 import {
-  IMPOSITION_GAP_PX,
+  impositionGapPx,
   sidebarWidthProperty,
   type SidebarSide,
 } from "@/lib/layout-imposer";
@@ -754,7 +754,7 @@ class RailWidthDraft implements RailWidthGesture {
       snapshotCardRects(draft.canvasBounds, undefined, draft.zoom)
         .filter(({ id }) => !draft.memberIds.has(id))
         .map(({ rect }) => rect),
-      -IMPOSITION_GAP_PX,
+      -impositionGapPx(),
     );
     syncGuideElements(
       draft.guides,

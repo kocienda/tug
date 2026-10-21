@@ -165,6 +165,15 @@ export const DEFAULT_RESIZE_SLOT: ResizeSlot = "keep";
  */
 export type ContentWidth = "slim" | "comfy" | "wide";
 
+/**
+ * The deck's card gap, as a named preset: the air an imposed card keeps from
+ * the window edges, from its neighbours, and (plus a fixed extra) from a
+ * rail. One knob for every card distance, so a pane the imposer places and a
+ * pane the hand snaps stay on one rhythm. Pixels per preset are
+ * {@link GAP_PX}; absent reads as {@link DEFAULT_GAP}.
+ */
+export type GapPreset = "snug" | "cozy" | "roomy" | "airy";
+
 /** One sidebar card's standing in the deck: which edge it holds, and whether it
  *  is standing at that pin. */
 export interface SidebarEntry {
@@ -314,6 +323,8 @@ export interface DeckImposition {
   kind?: ImpositionKind;
   /** The deck-wide content width; absent reads as {@link DEFAULT_CONTENT_WIDTH}. */
   contentWidth?: ContentWidth;
+  /** The deck-wide card gap; absent reads as {@link DEFAULT_GAP}. */
+  gap?: GapPreset;
   /**
    * How slots resolve into positions; absent reads as
    * {@link DEFAULT_IMPOSITION_LAYOUT} — flow, the arrangement a deck that has
@@ -369,6 +380,10 @@ export const DEFAULT_SIDEBAR_SIDE: SidebarSide = "right";
 
 /** The width content cards open at when the deck has never said otherwise. */
 export const DEFAULT_CONTENT_WIDTH: ContentWidth = "comfy";
+
+/** The card gap a deck stands at when it has never said otherwise — the
+ *  preset whose pixels are {@link IMPOSITION_GAP_PX}. */
+export const DEFAULT_GAP: GapPreset = "snug";
 
 /**
  * The side `componentId` holds, or the default when it has never been placed.
@@ -897,6 +912,13 @@ export function isContentWidth(value: unknown): value is ContentWidth {
   return value === "slim" || value === "comfy" || value === "wide";
 }
 
+/** Narrow an unknown (a parsed blob field, an action payload) to a gap preset. */
+export function isGapPreset(value: unknown): value is GapPreset {
+  return (
+    value === "snug" || value === "cozy" || value === "roomy" || value === "airy"
+  );
+}
+
 /** Every imposition kind, in ascending slot count — the Layout card's picker order. */
 export const IMPOSITION_KINDS: readonly ImpositionKind[] = [
   "one-up",
@@ -922,8 +944,49 @@ export const DEFAULT_IMPOSITION_KIND: ImpositionKind = "three-up";
  * `tug-pane.tsx` imports it for `computeSnap` / `computeResizeSnap` rather than
  * declaring its own. A pane placed by the imposer and a pane snapped by hand
  * therefore land on the same rhythm.
+ *
+ * This is the DEFAULT — the value the gap holds until a setting moves it. The
+ * live value is {@link impositionGapPx}, and every numeric read in this
+ * module goes through it; the constant survives as the default's name, so a
+ * test that reads it symbolically keeps meaning what it meant.
  */
 export const IMPOSITION_GAP_PX = 5;
+
+/**
+ * The property the card gap crosses into CSS on, so every emitted `calc()`
+ * states the gap ONCE, by name, and a change of gap is one property write
+ * rather than a rewrite of every expression that mentions it. The fallback in
+ * every `var()` is {@link IMPOSITION_GAP_PX}, so an expression resolves to the
+ * default whether or not the root has been stamped yet.
+ */
+export const IMPOSITION_GAP_PROPERTY = "--tug-imposer-gap";
+
+let gapPx = IMPOSITION_GAP_PX;
+
+/**
+ * The card gap this page imposes to, in px — the numeric twin of
+ * {@link IMPOSITION_GAP_PROPERTY}, for every read that cannot go through CSS:
+ * a run height, a strip length, a seam, a snap target.
+ */
+export function impositionGapPx(): number {
+  return gapPx;
+}
+
+/**
+ * Set the card gap. Returns whether it actually moved, which is the caller's
+ * cue to stamp the properties ({@link impositionGapProperties}) and
+ * re-impose. The rail gutter and the maker bottom gap derive from the live
+ * value at read time, so they follow without a second write.
+ *
+ * Like {@link setImpositionGapBottom}, it does not touch the document: this
+ * module resolves geometry and emits the expressions that read the property,
+ * and the element the property belongs on is the caller's to name.
+ */
+export function setImpositionGap(px: number): boolean {
+  if (px === gapPx) return false;
+  gapPx = px;
+  return true;
+}
 
 /**
  * The **bottom** imposition gap a MAKER's canvas keeps, which is deeper than
@@ -932,16 +995,22 @@ export const IMPOSITION_GAP_PX = 5;
  * 8px above the canvas bottom and about 19px tall. A pane imposed to the
  * ordinary gap runs straight through it. This depth clears the strip and
  * leaves one ordinary gap of air above it, so nothing imposed ever collides
- * with the stamps.
+ * with the stamps. The clearance is the constant; the gap of air is the live
+ * card gap, so the stamps keep exactly one gap of air at every setting.
  *
  * A release build draws no stamps, so it keeps no band for them: the bottom
- * gap there is {@link IMPOSITION_GAP_PX}, the same air as the other three
+ * gap there is the card gap, the same air as the other three
  * edges. The deeper band was once also read as typography — a heavier bottom
  * margin than top, as old as the printed page — but the deck is a canvas of
  * movable frames rather than a page, and a reader who cannot see what the
  * reserved stripe is for reads it as dead pixels rather than as a margin.
  */
-export const IMPOSITION_GAP_BOTTOM_MAKER_PX = 32;
+export const IMPOSITION_GAP_BOTTOM_CLEARANCE_PX = 27;
+
+/** The maker bottom gap at the default card gap — the clearance plus one gap
+ *  of air — and the `var()` fallback the bottom gap's property carries. */
+export const IMPOSITION_GAP_BOTTOM_MAKER_PX =
+  IMPOSITION_GAP_BOTTOM_CLEARANCE_PX + IMPOSITION_GAP_PX;
 
 /**
  * The property the bottom gap crosses into CSS on, so the imposer's emitted
@@ -955,15 +1024,16 @@ export const IMPOSITION_GAP_BOTTOM_MAKER_PX = 32;
  */
 export const IMPOSITION_GAP_BOTTOM_PROPERTY = "--tug-imposer-gap-bottom";
 
-let gapBottomPx = IMPOSITION_GAP_BOTTOM_MAKER_PX;
+let makerBottom = true;
 
 /**
  * The bottom gap this page imposes to, in px — the numeric twin of
  * {@link IMPOSITION_GAP_BOTTOM_PROPERTY}, for the arithmetic that cannot go
- * through CSS: a run height, a seam's travel.
+ * through CSS: a run height, a seam's travel. Derived from the live card gap
+ * at read time, so one number is the source of both.
  */
 export function impositionGapBottomPx(): number {
-  return gapBottomPx;
+  return makerBottom ? IMPOSITION_GAP_BOTTOM_CLEARANCE_PX + gapPx : gapPx;
 }
 
 /**
@@ -979,7 +1049,7 @@ export function impositionGapBottomPx(): number {
  * exactly as it does to the top.
  */
 export function railGapBottomPx(): number {
-  return gapBottomPx - IMPOSITION_GAP_PX + RAIL_EDGE_INSET_PX;
+  return impositionGapBottomPx() - gapPx + RAIL_EDGE_INSET_PX;
 }
 
 /**
@@ -992,9 +1062,8 @@ export function railGapBottomPx(): number {
  * property belongs on is the boot sequence's to name.
  */
 export function setImpositionGapBottom(makerMode: boolean): boolean {
-  const next = makerMode ? IMPOSITION_GAP_BOTTOM_MAKER_PX : IMPOSITION_GAP_PX;
-  if (next === gapBottomPx) return false;
-  gapBottomPx = next;
+  if (makerMode === makerBottom) return false;
+  makerBottom = makerMode;
   return true;
 }
 
@@ -1003,7 +1072,7 @@ export function setImpositionGapBottom(makerMode: boolean): boolean {
  * its outer side and at its top. It is one of the two lengths that name a
  * rail's geometry apart from the card gap ({@link RAIL_GUTTER_PX} is the
  * other), so the rail can stand flush to the window while every seam between
- * cards keeps {@link IMPOSITION_GAP_PX}. The property is the CSS twin, on the
+ * cards keeps the card gap ({@link impositionGapPx}). The property is the CSS twin, on the
  * bottom gap's pattern: every emitted `calc()` names it, and `main.tsx` stamps
  * it on the document root once so a stylesheet can read it too.
  *
@@ -1023,16 +1092,29 @@ export const RAIL_EDGE_INSET_PROPERTY = "--tug-rail-edge-inset";
  * rail's one-sided shadow (`--tugx-rail-shadow-*` in `tug-pane.css`) fills
  * most of it — the panel stands above the cards, and the gutter is where that
  * shows.
+ *
+ * It tracks the card gap by a fixed extra, so under every setting it stays
+ * wider than a card gap and {@link railSpanInsetPx} never overspends it. The
+ * constant is the gutter at the default gap and the property's `var()`
+ * fallback; {@link railGutterPx} is the live value.
  */
-export const RAIL_GUTTER_PX = 12;
+export const RAIL_GUTTER_EXTRA_PX = 7;
+
+export const RAIL_GUTTER_PX = IMPOSITION_GAP_PX + RAIL_GUTTER_EXTRA_PX;
 
 export const RAIL_GUTTER_PROPERTY = "--tug-rail-gutter";
+
+/** The live rail gutter, in px: the live card gap plus
+ *  {@link RAIL_GUTTER_EXTRA_PX}. */
+export function railGutterPx(): number {
+  return gapPx + RAIL_GUTTER_EXTRA_PX;
+}
 
 /**
  * The **rail seam**: the air between two members of a split rail, in px. Zero:
  * the members of a panel touch, meeting at one hairline, because a gap between
  * them would be the card gap's rhythm, and that rhythm is what content cards
- * have and a rail does not. A column's members keep {@link IMPOSITION_GAP_PX}
+ * have and a rail does not. A column's members keep {@link impositionGapPx}
  * at their seams; this is the one place the two kinds of place divide their
  * run differently.
  */
@@ -1050,7 +1132,7 @@ export const RAIL_SEAM_PX = 0;
  * the number this arithmetic was once written as.
  */
 export function railSpanInsetPx(width: number): number {
-  return RAIL_EDGE_INSET_PX + width + RAIL_GUTTER_PX - IMPOSITION_GAP_PX;
+  return RAIL_EDGE_INSET_PX + width + railGutterPx() - impositionGapPx();
 }
 
 /** The flow band's two edges in canvas layout px — where the strip is seen
@@ -1086,8 +1168,8 @@ export function flowBandEdges(
   const rightInset =
     railWidths.right === undefined ? 0 : railSpanInsetPx(railWidths.right);
   return {
-    start: leftInset + IMPOSITION_GAP_PX,
-    end: canvasWidth - rightInset - IMPOSITION_GAP_PX,
+    start: leftInset + impositionGapPx(),
+    end: canvasWidth - rightInset - impositionGapPx(),
   };
 }
 
@@ -1150,6 +1232,39 @@ export const CONTENT_WIDTH_LABELS: Readonly<Record<ContentWidth, string>> = {
   comfy: "Comfy",
   wide: "Wide",
 };
+
+/* ---------------------------------------------------------------------------
+ * Gap presets
+ * ---------------------------------------------------------------------------*/
+
+/** The gaps in the order every picker offers them: tight to airy. */
+export const GAP_PRESETS: readonly GapPreset[] = ["snug", "cozy", "roomy", "airy"];
+
+/**
+ * Pixels per gap preset. **Snug** is {@link IMPOSITION_GAP_PX}, the gap every
+ * deck stood at before the presets existed, which is why a record with no
+ * `gap` reads as snug; the other three are a starting proposal, settled by
+ * looking at the deck rather than by prose, and each is one line here.
+ */
+export const GAP_PX: Readonly<Record<GapPreset, number>> = {
+  snug: IMPOSITION_GAP_PX,
+  cozy: 12,
+  roomy: 20,
+  airy: 32,
+};
+
+/** How each gap is named in the UI — one spelling, every surface. */
+export const GAP_LABELS: Readonly<Record<GapPreset, string>> = {
+  snug: "Snug",
+  cozy: "Cozy",
+  roomy: "Roomy",
+  airy: "Airy",
+};
+
+/** The gap preset an imposition stands at — its own, or the default. */
+export function impositionGapOf(imposition: DeckImposition): GapPreset {
+  return imposition.gap ?? DEFAULT_GAP;
+}
 
 /**
  * The width a pane actually lands on when `preset` is applied to it: the
@@ -1277,8 +1392,10 @@ export function sidebarWidthProperty(side: SidebarSide): string {
     : "--tug-sidebar-width-right";
 }
 
-/** The gaps as CSS lengths, for the calc expressions below. */
-const GAP = `${IMPOSITION_GAP_PX}px`;
+/** The gaps as CSS lengths, for the calc expressions below. Each reads its
+ *  property with the default as the fallback, so an expression resolves to
+ *  the same pixel whether or not the root has been stamped yet. */
+const GAP = `var(${IMPOSITION_GAP_PROPERTY}, ${IMPOSITION_GAP_PX}px)`;
 
 const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
 
@@ -1288,6 +1405,22 @@ const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTT
 export const RAIL_EDGE_INSET = `var(${RAIL_EDGE_INSET_PROPERTY}, ${RAIL_EDGE_INSET_PX}px)`;
 
 const RAIL_GUTTER = `var(${RAIL_GUTTER_PROPERTY}, ${RAIL_GUTTER_PX}px)`;
+
+/**
+ * The three properties the card gap reaches CSS through, with their live
+ * values — the card gap, the rail gutter and the bottom gap, which derive
+ * from one number and so are stamped together. The caller writes them on the
+ * document root; this module names them and never touches the document.
+ */
+export function impositionGapProperties(): ReadonlyArray<
+  readonly [property: string, value: string]
+> {
+  return [
+    [IMPOSITION_GAP_PROPERTY, `${impositionGapPx()}px`],
+    [RAIL_GUTTER_PROPERTY, `${railGutterPx()}px`],
+    [IMPOSITION_GAP_BOTTOM_PROPERTY, `${impositionGapBottomPx()}px`],
+  ];
+}
 
 /** The rail's bottom pin as a CSS length — see {@link railGapBottomPx}.
  *  Exported with {@link RAIL_EDGE_INSET} because they are the rail run's two
@@ -1580,10 +1713,11 @@ export function imposeRect(
   span: ImposerSpan,
   pinned?: PinnedFrame,
 ): ImposedRect {
-  const bandWidth = span.width - IMPOSITION_GAP_PX * 2;
+  const gap = impositionGapPx();
+  const bandWidth = span.width - gap * 2;
   const travel = Math.max(0, bandWidth - slotWidth);
   const offset = travelFraction(placement) * travel;
-  const runHeight = span.height - IMPOSITION_GAP_PX - impositionGapBottomPx();
+  const runHeight = span.height - gap - impositionGapBottomPx();
   const width = pinned?.width ?? slotWidth;
   const height = pinned?.height ?? runHeight;
   // The vertical slack a height-pinned frame is placed in. `"start"` spends
@@ -1592,9 +1726,9 @@ export function imposeRect(
   const slack = Math.max(0, runHeight - height);
   return {
     position: {
-      x: span.x + IMPOSITION_GAP_PX + offset + Math.max(0, (slotWidth - width) / 2),
+      x: span.x + gap + offset + Math.max(0, (slotWidth - width) / 2),
       y:
-        IMPOSITION_GAP_PX +
+        gap +
         (pinned?.anchor === "start"
           ? 0
           : pinned?.anchor === "end"
@@ -1871,7 +2005,7 @@ function slotExtentMap(
 
 /**
  * Lay the slots out as a strip, ascending by slot index:
- * `stripLeft(k) = Σ_{j<k} (extent(j) + IMPOSITION_GAP_PX)`.
+ * `stripLeft(k) = Σ_{j<k} (extent(j) + impositionGapPx())`.
  *
  * This is the whole of what flow means. A slot's place is the running sum of
  * everything before it, so no two slots can overlap by construction — and,
@@ -1896,14 +2030,15 @@ export function flowStripPositions(
   const extents = slotExtentMap(occupied, vacancy);
   const slots = [...extents.keys()].sort((a, b) => a - b);
   const positions = new Map<number, number>();
+  const gap = impositionGapPx();
   let running = 0;
   for (const slot of slots) {
     positions.set(slot, running);
-    running += (extents.get(slot) as number) + IMPOSITION_GAP_PX;
+    running += (extents.get(slot) as number) + gap;
   }
   // `running` carries one trailing gap past the last slot; the strip ends at
   // the last card's right edge.
-  const width = slots.length === 0 ? 0 : running - IMPOSITION_GAP_PX;
+  const width = slots.length === 0 ? 0 : running - gap;
   return { positions, extents, width };
 }
 
@@ -2180,7 +2315,7 @@ export interface WallRevealInput {
   stripStart: number;
   /** The member above's extent; 0 for the first member. */
   leadExtent: number;
-  /** The seam between two members — `IMPOSITION_GAP_PX`. */
+  /** The seam between two members — the live card gap, `impositionGapPx()`. */
   seam: number;
   /** The full strip length, for the clamp. */
   stripLength: number;
@@ -2688,7 +2823,7 @@ export function allocateSidebarWidths(input: AllocatorInput): RailWidths | null 
         // case.
         //
         // FLOW USED TO SHARE THIS BRANCH, and the reasoning was sound as far as
-        // it went: every flow seam is exactly IMPOSITION_GAP_PX by construction
+        // it went: every flow seam is exactly impositionGapPx() by construction
         // and independent of the band, so `worstOverlap`, `worstShortfall` and
         // `worstError` really are identically zero at every candidate total.
         // What all three measure is the seam BETWEEN two cards, and what flow
@@ -3037,7 +3172,7 @@ export function solveSidebarWidths(input: AllocatorInput): number | null {
     const fFar = travelFraction({ slot: far.slot, count });
     const a = fFar - fNear;
     const c = fNear * near.width - fFar * far.width - near.width;
-    numerator += a * (IMPOSITION_GAP_PX - c);
+    numerator += a * (impositionGapPx() - c);
     denominator += a * a;
   }
   if (denominator <= 0) return null;
@@ -3054,7 +3189,7 @@ export function solveSidebarWidths(input: AllocatorInput): number | null {
   const solved = Math.round(
     input.canvasWidth -
       railCount * railSpanInsetPx(0) -
-      IMPOSITION_GAP_PX * 2 -
+      impositionGapPx() * 2 -
       band,
   );
   return Number.isFinite(solved) ? solved : null;
@@ -3146,7 +3281,7 @@ function chainOf(
 
 /**
  * How the chain reads when the rails stand at `widths`: the widest any seam
- * misses {@link IMPOSITION_GAP_PX} by (`worstError` — how ragged), the deepest
+ * misses {@link impositionGapPx} by (`worstError` — how ragged), the deepest
  * any pair of neighbours occlude one another (`worstOverlap` — zero when
  * nothing overlaps), and the tightest any seam falls SHORT of the gap
  * (`worstShortfall` — zero when no seam is cramped).
@@ -3235,7 +3370,7 @@ export const RAIL_BOUNDARY_BUDGET_PX = 120;
  * price of each of the two boundaries in rail width.
  *
  * Flow's failure is not the one the three readings above measure, and it cannot
- * be. Every flow seam is exactly {@link IMPOSITION_GAP_PX} by construction —
+ * be. Every flow seam is exactly {@link impositionGapPx} by construction —
  * the strip is a running sum, so widening the rails narrows the band without
  * moving a single seam — which leaves `worstOverlap`, `worstShortfall` and
  * `worstError` identically zero at every candidate total. What none of them
@@ -3305,7 +3440,7 @@ function sliverOfChain(
   const band =
     resolveSpan({ width: input.canvasWidth, height: 0 }, railsOf(widths))
       .width -
-    IMPOSITION_GAP_PX * 2;
+    impositionGapPx() * 2;
   if (!Number.isFinite(band) || band <= 0) return UNCUT;
 
   const strip = flowStripPositions(
@@ -3360,6 +3495,7 @@ function pictureOfChain(
   let worstError = 0;
   let worstOverlap = 0;
   let worstShortfall = 0;
+  const gap = impositionGapPx();
   for (let j = 0; j < chain.length - 1; j += 1) {
     const near = chain[j];
     const far = chain[j + 1];
@@ -3367,9 +3503,9 @@ function pictureOfChain(
     const farRect = imposeRect({ slot: far.slot, count }, far.width, span);
     const seam =
       farRect.position.x - (nearRect.position.x + nearRect.size.width);
-    worstError = Math.max(worstError, Math.abs(seam - IMPOSITION_GAP_PX));
+    worstError = Math.max(worstError, Math.abs(seam - gap));
     worstOverlap = Math.max(worstOverlap, -seam);
-    worstShortfall = Math.max(worstShortfall, IMPOSITION_GAP_PX - seam);
+    worstShortfall = Math.max(worstShortfall, gap - seam);
   }
   return { worstError, worstOverlap, worstShortfall };
 }
@@ -3471,6 +3607,12 @@ interface PlaceRun {
   extent: string;
   /** The air between two neighbouring members, in px. */
   seam: number;
+  /**
+   * Half the seam, as a CSS length. A column's reads the live gap by
+   * property, so a frame already rendered moves with the setting ([L06])
+   * rather than waiting on a render that a memoized pane never sees.
+   */
+  seamHalf: string;
 }
 
 const RAIL_RUN: PlaceRun = {
@@ -3478,20 +3620,26 @@ const RAIL_RUN: PlaceRun = {
   bottom: RAIL_GAP_BOTTOM,
   extent: `(100% - ${RAIL_EDGE_INSET} - ${RAIL_GAP_BOTTOM})`,
   seam: RAIL_SEAM_PX,
+  seamHalf: `${RAIL_SEAM_PX / 2}px`,
 };
 
 const COLUMN_RUN: PlaceRun = {
   top: GAP,
   bottom: GAP_BOTTOM,
   extent: `(100% - ${GAP} - ${GAP_BOTTOM})`,
-  seam: IMPOSITION_GAP_PX,
+  // Read at each use rather than captured, so a column's seam follows the
+  // live card gap.
+  get seam(): number {
+    return impositionGapPx();
+  },
+  seamHalf: `calc(${GAP} / 2)`,
 };
 
 /** Half the place's seam — each seam takes one, half from each neighbour, so
  *  a column's split members read as the same rhythm as every other seam on
  *  the deck, and a rail's meet at nothing. */
 function seamHalf(run: PlaceRun): string {
-  return `${run.seam / 2}px`;
+  return run.seamHalf;
 }
 
 /**

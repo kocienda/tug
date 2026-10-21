@@ -59,6 +59,7 @@ import { isDiffDescriptor } from "@/lib/git-diff-store";
 import {
   isColumnMoveTarget,
   isContentWidth,
+  isGapPreset,
   isImpositionKind,
   isImpositionLayout,
   isResizeSlot,
@@ -809,6 +810,17 @@ export function initActionDispatch(
       return;
     }
     deckManager.setContentWidth(preset);
+  });
+
+  // set-gap: choose the deck's card gap. Dispatched by the Layout card's Gap
+  // row; one commit moves every imposed frame, the rails, and the margins.
+  registerAction(TUG_ACTIONS.SET_GAP, (payload) => {
+    const preset = payload.preset;
+    if (!isGapPreset(preset)) {
+      console.warn("set-gap: missing or invalid preset", payload);
+      return;
+    }
+    deckManager.setGap(preset);
   });
 
   // set-imposition-layout: choose whether slots resolve as band fractions (fit)

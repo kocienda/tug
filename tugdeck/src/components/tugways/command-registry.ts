@@ -2483,6 +2483,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its door is the Layout card's Gap row.
+    id: TUG_ACTIONS.SET_GAP,
+    title: "Set Gap",
+    routing: "registry",
+    internal: true,
+  },
+  {
     // Its door is the Layout card's Layout group.
     id: TUG_ACTIONS.SET_IMPOSITION_LAYOUT,
     title: "Set Imposition Layout",

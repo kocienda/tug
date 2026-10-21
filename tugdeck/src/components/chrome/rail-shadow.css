@@ -30,7 +30,8 @@
 
 body {
   /* How far into the gutter the shadow reaches. The gutter is
-     `RAIL_GUTTER_PX` (12); the shadow stops short of the first card's edge. */
+     `railGutterPx()` (12 at the default gap, wider at every other); the
+     shadow stops short of the first card's edge. */
   --tugx-rail-shadow-reach: 10px;
   --tugx-rail-shadow-color: var(--tug7-element-global-shadow-normal-lg-rest);
 

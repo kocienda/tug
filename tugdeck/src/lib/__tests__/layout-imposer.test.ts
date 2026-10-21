@@ -5,6 +5,7 @@ import {
   IMPOSITION_GAP_BOTTOM_PROPERTY,
   impositionGapBottomPx,
   setImpositionGapBottom,
+  IMPOSITION_GAP_PROPERTY,
   IMPOSITION_GAP_PX,
   IMPOSITION_KINDS,
   RAIL_EDGE_INSET_PX,
@@ -52,6 +53,10 @@ import {
 } from "@/lib/layout-imposer";
 
 const GAP = IMPOSITION_GAP_PX;
+/** How the emitted expressions spell the card gap: the property, with the
+ *  default as its fallback — the same pattern as the bottom gap below, so a
+ *  setting that moves the gap moves every expression in one property write. */
+const GAP_CSS = `var(${IMPOSITION_GAP_PROPERTY}, ${IMPOSITION_GAP_PX}px)`;
 /** How the emitted expressions spell the bottom gap: the property, with the
  *  maker depth as its fallback. Stated once here, as it is stated once in the
  *  imposer, so a build that keeps a different band changes neither. */
@@ -63,7 +68,7 @@ const EDGE = `var(${RAIL_EDGE_INSET_PROPERTY}, ${RAIL_EDGE_INSET_PX}px)`;
 /** How they spell the rail's bottom pin: the bottom gap less the card gap
  *  plus the edge inset — the strip's clearance in a maker build, and flush in
  *  a release one. */
-const RAIL_BOTTOM = `calc(${GAP_BOTTOM} - ${GAP}px + ${EDGE})`;
+const RAIL_BOTTOM = `calc(${GAP_BOTTOM} - ${GAP_CSS} + ${EDGE})`;
 /** What one standing rail costs the canvas besides its width: its edge inset
  *  and its gutter, which are the rail's own lengths rather than the card gap.
  *  A one-rail canvas is `rail + RAIL_AIR + GAP + band` (the band keeps one
@@ -217,7 +222,7 @@ describe("gaps", () => {
     // numeric twins as each property's fallback.
     expect(railSpanInset("var(--w)")).toBe(
       `calc(var(${RAIL_EDGE_INSET_PROPERTY}, ${RAIL_EDGE_INSET_PX}px) + var(--w)` +
-        ` + var(${RAIL_GUTTER_PROPERTY}, ${RAIL_GUTTER_PX}px) - ${IMPOSITION_GAP_PX}px)`,
+        ` + var(${RAIL_GUTTER_PROPERTY}, ${RAIL_GUTTER_PX}px) - ${GAP_CSS})`,
     );
   });
 
@@ -551,23 +556,23 @@ describe("imposeRect", () => {
 describe("imposeStyle", () => {
   const BAND =
     "(100% - var(--tug-imposer-inset-left, 0px)" +
-    " - var(--tug-imposer-inset-right, 0px) - 5px * 2)";
+    ` - var(--tug-imposer-inset-right, 0px) - ${GAP_CSS} * 2)`;
 
   test("a left-numbered pane pins its left edge against the left inset", () => {
     expect(imposeStyle(at(1, 2), 300)).toEqual({
       width: "300px",
       height: "auto",
-      top: "5px",
+      top: GAP_CSS,
       bottom: GAP_BOTTOM,
       left:
-        "calc(0% + var(--tug-imposer-inset-left, 0px) + 5px + " +
+        `calc(0% + var(--tug-imposer-inset-left, 0px) + ${GAP_CSS} + ` +
         `1 * max(0px, ${BAND} - 300px))`,
     });
   });
 
   test("slot 0 has travelled nothing, so it carries no max() at all", () => {
     const style = imposeStyle(at(0, 3), 400);
-    expect(style.left).toBe("calc(0% + var(--tug-imposer-inset-left, 0px) + 5px + 0px)");
+    expect(style.left).toBe(`calc(0% + var(--tug-imposer-inset-left, 0px) + ${GAP_CSS} + 0px)`);
     expect(style.left).not.toContain("max(");
   });
 
@@ -581,7 +586,7 @@ describe("imposeStyle", () => {
       expect(style.transform).toBeUndefined();
       expect(style.right).toBeUndefined();
       expect(String(style.left)).toStartWith(
-        "calc(0% + var(--tug-imposer-inset-left, 0px) + 5px + ",
+        `calc(0% + var(--tug-imposer-inset-left, 0px) + ${GAP_CSS} + `,
       );
     }
   });
@@ -598,7 +603,7 @@ describe("imposeStyle", () => {
     const style = imposeStyle(at(0, 3), 800, { height: 360 });
     expect(style.height).toBe("360px");
     expect(style.bottom).toBeUndefined();
-    expect(style.top).toBe(`calc(5px + max(0px, (100% - 5px - ${GAP_BOTTOM} - 360px) / 2))`);
+    expect(style.top).toBe(`calc(${GAP_CSS} + max(0px, (100% - ${GAP_CSS} - ${GAP_BOTTOM} - 360px) / 2))`);
   });
 
   // The whole point of the slot/frame split: the travel is computed from the
@@ -609,7 +614,7 @@ describe("imposeStyle", () => {
     expect(style.width).toBe("320px");
     // Slot 0 has no travel, so the centring term is the whole offset.
     expect(style.left).toBe(
-      "calc(0% + var(--tug-imposer-inset-left, 0px) + 5px + 0px + 240px)",
+      `calc(0% + var(--tug-imposer-inset-left, 0px) + ${GAP_CSS} + 0px + 240px)`,
     );
   });
 

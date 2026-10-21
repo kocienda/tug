@@ -14,6 +14,7 @@
 import type {
   ColumnMoveTarget,
   ContentWidth,
+  GapPreset,
   FlowBandEdges,
   SidebarSide,
 } from "./lib/layout-imposer";
@@ -423,6 +424,12 @@ export interface IDeckManagerStore extends DeckView {
    * content reads on this deck, not a seed for the next card.
    */
   setContentWidth: (preset: ContentWidth) => void;
+
+  /**
+   * Set the deck's card gap — one named preset that every imposed frame, seam,
+   * rail gutter and margin cap follows, persisted on the imposition record.
+   */
+  setGap: (preset: GapPreset) => void;
 
   /**
    * Put a pane in bullseye — centered in the band at the comfy width, with

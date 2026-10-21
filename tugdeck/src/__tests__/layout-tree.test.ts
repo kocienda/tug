@@ -13,6 +13,8 @@ import { MAIN_SPACE_NAME, wrapAsMainSpace } from "../spaces";
 import {
   DEFAULT_IMPOSITION_KIND,
   impositionResizeSlot,
+  impositionGapOf,
+  DEFAULT_GAP,
   isSidebarPinned,
   sidebarSide,
   slotCount,
@@ -418,6 +420,56 @@ describe("serialize and deserialize (v4 wire)", () => {
     );
     expect(garbled.imposition.resizeSlot).toBeUndefined();
     expect(impositionResizeSlot(garbled.imposition)).toBe("keep");
+  });
+
+  test("the gap preset round-trips, and absent or unreadable reads as the default", () => {
+    // The gap is the deck's, so a reload keeps "roomy" once chosen. It is
+    // additive-optional with the default reading as snug — today's 5px — so a
+    // deck that never chose, and one whose blob carries a value nobody wrote,
+    // stands exactly where every deck stood before the presets existed.
+    const base = { cards: [], panes: [], hasFocus: true };
+    const roomy = deserializeDeck(
+      JSON.stringify(
+        serializeDeck({
+          ...base,
+          imposition: {
+            kind: "three-up" as const,
+            sidebars: { dashes: { side: "right" as const } },
+            gap: "roomy" as const,
+          },
+        }),
+      ),
+      1920,
+      1080,
+    );
+    expect(roomy.imposition.gap).toBe("roomy");
+    expect(impositionGapOf(roomy.imposition)).toBe("roomy");
+
+    const absent = deserializeDeck(
+      JSON.stringify(
+        serializeDeck({
+          ...base,
+          imposition: { sidebars: { dashes: { side: "right" as const } } },
+        }),
+      ),
+      1920,
+      1080,
+    );
+    expect(absent.imposition.gap).toBeUndefined();
+    expect(impositionGapOf(absent.imposition)).toBe(DEFAULT_GAP);
+
+    const garbled = deserializeDeck(
+      JSON.stringify({
+        version: 4,
+        cards: [],
+        panes: [],
+        imposition: { kind: "three-up", sidebars: {}, gap: "huge" },
+      }),
+      1920,
+      1080,
+    );
+    expect(garbled.imposition.gap).toBeUndefined();
+    expect(impositionGapOf(garbled.imposition)).toBe(DEFAULT_GAP);
   });
 
   test("a slot height round-trips on a slotted pane, and only there", () => {

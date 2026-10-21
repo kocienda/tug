@@ -42,6 +42,8 @@ import {
   wallRevealOffset,
   IMPOSITION_GAP_BOTTOM_MAKER_PX,
   IMPOSITION_GAP_BOTTOM_PROPERTY,
+  IMPOSITION_GAP_PROPERTY,
+  IMPOSITION_GAP_PX,
   imposeStyle,
   isColumnMode,
   stripRevealOffset,
@@ -58,6 +60,8 @@ import {
 /** How the emitted expressions spell the bottom gap: the property, with the
  *  maker depth as its fallback. */
 const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTTOM_MAKER_PX}px)`;
+/** How they spell the card gap, on the same pattern. */
+const GAP_CSS = `var(${IMPOSITION_GAP_PROPERTY}, ${IMPOSITION_GAP_PX}px)`;
 
 /** A bare imposition — no columns, which is what every deck was before a slot
  *  could be divided. */
@@ -324,7 +328,7 @@ describe("columnSeamProperty", () => {
 describe("columnMemberPins", () => {
   test("an absent member takes the undivided run", () => {
     expect(columnMemberPins(undefined)).toEqual({
-      top: "5px",
+      top: GAP_CSS,
       bottom: GAP_BOTTOM,
     });
   });
@@ -344,7 +348,7 @@ describe("columnMemberPins", () => {
     // edge to the pixel.
     const first = columnMemberPins({ slot: 0, index: 0, count: 2, standing: "shared" });
     const last = columnMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
-    expect(first.top).toBe("5px");
+    expect(first.top).toBe(GAP_CSS);
     expect(last.bottom).toBe(GAP_BOTTOM);
     expect(first.bottom).toContain("--tug-slot-0-seam-0");
     expect(last.top).toContain("--tug-slot-0-seam-0");
@@ -360,16 +364,18 @@ describe("columnMemberPins", () => {
 
   test("each member takes half a gap at the seam it meets", () => {
     // The air between two split members reads as the same rhythm as every
-    // other seam on the deck: one gap total, half from each neighbour.
+    // other seam on the deck: one gap total, half from each neighbour — and
+    // the live gap, read by property, so a moved setting moves the seam
+    // without a render.
     const upper = columnMemberPins({ slot: 0, index: 0, count: 2, standing: "shared" });
     const lower = columnMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
-    expect(upper.bottom).toContain("2.5px");
-    expect(lower.top).toContain("2.5px");
+    expect(upper.bottom).toContain(`calc(${GAP_CSS} / 2)`);
+    expect(lower.top).toContain(`calc(${GAP_CSS} / 2)`);
   });
 });
 
 describe("a column whose floors no longer fit overflows instead of dividing", () => {
-  const RUN = `(100% - 5px - ${GAP_BOTTOM})`;
+  const RUN = `(100% - ${GAP_CSS} - ${GAP_BOTTOM})`;
   // A strip whose members are all different heights — 300, 360, 420, … — which
   // is the whole of the new rule: a member's height is what the member asked
   // for, so no two of them need be the same.
@@ -461,10 +467,10 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
       const strip = stripOf(count);
       const first = member(0, 0, count, strip);
       expect(first.top).toBe(
-        `calc(5px + ${at(0, 0, strip)} - ${offset(0, count, strip)})`,
+        `calc(${GAP_CSS} + ${at(0, 0, strip)} - ${offset(0, count, strip)})`,
       );
       expect(first.bottom).toBe(
-        `calc(100% - 5px - ${at(0, 1, strip)} + 5px + ${offset(0, count, strip)})`,
+        `calc(100% - ${GAP_CSS} - ${at(0, 1, strip)} + 5px + ${offset(0, count, strip)})`,
       );
     }
   });
@@ -475,7 +481,7 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
     // next member: coordinate `n` is the strip's own end.
     const strip = stripOf(4);
     expect(member(2, 3, 4, strip).bottom).toBe(
-      `calc(100% - 5px - ${at(2, 4, strip)} + 0px + ${offset(2, 4, strip)})`,
+      `calc(100% - ${GAP_CSS} - ${at(2, 4, strip)} + 0px + ${offset(2, 4, strip)})`,
     );
   });
 
@@ -484,10 +490,10 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
     // member 1's advance, because the members above it are not the same size.
     const strip = stripOf(4);
     expect(member(2, 1, 4, strip).top).toBe(
-      `calc(5px + ${at(2, 1, strip)} - ${offset(2, 4, strip)})`,
+      `calc(${GAP_CSS} + ${at(2, 1, strip)} - ${offset(2, 4, strip)})`,
     );
     expect(member(2, 2, 4, strip).top).toBe(
-      `calc(5px + ${at(2, 2, strip)} - ${offset(2, 4, strip)})`,
+      `calc(${GAP_CSS} + ${at(2, 2, strip)} - ${offset(2, 4, strip)})`,
     );
     expect(strip[2]).not.toBe(2 * strip[1]);
   });

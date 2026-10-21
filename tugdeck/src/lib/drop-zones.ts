@@ -23,7 +23,7 @@
  * `allocatePlaceHeights` ([P06]) — and a place whose floors would no longer fit
  * the run lands under the overflow rule rather than dividing ([P08]). The seam is a
  * value the place supplies, exactly as the imposer's `PlaceRun.seam` is: a
- * column divides at `IMPOSITION_GAP_PX`, a rail at `RAIL_SEAM_PX`, and the
+ * column divides at the card gap (`impositionGapPx`), a rail at `RAIL_SEAM_PX`, and the
  * tile arithmetic never reads either constant itself, so the two sides agree
  * by construction.
  */
@@ -33,7 +33,7 @@ import type { Rect } from "../snap";
 import { deckColumnsOf } from "../deck-store-selectors";
 import {
   allocatePlaceHeights,
-  IMPOSITION_GAP_PX,
+  impositionGapPx,
   RAIL_SEAM_PX,
   clampSlot,
   flowRevealOffset,
@@ -822,7 +822,7 @@ function columnPlaces(
   columnRun: number | null,
 ): { tile: Rect; hit: Rect }[] {
   if (rects.length === 0 || columnRun === null) return [];
-  const seam = IMPOSITION_GAP_PX;
+  const seam = impositionGapPx();
   const { run, x, width } = seatedPlace(
     order,
     rects,

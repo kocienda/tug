@@ -7,9 +7,10 @@
  * **Deck-wide questions are rows.** **Slots** says how many the arrangement
  * holds; **Imposition** says how a slot resolves into a place — `Flow`, where
  * the cards keep their width and the deck runs past the edge, or `Fit`, where
- * they share the band and crowd when it is narrow; and **Width** says how
- * wide they read. Under them, one row per REGISTERED sidebar card answers the
- * one question the picture cannot: `Off · Left · Right` — whether the card is
+ * they share the band and crowd when it is narrow; **Width** says how wide
+ * they read; and **Gap** says how much air they keep — from the window edges,
+ * from each other, and from the rails. Under them, one row per REGISTERED
+ * sidebar card answers the one question the picture cannot: `Off · Left · Right` — whether the card is
  * on the deck at all, and where. It cannot live on the drawing because the
  * drawing draws what is on screen, and a hidden card is exactly what is not;
  * its row is the one door that shows it. These row counts are fixed at boot
@@ -177,6 +178,10 @@ import {
   CONTENT_WIDTH_PX,
   IMPOSITION_KINDS,
   isContentWidth,
+  isGapPreset,
+  impositionGapOf,
+  GAP_LABELS,
+  GAP_PRESETS,
   isImpositionKind,
   isColumnMode,
   columnModeOf,
@@ -251,6 +256,7 @@ const LAYOUT_FOCUS_GROUP = "layout-card";
 const KIND_SENDER_ID = "layout-card-kind";
 const LAYOUT_SENDER_ID = "layout-card-layout";
 const WIDTH_SENDER_ID = "layout-card-width";
+const GAP_SENDER_ID = "layout-card-gap";
 const ZOOM_SENDER_ID = "layout-card-zoom";
 const DORMANT_SENDER_ID = "layout-card-dormant";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
@@ -264,6 +270,7 @@ const COLUMN_ROW_SENDER_PREFIX = "layout-card-column-row:";
 const KIND_CAPTION_ID = "layout-card-kind-caption";
 const LAYOUT_CAPTION_ID = "layout-card-layout-caption";
 const WIDTH_CAPTION_ID = "layout-card-width-caption";
+const GAP_CAPTION_ID = "layout-card-gap-caption";
 const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
 const DORMANT_CAPTION_ID = "layout-card-dormant-caption";
 
@@ -290,13 +297,14 @@ const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_ZOOM_FOCUS_ORDER = 1;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 2;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 3;
+const LAYOUTS_GAP_FOCUS_ORDER = 4;
 
-/** The column rows' orders, directly under Width — one per slot the kind
+/** The column rows' orders, directly under Gap — one per slot the kind
  *  defines, dense over the rows actually rendered (a slot with nothing to
  *  arrange has no row, so its order is simply unused). The sidebar rows start
  *  past the last slot any kind can define, so no two stops can share an order
  *  however the deck is shaped. */
-const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 4;
+const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 5;
 
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
@@ -1096,6 +1104,7 @@ export function LayoutContent(
   const imposition = useImposition();
   const kind = imposition.kind ?? DEFAULT_IMPOSITION_KIND;
   const contentWidth = imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH;
+  const gap = impositionGapOf(imposition);
   const layout = impositionLayout(imposition);
   const sidebars = sidebarEntries();
   // The View › Zoom factor, for the Zoom row and the note ([L02]).
@@ -1356,6 +1365,12 @@ export function LayoutContent(
           }
           return;
         }
+        if (sender === GAP_SENDER_ID) {
+          if (isGapPreset(value)) {
+            dispatchCommand(TUG_ACTIONS.SET_GAP, { preset: value });
+          }
+          return;
+        }
         if (sender === LAYOUT_SENDER_ID) {
           if (isImpositionLayout(value)) {
             dispatchCommand(TUG_ACTIONS.SET_IMPOSITION_LAYOUT, {
@@ -1592,6 +1607,11 @@ export function LayoutContent(
   const widthItems: TugChoiceItem[] = CONTENT_WIDTH_PRESETS.map((preset) => ({
     value: preset,
     label: CONTENT_WIDTH_LABELS[preset],
+  }));
+
+  const gapItems: TugChoiceItem[] = GAP_PRESETS.map((preset) => ({
+    value: preset,
+    label: GAP_LABELS[preset],
   }));
 
   // The four everyday levels, as bare numbers the way Slots shows bare
@@ -1924,6 +1944,33 @@ export function LayoutContent(
               focusOrder={LAYOUTS_WIDTH_FOCUS_ORDER}
               aria-labelledby={WIDTH_CAPTION_ID}
               data-testid="layout-card-width"
+            />
+          </div>
+
+          {/* No `data-preview-axis`: the miniature draws an exaggerated gap
+              of its own and does not scale with the deck's, so a gap has
+              nothing to audition — its effect is on the deck behind the card,
+              where a press lands it. */}
+          <div className="layouts-section-row">
+            <TugLabel
+              id={GAP_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Gap
+            </TugLabel>
+            <TugChoiceGroup
+              items={gapItems}
+              value={gap}
+              senderId={GAP_SENDER_ID}
+              size="xs"
+              sidePadding="xs"
+              reselect
+              focusGroup={LAYOUT_FOCUS_GROUP}
+              focusOrder={LAYOUTS_GAP_FOCUS_ORDER}
+              aria-labelledby={GAP_CAPTION_ID}
+              data-testid="layout-card-gap"
             />
           </div>
 

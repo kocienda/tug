@@ -24,7 +24,7 @@ import {
   columnModeOf,
   impositionLayout,
   impositionResizeSlot,
-  IMPOSITION_GAP_PX,
+  impositionGapPx,
   slotCount,
   withColumnShares,
   withMemberSeated,
@@ -554,7 +554,7 @@ function arrivalShares(
     ),
     paneId,
     run,
-    IMPOSITION_GAP_PX,
+    impositionGapPx(),
   );
   if (Object.keys(shares).length === 0) return imposition;
   return withColumnShares(imposition, slot, shares);

@@ -39,7 +39,7 @@ import {
   DEFAULT_CONTENT_WIDTH,
   effectiveColumnOrder,
   effectiveRailOrder,
-  IMPOSITION_GAP_PX,
+  impositionGapPx,
   isRailRemembered,
   isSidebarPinned,
   isSidebarSeated,
@@ -885,7 +885,7 @@ export function columnAllocationOf(
       state.imposition.columns?.[slot]?.shares,
     ),
     run,
-    IMPOSITION_GAP_PX,
+    impositionGapPx(),
   );
 }
 

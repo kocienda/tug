@@ -178,7 +178,12 @@ import {
   type FlowBandEdges,
   wallRevealOffset,
   impositionGapBottomPx,
-  IMPOSITION_GAP_PX,
+  impositionGapPx,
+  impositionGapOf,
+  impositionGapProperties,
+  setImpositionGap,
+  GAP_PX,
+  type GapPreset,
   RAIL_EDGE_INSET_PX,
   railGapBottomPx,
   RAIL_SEAM_PX,
@@ -1403,6 +1408,9 @@ export class DeckManager implements IDeckManagerStore {
       null,
       () => {
         this.deckState = { ...incomingDeck, hasFocus: this.deckState.hasFocus };
+        // The gap is the deck's: the incoming space's preset is live before
+        // the solve below reads it.
+        this._syncImpositionGap();
         // Solved against THIS canvas before anybody can see it ([P04]). The
         // deck being swapped in was last solved at the switch away, and the
         // window may have been resized since; this writes `deckState` again
@@ -2332,6 +2340,9 @@ export class DeckManager implements IDeckManagerStore {
           ? document.hasFocus()
           : true,
     };
+    // The restored deck's gap preset is applied before anything is imposed
+    // against it, so the first frame stands at the gap the user chose.
+    this._syncImpositionGap();
 
     // The focused card is a field on the SPACE from layout v5 on. A space
     // migrated from a pre-v5 blob has none, and its pointer arrives instead
@@ -3994,6 +4005,10 @@ export class DeckManager implements IDeckManagerStore {
     },
   ): void {
     const retuneRails = opts?.retuneRails ?? true;
+    // The committed record's gap preset is applied to the imposer before the
+    // allocation below solves against it and before the commit's settle
+    // measures, so one commit carries the record, the pixels, and the rails.
+    this._syncImpositionGap(imposition);
     // Every path that moves a pane between slots arrives here, and most of them
     // hand back the imposition they were given — `assignCardsToSlots` writes the
     // new `slot` onto the pane, and a kind change re-clamps every pane — so this
@@ -5060,7 +5075,7 @@ export class DeckManager implements IDeckManagerStore {
    * A rail takes width from the band; nothing takes height from the run.
    */
   private _placeRunHeight(kind: "column" | "rail"): number {
-    const top = kind === "rail" ? RAIL_EDGE_INSET_PX : IMPOSITION_GAP_PX;
+    const top = kind === "rail" ? RAIL_EDGE_INSET_PX : impositionGapPx();
     const bottom =
       kind === "rail" ? railGapBottomPx() : impositionGapBottomPx();
     return this._containerClientSize().height - top - bottom;
@@ -6542,6 +6557,9 @@ export class DeckManager implements IDeckManagerStore {
         deck: () => this.deckState,
         setDeck: (state) => {
           this.deckState = state;
+          // A seed replaces the whole record, gap included, so the imposer
+          // and the properties follow it as they do a boot restore.
+          this._syncImpositionGap();
         },
         reflectAppActive: (active) => this.reflectAppActive(active),
         seedCardState: (cardId, bag) => this.cardStates.seed(cardId, bag),
@@ -7196,6 +7214,40 @@ export class DeckManager implements IDeckManagerStore {
       { ...this.deckState.imposition, contentWidth: preset },
       panes,
     );
+  }
+
+  /**
+   * Put the deck on a named card gap, in one commit.
+   *
+   * The preset is written onto the imposition record and persists with it;
+   * {@link _syncImpositionGap} moves the imposer's live value and the three
+   * CSS properties the frames read, and the commit's own allocation and settle
+   * then run once against the new gap. A Layouts click, so the rails are
+   * re-solved with it.
+   */
+  setGap(preset: GapPreset): void {
+    if (impositionGapOf(this.deckState.imposition) === preset) return;
+    this._commitImposition(
+      { ...this.deckState.imposition, gap: preset },
+      this.deckState.panes,
+    );
+  }
+
+  /**
+   * Project the record's gap preset onto the imposer: the live numeric value
+   * every geometry read takes, and the card-gap, rail-gutter and bottom-gap
+   * properties the emitted `calc()` strings and the stylesheets read. Pure
+   * DOM, no React state ([L06]); the record stays the authoritative bit and
+   * this is its appearance projection. A no-op when nothing moved.
+   */
+  private _syncImpositionGap(
+    imposition: DeckImposition = this.deckState.imposition,
+  ): void {
+    if (!setImpositionGap(GAP_PX[impositionGapOf(imposition)])) return;
+    if (typeof document === "undefined") return;
+    for (const [property, value] of impositionGapProperties()) {
+      document.documentElement.style.setProperty(property, value);
+    }
   }
 
   /**

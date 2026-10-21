@@ -61,7 +61,7 @@ import {
   type PinnedFrame,
   type PlaceStanding,
   type SidebarSide,
-  IMPOSITION_GAP_PX,
+  impositionGapPx,
   type ImposedPlacement,
   DEFAULT_CONTENT_WIDTH,
   resolveContentWidthPx,
@@ -790,7 +790,7 @@ function TugPaneImpl({
     bullseyeExit === undefined
       ? {}
       : {
-          left: `clamp(${-(renderWidth + IMPOSITION_GAP_PX)}px, (${cssLength(modeStyle.left)} + ${renderWidth / 2}px - ${bullseyeExit} - 1px) * 10000, calc(100% + ${IMPOSITION_GAP_PX}px))`,
+          left: `clamp(${-(renderWidth + impositionGapPx())}px, (${cssLength(modeStyle.left)} + ${renderWidth / 2}px - ${bullseyeExit} - 1px) * 10000, calc(100% + ${impositionGapPx()}px))`,
         };
 
   return (

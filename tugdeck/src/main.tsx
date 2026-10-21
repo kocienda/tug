@@ -18,12 +18,9 @@ import { getSettings, type HostSettings } from "./lib/maker-mode-bridge";
 import { isMakerTooling, loadMakerTooling, registerCardKinds } from "./card-kinds";
 import { getAllRegistrations } from "./card-registry";
 import {
-  IMPOSITION_GAP_BOTTOM_PROPERTY,
-  impositionGapBottomPx,
+  impositionGapProperties,
   RAIL_EDGE_INSET_PROPERTY,
   RAIL_EDGE_INSET_PX,
-  RAIL_GUTTER_PROPERTY,
-  RAIL_GUTTER_PX,
   setImpositionGapBottom,
 } from "./lib/layout-imposer";
 import { initRecentDocuments } from "./lib/recent-documents";
@@ -639,18 +636,24 @@ async function loadTestSurface(
   // `lib/host-menu-state.ts` for the wire contract.
   initHostMenuState(deck);
 
-  // Publish the rail's two lengths on the root. The imposer's own expressions
-  // carry the numeric twins as fallbacks, so this write moves nothing they
+  // Publish the rail's edge inset on the root. The imposer's own expressions
+  // carry the numeric twin as a fallback, so this write moves nothing they
   // draw; it is for the stylesheets, which can read a property and cannot
   // read a constant.
   document.documentElement.style.setProperty(
     RAIL_EDGE_INSET_PROPERTY,
     `${RAIL_EDGE_INSET_PX}px`,
   );
-  document.documentElement.style.setProperty(
-    RAIL_GUTTER_PROPERTY,
-    `${RAIL_GUTTER_PX}px`,
-  );
+
+  // Publish the card gap and the two lengths that derive from it — the rail
+  // gutter and the bottom gap — as one write, so the three cannot drift. The
+  // same stamp is the cue whenever the gap moves, followed by a re-impose.
+  const stampImpositionGap = (): void => {
+    for (const [property, value] of impositionGapProperties()) {
+      document.documentElement.style.setProperty(property, value);
+    }
+  };
+  stampImpositionGap();
 
   // Settle the imposition's bottom band from the host's build profile. A
   // maker's canvas reserves depth at the foot for the host's dev-info stamps;
@@ -660,10 +663,7 @@ async function loadTestSurface(
   // depth every expression already falls back to.
   void hostSettings.then((settings) => {
     if (!setImpositionGapBottom(settings?.makerMode === true)) return;
-    document.documentElement.style.setProperty(
-      IMPOSITION_GAP_BOTTOM_PROPERTY,
-      `${impositionGapBottomPx()}px`,
-    );
+    stampImpositionGap();
     deck.retuneSidebarAllocation();
   });
 
