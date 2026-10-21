@@ -21,9 +21,9 @@
  * pointer over it and nowhere else.
  *
  * The drawn copy is the body's markup, so it is styled by the stylesheets
- * that markup is written against: the placard's, the popup list's, and the
- * Session card's telemetry surfaces, which are the surfaces a body raises.
- * The body's page loads them with its components; this page loads them here.
+ * that markup is written against — every one the raised surface's module
+ * reaches, not a hand-picked few (`overlay-surface-styles.ts`). The body's
+ * page loads them with its components; this page loads them there.
  *
  * Laws: [L06] (the drawn surface is DOM this page writes, never React
  * state), [L27] (`dispose` releases every listener).
@@ -31,10 +31,7 @@
  * @module overlay/overlay-surface-drawer
  */
 
-import "../components/tugways/tug-placard.css";
-import "../components/tugways/tug-popup-list.css";
-import "../components/tugways/cards/session-card-telemetry-renderers.css";
-import "../components/tugways/cards/session-card-telemetry-popovers.css";
+import "./overlay-surface-styles";
 
 import type { OverlaySurfaceEntry } from "../bus/declarations/overlay";
 import * as canvasOverlayRegistry from "../lib/canvas-overlay-registry";

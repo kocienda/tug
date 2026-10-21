@@ -64,6 +64,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.css
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
+ * @covers tugdeck/src/overlay/overlay-surface-styles.ts
  * @covers tugdeck/src/components/tugways/tug-status-cell.css
  * @covers tugdeck/src/lib/code-session-store/indicator-liveness.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
@@ -100,6 +101,7 @@ import {
   type ArcScratchRepo,
 } from "./arc-fixture";
 import { kindBody } from "./_harness/card-reach";
+import { overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -675,6 +677,43 @@ describe.skipIf(!SHOULD_RUN)(
           ]);
           expect(placard.text).not.toContain("None");
           note("at0473 Z2 arc placard", (await app.screenshot()).path);
+
+          // ── And the copy the reader sees is styled ────────────────────────
+          // The placard above is the body's, rendered hidden; what is on
+          // screen is the overlay's copy of its markup, styled by the
+          // stylesheets the overlay page loads for itself
+          // (`overlay/overlay-surface-styles.ts`). The block's head drew as
+          // bare text there while every count above passed. Each reading is
+          // one the block's CSS alone produces: the eyebrow stacked over the
+          // line, a hairline with width, a track with a box.
+          const ui = await overlayReady(app);
+          await ui.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(`${ARC_PLACARD} [data-slot="tug-arc-lifecycle-block"]`)}) !== null`,
+            { timeoutMs: 10000 },
+          );
+          const drawn = await ui.evalJS<{
+            direction: string;
+            ruleWidth: number;
+            ruleHeight: number;
+            trackWidth: number;
+          }>(
+            `(() => {
+             const head = document.querySelector(${JSON.stringify(`${ARC_PLACARD} [data-slot="tug-arc-lifecycle-block"]`)});
+             const rule = head.querySelector(".tug-arc-lifecycle-rule").getBoundingClientRect();
+             const track = head.querySelector('[data-slot="tug-arc-track"]').getBoundingClientRect();
+             return {
+               direction: getComputedStyle(head).flexDirection,
+               ruleWidth: rule.width,
+               ruleHeight: rule.height,
+               trackWidth: track.width,
+             };
+           })()`,
+          );
+          note("at0473 arc placard, overlay copy", JSON.stringify(drawn));
+          expect(drawn.direction).toBe("column");
+          expect(drawn.ruleWidth).toBeGreaterThanOrEqual(12);
+          expect(drawn.ruleHeight).toBe(1);
+          expect(drawn.trackWidth).toBeGreaterThan(0);
 
           // ── The fit again, on a plan four times as long ([P10]) ───────────
           // A constant-width claim tested at one length is not tested. Two more
