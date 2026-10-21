@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
-# Print the path of this checkout's tugtool, building it when there is none.
+# Print the path of this checkout's debug tugtool, built from the source as
+# it stands.
 #
-# `app-release` builds tugtool only in release and `app-debug` only in
-# debug, so either may be the one present; when both are, the newer is the
-# one that matches the source. Bare `tugtool` on PATH is not considered: it
-# is the installed app's, and a recipe exercising this checkout wants this
-# checkout's verbs.
+# The build always runs. A binary that merely exists is no evidence it
+# matches the source: a checkout that pulled in a new verb still holds the
+# tugtool built before it, and a recipe that ran that one would call a verb
+# it does not have. Cargo's incremental build makes a current binary a
+# sub-second no-op, the same trade `app-release` makes for `tugbank`. Bare
+# `tugtool` on PATH is not considered: it is the installed app's, and a
+# recipe exercising this checkout wants this checkout's verbs.
 #
 # Usage: tugtool-bin.sh
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DEBUG="$REPO_ROOT/tugrust/target/debug/tugtool"
-RELEASE="$REPO_ROOT/tugrust/target/release/tugtool"
 
-if [ -x "$DEBUG" ] && [ -x "$RELEASE" ]; then
-    if [ "$RELEASE" -nt "$DEBUG" ]; then echo "$RELEASE"; else echo "$DEBUG"; fi
-elif [ -x "$DEBUG" ]; then
-    echo "$DEBUG"
-elif [ -x "$RELEASE" ]; then
-    echo "$RELEASE"
-else
-    echo "==> No tugtool in this checkout; building it" >&2
-    (cd "$REPO_ROOT/tugrust" && cargo build -p tugtool >&2)
-    echo "$DEBUG"
+# Cargo's progress goes to stderr; stdout carries only the path.
+if ! (cd "$REPO_ROOT/tugrust" && cargo build -p tugtool >&2); then
+    echo "error: could not build tugtool" >&2
+    exit 1
 fi
+echo "$REPO_ROOT/tugrust/target/debug/tugtool"
