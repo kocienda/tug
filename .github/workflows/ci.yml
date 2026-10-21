@@ -123,8 +123,13 @@ jobs:
         run: rustup toolchain install
         working-directory: tugrust
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      # Restore here, save at the end with `if: always()`. A plain
+      # `actions/cache` saves only when the job succeeds, so while this job
+      # was red its cache was never written and every run compiled the whole
+      # workspace cold — clippy, the WASM release builds, tugtool and tugcast.
+      - name: Restore cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
@@ -181,3 +186,13 @@ jobs:
 
       - name: App-test covers check
         run: just app-test-covers-check
+
+      - name: Save cargo cache
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tugrust/target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
