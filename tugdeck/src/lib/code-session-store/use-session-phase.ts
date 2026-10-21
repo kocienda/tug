@@ -25,7 +25,9 @@
  * builds a session store only for a card it shows ([B02]): the shell for every
  * card it draws, a body page for its own card. For any other card the phase is
  * a short key somebody else computed — a body's `card.facts` in the shell
- * (`bodyFactsStore`), and in a body page the shell's arrangement, mirrored
+ * (`bodyFactsStore`), or the session's own reading while that body is
+ * dormant or evicted (`bodilessFactsStore`), and in a body page the shell's
+ * arrangement, mirrored
  * into `cardActivityElsewhere` ([B06]). Only when neither has a word is the
  * answer doubt.
  *
@@ -57,6 +59,7 @@ import {
 } from "@/lib/card-session-binding-store";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { bodyFactsStore } from "@/lib/body-facts-store";
+import { bodilessFactsStore } from "@/lib/bodiless-facts-store";
 import { cardActivityElsewhere } from "@/lib/card-activity-elsewhere";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
@@ -259,19 +262,22 @@ export function cardJoinReady(cardId: string): boolean {
 
 /**
  * The phase of a card this page holds no session store for: the key its body
- * reported to this page (the shell), else the key the shell's arrangement
+ * reported to this page (the shell) — followed from the session while that
+ * body is dormant or evicted — else the key the shell's arrangement
  * carried for it into this page (a body); `"idle"` when neither has one.
  */
 export function reportedPhaseOf(cardId: string): SessionPhaseKey {
-  return ((bodyFactsStore.activityOf(cardId) ?? cardActivityElsewhere.get(cardId)) as SessionPhaseKey | null) ?? "idle";
+  return ((bodilessFactsStore.activityOf(cardId) ?? cardActivityElsewhere.get(cardId)) as SessionPhaseKey | null) ?? "idle";
 }
 
 /** Both sources {@link reportedPhaseOf} reads, as one subscription. */
 function subscribeReported(listener: () => void): () => void {
   const releaseFacts = bodyFactsStore.subscribe(listener);
+  const releaseBodiless = bodilessFactsStore.subscribe(listener);
   const releaseElsewhere = cardActivityElsewhere.subscribe(listener);
   return () => {
     releaseFacts();
+    releaseBodiless();
     releaseElsewhere();
   };
 }

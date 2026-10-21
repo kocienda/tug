@@ -39,6 +39,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { cardServicesStore } from "./card-services-store";
 import { bodyCardsStore } from "./body-cards-store";
 import { bodyFactsStore } from "./body-facts-store";
+import { bodilessFactsStore } from "./bodiless-facts-store";
 
 /**
  * What the deck looks like from here: cards that may hold a turn, and a way to
@@ -229,13 +230,21 @@ export const liveTurnsStore = new LiveTurnsStore({
     const sources: LiveTurnSource[] = [];
     for (const card of deck.getSnapshot().cards) {
       // A body card's session is in its body, which reports whether a turn
-      // is running.
+      // is running — or, while that body is dormant or evicted, the shell
+      // follows the session itself.
       if (bodyCardsStore.has(card.id)) {
         const cardId = card.id;
         sources.push({
           title: card.title,
-          isLive: () => bodyFactsStore.canInterrupt(cardId),
-          subscribe: (listener) => bodyFactsStore.subscribe(listener),
+          isLive: () => bodilessFactsStore.canInterrupt(cardId),
+          subscribe: (listener) => {
+            const releaseFacts = bodyFactsStore.subscribe(listener);
+            const releaseBodiless = bodilessFactsStore.subscribe(listener);
+            return () => {
+              releaseFacts();
+              releaseBodiless();
+            };
+          },
         });
         continue;
       }

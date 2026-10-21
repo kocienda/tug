@@ -13,6 +13,7 @@ import type { IDeckManagerStore } from "../../deck-manager-store";
 import { bodyCardsStore } from "../body-cards-store";
 import {
   bodyVisible,
+  heldForThePaint,
   hiddenSince,
   inReadingOrder,
   namePlans,
@@ -225,5 +226,39 @@ describe("PlacementPoster", () => {
     expect(posted).toHaveLength(1);
     // A land that measures somewhere else is news.
     expect(poster.offer(placement(301))).toBe(true);
+  });
+});
+
+describe("heldForThePaint", () => {
+  test("a placement that takes nothing down holds nothing", () => {
+    expect(heldForThePaint(null, { bodies: [view("a", 0, 0)] })).toBeNull();
+    expect(heldForThePaint({ bodies: [view("a", 0, 0)] }, { bodies: [view("a", 10, 0), view("b", 0, 0)] })).toBeNull();
+    expect(heldForThePaint({ bodies: [view("a", 0, 0, { visible: false })] }, { bodies: [view("a", 0, 0, { visible: false })] })).toBeNull();
+  });
+
+  test("a view taken down stands where it was for the paint, and the release is the measurement's own", () => {
+    const last = { bodies: [view("home", 40, 40), view("b", 0, 0, { visible: false })] };
+    const next = { bodies: [view("home", 0, 0, { visible: false }), view("b", 0, 0)] };
+    const hold = heldForThePaint(last, next);
+    expect(hold?.held.bodies).toEqual([view("b", 0, 0), view("home", 40, 40)]);
+    expect(hold?.releasing.bodies).toEqual([view("b", 0, 0), view("home", 0, 0, { visible: false })]);
+  });
+
+  test("a view whose place a shown view takes is not held: a tab put behind the card chosen in its pane", () => {
+    const last = { bodies: [view("a", 40, 40), view("b", 40, 40, { visible: false, sibling: true })] };
+    const next = { bodies: [view("a", 40, 40, { visible: false, sibling: true }), view("b", 40, 40)] };
+    expect(heldForThePaint(last, next)).toBeNull();
+  });
+
+  test("a parked workspace's view is held even when it stays placed as a sibling", () => {
+    const last = { bodies: [view("home", 40, 40)] };
+    const next = { bodies: [view("home", 40, 40, { visible: false, sibling: true }), view("w1", 0, 0, { visible: false })] };
+    expect(heldForThePaint(last, next)?.held.bodies).toEqual([view("w1", 0, 0, { visible: false }), view("home", 40, 40)]);
+  });
+
+  test("a view gone from the placement altogether is held too", () => {
+    const hold = heldForThePaint({ bodies: [view("gone", 40, 40)] }, { bodies: [view("w1", 0, 0)] });
+    expect(hold?.held.bodies).toEqual([view("w1", 0, 0), view("gone", 40, 40)]);
+    expect(hold?.releasing.bodies).toEqual([view("w1", 0, 0), view("gone", 40, 40, { visible: false })]);
   });
 });

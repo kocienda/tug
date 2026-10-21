@@ -1356,6 +1356,15 @@ export function simulateMemoryPressure(caller: HarnessCaller, level: MemoryPress
 }
 
 /**
+ * Have the host ignore the next `count` bodies' `frontendReady`, as
+ * `TUG_BODY_FORCE_STALL` ignores the first ones, so each fails at its
+ * deadline (surface `1.21.0`). For a body a gesture makes mid-run.
+ */
+export function stallBodyReadies(caller: HarnessCaller, count: number): Promise<number> {
+  return caller.rpcCall("stallBodyReadies", { count });
+}
+
+/**
  * The web views the window's accessibility tree reaches, in the order
  * VoiceOver reads them: `shell` for the deck's own view, a card id for a
  * body, `overlay` for the overlay above every card, `spare` for an unbound

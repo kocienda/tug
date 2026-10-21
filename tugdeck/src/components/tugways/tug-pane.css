@@ -1815,6 +1815,27 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   margin: 0;
 }
 
+/* A card whose page has not painted: the shell stands its chrome in
+   (`body-stand-in.tsx`), a picture of the frame the page will draw. It
+   fills the placeholder, which is the pane's rect, and answers no point.
+   Its chrome paints the pane's own surface and border, which the body-card
+   rule above clears on every other chrome in a body card's frame. */
+.tug-pane-content [data-body-placeholder] .tug-body-stand-in {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tug-pane[data-body-card] .tug-body-stand-in .tug-pane-chrome {
+  background-color: var(--tugx-pane-bg);
+}
+
+/* Its content box is lidded in the pane's surface, as the page's first
+   frame lids it. */
+.tug-pane[data-body-card] .tug-body-stand-in .tug-pane-content {
+  background-color: var(--tugx-pane-bg);
+}
+
 /* The recede's two layers blend into the page's own backdrop, and under a
    body card that backdrop is a hole: `multiply` or `screen` over nothing
    paints the wash colour itself, lightening the body instead of dimming it,

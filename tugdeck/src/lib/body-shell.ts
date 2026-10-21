@@ -116,6 +116,8 @@ import { bodyCardsStore } from "./body-cards-store";
 import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfaceAhead } from "./body-command-route";
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
+import { bodilessFactsStore } from "./bodiless-facts-store";
+import { bodyStandInStore } from "./body-stand-in-store";
 import { cardPlanCancelled, cardPlanLanded, cardPlacementDiag, shownFactsOf, wantsBodyShown } from "./card-placement";
 import { mergeBandOf } from "./drop-zones";
 import { CANVAS_BACKGROUND_ATTRIBUTE, paneCanvasOf, SHOWN_PANE_FRAMES } from "./pane-frame-selectors";
@@ -968,7 +970,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         title: (id) => cardTitleStore.get(id),
         masthead: (id) => cardTitleStore.getMasthead(id),
         identity: liveCardIdentity,
-        activity: bodyFactsStore.activityOf,
+        // A dormant or evicted body's phase follows its session, not the
+        // facts it froze at.
+        activity: bodilessFactsStore.activityOf,
         binding: (id) => cardSessionBindingStore.getBinding(id) ?? null,
         parkedTitle: (id) => {
           const identity = cardIdentity(id);
@@ -1117,6 +1121,12 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       publishDeckCards();
       publishPaneChrome();
     }),
+    // A bodiless card's phase moves with its session while its body hears
+    // nothing of it.
+    bodilessFactsStore.subscribe(publishDeckCards),
+    bodilessFactsStore.attach(),
+    // A card whose page has not painted wears its chrome from the shell.
+    bodyStandInStore.attach(),
     // The layout selection is the shell's, and the Cards list proposes to it.
     shareLayoutSelection(bus),
     // A body card's binding is the shell's, and its body proposes each change.

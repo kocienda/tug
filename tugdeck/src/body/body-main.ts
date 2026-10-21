@@ -624,7 +624,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   };
   cardSessionBindingStore.subscribe(rescope);
   // Hidden past its delay, the body sleeps: no subscription, its loops
-  // still, its deck-scope surface withdrawn. Shown again, it re-scopes and
+  // still, its deck-scope surface withdrawn, its bag written once. Shown again, it re-scopes and
   // asks its session for what it missed, and wakes when that has landed.
   dormancy = installBodyDormancy({
     rescope,
@@ -634,6 +634,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
     },
     lidContent: (on) => document.documentElement.toggleAttribute(BODY_DORMANT_ATTRIBUTE, on),
     withholdSurface: withholdBodySurface,
+    saveBag: () => void deck.saveNow(),
     catchUp: (done) => catchUpCard(cardId, done),
   });
 

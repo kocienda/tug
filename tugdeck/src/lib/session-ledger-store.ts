@@ -551,6 +551,16 @@ export function getSessionLedgerStore(): SessionLedgerStore | null {
 }
 
 /**
+ * Be told whenever the ledger store changes, whether or not it is attached
+ * yet: the listener is held at module level, so a reader that subscribes
+ * before the connection is up is woken when the store arrives and on every
+ * change after.
+ */
+export function subscribeSessionLedger(listener: () => void): () => void {
+  return subscribeToLedger(listener);
+}
+
+/**
  * Test-only: detach the singleton so each test can attach a fresh one
  * with its own mock connection.
  */

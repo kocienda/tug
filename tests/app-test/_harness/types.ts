@@ -51,7 +51,8 @@ export type RpcMethod =
   | "hostFrames"
   | "spikeBody"
   | "bodies"
-  | "simulateMemoryPressure";
+  | "simulateMemoryPressure"
+  | "stallBodyReadies";
 
 /** A memory-pressure level, as the host's dispatch source reports one. */
 export type MemoryPressureLevel = "normal" | "warning" | "critical";
@@ -295,6 +296,11 @@ export type Request =
       id: number;
       method: "simulateMemoryPressure";
       level: MemoryPressureLevel;
+    }
+  | {
+      id: number;
+      method: "stallBodyReadies";
+      count: number;
     }
   | {
       id: number;

@@ -579,6 +579,43 @@ export function hiddenSince(
   return changed ? { bodies } : null;
 }
 
+/**
+ * A measurement that takes a shown card's view down, held one paint: `next`
+ * with every body `last` showed and `next` does not — hidden, or gone from
+ * it — still shown where `last` had it; and `releasing`, the same placement
+ * with those bodies as `next` has them (hidden where it has none), for the
+ * hide posted after the paint. Null when `next` takes nothing down.
+ *
+ * A view whose place a view `next` shows takes — a tab put behind the card
+ * chosen in its pane — is not held: the shown view covers it, and the tab
+ * choice is the host's to stack.
+ *
+ * The measurement runs on the far side of the commit's paint, but the host
+ * applies a hide at once while the commit's frame may not have reached the
+ * screen: a view taken down a frame early shows what lies beneath it, which
+ * on a workspace switch is the canvas, before the switch's own stand-ins
+ * have composited. Held one paint, the old view stands until they have.
+ */
+export function heldForThePaint(
+  last: Placement | null,
+  next: Placement,
+): { held: Placement; releasing: Placement } | null {
+  if (last === null) return null;
+  const shownNext = next.bodies.filter((b) => b.visible);
+  const shown = new Set(shownNext.map((b) => b.cardId));
+  const takenBy = (b: BodyPlacement): boolean =>
+    shownNext.some((s) => s.x === b.x && s.y === b.y && s.width === b.width && s.height === b.height);
+  const leaving = last.bodies.filter((b) => b.visible && !shown.has(b.cardId) && !takenBy(b));
+  if (leaving.length === 0) return null;
+  const leavingIds = new Set(leaving.map((b) => b.cardId));
+  const kept = next.bodies.filter((b) => !leavingIds.has(b.cardId));
+  const nextOf = new Map(next.bodies.map((b) => [b.cardId, b]));
+  return {
+    held: { bodies: [...kept, ...leaving] },
+    releasing: { bodies: [...kept, ...leaving.map((b) => nextOf.get(b.cardId) ?? { ...b, visible: false })] },
+  };
+}
+
 /** What the placer remembers of a card a posted plan is carrying, until the host says it landed or was cancelled. */
 export interface InFlightPlan {
   readonly planId: number;
@@ -775,13 +812,18 @@ export class CardPlacer {
     // A card the hand let go of elsewhere than this measurement puts it
     // lands by a plan of its own, posted ahead of the placement that names it.
     const landed = this.landReleased(placement);
-    this.poster.offer(landed);
+    // A view this measurement takes down stands one paint more, so the host
+    // never shows what lies beneath it before the commit has composited.
+    const hold = heldForThePaint(this.poster.lastPosted, landed);
+    const offered = hold?.held ?? landed;
+    this.poster.offer(offered);
     // The stand-ins' facts can move with no rect moving (a slot taking a
     // grip away), so the cards are offered whether or not the rects are news.
-    this.postCards(landed);
+    this.postCards(offered);
     // A measurement is the whole truth: a card it shows is no longer one a
     // pending hide may take back after the paint.
     for (const b of landed.bodies) if (b.visible) this.hiding.delete(b.cardId);
+    if (hold !== null) this.hideNow(hold.releasing);
     this.observePlaceholders(container);
   };
 
@@ -819,8 +861,11 @@ export class CardPlacer {
 
   /**
    * Hide the cards `next` marks hidden: the host is told on the far side of
-   * this commit's paint — against whatever was posted by then, so a
-   * measurement in between is not overwritten with these rects. Coalesces.
+   * the paint after this commit's — the commit's own frame has reached the
+   * screen by then, so a view the host takes down never leaves what lies
+   * beneath it on show for a frame before the commit's stand-ins composite —
+   * against whatever was posted by then, so a measurement in between is not
+   * overwritten with these rects. Coalesces.
    */
   private hideNow(next: Placement): void {
     const last = this.poster.lastPosted;
@@ -828,13 +873,15 @@ export class CardPlacer {
       if (!b.visible && (last?.bodies.some((p) => p.cardId === b.cardId && p.visible) ?? false)) this.hiding.add(b.cardId);
     }
     this.cancelHidePost ??= scheduleAfterPaint(() => {
-      this.cancelHidePost = null;
-      const posted = this.poster.lastPosted;
-      if (posted !== null && this.hiding.size > 0) {
-        const bodies = posted.bodies.map((b) => (b.visible && this.hiding.has(b.cardId) ? { ...b, visible: false } : b));
-        this.poster.offer({ bodies });
-      }
-      this.hiding.clear();
+      this.cancelHidePost = scheduleAfterPaint(() => {
+        this.cancelHidePost = null;
+        const posted = this.poster.lastPosted;
+        if (posted !== null && this.hiding.size > 0) {
+          const bodies = posted.bodies.map((b) => (b.visible && this.hiding.has(b.cardId) ? { ...b, visible: false } : b));
+          this.poster.offer({ bodies });
+        }
+        this.hiding.clear();
+      });
     });
   }
 

@@ -325,6 +325,11 @@ final class BodyViewController {
     /// `frontendReady`, so a test can watch the deadline fail them — once
     /// for the shell's own retry, twice for the card's placard. DEBUG-only.
     private var readiesToStall = Int(ProcessInfo.processInfo.environment["TUG_BODY_FORCE_STALL"] ?? "") ?? 0
+
+    /// Ignore the next `count` bodies' `frontendReady`, from a harness verb.
+    func stallReadies(_ count: Int) {
+        readiesToStall = count
+    }
     #endif
 
     /// How short of memory the machine says it is.

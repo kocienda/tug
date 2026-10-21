@@ -200,3 +200,20 @@ export async function pressCloseOfPopover(app: App, cardId: string): Promise<boo
   await page.nativeClick(button);
   return true;
 }
+
+/**
+ * Whether the page holding the keyboard has something an Escape would
+ * dismiss. The key goes to the window's first responder — a body page when
+ * one holds it, else the shell — and that page's Escape ladder claims the key
+ * only off its base focus mode or with the manual focus bit on; at the base
+ * mode the key is left to the browser, WKWebView hands it back up the
+ * responder chain, and AppKit beeps at it. So an Escape is posted only where
+ * it has a taker.
+ */
+export async function escapeHasTaker(app: App): Promise<boolean> {
+  const holder = (await app.bodies()).find((b) => b.firstResponder && b.cardId !== null);
+  const page = holder?.cardId == null ? app : app.body(holder.cardId);
+  const base = await page.evalJS<boolean | null>("window.__tug.focusModeIsBase()").catch(() => null);
+  const manual = await page.evalJS<boolean | null>("window.__tug.kbfManual()").catch(() => null);
+  return base === false || manual === true;
+}

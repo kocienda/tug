@@ -161,7 +161,11 @@ final class TestHarnessConnection {
     /// harness verb, and a trimmed stack — and `windowState`, the harness
     /// window's key status, the app's active status, and the first
     /// responder's class. Additive; major stays `1`.
-    static let surfaceVersion = "1.20.0"
+    ///
+    /// `1.21.0`: adds `stallBodyReadies` — the next `count` bodies' readies
+    /// are ignored, as `TUG_BODY_FORCE_STALL` ignores the first ones, so a
+    /// row can fail a body made mid-run. Additive; major stays `1`.
+    static let surfaceVersion = "1.21.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -357,6 +361,8 @@ final class TestHarnessConnection {
             dispatchAccessibilityOrder(id: id)
         case "simulateMemoryPressure":
             dispatchSimulateMemoryPressure(id: id, verbObj: obj)
+        case "stallBodyReadies":
+            dispatchStallBodyReadies(id: id, verbObj: obj)
         default:
             respondError(id: id, name: "NotImplemented", message: "Unknown method: \(method)")
         }
@@ -420,6 +426,26 @@ final class TestHarnessConnection {
             }
             bodies.memoryPressure(level)
             self.respond(id: id, ok: true, payload: ["value": level.rawValue])
+        }
+    }
+
+    /// `stallBodyReadies {count}` → the body controller ignores the next
+    /// `count` bodies' `frontendReady`, so each fails at its deadline. A row
+    /// arms it after its cards have come up, to fail the bodies a later
+    /// gesture makes.
+    private func dispatchStallBodyReadies(id: Int, verbObj: [String: Any]) {
+        guard let count = verbObj["count"] as? Int, count >= 0 else {
+            respondError(id: id, name: "ProtocolError", message: "stallBodyReadies: 'count' must be a non-negative integer")
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let mainWindow = self.webView?.window as? MainWindow, let bodies = mainWindow.bodies else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            bodies.stallReadies(count)
+            self.respond(id: id, ok: true, payload: ["value": count])
         }
     }
 

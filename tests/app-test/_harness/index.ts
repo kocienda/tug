@@ -233,8 +233,12 @@ export type {
  * `1.20.0`: adds `beepReport` — the no-responder beeps the test-mode tripwire
  * caught since the last read, each with its origin, verb and stack. Additive;
  * major stays `1`.
+ *
+ * `1.21.0`: adds `stallBodyReadies` — the host ignores the next `count`
+ * bodies' readies, so a row can fail a body made mid-run. Additive; major
+ * stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.20.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.21.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -1036,6 +1040,11 @@ export class App {
    */
   simulateMemoryPressure(level: MemoryPressureLevel): Promise<string> {
     return client.simulateMemoryPressure(this as HarnessCaller, level);
+  }
+
+  /** Have the host ignore the next `count` bodies' readies, so each fails at its deadline. */
+  stallBodyReadies(count: number): Promise<number> {
+    return client.stallBodyReadies(this as HarnessCaller, count);
   }
 
   /** The window's accessibility reading order: `shell`, body card ids, then `overlay`. */

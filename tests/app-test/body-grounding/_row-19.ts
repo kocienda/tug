@@ -23,7 +23,8 @@
  *
  * One launch per gesture: `row-19-streams-flow-out`, `-flow-back` (which
  * makes the way out as its unmeasured set-up, before the bodies stream) and
- * `-stack`.
+ * `-stack`. No piece has a tier variant (`_tiers.ts`): the host holds no
+ * hidden body at any of these gestures, so there is nothing to put in one.
  */
 
 import { expect } from "bun:test";

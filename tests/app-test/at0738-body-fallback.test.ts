@@ -120,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a body that never says it is ready", () =>
         expect((await app.bodies()).some((b) => b.cardId === STALLED), "no body is left for the card").toBe(false);
         const text = await app.evalJS<string>(`${placard}.textContent`);
         note(`placard: ${text}`);
-        expect(text, "the placard says the card did not load").toContain("didn’t load");
+        expect(text, "the placard says the card needs reloading").toContain("This card needs reloading.");
 
         await app.evalJS<null>(`(${placard}.querySelector("button").click(), null)`);
         expect(await readyBody(app), "the Reload brings the card up in a body").toBe(true);

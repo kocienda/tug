@@ -27,7 +27,9 @@
  * One launch per switch: `row-10-workspace-session-home` reads the switch
  * from the away workspace home, `row-10-workspace-session-away` makes that
  * switch as its set-up and reads the one back; `row-10-workspace-kinds-home`
- * and `-kinds-away` do the same for every other kind.
+ * and `-kinds-away` do the same for every other kind. A piece suffixed
+ * `-dormant` or `-evicted` puts the hidden bodies in that tier before the
+ * read switch (`_tiers.ts`), with the same bars.
  */
 
 import { expect } from "bun:test";
@@ -35,10 +37,11 @@ import { expect } from "bun:test";
 import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { escapeHasTaker, focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, openKind, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { classifyFrame, showsBareHole } from "./_frames";
+import { intoTier, type Tier } from "./_tiers";
 import {
   BURST_INTERVAL_MS,
   REST_TOLERANCE_PX,
@@ -75,6 +78,8 @@ export const TEST_TIMEOUT_MS = 120_000;
  */
 export interface Launch {
   foreground: boolean;
+  /** The tier the hidden bodies are put in before the read switch (`_tiers.ts`); live when absent. */
+  tier?: Tier;
 }
 
 const A = "row10-a";
@@ -209,7 +214,8 @@ async function switchQuietly(app: App, toSpaceId: string, arriving: readonly str
 /** A card of `kind` at home and one in a second workspace, switched away → home or (that made first) home → away. */
 export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Promise<void> {
   const K = `row10-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}`, ...launch });
+  const { tier, ...opts } = launch;
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}${tier === undefined ? "" : `-${tier}`}-${kind.componentId}`, ...opts });
   try {
     await app.seedDeckState({ state: kindDeck(kind, K, { sessions: [A] }), focusCardId: K });
     await standUpKind(app, kind, K);
@@ -234,9 +240,11 @@ export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Prom
     places.set(K2, await restAt(app, K2, `${K2} away`));
 
     if (leg === "home") {
+      if (tier !== undefined) await intoTier(app, tier, "away, before the switch home");
       await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [K], departing: [K2], watch: K }, places, crop, standing.palette);
     } else {
       await switchQuietly(app, home, [K]);
+      if (tier !== undefined) await intoTier(app, tier, "home, before the switch away");
       await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [K2], departing: [K], watch: K2 }, places, crop, standing.palette);
     }
   } finally {
@@ -247,7 +255,8 @@ export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Prom
 /** Two Session bodies at home and a third opened by ⌘N in a second workspace, switched away → home or (that made first) home → away. */
 export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
   const stubDir = stubDirectory();
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const { tier, ...opts } = launch;
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}${tier === undefined ? "" : `-${tier}`}`, ...opts, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: deck(), focusCardId: A });
     await spawnStub(app, A, stubDir, 2);
@@ -270,8 +279,9 @@ export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
     expect(away, "a second workspace is shown").not.toBe(home);
     await expectHidden(app, A, "A after leaving home");
     await expectHidden(app, B, "B after leaving home");
-    // The verb reveals the Cards card and opens a rename; Escape leaves it.
-    await app.nativeKey("Escape", []);
+    // The verb reveals the Cards card and opens a rename; Escape leaves it,
+    // when the rename holds the keyboard — a bare Escape with no taker beeps.
+    if (await escapeHasTaker(app)) await app.nativeKey("Escape", []);
     await Bun.sleep(300);
     const focusedBefore = await app.getFocusedCardId();
     await app.nativeKey("n", ["cmd"]);
@@ -292,9 +302,11 @@ export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
     note(`home ${home}: A ${JSON.stringify(places.get(A))}, B ${JSON.stringify(places.get(B))}; away ${away}: C ${JSON.stringify(places.get(C))}`);
 
     if (leg === "home") {
+      if (tier !== undefined) await intoTier(app, tier, "away, before the switch home");
       await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [A, B], departing: [C], watch: A }, places, crop, standing.palette);
     } else {
       await switchQuietly(app, home, [A, B]);
+      if (tier !== undefined) await intoTier(app, tier, "home, before the switch away");
       await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [C], departing: [A, B], watch: C }, places, crop, standing.palette);
     }
   } finally {

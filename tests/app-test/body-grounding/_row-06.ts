@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "../_harness";
 import type { MenuItemSnapshot } from "../_harness/types";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { SETTLE_MS, bodyOf, focusBody, foldedOf, pollFor, popoverPresent, responders, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { SETTLE_MS, bodyOf, escapeHasTaker, focusBody, foldedOf, pollFor, popoverPresent, responders, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
 
@@ -109,24 +109,6 @@ async function keyboardFacts(app: App, card: string): Promise<string> {
     `the card's pane ${await app.evalJS<string>(`JSON.stringify((function(){ var p = document.querySelector(${JSON.stringify(`.tug-pane[data-pane-id="${card}-pane"]`)}); if (!p) return null; var o = {}; for (var i = 0; i < p.attributes.length; i++) o[p.attributes[i].name] = p.attributes[i].value; return o; })())`)}, ` +
     `deck panes ${await app.evalJS<string>(`JSON.stringify((window.tugdeck.diag.getDeckState().panes || []).map(function (p) { return { id: p.id, slot: p.slot, cards: p.cardIds }; }))`)}, host ${await responders(app)}`
   );
-}
-
-/**
- * Whether the page holding the keyboard has something an Escape would
- * dismiss. The key goes to the window's first responder — a body page when
- * one holds it, else the shell — and that page's Escape ladder claims the key
- * only off its base focus mode or with the manual focus bit on; at the base
- * mode the key is left to the browser, WKWebView hands it back up the
- * responder chain, and AppKit beeps at it. So an Escape is posted only where
- * it has a taker: most items raise nothing, and a bare Escape after each of
- * them was the row's beep.
- */
-async function escapeHasTaker(app: App): Promise<boolean> {
-  const holder = (await app.bodies()).find((b) => b.firstResponder && b.cardId !== null);
-  const page = holder?.cardId == null ? app : app.body(holder.cardId);
-  const base = await page.evalJS<boolean | null>("window.__tug.focusModeIsBase()").catch(() => null);
-  const manual = await page.evalJS<boolean | null>("window.__tug.kbfManual()").catch(() => null);
-  return base === false || manual === true;
 }
 
 /**

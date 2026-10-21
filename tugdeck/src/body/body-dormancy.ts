@@ -7,7 +7,9 @@
  * nothing of any session, so its ingest worker has nothing to ingest, parse
  * or publish — stills its loops through the motion switch, and withdraws any
  * surface it raises over the deck. It keeps its DOM and its stores, so a
- * reveal shows what it had.
+ * reveal shows what it had. And it writes its bag once as it sleeps, so a
+ * draft typed before it went quiet is on disk while it sleeps, and a crash
+ * then loses nothing an eviction would have kept.
  *
  * Shown again, it re-scopes its subscription and asks its session for what
  * it missed (`CodeSessionStore.catchUp`). It stays dormant — loops still,
@@ -31,7 +33,7 @@
  */
 
 import type { BodyVisibilitySnapshot } from "../lib/body-visibility-store";
-import { bodyVisibilityStore } from "../lib/body-visibility-store";
+import { bodyVisibilityStore, type BodyVisibilityStore } from "../lib/body-visibility-store";
 
 /** Where the page's dormancy stands. */
 export interface DormancyState {
@@ -84,6 +86,8 @@ export interface BodyDormancyEffects {
   lidContent(on: boolean): void;
   /** Withdraw the page's deck-scope surface, or draw it again. */
   withholdSurface(on: boolean): void;
+  /** Write the card's bag to disk now, as a save-state call does. */
+  saveBag(): void;
   /**
    * Ask the card's session for what it missed, and call `done` once the
    * answer's bracket has closed — at once for a card with no session.
@@ -99,13 +103,18 @@ export interface InstalledBodyDormancy {
 }
 
 /** Follow the page's visibility store and carry out what {@link nextDormancy} decides. */
-export function installBodyDormancy(effects: BodyDormancyEffects): InstalledBodyDormancy {
+export function installBodyDormancy(
+  effects: BodyDormancyEffects,
+  store: Pick<BodyVisibilityStore, "getSnapshot" | "subscribe" | "wake"> = bodyVisibilityStore,
+): InstalledBodyDormancy {
   let state = AWAKE;
   let releaseWait: (() => void) | null = null;
   const act = (next: { state: DormancyState; act: DormancyAct }): void => {
     state = next.state;
     switch (next.act) {
       case "sleep":
+        // The bag first, captured from the DOM as it stands.
+        effects.saveBag();
         effects.stillLoops(true);
         effects.lidContent(true);
         effects.withholdSurface(true);
@@ -125,14 +134,14 @@ export function installBodyDormancy(effects: BodyDormancyEffects): InstalledBody
         effects.stillLoops(false);
         effects.lidContent(false);
         effects.withholdSurface(false);
-        bodyVisibilityStore.wake();
+        store.wake();
         return;
       case null:
         return;
     }
   };
-  const follow = (): void => act(nextDormancy(state, bodyVisibilityStore.getSnapshot()));
-  const unsubscribe = bodyVisibilityStore.subscribe(follow);
+  const follow = (): void => act(nextDormancy(state, store.getSnapshot()));
+  const unsubscribe = store.subscribe(follow);
   follow();
   return {
     get asleep() {

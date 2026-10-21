@@ -126,6 +126,7 @@ import { bodyCardsStore } from "@/lib/body-cards-store";
 import { hostCapabilitiesStore, reloadBody } from "@/lib/body-handoff";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugPaneBanner } from "@/components/tugways/tug-pane-banner";
+import { BodyStandIn } from "./body-stand-in";
 import { CLOSE_REFUSAL_LABEL, CLOSE_REFUSAL_MESSAGE, closeRefusalStore } from "@/lib/close-refusal-store";
 import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
@@ -666,6 +667,9 @@ function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
   return <BodyPlaceholder {...props} />;
 }
 
+/** The failed placard's sentence: the card needs reloading, never that work was lost. */
+const BODY_FAILED_MESSAGE = "This card needs reloading.";
+
 /**
  * The placeholder is the card's node in the shell's responder chain, under
  * its pane, exactly where `CardHostImpl` registers the card's own node. The
@@ -675,9 +679,17 @@ function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
  * reached the pane that handles it. It answers no action itself — the card's
  * responders are in the body — so everything falls through to the pane.
  *
+ * A card whose page has not painted — being made, or evicted and asked for
+ * again — stands here as its own chrome, drawn by the shell from the facts it
+ * sends the page, until the page's first frame is on screen
+ * (`body-stand-in.tsx`): a workspace switch onto such cards shows every
+ * card's title from its first frame.
+ *
  * A card whose body failed, and failed again when the shell asked for it
- * once more (`lib/body-shell.ts`), stands here as a placard saying so, with a
- * Reload that asks for its body again and a Close. The placard is the card's
+ * once more (`lib/body-shell.ts`), stands here as a placard saying it needs
+ * reloading, with a Reload that asks for its body again and a Close. It never
+ * says work was lost: a body is a view, and the card's session and its bag
+ * outlive it. The placard is the card's
  * only face: the pane is a stand-in that draws no chrome, so the close it
  * offers is the pane's own (`CLOSE_PANE`, which the pane answers for a card
  * no page stands for by closing it).
@@ -687,7 +699,7 @@ function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
  * the close box as the way out, until it is dismissed or the card is asked
  * again. The banner is pane chrome, so the shell draws it over the body.
  */
-function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps): React.ReactElement {
+function BodyPlaceholder({ cardId, hostStackId, componentId, isActive = true }: CardHostProps): React.ReactElement {
   const { ResponderScope, responderRef } = useResponder({
     id: cardId,
     parentId: hostStackId,
@@ -712,7 +724,7 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
         >
           {failed ? (
             <div className="tug-body-failed" data-body-failed>
-              <p className="tug-body-failed-message">This card didn’t load.</p>
+              <p className="tug-body-failed-message">{BODY_FAILED_MESSAGE}</p>
               <TugPushButton emphasis="outlined" onClick={() => reloadBody(cardId)}>
                 Reload
               </TugPushButton>
@@ -723,7 +735,9 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
                 Close
               </TugPushButton>
             </div>
-          ) : null}
+          ) : (
+            <BodyStandIn cardId={cardId} componentId={componentId} />
+          )}
           <TugPanePortalContext value={hostCardRootEl}>
             <CardIdContext value={cardId}>
               <TugPaneBanner

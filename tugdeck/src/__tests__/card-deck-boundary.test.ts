@@ -36,6 +36,7 @@ const SHELL_DECK_READERS: Record<string, string> = {
   "components/chrome/rail-width-draft.ts": "drags the shell's rail width",
   "components/chrome/pane-focus-controller.ts": "deselects and activates the shell's panes",
   "components/chrome/card-placement-beacon.tsx": "places every body from the shell's canvas",
+  "components/chrome/body-stand-in.tsx": "draws a card's chrome from the shell's arrangement until the card's page paints",
   "lib/card-placement.ts": "measures the shell's panes into body placements",
   "lib/body-shell.ts": "the shell's side of every body: arrangement, spaces and runs it sends",
   "lib/body-arrangement.ts": "projects the shell's arrangement for a listing body",

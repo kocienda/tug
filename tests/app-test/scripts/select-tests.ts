@@ -235,6 +235,19 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // renders) is pinned by the arrangement tests that stay here.
     "tugdeck/src/components/chrome/deck-canvas.tsx": 22,
 
+    // The body hand-off, both halves. Every card is a body, so every
+    // body-grounding row — arrival, departure, focus, menus, workspaces,
+    // folds, eviction, dormancy — drives the shell's `body-shell.ts` (it asks
+    // for a card's body, tells it its facts, and hears its state) and the
+    // host's `BodyViewController.swift` (it makes, places, shows, covers and
+    // evicts the view). A row names them because what it asserts is their
+    // contract, and no narrower file carries it: they are the one seam every
+    // body crosses. Recorded at their counts on 2026-10-21; both were past
+    // the budget (22 and 25 families) before the dormancy and eviction rows
+    // joined them.
+    "tugdeck/src/lib/body-shell.ts": 24,
+    "tugapp/Sources/BodyViewController.swift": 27,
+
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that
     // asserts what a transcript ROW looks like has nowhere narrower to name.
@@ -374,7 +387,11 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // directory, reached through the same connection and dispatch. Raised in
     // place, as `internal/` below was: the delete-then-re-add needs two commits
     // for a key already in `HEAD`. The argument is written here.
-    "tugapp/Sources/TestHarness/": 10,
+    //
+    // 10 → 11 for `BeepTripwire.swift`, the test-mode beep tripwire behind the
+    // `beepReport` verb: a verb's host half like the rest, on the same
+    // connection. Deleted and re-added across two commits.
+    "tugapp/Sources/TestHarness/": 11,
 
     // The bridge. A single binary with no interior a test could name instead.
     //
