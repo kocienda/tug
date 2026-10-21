@@ -11,6 +11,7 @@
 
 ## Component & UI architecture
 
+- [card-architecture.md](card-architecture.md) — Narrative summary of the per-card web view design: why the one-document deck was split, the three layers and the host that places them, why a frame now costs one card, what the record shows, what it costs, and where the open seams are.
 - [pane-model.md](pane-model.md) — The Deck → Pane → Card hierarchy. What each level owns; the naming rules that encode it across code, CSS, DOM, wire format, and menus.
 - [card-state-model.md](card-state-model.md) — Selection, focus, scroll, and form-control values across tabs, pane activation, and reload. The per-axis contract; cross-refs `state-preservation.md` for the underlying protocol.
 - [state-preservation.md](state-preservation.md) — The [A9] save/restore protocol end-to-end: `useComponentStatePreservation`, `useCardStatePreservation`, FocusSnapshot, CardStateBag. Read this for the mechanism; read `card-state-model.md` for the per-axis contract.

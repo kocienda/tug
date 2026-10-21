@@ -612,6 +612,10 @@ final class BodyViewController {
             // throttles a parked or folded body.
             body.container.isHidden = true
         } else {
+            // Not shown yet: transparent, still painting, never a hidden
+            // page. A page loaded into a hidden view runs no frame callback,
+            // and `painted` is said after two of them.
+            body.container.isHidden = false
             body.container.passesPointer = true
             layer.opacity = 0
         }
@@ -1518,6 +1522,11 @@ final class BodyViewController {
         body.intent = JSONObject(["kind": .string(body.intent?["kind"] == .string("mount") ? "mount" : "restore")])
         body.warm = false
         body.painted = false
+        // The new page paints into a view that was shown: unhidden and
+        // transparent until it says `painted`, as a page never shown is —
+        // hidden, it would never get the frames `painted` waits on.
+        body.shownOnce = false
+        applyVisibility(body)
         notifyShell(BodyStateReport(cardId: cardId, state: .terminated))
         armDeadline(body)
         webView.load(URLRequest(url: url))
