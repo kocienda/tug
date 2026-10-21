@@ -235,8 +235,8 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           "the phase band comes before the files' track",
         ).toBe(true);
         expect(await count(card, `${RUN_PANEL} .tug-report-panel-cell`), "still a cell per file").toBe(4);
-        // The bar carries the pace mark: where the run would be at its medians.
-        expect(await count(card, `${RUN_PANEL} [data-slot="tug-report-panel-pace"]`), "the pace mark").toBe(1);
+        // The bar carries no pace mark: a tick marching across it read as a stray cursor.
+        expect(await count(card, `${RUN_PANEL} [data-slot="tug-report-panel-pace"]`), "no pace mark").toBe(0);
         // The projection is an elapsed reading: with no new report it still
         // counts down, because the running panel reads the shared 1 Hz tick.
         const PROJECTION = `${RUN_PANEL} .tug-report-panel-projection`;
@@ -411,7 +411,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           timeoutMs: 10_000,
         });
         expect(await text(card, GREEN_STRIP)).toContain("PASS");
-        expect(await count(card, `${GREEN_STRIP} .tug-report-panel-cell`), "a green strip has no track").toBe(0);
+        expect(await count(card, `${GREEN_STRIP} .tug-report-panel-cell`), "a green strip keeps its completed track").toBe(2);
         expect(await count(card, `${GREEN_STRIP} [data-slot="tug-report-panel-red"]`)).toBe(0);
 
         // The gaps record answers through tugcast's own route.

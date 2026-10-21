@@ -62,18 +62,15 @@ describe("reportPanelModel", () => {
     expect(projectionText(m)).toBe("~17s left");
   });
 
-  test("units no median knows are counted, and the pace mark is the expected time spent", () => {
+  test("units no median knows are counted at the typical median", () => {
     const units = MID_RUN.units!.map((u) => (u.name === "at0372" || u.name === "at0381" ? { ...u, median: undefined } : u));
     const m = reportPanelModel({ ...MID_RUN, units }, "running", NOW);
     // The two unknowns are taken at the typical median, (6+8+5+9+9+11+7+6)/8 = 7.625.
     expect(m.unknownCount).toBe(2);
     expect(m.projectionSecs).toBeCloseTo((7 + 6 + 7.625 + 7.625) / 2);
     expect(projectionText(m)).toBe("~14s left · 2 unknown");
-    // The earliest start is 31 s ago: 31 of 31 + 14.125 spent.
-    expect(m.paceFraction).toBeCloseTo(31 / (31 + m.projectionSecs!));
-    // Finished, there is no projection and no mark.
+    // Finished, there is no projection.
     const done = reportPanelModel({ ...MID_RUN, units }, "finished", NOW);
-    expect(done.paceFraction).toBeNull();
     expect(projectionText(done)).toBeNull();
   });
 

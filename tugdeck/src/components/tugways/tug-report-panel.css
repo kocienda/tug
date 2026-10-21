@@ -236,20 +236,6 @@ body {
   background-color: var(--tugx-report-red-fill);
 }
 
-/* The pace mark: where the run would stand at its recorded medians. A thin
-   upright stroke over the cells or the band, so a fill behind it reads as a
-   run slower than its record. */
-/* @tug-renders-on: --tugx-report-surface */
-.tug-report-panel-pace {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 0;
-  border-left: 2px solid var(--tugx-report-text-color);
-  transform: translateX(-1px);
-  pointer-events: none;
-}
-
 /* ---- In flight ---------------------------------------------------------- */
 
 .tug-report-panel-lanes {

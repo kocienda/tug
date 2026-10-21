@@ -39,10 +39,10 @@
  *      own output. Every fold is one line of its own text.
  *
  * {@link TugReportStrip} is the finished run for a collapsed block. A green
- * run folds to row 1 alone — the verdict, the count and the wall time on one
- * line, which opens on click — and a red one holds rows 1, 2 and 4, so it
- * says what failed without being opened. Running panel, strip and expanded
- * result all open on the same masthead.
+ * run folds to rows 1 and 2 — the verdict, the count and the wall time over
+ * the completed track — and a red one holds rows 1, 2 and 4, so it says what
+ * failed without being opened. Running panel, strip and expanded result all
+ * open on the same masthead and track.
  *
  * Colour is never the only reading: every cell has a title, every row's dot
  * is labelled and stands beside a word, and the tally is words.
@@ -199,7 +199,6 @@ export function TugReportTrack({ m }: { m: ReportPanelModel }): React.ReactEleme
             title={`${u.name} · ${WORD[u.status]}${u.secs !== undefined ? ` · ${u.secs}s` : ""}`}
           />
         ))}
-        <PaceMark m={m} />
       </div>
     );
   }
@@ -221,25 +220,7 @@ export function TugReportTrack({ m }: { m: ReportPanelModel }): React.ReactEleme
           title={u.name}
         />
       ))}
-      <PaceMark m={m} />
     </div>
-  );
-}
-
-/**
- * The tick on the bar where the run would stand had it kept to its medians:
- * the share of its expected wall time already spent. The fill behind it is a
- * run slower than its record; ahead of it, faster.
- */
-function PaceMark({ m }: { m: ReportPanelModel }): React.ReactElement | null {
-  if (m.paceFraction === null) return null;
-  return (
-    <span
-      className="tug-report-panel-pace"
-      data-slot="tug-report-panel-pace"
-      style={{ left: `${Math.min(1, Math.max(0, m.paceFraction)) * 100}%` }}
-      title="where the run would be at its recorded medians"
-    />
   );
 }
 
@@ -697,8 +678,9 @@ function verdictWord(m: ReportPanelModel): string {
  * at the panel's own sizes, and under them the failure detail when the run
  * went red — the most recent red open, the earlier ones folded, as the panel
  * shows them — so a collapsed red block says what failed without opening.
- * A green run folds to the masthead alone: one line, count and time, and
- * the block's own expand opens the panel.
+ * A green run folds to the masthead and its completed track, and the block's
+ * own expand opens the panel. The track always stays: a finished run keeps
+ * the bar it filled.
  * It is what the running panel becomes when it settles — the ring turns into
  * the verdict word, the in-flight rows and the passed fold go — and what the
  * expanded panel opens with, so moving between the three changes no row the
@@ -725,7 +707,7 @@ export function TugReportStrip({
       data-verdict={m.verdict}
     >
       <Masthead m={m} state="finished" wallSecs={wallSecs} />
-      {m.verdict === "red" && <TugReportTrack m={m} />}
+      <TugReportTrack m={m} />
       {m.verdict === "red" && <Reds reds={m.reds} foldKey={foldKey} />}
     </div>
   );

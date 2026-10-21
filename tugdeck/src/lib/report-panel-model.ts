@@ -62,12 +62,6 @@ export interface ReportPanelModel {
   /** Units still to land whose time no median knows, guessed at the typical one. */
   unknownCount: number;
   /**
-   * Where on the bar the run would stand had it kept to its medians: the
-   * share of its expected wall time — spent plus {@link projectionSecs} —
-   * already spent. A fill behind the mark is a run slower than its record.
-   */
-  paceFraction: number | null;
-  /**
    * Green rows that carry a history line. A reporter amends a green row only
    * when the record had it red, so each is a recovery: a flake, or a fix.
    */
@@ -175,7 +169,6 @@ export function reportPanelModel(
 
   let projectionSecs: number | null = null;
   let unknownCount = 0;
-  let paceFraction: number | null = null;
   if (state === "running" && full) {
     const known = units.map((u) => u.median).filter((m): m is number => m !== undefined);
     const typical = known.length > 0 ? known.reduce((a, b) => a + b, 0) / known.length : undefined;
@@ -191,11 +184,6 @@ export function reportPanelModel(
         }
       }
       projectionSecs = left / Math.max(1, p.jobs ?? 1);
-      const starts = units.map((u) => u.startedAtMs).filter((s): s is number => s !== undefined);
-      if (starts.length > 0) {
-        const spent = Math.max(0, (nowMs - Math.min(...starts)) / 1000);
-        paceFraction = spent + projectionSecs > 0 ? spent / (spent + projectionSecs) : null;
-      }
     }
   }
 
@@ -234,7 +222,6 @@ export function reportPanelModel(
     greens,
     projectionSecs,
     unknownCount,
-    paceFraction,
     recovered: greens.filter((u) => u.history !== undefined),
     phases,
     child,
