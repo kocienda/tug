@@ -3531,6 +3531,7 @@ export class DeckManager implements IDeckManagerStore {
         members.map((member, i) => ({
           floor: member.floor,
           natural: railNaturalOf(componentIds[i], run) ?? member.floor,
+          yields: componentIds[i] === OVERVIEW_CARD_ID,
         })),
         run,
         RAIL_SEAM_PX,

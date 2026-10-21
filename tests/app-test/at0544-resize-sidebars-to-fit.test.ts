@@ -14,11 +14,11 @@
  *     in it gets more of the room left over.
  *   - **The RIGHT rail's naturals do not.** Overview asks for three quarters
  *     of the run on its own ([B10]) and the Layout card is a long column of
- *     settings, so between them they ask for well over the rail. Nobody can
- *     have their natural, so everyone stands at their floor plus a share of
- *     what is left in proportion to what they asked for above it: the long
- *     card is still clipped, neither is squeezed under its floor, and the
- *     rail is exactly full either way.
+ *     settings, so between them they ask for well over the rail. Overview's
+ *     three quarters is a ceiling, not a claim: it gives up the overage first,
+ *     down to its floor, so the Layout card shows all of its content unless
+ *     Overview has nothing left to give. Neither is squeezed under its floor,
+ *     and the rail is exactly full either way.
  *
  * Then the half the verb's whole design rests on: it runs ONCE ([B07]). A jot
  * is written, which grows the Jots card's content by a row, and no sash
@@ -235,25 +235,22 @@ describe.skipIf(!SHOULD_RUN)(
             //
             // Overview asks for three quarters of the run on its own ([B10])
             // and the Layout card is a long column of settings, so between
-            // them they ask for well over the whole rail. Nobody gets their
-            // natural. What the regime promises instead is that nobody goes
-            // under their floor, that the room above the floors goes to
-            // whoever asked for it, and that the long card is still clipped —
-            // it scrolls inside itself, as a split pane does anywhere.
+            // them they ask for well over the whole rail. Overview is a
+            // stream that reads at any height, so it yields first (2026-10-21,
+            // reversing the shared squeeze that left an Arcs card 12 px short
+            // beside it): the Layout card shows all of its content, or
+            // Overview is down to its floor and has nothing left to give.
             expect(
-              right.layout.pane,
-              `the Layout card is still short of its ${right.layout.content.toFixed(1)}px of content`,
-            ).toBeLessThan(right.layout.content - EPSILON);
+              right.layout.pane >= right.layout.content - EPSILON ||
+                right.overview.pane <= CARD_FLOOR_PX + EPSILON,
+              `the Layout card shows its ${right.layout.content.toFixed(1)}px of content (at ${right.layout.pane.toFixed(1)}), or Overview (at ${right.overview.pane.toFixed(1)}) is at its floor`,
+            ).toBe(true);
             for (const componentId of RIGHT_MEMBERS) {
               expect(
                 right[componentId].pane,
                 `${componentId} stands at or above its floor`,
               ).toBeGreaterThanOrEqual(CARD_FLOOR_PX - EPSILON);
             }
-            expect(
-              right.overview.pane,
-              "the card asking for more of the room gets more of it",
-            ).toBeGreaterThan(right.layout.pane + EPSILON);
             // And it actually MOVED: the equal division is what the rail
             // stood at a moment ago, and a verb that did nothing would leave
             // it there. Sub-pixel is the only exclusion this needs: how FAR it

@@ -78,6 +78,55 @@ describe("fitHeights", () => {
     expect(heights).toEqual([400, 400]);
   });
 
+  test("a yielding member gives up the overage before any list is shrunk", () => {
+    // The live rail that left Arcs 12 px short: Arcs, Jots, and Overview at
+    // three quarters of a 2050 px run.
+    const run = 2050;
+    const heights = fitHeights(
+      [
+        { floor: 120, natural: 332 },
+        { floor: 120, natural: 382 },
+        { floor: 240, natural: run * OVERVIEW_RUN_FRACTION, yields: true },
+      ],
+      run,
+      SEAM,
+    );
+    expect(sum(heights)).toBeCloseTo(run - 2 * SEAM, 9);
+    expect(heights[0]).toBeCloseTo(332, 9);
+    expect(heights[1]).toBeCloseTo(382, 9);
+    expect(heights[2]).toBeCloseTo(run - 2 * SEAM - 332 - 382, 9);
+  });
+
+  test("a yielding member at its floor leaves the rest to shrink together", () => {
+    const heights = fitHeights(
+      [
+        { floor: 100, natural: 500 },
+        { floor: 100, natural: 300 },
+        { floor: 200, natural: 900, yields: true },
+      ],
+      800,
+      SEAM,
+    );
+    // 792 to divide; Overview down to 200 leaves 592 for 800 asked, so the
+    // lists share 392 above their floors 400:200.
+    expect(sum(heights)).toBeCloseTo(792, 9);
+    expect(heights[2]).toBeCloseTo(200, 9);
+    expect(heights[0]).toBeCloseTo(100 + (392 * 2) / 3, 9);
+    expect(heights[1]).toBeCloseTo(100 + 392 / 3, 9);
+  });
+
+  test("a yielding member keeps its share of the slack when everything fits", () => {
+    const heights = fitHeights(
+      [
+        { floor: 100, natural: 200 },
+        { floor: 200, natural: 600, yields: true },
+      ],
+      1000,
+      SEAM,
+    );
+    expect(heights[1] / heights[0]).toBeCloseTo(3, 9);
+  });
+
   test("the answer converts to shares and allocates straight back ([P10])", () => {
     const members: PlaceMember[] = [
       { id: "cards", floor: 240 },

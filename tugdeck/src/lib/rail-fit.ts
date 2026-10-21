@@ -33,6 +33,13 @@ export interface FitMember {
   readonly floor: number;
   /** The height the member's content asks for, px. */
   readonly natural: number;
+  /**
+   * The member gives its room up first when the naturals do not fit — true of
+   * Overview, a stream whose natural is a fraction of the run rather than a
+   * measurement ([B10]). It reads at any height, where a list card short of its
+   * natural hides rows behind a scroller.
+   */
+  readonly yields?: boolean;
 }
 
 /** The tolerance the proportions are shared out at. */
@@ -51,6 +58,12 @@ const FIT_EPSILON = 1e-9;
  * above the floors, in proportion to how far its natural stood above its own
  * floor — so the cards shrink together and none is squeezed under the floor
  * its policy declares.
+ *
+ * A YIELDING member comes down first. Its natural is a wish, not a content
+ * height, so before anyone else is shrunk it gives up the overage, down to its
+ * own floor; only what is still over after that is shared out as above. So a
+ * rail of Arcs, Jots and Overview stands both lists at their naturals and
+ * hands Overview the remainder, rather than leaving every card a little short.
  *
  * A natural below the member's own floor is read as the floor: the floor is
  * what the member can actually stand at, and reading anything smaller would
@@ -77,6 +90,21 @@ export function fitHeights(
     Number.isFinite(member.natural) ? Math.max(member.natural, floors[i]) : floors[i],
   );
   if (!Number.isFinite(divisible) || divisible <= 0) return floors;
+
+  // The yielding members give up the overage first, in proportion to the room
+  // each holds above its own floor.
+  const over = wants.reduce((sum, want) => sum + want, 0) - divisible;
+  const yieldable = members.reduce(
+    (sum, member, i) => sum + (member.yields === true ? wants[i] - floors[i] : 0),
+    0,
+  );
+  if (over > 0 && yieldable > FIT_EPSILON) {
+    const given = Math.min(over, yieldable);
+    for (let i = 0; i < n; i += 1) {
+      if (members[i].yields !== true) continue;
+      wants[i] -= (given * (wants[i] - floors[i])) / yieldable;
+    }
+  }
 
   const wanted = wants.reduce((sum, want) => sum + want, 0);
   if (wanted <= divisible) {
