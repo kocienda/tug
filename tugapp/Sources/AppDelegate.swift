@@ -498,8 +498,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     alert.runModal()
                     return
                 }
-                // Dev mode: spawn Vite (HMR), wait for it, then load from the Vite port.
-                // The duplication guard inside spawnViteServer prevents re-spawning on tugcast restarts.
+                // Dev mode: Vite was spawned beside tugcast at the derived port
+                // (`applicationDidFinishLaunching`); a tugcast that bound another
+                // is proxied wrong, so Vite goes again at the port it reported.
+                // Otherwise the spawn below is the duplication guard's no-op,
+                // as it is on a tugcast restart, and the wait returns at once.
+                if port != InstanceConfig.tugcastPort {
+                    TugLog.warn("launch", "tugcast bound a port other than the derived one; respawning vite", [
+                        TugLog.field("port", port),
+                        TugLog.field("derived", InstanceConfig.tugcastPort),
+                    ])
+                    self.processManager.killViteServer()
+                }
                 self.processManager.spawnViteServer(sourceTree: path, tugcastPort: port, vitePort: self.vitePort, devMode: true)
                 self.processManager.waitForViteReady(port: self.vitePort) { [weak self] ready in
                     guard let self = self else { return }
@@ -547,6 +557,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         #endif
+        // Vite starts beside tugcast rather than after its `ready`: its own
+        // start is ~0.5 s of the launch, and all it needs is the port tugcast
+        // will bind, which is derived from the instance id
+        // (`InstanceConfig.tugcastPort`) before either process exists. A
+        // tugcast that binds another port is met in `onReady`, which respawns
+        // Vite at the port it reported.
+        if devServingEnabled, let path = sourceTreePath {
+            processManager.spawnViteServer(sourceTree: path, tugcastPort: InstanceConfig.tugcastPort, vitePort: vitePort, devMode: true)
+        }
         processManager.start(sourceTree: sourceTreePath)
         lap("processManager.start returned")
     }

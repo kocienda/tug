@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import type { Plugin as VitePlugin } from "vite";
 import react from "@vitejs/plugin-react";
+import reactSwc from "@vitejs/plugin-react-swc";
 import path from "path";
 import fs from "fs";
 import { execSync } from "child_process";
@@ -850,11 +851,15 @@ export default (defineConfig as any)((env: any = {}) => {
     plugins: [
       buildSummaryPlugin(),
       noConditionalRequestsPlugin(),
-      // An app-test run that records reach builds its dist with TUG_APPTEST_REACH=1,
-      // which instruments every named function's entry (see the plugin's header). Any
-      // other build — release, the dev server, a plain app-test run — runs no Babel
-      // plugins of its own.
-      react({ babel: { plugins: process.env.TUG_APPTEST_REACH === "1" ? [tugReachPlugin()] : [] } }),
+      // The React transform is SWC's: Babel's Fast Refresh pass ran on every
+      // `.tsx` the dev server served, and on a cold start that was most of the
+      // ~1,700-module, 5 s module load a debug launch paid (2026-10-21). The
+      // one build that needs Babel is an app-test run that records reach
+      // (TUG_APPTEST_REACH=1): its `tug-reach` plugin instruments every named
+      // function's entry (see the plugin's header), so that build keeps
+      // `@vitejs/plugin-react` with the plugin, and every other — release, the
+      // dev server, a plain app-test run — takes the SWC plugin.
+      process.env.TUG_APPTEST_REACH === "1" ? react({ babel: { plugins: [tugReachPlugin()] } }) : reactSwc(),
       activeThemeVirtualPlugin(),
       paletteHotReload(),
       controlTokenHotReload(),
