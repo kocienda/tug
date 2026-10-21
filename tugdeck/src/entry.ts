@@ -17,6 +17,11 @@
 const query = new URLSearchParams(window.location.search);
 const page = query.get("body");
 
+// The deck's module graph is some 1,800 resources under Vite, and the
+// default resource-timing buffer holds 250: raised here, before the graph
+// is fetched, so the shell's `frontend-ready` lap can sum the whole load.
+performance.setResourceTimingBufferSize(4000);
+
 if (query.has("overlay")) {
   void import("./overlay/overlay-main");
 } else if (page === "spike") {

@@ -424,6 +424,14 @@ struct FrontendLaunchStalled: Decodable, Equatable {
     var waitingOn: String
 }
 
+/// `launchLap`: one step of the shell's boot, on the page's clock (ms since
+/// its navigation started), with at most one line of detail.
+struct LaunchLap: Decodable, Equatable {
+    var name: String
+    var ms: Double
+    var detail: String?
+}
+
 /// `pageFault`: what `PageFaultScript` saw, its text, and where (`""` when
 /// it said nowhere).
 struct PageFault: Decodable, Equatable {
@@ -628,7 +636,7 @@ enum ToHostName: String, CaseIterable {
     // The overlay's view.
     case overlayCreate, overlayClaim
     // Page lifecycle.
-    case bodyHello, painted, frontendReady, frontendLaunchStalled, pageFault
+    case bodyHello, painted, frontendReady, frontendLaunchStalled, launchLap, pageFault
     case crossingReady, bodySurface, bodyCreate, bodyDestroy, bodyFocus, hmrUpdate
     // The host's services.
     case sourceTree, choosePath, getSettings, setTheme
@@ -642,7 +650,7 @@ enum ToHostName: String, CaseIterable {
     /// card's own body, and the answer is the window's whole zoom either way.
     var shellOnly: Bool {
         switch self {
-        case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .hmrUpdate,
+        case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap, .hmrUpdate,
              .bodyCreate, .bodyDestroy, .bodyFocus, .hostFrames,
              .cardPlan, .placeCards, .overlayCreate:
             return true
@@ -695,6 +703,7 @@ enum ToHost {
     case painted
     case frontendReady
     case frontendLaunchStalled(FrontendLaunchStalled)
+    case launchLap(LaunchLap)
     case pageFault(PageFault)
     case crossingReady(BodySurface)
     case bodySurface(BodySurface)
@@ -751,6 +760,7 @@ enum ToHost {
         case .bodyDestroy: return .bodyDestroy(try read(BodyDestroy.self))
         case .bodyFocus: return .bodyFocus(try read(BodyFocus.self))
         case .frontendLaunchStalled: return .frontendLaunchStalled(try read(FrontendLaunchStalled.self))
+        case .launchLap: return .launchLap(try read(LaunchLap.self))
         case .pageFault: return .pageFault(try read(PageFault.self))
         case .hmrUpdate: _ = try read(EmptyPayload.self); return .hmrUpdate
         case .sourceTree: _ = try read(EmptyPayload.self); return .sourceTree

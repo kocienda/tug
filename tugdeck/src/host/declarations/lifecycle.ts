@@ -62,6 +62,25 @@ export const frontendLaunchStalledToHost = defineToHost({
 });
 
 /**
+ * One lap of the shell's boot, for the host's launch log: which step, when on
+ * the page's own clock (ms since its navigation started), and at most one
+ * line of detail. A launch that stalls reads as the last lap that arrived.
+ */
+export interface LaunchLap {
+  readonly name: string;
+  readonly ms: number;
+  readonly detail?: string;
+}
+
+export const launchLapToHost = defineToHost<LaunchLap>({
+  name: "launchLap",
+  from: "shell",
+  codec: obj({ name: str, ms: num, detail: optional(str) }),
+  samples: [{ name: "socket-open", ms: 4120.5 }, { name: "frontend-ready", ms: 7001, detail: "1812 resources" }],
+  refused: ["socket-open", { name: "socket-open" }, { name: 7, ms: 1 }],
+});
+
+/**
  * Posted only by `PageFaultScript`'s injected script, which no TypeScript
  * module writes: what faulted, its text, and where (`""` when it said nowhere).
  */

@@ -2546,6 +2546,15 @@ extension MainWindow {
                 stage: "\(LaunchStage.waitingForInterface.rawValue): \(stalled.waitingOn)",
                 reason: "The interface loaded but has not finished starting up."
             )
+        case .launchLap(let lap):
+            // The deck's own boot, step by step, on the page's clock: a
+            // launch that stalls is read as the last lap that arrived.
+            var fields = [
+                TugLog.field("name", lap.name),
+                TugLog.field("ms", String(format: "%.1f", lap.ms)),
+            ]
+            if let detail = lap.detail { fields.append(TugLog.field("detail", detail)) }
+            TugLog.info("launch", "deck lap", fields)
         case .setTheme(let theme):
             bridgeDelegate?.bridgeSetTheme(color: theme.color)
         case .pageZoom(let zoom):

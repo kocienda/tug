@@ -106,6 +106,7 @@ import { answerPageCall, installHostChannel, postToHost, tugdeckPageCalls, type 
 import {
   frontendLaunchStalledToHost,
   frontendReadyToHost,
+  launchLapToHost,
   prepareForTerminationCall,
   reauthenticateCall,
   saveStateCall,
@@ -227,6 +228,41 @@ declare global {
 // necessary.
 installDomForensics();
 
+/**
+ * One lap of the boot, to the host's launch log: the step, on the page's
+ * clock. A launch that stalls reads as the last lap that arrived — which is
+ * what the log could not say before (2026-10-21: a debug launch sat idle for
+ * a minute with no error and no socket, and nothing named the step it had
+ * reached). Laps close at the first `frontendReady`: the socket events below
+ * fire for the page's whole life, and only their first are the launch's.
+ */
+let bootLapsOpen = true;
+function lap(name: string, detail?: string): void {
+  if (!bootLapsOpen) return;
+  postToHost(launchLapToHost, { name, ms: performance.now(), detail });
+}
+
+/** The page's resource loads so far, in one line: how many, how much, the span, and the three slowest. */
+function resourceSummary(): string {
+  const entries = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+  if (entries.length === 0) return "no resource entries";
+  let first = Infinity;
+  let last = 0;
+  let bytes = 0;
+  for (const entry of entries) {
+    first = Math.min(first, entry.startTime);
+    last = Math.max(last, entry.responseEnd);
+    bytes += entry.transferSize;
+  }
+  const slowest = [...entries]
+    .sort((a, b) => b.duration - a.duration)
+    .slice(0, 3)
+    .map((entry) => `${entry.name.replace(/^[a-z]+:\/\/[^/]+/, "")} ${Math.round(entry.duration)} ms`)
+    .join(", ");
+  return `${entries.length} resources, ${Math.round(bytes / 1024)} KB, ${Math.round(first)}–${Math.round(last)} ms; slowest ${slowest}`;
+}
+lap("modules-evaluated");
+
 // Every pointer gesture opens a gesture scope, which holds each store's React
 // notify until after the next painted frame. See `lib/gesture-scope.ts`.
 installGestureScope(window);
@@ -280,6 +316,11 @@ connectionLifecycle.observeConnectionDidEnterReconnecting(() => {
 connectionLifecycle.observeConnectionDidClose(() => {
   transportStateStore.set("offline");
 });
+
+// The socket's first life, for the launch log.
+connectionLifecycle.observeConnectionDidOpen(() => lap("socket-open"));
+connectionLifecycle.observeConnectionDidEnterReconnecting(() => lap("socket-reconnecting"));
+connectionLifecycle.observeConnectionDidClose(() => lap("socket-closed"));
 
 // Register connection in the singleton so modules that cannot safely import
 // from main.tsx (due to circular dependency risk) can access it via getConnection().
@@ -367,11 +408,12 @@ async function loadTestSurface(
 (async () => {
   // Connect first — this triggers the DEFAULTS frame push from tugcast.
   connection.connect();
+  lap("connect");
 
   // Wait for initial DEFAULTS frame + WASM init in parallel.
   await Promise.all([
-    withBootHorizon("tugbank", tugbankClient.ready()),
-    withBootHorizon("tugmark", initTugmark({ module_or_path: wasmUrl })),
+    withBootHorizon("tugbank", tugbankClient.ready().then(() => lap("tugbank-ready"))),
+    withBootHorizon("tugmark", initTugmark({ module_or_path: wasmUrl }).then(() => lap("tugmark-ready"))),
   ]);
 
   // All domain snapshots are now in the TugbankClient cache.
@@ -433,6 +475,7 @@ async function loadTestSurface(
     // instance than this app writes to (see syncDevActiveTheme).
     await withBootHorizon("theme", syncDevActiveTheme(initialTheme));
   }
+  lap("theme-synced");
 
   // Sync canvas color to Swift bridge from the applied CSS metadata token.
   const initialHostCanvasColor = readHostCanvasColorFromAppliedCss();
@@ -481,6 +524,7 @@ async function loadTestSurface(
     Promise.all([loadMakerTooling(hostSettings), loadTestSurface(hostSettings)]),
   );
   registerCardKinds({ maker: makerTooling });
+  lap("maker-tooling");
 
   // Dev-build convenience: expose the log store on `window.tugDevLog`
   // so the WebKit Web Inspector console can drive the Log section without
@@ -550,6 +594,7 @@ async function loadTestSurface(
     focusedCardId ?? undefined,
     { testMode: isTestMode, fallbackTheme: globalTheme }
   );
+  lap("deck-constructed");
 
   // Initialize action dispatch (no SessionNotificationRef in Phase 0).
   initActionDispatch(connection, deck);
@@ -1067,6 +1112,10 @@ async function loadTestSurface(
   // signalReady should also re-fire on every reconnect — the WebView host
   // tracks readiness per-connection.
   const signalReady = () => {
+    if (bootLapsOpen) {
+      lap("frontend-ready", resourceSummary());
+      bootLapsOpen = false;
+    }
     postToHost(frontendReadyToHost, {});
   };
   signalReady();

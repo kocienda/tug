@@ -439,6 +439,31 @@
       ]
     },
     {
+      "name": "launchLap",
+      "from": "shell",
+      "samples": [
+        {
+          "name": "socket-open",
+          "ms": 4120.5
+        },
+        {
+          "name": "frontend-ready",
+          "ms": 7001,
+          "detail": "1812 resources"
+        }
+      ],
+      "refused": [
+        "socket-open",
+        {
+          "name": "socket-open"
+        },
+        {
+          "name": 7,
+          "ms": 1
+        }
+      ]
+    },
+    {
       "name": "pageFault",
       "from": "any",
       "samples": [
