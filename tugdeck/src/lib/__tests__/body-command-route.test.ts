@@ -294,4 +294,13 @@ describe("bodyUnhandledRoute", () => {
     expect(bodyUnhandledRoute(TUG_ACTIONS.REDO)).toBe("decline");
     expect(bodyUnhandledRoute(TUG_ACTIONS.NUDGE_SLOT)).toBe("forward");
   });
+
+  test("the page-zoom commands stay in the page, so the View item's key equivalent fires", () => {
+    // Claimed, the funnel prevented ⌘+/⌘-/⌘0/⌥⌘0 in the body and AppKit
+    // never saw them; the shell has no responder that zooms the page.
+    expect(bodyUnhandledRoute(TUG_ACTIONS.ZOOM_IN)).toBe("decline");
+    expect(bodyUnhandledRoute(TUG_ACTIONS.ZOOM_OUT)).toBe("decline");
+    expect(bodyUnhandledRoute(TUG_ACTIONS.ZOOM_ACTUAL)).toBe("decline");
+    expect(bodyUnhandledRoute(TUG_ACTIONS.ZOOM_TOGGLE_ACTUAL)).toBe("decline");
+  });
 });

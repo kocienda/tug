@@ -49,6 +49,14 @@ const DECK_VERBS: ReadonlySet<string> = new Set([
 /** The walk's steps, which are the shell's while it holds a stop of the card's. */
 const WALK_VERBS: ReadonlySet<string> = new Set([TUG_ACTIONS.NEXT_KEYBOARD_FOCUS, TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS]);
 
+/** The page-zoom commands, which the host performs from the View menu's key equivalents. */
+const HOST_ZOOM: ReadonlySet<string> = new Set([
+  TUG_ACTIONS.ZOOM_IN,
+  TUG_ACTIONS.ZOOM_OUT,
+  TUG_ACTIONS.ZOOM_ACTUAL,
+  TUG_ACTIONS.ZOOM_TOGGLE_ACTUAL,
+]);
+
 export interface BodyCommandFacts {
   /** The command's id. */
   id?: string;
@@ -92,10 +100,14 @@ export function bodyCommandRoute(facts: BodyCommandFacts): string | null {
  *   Escape's last rung while a layout selection stands.
  * - `decline`: keep it. Undo and Redo are the focused surface's edit
  *   history; unanswered here, they are a native control's, reached when the
- *   funnel lets the key go on.
+ *   funnel lets the key go on. The page-zoom commands are AppKit's: the View
+ *   item's key equivalent performs them (`MainWindow.setPageZoom`), and it
+ *   fires only on a keydown the page left unprevented — claimed here, ⌘+,
+ *   ⌘-, ⌘0 and ⌥⌘0 died in the body and the shell, where nothing answers
+ *   them. A surface that zooms itself (the PDF card) answered them already.
  */
 export function bodyUnhandledRoute(id: string): "forward" | "forward-unclaimed" | "decline" {
-  if (id === TUG_ACTIONS.UNDO || id === TUG_ACTIONS.REDO) return "decline";
+  if (id === TUG_ACTIONS.UNDO || id === TUG_ACTIONS.REDO || HOST_ZOOM.has(id)) return "decline";
   if (id === TUG_ACTIONS.CANCEL_DIALOG) return "forward-unclaimed";
   return "forward";
 }
