@@ -1080,6 +1080,14 @@ impl SessionLedger {
             Ok(rebound) => tracing::info!(rebound, "session lines restored from the index"),
             Err(err) => tracing::warn!(error = %err, "line repair from the index failed"),
         }
+        // And the dates the repair once stamped over: a line's span is its
+        // segments', and a ledger whose lines disagree with them sorts the
+        // chooser wrong until they are put back.
+        match ledger.restore_line_times_from_segments() {
+            Ok(0) => {}
+            Ok(moved) => tracing::info!(moved, "session line times restored from their segments"),
+            Err(err) => tracing::warn!(error = %err, "line time restore failed"),
+        }
         Ok(ledger)
     }
 
@@ -4472,20 +4480,33 @@ impl SessionLedger {
             return Ok(0);
         }
         let now = now_millis();
-        let held: Vec<(String, Option<String>, String)> = {
+        // Each session's own span rides along: a revived line is born on
+        // the session's `created_at` and widened to its `last_used_at`,
+        // never stamped with the moment of repair, so the recents order the
+        // chooser reads is the one the sessions actually happened in.
+        let held: Vec<(String, Option<String>, String, i64, i64)> = {
             let conn = self.db.lock();
             let mut stmt = conn.prepare(
-                "SELECT session_id, line_id, project_dir FROM sessions
+                "SELECT session_id, line_id, project_dir, created_at, last_used_at
+                 FROM sessions
                  UNION
-                 SELECT session_id, line_id, project_dir FROM external_scan_cache",
+                 SELECT session_id, line_id, project_dir, created_at, last_used_at
+                 FROM external_scan_cache",
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok((row.get(0)?, row.get::<_, Option<String>>(1)?, row.get(2)?))
+                Ok((
+                    row.get(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
             })?;
             rows.collect::<Result<_, _>>()?
         };
         let mut rebound = 0usize;
-        for (session_id, current, project_dir) in held {
+        for (session_id, current, project_dir, created_at, last_used_at) in held {
+            let born = if created_at > 0 { created_at } else { now };
             let Some((line_id, tag, title)) = self.remembered_line(&session_id) else {
                 continue;
             };
@@ -4535,7 +4556,7 @@ impl SessionLedger {
                 None,
                 &project_dir,
                 Some(&tag),
-                now,
+                born,
             )?;
             if line.tag != tag {
                 // The claim held but the birth still rerolled: nothing was
@@ -4564,6 +4585,13 @@ impl SessionLedger {
                 "UPDATE external_scan_cache SET line_id = ?2 WHERE session_id = ?1",
                 params![session_id, line_id],
             )?;
+            tx.execute(
+                "UPDATE lines
+                 SET created_at = MIN(created_at, ?2),
+                     last_used_at = MAX(last_used_at, ?3)
+                 WHERE line_id = ?1",
+                params![line_id, born, last_used_at.max(born)],
+            )?;
             if let Some(old) = current.as_deref() {
                 let referenced: i64 = tx.query_row(
                     "SELECT (SELECT COUNT(*) FROM sessions WHERE line_id = ?1)
@@ -4579,9 +4607,58 @@ impl SessionLedger {
             rebound += 1;
         }
         if rebound > 0 {
-            tracing::info!(rebound, "line repair: sessions rebound to the lines the index remembers");
+            tracing::info!(
+                rebound,
+                "line repair: sessions rebound to the lines the index remembers"
+            );
         }
         Ok(rebound)
+    }
+
+    /// Put every line's `created_at` and `last_used_at` back to the span its
+    /// segments witness: born with its oldest segment, last used with its
+    /// newest.
+    ///
+    /// That span is the invariant every ordinary write keeps — a line is
+    /// only ever used through a segment — and it is what the chooser's
+    /// recents order reads. The 2026-10-21 index repair broke it: each line
+    /// it revived was born on the clock of the repair, so weeks-old sessions
+    /// sorted ahead of the ones the user had open that morning. Runs at
+    /// every production open, after the repair, and is idempotent: a ledger
+    /// whose lines already agree with their segments is untouched. A line
+    /// with no segment in either table keeps what it has, since nothing can
+    /// say otherwise.
+    ///
+    /// Returns the number of lines whose span moved.
+    pub fn restore_line_times_from_segments(&self) -> Result<usize, LedgerError> {
+        let conn = self.db.lock();
+        let moved = conn.execute(
+            "WITH member AS (
+                SELECT line_id, created_at, last_used_at FROM sessions
+                UNION ALL
+                SELECT line_id, created_at, last_used_at FROM external_scan_cache
+             ), span AS (
+                SELECT line_id,
+                       MIN(created_at) AS born,
+                       MAX(MAX(last_used_at), MIN(created_at)) AS used
+                FROM member
+                WHERE created_at > 0 AND COALESCE(line_id, '') != ''
+                GROUP BY line_id
+             )
+             UPDATE lines
+             SET created_at = (SELECT born FROM span WHERE span.line_id = lines.line_id),
+                 last_used_at = (SELECT used FROM span WHERE span.line_id = lines.line_id)
+             WHERE EXISTS (
+                SELECT 1 FROM span
+                WHERE span.line_id = lines.line_id
+                  AND (span.born != lines.created_at OR span.used != lines.last_used_at)
+             )",
+            [],
+        )?;
+        if moved > 0 {
+            tracing::info!(moved, "line times restored from their segments");
+        }
+        Ok(moved)
     }
 
     /// Record a segment in the machine-wide index ([P04]).
@@ -18454,8 +18531,14 @@ mod tests {
         remember(&path, "seg-2", "line-warm", "warm-alder", None);
         l.upsert_scan_cache(&scan_cache_row("seg-1", None)).unwrap();
         l.upsert_scan_cache(&scan_cache_row("seg-2", None)).unwrap();
-        let one = l.ensure_scan_line("seg-1", millis(0)).unwrap().expect("a line");
-        let two = l.ensure_scan_line("seg-2", millis(0)).unwrap().expect("a line");
+        let one = l
+            .ensure_scan_line("seg-1", millis(0))
+            .unwrap()
+            .expect("a line");
+        let two = l
+            .ensure_scan_line("seg-2", millis(0))
+            .unwrap()
+            .expect("a line");
         assert_eq!(one, "line-warm", "the remembered line, not a fresh one");
         assert_eq!(two, one, "both segments fold onto the one remembered line");
         let row = l.get_line(&one).unwrap().expect("the line");
@@ -18472,27 +18555,64 @@ mod tests {
         l.upsert_scan_cache(&scan_cache_row("seg-1", None)).unwrap();
         l.upsert_scan_cache(&scan_cache_row("seg-2", None)).unwrap();
         // The index knows nothing yet, so the scan mints two strangers.
-        let fresh_1 = l.ensure_scan_line("seg-1", millis(0)).unwrap().expect("a line");
-        let fresh_2 = l.ensure_scan_line("seg-2", millis(0)).unwrap().expect("a line");
+        let fresh_1 = l
+            .ensure_scan_line("seg-1", millis(0))
+            .unwrap()
+            .expect("a line");
+        let fresh_2 = l
+            .ensure_scan_line("seg-2", millis(0))
+            .unwrap()
+            .expect("a line");
         assert_ne!(fresh_1, fresh_2);
 
-        remember(&path, "seg-1", "line-warm", "warm-alder", Some("launch-perf"));
-        remember(&path, "seg-2", "line-warm", "warm-alder", Some("launch-perf"));
+        remember(
+            &path,
+            "seg-1",
+            "line-warm",
+            "warm-alder",
+            Some("launch-perf"),
+        );
+        remember(
+            &path,
+            "seg-2",
+            "line-warm",
+            "warm-alder",
+            Some("launch-perf"),
+        );
         assert_eq!(l.repair_lines_from_index().unwrap(), 2);
         assert_eq!(l.line_of("seg-1").as_deref(), Some("line-warm"));
         assert_eq!(l.line_of("seg-2").as_deref(), Some("line-warm"));
-        let row = l.get_line("line-warm").unwrap().expect("the remembered line");
+        let row = l
+            .get_line("line-warm")
+            .unwrap()
+            .expect("the remembered line");
         assert_eq!(row.tag, "warm-alder");
         assert_eq!(row.name.as_deref(), Some("launch-perf"));
-        assert!(row.name_user_set, "a short spaceless title is the user's own word");
-        assert!(l.get_line(&fresh_1).unwrap().is_none(), "the stranded line is gone");
-        assert!(l.get_line(&fresh_2).unwrap().is_none(), "the stranded line is gone");
+        assert!(
+            row.name_user_set,
+            "a short spaceless title is the user's own word"
+        );
+        // The revived line is born on its sessions' own span, not on the
+        // repair's clock: the chooser orders recents by `last_used_at`.
+        assert_eq!(row.created_at, millis(1));
+        assert_eq!(row.last_used_at, millis(0));
+        assert!(
+            l.get_line(&fresh_1).unwrap().is_none(),
+            "the stranded line is gone"
+        );
+        assert!(
+            l.get_line(&fresh_2).unwrap().is_none(),
+            "the stranded line is gone"
+        );
         assert_eq!(l.repair_lines_from_index().unwrap(), 0, "idempotent");
 
         // A callsign another session already minted here is never taken
         // from it: the repair leaves that session as it is.
         l.upsert_scan_cache(&scan_cache_row("seg-3", None)).unwrap();
-        let fresh_3 = l.ensure_scan_line("seg-3", millis(0)).unwrap().expect("a line");
+        let fresh_3 = l
+            .ensure_scan_line("seg-3", millis(0))
+            .unwrap()
+            .expect("a line");
         {
             let conn = l.db.lock();
             mint(&conn, "stolen-fox", "someone-else", 10);
@@ -18500,6 +18620,41 @@ mod tests {
         remember(&path, "seg-3", "line-other", "stolen-fox", None);
         assert_eq!(l.repair_lines_from_index().unwrap(), 0);
         assert_eq!(l.line_of("seg-3").as_deref(), Some(fresh_3.as_str()));
+    }
+
+    /// A line whose dates disagree with its segments — the shape the repair
+    /// left behind before it carried the sessions' own span — is put back to
+    /// that span, and a line that already agrees is untouched.
+    #[test]
+    fn line_times_are_restored_from_their_segments() {
+        let l = fresh();
+        l.upsert_scan_cache(&scan_cache_row("seg-1", None)).unwrap();
+        let line = l
+            .ensure_scan_line("seg-1", millis(0))
+            .unwrap()
+            .expect("a line");
+        assert_eq!(
+            l.restore_line_times_from_segments().unwrap(),
+            0,
+            "already agrees"
+        );
+        {
+            let conn = l.db.lock();
+            conn.execute(
+                "UPDATE lines SET created_at = ?2, last_used_at = ?2 WHERE line_id = ?1",
+                params![line, millis(-30)],
+            )
+            .unwrap();
+        }
+        assert_eq!(l.restore_line_times_from_segments().unwrap(), 1);
+        let row = l.get_line(&line).unwrap().expect("the line");
+        assert_eq!(row.created_at, millis(1), "born with its oldest segment");
+        assert_eq!(row.last_used_at, millis(0), "last used with its newest");
+        assert_eq!(
+            l.restore_line_times_from_segments().unwrap(),
+            0,
+            "idempotent"
+        );
     }
 
     #[test]
