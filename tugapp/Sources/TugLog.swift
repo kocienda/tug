@@ -92,6 +92,17 @@ enum TugLog {
         info("tuglog", "tuglog initialized", [field("name", "tugapp"), field("log_dir", directory.path)])
     }
 
+    /// Wait for every line already written to reach the file.
+    ///
+    /// Writes are asynchronous, so the lines of a quit — the verdicts, the
+    /// quiesce, the reply — would otherwise race the process exit that
+    /// follows them. Called once, as the app terminates.
+    static func flush() {
+        queue.sync {
+            try? handle?.synchronize()
+        }
+    }
+
     /// The file today's lines are being written to.
     ///
     /// Resolved from the same directory and the same UTC-day formatter the

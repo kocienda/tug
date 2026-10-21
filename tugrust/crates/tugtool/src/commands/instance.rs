@@ -22,6 +22,30 @@ pub enum InstanceCommands {
     /// List every live Tug instance registered with this host.
     List,
 
+    /// Quit a running instance with the `quit` Apple Event, as the OS does.
+    ///
+    /// Sends `'aevt'/'quit'` to the host app's pid from the registry, so the
+    /// deck's termination pipeline runs — live turns interrupted, every card
+    /// persisted — and waits for the app to exit, saying so every 5 s. A
+    /// reply that has not arrived after 3 s writes a stall directory under
+    /// `instances/<id>/stalls/` and the wait goes on. Past `--timeout` it
+    /// exits 1 and has signalled nothing. A tugcast that outlives the app is
+    /// reaped as `stop` would. `--json` reports the send status, time to
+    /// reply and time to exit.
+    Quit {
+        /// Instance ID to quit (e.g. `release-main`, `debug-foo`).
+        instance_id: String,
+
+        /// Seconds to wait for the app to exit.
+        #[arg(long, default_value_t = 90)]
+        timeout: u64,
+
+        /// Skip the Apple Event and run the `stop` ladder instead: SIGTERM,
+        /// then SIGKILL. The deck's termination pipeline does not run.
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Send SIGTERM to a running instance and wait for it to exit.
     ///
     /// Looks the instance up in the registry, signals its PID, waits
@@ -108,6 +132,7 @@ pub enum InstanceCommands {
 pub fn command_name(cmd: &InstanceCommands) -> &'static str {
     match cmd {
         InstanceCommands::List => "host instance list",
+        InstanceCommands::Quit { .. } => "host instance quit",
         InstanceCommands::Stop { .. } => "host instance stop",
         InstanceCommands::Current => "host instance current",
         InstanceCommands::Remove { .. } => "host instance remove",
@@ -119,7 +144,12 @@ pub fn command_name(cmd: &InstanceCommands) -> &'static str {
 /// `--json`, which `prune` reads as "report the orphans, remove nothing".
 pub fn run_instance(cmd: InstanceCommands, json: bool) -> Result<i32, String> {
     match cmd {
-        InstanceCommands::List => run_list(),
+        InstanceCommands::List => run_list(json),
+        InstanceCommands::Quit {
+            instance_id,
+            timeout,
+            force,
+        } => run_quit(&instance_id, timeout, force, json),
         InstanceCommands::Stop {
             instance_id,
             timeout,
@@ -137,8 +167,18 @@ pub fn run_instance(cmd: InstanceCommands, json: bool) -> Result<i32, String> {
 
 // ── list ─────────────────────────────────────────────────────────────────────
 
-fn run_list() -> Result<i32, String> {
+fn run_list(json: bool) -> Result<i32, String> {
     let entries = registry::list_live().map_err(|e| format!("read registry: {e}"))?;
+    if json {
+        // The whole entry, host pid included: the recipes that read an
+        // instance's app (`app-log`, `app-sample`, `app-state`) resolve it
+        // from here rather than from a process search.
+        crate::output::print_ok(
+            "host instance list",
+            serde_json::json!({ "instances": entries }),
+        );
+        return Ok(0);
+    }
     if entries.is_empty() {
         println!("(no Tug instances running)");
         return Ok(0);
@@ -154,6 +194,137 @@ fn run_list() -> Result<i32, String> {
         );
     }
     Ok(0)
+}
+
+// ── quit ─────────────────────────────────────────────────────────────────────
+
+#[cfg(not(target_os = "macos"))]
+fn run_quit(_instance_id: &str, _timeout: u64, _force: bool, _json: bool) -> Result<i32, String> {
+    Err("`host instance quit` sends an Apple Event and needs macOS".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn run_quit(instance_id: &str, timeout_secs: u64, force: bool, json: bool) -> Result<i32, String> {
+    use super::instance_quit::{QuitOutcome, QuitTarget, quit_host};
+
+    if force {
+        return run_stop(instance_id, 5);
+    }
+    let Some(entry) =
+        registry::find_by_id(instance_id).map_err(|e| format!("read registry: {e}"))?
+    else {
+        // Quitting what is not running is done already: the recipes call
+        // this unconditionally before a build.
+        if json {
+            crate::output::print_ok(
+                "host instance quit",
+                serde_json::json!({ "instance": instance_id, "outcome": "not-running" }),
+            );
+        } else {
+            println!("instance '{instance_id}' is not running");
+        }
+        return Ok(0);
+    };
+
+    let host_needle = host_needle(&entry.bundle_path);
+    let host_pid = entry.host_pid;
+    let have_host =
+        host_pid > 0 && pid_alive(host_pid) && pid_is(host_pid, &host_needle, "host app");
+    if !have_host {
+        // The GUI is gone already; what can be left is a tugcast, and
+        // reaping that is `stop`'s job.
+        if !json {
+            println!("instance '{instance_id}' has no running host app; reaping what is left");
+        }
+        return run_stop(instance_id, 5);
+    }
+
+    let target = QuitTarget {
+        instance_id: instance_id.to_string(),
+        host_pid,
+        tugcast_port: entry.tugcast_port,
+        stall_root: tugcore::instance_data_dir_for(instance_id).join("stalls"),
+    };
+    if !json {
+        println!("quitting {instance_id} — quit Apple Event to host app (PID {host_pid})");
+    }
+    let mut say = |line: String| {
+        if json {
+            eprintln!("{line}");
+        } else {
+            println!("{line}");
+        }
+    };
+    let mut report = quit_host(
+        &target,
+        std::time::Duration::from_secs(timeout_secs.max(1)),
+        &mut say,
+    );
+
+    if report.outcome == QuitOutcome::Quit {
+        // tugcast follows its parent within its 2 s parent-watch; one that
+        // outlives that is reaped the way `stop` reaps it.
+        let tugcast_pid = entry.pid;
+        let grace = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while pid_alive(tugcast_pid) && std::time::Instant::now() < grace {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if pid_alive(tugcast_pid) && pid_is(tugcast_pid, "tugcast", "tugcast") {
+            say(format!(
+                "tugcast (PID {tugcast_pid}) outlived the app — reaping it"
+            ));
+            report.tugcast_reaped = true;
+            run_stop(instance_id, 5)?;
+        }
+    }
+
+    let failure = match report.outcome {
+        QuitOutcome::Quit => None,
+        QuitOutcome::Refused | QuitOutcome::Stalled => Some(format!(
+            "quit of '{instance_id}' {}: {}",
+            if report.outcome == QuitOutcome::Refused {
+                "refused"
+            } else {
+                "stalled"
+            },
+            report.error.clone().unwrap_or_default()
+        )),
+    };
+    if json {
+        match &failure {
+            None => crate::output::print_ok("host instance quit", &report),
+            Some(message) => crate::output::print_error_with(
+                "host instance quit",
+                &report,
+                &crate::changes::AppError::from(message.clone()),
+            ),
+        }
+        return Ok(if failure.is_some() { 1 } else { 0 });
+    }
+    match failure {
+        None => {
+            println!(
+                "quit {instance_id}: exited in {:.1}s",
+                report.exit_ms.unwrap_or(0) as f64 / 1000.0
+            );
+            Ok(0)
+        }
+        Some(message) => Err(match &report.stall_dir {
+            Some(dir) => format!("{message} — evidence in {}", dir.display()),
+            None => message,
+        }),
+    }
+}
+
+/// The host app's executable name, which its command line contains: the
+/// bundle's stem (`Tug`, `Tug-debug-foo`).
+fn host_needle(bundle_path: &Path) -> String {
+    bundle_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Tug")
+        .to_string()
 }
 
 // ── stop ─────────────────────────────────────────────────────────────────────
@@ -173,13 +344,7 @@ fn run_stop(instance_id: &str, timeout_secs: u64) -> Result<i32, String> {
     // `tugcast` for the tugcast PID, the bundle executable for the host.
     // A confirmed mismatch is NEVER signalled — that is how an app-test
     // teardown could otherwise SIGKILL a live debug instance's child.
-    let host_needle = entry
-        .bundle_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("Tug")
-        .to_string();
+    let host_needle = host_needle(&entry.bundle_path);
     let have_host =
         host_pid > 0 && pid_alive(host_pid) && pid_is(host_pid, &host_needle, "host app");
     let tugcast_ours = pid_alive(tugcast_pid) && pid_is(tugcast_pid, "tugcast", "tugcast");
@@ -568,7 +733,7 @@ fn send_signal(pid: i32, sig: i32) {
     }
 }
 
-fn pid_alive(pid: i32) -> bool {
+pub(crate) fn pid_alive(pid: i32) -> bool {
     if pid <= 0 {
         return false;
     }

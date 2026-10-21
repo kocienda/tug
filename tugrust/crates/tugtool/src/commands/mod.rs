@@ -17,6 +17,8 @@ pub mod gate;
 pub mod hook;
 pub mod init;
 pub mod instance;
+#[cfg(target_os = "macos")]
+pub mod instance_quit;
 pub mod restore_names;
 pub mod state_dir;
 pub mod sweep;

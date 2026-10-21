@@ -213,6 +213,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         editableContentTypes + viewableContentTypes
 
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Before the open-application event is dispatched, so the first
+        // Apple Event the log records is the app's own launch.
+        HostRunLoopWatch.shared.install()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let t0 = CFAbsoluteTimeGetCurrent()
         AppDelegate.launchStartedAt = t0
@@ -573,6 +579,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private static let terminationPipelineDeadline: TimeInterval = 12.0
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        TugLog.info("quit", "applicationShouldTerminate — freezing the window")
         // Freeze the WebView with a snapshot overlay so the user never sees
         // teardown artifacts (disconnect banners, theme flashes, blank screens).
         // The snapshot covers the WebView while save + cleanup run underneath.
@@ -606,9 +613,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard !settled else { return }
             settled = true
             let line = views.map { "\($0.label): \(verdicts[$0.label] ?? "no answer")" }.joined(separator: " | ")
-            NSLog("AppDelegate: termination verdicts — %@", line)
-            // The instance's own log keeps it too, beside the run it ends.
-            TugLog.info("app", "termination verdicts", [TugLog.field("views", line)])
+            TugLog.info("quit", "termination verdicts", [TugLog.field("views", line)])
             completion()
         }
 
@@ -620,10 +625,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         let deadline = DispatchWorkItem {
-            NSLog(
-                "AppDelegate: termination pipeline did not answer within %.0fs — saving the silent views synchronously and tearing down",
-                Self.terminationPipelineDeadline
-            )
+            TugLog.warn("quit", "termination pipeline did not answer — saving the silent views synchronously and tearing down", [
+                TugLog.field("deadline_s", Int(Self.terminationPipelineDeadline)),
+            ])
             for view in views where verdicts[view.label] == nil {
                 fallbackSave(view.webView)
             }
@@ -634,7 +638,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             execute: deadline
         )
 
-        NSLog("AppDelegate: applicationShouldTerminate — running the deck termination pipeline in %d view(s)", views.count)
+        TugLog.info("quit", "running the deck termination pipeline", [TugLog.field("views", views.count)])
         for view in views {
             window.hostChannel.call(.prepareForTermination, in: view.webView) { result in
                 guard !settled else { return }
@@ -682,7 +686,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         testHarnessBridge?.close()
         testHarnessBridge = nil
         #endif
+        TugLog.info("quit", "replying to applicationShouldTerminate")
         NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        TugLog.info("quit", "terminating")
+        // The process exits when this returns; the quit's lines are written
+        // asynchronously and would otherwise be lost with it.
+        TugLog.flush()
     }
 
     // MARK: - App lifecycle (NSApplicationDelegate)

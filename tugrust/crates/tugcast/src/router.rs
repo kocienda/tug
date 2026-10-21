@@ -299,6 +299,8 @@ pub struct FeedRouter {
     pub(crate) pending_evals: PendingEvals,
     /// Pending ask requests awaiting a human answer in the deck.
     pub(crate) pending_asks: PendingAsks,
+    /// The request/reply line to the host app, for `/api/host/state`.
+    pub(crate) host_link: crate::control::HostLink,
     /// The Haiku `SharedAgent`, once `main` has built one.
     pub(crate) shared_agent: crate::shared_agent::SharedAgentHandle,
     /// The wheel's pending-rotation and hand-back registries, once `main`
@@ -355,6 +357,7 @@ impl FeedRouter {
             dev_state,
             pending_evals: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             pending_asks: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            host_link: crate::control::HostLink::default(),
             shared_agent: None,
             wheel: None,
             pages: Arc::new(PageRegistry::new()),

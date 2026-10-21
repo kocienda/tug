@@ -107,6 +107,9 @@ pub(crate) async fn serve(runtime: Runtime) -> Shutdown {
     } else {
         None
     };
+    if let Some(tx) = &response_tx {
+        feed_router.host_link.attach(tx.clone());
+    }
 
     // Spawn control socket receive loop
     if let Some(reader) = control_reader {
@@ -120,6 +123,7 @@ pub(crate) async fn serve(runtime: Runtime) -> Shutdown {
         let ctl_shared_agent = feed_router.shared_agent.clone();
         let ctl_page_lane = feed_router.page_lane.clone();
         let ctl_pages = Arc::clone(&feed_router.pages);
+        let ctl_host_link = feed_router.host_link.clone();
         tokio::spawn(reader.run_recv_loop(
             ctl_shutdown_tx,
             ctl_stream_outputs,
@@ -131,6 +135,7 @@ pub(crate) async fn serve(runtime: Runtime) -> Shutdown {
             ctl_shared_agent,
             ctl_page_lane,
             ctl_pages,
+            ctl_host_link,
         ));
     }
 

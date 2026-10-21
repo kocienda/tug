@@ -231,9 +231,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
           }
 
           // ---- quit ----
-          const logPath = app.logPath;
           await app.quitGracefully({ timeoutMs: 20_000 });
-          const log = logPath === null ? "" : readFileSync(logPath, "utf8");
+          const log = app.tugappLog();
           const verdict = log.split("\n").filter((line) => line.includes("termination verdicts")).pop() ?? "";
           note(`quit: ${verdict.trim() || "no verdict line in the log"}`);
           expect(verdict, "the verdict names the card's body").toContain(`body:${K2}:`);
@@ -389,12 +388,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
 
         // ---- Quit: D saves under the termination pipeline ----
         await typeDraft(app, D, DRAFT_BEFORE_QUIT);
-        const logPath = app.logPath;
         await app.quitGracefully({ timeoutMs: 20_000 });
         const bagAfterQuit = bagOnDisk(tugbankPath, D);
         expect(bagAfterQuit, "D's bag is on tugbank disk after the quit").not.toBeNull();
         expect(bagAfterQuit, "and it carries the draft typed before the quit").toContain(DRAFT_BEFORE_QUIT);
-        const log = logPath === null ? "" : readFileSync(logPath, "utf8");
+        const log = app.tugappLog();
         const verdict = log.split("\n").filter((line) => line.includes("termination verdicts")).pop() ?? "";
         note(`quit: ${verdict.trim() || "no verdict line in the log"}`);
         expect(verdict, "the termination pipeline reported a verdict").not.toBe("");

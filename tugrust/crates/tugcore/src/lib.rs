@@ -8,6 +8,8 @@
 //!
 //! Nothing in this crate may depend on any other Tug crate.
 
+#[cfg(target_os = "macos")]
+pub mod apple_event;
 pub mod changes_schema;
 pub mod claude_home;
 #[cfg(test)]

@@ -608,6 +608,13 @@ class ProcessManager {
         controlConnection?.close()
         controlConnection = connection
 
+        // The host state probe is answered here, on the socket's read queue,
+        // from the watch's locked snapshot: it has to answer while the main
+        // thread is stuck, which is exactly when a hop to main would not.
+        connection.offMainResponder = { msg in
+            guard msg.type == "host_state_request", let id = msg.data["id"] as? String else { return nil }
+            return ["type": "host_state", "id": id, "state": HostRunLoopWatch.shared.snapshot().json()]
+        }
         connection.onMessage = { [weak self] msg in
             self?.handleControlMessage(msg)
         }
@@ -649,16 +656,16 @@ class ProcessManager {
             }
         case "shutdown":
             guard restartDecision == .pending else {
-                NSLog("ProcessManager: ignoring duplicate shutdown signal (decision already set)")
+                TugLog.info("quiesce", "ignoring duplicate shutdown signal (decision already set)")
                 return
             }
             let reason = msg.data["reason"] as? String ?? "unknown"
             switch reason {
             case "relaunch":
-                NSLog("ProcessManager: shutdown reason=relaunch, tugrelaunch handles restart")
+                TugLog.info("quiesce", "tugcast shutdown, tugrelaunch handles restart", [TugLog.field("reason", reason)])
                 // Stop vite dev server before app exit
                 if let proc = viteProcess, proc.isRunning {
-                    NSLog("ProcessManager: terminating vite dev server before relaunch")
+                    TugLog.info("quiesce", "terminating vite dev server before relaunch")
                     proc.terminate()
                     proc.waitUntilExit()
                 }
@@ -666,13 +673,16 @@ class ProcessManager {
                 restartDecision = .doNotRestart
             case "error":
                 let message = msg.data["message"] as? String ?? ""
-                NSLog("ProcessManager: shutdown reason=error, message=%@, will not restart", message)
+                TugLog.warn("quiesce", "tugcast shutdown, will not restart", [
+                    TugLog.field("reason", reason),
+                    TugLog.field("message", message),
+                ])
                 restartDecision = .doNotRestart
             case "normal", "restart", "reset":
-                NSLog("ProcessManager: shutdown reason=%@, will restart", reason)
+                TugLog.info("quiesce", "tugcast shutdown, will restart", [TugLog.field("reason", reason)])
                 restartDecision = .restartWithBackoff
             default:
-                NSLog("ProcessManager: shutdown reason=%@, will not restart", reason)
+                TugLog.info("quiesce", "tugcast shutdown, will not restart", [TugLog.field("reason", reason)])
                 restartDecision = .doNotRestart
             }
         default:
@@ -748,6 +758,8 @@ class ProcessManager {
     /// clock: the supervisor's drain deadline starts when the shutdown
     /// request is sent, and the later rungs spend whatever remains of it.
     func stop() {
+        let startedAt = Date()
+        TugLog.info("quiesce", "stopping tugcast")
         // Stop the vite dev server first. No ledgers to flush, so it
         // gets the short reclaim grace rather than the drain deadline.
         if let proc = viteProcess, proc.isRunning {
@@ -807,6 +819,10 @@ class ProcessManager {
         controlConnection = nil
 
         writeQuiesceReport()
+        TugLog.info("quiesce", "tugcast stopped", [
+            TugLog.field("ms", Int(Date().timeIntervalSince(startedAt) * 1000)),
+            TugLog.field("sigkills", quiesceEscalations.count),
+        ])
     }
 
     /// Poll `proc` for exit until `deadline`. Returns whether it exited.
@@ -863,7 +879,7 @@ class ProcessManager {
             )
             try data.write(to: path, options: .atomic)
         } catch {
-            NSLog("ProcessManager: cannot write quiesce report: %@", error.localizedDescription)
+            TugLog.error("quiesce", "cannot write quiesce report", [TugLog.field("error", error.localizedDescription)])
         }
     }
 
@@ -878,21 +894,19 @@ class ProcessManager {
         let startedAt = Date()
         while Date() < deadline {
             if kill(-pgid, 0) != 0 && errno == ESRCH {
-                NSLog(
-                    "ProcessManager: process group %d exited gracefully after %.1fs",
-                    pgid,
-                    Date().timeIntervalSince(startedAt)
-                )
+                TugLog.info("quiesce", "process group exited gracefully", [
+                    TugLog.field("pgid", pgid),
+                    TugLog.field("s", String(format: "%.1f", Date().timeIntervalSince(startedAt))),
+                ])
                 return
             }
             Thread.sleep(forTimeInterval: Self.processGroupPollInterval)
         }
         let waited = Date().timeIntervalSince(startedAt)
-        NSLog(
-            "ProcessManager: process group %d still alive after %.1fs — SIGKILL",
-            pgid,
-            waited
-        )
+        TugLog.warn("quiesce", "process group still alive — SIGKILL", [
+            TugLog.field("pgid", pgid),
+            TugLog.field("s", String(format: "%.1f", waited)),
+        ])
         noteSigkill(target: "tugcast-process-group", pid: pgid, after: waited)
         kill(-pgid, SIGKILL)
     }

@@ -26,6 +26,85 @@ pub enum ControlMessage {
         #[serde(default)]
         vite_port: Option<u16>,
     },
+    /// The app's answer to a [`HostLink::request_state`], matched by `id`.
+    HostState {
+        id: String,
+        #[serde(default)]
+        state: serde_json::Value,
+    },
+}
+
+/// Why the host app's state could not be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostStateError {
+    /// No control socket to the app: tugcast was started without one, or the
+    /// app has not connected yet.
+    NoHost,
+    /// The request went out and no answer came back in time. This is the
+    /// answer the probe exists to give honestly — the app answers from a
+    /// thread the main run loop cannot hold, so silence means the app's
+    /// socket reader itself is stuck, not merely its main thread.
+    NoAnswer,
+}
+
+/// tugcast's request/reply line to the host app over the control socket.
+///
+/// Every other message on that socket is fire-and-forget; this one is a
+/// question with an answer, so it keeps its own pending map keyed by request
+/// id, the way `/api/eval` keeps one for the deck. The writer is attached once
+/// the socket's drain task exists, which is after the router is built.
+#[derive(Clone, Default)]
+pub(crate) struct HostLink {
+    writer: std::sync::Arc<parking_lot::Mutex<Option<mpsc::Sender<String>>>>,
+    pending: std::sync::Arc<
+        parking_lot::Mutex<
+            std::collections::HashMap<String, tokio::sync::oneshot::Sender<serde_json::Value>>,
+        >,
+    >,
+}
+
+impl HostLink {
+    /// Give the link the control socket's write channel.
+    pub(crate) fn attach(&self, writer: mpsc::Sender<String>) {
+        *self.writer.lock() = Some(writer);
+    }
+
+    /// Ask the app for its run-loop and dispatch state, waiting at most `wait`.
+    pub(crate) async fn request_state(
+        &self,
+        wait: Duration,
+    ) -> Result<serde_json::Value, HostStateError> {
+        let Some(writer) = self.writer.lock().clone() else {
+            return Err(HostStateError::NoHost);
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending.lock().insert(id.clone(), tx);
+        let request = serde_json::json!({ "type": "host_state_request", "id": id }).to_string();
+        // The send shares the wait: a full channel is as much "no answer" as
+        // a silent app.
+        let outcome = tokio::time::timeout(wait, async {
+            writer
+                .send(request)
+                .await
+                .map_err(|_| HostStateError::NoHost)?;
+            rx.await.map_err(|_| HostStateError::NoAnswer)
+        })
+        .await;
+        self.pending.lock().remove(&id);
+        match outcome {
+            Ok(answer) => answer,
+            Err(_) => Err(HostStateError::NoAnswer),
+        }
+    }
+
+    /// Hand an answer to the request waiting on it. An answer nobody waits
+    /// for any more — it arrived after the timeout — is dropped.
+    pub(crate) fn settle(&self, id: &str, state: serde_json::Value) {
+        if let Some(tx) = self.pending.lock().remove(id) {
+            let _ = tx.send(state);
+        }
+    }
 }
 
 /// Control socket writer half
@@ -87,6 +166,7 @@ impl ControlReader {
         shared_agent: crate::shared_agent::SharedAgentHandle,
         page_lane: broadcast::Sender<crate::pages::AddressedFrame>,
         pages: std::sync::Arc<crate::pages::PageRegistry>,
+        host_link: HostLink,
     ) {
         // Extract the CONTROL broadcast sender for use throughout the recv loop.
         let client_action_tx = stream_outputs
@@ -207,6 +287,9 @@ impl ControlReader {
                             info!("Control socket: shutdown requested by parent");
                             let _ = shutdown_tx.send(0).await;
                             return;
+                        }
+                        Ok(ControlMessage::HostState { id, state }) => {
+                            host_link.settle(&id, state);
                         }
                         Err(e) => {
                             info!("Control socket: failed to parse message: {}", e);
@@ -505,6 +588,65 @@ mod tests {
         let json = r#"{"type":"shutdown"}"#;
         let msg: ControlMessage = serde_json::from_str(json).unwrap();
         assert!(matches!(msg, ControlMessage::Shutdown));
+    }
+
+    #[test]
+    fn host_state_answer_deserializes_with_its_id_and_state() {
+        let json = r#"{"type":"host_state","id":"abc","state":{"mode":"kCFRunLoopDefaultMode"}}"#;
+        match serde_json::from_str::<ControlMessage>(json).unwrap() {
+            ControlMessage::HostState { id, state } => {
+                assert_eq!(id, "abc");
+                assert_eq!(state["mode"], "kCFRunLoopDefaultMode");
+            }
+            other => panic!("expected HostState, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn host_link_without_a_socket_reports_no_host() {
+        let link = HostLink::default();
+        assert_eq!(
+            link.request_state(Duration::from_millis(50)).await,
+            Err(HostStateError::NoHost)
+        );
+    }
+
+    #[tokio::test]
+    async fn host_link_settles_the_request_its_answer_names() {
+        let link = HostLink::default();
+        let (tx, mut rx) = mpsc::channel::<String>(4);
+        link.attach(tx);
+        let answering = link.clone();
+        tokio::spawn(async move {
+            let line = rx.recv().await.unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["type"], "host_state_request");
+            let id = request["id"].as_str().unwrap().to_owned();
+            // An answer for some other request settles nothing.
+            answering.settle("not-this-one", serde_json::json!({"wrong": true}));
+            answering.settle(&id, serde_json::json!({"body_count": 3}));
+        });
+        let state = link.request_state(Duration::from_secs(5)).await.unwrap();
+        assert_eq!(state, serde_json::json!({"body_count": 3}));
+        assert!(link.pending.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn host_link_reports_silence_as_no_answer_and_forgets_the_request() {
+        let link = HostLink::default();
+        let (tx, mut rx) = mpsc::channel::<String>(4);
+        link.attach(tx);
+        let started = std::time::Instant::now();
+        assert_eq!(
+            link.request_state(Duration::from_millis(100)).await,
+            Err(HostStateError::NoAnswer)
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        // The request did go out, and a late answer to it lands nowhere.
+        let line = rx.recv().await.unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        link.settle(request["id"].as_str().unwrap(), serde_json::json!({}));
+        assert!(link.pending.lock().is_empty());
     }
 
     #[test]

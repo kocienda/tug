@@ -85,6 +85,26 @@ class ControlSocketConnection {
     /// Callback when connection closes (EOF or error)
     var onDisconnect: (() -> Void)?
 
+    /// Answers a message on the socket's own read queue, without the hop to
+    /// the main thread every other message takes. Return a reply to send it
+    /// and consume the message; return nil to let the message go to
+    /// `onMessage` as usual.
+    ///
+    /// This is for the one question that must be answerable while the main
+    /// thread is stuck — the host state probe — so it must not touch
+    /// anything main-confined. It is assigned on the main thread after
+    /// reading has already begun, so it is held under a lock of its own.
+    var offMainResponder: ((ControlMessage) -> [String: Any]?)? {
+        get { responderLock.withLock { responder } }
+        set { responderLock.withLock { responder = newValue } }
+    }
+    private var responder: ((ControlMessage) -> [String: Any]?)?
+    private let responderLock = NSLock()
+
+    /// Serializes writes: the off-main responder and the main thread both
+    /// send, and one message must never interleave with another.
+    private let writeLock = NSLock()
+
     init(fd: Int32) {
         self.fileHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         // Start reading
@@ -107,6 +127,10 @@ class ControlSocketConnection {
             let lineData = buffer[buffer.startIndex..<newlineIndex]
             buffer = Data(buffer[(newlineIndex + 1)...])  // +1 to skip the newline
             if let msg = ControlMessage(json: Data(lineData)) {
+                if let reply = offMainResponder?(msg) {
+                    send(reply)
+                    continue
+                }
                 DispatchQueue.main.async { [weak self] in
                     self?.onMessage?(msg)
                 }
@@ -132,6 +156,8 @@ class ControlSocketConnection {
               var payload = String(data: jsonData, encoding: .utf8) else { return }
         payload.append("\n")
         guard let data = payload.data(using: .utf8) else { return }
+        writeLock.lock()
+        defer { writeLock.unlock() }
         do {
             try fileHandle.write(contentsOf: data)
         } catch {

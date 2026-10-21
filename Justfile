@@ -708,30 +708,48 @@ stop-release:
 stop:
     #!/usr/bin/env bash
     set -uo pipefail
+    TUGTOOL="$(bash tugrust/scripts/tugtool-bin.sh)" || exit 1
+    FAILED=0
     while read -r LINE; do
         ID="$(printf '%s' "$LINE" | awk '{print $1}')"
         BUNDLE_PATH="$(printf '%s' "$LINE" | awk '{print $4}')"
         [ -n "$ID" ] || continue
-        # Derive bundle ID from the bundle path's Info.plist when
-        # available — that's the source of truth for a running app.
-        # Fall back to plain `tugtool host instance stop` if the plist
-        # can't be read (registry entry without a live bundle).
+        # The bundle id, from the bundle's Info.plist, is the script's
+        # last check that no process still holds it; an entry whose
+        # bundle cannot be read skips that check and is quit all the same.
         BUNDLE_ID=""
         if [ -n "$BUNDLE_PATH" ] && [ -f "$BUNDLE_PATH/Contents/Info.plist" ]; then
             BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUNDLE_PATH/Contents/Info.plist" 2>/dev/null || true)"
         fi
-        if [ -n "$BUNDLE_ID" ]; then
-            bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$ID"
-        else
-            tugrust/target/debug/tugtool host instance stop "$ID" --timeout 5 || true
-        fi
-    done < <(tugrust/target/debug/tugtool host instance list 2>/dev/null | tail -n +2)
+        # One instance that will not quit does not keep the rest running;
+        # the recipe still fails at the end.
+        bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$ID" || FAILED=1
+    done < <("$TUGTOOL" host instance list 2>/dev/null | tail -n +2)
+    exit "$FAILED"
 
 # One-line wrapper around `tugtool host instance list`. Forwards any extra
 # args (e.g. `--json`).
 # List running Tug instances (wraps `tugtool host instance list`).
 instances *FLAGS:
     tugrust/target/debug/tugtool host instance list {{FLAGS}}
+
+# The system log for an instance's host app — AppKit's lines, the Apple
+# Event traffic, NSLog — which `tugapp.log` does not carry. The pid comes
+# from the instance registry.
+# Show an instance's app system log (`--last 5m`, `--grep X`).
+[positional-arguments]
+app-log INSTANCE *ARGS:
+    @bash tugrust/scripts/app-inspect.sh log "$@"
+
+# Sample an instance's host app (default 3 s) and print the file written.
+[positional-arguments]
+app-sample INSTANCE *ARGS:
+    @bash tugrust/scripts/app-inspect.sh sample "$@"
+
+# Print an instance's host run-loop state from `/api/host/state`.
+[positional-arguments]
+app-state INSTANCE:
+    @bash tugrust/scripts/app-inspect.sh state "$@"
 
 # Profile what the cwd-derived debug instance's renderer does per frame.
 #

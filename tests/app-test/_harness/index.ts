@@ -25,6 +25,7 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -515,6 +516,26 @@ export class App {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The app's own log, `tugapp.log.<UTC-date>` in the instance's `Logs/`
+   * directory — every file of it, oldest first, as one string. This is
+   * where `TugLog` writes, and it is not the launch's stdout capture
+   * (`logPath`): the quit's lines (the Apple Event dispatch, the
+   * termination verdicts, the quiesce) are here and only here. The app
+   * flushes the file as it terminates, so after `quitGracefully` it is
+   * complete. Empty when the app has written nothing.
+   */
+  tugappLog(): string {
+    const dir = join(homedir(), "Library/Application Support/Tug/instances", this.instanceId, "Logs");
+    let names: string[];
+    try {
+      names = readdirSync(dir).filter((name) => name.startsWith("tugapp.log.")).sort();
+    } catch {
+      return "";
+    }
+    return names.map((name) => readFileSync(join(dir, name), "utf8")).join("");
   }
 
   /**

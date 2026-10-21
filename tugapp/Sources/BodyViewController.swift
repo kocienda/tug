@@ -274,7 +274,10 @@ final class BodyViewController {
     /// before it has: until then the overlay is held transparent, or it
     /// would stand over the splash.
     private var revealedAt: CFTimeInterval?
-    private(set) var bodies: [Body] = []
+    private(set) var bodies: [Body] = [] {
+        // The host state probe reports the count off the main thread.
+        didSet { HostRunLoopWatch.shared.noteBodyCount(bodies.count) }
+    }
     private(set) var region = CardHitRegion()
     /// The spare's pending creation, so a burst of readies makes one.
     private var pendingSpare: DispatchWorkItem?

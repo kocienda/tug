@@ -1647,6 +1647,56 @@ async fn eval_handler(
     }
 }
 
+/// How long `/api/host/state` waits for the app. The app answers from its
+/// socket reader without touching the main thread, so a healthy answer is
+/// milliseconds; anything past this is the fact the probe reports.
+const HOST_STATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Handle GET /api/host/state: the host app's main run-loop mode, modal
+/// window, time since the last default-mode pass, recent Apple Event
+/// dispatches, and body count.
+///
+/// Read-only and loopback-only, and — unlike `/api/eval` — not gated on dev
+/// mode: it runs no code, and it exists to be read off a release deck whose
+/// quit has stalled. An app that does not answer in time is reported as
+/// such, with `504`, rather than waited on.
+async fn host_state_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(router): State<FeedRouter>,
+) -> Response {
+    if !addr.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({"status": "error", "message": "forbidden"})),
+        )
+            .into_response();
+    }
+    match router.host_link.request_state(HOST_STATE_TIMEOUT).await {
+        Ok(state) => (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({"status": "ok", "state": state})),
+        )
+            .into_response(),
+        Err(crate::control::HostStateError::NoHost) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({
+                "status": "no-host",
+                "message": "no control socket to the host app",
+            })),
+        )
+            .into_response(),
+        Err(crate::control::HostStateError::NoAnswer) => (
+            StatusCode::GATEWAY_TIMEOUT,
+            axum::Json(serde_json::json!({
+                "status": "no-answer",
+                "message": "the host app did not answer",
+                "waited_ms": HOST_STATE_TIMEOUT.as_millis() as u64,
+            })),
+        )
+            .into_response(),
+    }
+}
+
 /// How long an ask waits for a human. Eval waits 30 seconds because a browser
 /// either answers immediately or is gone; an ask waits on someone noticing a
 /// dialog, so the ceiling is set where "still deciding" stops being plausible
@@ -2057,6 +2107,7 @@ pub(crate) fn build_app(
         .route("/api/ask", post(ask_handler))
         .route("/api/pages", get(pages_handler))
         .route("/api/host", get(crate::host::get_host))
+        .route("/api/host/state", get(host_state_handler))
         .route("/api/changesets", get(changesets_handler))
         .route("/api/ink-census", get(ink_census_handler))
         .route("/api/draft", post(draft_handler))
@@ -2593,6 +2644,7 @@ mod tests {
         pages: Arc<crate::pages::PageRegistry>,
         dev_state: SharedDevState,
         shell_id: u64,
+        host_link: crate::control::HostLink,
     }
 
     /// POST a JSON body and read back `(status, parsed body)`. Spelled out
@@ -2639,6 +2691,7 @@ mod tests {
         let pending_asks = router.pending_asks.clone();
         let pending_evals = router.pending_evals.clone();
         let pages = Arc::clone(&router.pages);
+        let host_link = router.host_link.clone();
 
         let app = build_app(router, dev_state.clone(), None, None, None);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2660,6 +2713,7 @@ mod tests {
             pages,
             dev_state,
             shell_id,
+            host_link,
         }
     }
 
@@ -2887,6 +2941,61 @@ mod tests {
         assert_eq!(status, 504);
         assert_eq!(body["message"], "timeout waiting for answer");
         assert!(fx.pending_asks.lock().is_empty());
+    }
+
+    // ── /api/host/state ──────────────────────────────────────────────────
+
+    async fn get_json(url: &str) -> (u16, serde_json::Value) {
+        let response = reqwest::Client::new().get(url).send().await.unwrap();
+        let status = response.status().as_u16();
+        let text = response.text().await.unwrap();
+        (status, serde_json::from_str(&text).unwrap())
+    }
+
+    /// With no control socket there is no app to ask, and the route says so
+    /// at once.
+    #[tokio::test]
+    async fn host_state_without_a_host_is_503() {
+        let fx = serve_ask_fixture().await;
+        let (status, body) = get_json(&format!("{}/api/host/state", fx.base_url)).await;
+        assert_eq!(status, 503);
+        assert_eq!(body["status"], "no-host");
+    }
+
+    /// The app's answer comes back as the route's body, whole.
+    #[tokio::test]
+    async fn host_state_returns_the_apps_answer() {
+        let fx = serve_ask_fixture().await;
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(4);
+        fx.host_link.attach(tx);
+        let link = fx.host_link.clone();
+        tokio::spawn(async move {
+            let line = rx.recv().await.unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            link.settle(
+                request["id"].as_str().unwrap(),
+                serde_json::json!({"mode": "NSModalPanelRunLoopMode", "body_count": 2}),
+            );
+        });
+        let (status, body) = get_json(&format!("{}/api/host/state", fx.base_url)).await;
+        assert_eq!(status, 200);
+        assert_eq!(body["status"], "ok");
+        assert_eq!(body["state"]["mode"], "NSModalPanelRunLoopMode");
+        assert_eq!(body["state"]["body_count"], 2);
+    }
+
+    /// An app that never answers is reported as silent within the timeout —
+    /// the fact a stalled quit's capture needs — rather than hung on.
+    #[tokio::test]
+    async fn host_state_from_a_silent_app_is_504_within_the_timeout() {
+        let fx = serve_ask_fixture().await;
+        let (tx, _rx) = tokio::sync::mpsc::channel::<String>(4);
+        fx.host_link.attach(tx);
+        let started = std::time::Instant::now();
+        let (status, body) = get_json(&format!("{}/api/host/state", fx.base_url)).await;
+        assert_eq!(status, 504);
+        assert_eq!(body["status"], "no-answer");
+        assert!(started.elapsed() < HOST_STATE_TIMEOUT + std::time::Duration::from_secs(2));
     }
 
     /// A countdown question carries its answer and its duration to the deck,
