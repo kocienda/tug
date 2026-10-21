@@ -195,12 +195,12 @@ export function mintTurnKey(): string {
  * CODE_OUTPUT tags the engine takes apart before admission. Each has a
  * decoder, and none reaches the reducer as itself: `routeFrame` unwraps a
  * `replay_batch` and routes its frames one by one, and `divertProgress`
- * sends the two progress frames to the mirror's `RunProgressStore`.
+ * sends the two progress frames to the mirror's `ReportStore`.
  */
 export const UNWRAPPED_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set<DecodedTag>([
   "replay_batch",
   "tool_progress",
-  "run_progress",
+  "report",
 ]);
 
 /**
@@ -469,7 +469,7 @@ export class SessionEngine {
 
   /**
    * Send a CODE_OUTPUT frame's live-progress meaning to the mirror's
-   * `RunProgressStore`. Returns true for the two progress frames, which the
+   * `ReportStore`. Returns true for the two progress frames, which the
    * reducer never sees; a `tool_result` also closes its call there, and still
    * goes on to the reducer.
    */
@@ -483,7 +483,7 @@ export class SessionEngine {
           nowMs: Date.now(),
         });
         return true;
-      case "run_progress": {
+      case "report": {
         const id = frame.tool_use_id;
         this.progress({
           op: "report",
@@ -745,7 +745,7 @@ export class SessionEngine {
         return frame;
       case "replay_batch":
       case "tool_progress":
-      case "run_progress":
+      case "report":
         // Taken apart before admission (`UNWRAPPED_CODE_OUTPUT_TYPES`).
         return null;
     }

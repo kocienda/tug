@@ -4,8 +4,8 @@
 #
 #   bash tugrust/scripts/report-phase.sh <label> <n> [<name>] [--of <names…>] [--needle <text>…]
 #
-# Hands the arguments to `tugtool progress phase`, which keeps the run's phase
-# state and draws the Bash block's run panel: the landed phases with their
+# Hands the arguments to `tugtool report phase`, which keeps the run's phase
+# state and draws the Bash block's report panel: the landed phases with their
 # times, the one running since when, the rest to come. `--needle "just <label>"`
 # rides every call, so a recipe run as `just <label>` is matched to its block
 # without saying so; a recipe that also runs under another name passes that
@@ -24,5 +24,5 @@ TUGTOOL_BIN="$REPO_ROOT/tugrust/target/debug/tugtool"
 [ $# -ge 2 ] || exit 0
 
 label="$1"
-"$TUGTOOL_BIN" progress phase "$@" --needle "just $label" >/dev/null 2>&1 || true
+"$TUGTOOL_BIN" report phase "$@" --needle "just $label" >/dev/null 2>&1 || true
 exit 0

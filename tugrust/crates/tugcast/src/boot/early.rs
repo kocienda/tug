@@ -58,6 +58,7 @@ pub(crate) async fn early(log_guard: tuglog::LogGuard) -> Early {
                     tmux_sockets = r.tmux_sockets_unlinked.len(),
                     tmp_files = r.tmp_files_removed.len(),
                     tmp_dirs = r.tmp_dirs_removed.len(),
+                    retired_data_files = r.retired_data_files_removed.len(),
                     data_dirs = r.apptest_data_dirs_removed.len(),
                     seeded_transcripts = r.seeded_transcripts_removed.len(),
                     processes = r.processes_killed.len(),

@@ -77,7 +77,7 @@ pub use ops::{
     ledger_file, list_in, mark_in, open_arc, plan_file, show_in, status_in, step_done_in,
     step_start_in, tasks_file, worktree_path,
 };
-pub use replay::{ReplayOutcome, ReplayedRounds, replay_onto};
+pub use replay::{REPLAY_PHASES, ReplayOutcome, ReplayedRounds, replay_onto, replay_watched};
 pub use resolve::{
     FileMergeRequest, FileMerger, FileResolution, JoinShape, RESOLVE_LEASE, RESOLVE_SUBJECT_PREFIX,
     ResolveLease, ResolveOutcome, ResolvedBy, mark_resolve_begun, mark_resolve_ended,

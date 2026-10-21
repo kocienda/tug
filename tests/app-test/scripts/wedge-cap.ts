@@ -5,7 +5,7 @@
  * per operation, so nothing fires. The 91-minute core-tier run of 2026-10-05 was three
  * 5–7 s files sitting at 17–19 minutes each, one after the other. The recipe now stops a
  * file at a flat per-file budget instead and records it `OVERTIME`, a red; what it still
- * reads from here is the basis column — the median — which the run panel's pending rows
+ * reads from here is the basis column — the median — which the report panel's pending rows
  * carry for the time-left projection. The results ledger reads a `STALLED` row (the old
  * `WEDGED`) as neither a red nor a duration.
  *

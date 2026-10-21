@@ -160,10 +160,11 @@ import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
 import {
-  formatRunProgressLine,
-  type RunProgressStore,
-} from "@/lib/run-progress-store";
-import { useRunProgressFrom } from "@/components/tugways/blocks/run-progress-context";
+  formatReportLine,
+  type ReportStore,
+} from "@/lib/report-store";
+import { useReportFrom } from "@/components/tugways/blocks/report-context";
+import type { SessionGap } from "@/lib/report-gaps-store";
 import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
 
 // ---------------------------------------------------------------------------
@@ -1204,23 +1205,23 @@ function JobMetaSep(): React.ReactElement {
  * A component rather than a hook in the row, because only running rows
  * read it and a hook cannot be conditional.
  */
-function JobRunProgress({
+function JobReportLine({
   store,
   toolUseId,
 }: {
-  store: RunProgressStore | undefined;
+  store: ReportStore | undefined;
   toolUseId: string;
 }): React.ReactElement | null {
-  const progress = useRunProgressFrom(store, toolUseId);
+  const progress = useReportFrom(store, toolUseId);
   if (progress?.text === undefined) return null;
   return (
     <>
       <JobMetaSep />
       <span
-        className="session-jobs-popover-run-progress"
-        data-slot="session-jobs-popover-run-progress"
+        className="session-jobs-popover-report"
+        data-slot="session-jobs-popover-report"
       >
-        {formatRunProgressLine(progress)}
+        {formatReportLine(progress)}
       </span>
     </>
   );
@@ -1233,13 +1234,17 @@ const LIVE_RUN_FRESH_MS = 120_000;
  * The card's latest report that no call claimed — a run tugcast could not
  * tie to one block — while it is fresh. Freshness is read at render, so a
  * stale line is simply not drawn the next time the placard renders.
+ *
+ * It wears a faint "unattached" tag, so a report that missed its block reads
+ * as a mis-attached one rather than a missing one; on a debug or test build
+ * the tag's title says which attachment rule left it here ([F15]).
  */
 function LiveRunLine({
   store,
 }: {
-  store: RunProgressStore | undefined;
+  store: ReportStore | undefined;
 }): React.ReactElement | null {
-  const progress = useRunProgressFrom(store, null);
+  const progress = useReportFrom(store, null);
   if (
     progress?.text === undefined ||
     progress.reportAtMs === undefined ||
@@ -1252,8 +1257,49 @@ function LiveRunLine({
       className="session-jobs-popover-live-run"
       data-slot="session-jobs-popover-live-run"
     >
-      {formatRunProgressLine(progress)}
+      <span
+        className="session-jobs-popover-unattached"
+        data-slot="session-jobs-popover-unattached"
+        title={
+          import.meta.env.DEV || window.__tugTestMode === true
+            ? progress.unattached
+            : undefined
+        }
+      >
+        unattached
+      </span>
+      <span data-slot="session-jobs-popover-live-run-line">
+        {formatReportLine(progress)}
+      </span>
     </div>
+  );
+}
+
+/**
+ * The session's dark calls: the long Bash calls that ran with no report,
+ * newest first, each its command's head and its wall time. They are where a
+ * `tugtool report` loop or a declared runner is due, shown here so the
+ * adoption loop is the user's to see as well as the model's.
+ */
+function DarkCallRows({
+  gaps,
+}: {
+  gaps: readonly SessionGap[];
+}): React.ReactElement {
+  return (
+    <>
+      {gaps.map((gap) => (
+        <TugPopupListItem
+          key={`${gap.endedAtMs}:${gap.head}`}
+          data-slot="session-jobs-popover-dark-call"
+        >
+          <TugPopupListItemText
+            primary={gap.head}
+            meta={`${formatDurationMs(gap.wallMs)} · no report`}
+          />
+        </TugPopupListItem>
+      ))}
+    </>
   );
 }
 
@@ -1278,7 +1324,7 @@ function JobRow({
   onStopJob,
   onCancelScheduledWork,
   onStopLoop,
-  runProgress,
+  reports,
 }: {
   job: JobItem;
   transcript: ReadonlyArray<TurnEntry>;
@@ -1294,7 +1340,7 @@ function JobRow({
    */
   onStopLoop?: (jobId: string) => void;
   /** The session's live run progress, for a running row's report. */
-  runProgress?: RunProgressStore;
+  reports?: ReportStore;
 }): React.ReactElement {
   const description = jobDescriptionText(job.description);
   // The job launched from an assistant turn's `tool_use`; link its
@@ -1350,7 +1396,7 @@ function JobRow({
         </>
       ) : null}
       {job.status === "running" ? (
-        <JobRunProgress store={runProgress} toolUseId={job.toolUseId} />
+        <JobReportLine store={reports} toolUseId={job.toolUseId} />
       ) : null}
       {wakeBadge !== null ? (
         <TugBadge emphasis="tinted" role="danger" size="2xs">
@@ -1460,7 +1506,8 @@ export function JobsPopoverContent({
   onCancelScheduledWork,
   onStopLoop,
   onClearJobs,
-  runProgress,
+  reports,
+  darkCalls,
 }: {
   goal: GoalState | null;
   /** Clear is gated to idle (a live goal run is stopped via interrupt). */
@@ -1482,11 +1529,14 @@ export function JobsPopoverContent({
    * the card's report no call claimed. Optional — a surface without one
    * shows neither.
    */
-  runProgress?: RunProgressStore;
+  reports?: ReportStore;
+  /** The session's dark calls from the gaps record, newest first. */
+  darkCalls?: readonly SessionGap[];
 }): React.ReactElement {
   const hasGoal = goal !== null;
   const hasJobs = jobs.length > 0;
-  const liveRun = <LiveRunLine store={runProgress} />;
+  const hasDark = darkCalls !== undefined && darkCalls.length > 0;
+  const liveRun = <LiveRunLine store={reports} />;
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   // Row order is goal, running, scheduled, finished, and jobs append within
   // each group. So a surface with anything live on it already opens on its
@@ -1499,7 +1549,7 @@ export function JobsPopoverContent({
     scrollerRef,
     liveCount > 0 ? 0 : (hasGoal ? 1 : 0) + jobs.length - 1,
   );
-  if (!hasGoal && !hasJobs) {
+  if (!hasGoal && !hasJobs && !hasDark) {
     return (
       <TugPopupListFrame kind="item">
         {liveRun}
@@ -1518,7 +1568,7 @@ export function JobsPopoverContent({
       onStopJob={onStopJob}
       onCancelScheduledWork={onCancelScheduledWork}
       onStopLoop={onStopLoop}
-      runProgress={runProgress}
+      reports={reports}
     />
   );
   const group = (
@@ -1619,6 +1669,11 @@ export function JobsPopoverContent({
           "Finished",
           jobs.filter((j) => isTerminalJobStatus(j.status)).map(renderRow),
           counts.finished === 0,
+        )}
+        {group(
+          "Dark calls",
+          <DarkCallRows gaps={darkCalls ?? []} />,
+          !hasDark,
         )}
       </TugPopupListScroller>
     </TugPopupListFrame>

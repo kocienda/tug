@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { CELLS_UP_TO, formatSecs, laneSlots, runPanelModel, unitWord, verdictSentence } from "../run-panel-model";
-import type { RunProgress, RunUnit } from "../run-progress-store";
+import {
+  CELLS_UP_TO,
+  formatSecs,
+  laneSlots,
+  nextActFor,
+  projectionText,
+  reportPanelModel,
+  unitWord,
+  verdictSentence,
+} from "../report-panel-model";
+import type { Report, RunUnit } from "../report-store";
 
 const NOW = 100_000;
 
@@ -10,7 +19,7 @@ function file(name: string, index: number, rest: Partial<RunUnit>): RunUnit {
 }
 
 /** Chunk c05, frozen mid-run: four landed (one red), two in flight, four to come. */
-const MID_RUN: RunProgress = {
+const MID_RUN: Report = {
   toolUseId: "t",
   label: "app-test",
   text: "at0339 FAIL",
@@ -33,9 +42,9 @@ const MID_RUN: RunProgress = {
   ],
 };
 
-describe("runPanelModel", () => {
+describe("reportPanelModel", () => {
   test("mid-run: the tally, the lanes' elapsed, the reds, and cells for a whole small batch", () => {
-    const m = runPanelModel(MID_RUN, "running", NOW);
+    const m = reportPanelModel(MID_RUN, "running", NOW);
     expect(m.counts).toEqual({ pass: 3, red: 1, fail: 1, stalled: 0, skipped: 0, pending: 4 });
     expect(m.track).toBe("cells");
     expect(m.lanes.map((l) => [l.unit.name, l.elapsedSecs])).toEqual([
@@ -47,13 +56,72 @@ describe("runPanelModel", () => {
   });
 
   test("the projection is the medians left, a running file's less what it has spent, over the jobs", () => {
-    const m = runPanelModel(MID_RUN, "running", NOW);
+    const m = reportPanelModel(MID_RUN, "running", NOW);
     // pending 7+6+8+12 = 33; at0341 9-12 → 0; at0352 11-31 → 0. Over 2 jobs.
     expect(m.projectionSecs).toBe(16.5);
+    expect(projectionText(m)).toBe("~17s left");
+  });
+
+  test("units no median knows are counted, and the pace mark is the expected time spent", () => {
+    const units = MID_RUN.units!.map((u) => (u.name === "at0372" || u.name === "at0381" ? { ...u, median: undefined } : u));
+    const m = reportPanelModel({ ...MID_RUN, units }, "running", NOW);
+    // The two unknowns are taken at the typical median, (6+8+5+9+9+11+7+6)/8 = 7.625.
+    expect(m.unknownCount).toBe(2);
+    expect(m.projectionSecs).toBeCloseTo((7 + 6 + 7.625 + 7.625) / 2);
+    expect(projectionText(m)).toBe("~14s left · 2 unknown");
+    // The earliest start is 31 s ago: 31 of 31 + 14.125 spent.
+    expect(m.paceFraction).toBeCloseTo(31 / (31 + m.projectionSecs!));
+    // Finished, there is no projection and no mark.
+    const done = reportPanelModel({ ...MID_RUN, units }, "finished", NOW);
+    expect(done.paceFraction).toBeNull();
+    expect(projectionText(done)).toBeNull();
+  });
+
+  test("a red verdict names the act that lists its reds; a green one names none", () => {
+    expect(nextActFor("app-test", "file")).toBe("see the Failures section");
+    expect(nextActFor("rust", "test")).toBe("tugtool test last --failures");
+    expect(nextActFor("bun", "file")).toBe("tugtool test last --failures");
+    expect(nextActFor("build-app", "phase")).toBeNull();
+    expect(nextActFor("arc verify", "surface")).toBeNull();
+    const red = reportPanelModel(MID_RUN, "finished", NOW);
+    expect(red.nextAct).toBe("see the Failures section");
+    const rust: Report = { toolUseId: "t", label: "rust", done: 10, total: 10, failures: 0, unit: "test", units: [] };
+    expect(reportPanelModel(rust, "finished", NOW).nextAct).toBeNull();
+    expect(reportPanelModel({ ...rust, failures: 2 }, "finished", NOW).nextAct).toBe("tugtool test last --failures");
+  });
+
+  test("a green row with a history line is a recovery, and the verdict counts it", () => {
+    const run: Report = {
+      toolUseId: "t",
+      label: "app-test",
+      done: 2,
+      total: 2,
+      unit: "file",
+      units: [
+        file("at0578", 0, { status: "pass", secs: 9, history: "red in the last 2 recorded runs, back to abc (2026-10-19)" }),
+        file("at0601", 1, { status: "pass", secs: 4 }),
+      ],
+    };
+    const m = reportPanelModel(run, "finished", NOW);
+    expect(m.recovered.map((u) => u.name)).toEqual(["at0578"]);
+    expect(m.verdict).toBe("green");
+    expect(verdictSentence(m)).toBe("2 files passed · 1 recovered");
+  });
+
+  test("phase rows ride above the units, and a phase still running lands once the units begin", () => {
+    const phases: RunUnit[] = [
+      file("build", 0, { status: "pass", secs: 40 }),
+      file("sign", 1, { status: "running", startedAtMs: NOW - 5_000 }),
+    ];
+    const before = reportPanelModel({ ...MID_RUN, units: MID_RUN.units!.map((u) => ({ ...u, status: "pending" as const })), phases }, "running", NOW);
+    expect(before.phases.map((u) => u.status)).toEqual(["pass", "running"]);
+    const during = reportPanelModel({ ...MID_RUN, phases }, "running", NOW);
+    expect(during.phases.map((u) => u.status)).toEqual(["pass", "pass"]);
+    expect(reportPanelModel(MID_RUN, "running", NOW).phases).toEqual([]);
   });
 
   test("a report carrying only some units is a band, and its tally comes from the counts", () => {
-    const tests: RunProgress = {
+    const tests: Report = {
       toolUseId: "t",
       label: "rust",
       done: 812,
@@ -62,7 +130,7 @@ describe("runPanelModel", () => {
       unit: "test",
       units: [{ name: "jots::reopen_keeps_chips", status: "fail", index: 437 }],
     };
-    const m = runPanelModel(tests, "running", NOW);
+    const m = reportPanelModel(tests, "running", NOW);
     expect(m.track).toBe("band");
     expect(m.listed).toBe(false);
     expect(m.counts.red).toBe(3);
@@ -72,14 +140,14 @@ describe("runPanelModel", () => {
 
   test("a whole batch past the cell limit is a band too; an unknown total is no track", () => {
     const units = Array.from({ length: CELLS_UP_TO + 1 }, (_, i) => file(`f${i}`, i, { status: "pass" }));
-    const big = runPanelModel({ ...MID_RUN, total: units.length, units }, "running", NOW);
+    const big = reportPanelModel({ ...MID_RUN, total: units.length, units }, "running", NOW);
     expect(big.track).toBe("band");
-    const bun = runPanelModel({ toolUseId: "t", done: 120, unit: "test", units: [] }, "running", NOW);
+    const bun = reportPanelModel({ toolUseId: "t", done: 120, unit: "test", units: [] }, "running", NOW);
     expect(bun.track).toBe("none");
   });
 
   test("finished, a unit still running resolves by the call's outcome", () => {
-    const build: RunProgress = {
+    const build: Report = {
       toolUseId: "t",
       label: "build-app",
       done: 4,
@@ -90,17 +158,17 @@ describe("runPanelModel", () => {
         file("re-sign", 1, { status: "running", startedAtMs: NOW }),
       ],
     };
-    const ok = runPanelModel(build, "finished", NOW, { callFailed: false });
+    const ok = reportPanelModel(build, "finished", NOW, { callFailed: false });
     expect(ok.units[1]?.status).toBe("pass");
     expect(ok.verdict).toBe("green");
-    const broke = runPanelModel(build, "finished", NOW, { callFailed: true });
+    const broke = reportPanelModel(build, "finished", NOW, { callFailed: true });
     expect(broke.units[1]?.status).toBe("fail");
     expect(broke.verdict).toBe("red");
     expect(broke.lanes, "a finished run has nothing in flight").toEqual([]);
   });
 
   test("the verdict sentence names the unit and what went wrong", () => {
-    const finished: RunProgress = {
+    const finished: Report = {
       ...MID_RUN,
       done: 10,
       units: (MID_RUN.units ?? []).map((u) =>
@@ -111,9 +179,9 @@ describe("runPanelModel", () => {
             : u,
       ),
     };
-    const m = runPanelModel(finished, "finished", NOW);
+    const m = reportPanelModel(finished, "finished", NOW);
     expect(verdictSentence(m)).toBe("1 of 10 files failed, 1 stalled");
-    const green = runPanelModel(
+    const green = reportPanelModel(
       { ...finished, failures: 0, units: finished.units?.map((u) => ({ ...u, status: "pass" as const })) },
       "finished",
       NOW,

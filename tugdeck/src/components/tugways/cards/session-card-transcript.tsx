@@ -147,7 +147,7 @@ import {
   ToolUseIdContext,
   ToolCallMetaProvider,
 } from "@/components/tugways/blocks/collapse-context";
-import { RunProgressContext } from "@/components/tugways/blocks/run-progress-context";
+import { ReportContext } from "@/components/tugways/blocks/report-context";
 import { collapseDefaultForMessage } from "@/components/tugways/cards/blocks/tool-collapse-defaults";
 import {
   ToolBlockExpansionState,
@@ -3383,7 +3383,7 @@ export const SessionTranscriptHost = forwardRef<
         // when modal. The overlay is an absolute sibling layered *over* it.
         <div className="tug-control-bar-region" ref={setRegionEl}>
           <ToolBlockExpansionContext.Provider value={toolBlockExpansion}>
-            <RunProgressContext.Provider value={codeSessionStore.runProgress}>
+            <ReportContext.Provider value={codeSessionStore.reports}>
             <FindTargetRegistryContext.Provider value={findTargets}>
             <TugListView
               ref={listViewRef}
@@ -3451,7 +3451,7 @@ export const SessionTranscriptHost = forwardRef<
               interactive={false}
             />
             </FindTargetRegistryContext.Provider>
-            </RunProgressContext.Provider>
+            </ReportContext.Provider>
           </ToolBlockExpansionContext.Provider>
           <TugJumpToBottomButton
             ref={jumpButtonRef}

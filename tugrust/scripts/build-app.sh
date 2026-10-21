@@ -93,7 +93,7 @@ mkdir -p "$DERIVED_DATA" "$STAGING_DIR"
 # they build. The Tug Xcode copy phase requires all of these in target/release.
 echo "==> Building release inputs (shared with app-release)"
 # The build's phases on the calling Session card's running block, through
-# `tugtool progress phase`. Labelled `dmg`; `just notarize` runs it too.
+# `tugtool report phase`. Labelled `dmg`; `just notarize` runs it too.
 REPORT="$SCRIPT_DIR/report-phase.sh"
 bash "$REPORT" dmg 0 "release inputs" --of "release inputs" "Xcode build" "assemble" "sign" "notarize" "DMG" --needle "just notarize"
 bash "$SCRIPT_DIR/build-release-inputs.sh"

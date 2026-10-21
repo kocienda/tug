@@ -39,7 +39,7 @@ pub(crate) struct Ledgers {
     pub(crate) prompt_ledger: Option<Arc<PromptLedger>>,
     /// The record of long Bash calls that reported no unit. `None` when it
     /// would not open, which costs the record its rows and nothing else.
-    pub(crate) run_gaps: Option<Arc<tugcore::run_gaps::RunGaps>>,
+    pub(crate) report_gaps: Option<Arc<tugcore::report_gaps::ReportGaps>>,
 }
 
 /// Open tugbank, open the session ledger (refusing another instance's),
@@ -181,15 +181,15 @@ pub(crate) fn ledgers(actual_port: u16, bank_path: &Path) -> Ledgers {
         crate::draft_gc::sweep_at_startup(bank, prompt_ledger.as_deref());
     }
 
-    // The run-gaps record — telemetry about long Bash calls that reported
+    // The report-gaps record — telemetry about long Bash calls that reported
     // nothing. Non-fatal for the same reason: a record that will not open
     // loses its rows, and a call is never touched by its record failing.
-    let run_gaps = {
-        let path = tugcore::run_gaps::RunGaps::default_path();
-        match tugcore::run_gaps::RunGaps::open(&path) {
+    let report_gaps = {
+        let path = tugcore::report_gaps::ReportGaps::default_path();
+        match tugcore::report_gaps::ReportGaps::open(&path) {
             Ok(g) => Some(Arc::new(g)),
             Err(e) => {
-                warn!(error = %e, path = %path.display(), "failed to open the run-gaps record (long unreported calls will not be recorded)");
+                warn!(error = %e, path = %path.display(), "failed to open the report-gaps record (long unreported calls will not be recorded)");
                 None
             }
         }
@@ -200,7 +200,7 @@ pub(crate) fn ledgers(actual_port: u16, bank_path: &Path) -> Ledgers {
         notify_socket_path,
         ledger,
         prompt_ledger,
-        run_gaps,
+        report_gaps,
     }
 }
 

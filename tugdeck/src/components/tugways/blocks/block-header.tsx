@@ -61,8 +61,8 @@ import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicato
 import { useLiveTick } from "@/lib/live-tick";
 import { formatTimeMinutesSeconds } from "@/lib/session-telemetry-format";
 import { useToolCallMeta, type ToolCallMeta } from "./collapse-context";
-import { useRunProgress } from "./run-progress-context";
-import { engineLiveness, liveElapsedMs } from "@/lib/run-progress-store";
+import { useReport } from "./report-context";
+import { engineLiveness, liveElapsedMs } from "@/lib/report-store";
 
 /**
  * The header's timing slot while a tool call is in flight: a live elapsed
@@ -90,7 +90,7 @@ import { engineLiveness, liveElapsedMs } from "@/lib/run-progress-store";
  */
 function InFlightTiming({ meta }: { meta: ToolCallMeta }): React.ReactElement {
   const now = useLiveTick();
-  const progress = useRunProgress(meta.toolUseId);
+  const progress = useReport(meta.toolUseId);
   return (
     <span
       className="tool-call-header-timing tug-line-box"

@@ -1,9 +1,9 @@
-//! `tugtool progress unit` — a loop over items draws the run panel one line
+//! `tugtool report unit` — a loop over items draws the report panel one line
 //! per item.
 //!
 //! `plan` declares the items, `start` and `done` move one, `amend` adds to a
 //! landed one, and `finish` closes the run. Every call posts the whole run as
-//! unit rows, so a shell loop never builds JSON: the verb is `progress
+//! unit rows, so a shell loop never builds JSON: the verb is `report
 //! phase`'s sibling for items, with two differences items need. Items run in
 //! parallel, so the state is one file per item rather than one per run —
 //! `start` and `done` each write their own item's file by rename, and nothing
@@ -11,11 +11,11 @@
 //! posts only the rows worth drawing once it is past what the panel draws
 //! one by one.
 //!
-//! The row is the run panel's `RunUnit`: `name`, `status`, `index`, and
+//! The row is the report panel's `RunUnit`: `name`, `status`, `index`, and
 //! optionally `passed`, `total`, `secs`, `median`, `started_at_ms`, `title`,
 //! `message`, `history`. Nothing here adds a field the panel does not read.
 //!
-//! Telemetry, like every `progress` verb: silent, exit 0, and with no calling
+//! Telemetry, like every `report` verb: silent, exit 0, and with no calling
 //! session nothing is kept under the temp dir and nothing is sent.
 
 use std::collections::BTreeMap;
@@ -23,10 +23,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::progress::{RunReport, now_ms, post_run_progress, safe_label};
+use crate::report::{RunReport, now_ms, post_report, safe_label};
 
 /// Past this many items the panel draws a band rather than one cell per item
-/// (`CELLS_UP_TO` in the deck's run-panel model), so a report past it carries
+/// (`CELLS_UP_TO` in the deck's report-panel model), so a report past it carries
 /// only the rows the band shows: the running ones and the reds.
 pub const CELLS_UP_TO: usize = 64;
 
@@ -68,15 +68,14 @@ impl UnitStatus {
     }
 }
 
-/// How an item landed, as `unit done` takes it. `wedged` is the old word for
-/// `stalled`, and is read as it.
+/// How an item landed, as `unit done` takes it. `stalled` is the one word for
+/// an item stopped past its time; the older `wedged` is no status.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum LandedStatus {
     Pass,
     Fail,
     Error,
     Skipped,
-    #[value(alias = "wedged")]
     Stalled,
 }
 
@@ -349,7 +348,7 @@ fn run_dir(label: &str) -> Option<PathBuf> {
     let token = crate::session_identity::calling_session_token()?;
     Some(
         std::env::temp_dir()
-            .join("tug-progress-unit")
+            .join("tug-report-unit")
             .join(format!("{token}-{}", safe_label(label))),
     )
 }
@@ -410,14 +409,14 @@ fn save_row(dir: &Path, row: &UnitRow) {
 /// none.
 fn post(dir: &Path, run: &UnitRun, text: &str) {
     write_whole(&dir.join("text"), text.as_bytes());
-    let _ = post_run_progress(&run.report(text));
+    let _ = post_report(&run.report(text));
 }
 
 fn last_text(dir: &Path) -> String {
     std::fs::read_to_string(dir.join("text")).unwrap_or_default()
 }
 
-/// One `progress unit` call, as the CLI hands it over.
+/// One `report unit` call, as the CLI hands it over.
 pub enum UnitCall {
     Plan {
         label: String,
@@ -453,7 +452,7 @@ pub enum UnitCall {
     },
 }
 
-/// `tugtool progress unit …`. Silent, and always `Ok`.
+/// `tugtool report unit …`. Silent, and always `Ok`.
 pub fn run_unit(call: UnitCall) {
     let label = match &call {
         UnitCall::Plan { label, .. }
@@ -545,9 +544,147 @@ pub fn run_unit(call: UnitCall) {
     }
 }
 
+/// `arc verify`'s report: one `surface` row per surface the range touched,
+/// each landing with how many of its checks passed of how many it carries, so
+/// the verify draws on its block while its checks run. Built from the
+/// verify's own events, in process, rather than by shelling out to `report
+/// unit`.
+pub struct SurfaceReport {
+    run: UnitRun,
+}
+
+impl SurfaceReport {
+    pub fn new(needles: Vec<String>) -> Self {
+        SurfaceReport {
+            run: UnitRun {
+                plan: UnitPlan {
+                    label: "arc verify".into(),
+                    unit: "surface".into(),
+                    needles,
+                    created_ms: now_ms(),
+                    ..UnitPlan::default()
+                },
+                rows: BTreeMap::new(),
+            },
+        }
+    }
+
+    /// The report a verify event makes. A surface whose check failed is the
+    /// red, titled with the check; one that declares no checks is skipped as
+    /// claimed and unchecked, which is what the verify's table calls it.
+    pub fn event(&mut self, event: tugarc_core::surfaces::VerifyEvent<'_>, now: i64) -> RunReport {
+        use tugarc_core::surfaces::VerifyEvent;
+        match event {
+            VerifyEvent::Planned(surfaces) => {
+                self.run.plan.names = surfaces.iter().map(|(name, _)| name.clone()).collect();
+                self.run.plan.medians = vec![None; surfaces.len()];
+                self.run
+                    .report(&format!("{} surface(s) to check", surfaces.len()))
+            }
+            VerifyEvent::Started(name) => {
+                self.run.start(name, None, now);
+                self.run.report(&format!("checking {name}"))
+            }
+            VerifyEvent::Finished(result) => {
+                let total = result.commands.len() as u64;
+                let passed = result
+                    .commands
+                    .iter()
+                    .filter(|c| c.status == "already-run" || c.exit_code == Some(0))
+                    .count() as u64;
+                let failed = result
+                    .commands
+                    .iter()
+                    .find(|c| c.exit_code.is_some_and(|code| code != 0));
+                let (status, title, message) = match failed {
+                    Some(c) => (
+                        UnitStatus::Fail,
+                        Some(c.command.clone()),
+                        Some(format!("exit {}", c.exit_code.unwrap_or(-1))),
+                    ),
+                    None if total == 0 => (
+                        UnitStatus::Skipped,
+                        None,
+                        Some("claimed, unchecked".to_string()),
+                    ),
+                    None => (UnitStatus::Pass, None, None),
+                };
+                let landing = Landing {
+                    secs: None,
+                    passed: Some(passed),
+                    total: Some(total),
+                    title,
+                    message,
+                };
+                let index = self.run.done(&result.name, status, landing, now);
+                self.run.report(&self.run.done_text(index))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_verify_draws_one_surface_row_per_surface_with_its_checks() {
+        use tugarc_core::surfaces::{CommandResult, SurfaceResult, VerifyEvent};
+        let ran = |command: &str, exit: i32| CommandResult {
+            command: command.into(),
+            declared_by: "x".into(),
+            status: "ran".into(),
+            exit_code: Some(exit),
+            already_run_for: None,
+        };
+        let surface = |name: &str, commands: Vec<CommandResult>| SurfaceResult {
+            name: name.into(),
+            paths: vec![],
+            red: commands.iter().any(|c| c.exit_code.is_some_and(|e| e != 0)),
+            commands,
+            borrowed_from: vec![],
+        };
+        let mut report = SurfaceReport::new(vec!["arc verify".into()]);
+        let planned = [
+            ("rust".to_string(), 2),
+            ("docs".to_string(), 1),
+            ("notes".to_string(), 0),
+        ];
+        let first = report.event(VerifyEvent::Planned(&planned), 1_000);
+        assert_eq!(first.label.as_deref(), Some("arc verify"));
+        assert_eq!(first.unit.as_deref(), Some("surface"));
+        assert_eq!((first.done, first.total), (Some(0), Some(3)));
+
+        report.event(VerifyEvent::Started("rust"), 1_000);
+        let rust = surface(
+            "rust",
+            vec![ran("cargo nextest run", 0), ran("cargo clippy", 0)],
+        );
+        let landed = report.event(VerifyEvent::Finished(&rust), 4_000);
+        assert_eq!(landed.text, "rust PASS (2/2) 3s");
+
+        report.event(VerifyEvent::Started("docs"), 4_000);
+        let docs = surface("docs", vec![ran("just lint-docs", 2)]);
+        report.event(VerifyEvent::Finished(&docs), 5_000);
+        report.event(VerifyEvent::Started("notes"), 5_000);
+        let last = report.event(VerifyEvent::Finished(&surface("notes", vec![])), 5_000);
+
+        assert_eq!(
+            (last.done, last.total, last.failures),
+            (Some(3), Some(3), Some(1))
+        );
+        let rows = last.units.unwrap();
+        assert_eq!(rows[1]["status"], "fail");
+        assert_eq!(rows[1]["title"], "just lint-docs");
+        assert_eq!(rows[1]["message"], "exit 2");
+        assert_eq!(
+            (rows[1]["passed"].clone(), rows[1]["total"].clone()),
+            (0.into(), 1.into())
+        );
+        assert_eq!(rows[2]["status"], "skipped");
+        assert_eq!(rows[2]["message"], "claimed, unchecked");
+        assert_eq!(last.needles, vec!["arc verify".to_string()]);
+    }
 
     fn planned(names: &[&str], medians: &[&str]) -> UnitRun {
         let names: Vec<String> = names.iter().map(|s| s.to_string()).collect();
@@ -695,10 +832,10 @@ mod tests {
     }
 
     #[test]
-    fn wedged_is_read_as_stalled() {
+    fn wedged_is_no_landed_status() {
         use clap::ValueEnum;
-        let status = LandedStatus::from_str("wedged", false).unwrap();
-        assert_eq!(UnitStatus::from(status), UnitStatus::Stalled);
+        assert!(LandedStatus::from_str("wedged", false).is_err());
+        let status = LandedStatus::from_str("stalled", false).unwrap();
         assert_eq!(
             serde_json::to_value(UnitStatus::from(status)).unwrap(),
             "stalled"

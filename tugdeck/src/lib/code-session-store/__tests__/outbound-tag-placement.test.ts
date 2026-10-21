@@ -20,11 +20,11 @@ import { KNOWN_CODE_OUTPUT_TYPES, UNWRAPPED_CODE_OUTPUT_TYPES } from "../../code
 
 /**
  * Taken apart in `CodeSessionStore.routeFrame` before admission, with the
- * reason. `run_progress` is tugcast's frame, not tugcode's, so it is not here.
+ * reason. `report` is tugcast's frame, not tugcode's, so it is not here.
  */
 const UNWRAPPED_BEFORE_ADMISSION: Record<string, string> = {
   replay_batch: "unwrapped; each inner frame is routed on its own",
-  tool_progress: "diverted to RunProgressStore as a heartbeat",
+  tool_progress: "diverted to ReportStore as a heartbeat",
 };
 
 /** Handled by a store other than the Session card's, named by its file under `src/lib/`. */

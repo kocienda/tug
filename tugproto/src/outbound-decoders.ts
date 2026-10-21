@@ -561,33 +561,49 @@ const toolProgress = obj({
 });
 
 /**
- * `run_progress`, like {@link TugNotice}, comes from tugcast and not tugcode.
- * `run_progress_payload` in `tugrust/crates/tugcast/src/feeds/agent_supervisor/mod.rs`
+ * `report`, like {@link TugNotice}, comes from tugcast and not tugcode.
+ * `report_payload` in `tugrust/crates/tugcast/src/feeds/agent_supervisor/mod.rs`
  * writes it: `tool_use_id` is `null` when the report is attached to no running
- * call, and absent numbers are omitted. This is that JSON's shape.
+ * call, and absent numbers are omitted. A report that names its `unit` is a
+ * report panel's, carrying `jobs` and its unit rows; the rows are the
+ * reporter's to write and the deck's to narrow (`narrowRunUnits`), so they
+ * pass here as an array of anything. This is that JSON's shape, and the
+ * deck's store reads its fields from this type, so the three cannot drift.
  */
-export interface RunProgressFrame {
-  type: "run_progress";
+export interface ReportFrame {
+  type: "report";
   tool_use_id: string | null;
   label?: string;
   text?: string;
   done?: number;
   total?: number;
   failures?: number;
+  unit?: string;
+  jobs?: number;
+  units?: unknown[];
   at_ms?: number;
   tug_session_id?: string;
+  /** Why no call claimed it, on a card-level report (`tool_use_id: null`). */
+  unattached?: string;
 }
 
-const runProgress = obj({
-  type: lit("run_progress"),
+/** A value passed through as it came: the rows a reporter wrote for the deck. */
+const raw: Decoder<unknown> = (value) => value;
+
+const report = obj({
+  type: lit("report"),
   tool_use_id: union(str, lit(null)),
   label: opt(str),
   text: opt(str),
   done: opt(num),
   total: opt(num),
   failures: opt(num),
+  unit: opt(str),
+  jobs: opt(num),
+  units: opt(arr(raw)),
   at_ms: opt(num),
   tug_session_id: opt(str),
+  unattached: opt(str),
 });
 
 // ---------------------------------------------------------------------------
@@ -684,14 +700,14 @@ export const OUTBOUND_DECODERS = {
   // decode these, and none of them reaches the reducer as itself.
   replay_batch: replayBatch,
   tool_progress: toolProgress,
-  // From tugcast, not tugcode — see {@link RunProgressFrame}.
-  run_progress: runProgress,
+  // From tugcast, not tugcode — see {@link ReportFrame}.
+  report,
 } as const satisfies {
   readonly [T in Exclude<OutboundTag, "replay_batch">]?: Decoder<Admitted<T>>;
 } & {
   readonly tug_notice: Decoder<TugNotice>;
   readonly replay_batch: Decoder<ReplayBatchEnvelope>;
-  readonly run_progress: Decoder<RunProgressFrame>;
+  readonly report: Decoder<ReportFrame>;
 };
 
 /** A wire tag with a decoder. */

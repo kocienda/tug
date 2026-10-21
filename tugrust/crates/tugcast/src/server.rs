@@ -214,6 +214,40 @@ async fn changesets_handler(
     }
 }
 
+/// `GET /api/report-gaps?session=<id>`: that session's dark calls — the long
+/// Bash calls that reported nothing — newest first, as
+/// `{status, gaps: [{head, wallMs, endedAtMs}]}`. The Session card's Jobs
+/// popover lists them, so the adoption loop is visible to the user and not
+/// only to a model that asks `tugtool report gaps`. Loopback only and
+/// read-only; with no record open, the list is empty.
+async fn report_gaps_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    State(router): State<FeedRouter>,
+) -> Response {
+    if !addr.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "status": "error", "message": "forbidden" })),
+        )
+            .into_response();
+    }
+    let Some(session) = params.get("session") else {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({ "status": "error", "message": "no session" })),
+        )
+            .into_response();
+    };
+    let gaps = router
+        .supervisor
+        .as_ref()
+        .and_then(|sup| sup.report_gaps.as_ref())
+        .map(|gaps| gaps.session(session))
+        .unwrap_or_default();
+    axum::Json(serde_json::json!({ "status": "ok", "gaps": gaps })).into_response()
+}
+
 /// `GET /api/pages`: every live connection and the page it says it is,
 /// sorted by `client_id`. A connection whose hello named no role is listed as
 /// a `tool`. Loopback-only, like every diagnostic read.
@@ -959,7 +993,7 @@ fn apply_arc_request(
 #[derive(serde::Deserialize)]
 struct SessionApiRequest {
     /// `rotate` | `rotate_cancel` | `resolve` | `step_closed` | `turn_facts` |
-    /// `run_progress`.
+    /// `report`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -982,13 +1016,13 @@ struct SessionApiRequest {
     /// `step_closed`: the step the calling turn just closed.
     #[serde(default)]
     step: Option<u32>,
-    /// `run_progress`: the call the reporter says it runs under, when it knows.
+    /// `report`: the call the reporter says it runs under, when it knows.
     #[serde(default)]
     tool_use_id: Option<String>,
-    /// `run_progress`: the run's short name (`rust`, `app-test`).
+    /// `report`: the run's short name (`rust`, `app-test`).
     #[serde(default)]
     label: Option<String>,
-    /// `run_progress`: the progress line itself. Required.
+    /// `report`: the progress line itself. Required.
     #[serde(default)]
     text: Option<String>,
     #[serde(default)]
@@ -997,17 +1031,17 @@ struct SessionApiRequest {
     total: Option<u64>,
     #[serde(default)]
     failures: Option<u64>,
-    /// `run_progress`: what the run counts (`file`, `test`, `phase`).
+    /// `report`: what the run counts (`file`, `test`, `phase`).
     #[serde(default)]
     unit: Option<String>,
-    /// `run_progress`: how many units run at once.
+    /// `report`: how many units run at once.
     #[serde(default)]
     jobs: Option<u64>,
-    /// `run_progress`: the run's unit rows, carried to the block opaque — a
+    /// `report`: the run's unit rows, carried to the block opaque — a
     /// view of the run, which this server has no reason to read.
     #[serde(default)]
     units: Option<serde_json::Value>,
-    /// `run_progress`: substrings of the command the reporter expects to be
+    /// `report`: substrings of the command the reporter expects to be
     /// running under, for the attachment's needle rule.
     #[serde(default)]
     needles: Option<Vec<String>>,
@@ -1183,9 +1217,9 @@ async fn session_handler(
     // never needs it. It resolves the posted id at its own door like the rest
     // ([P01]), and an id with no live segment here is `unknown_session`, so
     // the reporter's walk goes on to the next instance.
-    if req.op == "run_progress" {
+    if req.op == "report" {
         let Some(text) = req.text.clone() else {
-            return err(StatusCode::BAD_REQUEST, "run_progress names its text");
+            return err(StatusCode::BAD_REQUEST, "report names its text");
         };
         let live = {
             let ledger = Arc::clone(&ledger);
@@ -1207,7 +1241,7 @@ async fn session_handler(
         let Some(live) = live else {
             return err(StatusCode::NOT_FOUND, "unknown_session");
         };
-        let report = crate::feeds::agent_supervisor::RunProgressReport {
+        let report = crate::feeds::agent_supervisor::Report {
             tool_use_id: req.tool_use_id.clone().filter(|id| !id.is_empty()),
             label: req.label.clone(),
             text,
@@ -1221,8 +1255,7 @@ async fn session_handler(
             units: req.units.clone().filter(|u| u.is_array()),
             needles: req.needles.clone().unwrap_or_default(),
         };
-        let Some((on_block, attached)) = supervisor.publish_run_progress(&live, report).await
-        else {
+        let Some((on_block, attached)) = supervisor.publish_report(&live, report).await else {
             return err(StatusCode::NOT_FOUND, "unknown_session");
         };
         return (
@@ -2110,6 +2143,7 @@ pub(crate) fn build_app(
         .route("/api/host/state", get(host_state_handler))
         .route("/api/changesets", get(changesets_handler))
         .route("/api/ink-census", get(ink_census_handler))
+        .route("/api/report-gaps", get(report_gaps_handler))
         .route("/api/draft", post(draft_handler))
         .route("/api/arc", post(arc_handler))
         .route("/api/session", post(session_handler))
@@ -2826,7 +2860,7 @@ mod tests {
         );
     }
 
-    // ── /api/session `run_progress` ──────────────────────────────────────
+    // ── /api/session `report` ──────────────────────────────────────
 
     /// A live app whose router carries a supervisor reading an empty sessions
     /// ledger, so every posted id is one this instance does not know.
@@ -2858,26 +2892,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_progress_with_no_text_is_refused() {
+    async fn report_with_no_text_is_refused() {
         let url = serve_session_fixture().await;
         let (status, body) = post_json(
             &url,
-            &serde_json::json!({"op": "run_progress", "tug_session_id": "sess-1", "label": "rust"}),
+            &serde_json::json!({"op": "report", "tug_session_id": "sess-1", "label": "rust"}),
         )
         .await;
         assert_eq!(status, 400);
-        assert_eq!(body["message"], "run_progress names its text");
+        assert_eq!(body["message"], "report names its text");
     }
 
     /// The reporter walks every instance; one that does not know the id says
     /// so in the word the walk continues past.
     #[tokio::test]
-    async fn run_progress_for_an_unknown_session_is_unknown_session() {
+    async fn report_for_an_unknown_session_is_unknown_session() {
         let url = serve_session_fixture().await;
         let (status, body) = post_json(
             &url,
             &serde_json::json!({
-                "op": "run_progress",
+                "op": "report",
                 "tug_session_id": "sess-nobody",
                 "text": "compiling tugcast",
                 "needles": ["just test"],

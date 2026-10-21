@@ -129,6 +129,7 @@ import {
   arcCellWord,
 } from "@/components/tugways/tug-arc-track";
 import { useArcForSession } from "@/lib/arc-session-index";
+import { useSessionGaps } from "@/lib/report-gaps-store";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
@@ -1233,6 +1234,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // nothing is lost by promoting the arc to the label. The cell keeps its box
   // and its `data-priority`, so the row's geometry is untouched.
   const arcFact = useArcForSession(snap.tugSessionId);
+  // The session's dark calls, read afresh each time the JOBS placard opens.
+  const darkCalls = useSessionGaps(snap.tugSessionId, placard?.key === "jobs");
   // The same call, in the same argument order, the masthead's identity row
   // already makes — so Z1 and Z2 cannot disagree about the numerals. Null for
   // an arc that declared no counters, which reads as the stage glyph alone.
@@ -1612,7 +1615,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       onCancelScheduledWork={cancelScheduledWork}
       onStopLoop={stopLoop}
       onClearJobs={clearJobs}
-      runProgress={codeSessionStore.runProgress}
+      reports={codeSessionStore.reports}
+      darkCalls={darkCalls}
     />
   );
 

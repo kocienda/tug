@@ -1,19 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  RunProgressStore,
-  RUN_PROGRESS_CAP,
+  ReportStore,
+  REPORT_CAP,
   RUN_SETTLED_CAP,
   engineLiveness,
-  formatRunProgressLine,
+  formatReportLine,
   liveElapsedMs,
   narrowRunUnits,
-} from "../run-progress-store";
+} from "../report-store";
 
-describe("RunProgressStore — a running command's reports", () => {
+describe("ReportStore — a running command's reports", () => {
   test("the line joins label, count, failures and text", () => {
     expect(
-      formatRunProgressLine({
+      formatReportLine({
         toolUseId: "t",
         label: "app-test",
         done: 7,
@@ -23,15 +23,15 @@ describe("RunProgressStore — a running command's reports", () => {
       }),
     ).toBe("app-test · 7/20 · 1 fail · at0603 PASS (14/14) 38s");
     expect(
-      formatRunProgressLine({ toolUseId: "t", label: "rust", text: "compiling tugcast" }),
+      formatReportLine({ toolUseId: "t", label: "rust", text: "compiling tugcast" }),
     ).toBe("rust · compiling tugcast");
     expect(
-      formatRunProgressLine({ toolUseId: "t", label: "rust", done: 3, failures: 0, text: "x" }),
+      formatReportLine({ toolUseId: "t", label: "rust", done: 3, failures: 0, text: "x" }),
     ).toBe("rust · 3 · x");
   });
 
   test("a report with no call lands in the card slot", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     let heard = 0;
     store.subscribe(null, () => heard++);
     store.applyReport({ tool_use_id: null, label: "rust", text: "linking" }, 1000);
@@ -40,8 +40,18 @@ describe("RunProgressStore — a running command's reports", () => {
     expect(heard).toBe(1);
   });
 
+  test("a card-level report keeps why no call claimed it; a call's report has no reason", () => {
+    const store = new ReportStore();
+    store.applyReport({ tool_use_id: null, label: "rust", text: "a", unattached: "no open run" }, 1000);
+    expect(store.get(null)?.unattached).toBe("no open run");
+    store.applyReport({ tool_use_id: null, label: "rust", text: "b" }, 2000);
+    expect(store.get(null)?.unattached, "a reason is the latest report's, never kept").toBeUndefined();
+    store.applyReport({ tool_use_id: "t", label: "rust", text: "c", unattached: "stray" }, 3000);
+    expect(store.get("t")?.unattached).toBeUndefined();
+  });
+
   test("a report keeps the call's heartbeat and replaces the last report whole", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyHeartbeat("t", 5, 1000);
     store.applyReport({ tool_use_id: "t", label: "rust", text: "a", done: 1, total: 9 }, 2000);
     store.applyReport({ tool_use_id: "t", label: "rust", text: "b" }, 3000);
@@ -52,7 +62,7 @@ describe("RunProgressStore — a running command's reports", () => {
   });
 
   test("a closed call's report is ignored unless it is a running background job", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.close("fg");
     store.applyReport({ tool_use_id: "fg", text: "late" }, 1000, () => false);
     expect(store.get("fg")).toBeNull();
@@ -63,9 +73,9 @@ describe("RunProgressStore — a running command's reports", () => {
   });
 });
 
-describe("RunProgressStore — the engine heartbeat", () => {
+describe("ReportStore — the engine heartbeat", () => {
   test("the elapsed reading carries forward from the last heartbeat", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyHeartbeat("t", 125, 1000);
     expect(liveElapsedMs(0, store.get("t"), 3000)).toBe(127000);
   });
@@ -76,13 +86,13 @@ describe("RunProgressStore — the engine heartbeat", () => {
   });
 
   test("a tick older than the heartbeat reads the heartbeat, never less", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyHeartbeat("t", 125, 10_000);
     expect(liveElapsedMs(0, store.get("t"), 9_400)).toBe(125_000);
   });
 
   test("a heartbeat is live under ten seconds old and quiet after", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyHeartbeat("t", 1, 1000);
     expect(engineLiveness(store.get("t"), 10_000)).toBe("live");
     expect(engineLiveness(store.get("t"), 12_000)).toBe("quiet");
@@ -90,7 +100,7 @@ describe("RunProgressStore — the engine heartbeat", () => {
   });
 
   test("a subscriber hears its own key and no other", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     let t = 0;
     let u = 0;
     store.subscribe("t", () => t++);
@@ -100,7 +110,7 @@ describe("RunProgressStore — the engine heartbeat", () => {
   });
 
   test("the entry object is stable until it changes", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyHeartbeat("t", 1, 1000);
     const first = store.get("t");
     expect(store.get("t")).toBe(first);
@@ -109,7 +119,7 @@ describe("RunProgressStore — the engine heartbeat", () => {
   });
 
   test("after close, a late heartbeat is ignored", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyHeartbeat("t", 1, 1000);
     let heard = 0;
     store.subscribe("t", () => heard++);
@@ -121,7 +131,7 @@ describe("RunProgressStore — the engine heartbeat", () => {
   });
 
   test("clear forgets every running call and tells its subscribers", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyHeartbeat("t", 1, 1000);
     let heard = 0;
     store.subscribe("t", () => heard++);
@@ -131,14 +141,14 @@ describe("RunProgressStore — the engine heartbeat", () => {
   });
 
   test("the least recently updated call is evicted past the cap", () => {
-    const store = new RunProgressStore();
-    for (let i = 0; i <= RUN_PROGRESS_CAP; i++) store.applyHeartbeat(`t${i}`, 1, i);
+    const store = new ReportStore();
+    for (let i = 0; i <= REPORT_CAP; i++) store.applyHeartbeat(`t${i}`, 1, i);
     expect(store.get("t0")).toBeNull();
-    expect(store.get(`t${RUN_PROGRESS_CAP}`)).not.toBeNull();
+    expect(store.get(`t${REPORT_CAP}`)).not.toBeNull();
   });
 });
 
-describe("RunProgressStore — a run that names its unit", () => {
+describe("ReportStore — a run that names its unit", () => {
   const ROWS = [
     { name: "at0310", status: "pass", index: 0, passed: 2, total: 2, secs: 5, median: 5 },
     { name: "at0339", status: "fail", index: 1, title: "clears", message: "timed out", history: "red in the last 7" },
@@ -146,7 +156,7 @@ describe("RunProgressStore — a run that names its unit", () => {
   ];
 
   test("its rows are narrowed at the door, and a report without a unit carries none", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyReport(
       { tool_use_id: "t", label: "app-test", text: "x", done: 2, total: 3, unit: "file", jobs: 4, units: ROWS },
       1000,
@@ -167,6 +177,34 @@ describe("RunProgressStore — a run that names its unit", () => {
     expect(store.get("u")?.jobs).toBeUndefined();
   });
 
+  test("a phase run and a unit run under one call share the entry: the units own it, the phases ride beside", () => {
+    const store = new ReportStore();
+    const phase = (status: string) => [
+      { name: "build", status: "pass", index: 0, secs: 40 },
+      { name: "sign", status, index: 1 },
+    ];
+    store.applyReport({ tool_use_id: "t", label: "build-app", text: "sign", done: 1, total: 2, unit: "phase", units: phase("running") }, 1000);
+    store.applyReport({ tool_use_id: "t", label: "app-test", text: "x", done: 0, total: 3, unit: "file", units: ROWS }, 2000);
+    let p = store.get("t")!;
+    expect(p.unit).toBe("file");
+    expect(p.phases?.map((u) => u.name)).toEqual(["build", "sign"]);
+
+    // A later unit report keeps the phases; a later phase report updates them and leaves the units.
+    store.applyReport({ tool_use_id: "t", label: "app-test", text: "y", done: 1, total: 3, unit: "file", units: ROWS }, 3000);
+    expect(store.get("t")?.phases?.length).toBe(2);
+    store.applyReport({ tool_use_id: "t", label: "build-app", text: "done", done: 2, total: 2, unit: "phase", units: phase("pass") }, 4000);
+    p = store.get("t")!;
+    expect(p.unit).toBe("file");
+    expect(p.text).toBe("y");
+    expect(p.phases?.[1]?.status).toBe("pass");
+
+    // One label's phases replace themselves, as any report does.
+    store.applyReport({ tool_use_id: "u", label: "build-app", unit: "phase", units: phase("running") }, 1000);
+    store.applyReport({ tool_use_id: "u", label: "build-app", unit: "phase", units: phase("pass") }, 2000);
+    expect(store.get("u")?.phases).toBeUndefined();
+    expect(store.get("u")?.units?.[1]?.status).toBe("pass");
+  });
+
   test("a row with no name or a status it does not know is dropped; a mistyped field is absent", () => {
     expect(
       narrowRunUnits([
@@ -180,21 +218,18 @@ describe("RunProgressStore — a run that names its unit", () => {
     expect(narrowRunUnits({ name: "a" })).toBeUndefined();
   });
 
-  test("the old word `wedged` arrives as `stalled`, and an unknown status is still dropped", () => {
+  test("`wedged` is no status now, and an unknown status is dropped", () => {
     expect(
       narrowRunUnits([
         { name: "a", status: "wedged", index: 0 },
         { name: "b", status: "stalled", index: 1 },
         { name: "c", status: "frozen", index: 2 },
       ]),
-    ).toEqual([
-      { name: "a", status: "stalled", index: 0 },
-      { name: "b", status: "stalled", index: 1 },
-    ]);
+    ).toEqual([{ name: "b", status: "stalled", index: 1 }]);
   });
 
   test("closing settles the last report, and a run without a unit does not", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     store.applyReport({ tool_use_id: "t", text: "x", unit: "file", units: ROWS }, 1000);
     store.applyReport({ tool_use_id: "u", text: "y" }, 1000);
     let heard = 0;
@@ -208,7 +243,7 @@ describe("RunProgressStore — a run that names its unit", () => {
   });
 
   test("settled runs outlive a cleared transport and are capped oldest first", () => {
-    const store = new RunProgressStore();
+    const store = new ReportStore();
     for (let i = 0; i <= RUN_SETTLED_CAP; i++) {
       store.applyReport({ tool_use_id: `t${i}`, text: "x", unit: "test", units: [] }, i);
       store.close(`t${i}`);

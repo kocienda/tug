@@ -106,7 +106,7 @@ if [ "$MODE" = "resize" ]; then
     RESIZE_JOB=$!
 fi
 
-sample "$WEBCONTENT_PID" "$SECONDS_TO_SAMPLE" -file "$OUT" >/dev/null 2>&1 || {
+bash "$(dirname "$0")/../tugrust/scripts/sample-reported.sh" perf-resize-profile "$WEBCONTENT_PID" "$SECONDS_TO_SAMPLE" "$OUT" || {
     echo "error: sample failed (pid $WEBCONTENT_PID gone?)" >&2
     exit 1
 }

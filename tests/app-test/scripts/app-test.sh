@@ -628,7 +628,7 @@ run_one_file() {
         reach_out="$RUNDIR/reach/$(printf '%s' "$f" | tr '/' '_').json"
     fi
     file_start="$(date +%s)"
-    # The block's run panel draws this file's lane from here.
+    # The block's report panel draws this file's lane from here.
     printf '%s' "$((file_start * 1000))" > "$out.start"
     local _cap basis
     IFS=$'\t' read -r _cap basis <<< "$(wedge_cap_for "$f")"
@@ -710,6 +710,32 @@ run_one_file() {
     report_progress "$f" "$status" "$passed" "$total" "$secs" "$out.fails"
 }
 
+# The word a row's status code prints as — the report panel's own vocabulary,
+# so the text report and the block read one run in one set of words. A file
+# past the budget is a `fail`; that it was OVERTIME is the reason its line
+# gives (`overtime_reason`), never a status of its own.
+status_word() {
+    case "$1" in
+        PASS) printf 'pass' ;;
+        FAIL|OVERTIME) printf 'fail' ;;
+        ERR) printf 'error' ;;
+        SKIP) printf 'skipped' ;;
+        STALLED) printf 'stalled' ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# Why an OVERTIME file is red, as its line says it: stopped at the budget,
+# or green but past it.
+overtime_reason() {
+    local f="$1"
+    if [ -e "$RUNDIR/$(printf '%s' "$f" | tr '/' '_').wedged" ]; then
+        printf 'stopped at %ss' "$BUDGET_SECS"
+    else
+        printf 'over the %ss budget' "$BUDGET_SECS"
+    fi
+}
+
 # One line per finished file, printed from inside the job that ran it, so a
 # concurrent batch reports each file as it lands rather than when the batch's
 # slowest file does. `nth` counts the rows already written — two files that
@@ -744,13 +770,13 @@ report_progress() {
     elif [ "$status" = OVERTIME ]; then
         detail="$(printf '\n          ↳ green, but %ss is over the %ss budget every file is held to: split it or make it faster' "$secs" "$BUDGET_SECS")"
     fi
-    printf '%3d/%-3d %02d:%02d  %-6s %-56s (%d/%d)  %4ds%s\n' \
+    printf '%3d/%-3d %02d:%02d  %-7s %-56s (%d/%d)  %4ds%s\n' \
         "$nth" "${#FILES[@]}" $((elapsed / 60)) $((elapsed % 60)) \
-        "[$status]" "$f" "$passed" "$total" "$secs" "$detail"
+        "$(status_word "$status")" "$f" "$passed" "$total" "$secs" "$detail"
 }
 
 # The run as the calling Session card's block draws it: one row per file,
-# reported through `tugtool progress unit`, which keeps the rows and posts
+# reported through `tugtool report unit`, which keeps the rows and posts
 # them with the one line a reader without the panel sees. The verb is silent
 # with no calling session, so a run from a plain terminal spends nothing on
 # it; synchronous, so a file's start can never land after its own result.
@@ -758,7 +784,7 @@ report_progress() {
 # run.
 unit_report() {
     [ -n "$TUGTOOL_BIN" ] || return 0
-    "$TUGTOOL_BIN" progress unit "$@" >/dev/null 2>&1 || true
+    "$TUGTOOL_BIN" report unit "$@" >/dev/null 2>&1 || true
 }
 
 # Trim leading and trailing whitespace.
@@ -871,7 +897,7 @@ done
 if [ "${#FILES[@]}" -gt 0 ]; then
     est_wall=$(( (est_secs + JOBS - 1) / JOBS ))
     echo "==> ${#FILES[@]} file(s); the record says ~${est_secs}s of file time (~${est_wall}s wall at ${JOBS} at a time) for the ${est_known} with a record, ${est_unknown} unknown; ${est_over} already over the ${BUDGET_SECS}s budget by their recorded times."
-    # The block's run panel: every file pending, each carrying the time the
+    # The block's report panel: every file pending, each carrying the time the
     # record expects of it, which the panel sums for the time left.
     unit_report plan app-test --unit file --jobs "$JOBS" --needle "just app-test" \
         --medians "${UNIT_MEDIANS[@]}" --of "${UNIT_NAMES[@]}"
@@ -934,8 +960,8 @@ for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
         RESULT_ROWS+=("SKIP:$f:0:0:0")
         printf '%s\n' "SKIP:$f:0:0:0" > "$RUNDIR/$(printf '%s' "$f" | tr '/' '_').row"
         unit_report "done" app-test "${f%.test.ts}" skipped
-        [ -n "$PROGRESS" ] && printf '%3d/%-3d %5s  %-6s %-56s (skipped — takes the screen)\n' \
-            "${#RESULT_ROWS[@]}" "${#FILES[@]}" "" "[SKIP]" "$f"
+        [ -n "$PROGRESS" ] && printf '%3d/%-3d %5s  %-7s %-56s (takes the screen)\n' \
+            "${#RESULT_ROWS[@]}" "${#FILES[@]}" "" "skipped" "$f"
         continue
     fi
     TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f"
@@ -993,7 +1019,9 @@ echo
 echo "Per-file results:"
 for row in "${RESULT_ROWS[@]}"; do
     IFS=':' read -r status file rpassed rtotal rsecs <<< "$row"
-    printf '  %-6s %-56s (%d/%d)  %4ds\n' "[$status]" "$file" "$rpassed" "$rtotal" "$rsecs"
+    reason=""
+    [ "$status" = OVERTIME ] && reason="  $(overtime_reason "$file")"
+    printf '  %-7s %-56s (%d/%d)  %4ds%s\n' "$(status_word "$status")" "$file" "$rpassed" "$rtotal" "$rsecs" "$reason"
 done
 
 if [ ${#NOTE_ROWS[@]} -gt 0 ]; then
@@ -1112,6 +1140,32 @@ if [ ${#FAIL_DETAILS[@]} -gt 0 ]; then
         [ -n "$dmsg" ] && printf '%s\n' "$dmsg" | sed 's/^/      /'
         [ -n "$dloc" ] && echo "      $dloc"
     done
+fi
+
+# A green file the record had red is a recovery, as much news as a failure:
+# asked of the green files in one more history call, before this run is
+# recorded, and only when the run has a block to draw it on. A file whose
+# recorded runs end in a red streak is amended with that history, which is
+# what the panel reads as "recovered".
+declare -a GREEN_FILES=()
+for row in "${RESULT_ROWS[@]}"; do
+    IFS=':' read -r status file _p _t _s <<< "$row"
+    [ "$status" = PASS ] && GREEN_FILES+=("$file")
+done
+if [ "${#GREEN_FILES[@]}" -gt 0 ] && [ -n "$TUGTOOL_BIN" ] && [ -n "${TUG_SESSION_ID:-}" ] \
+    && command -v jq >/dev/null 2>&1; then
+    GREEN_HISTORY_RAW="$("$TUGTOOL_BIN" apptest history --root "$REPO_ROOT" --json "${GREEN_FILES[@]}" 2>/dev/null || true)"
+    RECOVERED_JSON="$(printf '%s' "$GREEN_HISTORY_RAW" \
+        | jq -c '[(.data.files // .files // [])[] | select(.answer == "red-streak") | {key: .file, value: .}] | from_entries' 2>/dev/null || true)"
+    if [ -n "$RECOVERED_JSON" ] && [ "$RECOVERED_JSON" != "{}" ]; then
+        SAVED_HISTORY_JSON="$HISTORY_JSON"; SAVED_HISTORY_ERR="$HISTORY_ERR"
+        HISTORY_JSON="$RECOVERED_JSON"; HISTORY_ERR=""
+        for f in "${GREEN_FILES[@]}"; do
+            green_history="$(history_line "$f" | sed 's/^ *history: //')"
+            [ -n "$green_history" ] && unit_report amend app-test "${f%.test.ts}" --history "$green_history"
+        done
+        HISTORY_JSON="$SAVED_HISTORY_JSON"; HISTORY_ERR="$SAVED_HISTORY_ERR"
+    fi
 fi
 
 # The block's last report: every file landed, and each red carrying the line

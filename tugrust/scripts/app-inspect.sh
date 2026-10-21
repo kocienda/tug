@@ -65,7 +65,7 @@ case "$VERB" in
         SECONDS_TO_SAMPLE="${1:-3}"
         PID="$(field host_pid)"
         OUT="${TMPDIR:-/tmp}/tug-sample-$INSTANCE_ID-$(date +%Y%m%d-%H%M%S).txt"
-        /usr/bin/sample "$PID" "$SECONDS_TO_SAMPLE" -file "$OUT" >/dev/null 2>&1
+        bash "$(dirname "$0")/sample-reported.sh" app-sample "$PID" "$SECONDS_TO_SAMPLE" "$OUT"
         echo "$OUT"
         ;;
     state)

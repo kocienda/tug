@@ -63,7 +63,7 @@ fi
 cd "$CRATES_DIR"
 
 # One phase per crate on the calling Session card's running block, through
-# `tugtool progress phase`; `just wasm` runs alone and under the app recipes.
+# `tugtool report phase`; `just wasm` runs alone and under the app recipes.
 REPORT="$REPO_ROOT/tugrust/scripts/report-phase.sh"
 crate_names=()
 for manifest in "${crate_manifests[@]}"; do

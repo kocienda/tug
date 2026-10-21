@@ -53,8 +53,8 @@ const REQUIRED_SCRUBS: &[&str] = &[
     // into the user's real one, which every other instance then answers
     // `elsewhere` about.
     "env_remove(\"TUG_SESSION_INDEX_DB\")",
-    // The machine-global run-gaps record, for the same reason.
-    "env_remove(\"TUG_RUN_GAPS_DB\")",
+    // The machine-global report-gaps record, for the same reason.
+    "env_remove(\"TUG_REPORT_GAPS_DB\")",
 ];
 
 /// Test files allowed to name a binary outside the chokepoint, and why.

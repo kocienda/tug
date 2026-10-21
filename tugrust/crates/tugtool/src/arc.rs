@@ -18,6 +18,7 @@ use crate::arc_turn::{self, StepMove};
 use crate::changes::AppError;
 use crate::cli::{ArcCommands, StepAction};
 use crate::output::{print_ok, print_receipt};
+use crate::report::{PhaseRun, now_ms, post_report};
 
 /// Dispatch an `arc` subcommand, mapping its error to an exit code: an engine
 /// failure by [`exit_code_for`], a failure of this shell's own exit 1.
@@ -1148,10 +1149,66 @@ fn run_resolve_base(paths: &Paths, name: &str, json: bool, quiet: bool) -> ExitC
 /// `arc replay` owns its exit code rather than borrowing the dispatcher's;
 /// [`replay_exit_status`] states which outcome means what.
 fn run_replay(paths: &Paths, name: &str, json: bool, quiet: bool) -> ExitCode {
-    let outcome = match arc_repo_root().and_then(|repo| replay::replay_onto(paths, &repo, name)) {
+    // The replay draws its phases on the block it runs under; with no calling
+    // session there is nothing to draw on and nothing is kept.
+    let reporting = crate::session_identity::have_calling_session();
+    let needles = vec!["arc replay".to_string()];
+    let of: Vec<String> = replay::REPLAY_PHASES
+        .iter()
+        .map(|p| p.to_string())
+        .collect();
+    let mut run: Option<PhaseRun> = None;
+    let outcome = arc_repo_root().and_then(|repo| {
+        replay::replay_watched(paths, &repo, name, &mut |n| {
+            if !reporting {
+                return;
+            }
+            let phase = replay::REPLAY_PHASES[n];
+            let next = PhaseRun::advance(run.take(), n, Some(phase), &of, now_ms());
+            let _ = post_report(&next.report("arc replay", phase, needles.clone()));
+            run = Some(next);
+        })
+    });
+    let outcome = match outcome {
         Ok(o) => o,
         Err(e) => return engine_failed("arc replay", json, e),
     };
+    if let Some(run) = run {
+        let label = "arc replay";
+        let report = match &outcome {
+            ReplayOutcome::Replayed { mapping, .. } => {
+                PhaseRun::advance(Some(run), of.len(), None, &of, now_ms()).report(
+                    label,
+                    &format!("replayed {} round(s)", mapping.len()),
+                    needles,
+                )
+            }
+            ReplayOutcome::Recorded { .. } | ReplayOutcome::Current => {
+                let text = if matches!(outcome, ReplayOutcome::Current) {
+                    "current"
+                } else {
+                    "recorded"
+                };
+                PhaseRun::advance(Some(run), of.len(), None, &of, now_ms())
+                    .report(label, text, needles)
+            }
+            ReplayOutcome::Deferred { detail, .. } => run.stopped_report(
+                label,
+                &format!("deferred: {detail}"),
+                "pass",
+                needles,
+                now_ms(),
+            ),
+            ReplayOutcome::Conflicted { round_subject, .. } => run.stopped_report(
+                label,
+                &format!("conflicts at {round_subject}"),
+                "fail",
+                needles,
+                now_ms(),
+            ),
+        };
+        let _ = post_report(&report);
+    }
     if json {
         print_ok("arc replay", &outcome);
     } else if !quiet {
@@ -1178,12 +1235,21 @@ fn run_verify(
         Ok(r) => r,
         Err(code) => return code,
     };
-    let report = match tugarc_core::surfaces::verify_in(
+    // One surface row per surface, posted as each starts and lands, so the
+    // verify draws on the block it runs under while its checks run.
+    let reporting = crate::session_identity::have_calling_session();
+    let mut surfaces = crate::report_unit::SurfaceReport::new(vec!["arc verify".to_string()]);
+    let report = match tugarc_core::surfaces::verify_watched(
         paths,
         &repo,
         name,
         base.as_deref(),
         head.as_deref(),
+        &mut |event| {
+            if reporting {
+                let _ = post_report(&surfaces.event(event, now_ms()));
+            }
+        },
     ) {
         Ok(r) => r,
         Err(e) => return engine_failed(COMMAND, json, e),

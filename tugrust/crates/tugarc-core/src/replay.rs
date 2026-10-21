@@ -139,6 +139,24 @@ impl OpenOp {
 /// a bare `update-ref` would leave HEAD, the index, and the working tree
 /// disagreeing.
 pub fn replay_onto(paths: &Paths, repo_root: &Path, name: &str) -> Result<ReplayOutcome, ArcError> {
+    replay_watched(paths, repo_root, name, &mut |_| {})
+}
+
+/// The phases a replay walks, in order: the checks that may defer it, the
+/// walk that replays each round onto the base tip, and the landing that moves
+/// the branch and records the move. A replay that finds nothing to walk goes
+/// from the first to the last.
+pub const REPLAY_PHASES: [&str; 3] = ["check", "replay", "land"];
+
+/// [`replay_onto`], telling `phase` the index into [`REPLAY_PHASES`] of each
+/// phase as it begins, so a caller can show the replay while it runs.
+pub fn replay_watched(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    phase: &mut dyn FnMut(usize),
+) -> Result<ReplayOutcome, ArcError> {
+    phase(0);
     let repo = main_repo_root(repo_root);
     let repo = repo.as_path();
     let branch = branch_name(name);
@@ -187,6 +205,7 @@ pub fn replay_onto(paths: &Paths, repo_root: &Path, name: &str) -> Result<Replay
         // a record placed only there would miss every repair of a hand-rebased
         // arc.
         let op = OpenOp::begin(paths, repo, name)?;
+        phase(2);
         let reconciled = reconcile_ledger_cells(repo, name, &branch, &base_branch, None)?;
         if !reconciled.touched_anything() {
             // Nothing moved, so nothing is recorded: `Current` is the outcome
@@ -210,6 +229,7 @@ pub fn replay_onto(paths: &Paths, repo_root: &Path, name: &str) -> Result<Replay
     }
 
     let tip_at_probe = git_stdout(repo, &["rev-parse", &branch])?;
+    phase(1);
     match walk_rounds(repo, &base_head, &base_branch, &branch)? {
         ReplayWalk::Unavailable => Ok(ReplayOutcome::deferred(
             "no-rounds",
@@ -226,6 +246,7 @@ pub fn replay_onto(paths: &Paths, repo_root: &Path, name: &str) -> Result<Replay
             paths,
         }),
         ReplayWalk::Clean(replayed) => {
+            phase(2);
             // Before the compare-and-swap, because that is the moment the
             // pre-replay rounds stop being reachable from any branch.
             let op = OpenOp::begin(paths, repo, name)?;
@@ -713,6 +734,26 @@ mod tests {
             op.before.arc_tip, pre_replay,
             "the before-tip is the branch as it stood before the replay"
         );
+    }
+
+    #[test]
+    fn a_watched_replay_walks_its_phases_in_order() {
+        let f = init(&[("g.txt", "arc\n", "add g")]);
+        f.advance_base("f.txt", "B\n", "base moves");
+        let mut seen = Vec::new();
+        let outcome = replay_watched(&f.paths, f.path(), "demo", &mut |n| seen.push(n)).unwrap();
+        assert!(
+            matches!(outcome, ReplayOutcome::Replayed { .. }),
+            "{outcome:?}"
+        );
+        assert_eq!(seen, vec![0, 1, 2], "check, replay, land");
+
+        // Nothing left to walk: the check lands without a replay phase.
+        let mut seen = Vec::new();
+        let outcome = replay_watched(&f.paths, f.path(), "demo", &mut |n| seen.push(n)).unwrap();
+        assert!(matches!(outcome, ReplayOutcome::Current), "{outcome:?}");
+        assert_eq!(seen, vec![0, 2]);
+        assert_eq!(REPLAY_PHASES.len(), 3);
     }
 
     #[test]

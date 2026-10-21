@@ -1,9 +1,9 @@
 /**
- * TugRunPanel — a test batch, a unit suite or a build, drawn as it runs and
+ * TugReportPanel — a test batch, a unit suite or a build, drawn as it runs and
  * as it ended.
  *
  * A run counts **units** — a file, a test, a phase — and reports them as it
- * goes (`tugtool progress --unit …`, `tugtool test run`). The panel is one
+ * goes (`tugtool report unit`, `tugtool test run`). The panel is one
  * shape for every run, in one column, top to bottom:
  *
  *   1. **Masthead** — the verdict word, PASS or FAIL, once the run is over;
@@ -33,10 +33,11 @@
  *      median a ghost tick, said in the chart's own tooltip), and the run's
  *      own output. Every fold is one line of its own text.
  *
- * {@link TugRunStrip} is the finished run for a collapsed block: rows 1 and 2,
- * and row 4 when the run went red, so the running panel, the strip and the
- * expanded result all open on the same two rows and a red one says what
- * failed without being opened.
+ * {@link TugReportStrip} is the finished run for a collapsed block. A green
+ * run folds to row 1 alone — the verdict, the count and the wall time on one
+ * line, which opens on click — and a red one holds rows 1, 2 and 4, so it
+ * says what failed without being opened. Running panel, strip and expanded
+ * result all open on the same masthead.
  *
  * Colour is never the only reading: every cell has a title, every row's dot
  * is labelled and stands beside a word, and the tally is words.
@@ -45,12 +46,12 @@
  *       `data-status`, a bar's length an inline width; [L16] every color
  *       rule declares its surface; [L19] `.tsx`/`.css` pair, `data-slot`;
  *       [L20] composes the step row, meta run and accordion,
- *       and owns `--tugx-run-*`.
+ *       and owns `--tugx-report-*`.
  *
- * @module components/tugways/tug-run-panel
+ * @module components/tugways/tug-report-panel
  */
 
-import "./tug-run-panel.css";
+import "./tug-report-panel.css";
 
 import React, { useRef } from "react";
 
@@ -59,13 +60,14 @@ import {
   formatSecs,
   isRed,
   laneSlots,
-  runPanelModel,
+  projectionText,
+  reportPanelModel,
   unitWord,
   verdictSentence,
-  type RunPanelModel,
-  type RunPanelState,
-} from "@/lib/run-panel-model";
-import type { RunProgress, RunUnit, RunUnitStatus } from "@/lib/run-progress-store";
+  type ReportPanelModel,
+  type ReportPanelState,
+} from "@/lib/report-panel-model";
+import type { Report, RunUnit, RunUnitStatus } from "@/lib/report-store";
 
 import { TugAccordion, TugAccordionItem } from "./tug-accordion";
 import { TugMetaRun } from "./tug-meta-run";
@@ -129,32 +131,32 @@ const STEP_STATUS: Record<RunUnitStatus, TugStepRowStatus> = {
 
 function Fraction({ done, total, unit }: { done: number; total: number | undefined; unit: string }) {
   return (
-    <span className="tug-run-panel-fraction" data-slot="tug-run-panel-fraction">
+    <span className="tug-report-panel-fraction" data-slot="tug-report-panel-fraction">
       {total !== undefined ? (
         <TugStepFraction current={done} total={total} />
       ) : (
-        <span className="tug-run-panel-count">{done}</span>
+        <span className="tug-report-panel-count">{done}</span>
       )}
-      <span className="tug-run-panel-unit">{unitWord(unit, total ?? done)}</span>
+      <span className="tug-report-panel-unit">{unitWord(unit, total ?? done)}</span>
     </span>
   );
 }
 
-function Tally({ m }: { m: RunPanelModel }) {
+function Tally({ m }: { m: ReportPanelModel }) {
   const failed = m.counts.red - m.counts.stalled;
   return (
-    <span className="tug-run-panel-tally" data-slot="tug-run-panel-tally">
-      <span className="tug-run-panel-tally-word" data-status={m.counts.pass > 0 ? "pass" : undefined}>
+    <span className="tug-report-panel-tally" data-slot="tug-report-panel-tally">
+      <span className="tug-report-panel-tally-word" data-status={m.counts.pass > 0 ? "pass" : undefined}>
         {m.counts.pass} pass
       </span>
       {failed > 0 && (
-        <span className="tug-run-panel-tally-word" data-status="fail">{failed} fail</span>
+        <span className="tug-report-panel-tally-word" data-status="fail">{failed} fail</span>
       )}
       {m.counts.stalled > 0 && (
-        <span className="tug-run-panel-tally-word" data-status="stalled">{m.counts.stalled} stalled</span>
+        <span className="tug-report-panel-tally-word" data-status="stalled">{m.counts.stalled} stalled</span>
       )}
       {m.counts.skipped > 0 && (
-        <span className="tug-run-panel-tally-word">{m.counts.skipped} skipped</span>
+        <span className="tug-report-panel-tally-word">{m.counts.skipped} skipped</span>
       )}
     </span>
   );
@@ -170,7 +172,7 @@ function Tally({ m }: { m: RunPanelModel }) {
  * {@link MANY_CELLS}, so more units cost width and never another row. Past
  * {@link CELLS_UP_TO} a cell is too thin to read and the band takes over.
  */
-export function TugRunTrack({ m }: { m: RunPanelModel }): React.ReactElement | null {
+export function TugReportTrack({ m }: { m: ReportPanelModel }): React.ReactElement | null {
   // A running cell breathes for as long as its unit runs, which is a loop the
   // motion probe has to see.
   useMotionHold(m.track === "cells" && m.units.some((u) => u.status === "running"));
@@ -178,8 +180,8 @@ export function TugRunTrack({ m }: { m: RunPanelModel }): React.ReactElement | n
   if (m.track === "cells") {
     return (
       <div
-        className="tug-run-panel-track"
-        data-slot="tug-run-panel-track"
+        className="tug-report-panel-track"
+        data-slot="tug-report-panel-track"
         data-many={m.units.length > MANY_CELLS ? "" : undefined}
         role="img"
         aria-label={`${m.done} of ${m.total} ${unitWord(m.unit, m.total ?? 0)} done, ${m.counts.red} red`}
@@ -187,33 +189,52 @@ export function TugRunTrack({ m }: { m: RunPanelModel }): React.ReactElement | n
         {m.units.map((u) => (
           <span
             key={`${u.index ?? 0}-${u.name}`}
-            className="tug-run-panel-cell"
+            className="tug-report-panel-cell"
             data-status={u.status}
             title={`${u.name} · ${WORD[u.status]}${u.secs !== undefined ? ` · ${u.secs}s` : ""}`}
           />
         ))}
+        <PaceMark m={m} />
       </div>
     );
   }
   const total = m.total ?? 1;
   return (
     <div
-      className="tug-run-panel-band"
-      data-slot="tug-run-panel-band"
+      className="tug-report-panel-band"
+      data-slot="tug-report-panel-band"
       role="img"
       aria-label={`${m.done} of ${total} ${unitWord(m.unit, total)} done, ${m.counts.red} red`}
     >
-      <span className="tug-run-panel-band-fill" style={{ width: `${Math.min(1, m.done / total) * 100}%` }} />
+      <span className="tug-report-panel-band-fill" style={{ width: `${Math.min(1, m.done / total) * 100}%` }} />
       {m.reds.map((u) => (
         <span
           key={`${u.index ?? 0}-${u.name}`}
-          className="tug-run-panel-band-mark"
+          className="tug-report-panel-band-mark"
           data-status={u.status}
           style={{ left: `${Math.min(1, (u.index ?? 0) / total) * 100}%` }}
           title={u.name}
         />
       ))}
+      <PaceMark m={m} />
     </div>
+  );
+}
+
+/**
+ * The tick on the bar where the run would stand had it kept to its medians:
+ * the share of its expected wall time already spent. The fill behind it is a
+ * run slower than its record; ahead of it, faster.
+ */
+function PaceMark({ m }: { m: ReportPanelModel }): React.ReactElement | null {
+  if (m.paceFraction === null) return null;
+  return (
+    <span
+      className="tug-report-panel-pace"
+      data-slot="tug-report-panel-pace"
+      style={{ left: `${Math.min(1, Math.max(0, m.paceFraction)) * 100}%` }}
+      title="where the run would be at its recorded medians"
+    />
   );
 }
 
@@ -231,9 +252,9 @@ const MANY_CELLS = 24;
 function SlotRow({ name, unit }: { name: string; unit: RunUnit | undefined }) {
   const status = unit?.status ?? "running";
   return (
-    <div className="tug-run-panel-lane" data-slot="tug-run-panel-lane" data-status={status}>
+    <div className="tug-report-panel-lane" data-slot="tug-report-panel-lane" data-status={status}>
       <UnitDot status={status} />
-      <span className="tug-run-panel-name">{name}</span>
+      <span className="tug-report-panel-name">{name}</span>
     </div>
   );
 }
@@ -248,12 +269,12 @@ function LandedRow({ unit }: { unit: RunUnit }) {
   const slow = unit.median !== undefined && unit.secs !== undefined && unit.secs > unit.median * 1.5;
   const timing = secsOfMedian(unit);
   return (
-    <div className="tug-run-panel-landed" data-slot="tug-run-panel-landed" data-status={unit.status}>
+    <div className="tug-report-panel-landed" data-slot="tug-report-panel-landed" data-status={unit.status}>
       <UnitDot status={unit.status} />
-      <span className="tug-run-panel-name">{unit.name}</span>
+      <span className="tug-report-panel-name">{unit.name}</span>
       <TugMetaRun
         parts={[
-          <span key="w" className="tug-run-panel-word">{WORD[unit.status]}</span>,
+          <span key="w" className="tug-report-panel-word">{WORD[unit.status]}</span>,
           unit.total !== undefined ? <span key="c">{unit.passed ?? 0}/{unit.total}</span> : null,
           timing !== null ? <span key="s" data-over={slow ? "" : undefined}>{timing}</span> : null,
         ]}
@@ -262,21 +283,79 @@ function LandedRow({ unit }: { unit: RunUnit }) {
   );
 }
 
+/**
+ * A green unit the record had red: dot, name, `PASS · recovered`, and the
+ * same history line a red card carries, since a flake is as much news as a
+ * failure.
+ */
+function RecoveredRow({ unit }: { unit: RunUnit }) {
+  const timing = secsOfMedian(unit);
+  return (
+    <div className="tug-report-panel-recovered" data-slot="tug-report-panel-recovered" data-status={unit.status}>
+      <div className="tug-report-panel-red-head">
+        <UnitDot status={unit.status} />
+        <span className="tug-report-panel-name">{unit.name}</span>
+        <span className="tug-report-panel-word">{WORD[unit.status]}</span>
+        <span className="tug-report-panel-recovered-word">recovered</span>
+        <span className="tug-report-panel-spacer" />
+        {timing !== null && <span className="tug-report-panel-red-secs">{timing}</span>}
+      </div>
+      {unit.history !== undefined && <div className="tug-report-panel-red-history">{unit.history}</div>}
+    </div>
+  );
+}
+
+/**
+ * Phase rows as compact steps, each with its time on the right: a landed
+ * phase its seconds, the running one how long it has run of its median.
+ */
+function PhaseSteps({ units, nowMs }: { units: readonly RunUnit[]; nowMs: number }) {
+  return (
+    <ol className="tug-report-panel-phases" data-slot="tug-report-panel-phases">
+      {units.map((u) => {
+        const elapsed =
+          u.status === "running" && u.startedAtMs !== undefined
+            ? Math.max(0, (nowMs - u.startedAtMs) / 1000)
+            : undefined;
+        const detail =
+          elapsed !== undefined
+            ? u.median !== undefined
+              ? `${formatSecs(elapsed)} of ~${formatSecs(u.median)}`
+              : formatSecs(elapsed)
+            : u.secs !== undefined
+              ? formatSecs(u.secs)
+              : undefined;
+        return (
+          <TugStepRow
+            key={`${u.index ?? 0}-${u.name}`}
+            status={STEP_STATUS[u.status]}
+            label={u.name}
+            density="compact"
+            detailPlacement="trailing"
+            busyRole="action"
+            {...(detail !== undefined ? { detail } : {})}
+          />
+        );
+      })}
+    </ol>
+  );
+}
+
 /** A red unit: head, first failure, what the record said. */
 function RedCard({ unit }: { unit: RunUnit }) {
   const timing = secsOfMedian(unit);
   return (
-    <div className="tug-run-panel-red" data-slot="tug-run-panel-red" data-status={unit.status}>
-      <div className="tug-run-panel-red-head">
+    <div className="tug-report-panel-red" data-slot="tug-report-panel-red" data-status={unit.status}>
+      <div className="tug-report-panel-red-head">
         <UnitDot status={unit.status} />
-        <span className="tug-run-panel-name">{unit.name}</span>
-        <span className="tug-run-panel-word">{WORD[unit.status]}</span>
-        <span className="tug-run-panel-spacer" />
-        {timing !== null && <span className="tug-run-panel-red-secs">{timing}</span>}
+        <span className="tug-report-panel-name">{unit.name}</span>
+        <span className="tug-report-panel-word">{WORD[unit.status]}</span>
+        <span className="tug-report-panel-spacer" />
+        {timing !== null && <span className="tug-report-panel-red-secs">{timing}</span>}
       </div>
-      {unit.title !== undefined && <div className="tug-run-panel-red-title">{unit.title}</div>}
-      {unit.message !== undefined && <div className="tug-run-panel-red-message">{unit.message}</div>}
-      {unit.history !== undefined && <div className="tug-run-panel-red-history">{unit.history}</div>}
+      {unit.title !== undefined && <div className="tug-report-panel-red-title">{unit.title}</div>}
+      {unit.message !== undefined && <div className="tug-report-panel-red-message">{unit.message}</div>}
+      {unit.history !== undefined && <div className="tug-report-panel-red-history">{unit.history}</div>}
     </div>
   );
 }
@@ -293,21 +372,21 @@ function Reds({ reds, foldKey }: { reds: readonly RunUnit[]; foldKey: string | u
   if (latest === undefined) return null;
   const earlier = reds.slice(0, -1).reverse();
   return (
-    <div className="tug-run-panel-reds" data-slot="tug-run-panel-reds">
+    <div className="tug-report-panel-reds" data-slot="tug-report-panel-reds">
       <RedCard unit={latest} />
       {earlier.length > 0 && (
         <TugAccordion
           type="multiple"
           variant="plain"
           density="compact"
-          className="tug-run-panel-folds tug-run-panel-earlier-reds"
+          className="tug-report-panel-folds tug-report-panel-earlier-reds"
           {...(foldKey !== undefined ? { componentStatePreservationKey: `${foldKey}-earlier-reds` } : {})}
         >
           <TugAccordionItem
             value="earlier-reds"
             trigger={<FoldTitle label="Earlier failures" count={String(earlier.length)} />}
           >
-            <div className="tug-run-panel-red-list">
+            <div className="tug-report-panel-red-list">
               {earlier.map((u) => <RedCard key={`${u.index ?? 0}-${u.name}`} unit={u} />)}
             </div>
           </TugAccordionItem>
@@ -323,8 +402,8 @@ function DurationChart({ units }: { units: readonly RunUnit[] }) {
   const max = Math.max(1, ...landed.map((u) => Math.max(u.secs ?? 0, u.median ?? 0)));
   return (
     <div
-      className="tug-run-panel-durations"
-      data-slot="tug-run-panel-durations"
+      className="tug-report-panel-durations"
+      data-slot="tug-report-panel-durations"
       role="img"
       aria-label="wall time per unit; the ghost tick is the recorded median"
       title="ghost tick: the recorded median"
@@ -332,18 +411,18 @@ function DurationChart({ units }: { units: readonly RunUnit[] }) {
       {landed.map((u) => (
         <div
           key={`${u.index ?? 0}-${u.name}`}
-          className="tug-run-panel-dur"
+          className="tug-report-panel-dur"
           data-status={u.status}
           title={`${u.name} · ${u.secs}s${u.median !== undefined ? ` (median ${u.median}s)` : ""}`}
         >
-          <span className="tug-run-panel-dur-name">{u.name}</span>
-          <span className="tug-run-panel-dur-track">
-            <span className="tug-run-panel-dur-bar" style={{ width: `${((u.secs ?? 0) / max) * 100}%` }} />
+          <span className="tug-report-panel-dur-name">{u.name}</span>
+          <span className="tug-report-panel-dur-track">
+            <span className="tug-report-panel-dur-bar" style={{ width: `${((u.secs ?? 0) / max) * 100}%` }} />
             {u.median !== undefined && (
-              <span className="tug-run-panel-dur-tick" style={{ left: `${(u.median / max) * 100}%` }} />
+              <span className="tug-report-panel-dur-tick" style={{ left: `${(u.median / max) * 100}%` }} />
             )}
           </span>
-          <span className="tug-run-panel-dur-val">{u.secs}s</span>
+          <span className="tug-report-panel-dur-val">{u.secs}s</span>
         </div>
       ))}
     </div>
@@ -352,9 +431,9 @@ function DurationChart({ units }: { units: readonly RunUnit[] }) {
 
 function FoldTitle({ label, count }: { label: string; count?: string }) {
   return (
-    <span className="tug-run-panel-fold-title">
+    <span className="tug-report-panel-fold-title">
       <span>{label}</span>
-      {count !== undefined && <span className="tug-run-panel-fold-count">{count}</span>}
+      {count !== undefined && <span className="tug-report-panel-fold-count">{count}</span>}
     </span>
   );
 }
@@ -367,47 +446,20 @@ function FoldTitle({ label, count }: { label: string; count?: string }) {
  * units in flight shows its progress line on one row, keeping the last line
  * it had rather than going blank.
  */
-function InFlight({ m, text }: { m: RunPanelModel; text: string | undefined }) {
+function InFlight({ m, text, nowMs }: { m: ReportPanelModel; text: string | undefined; nowMs: number }) {
   // Not appearance state: what each row showed last, which the next render
   // reads to keep the rows where they were. laneSlots is idempotent, so a
   // second render pass writes the same thing.
   const slots = useRef<string[]>([]);
   const lastText = useRef("");
-  if (m.unit === "phase") {
-    return (
-      <ol className="tug-run-panel-phases" data-slot="tug-run-panel-phases">
-        {m.units.map((u) => {
-          const lane = m.lanes.find((l) => l.unit === u);
-          const detail =
-            lane !== undefined
-              ? u.median !== undefined
-                ? `${formatSecs(lane.elapsedSecs)} of ~${formatSecs(u.median)}`
-                : formatSecs(lane.elapsedSecs)
-              : u.secs !== undefined
-                ? formatSecs(u.secs)
-                : undefined;
-          return (
-            <TugStepRow
-              key={`${u.index ?? 0}-${u.name}`}
-              status={STEP_STATUS[u.status]}
-              label={u.name}
-              density="compact"
-              detailPlacement="trailing"
-              busyRole="action"
-              {...(detail !== undefined ? { detail } : {})}
-            />
-          );
-        })}
-      </ol>
-    );
-  }
+  if (m.unit === "phase") return <PhaseSteps units={m.units} nowMs={nowMs} />;
   slots.current = laneSlots(
     slots.current,
     m.lanes.map((l) => l.unit.name),
   );
   if (slots.current.length > 0) {
     return (
-      <div className="tug-run-panel-lanes" data-slot="tug-run-panel-lanes">
+      <div className="tug-report-panel-lanes" data-slot="tug-report-panel-lanes">
         {slots.current.map((name, i) => (
           <SlotRow key={i} name={name} unit={m.units.find((u) => u.name === name)} />
         ))}
@@ -416,7 +468,7 @@ function InFlight({ m, text }: { m: RunPanelModel; text: string | undefined }) {
   }
   if (text !== undefined && text.length > 0) lastText.current = text;
   return (
-    <div className="tug-run-panel-lanes" data-slot="tug-run-panel-now">
+    <div className="tug-report-panel-lanes" data-slot="tug-report-panel-now">
       <SlotRow name={lastText.current || "starting"} unit={undefined} />
     </div>
   );
@@ -426,9 +478,9 @@ function InFlight({ m, text }: { m: RunPanelModel; text: string | undefined }) {
 // The panel
 // ---------------------------------------------------------------------------
 
-export interface TugRunPanelProps {
-  run: RunProgress;
-  state: RunPanelState;
+export interface TugReportPanelProps {
+  run: Report;
+  state: ReportPanelState;
   /** The clock the lanes' elapsed reads against (ms). */
   nowMs: number;
   /** Finished: whether the call itself failed. */
@@ -454,38 +506,43 @@ function Masthead({
   wallSecs,
   text,
 }: {
-  m: RunPanelModel;
-  state: RunPanelState;
+  m: ReportPanelModel;
+  state: ReportPanelState;
   wallSecs: number | undefined;
   /** Running: the report's line, shown when the run has no rows to show it on. */
   text?: string | undefined;
 }): React.ReactElement {
   const facts: React.ReactElement[] = [];
   if (state === "running" && text !== undefined && text.length > 0 && text !== "running") {
-    facts.push(<span key="t" className="tug-run-panel-now-text">{text}</span>);
+    facts.push(<span key="t" className="tug-report-panel-now-text">{text}</span>);
   }
   if (m.jobs !== undefined && m.jobs > 1) facts.push(<span key="j">{m.jobs} jobs</span>);
-  if (state === "running" && m.projectionSecs !== null) {
+  const projection = state === "running" ? projectionText(m) : null;
+  if (projection !== null) {
     facts.push(
-      <span key="p" className="tug-run-panel-projection" title="from the recorded medians, over the job count">
-        ~{formatSecs(m.projectionSecs)} to go
+      <span
+        key="p"
+        className="tug-report-panel-projection"
+        title="from the recorded medians, over the job count; an unknown unit is taken at the typical median"
+      >
+        {projection}
       </span>,
     );
   }
   if (state === "finished" && wallSecs !== undefined) facts.push(<span key="w">wall {formatSecs(wallSecs)}</span>);
   return (
-    <div className="tug-run-panel-masthead">
-      {state === "finished" && <span className="tug-run-panel-verdict-word">{verdictWord(m)}</span>}
-      {m.label.length > 0 && <span className="tug-run-panel-label">{m.label}</span>}
+    <div className="tug-report-panel-masthead">
+      {state === "finished" && <span className="tug-report-panel-verdict-word">{verdictWord(m)}</span>}
+      {m.label.length > 0 && <span className="tug-report-panel-label">{m.label}</span>}
       <Fraction done={m.done} total={m.total} unit={m.unit} />
       <Tally m={m} />
-      <span className="tug-run-panel-spacer" />
+      <span className="tug-report-panel-spacer" />
       {facts.length > 0 && <TugMetaRun parts={facts} />}
     </div>
   );
 }
 
-export function TugRunPanel({
+export function TugReportPanel({
   run,
   state,
   nowMs,
@@ -493,8 +550,8 @@ export function TugRunPanel({
   wallSecs,
   output,
   foldKey,
-}: TugRunPanelProps): React.ReactElement {
-  const m = runPanelModel(run, state, nowMs, { callFailed });
+}: TugReportPanelProps): React.ReactElement {
+  const m = reportPanelModel(run, state, nowMs, { callFailed });
   const landed = m.units.filter((u) => u.secs !== undefined);
   const running = state === "running";
   // A test run counts its passes and lists only its reds: it has no in-flight
@@ -511,32 +568,34 @@ export function TugRunPanel({
   // where arriving moves nothing above, and only the most recent stands open.
   // Once over, the reds lead the body.
   return (
-    <div className="tug-run-panel" data-slot="tug-run-panel" data-state={state} data-verdict={m.verdict}>
+    <div className="tug-report-panel" data-slot="tug-report-panel" data-state={state} data-verdict={m.verdict}>
       <Masthead m={m} state={state} wallSecs={wallSecs} text={counted && m.total === undefined ? run.text : undefined} />
-      <TugRunTrack m={m} />
+      {m.phases.length > 0 && m.unit !== "phase" && <PhaseSteps units={m.phases} nowMs={nowMs} />}
+      <TugReportTrack m={m} />
 
-      {!running && (
-        <div className="tug-run-panel-verdict" data-slot="tug-run-panel-verdict" data-verdict={m.verdict}>
-          {verdictSentence(m)}
-        </div>
-      )}
+      {!running && <Verdict m={m} />}
 
-      {running && !counted && <InFlight m={m} text={run.text} />}
-      {!running && m.unit === "phase" && <InFlight m={m} text={undefined} />}
+      {running && !counted && <InFlight m={m} text={run.text} nowMs={nowMs} />}
+      {!running && m.unit === "phase" && <InFlight m={m} text={undefined} nowMs={nowMs} />}
 
       {!running && reds}
+      {!running && m.recovered.length > 0 && (
+        <div className="tug-report-panel-recovered-list" data-slot="tug-report-panel-recovered-list">
+          {m.recovered.map((u) => <RecoveredRow key={`${u.index ?? 0}-${u.name}`} unit={u} />)}
+        </div>
+      )}
 
       {(passedFold || (state === "finished" && landed.length > 1) || output !== undefined) && m.unit !== "phase" && (
         <TugAccordion
           type="multiple"
           variant="plain"
           density="compact"
-          className="tug-run-panel-folds"
+          className="tug-report-panel-folds"
           {...(foldKey !== undefined ? { componentStatePreservationKey: foldKey } : {})}
         >
           {passedFold && (
             <TugAccordionItem value="passed" trigger={<FoldTitle label="Passed" count={String(m.greens.length)} />}>
-              <div className="tug-run-panel-landed-list">
+              <div className="tug-report-panel-landed-list">
                 {[...m.greens].reverse().map((u) => <LandedRow key={`${u.index ?? 0}-${u.name}`} unit={u} />)}
               </div>
             </TugAccordionItem>
@@ -558,7 +617,7 @@ export function TugRunPanel({
           type="multiple"
           variant="plain"
           density="compact"
-          className="tug-run-panel-folds"
+          className="tug-report-panel-folds"
           {...(foldKey !== undefined ? { componentStatePreservationKey: foldKey } : {})}
         >
           <TugAccordionItem value="output" trigger={<FoldTitle label="Output" />}>
@@ -571,8 +630,25 @@ export function TugRunPanel({
   );
 }
 
+/**
+ * The verdict band: the sentence, and on a red the one act that names the
+ * reds without a re-run — the command to type, or where the report put them.
+ */
+function Verdict({ m }: { m: ReportPanelModel }): React.ReactElement {
+  return (
+    <div className="tug-report-panel-verdict" data-slot="tug-report-panel-verdict" data-verdict={m.verdict}>
+      {verdictSentence(m)}
+      {m.nextAct !== null && (
+        <span className="tug-report-panel-next" data-slot="tug-report-panel-next">
+          {m.nextAct.startsWith("tugtool ") ? <code>{m.nextAct}</code> : m.nextAct}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** The verdict as the word a test runner says: PASS or FAIL. */
-function verdictWord(m: RunPanelModel): string {
+function verdictWord(m: ReportPanelModel): string {
   return m.verdict === "red" ? "FAIL" : "PASS";
 }
 
@@ -581,40 +657,42 @@ function verdictWord(m: RunPanelModel): string {
  * at the panel's own sizes, and under them the failure detail when the run
  * went red — the most recent red open, the earlier ones folded, as the panel
  * shows them — so a collapsed red block says what failed without opening.
+ * A green run folds to the masthead alone: one line, count and time, and
+ * the block's own expand opens the panel.
  * It is what the running panel becomes when it settles — the ring turns into
  * the verdict word, the in-flight rows and the passed fold go — and what the
  * expanded panel opens with, so moving between the three changes no row the
  * eye was already reading.
  */
-export function TugRunStrip({
+export function TugReportStrip({
   run,
   callFailed = false,
   wallSecs,
   foldKey,
 }: {
-  run: RunProgress;
+  run: Report;
   callFailed?: boolean;
   wallSecs?: number;
   /** Keys the earlier-failures fold's open state in the card's saved bag. */
   foldKey?: string;
 }): React.ReactElement {
-  const m = runPanelModel(run, "finished", 0, { callFailed });
+  const m = reportPanelModel(run, "finished", 0, { callFailed });
   return (
     <div
-      className="tug-run-panel tug-run-strip"
-      data-slot="tug-run-strip"
+      className="tug-report-panel tug-report-strip"
+      data-slot="tug-report-strip"
       data-state="finished"
       data-verdict={m.verdict}
     >
       <Masthead m={m} state="finished" wallSecs={wallSecs} />
-      <TugRunTrack m={m} />
-      <Reds reds={m.reds} foldKey={foldKey} />
+      {m.verdict === "red" && <TugReportTrack m={m} />}
+      {m.verdict === "red" && <Reds reds={m.reds} foldKey={foldKey} />}
     </div>
   );
 }
 
-/** Whether a report is drawn as a run panel rather than the one line. */
-export function isRunPanelReport(p: RunProgress | null): p is RunProgress & { unit: string } {
+/** Whether a report is drawn as a report panel rather than the one line. */
+export function isPanelReport(p: Report | null): p is Report & { unit: string } {
   return p !== null && p.unit !== undefined;
 }
 

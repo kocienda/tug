@@ -45,6 +45,9 @@ pub struct SweepReport {
     pub tmux_sockets_unlinked: Vec<PathBuf>,
     pub tmp_files_removed: Vec<PathBuf>,
     pub tmp_dirs_removed: Vec<PathBuf>,
+    /// Files under the data root a retired spelling left behind — the
+    /// report-gaps record under its old name. See [`sweep_retired_data_files`].
+    pub retired_data_files_removed: Vec<PathBuf>,
     pub apptest_data_dirs_removed: Vec<String>,
     /// Transcript directories app-tests seeded under `~/.claude/projects`.
     pub seeded_transcripts_removed: Vec<PathBuf>,
@@ -60,6 +63,7 @@ impl SweepReport {
             && self.tmux_sockets_unlinked.is_empty()
             && self.tmp_files_removed.is_empty()
             && self.tmp_dirs_removed.is_empty()
+            && self.retired_data_files_removed.is_empty()
             && self.apptest_data_dirs_removed.is_empty()
             && self.seeded_transcripts_removed.is_empty()
             && self.processes_killed.is_empty()
@@ -185,13 +189,18 @@ pub const TMP_PREFIXES: &[TmpPrefix] = &[
     // `tugtool deck motion settle|rest --frame-phases`' per-run directory of
     // `xctrace` traces; the run prints the trace's path for a second reading.
     dir("tug-frame-phases-"),
-    // `tugtool progress phase`'s per-session run state, one small file per
+    // `tugtool report phase`'s per-session run state, one small file per
     // recipe label. Read only between one phase call and the next, so a
     // day-old directory is a finished run's leftovers.
-    dir("tug-progress-phase"),
-    // `tugtool progress unit`'s per-run state: a plan and one file per item,
+    dir("tug-report-phase"),
+    // `tugtool report unit`'s per-run state: a plan and one file per item,
     // read only while the run's calls are still arriving, so a day-old
     // directory is a finished run's leftovers.
+    dir("tug-report-unit"),
+    // The two directories above under the spelling the verbs had before they
+    // were `tugtool report`. Nothing writes them now; the entries stay until
+    // every machine that ran the old verbs has been swept once.
+    dir("tug-progress-phase"),
     dir("tug-progress-unit"),
     // `testTmpDir()` in the app-test harness.
     dir("tug-scratch-"),
@@ -287,6 +296,34 @@ pub fn sweep_tmp_debris(
         }
     }
     (files, dirs)
+}
+
+/// The files under the data root that a retired spelling left behind: the
+/// report-gaps record as `run_gaps.db`, with its WAL and shm beside it. It is
+/// telemetry whose rows were days old when the name changed, so it is removed
+/// rather than migrated, and nothing opens it first — a foreign open on a
+/// live ledger is the one thing the ledger rules forbid, and this file has no
+/// writer any more.
+pub const RETIRED_DATA_FILES: &[&str] = &["run_gaps.db", "run_gaps.db-wal", "run_gaps.db-shm"];
+
+/// Remove every [`RETIRED_DATA_FILES`] entry present under `data_dir`. No
+/// age gate: a file under a name nothing writes is debris the moment it is
+/// seen.
+pub fn sweep_retired_data_files(data_dir: &Path, mode: SweepMode) -> Vec<PathBuf> {
+    let mut removed = Vec::new();
+    for name in RETIRED_DATA_FILES {
+        let path = data_dir.join(name);
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        if !mode.applies() || fs::remove_file(&path).is_ok() {
+            removed.push(path);
+        }
+    }
+    removed
 }
 
 /// Remove transcript directories app-tests seeded under `projects` that
@@ -732,6 +769,8 @@ pub fn sweep_all(mode: SweepMode) -> SweepReport {
     let min_age = Duration::from_secs(MIN_DEBRIS_AGE_SECS);
 
     let (tmp_files_removed, tmp_dirs_removed) = sweep_tmp_debris(&tmp, max_age, mode);
+    let retired_data_files_removed =
+        sweep_retired_data_files(&crate::instance::base_data_dir(), mode);
     let dead_sockets = sweep_dead_sockets(&tmp, min_age, mode);
     let (tmux_servers_killed, tmux_sockets_unlinked) =
         sweep_tmux_servers(&tmux_socket_dir(), min_age, mode);
@@ -753,6 +792,7 @@ pub fn sweep_all(mode: SweepMode) -> SweepReport {
         tmux_sockets_unlinked,
         tmp_files_removed,
         tmp_dirs_removed,
+        retired_data_files_removed,
         apptest_data_dirs_removed,
         seeded_transcripts_removed,
         processes_killed,
@@ -1084,6 +1124,37 @@ mod tests {
             .expect("open for times")
             .set_times(times)
             .expect("set times");
+    }
+
+    #[test]
+    fn retired_data_files_go_and_the_live_record_stays() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path();
+        for name in [
+            "run_gaps.db",
+            "run_gaps.db-wal",
+            "report_gaps.db",
+            "changes.db",
+        ] {
+            fs::write(data.join(name), b"x").unwrap();
+        }
+        let reported = sweep_retired_data_files(data, SweepMode::Report);
+        assert_eq!(reported.len(), 2, "{reported:?}");
+        assert!(
+            data.join("run_gaps.db").exists(),
+            "report mode removes nothing"
+        );
+
+        let removed = sweep_retired_data_files(data, SweepMode::Apply);
+        assert_eq!(removed, reported);
+        assert!(!data.join("run_gaps.db").exists());
+        assert!(!data.join("run_gaps.db-wal").exists());
+        assert!(
+            data.join("report_gaps.db").exists(),
+            "the live record is untouched"
+        );
+        assert!(data.join("changes.db").exists());
+        assert!(sweep_retired_data_files(data, SweepMode::Apply).is_empty());
     }
 
     #[test]

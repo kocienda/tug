@@ -2613,7 +2613,7 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
       TUG_SESSION_INDEX_DB: `${instanceDataDir}/session_index.db`,
       // The machine-wide record of long Bash calls that reported nothing,
       // redirected for the same reason.
-      TUG_RUN_GAPS_DB: `${instanceDataDir}/run_gaps.db`,
+      TUG_REPORT_GAPS_DB: `${instanceDataDir}/report_gaps.db`,
     },
     logPath,
     expectedSurfaceVersion: opts.expectedSurfaceVersion ?? EXPECTED_SURFACE_VERSION,

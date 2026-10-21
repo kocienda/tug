@@ -23,7 +23,7 @@ pub struct TugConfig {
 
     /// The runners this project declares, beside the ones tugtool knows.
     #[serde(default)]
-    pub run: RunConfig,
+    pub report: ReportConfig,
 
     /// The retired `[tugtool.dash]` table, bound only so the loader can see it
     /// and refuse. Nothing reads its value: a project whose declarations are
@@ -31,6 +31,14 @@ pub struct TugConfig {
     /// this build reads, so it is a refusal rather than a silent default.
     #[serde(default, rename = "dash")]
     pub retired_dash: Option<toml::Value>,
+
+    /// The retired `[tugtool.run]` table — the runner rows before they were
+    /// `[tugtool.report]` — bound for the same reason and refused the same
+    /// way: a project still spelling it the old way declares runners nothing
+    /// reads, and would otherwise learn that only from a panel that stays
+    /// dark.
+    #[serde(default, rename = "run")]
+    pub retired_run: Option<toml::Value>,
 }
 
 /// Arc configuration.
@@ -202,11 +210,11 @@ pub struct Surface {
     pub checked_by: Vec<String>,
 }
 
-/// The `[tugtool.run]` table: the commands this project runs that the run
-/// panel should draw, beside the runners tugtool already knows.
+/// The `[tugtool.report]` table: the commands this project runs that the
+/// report panel should draw, beside the runners tugtool already knows.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RunConfig {
-    /// One row per runner, declared as `[[tugtool.run.runner]]`.
+pub struct ReportConfig {
+    /// One row per runner, declared as `[[tugtool.report.runner]]`.
     #[serde(default, rename = "runner")]
     pub runners: Vec<Runner>,
 }
@@ -217,7 +225,7 @@ pub struct RunConfig {
 /// A row with a `kind` is wrapped by the PreToolUse hook in
 /// `tugtool test run --kind <kind>`, which parses its output. A row with only
 /// a `unit` is a command that reports itself — a recipe calling
-/// `tugtool progress` — and the hook puts nothing in front of it but the
+/// `tugtool report` — and the hook puts nothing in front of it but the
 /// call id, so its reports attach to the block exactly. On a `kind` row,
 /// `unit` is the word the panel counts in.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -266,6 +274,9 @@ pub const RUN_KIND_NAMES: &[&str] = &[
     "mocha",
     "swift",
     "ctest",
+    "cargo",
+    "tsc",
+    "vite",
 ];
 
 /// The streams a `lines` run may read.
@@ -486,6 +497,8 @@ pub enum ConfigRefusal {
     LenderBorrows { surface: String, lender: String },
     /// A `checked_by` naming its own surface.
     SelfBorrow(String),
+    /// A config still carrying the retired `[tugtool.run]` table.
+    RetiredRunTable,
     /// A runner with an empty `match`.
     EmptyRunnerMatch,
     /// A runner declaring neither a `kind` nor a `unit`.
@@ -508,6 +521,16 @@ pub enum ConfigRefusal {
     },
     /// A runner `stream` outside [`RUN_STREAMS`].
     UnknownRunnerStream { runner: String, stream: String },
+    /// An `item`, `total` or `stream` on a row whose kind is not `lines` —
+    /// the one kind that reads them.
+    RuleOnOtherKind {
+        runner: String,
+        field: &'static str,
+        kind: Option<String>,
+    },
+    /// Two runners declaring the same `match`, which the hook can honour
+    /// only one of.
+    DuplicateRunnerMatch(String),
 }
 
 impl std::fmt::Display for ConfigRefusal {
@@ -556,8 +579,12 @@ impl std::fmt::Display for ConfigRefusal {
             Self::SelfBorrow(name) => {
                 write!(f, "surface {name:?} declares itself in its own checked_by")
             }
+            Self::RetiredRunTable => f.write_str(
+                "[tugtool.run] is retired — the runner table is [[tugtool.report.runner]] now, \
+                 and its rows are not read until it is renamed",
+            ),
             Self::EmptyRunnerMatch => {
-                f.write_str("a [[tugtool.run.runner]] declares an empty match")
+                f.write_str("a [[tugtool.report.runner]] declares an empty match")
             }
             Self::RunnerWithoutAction(runner) => write!(
                 f,
@@ -594,6 +621,31 @@ impl std::fmt::Display for ConfigRefusal {
                 "runner {runner:?} declares the stream {stream:?} — the streams are {}",
                 RUN_STREAMS.join(", ")
             ),
+            Self::RuleOnOtherKind {
+                runner,
+                field,
+                kind: Some(kind),
+            } => write!(
+                f,
+                "runner {runner:?} is kind {kind:?} and declares {field} — item, total and \
+                 stream belong to kind \"lines\", which reads the run's own lines; a {kind} run \
+                 is read by tugtool's parser for it"
+            ),
+            Self::RuleOnOtherKind {
+                runner,
+                field,
+                kind: None,
+            } => write!(
+                f,
+                "runner {runner:?} reports itself in its unit and declares {field} — item, \
+                 total and stream belong to kind \"lines\"; a self-reporting row needs only \
+                 its unit"
+            ),
+            Self::DuplicateRunnerMatch(head) => write!(
+                f,
+                "two runners declare the match {head:?} — the hook honours one row per head; \
+                 merge them into one row, or give one a longer head"
+            ),
         }
     }
 }
@@ -606,8 +658,11 @@ impl TugConfig {
         if self.retired_dash.is_some() {
             return Err(ConfigRefusal::RetiredDashTable);
         }
+        if self.retired_run.is_some() {
+            return Err(ConfigRefusal::RetiredRunTable);
+        }
         self.arc.validate()?;
-        self.run.validate()?;
+        self.report.validate()?;
         Ok(())
     }
 }
@@ -689,19 +744,28 @@ impl ArcConfig {
     }
 }
 
-impl RunConfig {
+impl ReportConfig {
     /// Check every declared runner, so a row that cannot mean what it says
     /// is refused at load rather than wrapped into a command that fails.
     ///
     /// A `kind` row may name a `unit` too — the word its run counts in. Only
-    /// a row with neither has nothing for the hook to do.
+    /// a row with neither has nothing for the hook to do. `item`, `total` and
+    /// `stream` are a `lines` row's alone, and a head is one row's alone:
+    /// a row the hook would accept and then silently not honour is refused
+    /// here, where the refusal can say what to write instead.
     pub fn validate(&self) -> Result<(), ConfigRefusal> {
+        let mut heads: Vec<String> = Vec::new();
         for runner in &self.runners {
             let name = runner.r#match.trim();
             if name.is_empty() {
                 return Err(ConfigRefusal::EmptyRunnerMatch);
             }
             let name = name.to_string();
+            let head = name.split_whitespace().collect::<Vec<_>>().join(" ");
+            if heads.contains(&head) {
+                return Err(ConfigRefusal::DuplicateRunnerMatch(head));
+            }
+            heads.push(head);
             match (&runner.kind, &runner.unit) {
                 (None, None) => return Err(ConfigRefusal::RunnerWithoutAction(name)),
                 (Some(kind), _) if !RUN_KIND_NAMES.contains(&kind.as_str()) => {
@@ -714,6 +778,20 @@ impl RunConfig {
                     return Err(ConfigRefusal::LinesWithoutItem(name));
                 }
                 _ => {}
+            }
+            if runner.kind.as_deref() != Some("lines") {
+                let rules = [
+                    ("item", &runner.item),
+                    ("total", &runner.total),
+                    ("stream", &runner.stream),
+                ];
+                if let Some((field, _)) = rules.into_iter().find(|(_, value)| value.is_some()) {
+                    return Err(ConfigRefusal::RuleOnOtherKind {
+                        runner: name,
+                        field,
+                        kind: runner.kind.clone(),
+                    });
+                }
             }
             let fields: [(&'static str, &Option<String>, &[&'static str]); 2] = [
                 ("item", &runner.item, &["name", "status"]),
@@ -917,47 +995,87 @@ mod tests {
         let cases: &[(&str, &str, &[&str])] = &[
             (
                 "an empty match",
-                "[[tugtool.run.runner]]\nmatch = \" \"\nkind = \"cargo-test\"\n",
+                "[[tugtool.report.runner]]\nmatch = \" \"\nkind = \"cargo-test\"\n",
                 &["empty match"],
             ),
             (
                 "neither a kind nor a unit",
-                "[[tugtool.run.runner]]\nmatch = \"make check\"\n",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\n",
                 &["\"make check\"", "neither a kind nor a unit"],
             ),
             (
                 "an unknown kind",
-                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"pyunit\"\n",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"pyunit\"\n",
                 &["\"make check\"", "\"pyunit\"", "cargo-test"],
             ),
             (
                 "a stream outside the three",
-                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\nstream = \"stdin\"\n",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok) (?P<name>\\S+)'\nstream = \"stdin\"\n",
                 &["\"make check\"", "\"stdin\"", "stdout, stderr, both"],
             ),
             (
+                "an item on a junit row",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"junit\"\nitem = '^(?P<status>ok) (?P<name>\\S+)'\n",
+                &[
+                    "\"make check\"",
+                    "\"junit\"",
+                    "declares item",
+                    "belong to kind \"lines\"",
+                ],
+            ),
+            (
+                "a total on a cargo-test row",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\ntotal = '^running (?P<total>\\d+)'\n",
+                &[
+                    "\"make check\"",
+                    "\"cargo-test\"",
+                    "declares total",
+                    "belong to kind \"lines\"",
+                ],
+            ),
+            (
+                "a stream on a self-reporting row",
+                "[[tugtool.report.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\nstream = \"stdout\"\n",
+                &[
+                    "\"just app-test\"",
+                    "reports itself",
+                    "declares stream",
+                    "needs only its unit",
+                ],
+            ),
+            (
+                "a unit row and a kind row with the same match",
+                "[[tugtool.report.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n\n[[tugtool.report.runner]]\nmatch = \"just  app-test\"\nkind = \"bun\"\n",
+                &["two runners", "\"just app-test\"", "one row per head"],
+            ),
+            (
+                "two kind rows with the same match",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"bun\"\n\n[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"junit\"\n",
+                &["two runners", "\"make check\"", "one row per head"],
+            ),
+            (
                 "a lines row with no item",
-                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\n",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"lines\"\n",
                 &["\"make check\"", "no item regex"],
             ),
             (
                 "an item with no status group",
-                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<name>\\S+) ok'\n",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<name>\\S+) ok'\n",
                 &["\"make check\"", "item regex", "(?P<status>"],
             ),
             (
                 "an item with no name group",
-                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok) \\S+'\n",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok) \\S+'\n",
                 &["\"make check\"", "item regex", "(?P<name>"],
             ),
             (
                 "a total with no total group",
-                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok) (?P<name>\\S+)'\ntotal = '^running \\d+'\n",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok) (?P<name>\\S+)'\ntotal = '^running \\d+'\n",
                 &["\"make check\"", "total regex", "(?P<total>"],
             ),
             (
                 "an item that does not compile",
-                "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok'\n",
+                "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = '^(?P<status>ok'\n",
                 &["\"make check\"", "item regex that does not compile"],
             ),
         ];
@@ -980,17 +1098,42 @@ mod tests {
 
         // The neighbour: a wrapped row, a self-reporting row, a wrapped row
         // that names the unit it counts in, and a `lines` row whose regexes
-        // carry every group they need.
+        // carry every group they need and which alone names a stream.
         let legal: Config = toml::from_str(
-            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\nsuite = \"checks\"\nlabel = \"checks\"\nstream = \"both\"\n\n[[tugtool.run.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n\n[[tugtool.run.runner]]\nmatch = \"bun run check\"\nkind = \"bun\"\nunit = \"file\"\n\n[[tugtool.run.runner]]\nmatch = \"make lint\"\nkind = \"lines\"\nitem = '^(?P<status>PASS|FAIL): (?P<name>\\S+)'\ntotal = '^running (?P<total>\\d+) checks'\nstream = \"stdout\"\nunit = \"check\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\nsuite = \"checks\"\nlabel = \"checks\"\n\n[[tugtool.report.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n\n[[tugtool.report.runner]]\nmatch = \"bun run check\"\nkind = \"bun\"\nunit = \"file\"\n\n[[tugtool.report.runner]]\nmatch = \"make lint\"\nkind = \"lines\"\nitem = '^(?P<status>PASS|FAIL): (?P<name>\\S+)'\ntotal = '^running (?P<total>\\d+) checks'\nstream = \"both\"\nunit = \"check\"\n",
         )
         .expect("the legal neighbour should parse");
         legal
             .tugtool
             .validate()
             .expect("the legal neighbour must still load");
-        assert_eq!(legal.tugtool.run.runners.len(), 4);
-        assert_eq!(legal.tugtool.run.runners[1].unit.as_deref(), Some("file"));
+        assert_eq!(legal.tugtool.report.runners.len(), 4);
+        assert_eq!(
+            legal.tugtool.report.runners[1].unit.as_deref(),
+            Some("file")
+        );
+    }
+
+    /// The runner table's old spelling is refused by name rather than read as
+    /// a project that declared no runners — the silent default is the one
+    /// outcome a cutover with no aliases must not have.
+    #[test]
+    fn the_retired_run_table_is_refused_and_names_the_new_one() {
+        let config: Config = toml::from_str(
+            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\n",
+        )
+        .expect("the old shape still parses");
+        let message = config
+            .tugtool
+            .validate()
+            .expect_err("the retired table must be refused")
+            .to_string();
+        assert!(message.contains("[tugtool.run] is retired"), "{message}");
+        assert!(message.contains("[[tugtool.report.runner]]"), "{message}");
+        assert!(
+            config.tugtool.report.runners.is_empty(),
+            "the old rows reach nothing this build reads"
+        );
     }
 
     /// Overlap is not ambiguity: a longer prefix shadowing a shorter one is

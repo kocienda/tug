@@ -1,15 +1,15 @@
 //! The runners the PreToolUse hook knows: tugtool's own, and the ones a
-//! project declares as `[[tugtool.run.runner]]` in `.tugtool/config.toml`.
+//! project declares as `[[tugtool.report.runner]]` in `.tugtool/config.toml`.
 //!
 //! A runner is one row in one shape whichever list it came from — the words
 //! its command starts with, and what the hook does in front of it. A row with
 //! a kind is wrapped in `tugtool test run --kind <kind>`, which parses the
-//! run's output into the block's run panel. A row with only a unit is a
-//! command that reports itself through `tugtool progress`, so the hook puts
+//! run's output into the block's report panel. A row with only a unit is a
+//! command that reports itself through `tugtool report`, so the hook puts
 //! the call id in front of it and nothing else, and its reports attach to the
 //! block exactly instead of by needle.
 //!
-//! `tugtool run runners` prints the table the hook would use from the current
+//! `tugtool report runners` prints the table the hook would use from the current
 //! directory, and it is where a refused config is shown: the hook itself
 //! falls back to the built-ins in silence, because a hook that failed would
 //! block the call it was asked about.
@@ -41,7 +41,8 @@ pub(crate) enum RunnerAction {
     /// `tugtool test run --kind <kind> … --`, with the flags a declared row
     /// carries.
     Wrap { kind: RunKind, flags: WrapFlags },
-    /// `TUG_TOOL_USE_ID=<id>`, and nothing else.
+    /// Nothing: the call id every readable call already carries is all a
+    /// command that reports itself needs.
     ExportId,
 }
 
@@ -178,6 +179,27 @@ pub(crate) fn built_in() -> Vec<RunnerSpec> {
             ..built_in_row(head, *kind, dir(suite))
         });
     }
+    // Builds and checks: no tests, so the units are what the tool reads —
+    // crates, type errors, the build — and each records under its own
+    // suite, never the directory's, so a check never stands as the last
+    // run of a project's tests.
+    let builds: &[(&[&str], RunKind, &str)] = &[
+        (&["cargo", "build"], RunKind::Cargo, "cargo"),
+        (&["cargo", "check"], RunKind::Cargo, "cargo"),
+        (&["cargo", "clippy"], RunKind::Cargo, "cargo"),
+        (&["tsc"], RunKind::Tsc, "tsc"),
+        (&["bunx", "tsc"], RunKind::Tsc, "tsc"),
+        (&["npx", "tsc"], RunKind::Tsc, "tsc"),
+        (&["vite", "build"], RunKind::Vite, "vite"),
+        (&["bunx", "vite", "build"], RunKind::Vite, "vite"),
+        (&["npx", "vite", "build"], RunKind::Vite, "vite"),
+    ];
+    for (head, kind, suite) in builds {
+        rows.push(RunnerSpec {
+            unit: default_unit(*kind).into(),
+            ..built_in_row(head, *kind, SuiteRule::Fixed((*suite).into()))
+        });
+    }
     // Longest head first, as `merged` orders the table, so `vitest run` is
     // found before `vitest`.
     rows.sort_by_key(|r| std::cmp::Reverse(r.head.len()));
@@ -196,15 +218,15 @@ fn declared(runner: &Runner) -> Option<RunnerSpec> {
     let action = match &runner.kind {
         Some(kind) => {
             let kind = <RunKind as ValueEnum>::from_str(kind, false).ok()?;
-            // The rule rides only a `lines` row; any other kind's is its own.
-            let lines = kind == RunKind::Lines;
-            let rule = |field: &Option<String>| field.clone().filter(|_| lines);
+            // `item`, `total` and `stream` are a `lines` row's alone, and the
+            // loader refuses them on any other kind, so what a row carries
+            // here is what its wrap passes on.
             RunnerAction::Wrap {
                 kind,
                 flags: WrapFlags {
-                    item: rule(&runner.item),
-                    total: rule(&runner.total),
-                    stream: rule(&runner.stream),
+                    item: runner.item.clone(),
+                    total: runner.total.clone(),
+                    stream: runner.stream.clone(),
                     unit: runner.unit.clone(),
                 },
             }
@@ -230,7 +252,7 @@ fn declared(runner: &Runner) -> Option<RunnerSpec> {
 pub(crate) fn merged(config: &Config) -> Vec<RunnerSpec> {
     let mut rows: Vec<RunnerSpec> = config
         .tugtool
-        .run
+        .report
         .runners
         .iter()
         .filter_map(declared)
@@ -261,7 +283,7 @@ pub(crate) fn for_cwd(cwd: Option<&str>) -> Vec<RunnerSpec> {
     }
 }
 
-/// One row of `tugtool run runners --json`.
+/// One row of `tugtool report runners --json`.
 #[derive(Serialize)]
 struct Row {
     head: String,
@@ -298,7 +320,7 @@ impl Row {
     }
 }
 
-/// `tugtool run runners`: the table the hook would use from here.
+/// `tugtool report runners`: the table the hook would use from here.
 pub(crate) fn run_runners(json: bool) -> Result<(), AppError> {
     let rows = match find_project_root() {
         Ok(root) => merged(&Config::load_from_project(&root).map_err(|e| e.to_string())?),
@@ -310,7 +332,7 @@ pub(crate) fn run_runners(json: bool) -> Result<(), AppError> {
         struct Report {
             runners: Vec<Row>,
         }
-        print_ok("run runners", Report { runners: rows });
+        print_ok("report runners", Report { runners: rows });
         return Ok(());
     }
     let cells: Vec<[String; 3]> = rows
@@ -364,8 +386,8 @@ mod tests {
     #[test]
     fn declared_rows_join_the_built_ins_longest_head_first() {
         let rows = merged(&config(
-            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\n\n\
-             [[tugtool.run.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\n\n\
+             [[tugtool.report.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n",
         ));
         let heads: Vec<String> = rows.iter().map(RunnerSpec::head_text).collect();
         let at = |head: &str| heads.iter().position(|h| h == head).unwrap();
@@ -387,7 +409,7 @@ mod tests {
     #[test]
     fn a_declared_head_replaces_the_built_in_it_equals() {
         let rows = merged(&config(
-            "[[tugtool.run.runner]]\nmatch = \"bun test\"\nkind = \"bun\"\nsuite = \"web\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"bun test\"\nkind = \"bun\"\nsuite = \"web\"\n",
         ));
         let bun: Vec<&RunnerSpec> = rows
             .iter()
@@ -410,6 +432,9 @@ mod tests {
         assert_eq!(unit("npx jest"), "file");
         assert_eq!(unit("vitest run"), "file");
         assert_eq!(unit("pytest"), "test");
+        assert_eq!(unit("cargo clippy"), "crate");
+        assert_eq!(unit("bunx tsc"), "error");
+        assert_eq!(unit("bunx vite build"), "build");
     }
 
     #[test]

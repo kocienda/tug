@@ -28,14 +28,14 @@
  *     fragment has arrived (typically an empty `command` until
  *     enough of the input has streamed in); the body is `null` (the
  *     header dot is the in-flight signal). Once the running command
- *     reports its own progress (`tugtool progress`, `tugtool test
+ *     reports its own progress (`tugtool report`, `tugtool test
  *     run`), the latest report rides the chrome's live band
  *     ({@link BashLiveBand}) — between header and body, so it reads
  *     while the block is collapsed. A report that names its unit
  *     (`file`, `test`, `phase`) is drawn there as a running
- *     {@link TugRunPanel}; one that does not is the one line.
+ *     {@link TugReportPanel}; one that does not is the one line.
  *   - A run that named its unit settles when the call returns: a
- *     collapsed block shows the verdict strip ({@link TugRunStrip}) on
+ *     collapsed block shows the verdict strip ({@link TugReportStrip}) on
  *     the live band, and the expanded body is the finished panel with
  *     the command's output folded at its foot. A settled run is a view
  *     the page keeps, not part of the record — a block restored without
@@ -111,10 +111,11 @@ import {
   type BlockNotice,
 } from "../../blocks/block-notice";
 import { TugProgressIndicator } from "../../tug-progress-indicator";
-import { useRunProgress, useSettledRun } from "../../blocks/run-progress-context";
-import { formatRunProgressLine, type RunProgress } from "@/lib/run-progress-store";
+import { useReport, useSettledRun } from "../../blocks/report-context";
+import { formatReportLine, type Report } from "@/lib/report-store";
 import { useLiveTick } from "@/lib/live-tick";
-import { TugRunPanel, TugRunStrip, isRunPanelReport } from "../../tug-run-panel";
+import { stripCallIdPrefix } from "@/lib/call-id-prefix";
+import { TugReportPanel, TugReportStrip, isPanelReport } from "../../tug-report-panel";
 import type { ToolResultSummary } from "../../blocks/tool-result-summary";
 import type { ToolBlockProps } from "../../blocks/types";
 
@@ -283,16 +284,16 @@ export function tryParseBashDiff(
 }
 
 /**
- * A running run panel on the shared 1 Hz {@link useLiveTick}: the running
+ * A running report panel on the shared 1 Hz {@link useLiveTick}: the running
  * phase's time and the "to go" projection are elapsed readings, and a panel
  * that only re-rendered on a report left them frozen between reports. Mounted
  * only while a panel runs, so a settled block and the one-line band pay no tick.
  */
-function LiveRunPanel({ run }: { run: RunProgress }): React.ReactElement {
+function LiveReportPanel({ run }: { run: Report }): React.ReactElement {
   const now = useLiveTick();
   return (
-    <div data-slot="bash-run-panel" className="bash-run-panel">
-      <TugRunPanel run={run} state="running" nowMs={now} />
+    <div data-slot="bash-report-panel" className="bash-report-panel">
+      <TugReportPanel run={run} state="running" nowMs={now} />
     </div>
   );
 }
@@ -307,8 +308,8 @@ function LiveRunPanel({ run }: { run: RunProgress }): React.ReactElement {
  * as it always has.
  */
 export const BashLiveBand: React.FC<{ toolUseId: string }> = ({ toolUseId }) => {
-  const progress = useRunProgress(toolUseId);
-  if (isRunPanelReport(progress)) return <LiveRunPanel run={progress} />;
+  const progress = useReport(toolUseId);
+  if (isPanelReport(progress)) return <LiveReportPanel run={progress} />;
   if (progress?.text === undefined) return null;
   const ring =
     progress.total !== undefined ? (
@@ -328,7 +329,7 @@ export const BashLiveBand: React.FC<{ toolUseId: string }> = ({ toolUseId }) => 
         tone="progress"
         maxLines={1}
         icon={ring}
-        text={formatRunProgressLine(progress)}
+        text={formatReportLine(progress)}
       />
     </div>
   );
@@ -351,7 +352,12 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   caution,
   preview = false,
 }) => {
-  const bashInput = React.useMemo(() => narrowBashInput(input), [input]);
+  // The hook opens every readable call with an export of its own id; that is
+  // the hook's, so the block shows and copies the command without it.
+  const bashInput = React.useMemo(() => {
+    const raw = narrowBashInput(input);
+    return raw.command === undefined ? raw : { ...raw, command: stripCallIdPrefix(raw.command, toolUseId) };
+  }, [input, toolUseId]);
   const structured = React.useMemo(
     () => narrowStructured(structuredResult),
     [structuredResult],
@@ -501,8 +507,8 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   }
   if (settled !== null && commit === null) {
     body = (
-      <div data-slot="bash-run-panel" className="bash-run-panel">
-        <TugRunPanel
+      <div data-slot="bash-report-panel" className="bash-report-panel">
+        <TugReportPanel
           run={settled}
           state="finished"
           nowMs={0}
@@ -566,8 +572,8 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
         status === "streaming" && !preview ? (
           <BashLiveBand toolUseId={toolUseId} />
         ) : settled !== null ? (
-          <div data-slot="bash-run-strip" className="bash-run-strip">
-            <TugRunStrip
+          <div data-slot="bash-report-strip" className="bash-report-strip">
+            <TugReportStrip
               run={settled}
               callFailed={callFailed}
               {...(wallSecs !== undefined ? { wallSecs } : {})}

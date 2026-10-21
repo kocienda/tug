@@ -1,5 +1,5 @@
 /**
- * What a run panel shows, derived from one report — pure, so every reading
+ * What a report panel shows, derived from one report — pure, so every reading
  * the panel makes is a function of the report and the clock, and testable
  * without a DOM.
  *
@@ -14,15 +14,15 @@
  * own outcome: a build whose last word was "re-sign" and whose call
  * succeeded signed; one whose call failed failed there.
  *
- * @module lib/run-panel-model
+ * @module lib/report-panel-model
  */
 
-import type { RunProgress, RunUnit, RunUnitStatus } from "./run-progress-store";
+import type { Report, RunUnit, RunUnitStatus } from "./report-store";
 
 /** Past this many units the track is a density band rather than cells. */
 export const CELLS_UP_TO = 64;
 
-export type RunPanelState = "running" | "finished";
+export type ReportPanelState = "running" | "finished";
 
 /** A unit whose status is a red. */
 export function isRed(status: RunUnitStatus): boolean {
@@ -35,7 +35,7 @@ export interface RunLane {
   elapsedSecs: number;
 }
 
-export interface RunPanelModel {
+export interface ReportPanelModel {
   /** The unit word, singular (`file`). */
   unit: string;
   label: string;
@@ -59,7 +59,37 @@ export interface RunPanelModel {
   greens: RunUnit[];
   /** Seconds left, from the recorded medians; null when it cannot be known. */
   projectionSecs: number | null;
+  /** Units still to land whose time no median knows, guessed at the typical one. */
+  unknownCount: number;
+  /**
+   * Where on the bar the run would stand had it kept to its medians: the
+   * share of its expected wall time — spent plus {@link projectionSecs} —
+   * already spent. A fill behind the mark is a run slower than its record.
+   */
+  paceFraction: number | null;
+  /**
+   * Green rows that carry a history line. A reporter amends a green row only
+   * when the record had it red, so each is a recovery: a flake, or a fix.
+   */
+  recovered: RunUnit[];
+  /** The phase rows a run carried beside its units, a finished phase landed. */
+  phases: RunUnit[];
+  /** A red run's next act: the command, or the place, that names the reds. */
+  nextAct: string | null;
   verdict: "running" | "green" | "red";
+}
+
+/**
+ * The one thing to do on a red: what names the reds without a re-run. An
+ * app-test batch's are in its own report's Failures section; every other run
+ * that counts tests or files went through `tugtool test run`, which recorded
+ * them for `tugtool test last --failures`. A run counting anything else — a
+ * build's phases, a verify's surfaces — shows its reds inline and has none.
+ */
+export function nextActFor(label: string, unit: string): string | null {
+  if (label === "app-test") return "see the Failures section";
+  if (unit === "test" || unit === "file") return "tugtool test last --failures";
+  return null;
 }
 
 /**
@@ -100,12 +130,12 @@ function resolveFinished(u: RunUnit, callFailed: boolean): RunUnit {
   return { ...u, status: callFailed ? "fail" : "pass" };
 }
 
-export function runPanelModel(
-  p: RunProgress,
-  state: RunPanelState,
+export function reportPanelModel(
+  p: Report,
+  state: ReportPanelState,
   nowMs: number,
   opts: { callFailed?: boolean } = {},
-): RunPanelModel {
+): ReportPanelModel {
   const callFailed = opts.callFailed === true;
   const raw = [...(p.units ?? [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
   const units = state === "finished" ? raw.map((u) => resolveFinished(u, callFailed)) : raw;
@@ -121,7 +151,7 @@ export function runPanelModel(
   const red = Math.max(redRows, p.failures ?? 0);
   const pass = full ? greens.length : Math.max(0, (p.done ?? 0) - red);
 
-  const track: RunPanelModel["track"] =
+  const track: ReportPanelModel["track"] =
     total === undefined || total === 0 ? "none" : full && total <= CELLS_UP_TO ? "cells" : "band";
 
   const lanes: RunLane[] =
@@ -135,23 +165,39 @@ export function runPanelModel(
       : [];
 
   let projectionSecs: number | null = null;
+  let unknownCount = 0;
+  let paceFraction: number | null = null;
   if (state === "running" && full) {
     const known = units.map((u) => u.median).filter((m): m is number => m !== undefined);
     const typical = known.length > 0 ? known.reduce((a, b) => a + b, 0) / known.length : undefined;
     if (typical !== undefined) {
       let left = 0;
       for (const u of units) {
+        if (u.status !== "pending" && u.status !== "running") continue;
+        if (u.median === undefined) unknownCount += 1;
         if (u.status === "pending") left += u.median ?? typical;
-        else if (u.status === "running") {
+        else {
           const lane = lanes.find((l) => l.unit === u);
           left += Math.max(0, (u.median ?? typical) - (lane?.elapsedSecs ?? 0));
         }
       }
       projectionSecs = left / Math.max(1, p.jobs ?? 1);
+      const starts = units.map((u) => u.startedAtMs).filter((s): s is number => s !== undefined);
+      if (starts.length > 0) {
+        const spent = Math.max(0, (nowMs - Math.min(...starts)) / 1000);
+        paceFraction = spent + projectionSecs > 0 ? spent / (spent + projectionSecs) : null;
+      }
     }
   }
 
-  const verdict: RunPanelModel["verdict"] =
+  // The units started, so the phases before them are over: a phase still
+  // marked running landed when the first unit began.
+  const unitsBegan = units.some((u) => u.status !== "pending");
+  const phases = [...(p.phases ?? [])]
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+    .map((u) => (unitsBegan || state === "finished" ? resolveFinished(u, callFailed && !unitsBegan) : u));
+
+  const verdict: ReportPanelModel["verdict"] =
     state === "running" ? "running" : red > 0 || callFailed ? "red" : "green";
 
   return {
@@ -175,15 +221,27 @@ export function runPanelModel(
     reds,
     greens,
     projectionSecs,
+    unknownCount,
+    paceFraction,
+    recovered: greens.filter((u) => u.history !== undefined),
+    phases,
+    nextAct: verdict === "red" ? nextActFor(p.label ?? "", p.unit ?? "unit") : null,
     verdict,
   };
+}
+
+/** The projection as the masthead says it: `~2m 05s left · 3 unknown`. */
+export function projectionText(m: ReportPanelModel): string | null {
+  if (m.projectionSecs === null) return null;
+  const left = `~${formatSecs(m.projectionSecs)} left`;
+  return m.unknownCount > 0 ? `${left} · ${m.unknownCount} unknown` : left;
 }
 
 /**
  * The verdict band's sentence: `2 of 25 files failed, 1 stalled · 1 skipped`,
  * or `25 files passed`. A run that stopped short says how many never ran.
  */
-export function verdictSentence(m: RunPanelModel): string {
+export function verdictSentence(m: ReportPanelModel): string {
   const total = m.total ?? m.done;
   const word = unitWord(m.unit, total);
   const parts: string[] = [];
@@ -197,6 +255,7 @@ export function verdictSentence(m: RunPanelModel): string {
   } else {
     parts.push(`${m.counts.pass} ${unitWord(m.unit, m.counts.pass)} passed`);
   }
+  if (m.recovered.length > 0) parts.push(`${m.recovered.length} recovered`);
   if (m.counts.skipped > 0) parts.push(`${m.counts.skipped} skipped`);
   if (m.counts.pending > 0 && m.track === "cells") parts.push(`${m.counts.pending} not run`);
   return parts.join(" · ");

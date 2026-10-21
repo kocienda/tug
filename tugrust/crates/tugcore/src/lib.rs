@@ -28,7 +28,7 @@ pub mod pathform;
 pub mod ports;
 pub mod quiesce;
 pub mod registry;
-pub mod run_gaps;
+pub mod report_gaps;
 pub mod session_finder;
 #[cfg(test)]
 mod session_identity_scan;

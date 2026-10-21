@@ -234,6 +234,32 @@ fn the_childs_exit_code_is_the_probes_exit_code() {
     assert_eq!(std::fs::read(&target).unwrap(), before);
 }
 
+/// The call a probe runs under reaches its child under the one name every
+/// reporter reads, whichever name the probe itself was handed.
+#[test]
+fn the_child_runs_under_the_probes_call_id() {
+    let (_dir, root) = init_repo();
+    let patch = write_patch(&root, EDIT_PATCH);
+    let out = tugtool()
+        .current_dir(&root)
+        .env_remove("TUG_TOOL_USE_ID")
+        .env("CLAUDE_CODE_TOOL_USE_ID", "toolu_probe")
+        .args(["file", "probe", "--patch", patch.to_str().unwrap(), "--"])
+        .args(["sh", "-c", "echo child=$TUG_TOOL_USE_ID"])
+        .output()
+        .expect("run tugtool");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("child=toolu_probe"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
 #[test]
 fn a_patch_that_does_not_apply_changes_nothing_and_runs_nothing() {
     let (_dir, root) = init_repo();

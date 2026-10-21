@@ -47,7 +47,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tugtool_core::test_ledger::{self, JunitFailure, JunitRun, TestRun};
 
 use crate::changes::AppError;
-use crate::progress::{RunReport, post_run_progress};
+use crate::report::{RunReport, post_report};
 use crate::run_parsers::{
     GoForward, GoReader, ItemStatus, LineRead, LineRule, Stream, TapReader, default_unit, rule_for,
 };
@@ -85,6 +85,17 @@ pub enum RunKind {
     Swift,
     /// `ctest`.
     Ctest,
+    /// `cargo build`, `cargo check`, `cargo clippy`: no tests, so the units
+    /// are the crates cargo starts on — its `Compiling`/`Checking` lines on
+    /// stderr — and a crate that does not compile is the red, carrying the
+    /// first error cargo printed before it.
+    Cargo,
+    /// `tsc`: one line per type error, which is the red; a green check
+    /// prints nothing and counts nothing.
+    Tsc,
+    /// `vite build`: its phase lines as the text, and the build itself as
+    /// the one unit, passing on `✓ built in` and failing on `✗ Build failed`.
+    Vite,
 }
 
 impl RunKind {
@@ -100,6 +111,8 @@ impl RunKind {
                 | RunKind::Mocha
                 | RunKind::Swift
                 | RunKind::Ctest
+                | RunKind::Tsc
+                | RunKind::Vite
         )
     }
 }
@@ -118,7 +131,7 @@ pub struct Progress {
     /// last test finished, or `running`.
     pub text: String,
     /// The failing tests so far, in the order they failed, up to
-    /// [`FAILED_KEPT`] — the rows the block's run panel draws as reds.
+    /// [`FAILED_KEPT`] — the rows the block's report panel draws as reds.
     pub failed: Vec<FailedTest>,
 }
 
@@ -370,7 +383,7 @@ fn sink_for(args: &RunArgs, unit: &str) -> Box<dyn ProgressSink> {
     let needles = args.needles.clone();
     let unit = unit.to_string();
     Box::new(Poster::start(move |progress| {
-        post_run_progress(&report_of(progress, &label, &unit, &needles))
+        post_report(&report_of(progress, &label, &unit, &needles))
     }))
 }
 
@@ -570,6 +583,20 @@ pub fn nextest_line(raw: &str) -> NextestLine {
 // cargo test
 // ---------------------------------------------------------------------------
 
+/// The crate a line of cargo's stderr starts on — `Compiling <crate> v…` or
+/// `Checking <crate> v…` — or `None` for any other line.
+pub fn compiling_crate(raw: &str) -> Option<String> {
+    let line = strip_ansi(raw);
+    let t = line.trim();
+    let rest = t
+        .strip_prefix("Compiling ")
+        .or_else(|| t.strip_prefix("Checking "))?;
+    let mut words = rest.split_whitespace();
+    let name = words.next()?;
+    words.next().filter(|v| v.starts_with('v'))?;
+    Some(name.to_string())
+}
+
 /// What one line of `cargo test`'s stdout said — libtest's reporter.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CargoTestLine {
@@ -721,6 +748,12 @@ struct Follow {
     err_line: Vec<u8>,
     out_line: Vec<u8>,
     nextest_summary: bool,
+    /// Crates cargo has started on, counted from its `Compiling` and
+    /// `Checking` lines, which every cargo kind reads before its first test.
+    crates: u64,
+    /// The first error a cargo build printed since its last red, which the
+    /// `could not compile` line it leads to carries as its message.
+    compile_error: Option<String>,
     progress: Progress,
 }
 
@@ -738,6 +771,8 @@ impl Follow {
             err_line: Vec::new(),
             out_line: Vec::new(),
             nextest_summary: false,
+            crates: 0,
+            compile_error: None,
             progress: Progress {
                 text: "running".into(),
                 ..Progress::default()
@@ -761,6 +796,12 @@ impl Follow {
                 }
             }
             RunKind::Nextest => self.lines(chunk, false),
+            // cargo's stderr is its build: the crates are read off it, and
+            // every byte is forwarded as it came.
+            RunKind::Cargo | RunKind::CargoTest => {
+                self.lines(chunk, false);
+                chunk.to_vec()
+            }
             // The line kinds forward the chunk and only count its lines.
             kind if kind.reads_by_rule() => {
                 if self.rule.as_ref().is_some_and(|r| r.stream.reads_stderr()) {
@@ -768,8 +809,7 @@ impl Follow {
                 }
                 chunk.to_vec()
             }
-            // cargo's stderr is the build and its tests are on stdout, as
-            // TAP and go's events are.
+            // TAP's and go's items are on stdout.
             _ => chunk.to_vec(),
         }
     }
@@ -927,6 +967,36 @@ impl Follow {
         self.progress.text = item.name;
     }
 
+    /// cargo started on a crate: counted, and shown as the compile phase.
+    fn compiling(&mut self, name: &str) {
+        self.crates += 1;
+        let word = if self.crates == 1 { "crate" } else { "crates" };
+        self.progress.text = format!("compiling {name} · {} {word}", self.crates);
+    }
+
+    /// One line of a cargo build's stderr: a crate started, an error, the
+    /// crate it failed, or the finish.
+    fn cargo_build_line(&mut self, text: &str) {
+        if let Some(name) = compiling_crate(text) {
+            self.compiling(&name);
+            self.progress.done = self.crates;
+            return;
+        }
+        let line = strip_ansi(text);
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("error: could not compile `") {
+            let name = rest.split('`').next().unwrap_or(rest).to_string();
+            let message = self.compile_error.take().unwrap_or_default();
+            self.progress.failures += 1;
+            self.progress.note_failure(&name, &message);
+            self.progress.text = format!("{name} did not compile");
+        } else if t.starts_with("error") && self.compile_error.is_none() {
+            self.compile_error = Some(t.to_string());
+        } else if t.starts_with("Finished ") {
+            self.progress.text = "finished".into();
+        }
+    }
+
     /// Read one whole line; returns whether nextest's line is forwarded.
     fn take_line(&mut self, bytes: &[u8]) -> bool {
         let text = String::from_utf8_lossy(bytes);
@@ -949,9 +1019,7 @@ impl Follow {
                 }
                 match nextest_line(text) {
                     NextestLine::Starting(n) => self.progress.total = Some(n),
-                    NextestLine::Compiling(name) => {
-                        self.progress.text = format!("compiling {name}")
-                    }
+                    NextestLine::Compiling(name) => self.compiling(&name),
                     NextestLine::Pass(test) => {
                         self.progress.done += 1;
                         self.progress.text = test;
@@ -969,6 +1037,10 @@ impl Follow {
                 true
             }
             RunKind::CargoTest => {
+                if let Some(name) = compiling_crate(text) {
+                    self.compiling(&name);
+                    return true;
+                }
                 match cargo_test_line(text) {
                     CargoTestLine::Running(n) => {
                         self.progress.total = Some(self.progress.total.unwrap_or(0) + n)
@@ -990,6 +1062,10 @@ impl Follow {
             RunKind::Tap => {
                 let read = self.tap.line(&strip_ansi(text));
                 self.take_read(read);
+                true
+            }
+            RunKind::Cargo => {
+                self.cargo_build_line(text);
                 true
             }
             RunKind::Go => {
@@ -1449,6 +1525,79 @@ mod tests {
         assert_eq!(doc.failures[1].message, "expect(received).toBe(expected)");
     }
 
+    /// Feed a recorded stderr through a follower line by line, keeping each
+    /// state's text, and answer what was forwarded.
+    fn follow_stderr(kind: RunKind, text: &str) -> (Follow, Vec<String>, String) {
+        let mut follow = Follow::new(kind);
+        let mut texts = vec![follow.progress.text.clone()];
+        let mut out = Vec::new();
+        for line in text.split_inclusive('\n') {
+            out.extend(follow.feed(line.as_bytes()));
+            if texts.last() != Some(&follow.progress.text) {
+                texts.push(follow.progress.text.clone());
+            }
+        }
+        (follow, texts, String::from_utf8(out).unwrap())
+    }
+
+    #[test]
+    fn a_cargo_build_counts_its_crates_and_forwards_every_line() {
+        for (fixture, verb) in [
+            (
+                include_str!("../tests/fixtures/runner-output/cargo-build.txt"),
+                "Compiling",
+            ),
+            (
+                include_str!("../tests/fixtures/runner-output/cargo-check.txt"),
+                "Checking",
+            ),
+        ] {
+            let (follow, texts, out) = follow_stderr(RunKind::Cargo, fixture);
+            assert_eq!(out, fixture, "{verb}: cargo's stderr passes through whole");
+            assert_eq!(follow.progress.done, 2, "{verb}");
+            assert_eq!(follow.progress.failures, 0, "{verb}");
+            assert_eq!(
+                texts,
+                [
+                    "running",
+                    "compiling alpha · 1 crate",
+                    "compiling beta · 2 crates",
+                    "finished"
+                ],
+                "{verb}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_crate_that_does_not_compile_is_the_red_with_its_first_error() {
+        let (follow, _, _) = follow_stderr(
+            RunKind::Cargo,
+            include_str!("../tests/fixtures/runner-output/cargo-build-error.txt"),
+        );
+        assert_eq!(follow.progress.done, 2);
+        assert_eq!(follow.progress.failures, 1);
+        assert_eq!(follow.progress.text, "beta did not compile");
+        let red = &follow.progress.failed[0];
+        assert_eq!(red.name, "beta");
+        assert_eq!(red.message, "error[E0308]: mismatched types");
+        // The record is the tally: two crates, one red.
+        let record = follow.tally();
+        assert_eq!((record.tests, record.failed), (2, 1));
+    }
+
+    #[test]
+    fn a_test_run_shows_its_compile_before_its_first_test() {
+        let fixture = include_str!("../tests/fixtures/runner-output/cargo-build.txt");
+        let (follow, texts, out) = follow_stderr(RunKind::CargoTest, fixture);
+        assert_eq!(out, fixture);
+        assert_eq!(
+            texts[1..],
+            ["compiling alpha · 1 crate", "compiling beta · 2 crates"]
+        );
+        assert_eq!(follow.progress.done, 0, "a crate is not a test");
+    }
+
     #[test]
     fn nextest_lines_give_total_passes_failure_and_crate() {
         let mut follow = Follow::new(RunKind::Nextest);
@@ -1460,7 +1609,10 @@ mod tests {
                 seen_compiling = Some(follow.progress.text.clone());
             }
         }
-        assert_eq!(seen_compiling.as_deref(), Some("compiling tugcast"));
+        assert_eq!(
+            seen_compiling.as_deref(),
+            Some("compiling tugcast · 1 crate")
+        );
         assert_eq!(follow.progress.total, Some(12));
         assert_eq!(follow.progress.done, 12, "11 passes and 1 failure");
         assert_eq!(

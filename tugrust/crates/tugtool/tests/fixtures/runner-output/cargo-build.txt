@@ -1,0 +1,3 @@
+   Compiling alpha v0.1.0 (/x/alpha)
+   Compiling beta v0.1.0 (/x/beta)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s

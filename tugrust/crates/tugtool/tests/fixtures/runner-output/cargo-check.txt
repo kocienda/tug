@@ -1,0 +1,3 @@
+    Checking alpha v0.1.0 (/x/alpha)
+    Checking beta v0.1.0 (/x/beta)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s

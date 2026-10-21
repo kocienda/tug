@@ -1,0 +1,11 @@
+vite v7.3.1 building client environment for production...
+transforming...
+✓ 3 modules transformed.
+✗ Build failed in 25ms
+error during build:
+Could not resolve "./missing" from "main.ts"
+file: /private/tmp/vite-fx/main.ts
+    at getRollupError (file:///Users/kocienda/Mounts/u/src/tug/.tug/worktrees/report-interface/tugdeck/node_modules/rollup/dist/es/shared/parseAst.js:406:41)
+    at error (file:///Users/kocienda/Mounts/u/src/tug/.tug/worktrees/report-interface/tugdeck/node_modules/rollup/dist/es/shared/parseAst.js:402:42)
+    at ModuleLoader.handleInvalidResolvedId (file:///Users/kocienda/Mounts/u/src/tug/.tug/worktrees/report-interface/tugdeck/node_modules/rollup/dist/es/shared/node-entry.js:21765:24)
+    at file:///Users/kocienda/Mounts/u/src/tug/.tug/worktrees/report-interface/tugdeck/node_modules/rollup/dist/es/shared/node-entry.js:21725:26

@@ -78,9 +78,9 @@ The threshold is `GAP_THRESHOLD_MS = 20_000` in `tugrust/crates/tugcore/src/run_
 
 **[B04] The config table is `[[tugtool.report.runner]]`.** `[[tugtool.run.runner]]` is refused with a `ConfigRefusal` naming the new table, not ignored, so a project that spelled it the old way learns at once.
 
-**[B05] The wire frame is `report`.** `run_progress` becomes `report` in tugcast's writer, tugproto's decoder and the deck's store, the one place the three can be made to agree ([F05]). The decoder declares every field the frame carries, and a decoder test round-trips a unit frame so the type cannot drift again.
+**[B05] The wire frame is `report`.** `run_progress` becomes `report` in tugcast's writer, tugproto's decoder and the deck's store, the one place the three can be made to agree ([F05]). The decoder declares every field the frame carries, and a decoder test round-trips a unit frame so the type cannot drift again. Implementing: `needles` is a field of the request, read for attachment and never written to the frame, so the decoder declares `unit`, `jobs` and `units` and not `needles`; declaring a field the writer never writes would be the drift the test guards against, and the deck's store now derives its frame type from the decoder's.
 
-**[B06] The deck files and tokens follow.** `tug-run-panel.tsx` and `.css` become `tug-report-panel.*`, `run-panel-model.ts` becomes `report-panel-model.ts`, `run-progress-store.ts` becomes `report-store.ts`, `--tugx-run-*` tokens become `--tugx-report-*`, and the `data-status` attributes keep their values. `tug-meta-run.*` is the session's meta-run card and is not this thing; it stays.
+**[B06] The deck files and tokens follow.** `tug-run-panel.tsx` and `.css` become `tug-report-panel.*`, `run-panel-model.ts` becomes `report-panel-model.ts`, `run-progress-store.ts` becomes `report-store.ts`, `--tugx-run-*` tokens become `--tugx-report-*`, and the `data-status` attributes keep their values. `tug-meta-run.*` is the session's meta-run card and is not this thing; it stays. Implementing: the same old name rode `run-progress-context.tsx`, the Bash block's `bash-run-panel` and `bash-run-strip` slots, and the `RunProgress*`, `TugRun*` and `runPanelModel` identifiers, so under [B01] they follow to `report-context.tsx`, `bash-report-*`, `Report*`, `TugReport*` and `reportPanelModel`; `RunUnit` and `narrowRunUnits` keep their names, a unit of a run being what they are.
 
 **[B07] The records follow.** `run_gaps.rs` becomes `report_gaps.rs`, the file `report_gaps.db`, the env `TUG_REPORT_GAPS_DB`; the unit state dir becomes `tug-report-unit`, and the janitor sweeps both the new dir and the old. The old `run_gaps.db` is removed by the janitor rather than migrated: it is telemetry, and its rows are days old.
 
@@ -94,45 +94,81 @@ The threshold is `GAP_THRESHOLD_MS = 20_000` in `tugrust/crates/tugcore/src/run_
 
 **[B11] A wait is a report with no total.** `tugtool report wait --label <l> --until '<cmd>' [--every <secs>] [--for <secs>]` runs the loop itself, posts elapsed and the last probe's output as the text line, and exits 0 when the probe does and non-zero at the deadline. The prose rule's "one loop that checks the condition" points at this verb instead of a hand-written `until`.
 
+Implementing: each probe posts with unit `probe` and `done` the probes run, so the wait draws on its block and the gaps record does not count the call as silent, which a report with no unit would; the probe runs through `sh -c`, and with no calling session the verb still waits and exits by the probe.
+
 **[B12] cargo gets a built-in line reader for its compile.** `cargo build`, `cargo clippy`, `cargo check` are built-in runners of a new `cargo` kind that reads `Compiling <crate>` lines as units under a `compiling` phase, with the crate count as the total where cargo prints one. `cargo nextest run` and `cargo test` read the same lines before the first test, so a nextest call shows "compiling 1m 12s · running 14/312" instead of a blank first half ([F13]). `bunx tsc` and `bunx vite build` report a count when the tool prints one and a phase otherwise; they are added as built-ins of kind `lines` with the tool's own progress lines.
+
+Implementing: `tsc` and `vite` are named kinds with their rules in the binary, tested against recorded output, rather than `lines` rows, because a built-in `lines` row would carry its regex on every rewritten command and nowhere a fixture could pin it; the purpose, reading the tool's own lines, is the same. cargo prints no crate count off a terminal, so a build's crates are counted as they start with no total; a crate that does not compile is the red, carrying the first error before it. Builds and checks record under their own suites, `cargo`, `tsc` and `vite`, so a check never stands as a directory's last test run.
 
 **[B13] The arc verbs report.** `arc verify` posts one unit row per surface as it runs each, with the surface's check count; `arc replay` posts phases. Both use the report library in-process rather than shelling out to themselves.
 
+Implementing: the engine runs under a watcher rather than knowing about reports — `verify_watched` tells it each surface as it is planned, starts and lands, and `replay_watched` each of its phases, `check`, `replay` and `land` — and `tugtool` turns those into `surface` rows (passed of checks carried, the failing check as a red row's title, a surface with no checks skipped as claimed and unchecked) and phase rows. A replay that conflicts lands its running phase red and skips the rest; one that defers lands it green and skips the rest.
+
 **[B14] Samplers report a count.** The motion probes and frame recorders that run for a fixed count of frames or seconds call `report count` from their scripts. This is rung 4 and is one line each; the arc that walks this brief adds it to the ones that live under `tests/` and `tugrust/scripts/`.
 
+Implementing: the samplers that run for a fixed time as a call of their own are the two that shell out to `/usr/bin/sample` — `app-inspect.sh sample` under `tugrust/scripts/` and `scripts/perf-resize-profile.sh`, which sits outside the two directories named but is the same sampler — and each now runs it through `tugrust/scripts/sample-reported.sh`, one line, which reports its seconds as a count with unit `second`. The frame recorders under `tests/` run inside an app-test file, whose run already reports that file as a row, so a count from inside one would be a second report for a span the file's row already covers; they are left as they are.
+
 **[B15] A wedged call is not a gap.** `report gaps` keeps a median per head from its own rows and lists a head whose median is under the threshold and whose max is minutes under a separate heading, "stalled calls", not in the adoption list ([F10]). The adoption list is where the next runner pays; the stalled list is where a hang is.
+
+Implementing: the gap rows alone cannot carry a median under the threshold — every one of them is a call that ran past it — so the record now keeps every foreground call's head and wall time in a second table, `call_times` (schema v2, a registered migration from v1), and a head's median is read from those, falling back to its gap rows when it has none. "Minutes" is a call of a minute or more (`STALLED_MAX_MS`). `--json` carries `gaps` and `stalled`, each line with `medianMs`, `maxMs`, `calls` and `declared`.
 
 ### The funnel
 
 **[B16] The hook refuses a known runner behind a heredoc.** When the line holds a heredoc, a `$(…)` or a backtick *and* a known or declared runner head appears in it, the hook denies the call with a refusal that names the split: the edit in one call, the run in the next. A refusal is the correction mechanism the file-editing gate already uses and the model already follows ([F04]); a warning the model may not read is weaker. A line with a heredoc and no runner in it is untouched.
 
+Implementing: the head is read where a shell would run it — at a command position, past assignments and a probe's `--`, outside any here-document body — because the rule is for a run that goes dark, and a body is data: an edit program whose body mentions `cargo test` is not refused, while `tugtool file edit <<'EOF' … EOF` followed by `cargo test` on the next line is. The refusal names the runner, whether it is built in or the project's, the construct that hides it, and the split; it outranks the prefix approval, so `tugtool` at the line's head does not let the run through.
+
 **[B17] Every Bash call carries its id.** The hook prefixes every readable Bash call with `export TUG_TOOL_USE_ID=<id>; `, so a rung-2 script, a nested `just`, a probe's child, and the `report wait` verb all attach exactly. The single-open-run and needle fallbacks stay for a call that was not readable or a command typed by hand. The command-head reader in the gaps record and the attribution grammar skip the prefix, and the deck's Bash block elides its own id's prefix from the command it displays, so the header shows what the model wrote. This is the deferred [B08] of the ladder brief, taken.
 
 **[B18] A runner row that cannot be honoured is refused.** `item`, `total` or `stream` on a row whose kind is not `lines` is a `ConfigRefusal` ([F07]). A `unit` row and a `kind` row with the same `match` is a refusal. The refusal text says which flag belongs to which kind.
 
+Implementing: any two rows with the same `match` are refused, not only a `unit` and a `kind` pair, because the hook honours one row per head whichever kinds they carry; `match` is compared with its whitespace collapsed. The loader's refusal is what `tugtool report runners` shows, and the hook falls back to the built-ins for a project whose config is refused, as it always did.
+
 **[B19] A declared runner that still runs dark is named.** `report gaps` cross-reads the merged runner list and marks a gap row whose head matches a declared or built-in runner as "declared, still silent", which is either a heredoc call ([B16] will have refused it) or a row that lies. The app-test row in [F02] is this case today.
+
+Implementing: a two-word head cannot be matched against a three-word runner (`cargo nextest run`), so the match reads the head's latest command, past the call-id export, `cd … &&` and assignments, against the runner table of the project that command ran in.
 
 **[B20] The recipe lint derives its list.** `scripts/recipe-lint.ts` keeps its named exemptions and adds, to its hand list, every recipe head the gaps record shows with a median over the threshold, read through `tugtool report gaps --json` ([F06]). A recipe that grew slow is caught without anyone adding it.
 
+Implementing: only the gaps list is read, not the stalled calls; a head whose recipe this Justfile does not have is another project's and is skipped; and a machine with no `tugtool` or no record, or a `tugtool` that reports no medians, derives nothing, so the lint never fails for want of telemetry.
+
 **[B21] One app-test drives the live hook.** A Session card runs a bare `node --test` over a two-test fixture and the test asserts the report panel appears on the block with two rows. It runs under the app-test recipe and so against the app's own `tugtool` ([F09]); it is the test that would have found "needs `just app-debug`".
+
+Implementing: a Bash block exists only for a model's call, and a real claude turn is gated off any derived selection, so the call comes from a stub tugcode playing one turn through the real feed: tugcast sees the `tool_use` open a run exactly as a model's would. The bundle's own `hooks/pre-tool-use.sh` is then handed Claude Code's payload, and its rewritten command runs with the session's id, so the bundle's `tugtool test run` reports to the instance under test and attaches by the call's id. Claude applying `updatedInput` is the one link not driven, and it is Claude Code's contract. A test run lists only its reds, so a green two-test run has no rows to count: the check is the settled strip's PASS over `2/2 tests` and the finished panel on expand. The app under test is the app-test bundle, rebuilt by `just app-test-build`, which is the recipe's own stand-in for `just app-debug`.
 
 ### The panel
 
 **[B22] The verdict band names the next act.** A red verdict carries the one command that names the reds: `tugtool test last --failures` for a unit suite, "see the Failures section" for an app-test run. The model reads it off the block instead of re-running ([F12]).
 
+Implementing: the act is chosen by the run, not guessed per block — the `app-test` label points at its Failures section, any other run counting tests or files (which went through `tugtool test run` and was recorded) at `tugtool test last --failures`, and a run counting anything else (phases, crates, surfaces) shows its reds inline and names no act.
+
 **[B23] A green row carries its history too.** A row that was red in a recent recorded run and is green now says "recovered" beside its time, with the same history line a red row gets. A flake is as interesting as a failure.
+
+Implementing: "red in a recent recorded run" is the history verb's `red-streak` answer — the file's recorded runs end red — asked of the green files in one more `apptest history` call, only when the run has a block to draw on. The recipe amends only those rows, so the panel reads any green row carrying a history line as recovered; it stands open under the verdict like a red card, edged green, and the verdict counts it.
 
 **[B24] Expected time is drawn.** The bar carries a tick at the projected end from the rows' medians, and the panel's line says "~2m left · 3 unknown" while it runs. The app-test recipe already computes this; the panel gets it from `median` on the rows it holds.
 
+Implementing: the bar counts units, so its end is always the last unit; the tick is drawn where the run would stand had it kept to its medians — the share of its expected wall time (spent, from the earliest row start, plus the projection) already spent — so a fill behind the tick is a run slower than its record. "Unknown" counts the units still to land that carry no median, which the projection takes at the typical one.
+
 **[B25] Phases and units share one panel.** A run may carry phase rows above its unit rows: cargo's compile ([B12]) and the app-test build before its files. The panel draws the phase band first, then the unit rows, one block.
+
+Implementing: the two arrive as two reports on one call under two labels — a `report phase` run and a unit run — so the store keeps the unit run as the entry and the phase rows beside it, whichever came first; a phase still marked running is drawn landed once the first unit has begun. cargo's compile is a line, not phase rows ([B12]'s reading), so the build-before-files case is the one this draws today.
 
 **[B26] A finished report folds on green and holds on red.** A green run collapses to one line, count and time, which opens on click. A red run stays open with the red rows pinned above the rest and the first failure's title and message inline, so the block reads top to bottom.
 
+Implementing: the fold is the shell block's own collapse, which is how a Bash block mounts, and its collapsed face is the report strip. A green strip is now the masthead alone — verdict word, label, count, tally, wall time on one line — and the block's disclosure opens the full panel. A red strip keeps the track and the most recent red open with its first failure, the earlier reds folded under it; expanded, the reds lead the body under the verdict, as they already did.
+
 **[B27] Attachment is visible.** A report that lands at card level shows a faint "unattached" tag with its label; in a debug build the tag's title gives the reason the attachment rules produced ("no open run", "two candidates") ([F15]).
+
+Implementing: tugcast puts the reason on the card-level frame as `unattached` — "no open run", "N candidates, no needle matched", or "N candidates matched its needles" — read off the open runs after the attach rule answers none. The tag stands before the card's report line on the JOBS placard, and its title carries the reason on a Vite or test-mode deck, the same gate the test surface uses, since a debug Tug.app serves the deck that way.
 
 **[B28] Gaps are in the card.** The Session card's diagnostics popover lists this session's dark calls, head and time, read from the gaps record, so the adoption loop is visible to the user and not only to a model that remembers to ask.
 
+Implementing: the Session card has no diagnostics popover; the JOBS placard is where the card's run reports already live, so the dark calls are a "Dark calls" group there. tugcast serves them at `GET /api/report-gaps?session=<id>` (loopback, read-only, newest 20, keyed by the card's session id, which is what the record stores), and the deck reads the route each time the placard opens.
+
 **[B29] One vocabulary, one case.** The app-test summary's text report prints `pass`, `fail`, `error`, `stalled`, `skipped` in the per-file table and the progress lines, the panel's words. `OVERTIME` stays as the recorded reason on a row's message ("stopped at 20 s") and stops being a status word ([F11]).
+
+Implementing: the row codes in the run directory, the results ledger and `TUG_APPTEST_JSON` keep their capitals; only the printed word changes. An OVERTIME file prints `fail`, its table row says `stopped at 20s` or `over the 20s budget`, and its progress line keeps the reason it already gave.
 
 ---
 

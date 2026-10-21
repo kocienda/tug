@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 /**
- * recipe-lint — a long `just` recipe reports its progress with a unit, or it
- * does not run under `just lint`.
+ * recipe-lint — a long `just` recipe reports with a unit, or it does not run
+ * under `just lint`.
  *
- * The Bash block's run panel draws for a command that reports with a unit
- * (`tugtool progress --unit …`, `tugtool progress phase`, `tugtool test run`)
+ * The Bash block's report panel draws for a command that reports with a unit
+ * (`tugtool report count --unit …`, `tugtool report phase`, `tugtool report
+ * unit`, `tugtool test run`)
  * and nothing draws for one that does not, so a long recipe that forgets to
  * report sits silent for minutes. This reads `Justfile` and refuses each
  * listed long recipe that neither reports itself nor delegates to something
@@ -14,8 +15,15 @@
  * Exemptions are named here with a one-line reason each, because a bare
  * exemption is how the coverage decays again. A listed recipe the Justfile
  * no longer has is a failure too, so the list cannot rot in silence.
+ *
+ * The hand list is joined by a derived one: every `just <recipe>` head the
+ * gaps record (`tugtool report gaps --json`) shows with a median past the
+ * threshold, so a recipe that grew slow is caught without anyone adding it.
+ * The record is this machine's telemetry, so a machine with no `tugtool` or
+ * no record derives nothing, and a derived head this Justfile has no recipe
+ * for — another project's — is not this lint's to judge.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
@@ -44,8 +52,9 @@ export const EXEMPT: Record<string, string> = {
 
 /** A line that reports with a unit, in a recipe body or a script it runs. */
 const REPORTS = [
-  /\bprogress\b[^\n]*--unit\b/,
-  /\bprogress\s+phase\b/,
+  /\breport\s+count\b[^\n]*--unit\b/,
+  /\breport\s+phase\b/,
+  /\breport\s+unit\b/,
   /\breport-phase\.sh\b/,
   /\btugtool(?:["'\s}][^\n]*)?\s+test\s+run\b/,
   /\bTUGTOOL[A-Z_]*"?\s+test\s+run\b/,
@@ -88,8 +97,50 @@ export function parseRecipes(text: string): Map<string, Recipe> {
   return recipes;
 }
 
+/** How long a call runs before its silence is a gap (`GAP_THRESHOLD_MS`). */
+export const GAP_THRESHOLD_MS = 20_000;
+
+/** One head of `tugtool report gaps --json`, as far as the lint reads it. */
+export interface GapHead {
+  head: string;
+  medianMs: number;
+}
+
+/**
+ * The recipes the gaps record says run long: each `just <recipe>` head in
+ * its gaps whose median is past the threshold and whose recipe `recipes`
+ * has. The stalled calls are hangs, not long recipes, and are not read.
+ */
+export function derivedRecipes(gaps: GapHead[], recipes: Map<string, Recipe>): string[] {
+  const derived: string[] = [];
+  for (const gap of gaps) {
+    const m = /^just\s+([A-Za-z_][\w-]*)$/.exec(gap.head);
+    // A tugtool from before the record kept medians reports none: no evidence.
+    if (!m || typeof gap.medianMs !== "number" || gap.medianMs <= GAP_THRESHOLD_MS) continue;
+    if (recipes.has(m[1]) && !derived.includes(m[1])) derived.push(m[1]);
+  }
+  return derived;
+}
+
+/** This machine's gaps, through the workspace's tugtool or PATH's; none when neither answers. */
+export function readGaps(): GapHead[] {
+  const local = join(ROOT, "tugrust", "target", "debug", "tugtool");
+  const bin = existsSync(local) ? local : Bun.which("tugtool");
+  if (!bin) return [];
+  try {
+    const out = Bun.spawnSync([bin, "--json", "report", "gaps"], { stderr: "ignore" });
+    if (out.exitCode !== 0) return [];
+    const gaps = JSON.parse(out.stdout.toString())?.data?.gaps;
+    return Array.isArray(gaps) ? gaps : [];
+  } catch {
+    return [];
+  }
+}
+
 export interface LintOptions {
   listed?: string[];
+  /** Long recipes the gaps record names, checked beside the hand list. */
+  derived?: string[];
   exempt?: Record<string, string>;
   /** Reads a script the recipe runs, by repository-relative path; `null` when there is none. */
   readScript?: (path: string) => string | null;
@@ -139,20 +190,22 @@ export function lintRecipes(justfile: string, options: LintOptions = {}): string
     });
   const recipes = parseRecipes(justfile);
   const failures: string[] = [];
-  for (const name of listed) {
+  const derived = (options.derived ?? []).filter((name) => recipes.has(name) && !listed.includes(name));
+  for (const name of [...listed, ...derived]) {
     if (!recipes.has(name)) {
       failures.push(`\`${name}\` is listed as a long recipe but the Justfile has no such recipe — drop it from the list, or restore it`);
       continue;
     }
     if (name in exempt) continue;
     if (!recipeReports(recipes, name, readScript)) {
+      const why = derived.includes(name) ? " (the gaps record shows its median past the threshold)" : "";
       failures.push(
-        `\`${name}\` runs long and reports no unit — call \`tugtool progress phase\` (via tugrust/scripts/report-phase.sh), \`tugtool progress --unit\` or \`tugtool test run\`, delegate to a recipe or script that does, or exempt it here with a reason`,
+        `\`${name}\` runs long${why} and reports no unit — call \`tugtool report phase\` (via tugrust/scripts/report-phase.sh), \`tugtool report unit\`, \`tugtool report count --unit\` or \`tugtool test run\`, delegate to a recipe or script that does, or exempt it here with a reason`,
       );
     }
   }
   for (const name of Object.keys(exempt)) {
-    if (!listed.includes(name)) {
+    if (!listed.includes(name) && !derived.includes(name)) {
       failures.push(`\`${name}\` is exempt but not listed — an exemption with nothing to exempt`);
     }
   }
@@ -161,7 +214,9 @@ export function lintRecipes(justfile: string, options: LintOptions = {}): string
 
 if (import.meta.main) {
   const path = process.argv[2] ?? join(ROOT, "Justfile");
-  const failures = lintRecipes(readFileSync(path, "utf8"));
+  const justfile = readFileSync(path, "utf8");
+  const derived = derivedRecipes(readGaps(), parseRecipes(justfile));
+  const failures = lintRecipes(justfile, { derived });
   if (failures.length > 0) {
     console.error(`recipe-lint: ${failures.length} long recipe(s) report no unit\n`);
     for (const f of failures) console.error(`  ${f}`);
@@ -169,6 +224,6 @@ if (import.meta.main) {
   }
   const exempted = Object.keys(EXEMPT).length;
   console.log(
-    `recipe-lint: ${LONG_RECIPES.length - exempted} long recipes report with a unit, ${exempted} exempt with a reason`,
+    `recipe-lint: ${LONG_RECIPES.length - exempted} long recipes report with a unit, ${exempted} exempt with a reason; ${derived.filter((n) => !LONG_RECIPES.includes(n)).length} more from the gaps record`,
   );
 }

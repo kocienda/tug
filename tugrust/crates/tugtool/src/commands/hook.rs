@@ -12,16 +12,19 @@
 //! means "no opinion" — Claude Code falls through to its normal permission
 //! flow. A hook that crashed would block work, so nothing here is allowed to.
 //!
-//! One answer is not a permission decision at all. A runner the model types —
-//! one tugtool knows, or one the project declares in `.tugtool/config.toml`
-//! (`tugtool run runners` lists them) — is rewritten, through the hook's
-//! `updatedInput`, to run inside `tugtool test run`, or, for a command that
-//! reports itself, to carry the call id; so the block it runs in gets the run
-//! panel without anybody remembering to wire it. The
-//! rewrite carries no `permissionDecision`: Claude Code judges the wrapped
-//! command exactly as it would have judged the bare one, and the transcript
-//! keeps showing what the model typed — the `tool_use` block is never
-//! rewritten, only the input the tool runs.
+//! One answer is not a permission decision at all. Every Bash call this
+//! reading can place a command in is rewritten, through the hook's
+//! `updatedInput`, to open with `export TUG_TOOL_USE_ID=<id>; ` — so a recipe,
+//! a nested `just`, a probe's child and `tugtool report` itself all report to
+//! the block they run under, exactly. And a runner the model types — one
+//! tugtool knows, or one the project declares in `.tugtool/config.toml`
+//! (`tugtool report runners` lists them) — is wrapped where it stands, bare or
+//! inside a `tugtool file probe … --`, to run inside `tugtool test run`, so
+//! the block gets the report panel without anybody remembering to wire it.
+//! The rewrite carries no `permissionDecision` of its own: Claude Code judges
+//! the rewritten command exactly as it would have judged the bare one (an
+//! approved prefix is allowed and rewritten in one answer), and the deck's
+//! Bash block elides the export, so the header shows what the model typed.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -35,16 +38,18 @@ use crate::runners::{self, RunnerAction, RunnerSpec, SuiteRule, kind_name};
 
 use super::file::gate_decision;
 use tugchanges_core::shell_ops::{ParseOutcome, parse_shell_ops};
+use tugcore::report_gaps::CALL_ID_EXPORT;
 
 #[derive(Subcommand)]
 pub enum HookCommands {
     /// Answer a PreToolUse hook: read the hook's JSON payload from stdin and
     /// print the decision. Auto-approves the plugin's own skills and the
     /// read-only Bash prefixes; denies a Bash command whose file operations
-    /// the change ledger cannot read; rewrites each test runner in a Bash
-    /// command — wherever it stands as a command of its own, a pipeline's head
-    /// included — to run inside `tugtool test run`, or to carry the call id
-    /// when the project declares it reports itself; says nothing otherwise.
+    /// the change ledger cannot read; gives every readable Bash command its
+    /// call id (`export TUG_TOOL_USE_ID=<id>; `) and rewrites each test runner
+    /// in it — wherever it stands as a command of its own, a pipeline's head
+    /// and a probe's inner command included — to run inside `tugtool test
+    /// run`; says nothing otherwise.
     PreToolUse,
 }
 
@@ -82,6 +87,9 @@ pub enum Decision {
     /// so every other field (`description`, `timeout`, `run_in_background`)
     /// is carried across unchanged.
     Rewrite(Value),
+    /// Allowed by prefix, and rewritten: both in one answer, which is how
+    /// Claude Code reads `permissionDecision: allow` beside `updatedInput`.
+    AllowRewrite(&'static str, Value),
 }
 
 impl Decision {
@@ -118,6 +126,11 @@ impl Decision {
                 specific.permission_decision_reason = Some(reason);
             }
             Decision::Rewrite(input) => specific.updated_input = Some(input),
+            Decision::AllowRewrite(reason, input) => {
+                specific.permission_decision = Some("allow");
+                specific.permission_decision_reason = Some(reason);
+                specific.updated_input = Some(input);
+            }
         }
         serde_json::to_string(&Output {
             hook_specific_output: specific,
@@ -166,7 +179,16 @@ pub(crate) fn pre_tool_use_with(
             let trimmed = command.trim_start();
             let first = trimmed.split_whitespace().next().unwrap_or("");
             if APPROVED_BASH.contains(&first) {
-                return Some(Decision::Allow("tugplug auto-approved"));
+                return Some(match bash_rewrite(payload, &hook_binary()) {
+                    Some(Decision::Rewrite(input)) => {
+                        Decision::AllowRewrite("tugplug auto-approved", input)
+                    }
+                    // A runner that would run dark is refused whatever the
+                    // line's first word: the approval is of the prefix, and
+                    // the refusal is of what the line hides behind it.
+                    Some(Decision::Deny(reason)) => Decision::Deny(reason),
+                    _ => Decision::Allow("tugplug auto-approved"),
+                });
             }
             let base = payload
                 .get("cwd")
@@ -180,7 +202,7 @@ pub(crate) fn pre_tool_use_with(
                     "this command names no file the change ledger can resolve".to_string()
                 })));
             }
-            test_runner_rewrite(payload, &hook_binary())
+            bash_rewrite(payload, &hook_binary())
         }
         _ => None,
     }
@@ -285,7 +307,11 @@ fn runner_in<'r>(
     words: &[(usize, &str)],
     runners: &'r [RunnerSpec],
 ) -> Option<(usize, &'r RunnerSpec)> {
-    let first = words.iter().position(|(_, w)| !is_assignment(w))?;
+    let head = words.iter().position(|(_, w)| !is_assignment(w))?;
+    // A probe runs the command after its `--`, so that command is the one
+    // the ladder reads, in place, past its own assignments.
+    let start = probe_inner(&words[head..]).map_or(head, |i| head + i);
+    let first = start + words[start..].iter().position(|(_, w)| !is_assignment(w))?;
     let rest: Vec<&str> = words[first..].iter().map(|(_, w)| *w).collect();
     runners
         .iter()
@@ -293,8 +319,22 @@ fn runner_in<'r>(
         .map(|spec| (words[first].0, spec))
 }
 
-/// The command line with every recognised runner wrapped where it stands, or
-/// `None` when there is none to wrap.
+/// For `tugtool file probe … -- <command>` — `tugtool` by any path — the
+/// index of the inner command's first word, past the `--`; `None` for any
+/// other command, or a probe with nothing after its `--`.
+fn probe_inner(words: &[(usize, &str)]) -> Option<usize> {
+    let [(_, tool), (_, "file"), (_, "probe"), ..] = words else {
+        return None;
+    };
+    if tool.rsplit('/').next() != Some("tugtool") {
+        return None;
+    }
+    let dashes = words.iter().position(|(_, w)| *w == "--")?;
+    (dashes + 1 < words.len()).then_some(dashes + 1)
+}
+
+/// The command line with every recognised runner wrapped where it stands and
+/// the call's id exported at its head, or `None` when neither applies.
 ///
 /// A runner is wrapped wherever it is a simple command of its own — the whole
 /// line, after a `cd … &&`, at the head of a pipeline, inside `( … )` — by
@@ -302,7 +342,7 @@ fn runner_in<'r>(
 /// first word. Nothing else in the line moves, so a pipe, a filter, a
 /// redirection and the line's exit status are what they were: `test run`
 /// passes the runner's output through byte for byte and exits with its
-/// status, and the run panel reads the run's reports, which go to tugcast by
+/// status, and the report panel reads the run's reports, which go to tugcast by
 /// call id rather than down the pipe. That is why a `| tail -6` costs the
 /// panel nothing.
 ///
@@ -311,14 +351,20 @@ fn runner_in<'r>(
 /// wrapped `tugtool test run` among them, so nothing is wrapped twice, and
 /// `echo cargo test` or a loop's `do cargo test` too.
 ///
+/// A line that will not read and holds a runner all the same is not left
+/// alone but refused — see [`dark_runner_refusal`], which [`bash_rewrite`]
+/// asks first.
+///
 /// The suite is the ledger's key for the run, and the row's [`SuiteRule`]
 /// names it: a fixed name, or the directory the run is in — the last
 /// `cd <dir>` before it, else the call's own.
 ///
-/// A row that reports itself ([`RunnerAction::ExportId`]) gets the call id in
-/// front of its first word and nothing more, and nothing at all without a
-/// plain id to give it or when the command already sets one.
-pub(crate) fn wrap_test_runner(
+/// Every readable line — a runner in it or not — opens with
+/// `export TUG_TOOL_USE_ID=<id>; ` when the call has a plain id and the line
+/// does not already, so a row that reports itself ([`RunnerAction::ExportId`])
+/// needs nothing more, and the id reaches a probe's child and a recipe's every
+/// step. A line with no id to carry and no runner is left alone.
+pub(crate) fn rewrite_command(
     command: &str,
     cwd: Option<&str>,
     tool_use_id: Option<&str>,
@@ -339,16 +385,8 @@ pub(crate) fn wrap_test_runner(
         };
         let (kind, flags) = match &spec.action {
             RunnerAction::Wrap { kind, flags } => (*kind, flags),
-            RunnerAction::ExportId => {
-                let set = words
-                    .iter()
-                    .take_while(|(o, _)| *o < at)
-                    .any(|(_, w)| w.starts_with("TUG_TOOL_USE_ID="));
-                if let Some(id) = id.filter(|_| !set) {
-                    inserts.push((at, format!("TUG_TOOL_USE_ID={id} ")));
-                }
-                continue;
-            }
+            // The export below is all a command that reports itself needs.
+            RunnerAction::ExportId => continue,
         };
         let head = spec.head_text();
         let suite = match &spec.suite {
@@ -356,9 +394,6 @@ pub(crate) fn wrap_test_runner(
             SuiteRule::DirName(fallback) => dir_name(dir.or(cwd)).unwrap_or(fallback),
         };
         let mut wrap = String::new();
-        if let Some(id) = id {
-            wrap.push_str(&format!("TUG_TOOL_USE_ID={id} "));
-        }
         wrap.push_str(&format!(
             "{} test run --suite {} --kind {} ",
             shell_word(tugtool),
@@ -375,14 +410,156 @@ pub(crate) fn wrap_test_runner(
         ));
         inserts.push((at, wrap));
     }
-    if inserts.is_empty() {
+    let export = id
+        .filter(|_| !command.trim_start().starts_with(CALL_ID_EXPORT))
+        .map(|id| format!("{CALL_ID_EXPORT}{id}; "));
+    if inserts.is_empty() && export.is_none() {
         return None;
     }
     let mut out = command.to_string();
     for (at, text) in inserts.into_iter().rev() {
         out.insert_str(at, &text);
     }
+    if let Some(export) = export {
+        out.insert_str(0, &export);
+    }
     Some(out)
+}
+
+/// Why a line [`simple_commands`] cannot read is refused, when a runner is in
+/// it: the refusal the hook denies the call with, naming the runner, the
+/// construct that hides it, and the split that fixes it. `None` for a line
+/// that reads, and for one that does not read but runs no runner — a heredoc
+/// that only edits, a `$(ls)` — which is left as typed.
+///
+/// The runner is found where a shell would run it: at a command position —
+/// the line's start, after an operator, inside a `$(…)` or backticks — past
+/// any environment assignments, and never inside a here-document's body,
+/// which is data. So an edit program whose body mentions `cargo test` is not
+/// refused, and `tugtool file edit <<'EOF' … EOF` followed by `cargo test`
+/// on the next line is.
+pub(crate) fn dark_runner_refusal(command: &str, runners: &[RunnerSpec]) -> Option<String> {
+    if simple_commands(command).is_some() {
+        return None;
+    }
+    let (construct, spec) = dark_runner(command, runners)?;
+    let head = spec.head_text();
+    let known = match spec.source {
+        runners::Source::BuiltIn => "a runner tugtool knows",
+        runners::Source::Config => "a runner this project declares",
+    };
+    Some(format!(
+        "`{head}` would run dark here: it is {known}, and this line holds {construct}, which \
+         the hook cannot read past, so the run would report nothing to its block for its whole \
+         length. Give the run its own Bash call — everything else in one call, `{head} …` alone \
+         in the next."
+    ))
+}
+
+/// What a shell would run in a line [`simple_commands`] cannot read, read
+/// loosely: the first runner at a command position outside any here-document
+/// body, with the name of the construct that made the line unreadable.
+fn dark_runner<'r>(
+    command: &str,
+    runners: &'r [RunnerSpec],
+) -> Option<(&'static str, &'r RunnerSpec)> {
+    enum Token<'a> {
+        Word(usize, &'a str),
+        Break,
+        Heredoc,
+    }
+    let mut construct: Option<&'static str> = None;
+    let mut note = |what: &'static str| {
+        if construct.is_none() {
+            construct = Some(what);
+        }
+    };
+    let mut groups: Vec<Vec<(usize, &str)>> = Vec::new();
+    // The delimiters of here-documents whose bodies have not yet been read,
+    // in the order their bodies follow.
+    let mut bodies: Vec<String> = Vec::new();
+    let mut offset = 0;
+    for line in command.split_inclusive('\n') {
+        let start = offset;
+        offset += line.len();
+        let text = line.strip_suffix('\n').unwrap_or(line);
+        if let Some(delimiter) = bodies.first() {
+            if text.trim_start_matches('\t') == delimiter {
+                bodies.remove(0);
+            }
+            continue;
+        }
+        let bytes = text.as_bytes();
+        let mut tokens: Vec<Token> = Vec::new();
+        let mut word: Option<usize> = None;
+        let mut i = 0;
+        while i <= bytes.len() {
+            let b = bytes.get(i).copied();
+            let (token, step) = match b {
+                None => (Some(Token::Break), 1),
+                Some(b'<') if bytes.get(i + 1) == Some(&b'<') => {
+                    if bytes.get(i + 2) == Some(&b'<') {
+                        note("a here-string");
+                        (None, 3)
+                    } else {
+                        note("a here-document");
+                        let dash = usize::from(bytes.get(i + 2) == Some(&b'-'));
+                        (Some(Token::Heredoc), 2 + dash)
+                    }
+                }
+                Some(b'$') if bytes.get(i + 1) == Some(&b'(') => {
+                    note("a command substitution (`$(…)`)");
+                    (Some(Token::Break), 2)
+                }
+                Some(b'`') => {
+                    note("a backtick substitution");
+                    (Some(Token::Break), 1)
+                }
+                Some(b';' | b'|' | b'&' | b'(' | b')') => (Some(Token::Break), 1),
+                Some(c) if c.is_ascii_whitespace() => (None, 1),
+                Some(_) => {
+                    if word.is_none() {
+                        word = Some(i);
+                    }
+                    i += 1;
+                    continue;
+                }
+            };
+            if let Some(s) = word.take() {
+                tokens.push(Token::Word(start + s, &text[s..i]));
+            }
+            if let Some(token) = token {
+                tokens.push(token);
+            }
+            i += step;
+        }
+        let mut group: Vec<(usize, &str)> = Vec::new();
+        let mut delimiter_next = false;
+        for token in tokens {
+            match token {
+                Token::Heredoc => delimiter_next = true,
+                Token::Word(_, w) if delimiter_next => {
+                    delimiter_next = false;
+                    bodies.push(
+                        w.trim_matches(['\'', '"'])
+                            .trim_start_matches('\\')
+                            .to_string(),
+                    );
+                }
+                Token::Word(at, w) => group.push((at, w)),
+                Token::Break => {
+                    if !group.is_empty() {
+                        groups.push(std::mem::take(&mut group));
+                    }
+                }
+            }
+        }
+    }
+    let spec = groups
+        .iter()
+        .find_map(|words| runner_in(words, runners))
+        .map(|(_, spec)| spec)?;
+    Some((construct.unwrap_or("an unclosed quote"), spec))
 }
 
 /// The last component of a directory as typed — quotes stripped — when it
@@ -414,18 +591,22 @@ fn shell_word(word: &str) -> String {
     }
 }
 
-/// The rewrite for a Bash call whose command is a recognised runner, or
-/// `None`. The table is the built-ins plus whatever the project the call's
-/// `cwd` is in declares ([`runners::for_cwd`]). The call's `tool_use_id`
-/// rides the rewritten command; the other input fields ride the rewritten
-/// input untouched.
-pub(crate) fn test_runner_rewrite(payload: &Value, tugtool: &str) -> Option<Decision> {
+/// The rewrite for a Bash call — its id exported, its runners wrapped — or
+/// `None` when the command cannot be read or there is nothing to add. The
+/// runner table is the built-ins plus whatever the project the call's `cwd`
+/// is in declares ([`runners::for_cwd`]). The other input fields ride the
+/// rewritten input untouched. A command that cannot be read and holds a
+/// runner is a [`Decision::Deny`] instead ([`dark_runner_refusal`]).
+pub(crate) fn bash_rewrite(payload: &Value, tugtool: &str) -> Option<Decision> {
     let input = payload.get("tool_input")?.as_object()?;
     let command = input.get("command")?.as_str()?;
     let cwd = payload.get("cwd").and_then(Value::as_str);
     let id = payload.get("tool_use_id").and_then(Value::as_str);
     let runners = runners::for_cwd(cwd);
-    let wrapped = wrap_test_runner(command, cwd, id, tugtool, &runners)?;
+    if let Some(reason) = dark_runner_refusal(command, &runners) {
+        return Some(Decision::Deny(reason));
+    }
+    let wrapped = rewrite_command(command, cwd, id, tugtool, &runners)?;
     let mut updated = input.clone();
     updated.insert("command".into(), wrapped.into());
     Some(Decision::Rewrite(Value::Object(updated)))
@@ -755,7 +936,7 @@ mod tests {
             Some(Decision::Allow(_))
         ));
         assert_eq!(pre_tool_use(&bash("lsof -i")), None);
-        assert_eq!(pre_tool_use(&bash("cargo build")), None);
+        assert_eq!(pre_tool_use(&bash("cargo tree")), None);
     }
 
     #[test]
@@ -950,14 +1131,20 @@ mod tests {
         assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
         assert_eq!(out["hookSpecificOutput"]["permissionDecisionReason"], "x");
         assert!(out["hookSpecificOutput"].get("updatedInput").is_none());
+        let both = Decision::AllowRewrite("x", json!({"command": "c"})).render();
+        let out: Value = serde_json::from_str(&both).unwrap();
+        assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
+        assert_eq!(out["hookSpecificOutput"]["permissionDecisionReason"], "x");
+        assert_eq!(out["hookSpecificOutput"]["updatedInput"]["command"], "c");
     }
 
     // ── The test-runner wrap ──────────────────────────────────────────────
 
     const TUGTOOL: &str = "/Applications/Tug.app/Contents/MacOS/tugtool";
+    const EXPORT: &str = "export TUG_TOOL_USE_ID=toolu_01A; ";
 
     fn wrap(command: &str) -> Option<String> {
-        wrap_test_runner(
+        rewrite_command(
             command,
             Some("/proj"),
             Some("toolu_01A"),
@@ -971,7 +1158,7 @@ mod tests {
         assert_eq!(
             wrap("cargo nextest run -p tugtool -- --nocapture").as_deref(),
             Some(
-                "TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool test run \
+                "export TUG_TOOL_USE_ID=toolu_01A; /Applications/Tug.app/Contents/MacOS/tugtool test run \
                  --suite rust --kind nextest --label 'cargo nextest run' --needle 'cargo nextest run' \
                  -- cargo nextest run -p tugtool -- --nocapture"
             )
@@ -979,7 +1166,7 @@ mod tests {
         assert_eq!(
             wrap("cargo test").as_deref(),
             Some(
-                "TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool test run \
+                "export TUG_TOOL_USE_ID=toolu_01A; /Applications/Tug.app/Contents/MacOS/tugtool test run \
                  --suite rust --kind cargo-test --label 'cargo test' --needle 'cargo test' -- cargo test"
             )
         );
@@ -1006,6 +1193,7 @@ mod tests {
             ("ctest --output-on-failure", "ctest"),
         ] {
             let wrapped = wrap(command).unwrap_or_else(|| panic!("{command} is a runner"));
+            assert!(wrapped.starts_with(EXPORT), "{command}: {wrapped}");
             assert!(
                 wrapped.contains(&format!(" --suite proj --kind {kind} ")),
                 "{command}: {wrapped}"
@@ -1014,9 +1202,16 @@ mod tests {
             // it (`-json`, `-v`) is `test run`'s to add.
             assert!(wrapped.ends_with(&format!(" -- {command}")), "{wrapped}");
         }
-        // `node` alone, and `swift build`, are not test runs.
-        assert_eq!(wrap("node a.mjs"), None);
-        assert_eq!(wrap("swift build"), None);
+        // `node` alone, and `swift build`, are not test runs: they carry the
+        // id and nothing else.
+        assert_eq!(
+            wrap("node a.mjs").as_deref(),
+            Some("export TUG_TOOL_USE_ID=toolu_01A; node a.mjs")
+        );
+        assert_eq!(
+            wrap("swift build").as_deref(),
+            Some("export TUG_TOOL_USE_ID=toolu_01A; swift build")
+        );
     }
 
     #[test]
@@ -1024,7 +1219,7 @@ mod tests {
         assert_eq!(
             wrap("cd tugdeck && bun test src/lib").as_deref(),
             Some(
-                "cd tugdeck && TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool \
+                "export TUG_TOOL_USE_ID=toolu_01A; cd tugdeck && /Applications/Tug.app/Contents/MacOS/tugtool \
                  test run --suite tugdeck --kind bun --label 'bun test' --needle 'bun test' -- bun test src/lib"
             )
         );
@@ -1040,8 +1235,7 @@ mod tests {
 
     #[test]
     fn a_runner_is_wrapped_where_it_stands_and_the_rest_of_the_line_is_untouched() {
-        const W: &str =
-            "TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool test run";
+        const W: &str = "/Applications/Tug.app/Contents/MacOS/tugtool test run";
         let nextest = format!(
             "{W} --suite rust --kind nextest --label 'cargo nextest run' --needle 'cargo nextest run' -- "
         );
@@ -1052,45 +1246,45 @@ mod tests {
             // A filter on the output: the pipe and the filter stand as typed.
             (
                 "cargo nextest run 2>&1 | tail -5".to_string(),
-                format!("{nextest}cargo nextest run 2>&1 | tail -5"),
+                format!("{EXPORT}{nextest}cargo nextest run 2>&1 | tail -5"),
             ),
             (
                 "cargo nextest run && echo ok".into(),
-                format!("{nextest}cargo nextest run && echo ok"),
+                format!("{EXPORT}{nextest}cargo nextest run && echo ok"),
             ),
             (
                 "cargo test; echo done".into(),
-                format!("{cargo}cargo test; echo done"),
+                format!("{EXPORT}{cargo}cargo test; echo done"),
             ),
             (
                 "cargo nextest run > out.txt".into(),
-                format!("{nextest}cargo nextest run > out.txt"),
+                format!("{EXPORT}{nextest}cargo nextest run > out.txt"),
             ),
             // An assignment stays in front, so it still reaches the runner.
             (
                 "RUST_LOG=debug cargo test".into(),
-                format!("RUST_LOG=debug {cargo}cargo test"),
+                format!("{EXPORT}RUST_LOG=debug {cargo}cargo test"),
             ),
             (
                 "cd a && cd b && cargo test".into(),
-                format!("cd a && cd b && {cargo}cargo test"),
+                format!("{EXPORT}cd a && cd b && {cargo}cargo test"),
             ),
             (
                 "(cd tugrust && cargo test)".into(),
-                format!("(cd tugrust && {cargo}cargo test)"),
+                format!("{EXPORT}(cd tugrust && {cargo}cargo test)"),
             ),
             // The shapes a session reaches for, verbatim but for the wrap.
             (
                 "(grep -c x a && just test-tugdeck || (cd tugdeck && bun test)) | tail -12".into(),
                 format!(
-                    "(grep -c x a && just test-tugdeck || (cd tugdeck && {W} --suite tugdeck --kind bun \
+                    "{EXPORT}(grep -c x a && just test-tugdeck || (cd tugdeck && {W} --suite tugdeck --kind bun \
                      --label 'bun test' --needle 'bun test' -- bun test)) | tail -12"
                 ),
             ),
             (
                 "cargo nextest run -p a 2>&1 | tail -3; cargo test -p b | grep FAILED".into(),
                 format!(
-                    "{nextest}cargo nextest run -p a 2>&1 | tail -3; {cargo}cargo test -p b | grep FAILED"
+                    "{EXPORT}{nextest}cargo nextest run -p a 2>&1 | tail -3; {cargo}cargo test -p b | grep FAILED"
                 ),
             ),
         ] {
@@ -1104,21 +1298,31 @@ mod tests {
 
     #[test]
     fn what_cannot_be_read_with_certainty_is_left_alone() {
+        // Readable, and no runner in it: the id, and nothing else.
         for command in [
-            "cargo build",
-            "bunx tsc --noEmit",
+            "cargo fmt --check",
+            "bunx eslint .",
             "echo cargo test",
             "echo 'cargo test | x'",
             "for c in a b; do cargo test -p $c; done",
+            "FOO=\"a b\" cargo test",
+        ] {
+            assert_eq!(
+                wrap(command),
+                Some(format!("{EXPORT}{command}")),
+                "{command}"
+            );
+        }
+        // Unreadable: nothing in the line is placed, so nothing is touched.
+        for command in [
             "x=$(cargo test 2>&1)",
             "echo `cargo test`",
             "cat <<EOF | sh\ncargo test\nEOF",
             "cargo test 'unclosed",
-            "FOO=\"a b\" cargo test",
         ] {
             assert_eq!(wrap(command), None, "{command}");
         }
-        // Wrapping is idempotent: a wrapped line has nothing left to wrap.
+        // Idempotent: a rewritten line carries its id and has nothing left to wrap.
         let once = wrap("cargo test | tail -3").unwrap();
         assert_eq!(wrap(&once), None, "{once}");
     }
@@ -1126,19 +1330,24 @@ mod tests {
     #[test]
     fn an_already_wrapped_run_has_a_different_head() {
         assert_eq!(
-            wrap("tugtool test run --suite rust --kind nextest -- cargo nextest run"),
-            None
+            wrap("tugtool test run --suite rust --kind nextest -- cargo nextest run").as_deref(),
+            Some(
+                "export TUG_TOOL_USE_ID=toolu_01A; tugtool test run --suite rust --kind nextest -- cargo nextest run"
+            )
         );
-        assert_eq!(wrap("just test-rust"), None);
+        assert_eq!(
+            wrap("just test-rust").as_deref(),
+            Some("export TUG_TOOL_USE_ID=toolu_01A; just test-rust")
+        );
     }
 
     #[test]
     fn without_a_call_id_the_wrap_still_happens_and_carries_none() {
-        let out = wrap_test_runner("bun test", None, None, TUGTOOL, &runners::built_in()).unwrap();
+        let out = rewrite_command("bun test", None, None, TUGTOOL, &runners::built_in()).unwrap();
         assert!(!out.contains("TUG_TOOL_USE_ID"), "{out}");
         assert!(out.starts_with(TUGTOOL), "{out}");
         // An id that is not a plain word is not put in a shell's environment.
-        let out = wrap_test_runner(
+        let out = rewrite_command(
             "bun test",
             None,
             Some("x; rm -rf /"),
@@ -1151,7 +1360,7 @@ mod tests {
 
     #[test]
     fn a_binary_path_with_a_space_is_quoted() {
-        let out = wrap_test_runner(
+        let out = rewrite_command(
             "bun test",
             None,
             None,
@@ -1181,7 +1390,7 @@ mod tests {
             "cwd": dir.path().to_string_lossy(),
             "tool_use_id": "toolu_01A",
         });
-        match test_runner_rewrite(&payload, TUGTOOL)? {
+        match bash_rewrite(&payload, TUGTOOL)? {
             Decision::Rewrite(input) => input["command"].as_str().map(String::from),
             other => panic!("expected a rewrite, got {other:?}"),
         }
@@ -1190,12 +1399,12 @@ mod tests {
     #[test]
     fn a_declared_kind_row_wraps_under_its_declared_suite_and_label() {
         let dir = project_declaring(
-            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\nsuite = \"checks\"\nlabel = \"checks\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\nsuite = \"checks\"\nlabel = \"checks\"\n",
         );
         assert_eq!(
             rewritten_in(&dir, "cd sub && make check -j4 | tail -3").as_deref(),
             Some(
-                "cd sub && TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool \
+                "export TUG_TOOL_USE_ID=toolu_01A; cd sub && /Applications/Tug.app/Contents/MacOS/tugtool \
                  test run --suite checks --kind cargo-test --label checks --needle 'make check' \
                  -- make check -j4 | tail -3"
             )
@@ -1208,7 +1417,7 @@ mod tests {
         );
         // A row with no suite records under its head's last word.
         let dir = project_declaring(
-            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"cargo-test\"\n",
         );
         assert!(
             rewritten_in(&dir, "make check")
@@ -1220,52 +1429,62 @@ mod tests {
     #[test]
     fn a_declared_lines_row_carries_its_rule_single_quoted() {
         let dir = project_declaring(
-            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = \"^(?P<status>PASS|FAIL): (?P<name>[^ ']+)\"\ntotal = '^running (?P<total>\\d+) checks'\nstream = \"stdout\"\nunit = \"check\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"lines\"\nitem = \"^(?P<status>PASS|FAIL): (?P<name>[^ ']+)\"\ntotal = '^running (?P<total>\\d+) checks'\nstream = \"stdout\"\nunit = \"check\"\n",
         );
         assert_eq!(
             rewritten_in(&dir, "make check").as_deref(),
             Some(
-                "TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool \
+                "export TUG_TOOL_USE_ID=toolu_01A; /Applications/Tug.app/Contents/MacOS/tugtool \
                  test run --suite check --kind lines \
                  --item '^(?P<status>PASS|FAIL): (?P<name>[^ '\\'']+)' \
                  --total '^running (?P<total>\\d+) checks' --stream stdout --unit check \
                  --label 'make check' --needle 'make check' -- make check"
             )
         );
-        // A kind with a rule of its own carries no regex, even one declared.
+        // A kind with a rule of its own may not declare a regex: the loader
+        // refuses the config, and the hook falls back to the built-ins, so
+        // the row is not honoured in silence — `tugtool report runners`
+        // shows the refusal.
         let dir = project_declaring(
-            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"tap\"\nitem = '^(?P<status>ok) (?P<name>\\S+)'\nunit = \"check\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"tap\"\nitem = '^(?P<status>ok) (?P<name>\\S+)'\nunit = \"check\"\n",
         );
-        let wrapped = rewritten_in(&dir, "make check").unwrap();
-        assert!(
-            wrapped.contains("--kind tap --unit check --label"),
-            "{wrapped}"
+        assert_eq!(
+            rewritten_in(&dir, "make check").as_deref(),
+            Some("export TUG_TOOL_USE_ID=toolu_01A; make check")
         );
     }
 
     #[test]
     fn a_declared_unit_row_gets_the_call_id_and_nothing_else() {
         let dir = project_declaring(
-            "[[tugtool.run.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n",
         );
         assert_eq!(
             rewritten_in(&dir, "just app-test at0707.test.ts").as_deref(),
-            Some("TUG_TOOL_USE_ID=toolu_01A just app-test at0707.test.ts")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; just app-test at0707.test.ts")
         );
         assert_eq!(
             rewritten_in(&dir, "FOO=1 just app-test 2>&1 | tail -20").as_deref(),
-            Some("FOO=1 TUG_TOOL_USE_ID=toolu_01A just app-test 2>&1 | tail -20")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; FOO=1 just app-test 2>&1 | tail -20")
         );
-        // A neighbouring recipe is not the declared one.
-        assert_eq!(rewritten_in(&dir, "just app-test-build"), None);
-        // An id already set is left as it is.
-        assert_eq!(rewritten_in(&dir, "TUG_TOOL_USE_ID=x just app-test"), None);
+        // A neighbouring recipe is not the declared one; like every readable
+        // call it carries the id, and nothing marks it a runner.
+        assert_eq!(
+            rewritten_in(&dir, "just app-test-build").as_deref(),
+            Some("export TUG_TOOL_USE_ID=toolu_01A; just app-test-build")
+        );
+        // An id the model set inline stands nearest the command, and wins
+        // there; the export stands in front of it for everything else.
+        assert_eq!(
+            rewritten_in(&dir, "TUG_TOOL_USE_ID=x just app-test").as_deref(),
+            Some("export TUG_TOOL_USE_ID=toolu_01A; TUG_TOOL_USE_ID=x just app-test")
+        );
 
         // Without a plain id there is nothing to export, so nothing changes.
         let runners = runners::for_cwd(dir.path().to_str());
         for id in [None, Some("x; rm -rf /")] {
             assert_eq!(
-                wrap_test_runner("just app-test", None, id, TUGTOOL, &runners),
+                rewrite_command("just app-test", None, id, TUGTOOL, &runners),
                 None
             );
         }
@@ -1274,21 +1493,22 @@ mod tests {
     #[test]
     fn a_declared_head_shadows_the_built_in_it_equals() {
         let dir =
-            project_declaring("[[tugtool.run.runner]]\nmatch = \"bun test\"\nunit = \"file\"\n");
+            project_declaring("[[tugtool.report.runner]]\nmatch = \"bun test\"\nunit = \"file\"\n");
         assert_eq!(
             rewritten_in(&dir, "bun test src").as_deref(),
-            Some("TUG_TOOL_USE_ID=toolu_01A bun test src")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; bun test src")
         );
     }
 
     #[test]
     fn a_config_that_does_not_load_leaves_the_built_ins_alone() {
         for config in [
-            "[[tugtool.run.runner]]\nmatch = \"make check\"\nkind = \"pyunit\"\n",
+            "[[tugtool.report.runner]]\nmatch = \"make check\"\nkind = \"pyunit\"\n",
             "this is not toml = = =",
         ] {
             let dir = project_declaring(config);
-            assert_eq!(rewritten_in(&dir, "make check"), None, "{config}");
+            let out = rewritten_in(&dir, "make check").unwrap();
+            assert!(!out.contains(" test run "), "{config}: {out}");
             assert!(
                 rewritten_in(&dir, "cargo test")
                     .unwrap()
@@ -1306,7 +1526,7 @@ mod tests {
             "cwd": "/proj",
             "tool_use_id": "toolu_01A",
         });
-        let Some(Decision::Rewrite(input)) = test_runner_rewrite(&payload, TUGTOOL) else {
+        let Some(Decision::Rewrite(input)) = bash_rewrite(&payload, TUGTOOL) else {
             panic!("expected a rewrite");
         };
         assert_eq!(input["description"], "Run tests");
@@ -1315,7 +1535,7 @@ mod tests {
             input["command"]
                 .as_str()
                 .unwrap()
-                .starts_with("TUG_TOOL_USE_ID=toolu_01A ")
+                .starts_with("export TUG_TOOL_USE_ID=toolu_01A; ")
         );
 
         // Rendered, it is `updatedInput` alone: no permission decision.
@@ -1350,5 +1570,216 @@ mod tests {
             pre_tool_use_after_closing(&bash_in("bun test", &cwd), 1),
             Some(Decision::Rewrite(_))
         ));
+    }
+
+    #[test]
+    fn every_readable_call_carries_its_id_once_and_an_unreadable_one_does_not() {
+        assert_eq!(
+            wrap("cargo fmt --check 2>&1 | tail -3").as_deref(),
+            Some("export TUG_TOOL_USE_ID=toolu_01A; cargo fmt --check 2>&1 | tail -3")
+        );
+        assert_eq!(
+            wrap("cd tugdeck && bunx eslint .").as_deref(),
+            Some("export TUG_TOOL_USE_ID=toolu_01A; cd tugdeck && bunx eslint .")
+        );
+        // Already carried: nothing to add.
+        assert_eq!(wrap("export TUG_TOOL_USE_ID=toolu_01A; cargo fmt"), None);
+        // Unreadable: the ladder cannot place a command, so nothing is touched.
+        assert_eq!(wrap("cat <<EOF | sh\ncargo fmt\nEOF"), None);
+        assert_eq!(wrap("x=$(cargo fmt)"), None);
+    }
+
+    #[test]
+    fn a_runner_behind_a_heredoc_is_refused_and_names_the_split() {
+        let refusal = |command: &str| dark_runner_refusal(command, &runners::built_in());
+        let edit_then_run = "tugtool file edit <<'EOF'\nfile src/a.rs\n  replace \"x\" with \"y\"\nEOF\ncargo nextest run -p x";
+        let reason = refusal(edit_then_run).expect("refused");
+        assert!(
+            reason.starts_with("`cargo nextest run` would run dark here"),
+            "{reason}"
+        );
+        assert!(reason.contains("a runner tugtool knows"), "{reason}");
+        assert!(reason.contains("a here-document"), "{reason}");
+        assert!(reason.contains("own Bash call"), "{reason}");
+        assert!(
+            reason.contains("`cargo nextest run …` alone in the next"),
+            "{reason}"
+        );
+        // The construct is named, whichever it is; the runner is found past a
+        // `cd`, an assignment, inside the substitution, and in a probe.
+        for (command, construct, head) in [
+            (
+                "x=$(cargo test 2>&1)",
+                "a command substitution",
+                "cargo test",
+            ),
+            ("echo `bun test`", "a backtick substitution", "bun test"),
+            (
+                "cat <<EOF > /tmp/x\nhi\nEOF\ncd web && FOO=1 bun test",
+                "a here-document",
+                "bun test",
+            ),
+            (
+                "cat <<-'EOF'\n\thi\n\tEOF\npytest -q",
+                "a here-document",
+                "pytest",
+            ),
+            ("cargo test 'unclosed", "an unclosed quote", "cargo test"),
+            ("tr a b <<< x; go test ./...", "a here-string", "go test"),
+            (
+                "cat <<EOF\nhi\nEOF\ntugtool file probe --patch p.diff -- cargo test -p x",
+                "a here-document",
+                "cargo test",
+            ),
+        ] {
+            let reason = refusal(command).unwrap_or_else(|| panic!("{command:?} must be refused"));
+            assert!(
+                reason.starts_with(&format!("`{head}` would run dark")),
+                "{command:?}: {reason}"
+            );
+            assert!(reason.contains(construct), "{command:?}: {reason}");
+        }
+        // A runner's head inside a here-document's body is data, not a run:
+        // an edit program may mention `cargo test` without being refused.
+        for command in [
+            "tugtool file edit <<'EOF'\nfile README.md\n  replace \"cargo test\" with \"cargo nextest run\"\nEOF",
+            "cat > /tmp/notes.md <<EOF\ncargo test -p x\nbun test\nEOF",
+            "cat <<EOF | sh\ncargo test\nEOF",
+            "x=$(ls)",
+            "echo 'cargo test",
+            "echo \"$(date)\" && cargo fmt",
+        ] {
+            assert_eq!(refusal(command), None, "{command:?}");
+        }
+        // A line that reads is never this refusal's business.
+        assert_eq!(refusal("cargo test"), None);
+        assert_eq!(refusal("echo cargo test"), None);
+    }
+
+    #[test]
+    fn a_declared_runner_behind_a_heredoc_is_refused_as_the_projects() {
+        let dir = project_declaring(
+            "[[tugtool.report.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n",
+        );
+        let runners = runners::for_cwd(Some(&dir.path().to_string_lossy()));
+        let reason =
+            dark_runner_refusal("cat <<EOF\nhi\nEOF\njust app-test at0707.test.ts", &runners)
+                .expect("refused");
+        assert!(
+            reason.starts_with("`just app-test` would run dark"),
+            "{reason}"
+        );
+        assert!(
+            reason.contains("a runner this project declares"),
+            "{reason}"
+        );
+        // On the project that declares nothing, `just app-test` is any command.
+        assert_eq!(
+            dark_runner_refusal(
+                "cat <<EOF\nhi\nEOF\njust app-test at0707.test.ts",
+                &runners::built_in()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn the_dark_runner_refusal_outranks_the_prefix_approval_and_rides_the_hook() {
+        // `tugtool` is an approved prefix, and the edit program is the one
+        // shape that most often hides a run; the call is denied, not allowed.
+        let edit_then_run =
+            "tugtool file edit <<'EOF'\nfile src/a.rs\n  replace \"x\" with \"y\"\nEOF\ncargo test";
+        match pre_tool_use(&bash(edit_then_run)) {
+            Some(Decision::Deny(reason)) => assert!(reason.contains("`cargo test`"), "{reason}"),
+            other => panic!("expected a deny, got {other:?}"),
+        }
+        // And through the unapproved path too.
+        match pre_tool_use(&bash("x=$(bun test 2>&1); echo $x")) {
+            Some(Decision::Deny(reason)) => assert!(reason.contains("`bun test`"), "{reason}"),
+            other => panic!("expected a deny, got {other:?}"),
+        }
+        // A heredoc with no runner in it is left exactly as it was.
+        assert!(pre_tool_use(&bash("cat > /tmp/notes.md <<EOF\nhi\nEOF")).is_none());
+        let out = Decision::Deny("x".into()).render();
+        assert!(out.contains("\"permissionDecision\":\"deny\""), "{out}");
+    }
+
+    #[test]
+    fn a_probe_is_rewritten_at_its_inner_command() {
+        assert_eq!(
+            wrap("tugtool file probe --patch p.diff -- cargo nextest run -p x").as_deref(),
+            Some(
+                "export TUG_TOOL_USE_ID=toolu_01A; tugtool file probe --patch p.diff -- \
+                 /Applications/Tug.app/Contents/MacOS/tugtool test run --suite rust --kind nextest \
+                 --label 'cargo nextest run' --needle 'cargo nextest run' -- cargo nextest run -p x"
+            )
+        );
+        // By any path, with a `--path`, and the inner command's own assignment kept.
+        assert_eq!(
+            wrap(
+                "/Applications/Tug.app/Contents/MacOS/tugtool file probe --path a.ts -- RUST_LOG=x cargo test"
+            )
+            .as_deref(),
+            Some(
+                "export TUG_TOOL_USE_ID=toolu_01A; /Applications/Tug.app/Contents/MacOS/tugtool file probe \
+                 --path a.ts -- RUST_LOG=x /Applications/Tug.app/Contents/MacOS/tugtool test run --suite rust \
+                 --kind cargo-test --label 'cargo test' --needle 'cargo test' -- cargo test"
+            )
+        );
+        // A probe around no runner carries the id and nothing else.
+        assert_eq!(
+            wrap("tugtool file probe --patch p.diff -- cargo fmt").as_deref(),
+            Some(
+                "export TUG_TOOL_USE_ID=toolu_01A; tugtool file probe --patch p.diff -- cargo fmt"
+            )
+        );
+        // A declared unit row inside a probe needs nothing more than the export,
+        // which the probe hands on to its child.
+        let dir = project_declaring(
+            "[[tugtool.report.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n",
+        );
+        assert_eq!(
+            rewritten_in(
+                &dir,
+                "tugtool file probe --patch p.diff -- just app-test at0707.test.ts"
+            )
+            .as_deref(),
+            Some(
+                "export TUG_TOOL_USE_ID=toolu_01A; tugtool file probe --patch p.diff -- just app-test at0707.test.ts"
+            )
+        );
+    }
+
+    #[test]
+    fn an_approved_prefix_is_allowed_and_rewritten_in_one_answer() {
+        let payload = json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": "tugtool file probe --patch p.diff -- cargo test" },
+            "cwd": "/proj",
+            "tool_use_id": "toolu_01A",
+        });
+        match pre_tool_use(&payload) {
+            Some(Decision::AllowRewrite(reason, input)) => {
+                assert_eq!(reason, "tugplug auto-approved");
+                let command = input["command"].as_str().unwrap();
+                assert!(
+                    command.starts_with(
+                        "export TUG_TOOL_USE_ID=toolu_01A; tugtool file probe --patch p.diff -- "
+                    ),
+                    "{command}"
+                );
+                assert!(
+                    command.contains(" test run --suite rust --kind cargo-test "),
+                    "{command}"
+                );
+                assert!(command.ends_with(" -- cargo test"), "{command}");
+            }
+            other => panic!("expected allow and rewrite, got {other:?}"),
+        }
+        // With no id to carry and no runner, the approval is as it always was.
+        assert_eq!(
+            pre_tool_use(&bash("ls -la")),
+            Some(Decision::Allow("tugplug auto-approved"))
+        );
     }
 }

@@ -438,10 +438,10 @@ shellcheck:
 tugplug-lint:
     bun scripts/tugplug-lint.ts
 
-# A long recipe reports its progress with a unit — `tugtool progress phase`
-# through tugrust/scripts/report-phase.sh, `tugtool progress --unit`, or
+# A long recipe reports with a unit — `tugtool report phase` through
+# tugrust/scripts/report-phase.sh, `tugtool report count --unit`, or
 # `tugtool test run` — or delegates to a recipe or script that does, so the
-# Bash block draws its run panel instead of sitting silent for minutes. The
+# Bash block draws its report panel instead of sitting silent for minutes. The
 # list of long recipes and the named exemptions (each with its reason) are in
 # the script; the test drives the check over a fixture Justfile.
 recipe-lint:
@@ -1565,7 +1565,7 @@ build-app:
     # Each phase also reports to the calling Session card's running block, so
     # a `just app-test` that rebuilds first does not sit silent for minutes.
     # The block draws the build as its five phases: those landed with their
-    # times, the one running since when, the rest to come. `progress phase`
+    # times, the one running since when, the rest to come. `report phase`
     # keeps the phase state and builds the rows; this writes one line each.
     PHASES=("Rust debug binaries" "tugdeck build" "app-test deps" "Xcode build" "re-sign")
     report_phase() {

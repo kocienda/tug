@@ -156,8 +156,8 @@ pub struct Paths {
     pub prompt_history_db: PathBuf,
     /// See [`session_index_db_path`].
     pub session_index_db: PathBuf,
-    /// See [`run_gaps_db_path`].
-    pub run_gaps_db: PathBuf,
+    /// See [`report_gaps_db_path`].
+    pub report_gaps_db: PathBuf,
     /// See [`apptest_results_db_path`].
     pub apptest_results_db: PathBuf,
     /// See [`test_results_db_path`].
@@ -218,7 +218,7 @@ impl Paths {
             changes_db: shared(ENV_CHANGES_DB, "changes.db"),
             prompt_history_db: shared(ENV_PROMPT_HISTORY_DB, "prompt_history.db"),
             session_index_db: shared(ENV_SESSION_INDEX_DB, "session_index.db"),
-            run_gaps_db: shared(ENV_RUN_GAPS_DB, "run_gaps.db"),
+            report_gaps_db: shared(ENV_REPORT_GAPS_DB, "report_gaps.db"),
             apptest_results_db: shared(ENV_APPTEST_RESULTS_DB, "apptest_results.db"),
             test_results_db: shared(ENV_TEST_RESULTS_DB, "test_results.db"),
             jots: shared(ENV_JOTS_PATH, "jots.json"),
@@ -497,19 +497,19 @@ pub fn session_index_db_path() -> PathBuf {
     Paths::from_env().session_index_db
 }
 
-/// Environment variable overriding the shared run-gaps record path. Set by
+/// Environment variable overriding the shared report-gaps record path. Set by
 /// every harness that spawns tugcast, so a throwaway instance's long calls
 /// never land in the user's real record.
-pub const ENV_RUN_GAPS_DB: &str = "TUG_RUN_GAPS_DB";
+pub const ENV_REPORT_GAPS_DB: &str = "TUG_REPORT_GAPS_DB";
 
-/// The **machine-global** run-gaps record path: one `run_gaps.db` for every
+/// The **machine-global** report-gaps record path: one `report_gaps.db` for every
 /// app instance, holding one row per long Bash call that ended with no
-/// progress report attached. Deliberately independent of `TUG_INSTANCE_ID`:
+/// report attached. Deliberately independent of `TUG_INSTANCE_ID`:
 /// the question it answers ("which long runs go unreported?") is about the
-/// user's habits across every project. Honors the [`ENV_RUN_GAPS_DB`]
+/// user's habits across every project. Honors the [`ENV_REPORT_GAPS_DB`]
 /// override for isolated test runs.
-pub fn run_gaps_db_path() -> PathBuf {
-    Paths::from_env().run_gaps_db
+pub fn report_gaps_db_path() -> PathBuf {
+    Paths::from_env().report_gaps_db
 }
 
 /// Environment variable overriding the shared app-test results ledger path.
@@ -928,7 +928,7 @@ mod tests {
             "changes_db_path(",
             "prompt_history_db_path(",
             "session_index_db_path(",
-            "run_gaps_db_path(",
+            "report_gaps_db_path(",
             "apptest_results_db_path(",
             "test_results_db_path(",
             "jots_path(",
@@ -1009,7 +1009,7 @@ mod tests {
             jots_path(),
             prompt_history_db_path(),
             session_index_db_path(),
-            run_gaps_db_path(),
+            report_gaps_db_path(),
         ] {
             assert!(p.starts_with(tmp.path()), "{} escaped", p.display());
         }
@@ -1183,27 +1183,30 @@ mod tests {
 
     #[test]
     #[serial]
-    fn run_gaps_db_path_default_is_machine_global_and_instance_independent() {
+    fn report_gaps_db_path_default_is_machine_global_and_instance_independent() {
         let _g = EnvGuard::snapshot();
-        let _s = VarGuard::set(ENV_RUN_GAPS_DB, None);
+        let _s = VarGuard::set(ENV_REPORT_GAPS_DB, None);
         set_instance(None);
-        let unset = run_gaps_db_path();
+        let unset = report_gaps_db_path();
         set_instance(Some("debug-foo"));
-        let set = run_gaps_db_path();
+        let set = report_gaps_db_path();
         assert_eq!(unset, set);
-        assert!(set.ends_with("Tug/run_gaps.db"));
+        assert!(set.ends_with("Tug/report_gaps.db"));
     }
 
     #[test]
     #[serial]
-    fn run_gaps_db_path_env_override_wins_and_ignores_empty() {
+    fn report_gaps_db_path_env_override_wins_and_ignores_empty() {
         let _s = VarGuard::set(
-            ENV_RUN_GAPS_DB,
-            Some(std::path::Path::new("/tmp/custom-run-gaps.db")),
+            ENV_REPORT_GAPS_DB,
+            Some(std::path::Path::new("/tmp/custom-report-gaps.db")),
         );
-        assert_eq!(run_gaps_db_path(), PathBuf::from("/tmp/custom-run-gaps.db"));
-        let _s = VarGuard::set(ENV_RUN_GAPS_DB, Some(std::path::Path::new("")));
-        assert!(run_gaps_db_path().ends_with("Tug/run_gaps.db"));
+        assert_eq!(
+            report_gaps_db_path(),
+            PathBuf::from("/tmp/custom-report-gaps.db")
+        );
+        let _s = VarGuard::set(ENV_REPORT_GAPS_DB, Some(std::path::Path::new("")));
+        assert!(report_gaps_db_path().ends_with("Tug/report_gaps.db"));
     }
 
     #[test]
@@ -1506,7 +1509,7 @@ mod tests {
         ENV_CHANGES_DB,
         ENV_PROMPT_HISTORY_DB,
         ENV_SESSION_INDEX_DB,
-        ENV_RUN_GAPS_DB,
+        ENV_REPORT_GAPS_DB,
         ENV_APPTEST_RESULTS_DB,
         ENV_TEST_RESULTS_DB,
         ENV_JOTS_PATH,

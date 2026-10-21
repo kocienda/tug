@@ -72,7 +72,7 @@ pub struct LineRead {
     pub note: Option<String>,
 }
 
-/// A runner's own word for how an item landed, as the run panel's status —
+/// A runner's own word for how an item landed, as the report panel's status —
 /// `None` for a word outside the map, whose line is then not an item. The
 /// words are what runners commonly print, so a rule written for an unknown
 /// runner needs no map of its own.
@@ -97,10 +97,13 @@ pub type RuleError = String;
 
 /// One shape of item line: a regex with a `name` group, and either a
 /// `status` group read through [`status_word`] or a status of its own.
+/// A pattern for a run with one item has a name of its own instead of a
+/// group, and a `message` group, where there is one, is the item's why.
 #[derive(Clone, Debug)]
 pub struct ItemPattern {
     pub regex: Regex,
     pub status: Option<ItemStatus>,
+    pub name: Option<&'static str>,
 }
 
 /// One item per matching line. A `total` group — on an item's own line or on
@@ -112,12 +115,16 @@ pub struct ItemPattern {
 /// seeing an AI agent in the environment, print a line for each failing file
 /// and none for the passing ones, so their count grows with the reds and is
 /// made exact at the end.
+///
+/// A `notes` line is not an item but says where the run is — a build's
+/// phase, a count it printed — and its `note` group becomes the text.
 #[derive(Clone, Debug)]
 pub struct LineRule {
     pub items: Vec<ItemPattern>,
     pub total: Option<Regex>,
     pub stop: Option<Regex>,
     pub summary: Option<Regex>,
+    pub notes: Vec<Regex>,
     pub stream: Stream,
 }
 
@@ -140,6 +147,7 @@ fn read_by(pattern: &str) -> ItemPattern {
     ItemPattern {
         regex: built(pattern),
         status: None,
+        name: None,
     }
 }
 
@@ -147,6 +155,16 @@ fn always(pattern: &str, status: ItemStatus) -> ItemPattern {
     ItemPattern {
         regex: built(pattern),
         status: Some(status),
+        name: None,
+    }
+}
+
+/// The one item of a run that has one, under a name of its own.
+fn the_item(pattern: &str, status: ItemStatus, name: &'static str) -> ItemPattern {
+    ItemPattern {
+        regex: built(pattern),
+        status: Some(status),
+        name: Some(name),
     }
 }
 
@@ -188,12 +206,14 @@ impl LineRule {
             items: vec![ItemPattern {
                 regex: compiled("--item", item, &["name", "status"])?,
                 status: None,
+                name: None,
             }],
             total: total
                 .map(|t| compiled("--total", t, &["total"]))
                 .transpose()?,
             stop: None,
             summary: None,
+            notes: Vec::new(),
             stream,
         })
     }
@@ -212,6 +232,10 @@ impl LineRule {
         if let Some(caps) = self.total.as_ref().and_then(|t| t.captures(line)) {
             read.total = caps.name("total").and_then(|m| m.as_str().parse().ok());
         }
+        if let Some(caps) = self.notes.iter().find_map(|n| n.captures(line)) {
+            read.note = caps.name("note").map(|m| m.as_str().to_string());
+            return read;
+        }
         for pattern in &self.items {
             let Some(caps) = pattern.regex.captures(line) else {
                 continue;
@@ -219,12 +243,18 @@ impl LineRule {
             let status = pattern
                 .status
                 .or_else(|| caps.name("status").and_then(|m| status_word(m.as_str())));
-            let name = caps.name("name").map(|m| m.as_str().trim().to_string());
+            let name = pattern
+                .name
+                .map(str::to_string)
+                .or_else(|| caps.name("name").map(|m| m.as_str().trim().to_string()));
             if let (Some(status), Some(name)) = (status, name) {
                 read.item = Some(Item {
                     name,
                     status,
-                    message: String::new(),
+                    message: caps
+                        .name("message")
+                        .map(|m| m.as_str().trim().to_string())
+                        .unwrap_or_default(),
                 });
             }
             if read.total.is_none() {
@@ -245,6 +275,7 @@ pub fn rule_for(kind: RunKind) -> Option<LineRule> {
         total: None,
         stop: None,
         summary: None,
+        notes: Vec::new(),
         stream,
     };
     Some(match kind {
@@ -314,15 +345,44 @@ pub fn rule_for(kind: RunKind) -> Option<LineRule> {
             )],
             Stream::Stdout,
         ),
+        // `src/a.ts(1,14): error TS2322: …`, and under `--pretty`
+        // `src/a.ts:1:14 - error TS2322: …`: one line per type error, the
+        // error's text its message.
+        RunKind::Tsc => rule(
+            vec![
+                read_by(r"^(?P<name>\S+\(\d+,\d+\)): (?P<status>error) TS\d+: (?P<message>.+)$"),
+                read_by(r"^(?P<name>\S+:\d+:\d+) - (?P<status>error) TS\d+: (?P<message>.+)$"),
+            ],
+            Stream::Both,
+        ),
+        // `transforming...`, `✓ 4 modules transformed.`, `rendering
+        // chunks...` as the phase; `✓ built in 70ms` or, on stderr,
+        // `✗ Build failed in 25ms` as the build's one item.
+        RunKind::Vite => LineRule {
+            notes: vec![
+                built(r"^(?P<note>transforming|rendering chunks|computing gzip size)\.\.\.$"),
+                built(r"^✓ (?P<note>\d+ modules? transformed)\.$"),
+            ],
+            ..rule(
+                vec![
+                    the_item(r"^✓ built in \S+$", ItemStatus::Pass, "build"),
+                    the_item(r"^✗ Build failed in \S+$", ItemStatus::Fail, "build"),
+                ],
+                Stream::Both,
+            )
+        },
         _ => return None,
     })
 }
 
 /// What a kind counts when the command says nothing: jest and vitest report
-/// per file.
+/// per file, a cargo build per crate, tsc per error, and vite its build.
 pub fn default_unit(kind: RunKind) -> &'static str {
     match kind {
         RunKind::Jest | RunKind::Vitest => "file",
+        RunKind::Cargo => "crate",
+        RunKind::Tsc => "error",
+        RunKind::Vite => "build",
         _ => "test",
     }
 }
@@ -613,12 +673,69 @@ mod tests {
             RunKind::Mocha,
             RunKind::Swift,
             RunKind::Ctest,
+            RunKind::Tsc,
+            RunKind::Vite,
         ] {
             assert!(rule_for(kind).is_some(), "{kind:?}");
         }
-        for kind in [RunKind::Bun, RunKind::Tap, RunKind::Lines, RunKind::Go] {
+        for kind in [
+            RunKind::Bun,
+            RunKind::Tap,
+            RunKind::Lines,
+            RunKind::Go,
+            RunKind::Cargo,
+        ] {
             assert!(rule_for(kind).is_none(), "{kind:?}");
         }
+    }
+
+    /// tsc 5 over a file with two type errors, plain and under `--pretty`.
+    #[test]
+    fn tsc_reads_each_type_error_as_a_red_with_its_message() {
+        for fixture_name in ["tsc.txt", "tsc-pretty.txt"] {
+            let (items, total, tally) = named(RunKind::Tsc, &fixture(fixture_name));
+            let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+            assert_eq!(names.len(), 2, "{fixture_name}: {names:?}");
+            assert!(
+                names[0].starts_with("src/a.ts") && names[0].contains('1'),
+                "{names:?}"
+            );
+            assert!(
+                items.iter().all(|i| i.status == ItemStatus::Error),
+                "{fixture_name}"
+            );
+            assert_eq!(
+                items[0].message, "Type 'string' is not assignable to type 'number'.",
+                "{fixture_name}"
+            );
+            assert_eq!((total, tally), (None, None), "{fixture_name}");
+        }
+        // A green check prints nothing, and counts nothing.
+        let (items, _, _) = named(RunKind::Tsc, "");
+        assert!(items.is_empty());
+    }
+
+    /// vite 7 building a two-module page, green and with a missing import.
+    #[test]
+    fn vite_reads_its_phases_and_its_build_as_one_item() {
+        let rule = rule_for(RunKind::Vite).unwrap();
+        let notes: Vec<String> = fixture("vite.txt")
+            .lines()
+            .filter_map(|l| rule.read(&strip(l)).note)
+            .collect();
+        assert_eq!(
+            notes,
+            [
+                "transforming",
+                "4 modules transformed",
+                "rendering chunks",
+                "computing gzip size"
+            ]
+        );
+        let (items, _, _) = named(RunKind::Vite, &fixture("vite.txt"));
+        assert_eq!(seen(&items), [("build", Pass)]);
+        let (items, _, _) = named(RunKind::Vite, &fixture("vite-error.txt"));
+        assert_eq!(seen(&items), [("build", Fail)]);
     }
 
     /// pytest 9.1 under `-v`.

@@ -81,6 +81,12 @@ fn print_report(r: &SweepReport, verb: &str, quiet: bool) {
     section(verb, "temp dirs", &strs(&r.tmp_dirs_removed), quiet);
     section(
         verb,
+        "retired data files",
+        &strs(&r.retired_data_files_removed),
+        quiet,
+    );
+    section(
+        verb,
         "app-test data dirs",
         &r.apptest_data_dirs_removed,
         quiet,

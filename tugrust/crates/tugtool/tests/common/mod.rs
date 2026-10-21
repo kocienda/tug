@@ -37,8 +37,8 @@ pub fn tugtool() -> Command {
     // is the test's business: a test that wants index rows points this at
     // its own temp dir with `.env(...)` after calling here.
     cmd.env_remove("TUG_SESSION_INDEX_DB");
-    // The run-gaps record is machine-global for the same reason.
-    cmd.env_remove("TUG_RUN_GAPS_DB");
+    // The report-gaps record is machine-global for the same reason.
+    cmd.env_remove("TUG_REPORT_GAPS_DB");
     cmd
 }
 
@@ -59,6 +59,6 @@ pub fn tugedit() -> Command {
     cmd.env_remove("TUG_SESSION_ID");
     cmd.env_remove("TUG_INSTANCE_ID");
     cmd.env_remove("TUG_SESSION_INDEX_DB");
-    cmd.env_remove("TUG_RUN_GAPS_DB");
+    cmd.env_remove("TUG_REPORT_GAPS_DB");
     cmd
 }

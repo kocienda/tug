@@ -432,8 +432,8 @@ pub struct AgentSupervisor {
     /// The record of long Bash calls that reported no unit, written at the
     /// `tool_result` that ends one. `None` when the record could not be
     /// opened at boot, which costs the record its rows and the calls
-    /// nothing. Set via [`AgentSupervisor::set_run_gaps`].
-    pub run_gaps: Option<Arc<tugcore::run_gaps::RunGaps>>,
+    /// nothing. Set via [`AgentSupervisor::set_report_gaps`].
+    pub report_gaps: Option<Arc<tugcore::report_gaps::ReportGaps>>,
     /// The one digester, read by the `list_digest_lines` CONTROL op — the
     /// deck's mount-time tail. Shared with the digest bridge, which is its
     /// only writer. `None` in tests that don't exercise the read (and before
@@ -1135,25 +1135,25 @@ pub struct OpenRun {
     /// The job's `task_id`, once its `task_started` confirmed it.
     pub task_id: Option<String>,
     /// Whether a progress report carrying a `unit` has attached to this call
-    /// — the block has a run panel, and the call is not a gap.
+    /// — the block has a report panel, and the call is not a gap.
     pub unit_reported: bool,
 }
 
 /// The gap row a closing foreground call earns, or `None`: it ran past
-/// [`tugcore::run_gaps::GAP_THRESHOLD_MS`] and no unit report attached to it.
+/// [`tugcore::report_gaps::GAP_THRESHOLD_MS`] and no unit report attached to it.
 /// The one decision the record rests on, pure so it is tested as one.
 pub fn gap_of(
     run: &OpenRun,
     now_ms: i64,
     project_dir: &str,
     session_id: &str,
-) -> Option<tugcore::run_gaps::GapRow> {
+) -> Option<tugcore::report_gaps::GapRow> {
     let wall_ms = now_ms - run.opened_at_ms;
-    if run.unit_reported || wall_ms < tugcore::run_gaps::GAP_THRESHOLD_MS {
+    if run.unit_reported || wall_ms < tugcore::report_gaps::GAP_THRESHOLD_MS {
         return None;
     }
-    Some(tugcore::run_gaps::GapRow {
-        head: tugcore::run_gaps::command_head(&run.command),
+    Some(tugcore::report_gaps::GapRow {
+        head: tugcore::report_gaps::command_head(&run.command),
         command: run.command.clone(),
         project_dir: project_dir.to_string(),
         session_id: session_id.to_string(),
@@ -1204,9 +1204,9 @@ mod gap_tests {
 pub const OPEN_RUNS_CAP: usize = 64;
 
 /// A progress report a running command posted about itself, as the
-/// `/api/session` `run_progress` op received it.
+/// `/api/session` `report` op received it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RunProgressReport {
+pub struct Report {
     /// The call the reporter says it is running under, when it knows.
     pub tool_use_id: Option<String>,
     pub label: Option<String>,
@@ -1267,20 +1267,23 @@ fn parse_tool_result_id(payload: &[u8]) -> Option<String> {
     (!tool_use_id.is_empty()).then(|| tool_use_id.to_owned())
 }
 
-/// The Spec S03 `run_progress` CODE_OUTPUT payload for `live`, with
+/// The Spec S03 `report` CODE_OUTPUT payload for `live`, with
 /// `tug_session_id` spliced in as its first key and absent numbers omitted.
-fn run_progress_payload(
+fn report_payload(
     live: &str,
-    attached: Option<&str>,
-    report: &RunProgressReport,
+    attached: Result<&str, &str>,
+    report: &Report,
     at_ms: i64,
 ) -> Vec<u8> {
     let mut body = serde_json::Map::new();
-    body.insert("type".into(), "run_progress".into());
+    body.insert("type".into(), "report".into());
     body.insert(
         "tool_use_id".into(),
         attached.map_or(serde_json::Value::Null, |id| id.into()),
     );
+    if let Err(reason) = attached {
+        body.insert("unattached".into(), reason.into());
+    }
     if let Some(label) = &report.label {
         body.insert("label".into(), label.clone().into());
     }
@@ -1942,7 +1945,7 @@ impl AgentSupervisor {
             shell_ledger: None,
             refs_ledger: None,
             prompt_ledger: None,
-            run_gaps: None,
+            report_gaps: None,
             digester: None,
             scribe: None,
             spawner_factory,
@@ -2961,9 +2964,9 @@ impl AgentSupervisor {
         self.prompt_ledger = Some(ledger);
     }
 
-    /// Hand the supervisor the run-gaps record a closing long call writes to.
-    pub fn set_run_gaps(&mut self, gaps: Arc<tugcore::run_gaps::RunGaps>) {
-        self.run_gaps = Some(gaps);
+    /// Hand the supervisor the report-gaps record a closing long call writes to.
+    pub fn set_report_gaps(&mut self, gaps: Arc<tugcore::report_gaps::ReportGaps>) {
+        self.report_gaps = Some(gaps);
     }
 
     /// Record a moved session's prompt lineage: the chain the session it moved
@@ -3518,24 +3521,27 @@ impl AgentSupervisor {
         let Some(run) = entry.open_runs.remove(&tool_use_id) else {
             return;
         };
-        let Some(gaps) = self.run_gaps.as_ref() else {
+        let Some(gaps) = self.report_gaps.as_ref() else {
             return;
         };
         let project_dir = entry.project_dir.to_string_lossy().into_owned();
         drop(entry);
-        if let Some(row) = gap_of(
-            &run,
-            crate::session_ledger::now_millis(),
-            &project_dir,
-            session_id.as_str(),
-        ) && let Err(err) = gaps.record(&row)
+        let now_ms = crate::session_ledger::now_millis();
+        // Every foreground call's time, quick or long, so a head's median is
+        // its honest one and a quick command that hung reads as stalled.
+        let head = tugcore::report_gaps::command_head(&run.command);
+        if let Err(err) = gaps.time(&head, now_ms - run.opened_at_ms, now_ms) {
+            warn!(error = %err, head = %head, "call time not recorded");
+        }
+        if let Some(row) = gap_of(&run, now_ms, &project_dir, session_id.as_str())
+            && let Err(err) = gaps.record(&row)
         {
-            warn!(error = %err, head = %row.head, "run gap not recorded");
+            warn!(error = %err, head = %row.head, "report gap not recorded");
         }
     }
 
     /// Attach a running command's progress report to its block and publish
-    /// it on CODE_OUTPUT as a Spec S03 `run_progress` frame.
+    /// it on CODE_OUTPUT as a Spec S03 `report` frame.
     ///
     /// Answers `(attached to a block, the call it attached to)`, or `None`
     /// when `segment` has no ledger entry. A report no rule attaches is still
@@ -3548,16 +3554,16 @@ impl AgentSupervisor {
     /// found by [`Self::card_entry_for_segment`], and the frame goes out under
     /// the card's own id, the one the deck is bound to; looked up directly, a
     /// rotated card's every report was `unknown_session` and dropped.
-    pub async fn publish_run_progress(
+    pub async fn publish_report(
         &self,
         segment: &str,
-        report: RunProgressReport,
+        report: Report,
     ) -> Option<(bool, Option<String>)> {
         let (card, entry_arc) = self.card_entry_for_segment(segment).await?;
-        let attached = {
+        let (attached, unattached) = {
             let mut entry = entry_arc.lock().await;
             let attached = entry.attach_run(report.tool_use_id.as_deref(), &report.needles);
-            // A report with a unit is the run panel: the call it reached is
+            // A report with a unit is the report panel: the call it reached is
             // reporting, and is no gap when it closes.
             if report.unit.is_some()
                 && let Some(id) = attached.as_deref()
@@ -3565,11 +3571,15 @@ impl AgentSupervisor {
             {
                 run.unit_reported = true;
             }
-            attached
+            let unattached = match attached {
+                Some(_) => String::new(),
+                None => entry.unattached_reason(&report.needles),
+            };
+            (attached, unattached)
         };
-        let payload = run_progress_payload(
+        let payload = report_payload(
             card.as_str(),
-            attached.as_deref(),
+            attached.as_deref().ok_or(unattached.as_str()),
             &report,
             crate::session_ledger::now_millis(),
         );
@@ -7970,20 +7980,20 @@ mod tests {
         .unwrap()
     }
 
-    fn report(needles: &[&str]) -> RunProgressReport {
-        RunProgressReport {
+    fn report(needles: &[&str]) -> Report {
+        Report {
             label: Some("rust".into()),
             text: "compiling tugcast".into(),
             done: Some(3),
             needles: needles.iter().map(|n| (*n).to_owned()).collect(),
-            ..RunProgressReport::default()
+            ..Report::default()
         }
     }
 
     /// The published frame, parsed, after its raw bytes are checked to lead
     /// with the session id as `SessionScopedFeed` frames require.
-    fn next_run_progress(rx: &mut broadcast::Receiver<Frame>, live: &str) -> serde_json::Value {
-        let frame = rx.try_recv().expect("a run_progress frame was published");
+    fn next_report(rx: &mut broadcast::Receiver<Frame>, live: &str) -> serde_json::Value {
+        let frame = rx.try_recv().expect("a report frame was published");
         assert_eq!(frame.feed_id, FeedId::CODE_OUTPUT);
         let lead = format!("{{\"tug_session_id\":\"{live}\"");
         assert!(
@@ -8003,12 +8013,16 @@ mod tests {
 
         sup.record_run_open(&id, &bash_use("toolu_X", "just test", false))
             .await;
-        let answer = sup.publish_run_progress("sess-run", report(&[])).await;
+        let answer = sup.publish_report("sess-run", report(&[])).await;
         assert_eq!(answer, Some((true, Some("toolu_X".to_owned()))));
 
-        let frame = next_run_progress(&mut code_rx, "sess-run");
-        assert_eq!(frame["type"], "run_progress");
+        let frame = next_report(&mut code_rx, "sess-run");
+        assert_eq!(frame["type"], "report");
         assert_eq!(frame["tool_use_id"], "toolu_X");
+        assert!(
+            frame.get("unattached").is_none(),
+            "an attached report carries no reason: {frame}"
+        );
         assert_eq!(frame["label"], "rust");
         assert_eq!(frame["text"], "compiling tugcast");
         assert_eq!(frame["done"], 3);
@@ -8040,14 +8054,14 @@ mod tests {
         sup.record_run_open(&id, &bash_use("toolu_R", "just app-test", false))
             .await;
         let answer = sup
-            .publish_run_progress("segment-5", report(&["just app-test"]))
+            .publish_report("segment-5", report(&["just app-test"]))
             .await;
         assert_eq!(answer, Some((true, Some("toolu_R".to_owned()))));
-        let frame = next_run_progress(&mut code_rx, "sess-card");
+        let frame = next_report(&mut code_rx, "sess-card");
         assert_eq!(frame["tool_use_id"], "toolu_R");
 
         assert_eq!(
-            sup.publish_run_progress("nobody", report(&[])).await,
+            sup.publish_report("nobody", report(&[])).await,
             None,
             "a segment no card wears is still unknown",
         );
@@ -8070,9 +8084,9 @@ mod tests {
              "started_at_ms": 1_760_000_000_000_i64, "median": 11},
         ]);
         let answer = sup
-            .publish_run_progress(
+            .publish_report(
                 "sess-units",
-                RunProgressReport {
+                Report {
                     label: Some("app-test".into()),
                     text: "at0339 FAIL".into(),
                     done: Some(4),
@@ -8080,13 +8094,13 @@ mod tests {
                     unit: Some("file".into()),
                     jobs: Some(4),
                     units: Some(rows.clone()),
-                    ..RunProgressReport::default()
+                    ..Report::default()
                 },
             )
             .await;
         assert_eq!(answer, Some((true, Some("toolu_U".to_owned()))));
 
-        let frame = next_run_progress(&mut code_rx, "sess-units");
+        let frame = next_report(&mut code_rx, "sess-units");
         assert_eq!(frame["unit"], "file");
         assert_eq!(frame["jobs"], 4);
         assert_eq!(
@@ -8106,22 +8120,33 @@ mod tests {
         sup.record_run_open(&id, &bash_use("toolu_S", "sleep 30", false))
             .await;
 
-        let answer = sup
-            .publish_run_progress("sess-two", report(&["just test"]))
-            .await;
+        let answer = sup.publish_report("sess-two", report(&["just test"])).await;
         assert_eq!(answer, Some((true, Some("toolu_T".to_owned()))));
         assert_eq!(
-            next_run_progress(&mut code_rx, "sess-two")["tool_use_id"],
+            next_report(&mut code_rx, "sess-two")["tool_use_id"],
             "toolu_T"
         );
 
         let answer = sup
-            .publish_run_progress("sess-two", report(&["cargo nextest"]))
+            .publish_report("sess-two", report(&["cargo nextest"]))
             .await;
         assert_eq!(answer, Some((false, None)));
+        let frame = next_report(&mut code_rx, "sess-two");
         assert!(
-            next_run_progress(&mut code_rx, "sess-two")["tool_use_id"].is_null(),
+            frame["tool_use_id"].is_null(),
             "two runs and no needle between them: the card, never a guess"
+        );
+        assert_eq!(
+            frame["unattached"], "2 candidates, no needle matched",
+            "a card-level report says why it is one"
+        );
+
+        sup.close_run(&id, &tool_result_for("toolu_T")).await;
+        sup.close_run(&id, &tool_result_for("toolu_S")).await;
+        sup.publish_report("sess-two", report(&[])).await;
+        assert_eq!(
+            next_report(&mut code_rx, "sess-two")["unattached"],
+            "no open run"
         );
     }
 
@@ -8135,11 +8160,11 @@ mod tests {
         sup.record_run_open(&id, &bash_use("toolu_S", "sleep 30", false))
             .await;
 
-        let exact = RunProgressReport {
+        let exact = Report {
             tool_use_id: Some("toolu_S".into()),
             ..report(&["just test"])
         };
-        let answer = sup.publish_run_progress("sess-exact", exact).await;
+        let answer = sup.publish_report("sess-exact", exact).await;
         assert_eq!(answer, Some((true, Some("toolu_S".to_owned()))));
     }
 
@@ -8156,7 +8181,7 @@ mod tests {
         sup.record_run_open(&id, &launch).await;
         sup.close_run(&id, &tool_result_for("toolu_B")).await;
 
-        let answer = sup.publish_run_progress("sess-bgrun", report(&[])).await;
+        let answer = sup.publish_report("sess-bgrun", report(&[])).await;
         assert_eq!(
             answer,
             Some((true, Some("toolu_B".to_owned()))),
@@ -8169,7 +8194,7 @@ mod tests {
             entry.lock().await.open_runs["toolu_B"].task_id.as_deref(),
             Some("tb")
         );
-        let answer = sup.publish_run_progress("sess-bgrun", report(&[])).await;
+        let answer = sup.publish_report("sess-bgrun", report(&[])).await;
         assert_eq!(
             answer,
             Some((true, Some("toolu_B".to_owned()))),
@@ -8178,7 +8203,7 @@ mod tests {
 
         let completed = br#"{"type":"task_updated","session_id":"c","task_id":"tb","status":"completed","ipc_version":2}"#;
         sup.apply_job_edge(&id, completed).await;
-        let answer = sup.publish_run_progress("sess-bgrun", report(&[])).await;
+        let answer = sup.publish_report("sess-bgrun", report(&[])).await;
         assert_eq!(answer, Some((false, None)));
         assert!(
             entry.lock().await.open_runs.is_empty(),
@@ -8201,7 +8226,7 @@ mod tests {
     async fn a_report_for_a_session_with_no_entry_publishes_nothing() {
         let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
         let mut code_rx = sup.code_output.subscribe();
-        assert_eq!(sup.publish_run_progress("nobody", report(&[])).await, None);
+        assert_eq!(sup.publish_report("nobody", report(&[])).await, None);
         assert!(code_rx.try_recv().is_err());
     }
 

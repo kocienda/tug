@@ -288,20 +288,30 @@ pub enum Commands {
     #[command(subcommand)]
     Test(TestCommands),
 
-    /// The runners the PreToolUse hook draws a run panel for.
-    #[command(subcommand)]
-    Run(RunCommands),
-
-    /// Tell the block this command runs under how far it has got.
+    /// Tell the block this command runs under how far it has got — the
+    /// report that draws the Bash block's report panel.
     ///
     /// Silent and always exits 0: a report that cannot be delivered changes
     /// nothing about the command reporting it, and with no calling session
-    /// nothing is sent at all. `progress gaps` reads the record of long
-    /// runs that never reported.
-    #[command(subcommand_negates_reqs = true)]
-    Progress {
-        #[command(subcommand)]
-        command: Option<ProgressCommands>,
+    /// nothing is sent at all. `report gaps` reads the record of long runs
+    /// that never reported, and `report runners` lists the commands the hook
+    /// makes report by itself.
+    #[command(subcommand)]
+    Report(ReportCommands),
+
+    /// This card's claude session — ask the wheel to seat a fresh one.
+    #[command(subcommand)]
+    Session(SessionCommands),
+
+    /// The plugin's Claude Code hooks — payload in on stdin, decision out.
+    #[command(subcommand)]
+    Hook(crate::commands::HookCommands),
+}
+
+#[derive(Subcommand)]
+pub enum ReportCommands {
+    /// A running command's bare count: the bar and the line, with no rows.
+    Count {
         /// The run's short name (`rust`, `app-test`).
         #[arg(long)]
         label: Option<String>,
@@ -315,7 +325,7 @@ pub enum Commands {
         #[arg(long)]
         failures: Option<u64>,
         /// What the run counts — `file`, `test`, `phase`. A report that
-        /// names its unit is drawn as a run panel rather than one line.
+        /// names its unit is drawn as a report panel rather than one line.
         #[arg(long)]
         unit: Option<String>,
         /// How many units run at once.
@@ -330,34 +340,17 @@ pub enum Commands {
         /// when the session has several calls open.
         #[arg(long = "needle")]
         needles: Vec<String>,
-        /// The progress line.
-        #[arg(required = true)]
-        text: Option<String>,
+        /// The report's line.
+        text: String,
     },
-
-    /// This card's claude session — ask the wheel to seat a fresh one.
-    #[command(subcommand)]
-    Session(SessionCommands),
-
-    /// The plugin's Claude Code hooks — payload in on stdin, decision out.
-    #[command(subcommand)]
-    Hook(crate::commands::HookCommands),
-}
-
-#[derive(Subcommand)]
-pub enum RunCommands {
     /// The runners the hook wraps from here: tugtool's built-ins and the
-    /// `[[tugtool.run.runner]]` rows this project's `.tugtool/config.toml`
+    /// `[[tugtool.report.runner]]` rows this project's `.tugtool/config.toml`
     /// declares, longest head first, one per line — the head, its
     /// `kind=` (wrapped in `tugtool test run`) or `unit=` (reports itself;
     /// the hook exports the call id), the suite, and where the row came
     /// from. A config that does not load is refused here, by name; the hook
     /// itself falls back to the built-ins in silence.
     Runners,
-}
-
-#[derive(Subcommand)]
-pub enum ProgressCommands {
     /// The long Bash calls that ended with no progress report, by command
     /// head: how many, and how long they ran in all. Where the next report
     /// is due.
@@ -387,8 +380,33 @@ pub enum ProgressCommands {
         #[arg(long = "needle")]
         needles: Vec<String>,
     },
+    /// Wait on a condition nothing will announce: run `--until` through
+    /// `sh -c` every `--every` seconds until it exits 0, posting each probe
+    /// to the block — how long it has waited, and the probe's last line of
+    /// output — as a report with no total. Exits 0 when the probe does, and
+    /// 1 at the `--for` deadline, naming the last probe's output on stderr.
+    /// The one loop the "one wait per thing waited on" rule asks for, so
+    /// nobody hand-writes an `until … sleep` that reports nothing.
+    Wait {
+        /// The wait's short name (`deck`, `gate`).
+        #[arg(long)]
+        label: String,
+        /// The probe: a shell command that exits 0 once the condition holds.
+        #[arg(long)]
+        until: String,
+        /// Seconds between probes.
+        #[arg(long, default_value_t = 2.0)]
+        every: f64,
+        /// Seconds to wait in all before giving up.
+        #[arg(long = "for", default_value_t = 600.0)]
+        for_secs: f64,
+        /// Text the running command contains, for matching the report to it
+        /// when the session has several calls open.
+        #[arg(long = "needle")]
+        needles: Vec<String>,
+    },
     /// One item of a run moves: a loop over files, tests or targets draws
-    /// the block's run panel one line per item, and builds no JSON.
+    /// the block's report panel one line per item, and builds no JSON.
     ///
     /// `plan` declares the items, so they draw as pending; `start` and
     /// `done` move one; `amend` adds to one that ran; `finish` closes the
@@ -400,7 +418,7 @@ pub enum ProgressCommands {
     /// A row is `name`, `status`, `index` (0-based), and optionally
     /// `passed`, `total`, `secs`, `median`, `started_at_ms`, `title`,
     /// `message` and `history`. The statuses are `pending running pass fail
-    /// error stalled skipped`; `wedged` is read as `stalled`. Past 64 items a
+    /// error stalled skipped`, and nothing else is one. Past 64 items a
     /// report carries only the running and red rows.
     ///
     /// Silent, and always exits 0: with no calling session nothing is kept
@@ -454,7 +472,7 @@ pub enum UnitCommands {
         label: String,
         name: String,
         #[arg(value_enum)]
-        status: crate::progress_unit::LandedStatus,
+        status: crate::report_unit::LandedStatus,
         /// Its wall seconds; the time since its start when left off.
         #[arg(long)]
         secs: Option<f64>,
@@ -494,8 +512,8 @@ pub enum UnitCommands {
 }
 
 impl UnitCommands {
-    pub fn into_call(self) -> crate::progress_unit::UnitCall {
-        use crate::progress_unit::{Amendment, Landing, UnitCall};
+    pub fn into_call(self) -> crate::report_unit::UnitCall {
+        use crate::report_unit::{Amendment, Landing, UnitCall};
         match self {
             UnitCommands::Plan {
                 label,
@@ -2060,13 +2078,53 @@ mod tests {
     }
 
     #[test]
-    fn run_runners_parses_with_the_global_json_flag() {
-        let cli = Cli::parse_from(["tugtool", "run", "runners", "--json"]);
+    fn report_runners_parses_with_the_global_json_flag() {
+        let cli = Cli::parse_from(["tugtool", "report", "runners", "--json"]);
         assert!(cli.json);
         assert!(matches!(
             cli.command,
-            Some(Commands::Run(RunCommands::Runners))
+            Some(Commands::Report(ReportCommands::Runners))
         ));
+    }
+
+    /// The bare count is a subverb like the rest, so the verb's shape is one
+    /// noun and its verbs with nothing special-cased at the top: a text with
+    /// no subverb does not parse, and `report count` carries every flag.
+    #[test]
+    fn report_count_is_a_subverb_and_the_bare_verb_takes_no_text() {
+        let cli = Cli::parse_from([
+            "tugtool",
+            "report",
+            "count",
+            "--label",
+            "rust",
+            "--done",
+            "3",
+            "--total",
+            "9",
+            "--unit",
+            "test",
+            "compiling",
+        ]);
+        match cli.command {
+            Some(Commands::Report(ReportCommands::Count {
+                label,
+                done,
+                total,
+                unit,
+                text,
+                ..
+            })) => {
+                assert_eq!(label.as_deref(), Some("rust"));
+                assert_eq!((done, total), (Some(3), Some(9)));
+                assert_eq!(unit.as_deref(), Some("test"));
+                assert_eq!(text, "compiling");
+            }
+            _ => panic!("report count did not parse"),
+        }
+        assert!(Cli::try_parse_from(["tugtool", "report", "compiling"]).is_err());
+        assert!(Cli::try_parse_from(["tugtool", "progress", "compiling"]).is_err());
+        assert!(Cli::try_parse_from(["tugtool", "run", "runners"]).is_err());
     }
 
     /// **`--plan` is gone, and its absence is a refusal rather than a

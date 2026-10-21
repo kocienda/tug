@@ -1,8 +1,8 @@
-//! `tugtool progress`, driven through the real binary against a stand-in
+//! `tugtool report`, driven through the real binary against a stand-in
 //! tugcast.
 //!
 //! What is pinned is the telemetry contract: the report reaches the instance
-//! as the `run_progress` op with every field, and in every other case — no
+//! as the `report` op with every field, and in every other case — no
 //! calling session, an instance that never answers, an instance too old to
 //! know the op — the verb is silent and exits 0, quickly. A recipe that
 //! reports must never be slowed or failed by reporting.
@@ -68,7 +68,7 @@ fn fake_tugcast(answer: Answer) -> (u16, mpsc::Receiver<serde_json::Value>) {
                 ),
                 Answer::UnknownOp => (
                     "400 Bad Request",
-                    r#"{"status":"error","message":"unknown op 'run_progress'"}"#,
+                    r#"{"status":"error","message":"unknown op 'report'"}"#,
                 ),
                 Answer::Never => {
                     held.push(stream);
@@ -114,9 +114,9 @@ fn register_fake_instance(tmp: &Path, port: u16) {
     .unwrap();
 }
 
-/// `tugtool progress` isolated to `tmp`'s registry, with no inherited session
+/// `tugtool report` isolated to `tmp`'s registry, with no inherited session
 /// or tool-use id — each test says which it has.
-fn progress(tmp: &Path) -> Command {
+fn report(tmp: &Path) -> Command {
     let mut cmd = tugtool();
     cmd.env("TMPDIR", tmp);
     cmd.env("TUG_DATA_DIR", tmp.join("state"));
@@ -124,7 +124,7 @@ fn progress(tmp: &Path) -> Command {
     cmd.env_remove("TUG_TOOL_USE_ID");
     cmd.env_remove("CLAUDE_CODE_TOOL_USE_ID");
     cmd.current_dir(tmp);
-    cmd.arg("progress");
+    cmd.arg("report");
     cmd
 }
 
@@ -133,10 +133,10 @@ fn silent(cmd: &mut Command) -> (Output, Duration) {
     let started = Instant::now();
     let out = cmd.output().unwrap();
     let took = started.elapsed();
-    assert_eq!(out.status.code(), Some(0), "progress always exits 0");
+    assert_eq!(out.status.code(), Some(0), "report always exits 0");
     assert!(
         out.stdout.is_empty() && out.stderr.is_empty(),
-        "progress never prints: {:?} / {:?}",
+        "report never prints: {:?} / {:?}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
@@ -155,7 +155,8 @@ fn a_report_reaches_the_instance_with_every_field() {
     let (port, requests) = fake_tugcast(Answer::Ok);
     register_fake_instance(&tmp, port);
 
-    silent(progress(&tmp).env("TUG_SESSION_ID", "seg-0").args([
+    silent(report(&tmp).env("TUG_SESSION_ID", "seg-0").args([
+        "count",
         "--label",
         "app-test",
         "--done",
@@ -171,7 +172,7 @@ fn a_report_reaches_the_instance_with_every_field() {
     assert_eq!(
         body,
         serde_json::json!({
-            "op": "run_progress",
+            "op": "report",
             "tug_session_id": "seg-0",
             "label": "app-test",
             "text": "at0603 PASS",
@@ -189,10 +190,10 @@ fn a_tool_use_id_in_the_environment_rides_the_report() {
     register_fake_instance(&tmp, port);
 
     silent(
-        progress(&tmp)
+        report(&tmp)
             .env("TUG_SESSION_ID", "seg-0")
             .env("TUG_TOOL_USE_ID", "toolu_X")
-            .arg("compiling tugcast"),
+            .args(["count", "compiling tugcast"]),
     );
 
     let body = requests.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -211,7 +212,7 @@ fn with_no_calling_session_nothing_is_sent() {
     let (port, requests) = fake_tugcast(Answer::Never);
     register_fake_instance(&tmp, port);
 
-    let (_, took) = silent(progress(&tmp).arg("compiling tugcast"));
+    let (_, took) = silent(report(&tmp).args(["count", "compiling tugcast"]));
     assert!(
         took < Duration::from_millis(1500),
         "no session, yet it waited on an instance: took {took:?}"
@@ -229,9 +230,9 @@ fn an_instance_that_never_answers_cannot_stall_the_reporter() {
     register_fake_instance(&tmp, port);
 
     let (_, took) = silent(
-        progress(&tmp)
+        report(&tmp)
             .env("TUG_SESSION_ID", "seg-0")
-            .arg("compiling tugcast"),
+            .args(["count", "compiling tugcast"]),
     );
     assert!(took < Duration::from_secs(2), "took {took:?}");
 }
@@ -243,13 +244,13 @@ fn an_instance_too_old_to_know_the_op_is_shrugged_off() {
     register_fake_instance(&tmp, port);
 
     silent(
-        progress(&tmp)
+        report(&tmp)
             .env("TUG_SESSION_ID", "seg-0")
-            .arg("compiling tugcast"),
+            .args(["count", "compiling tugcast"]),
     );
     assert_eq!(
         requests.recv_timeout(Duration::from_secs(5)).unwrap()["op"],
-        "run_progress"
+        "report"
     );
 }
 
@@ -264,7 +265,7 @@ fn build_app_phase_calls_post_the_run_as_phase_rows() {
     let phases = ["Rust debug binaries", "tugdeck build", "re-sign"];
     let phase = |n: usize| {
         let name = phases.get(n).copied().unwrap_or("built");
-        let mut cmd = progress(&tmp);
+        let mut cmd = report(&tmp);
         cmd.env("TUG_SESSION_ID", "seg-0")
             .args(["phase", "build-app", &n.to_string(), name, "--of"])
             .args(phases)
@@ -274,7 +275,7 @@ fn build_app_phase_calls_post_the_run_as_phase_rows() {
     };
 
     let body = phase(0);
-    assert_eq!(body["op"], "run_progress");
+    assert_eq!(body["op"], "report");
     assert_eq!(body["label"], "build-app");
     assert_eq!(body["unit"], "phase");
     assert_eq!(body["text"], "Rust debug binaries");
@@ -320,7 +321,7 @@ fn build_app_phase_calls_post_the_run_as_phase_rows() {
     assert_eq!(body["units"][1]["status"], "pending");
 }
 
-/// A loop over items, as a shell script writes it: one `progress unit` line
+/// A loop over items, as a shell script writes it: one `report unit` line
 /// per move, and every call posts the whole run as rows.
 #[test]
 fn a_unit_loop_posts_the_run_as_rows_on_every_call() {
@@ -328,7 +329,7 @@ fn a_unit_loop_posts_the_run_as_rows_on_every_call() {
     let (port, requests) = fake_tugcast(Answer::Ok);
     register_fake_instance(&tmp, port);
     let call = |args: &[&str]| {
-        let mut cmd = progress(&tmp);
+        let mut cmd = report(&tmp);
         cmd.env("TUG_SESSION_ID", "seg-0").arg("unit").args(args);
         silent(&mut cmd);
         requests.recv_timeout(Duration::from_secs(5)).unwrap()
@@ -350,7 +351,7 @@ fn a_unit_loop_posts_the_run_as_rows_on_every_call() {
         "a.sh",
         "b.sh",
     ]);
-    assert_eq!(body["op"], "run_progress");
+    assert_eq!(body["op"], "report");
     assert_eq!(body["label"], "checks");
     assert_eq!(body["text"], "2 files");
     assert_eq!(body["unit"], "file");
@@ -435,14 +436,14 @@ fn a_unit_loop_with_no_calling_session_keeps_nothing() {
     for args in [
         &["plan", "checks", "--of", "a", "b"][..],
         &["start", "checks", "a"],
-        &["done", "checks", "a", "wedged"],
+        &["done", "checks", "a", "stalled"],
         &["amend", "checks", "a", "--history", "red before"],
         &["finish", "checks"],
     ] {
-        silent(progress(&tmp).arg("unit").args(args));
+        silent(report(&tmp).arg("unit").args(args));
     }
     assert!(
-        !tmp.join("tug-progress-unit").exists(),
+        !tmp.join("tug-report-unit").exists(),
         "state was kept with nobody to report to"
     );
     assert!(
@@ -451,23 +452,23 @@ fn a_unit_loop_with_no_calling_session_keeps_nothing() {
     );
 }
 
-/// `progress gaps` reads the machine-global record tugcast writes, through
+/// `report gaps` reads the machine-global record tugcast writes, through
 /// the same redirect every harness sets, ranking heads by count then time.
 #[test]
 fn gaps_lists_the_record_by_head_and_an_absent_record_is_empty() {
-    use tugcore::run_gaps::{GapRow, RunGaps};
+    use tugcore::report_gaps::{GapRow, ReportGaps};
     let (_dir, tmp) = scratch();
-    let db = tmp.join("run_gaps.db");
+    let db = tmp.join("report_gaps.db");
 
-    let empty = progress(&tmp)
-        .env("TUG_RUN_GAPS_DB", &db)
+    let empty = report(&tmp)
+        .env("TUG_REPORT_GAPS_DB", &db)
         .arg("gaps")
         .output()
         .unwrap();
     assert!(empty.status.success());
     assert!(String::from_utf8_lossy(&empty.stdout).contains("no long unreported runs"));
 
-    let gaps = RunGaps::open(&db).unwrap();
+    let gaps = ReportGaps::open(&db).unwrap();
     let row = |head: &str, wall_ms: i64| GapRow {
         head: head.into(),
         command: format!("{head} …"),
@@ -479,10 +480,17 @@ fn gaps_lists_the_record_by_head_and_an_absent_record_is_empty() {
     gaps.record(&row("just build-app", 125_000)).unwrap();
     gaps.record(&row("cargo nextest", 30_000)).unwrap();
     gaps.record(&row("cargo nextest", 45_000)).unwrap();
+    // A quick command that once hung: its call times put its median at a
+    // second, so it is a stalled call rather than a gap.
+    for _ in 0..4 {
+        gaps.time("grep -rn", 1_000, 1_000).unwrap();
+    }
+    gaps.time("grep -rn", 300_000, 1_000).unwrap();
+    gaps.record(&row("grep -rn", 300_000)).unwrap();
     drop(gaps);
 
-    let out = progress(&tmp)
-        .env("TUG_RUN_GAPS_DB", &db)
+    let out = report(&tmp)
+        .env("TUG_REPORT_GAPS_DB", &db)
         .arg("gaps")
         .output()
         .unwrap();
@@ -494,9 +502,13 @@ fn gaps_lists_the_record_by_head_and_an_absent_record_is_empty() {
     assert!(lines[1].contains(" 75s "), "{text}");
     assert!(lines[2].contains(" 2m 05s "), "{text}");
     assert!(lines[2].ends_with("just build-app"), "{text}");
+    assert!(!lines[..3].iter().any(|l| l.contains("grep")), "{text}");
+    assert!(lines[4].starts_with("stalled calls"), "{text}");
+    assert!(lines[6].contains(" 5m 00s "), "{text}");
+    assert!(lines[6].ends_with("grep -rn"), "{text}");
 
-    let out = progress(&tmp)
-        .env("TUG_RUN_GAPS_DB", &db)
+    let out = report(&tmp)
+        .env("TUG_REPORT_GAPS_DB", &db)
         .args(["--json", "gaps"])
         .output()
         .unwrap();
@@ -504,4 +516,108 @@ fn gaps_lists_the_record_by_head_and_an_absent_record_is_empty() {
     assert_eq!(json["data"]["gaps"][0]["head"], "cargo nextest");
     assert_eq!(json["data"]["gaps"][0]["count"], 2);
     assert_eq!(json["data"]["gaps"][0]["totalMs"], 75_000);
+    assert_eq!(json["data"]["gaps"][0]["declared"], false);
+    assert_eq!(json["data"]["stalled"][0]["head"], "grep -rn");
+    assert_eq!(json["data"]["stalled"][0]["medianMs"], 1_000);
+}
+
+/// A wait on a file that appears part-way through: every probe is posted to
+/// the block as a report with no total, the last one says the condition
+/// held, and the verb exits 0 as soon as it does.
+#[test]
+fn a_wait_reports_each_probe_and_exits_when_its_condition_holds() {
+    let (_dir, tmp) = scratch();
+    let (port, requests) = fake_tugcast(Answer::Ok);
+    register_fake_instance(&tmp, port);
+    let flag = tmp.join("ready");
+    let later = flag.clone();
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(400));
+        std::fs::write(later, "1\n").unwrap();
+    });
+
+    let started = Instant::now();
+    let out = report(&tmp)
+        .env("TUG_SESSION_ID", "seg-0")
+        .args([
+            "wait",
+            "--label",
+            "settle",
+            "--until",
+            &format!(
+                "if test -e '{}'; then echo ready; else echo not yet; false; fi",
+                flag.display()
+            ),
+            "--every",
+            "0.1",
+            "--for",
+            "20",
+        ])
+        .output()
+        .unwrap();
+    writer.join().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    assert!(started.elapsed() < Duration::from_secs(10));
+
+    let mut bodies = Vec::new();
+    while let Ok(body) = requests.recv_timeout(Duration::from_millis(500)) {
+        bodies.push(body);
+    }
+    assert!(
+        bodies.len() >= 2,
+        "a probe before the file and one after: {bodies:?}"
+    );
+    for (i, body) in bodies.iter().enumerate() {
+        assert_eq!(body["op"], "report");
+        assert_eq!(body["label"], "settle");
+        assert_eq!(body["unit"], "probe");
+        assert_eq!(body["done"], (i + 1) as u64);
+        assert!(body.get("total").is_none(), "a wait has no total: {body}");
+    }
+    let first = bodies[0]["text"].as_str().unwrap();
+    assert!(
+        first.starts_with("waiting ") && first.ends_with(" · not yet"),
+        "{first}"
+    );
+    let last = bodies.last().unwrap()["text"].as_str().unwrap();
+    assert!(
+        last.starts_with("held after ") && last.ends_with(" · ready"),
+        "{last}"
+    );
+}
+
+/// A wait that never holds exits 1 at its deadline and names the last
+/// probe's output, with or without a block to report to.
+#[test]
+fn a_wait_that_never_holds_fails_at_its_deadline_naming_the_last_probe() {
+    let (_dir, tmp) = scratch();
+    let started = Instant::now();
+    let out = report(&tmp)
+        .args([
+            "wait",
+            "--label",
+            "gate",
+            "--until",
+            "echo still held by tugcast; false",
+            "--every",
+            "0.1",
+            "--for",
+            "0.5",
+        ])
+        .output()
+        .unwrap();
+    let took = started.elapsed();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(took >= Duration::from_millis(500), "{took:?}");
+    assert!(took < Duration::from_secs(10), "{took:?}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("report wait: gate did not hold within 0s"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("last probe: still held by tugcast"),
+        "{stderr}"
+    );
+    assert!(out.stdout.is_empty());
 }

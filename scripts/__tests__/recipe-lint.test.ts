@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { lintRecipes, parseRecipes } from "../recipe-lint";
+import { derivedRecipes, lintRecipes, parseRecipes } from "../recipe-lint";
 
 const FIXTURE = `
 # a comment: not a recipe
@@ -23,7 +23,7 @@ phased:
     @bash tugrust/scripts/report-phase.sh phased 2
 
 unit-reporting:
-    printf '[]' | tugtool progress --label x --unit file --units-json - -- running
+    printf '[]' | tugtool report count --label x --unit file --units-json - -- running
 
 wrapped:
     "$TUGTOOL_BIN" test run --suite rust --kind nextest -- cargo nextest run
@@ -41,7 +41,7 @@ via-silent-script:
     scripts/quiet.sh
 
 old-band:
-    @tugtool progress --label swift --needle "just test" -- running
+    @tugtool report count --label swift --needle "just test" -- running
     xcodebuild test
 
 defaulted seed="" batches="20": phased
@@ -96,6 +96,26 @@ describe("recipe-lint", () => {
   test("a listed recipe the Justfile lacks is refused", () => {
     const failures = lintRecipes(FIXTURE, { listed: ["gone"], exempt: {}, readScript });
     expect(failures[0]).toContain("no such recipe");
+  });
+
+  test("the gaps record adds a slow recipe to the list, and a quick or foreign one is not", () => {
+    // A fixture record, as `tugtool report gaps --json` lists its gaps.
+    const gaps = [
+      { head: "just silent", medianMs: 95_000 },
+      { head: "just phased", medianMs: 40_000 },
+      { head: "just via-just", medianMs: 4_000 },
+      { head: "just elsewhere", medianMs: 300_000 },
+      { head: "cargo nextest", medianMs: 60_000 },
+      { head: "just old-band" } as unknown as { head: string; medianMs: number },
+    ];
+    const derived = derivedRecipes(gaps, parseRecipes(FIXTURE));
+    expect(derived).toEqual(["silent", "phased"]);
+
+    const failures = lintRecipes(FIXTURE, { listed: [], derived, exempt: {}, readScript });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("`silent` runs long (the gaps record shows its median past the threshold)");
+    // A derived recipe may be exempt like a listed one.
+    expect(lintRecipes(FIXTURE, { listed: [], derived, exempt: { silent: "a fixture" }, readScript })).toEqual([]);
   });
 
   test("the repository's own Justfile passes", () => {

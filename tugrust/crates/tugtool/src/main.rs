@@ -12,8 +12,8 @@ mod draft;
 mod host;
 mod output;
 mod plan;
-mod progress;
-mod progress_unit;
+mod report;
+mod report_unit;
 mod run_parsers;
 mod runners;
 mod session;
@@ -247,45 +247,43 @@ fn main() -> ExitCode {
         }
 
         // The runners the hook wraps, and the config's refusal when it has one.
-        Some(Commands::Run(cli::RunCommands::Runners)) => {
-            changes::finish("run runners", json, runners::run_runners(json))
+        Some(Commands::Report(cli::ReportCommands::Runners)) => {
+            changes::finish("report runners", json, runners::run_runners(json))
         }
 
         // The record of long calls that reported nothing. A reader, exits 0.
-        Some(Commands::Progress {
-            command: Some(cli::ProgressCommands::Gaps),
-            ..
-        }) => {
-            progress::run_gaps(json);
+        Some(Commands::Report(cli::ReportCommands::Gaps)) => {
+            report::run_report_gaps(json);
             ExitCode::SUCCESS
         }
-        Some(Commands::Progress {
-            command:
-                Some(cli::ProgressCommands::Phase {
-                    label,
-                    n,
-                    name,
-                    of,
-                    needles,
-                }),
-            ..
-        }) => {
-            progress::run_phase(&label, n, name.as_deref(), &of, needles);
+
+        // A wait on a condition, reporting each probe; exits by the probe.
+        Some(Commands::Report(cli::ReportCommands::Wait {
+            label,
+            until,
+            every,
+            for_secs,
+            needles,
+        })) => ExitCode::from(report::run_wait(&label, &until, every, for_secs, needles)),
+        Some(Commands::Report(cli::ReportCommands::Phase {
+            label,
+            n,
+            name,
+            of,
+            needles,
+        })) => {
+            report::run_phase(&label, n, name.as_deref(), &of, needles);
             ExitCode::SUCCESS
         }
 
         // One item of a run moves. Telemetry: silent, always 0.
-        Some(Commands::Progress {
-            command: Some(cli::ProgressCommands::Unit(call)),
-            ..
-        }) => {
-            progress_unit::run_unit(call.into_call());
+        Some(Commands::Report(cli::ReportCommands::Unit(call))) => {
+            report_unit::run_unit(call.into_call());
             ExitCode::SUCCESS
         }
 
-        // A running command's progress line. Telemetry: silent, always 0.
-        Some(Commands::Progress {
-            command: None,
+        // A running command's bare count. Telemetry: silent, always 0.
+        Some(Commands::Report(cli::ReportCommands::Count {
             label,
             done,
             total,
@@ -295,13 +293,13 @@ fn main() -> ExitCode {
             units_json,
             needles,
             text,
-        }) => {
+        })) => {
             // Read before anything else, so a pipe feeding the units is
             // drained even when there is no session to report to.
-            let units = units_json.as_deref().and_then(progress::read_units);
-            progress::run(progress::RunReport {
+            let units = units_json.as_deref().and_then(report::read_units);
+            report::run(report::RunReport {
                 label,
-                text: text.unwrap_or_default(),
+                text,
                 done,
                 total,
                 failures,

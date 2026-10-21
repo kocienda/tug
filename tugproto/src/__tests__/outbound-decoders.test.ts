@@ -24,7 +24,7 @@ describe("table", () => {
   test("every key is a tugcode wire tag, or one of tugcast's own frames", () => {
     const tags = new Set<string>(OUTBOUND_TAGS);
     const foreign = Object.keys(OUTBOUND_DECODERS).filter((key) => !tags.has(key));
-    expect(foreign.sort()).toEqual(["run_progress", "tug_notice"]);
+    expect(foreign.sort()).toEqual(["report", "tug_notice"]);
   });
 
   test("hasDecoder reads own keys only", () => {
@@ -369,11 +369,36 @@ describe("unwrapped before admission", () => {
     expect(failPath("tool_progress", { ...frame, elapsed_time_seconds: "3" })).toBe("$.elapsed_time_seconds");
   });
 
-  test("run_progress: tugcast's payload, attached or not", () => {
-    const frame = { type: "run_progress", tool_use_id: null, label: "rust", text: "compiling", done: 3, total: 9, at_ms: 1 };
-    expect(failPath("run_progress", frame)).toBeNull();
-    expect(failPath("run_progress", { ...frame, tool_use_id: "tu" })).toBeNull();
+  test("report: tugcast's payload, attached or not", () => {
+    const frame = { type: "report", tool_use_id: null, label: "rust", text: "compiling", done: 3, total: 9, at_ms: 1 };
+    expect(failPath("report", frame)).toBeNull();
+    expect(failPath("report", { ...frame, tool_use_id: "tu" })).toBeNull();
     const { tool_use_id: _, ...unattached } = frame;
-    expect(failPath("run_progress", unattached)).toBe("$.tool_use_id");
+    expect(failPath("report", unattached)).toBe("$.tool_use_id");
+  });
+
+  test("report: a unit frame round-trips with its jobs and its rows as the reporter wrote them", () => {
+    const frame = {
+      type: "report",
+      tool_use_id: "tu",
+      label: "app-test",
+      text: "at0339 FAIL",
+      done: 4,
+      total: 25,
+      failures: 1,
+      unit: "file",
+      jobs: 4,
+      units: [
+        { name: "at0339-composer-order-census", status: "fail", index: 3, passed: 1, total: 2, secs: 14, median: 9,
+          title: "composer clears after send", message: "timed out" },
+        { name: "at0352-pane-split-restore", status: "running", index: 5, started_at_ms: 1_760_000_000_000, median: 11 },
+      ],
+      at_ms: 1,
+      tug_session_id: "s",
+    };
+    expect(decodeOutbound("report", frame)).toEqual(frame);
+    expect(failPath("report", { ...frame, unit: 7 })).toBe("$.unit");
+    expect(failPath("report", { ...frame, jobs: "4" })).toBe("$.jobs");
+    expect(failPath("report", { ...frame, units: "rows" })).toBe("$.units");
   });
 });

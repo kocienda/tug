@@ -334,7 +334,7 @@ pub struct LedgerEntry {
     ///
     /// A report posted through `/api/session` names its session but not its
     /// call — a shell command cannot know the id of the call that ran it — so
-    /// [`AgentSupervisor::publish_run_progress`] matches it against this map
+    /// [`AgentSupervisor::publish_report`] matches it against this map
     /// and attaches it to a block only when exactly one run fits. Capped at
     /// [`OPEN_RUNS_CAP`], oldest out first.
     pub open_runs: std::collections::BTreeMap<String, OpenRun>,
@@ -554,6 +554,31 @@ impl LedgerEntry {
         match (matched.next(), matched.next()) {
             (Some((id, _)), None) => Some(id.clone()),
             _ => None,
+        }
+    }
+
+    /// Why [`Self::attach_run`] found no run for a report, in the words the
+    /// card's "unattached" tag shows on a debug build ([F15]): no candidate
+    /// at all, or several with no needle naming exactly one. Read after an
+    /// `attach_run` that answered `None`, so the map is already pruned.
+    pub fn unattached_reason(&self, needles: &[String]) -> String {
+        let candidates = self.open_runs.len();
+        if candidates == 0 {
+            return "no open run".to_owned();
+        }
+        let matched = self
+            .open_runs
+            .values()
+            .filter(|run| {
+                needles
+                    .iter()
+                    .any(|needle| !needle.is_empty() && run.command.contains(needle.as_str()))
+            })
+            .count();
+        if matched == 0 {
+            format!("{candidates} candidates, no needle matched")
+        } else {
+            format!("{matched} candidates matched its needles")
         }
     }
 

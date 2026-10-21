@@ -272,11 +272,18 @@ fn restore_or_report(restorer: &mut Restorer) -> Result<(), AppError> {
 
 /// Run the command with stdio inherited — its output is its own, passed through
 /// unchanged so the probe composes wherever the shell form it replaces did.
+///
+/// The call this probe runs under reaches the child as `TUG_TOOL_USE_ID`, the
+/// one name every reporter reads, whichever name the probe itself was handed:
+/// a `cargo nextest run` or `just app-test` inside a probe then attaches its
+/// reports to the probe's block exactly, as the bare call would.
 pub(super) fn run_child(program: &str, args: &[String]) -> Result<u8, String> {
-    let mut child = std::process::Command::new(program)
-        .args(args)
-        .spawn()
-        .map_err(|e| format!("{program}: {e}"))?;
+    let mut command = std::process::Command::new(program);
+    command.args(args);
+    if let Some(id) = crate::report::tool_use_id() {
+        command.env("TUG_TOOL_USE_ID", id);
+    }
+    let mut child = command.spawn().map_err(|e| format!("{program}: {e}"))?;
 
     PROBE_CHILD.store(child.id() as i32, Ordering::SeqCst);
     let previous = install_signal_handlers();

@@ -112,7 +112,7 @@ pub(crate) fn have_calling_session() -> bool {
 }
 
 /// A file-name-safe token for the calling session, for state a verb keeps
-/// between its own calls on the session's behalf (`progress phase` keeps a
+/// between its own calls on the session's behalf (`report phase` keeps a
 /// run's phases this way). Derived from the id and not reversible to it, so
 /// the id still does not leave this module.
 pub(crate) fn calling_session_token() -> Option<String> {

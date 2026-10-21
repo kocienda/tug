@@ -2236,4 +2236,16 @@ mod tests {
             PathBuf::from("/repo/a.ts")
         );
     }
+
+    /// The hook gives every readable Bash call its id as a leading `export`,
+    /// and that prefix is a command of its own, so the grammar reads past it
+    /// to the head as it always did.
+    #[test]
+    fn the_hooks_call_id_export_does_not_hide_the_head() {
+        assert_eq!(
+            ops("export TUG_TOOL_USE_ID=toolu_01A; rm a.ts")[0].path,
+            PathBuf::from("/repo/a.ts")
+        );
+        assert_no_file_ops("export TUG_TOOL_USE_ID=toolu_01A; cd tugrust && cargo nextest run");
+    }
 }

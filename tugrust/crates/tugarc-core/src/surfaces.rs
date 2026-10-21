@@ -309,13 +309,37 @@ pub struct CommandResult {
     pub already_run_for: Option<String>,
 }
 
+/// What a verify run tells whoever watches it, as it goes: the surfaces it
+/// will run, then each one as it starts and as it lands. A watcher sees the
+/// run's progress and changes nothing in it.
+#[derive(Debug, Clone, Copy)]
+pub enum VerifyEvent<'a> {
+    /// The surfaces the run will check, in order, each with the number of
+    /// checks it carries.
+    Planned(&'a [(String, usize)]),
+    /// A surface's checks begin.
+    Started(&'a str),
+    /// A surface has landed.
+    Finished(&'a SurfaceResult),
+}
+
 /// Run a surface plan and report what happened.
 ///
 /// A red command ends its own surface and nothing else: every surface runs, so
 /// one report names every failure rather than the first one.
-fn run_plans(worktree: &Path, plans: Vec<SurfacePlan>) -> Vec<SurfaceResult> {
+fn run_plans(
+    worktree: &Path,
+    plans: Vec<SurfacePlan>,
+    watch: &mut dyn FnMut(VerifyEvent<'_>),
+) -> Vec<SurfaceResult> {
+    let planned: Vec<(String, usize)> = plans
+        .iter()
+        .map(|plan| (plan.name.clone(), plan.commands.len()))
+        .collect();
+    watch(VerifyEvent::Planned(&planned));
     let mut results = Vec::new();
     for plan in plans {
+        watch(VerifyEvent::Started(&plan.name));
         let mut commands = Vec::new();
         let mut red = false;
         for planned in plan.commands {
@@ -359,13 +383,15 @@ fn run_plans(worktree: &Path, plans: Vec<SurfacePlan>) -> Vec<SurfaceResult> {
                 already_run_for: None,
             });
         }
-        results.push(SurfaceResult {
+        let result = SurfaceResult {
             name: plan.name,
             paths: plan.paths,
             commands,
             borrowed_from: plan.borrowed_from,
             red,
-        });
+        };
+        watch(VerifyEvent::Finished(&result));
+        results.push(result);
     }
     results
 }
@@ -402,6 +428,26 @@ pub fn verify_in(
     name: &str,
     base_override: Option<&str>,
     head_override: Option<&str>,
+) -> Result<VerifyReport, ArcError> {
+    verify_watched(
+        paths,
+        repo_root,
+        name,
+        base_override,
+        head_override,
+        &mut |_| {},
+    )
+}
+
+/// [`verify_in`], telling `watch` each surface as it starts and lands, so a
+/// caller can show the run while it is still running.
+pub fn verify_watched(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    base_override: Option<&str>,
+    head_override: Option<&str>,
+    watch: &mut dyn FnMut(VerifyEvent<'_>),
 ) -> Result<VerifyReport, ArcError> {
     let repo = crate::ops::main_repo_root(repo_root);
     let branch = crate::ops::branch_name(name);
@@ -477,7 +523,7 @@ pub fn verify_in(
             claimed_unchecked: 0,
         },
         Resolution::Planned(plans) => {
-            let results = run_plans(&worktree, plans);
+            let results = run_plans(&worktree, plans, watch);
             let checked = results.iter().filter(|r| !r.commands.is_empty()).count();
             let claimed_unchecked = results.iter().filter(|r| r.commands.is_empty()).count();
             let reds: Vec<&SurfaceResult> = results.iter().filter(|r| r.red).collect();
@@ -887,6 +933,41 @@ mod fit_tests {
             lines[0]
         );
         assert!(lines[0].contains("1 surfaces checked · 0 claimed unchecked"));
+    }
+
+    #[test]
+    fn a_watched_verify_names_each_surface_as_it_starts_and_lands() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"true\", \"true -n\"]\n\
+                      [[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = [\"false\"]\n";
+        project(&root, config, &[("src/a.rs", "a\n"), ("docs/a.md", "a\n")]);
+
+        let mut seen = Vec::new();
+        let report = verify_watched(&paths, &root, "demo", None, None, &mut |event| {
+            seen.push(match event {
+                VerifyEvent::Planned(surfaces) => format!("planned {surfaces:?}"),
+                VerifyEvent::Started(name) => format!("started {name}"),
+                VerifyEvent::Finished(result) => {
+                    format!("finished {} red={}", result.name, result.red)
+                }
+            })
+        })
+        .unwrap();
+        assert_eq!(report.verdict, "red");
+        assert_eq!(
+            seen,
+            vec![
+                r#"planned [("src", 2), ("docs", 1)]"#.to_string(),
+                "started src".into(),
+                "finished src red=false".into(),
+                "started docs".into(),
+                "finished docs red=true".into(),
+            ]
+        );
     }
 
     #[test]

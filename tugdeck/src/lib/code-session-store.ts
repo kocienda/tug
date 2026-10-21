@@ -37,7 +37,7 @@ import type { TugConnection } from "@/connection";
 import type { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import { PropertyStore } from "@/lib/property-store";
 import { Subscribable } from "@/lib/subscribable";
-import { RunProgressStore, type RunProgressFrame } from "@/lib/run-progress-store";
+import { ReportStore, type ReportFrame } from "@/lib/report-store";
 import { RoutedFrameStore } from "@/lib/ingest/routed-frame-store";
 import type { AtomSegment } from "./tug-atom-img";
 import { TUG_ATOM_CHAR } from "./tug-atom-char";
@@ -312,12 +312,12 @@ export class CodeSessionStore extends Subscribable {
   readonly streamingDocument: PropertyStore;
   /**
    * Live progress for running tool calls — the engine's `tool_progress`
-   * heartbeat and the command's own `run_progress` reports. Diverted out of
+   * heartbeat and the command's own `report` frames. Diverted out of
    * the frame stream before the reducer, because neither is part of the
    * session's record and a heartbeat a second must not rebuild the snapshot.
    * The session engine diverts them; its `progress` patches land here.
    */
-  readonly runProgress = new RunProgressStore();
+  readonly reports = new ReportStore();
 
   /**
    * The narrow per-session stores' frames, one store per routed CODE_OUTPUT
@@ -567,7 +567,7 @@ export class CodeSessionStore extends Subscribable {
     this._lifecycleUnsubs.push(
       this.lifecycle.observeConnectionDidClose(() => {
         if (this._disposed) return;
-        this.runProgress.clear();
+        this.reports.clear();
         this.dispatch({ type: "transport_close" });
       }),
     );
@@ -2129,16 +2129,16 @@ export class CodeSessionStore extends Subscribable {
     const op = patch.payload;
     switch (op.op) {
       case "heartbeat":
-        this.runProgress.applyHeartbeat(op.toolUseId, op.elapsedSeconds, op.nowMs);
+        this.reports.applyHeartbeat(op.toolUseId, op.elapsedSeconds, op.nowMs);
         return;
       case "report":
-        this.runProgress.applyReport(op.frame as RunProgressFrame, op.nowMs, () => op.runningJob);
+        this.reports.applyReport(op.frame as ReportFrame, op.nowMs, () => op.runningJob);
         return;
       case "close":
-        this.runProgress.close(op.toolUseId);
+        this.reports.close(op.toolUseId);
         return;
       case "clear":
-        this.runProgress.clear();
+        this.reports.clear();
         return;
     }
   }
