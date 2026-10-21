@@ -305,8 +305,13 @@ if (!container) {
  * saying only "waiting for the interface". A report that arrives on the same
  * tick names the await instead, which is the difference between a screen the
  * user can act on and one that restates what they can already see.
+ *
+ * A deck served by Vite (`import.meta.env.DEV`, a debug bundle) gets the
+ * longer deadline its host gives it, `MainWindow.viteSplashDeadlineMs`: a cold
+ * dev boot fetches some 1,800 unbundled modules, and its theme await alone was
+ * recorded past ten seconds on a healthy launch.
  */
-const BOOT_AWAIT_HORIZON_MS = 10_000;
+const BOOT_AWAIT_HORIZON_MS = import.meta.env.DEV ? 60_000 : 10_000;
 
 /**
  * Tell the host that a boot await has run past its horizon.

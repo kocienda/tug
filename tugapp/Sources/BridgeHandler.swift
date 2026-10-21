@@ -260,7 +260,11 @@ final class BridgeHandler: BridgeDelegate {
         case .startingTugcast:
             processManager.start(sourceTree: delegate.sourceTreePath)
         case .loadingInterface, .waitingForInterface:
-            guard let url = delegate.lastAuthURL else {
+            // The URL the interface was loaded from, and never the launch's
+            // auth URL once its one-time token is spent: a debug bundle
+            // loads from Vite's origin, and a Retry that went back to
+            // tugcast's `/auth` was refused with a 403 every time.
+            guard let url = window?.interfaceRetryURL() ?? delegate.lastAuthURL else {
                 // No ready ever arrived, so there is no URL to go back to;
                 // the stage is misread and tugcast is the thing to re-run.
                 processManager.start(sourceTree: delegate.sourceTreePath)

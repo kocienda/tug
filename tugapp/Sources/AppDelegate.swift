@@ -358,6 +358,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // The splash went up in `MainWindow.init`; the deadline is armed
         // here because the screen it mounts asks the delegate which stage
         // stalled, and this is the line that makes the delegate exist.
+        // A Vite-served interface gets the longer deadline its cold start
+        // needs (`MainWindow.viteSplashDeadlineMs`).
+        if devServingEnabled {
+            window.activeSplashDeadlineMs = MainWindow.viteSplashDeadlineMs
+        }
         window.armSplashDeadline()
         loadPreferences()
         lap("loadPreferences")

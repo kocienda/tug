@@ -540,6 +540,27 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// to go when the dead WebContent process left `webView.url` nil.
     private var lastLoadedURLString: String?
 
+    /// Whether the shell has finished a navigation past `/auth`: tugcast
+    /// took the launch's one-time token and set the session cookie. From
+    /// then on the token is spent — loading its URL again earns a 403 —
+    /// and the page's origin root is where a fresh load goes.
+    private var interfaceAuthenticated = false
+
+    /// Where Retry sends the shell while the launch waits on the interface:
+    /// the URL the interface was loaded from — Vite's origin in a debug
+    /// bundle, tugcast's otherwise — as its auth URL until the token has
+    /// been exchanged, and as that origin's root after. `nil` when the
+    /// interface was never loaded.
+    func interfaceRetryURL() -> String? {
+        guard let urlString = lastLoadedURLString else { return nil }
+        guard interfaceAuthenticated, var components = URLComponents(string: urlString) else {
+            return urlString
+        }
+        components.path = "/"
+        components.query = nil
+        return components.string
+    }
+
     /// When the WebContent process was last observed dying. Used to
     /// refuse a second reload on the heels of the first — a page that
     /// kills its content process on load would otherwise reload
@@ -591,10 +612,19 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// only exit was force-quitting the app.
     static let splashDeadlineMs = 20_000
 
-    /// `splashDeadlineMs` as the interval `DispatchQueue` wants.
-    static var splashDeadlineInterval: TimeInterval {
-        TimeInterval(splashDeadlineMs) / 1000
-    }
+    /// The deadline when the interface is served by Vite (a debug bundle).
+    /// Vite serves the deck as some 1,800 unbundled modules, and a cold
+    /// first launch after a build — nothing transformed, nothing cached —
+    /// was recorded revealing at 24 s on a healthy machine (2026-10-21),
+    /// past the 20 s above. A warm one reveals in about 7 s. Matched by the
+    /// deck's own boot-await horizon in dev (`BOOT_AWAIT_HORIZON_MS` in
+    /// `main.tsx`).
+    static let viteSplashDeadlineMs = 60_000
+
+    /// The deadline this launch runs under: `splashDeadlineMs`, or
+    /// `viteSplashDeadlineMs` when the host serves through Vite. Set by the
+    /// host before it arms the deadline.
+    var activeSplashDeadlineMs = MainWindow.splashDeadlineMs
 
     /// Keep the harness's window off the top of the user's screen.
     ///
@@ -883,7 +913,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         }
         splashDeadline = work
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + MainWindow.splashDeadlineInterval,
+            deadline: .now() + TimeInterval(activeSplashDeadlineMs) / 1000,
             execute: work
         )
     }
@@ -918,7 +948,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         title.alignment = .center
 
         let detail = NSTextField(wrappingLabelWithString:
-            reason ?? "It has been waiting \(MainWindow.splashDeadlineMs / 1000) seconds.")
+            reason ?? "It has been waiting \(activeSplashDeadlineMs / 1000) seconds.")
         detail.font = NSFont.systemFont(ofSize: 12)
         detail.alignment = .center
         detail.textColor = .secondaryLabelColor
@@ -1865,6 +1895,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             return
         }
         NSLog("MainWindow: didFinish navigation at %@", Date() as CVarArg)
+        if let path = webView.url?.path, !path.isEmpty, path != "/auth" {
+            interfaceAuthenticated = true
+        }
         // The lap between `loadURL` and `frontendReady`: with this line a
         // stall at "waiting for the interface" says whether the page ever
         // finished loading, which is the half of the question `didFail`

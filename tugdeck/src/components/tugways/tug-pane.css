@@ -2274,27 +2274,31 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
    Keyed on `[data-pane-id]`, which every frame carries, so these outrank the
    chrome's own paint above — the focused shadow, the held rail edge, the
    masthead and set tiers — which key on one attribute of the frame too and
-   would otherwise win on specificity. */
-.tug-pane[data-pane-id] {
+   would otherwise win on specificity. The card's page stamps `data-pane-id`
+   on its own frame too
+   (`body/body-chrome-frame.tsx`), and that frame IS the chrome the user sees,
+   so `.body-chrome-frame` is excluded from every rule here. Without it the
+   page's chrome lost its border, its shadow and its recede on every card. */
+.tug-pane[data-pane-id]:not(.body-chrome-frame) {
   background: none;
   border: none;
   box-shadow: none;
   outline: none;
 }
 
-.tug-pane[data-pane-id]::after,
-.tug-pane[data-pane-id] > .tug-pane-chrome::before,
-.tug-pane[data-pane-id] > .tug-pane-chrome::after {
+.tug-pane[data-pane-id]:not(.body-chrome-frame)::after,
+.tug-pane[data-pane-id]:not(.body-chrome-frame) > .tug-pane-chrome::before,
+.tug-pane[data-pane-id]:not(.body-chrome-frame) > .tug-pane-chrome::after {
   display: none;
 }
 
-.tug-pane[data-pane-id] > .tug-pane-chrome {
+.tug-pane[data-pane-id]:not(.body-chrome-frame) > .tug-pane-chrome {
   background: none;
   border: none;
   box-shadow: none;
 }
 
-.tug-pane[data-pane-id] > .tug-pane-chrome > .tug-pane-content {
+.tug-pane[data-pane-id]:not(.body-chrome-frame) > .tug-pane-chrome > .tug-pane-content {
   position: absolute;
   inset: 0;
 }
