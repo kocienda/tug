@@ -76,6 +76,49 @@ struct CardInsets: Codable, Equatable {
     var left: Double
 }
 
+/// A card's stand-in read into a short display list (`lib/face-draw.ts`):
+/// what the host draws a face from while it hands a departing view over.
+/// Rects are within the card's view, points; colours are `rgba()`.
+struct FaceDraw: Decodable, Equatable {
+    struct Border: Decodable, Equatable {
+        var width: Double
+        var color: String
+    }
+
+    struct Box: Decodable, Equatable {
+        var rect: PlanRect
+        var fill: String?
+        var border: Border?
+        var radius: Double
+    }
+
+    struct Font: Decodable, Equatable {
+        var family: String
+        var size: Double
+        var weight: Double
+    }
+
+    struct Text: Decodable, Equatable {
+        var rect: PlanRect
+        var text: String
+        var font: Font
+        var color: String
+    }
+
+    struct Image: Decodable, Equatable {
+        var rect: PlanRect
+        /// Standalone SVG markup, every paint written in.
+        var svg: String
+    }
+
+    /// The painted boxes, in paint order.
+    var boxes: [Box]
+    /// The runs of text, in paint order, over every box.
+    var texts: [Text]
+    /// The icons, over every box.
+    var images: [Image]
+}
+
 /// One card in `placeCards`: its pane rect, its view and the pane's insets
 /// within it, whether it shows, and what the hand carries it by.
 struct CardPlacementEntry: Decodable, Equatable {
@@ -93,6 +136,12 @@ struct CardPlacementEntry: Decodable, Equatable {
     var visible: Bool
     /// Present, and true, for an inactive card of a pane.
     var sibling: Bool?
+    /// Present, and true, for a card hidden only because its page cannot
+    /// show yet: the shell paints its stand-in, which a hand-over's face
+    /// covers while a departing view goes (`BodyHandOver`).
+    var face: Bool?
+    /// What a face entry's face draws: its stand-in as the shell read it.
+    var faceDraw: FaceDraw?
     /// The pane's computed `z-index`.
     var z: Double
     var grips: [ResizeEdge]

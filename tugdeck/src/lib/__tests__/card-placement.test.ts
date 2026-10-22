@@ -16,11 +16,13 @@ import {
   heldForThePaint,
   hiddenSince,
   inReadingOrder,
+  meetsAFace,
   namePlans,
   placeCardsOf,
   PlacementPoster,
   samePlacement,
   shownFactsOf,
+  wantsFace,
   type BodyPlacement,
   type BodyShownFacts,
   type CardFacts,
@@ -28,6 +30,7 @@ import {
   type Placement,
 } from "../card-placement";
 import { CARD_APRON_PX } from "../chrome-placement";
+import { firstFamily, rgbaOf, rgbaOfBytes, svgPaintOf, withinView, type FaceDraw } from "../face-draw";
 
 const SHOWN: BodyShownFacts = {
   painted: true,
@@ -38,8 +41,12 @@ const SHOWN: BodyShownFacts = {
 
 const APRON = { top: CARD_APRON_PX, right: CARD_APRON_PX, bottom: CARD_APRON_PX, left: CARD_APRON_PX };
 
+const NO_DRAW: FaceDraw = { boxes: [], texts: [], images: [] };
+
 function view(cardId: string, x: number, y: number, over: Partial<BodyPlacement> = {}): BodyPlacement {
-  return { cardId, x, y, width: 300, height: 200, visible: true, z: 0, shell: [], insets: APRON, ...over };
+  // A card that wants a face carries the display list the host draws it from.
+  const drawn = over.face === true && !("faceDraw" in over) ? { faceDraw: NO_DRAW } : {};
+  return { cardId, x, y, width: 300, height: 200, visible: true, z: 0, shell: [], insets: APRON, ...drawn, ...over };
 }
 
 describe("bodyVisible", () => {
@@ -55,6 +62,37 @@ describe("bodyVisible", () => {
       expect(bodyVisible({ ...SHOWN, ...over })).toBe(visible);
     });
   }
+});
+
+describe("wantsFace", () => {
+  const UNPAINTED: BodyShownFacts = { ...SHOWN, painted: false };
+
+  test("a card hidden only for want of its first paint wants a face", () => {
+    expect(wantsFace(UNPAINTED, false)).toBe(true);
+  });
+
+  const cases: Array<[string, Partial<BodyShownFacts>]> = [
+    ["an inactive tab", { active: false }],
+    ["arriving", { arriving: true }],
+    ["in a parked workspace", { layerShown: false }],
+  ];
+  for (const [name, over] of cases) {
+    test(`${name} wants none`, () => {
+      expect(wantsFace({ ...UNPAINTED, ...over }, false)).toBe(false);
+    });
+  }
+
+  test("a card placed visible, or in no pane, wants none", () => {
+    expect(wantsFace(SHOWN, true)).toBe(false);
+    expect(wantsFace(null, false)).toBe(false);
+  });
+
+  test("a placement that changes only a face is news", () => {
+    const plain: Placement = { bodies: [view("a", 0, 40, { visible: false })] };
+    const faced: Placement = { bodies: [view("a", 0, 40, { visible: false, face: true })] };
+    expect(samePlacement(plain, faced)).toBe(false);
+    expect(samePlacement(faced, faced)).toBe(true);
+  });
 });
 
 describe("the order cards are posted in", () => {
@@ -117,6 +155,13 @@ describe("placeCardsOf", () => {
     expect(carried.planId).toBe(7);
     const rest = placeCardsOf({ bodies: [view("a", 0, 40)] }, facts).cards[0];
     expect("planId" in rest).toBe(false);
+  });
+
+  test("a card that wants a face says so; one that does not says nothing", () => {
+    const faced = placeCardsOf({ bodies: [view("a", 0, 40, { visible: false, face: true })] }, facts).cards[0];
+    expect(faced.face).toBe(true);
+    const plain = placeCardsOf({ bodies: [view("a", 0, 40, { visible: false })] }, facts).cards[0];
+    expect("face" in plain).toBe(false);
   });
 });
 
@@ -308,5 +353,86 @@ describe("heldForThePaint", () => {
     const hold = heldForThePaint({ bodies: [view("gone", 40, 40)] }, { bodies: [view("w1", 0, 0)] });
     expect(hold?.held.bodies).toEqual([view("w1", 0, 0), view("gone", 40, 40)]);
     expect(hold?.releasing.bodies).toEqual([view("w1", 0, 0), view("gone", 40, 40, { visible: false })]);
+  });
+
+  test("a view over a card that wants a face is not held: the host hands it over", () => {
+    const last = { bodies: [view("home", 40, 40), view("w1", 60, 60, { visible: false })] };
+    const next = { bodies: [view("home", 40, 40, { visible: false }), view("w1", 60, 60, { visible: false, face: true })] };
+    expect(heldForThePaint(last, next)).toBeNull();
+  });
+
+  test("a view over no face keeps its paint, beside one handed over", () => {
+    const last = { bodies: [view("over", 0, 0), view("clear", 1000, 0)] };
+    const next = {
+      bodies: [
+        view("over", 0, 0, { visible: false }),
+        view("clear", 1000, 0, { visible: false }),
+        view("w1", 100, 100, { visible: false, face: true }),
+      ],
+    };
+    const hold = heldForThePaint(last, next);
+    expect(hold?.held.bodies.filter((b) => b.visible).map((b) => b.cardId)).toEqual(["clear"]);
+    expect(hold?.releasing.bodies.find((b) => b.cardId === "over")?.visible).toBe(false);
+  });
+
+  test("a tab put behind a card that cannot show yet is handed over, not held", () => {
+    const last = { bodies: [view("a", 0, 0), view("b", 0, 0, { visible: false })] };
+    const next = { bodies: [view("a", 0, 0, { visible: false }), view("b", 0, 0, { visible: false, face: true })] };
+    expect(meetsAFace(last.bodies[0], next)).toBe(true);
+    expect(heldForThePaint(last, next)).toBeNull();
+  });
+});
+
+describe("meetsAFace", () => {
+  test("a view sharing area with a face meets it", () => {
+    expect(meetsAFace(view("a", 0, 0), { bodies: [view("f", 299, 199, { visible: false, face: true })] })).toBe(true);
+  });
+
+  test("an edge in common, a card not marked face, and the card itself do not", () => {
+    expect(meetsAFace(view("a", 0, 0), { bodies: [view("f", 300, 0, { visible: false, face: true })] })).toBe(false);
+    expect(meetsAFace(view("a", 0, 0), { bodies: [view("f", 10, 10, { visible: false })] })).toBe(false);
+    expect(meetsAFace(view("a", 0, 0), { bodies: [view("a", 0, 0, { visible: false, face: true })] })).toBe(false);
+  });
+
+  test("a face the host has no list to draw from is not met, so the view over it keeps its paint", () => {
+    const undrawn = { bodies: [view("f", 10, 10, { visible: false, face: true, faceDraw: undefined })] };
+    expect(meetsAFace(view("a", 0, 0), undrawn)).toBe(false);
+    expect(heldForThePaint({ bodies: [view("a", 0, 0)] }, { bodies: [view("a", 0, 0, { visible: false }), ...undrawn.bodies] })).not.toBeNull();
+  });
+});
+
+describe("a face's display list, its pure parts", () => {
+  test("computed rgb and rgba colours are written rgba, and a transparent one is nothing", () => {
+    expect(rgbaOf("rgb(46, 48, 54)")).toBe("rgba(46, 48, 54, 1)");
+    expect(rgbaOf("rgba(255, 255, 255, 0.06)")).toBe("rgba(255, 255, 255, 0.06)");
+    expect(rgbaOf("rgb(10 20 30 / 50%)")).toBe("rgba(10, 20, 30, 0.5)");
+    expect(rgbaOf("rgba(0, 0, 0, 0)")).toBeNull();
+    expect(rgbaOf("oklch(1 0 0 / 0.06)")).toBeNull();
+  });
+
+  test("a canvas's pixel bytes are written rgba, and a clear one is nothing", () => {
+    expect(rgbaOfBytes(46, 48, 54, 255)).toBe("rgba(46, 48, 54, 1)");
+    expect(rgbaOfBytes(255, 255, 255, 51)).toBe("rgba(255, 255, 255, 0.2)");
+    expect(rgbaOfBytes(0, 0, 0, 0)).toBeNull();
+  });
+
+  test("an icon's paint is written rgb with its alpha apart, which AppKit's SVG reader draws", () => {
+    expect(svgPaintOf("rgba(190, 196, 210, 0.5)")).toEqual({ color: "rgb(190, 196, 210)", alpha: 0.5 });
+    expect(svgPaintOf("rgba(0, 0, 0, 1)")).toEqual({ color: "rgb(0, 0, 0)", alpha: 1 });
+    expect(svgPaintOf(null)).toEqual({ color: "none", alpha: 1 });
+  });
+
+  test("a rect is taken into its view's coordinates", () => {
+    expect(withinView({ x: 70, y: 52, width: 100, height: 20 }, { x: 55, y: 47, width: 710, height: 510 })).toEqual({
+      x: 15,
+      y: 5,
+      width: 100,
+      height: 20,
+    });
+  });
+
+  test("a font family list names its first family, unquoted", () => {
+    expect(firstFamily('"IBM Plex Sans", system-ui, sans-serif')).toBe("IBM Plex Sans");
+    expect(firstFamily("Menlo")).toBe("Menlo");
   });
 });

@@ -246,8 +246,16 @@ export type {
  * launch moved neither; adds `sessionTapProbe` (pid mode only), which posts a
  * Shift to the session event tap and reports whether this app received it.
  * Additive; major stays `1`.
+ *
+ * `1.23.0`: adds `handOvers` — the host's last hand-overs of a departing view
+ * to faces it draws from the arriving cards' stand-ins, and the faces
+ * standing now. Additive; major stays `1`.
+ *
+ * `1.24.0`: adds `bodyLayers` — every body's host layers sampled on each host
+ * frame for a window, so a frame of the burst can be laid beside what the host
+ * had on screen for each card. Additive; major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.22.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.24.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -1053,6 +1061,21 @@ export class App {
    */
   bodies(): Promise<client.BodyViewSnapshot[]> {
     return client.bodies(this as HarnessCaller);
+  }
+
+  /**
+   * The host's last hand-overs of a departing view to faces it draws from
+   * each arriving card's stand-in, oldest first — what each planned, how
+   * long the shell's snapshot took to say the faces may retire, how it
+   * ended, the title ink beneath each face — and the faces standing now.
+   */
+  handOvers(): Promise<client.HandOverAccount> {
+    return client.handOvers(this as HarnessCaller);
+  }
+
+  /** The host's per-frame layer sampler — see `client.bodyLayers`. */
+  bodyLayers(params: Parameters<typeof client.bodyLayers>[1]): ReturnType<typeof client.bodyLayers> {
+    return client.bodyLayers(this as HarnessCaller, params);
   }
 
   /**

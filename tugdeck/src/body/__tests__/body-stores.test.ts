@@ -91,10 +91,13 @@ describe("the chrome a body draws", () => {
   });
 
   test("a body reads pane.chrome before its first chrome render is published", () => {
-    // The post to the host waits on the shell's facts, never on the fallback.
-    const gate = "if (!hasChrome || chromePaintPosted) return;";
+    // The post to the host waits on the shell's facts, never on the fallback:
+    // the frame is whole only with the shell's pane chrome (`chromeFrameWhole`,
+    // whose no-chrome case `body-chrome.test.ts` holds), and the gate on
+    // wholeness stands before the post.
+    const gate = "if (!whole || chromePaintPosted) return;";
     const post = "postToHost(paintedToHost, {})";
-    expect(frame).toContain("const hasChrome = chrome !== null;");
+    expect(frame).toContain("const whole = chromeFrameWhole(chrome !== null,");
     expect(frame).toContain(gate);
     expect(frame).toContain(post);
     expect(frame.indexOf(gate)).toBeLessThan(frame.indexOf(post));

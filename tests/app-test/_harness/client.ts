@@ -1378,6 +1378,66 @@ export function bodies(caller: HarnessCaller): Promise<BodyViewSnapshot[]> {
   return caller.rpcCall("bodies", {});
 }
 
+/** One hand-over of a departing view to faces the host draws from the arriving cards' stand-ins, as `handOvers` reports it. */
+export interface HandOverRecord {
+  serial: number;
+  /** Cards on screen at the placement that it does not show. */
+  leaving: string[];
+  /** Leaving cards whose view meets a face. */
+  handedOver: string[];
+  /** The cards a face is drawn for. */
+  faces: string[];
+  /** How long the shell's snapshot took to answer, ms; null until it has. */
+  snapshotMs: number | null;
+  outcome: "landed" | "deadline" | "failed" | "superseded" | "pending";
+  /** Each face's title-band ink share, as the snapshot drew it. */
+  faceInk: Record<string, number>;
+}
+
+/** The host's last hand-overs, oldest first, and the faces standing now (surface `1.23.0`). */
+export interface HandOverAccount {
+  handOvers: HandOverRecord[];
+  standing: string[];
+}
+
+/** The host's last 16 hand-overs and the faces on screen now. */
+export function handOvers(caller: HarnessCaller): Promise<HandOverAccount> {
+  return caller.rpcCall("handOvers", {});
+}
+
+/** One body's host layers at one host frame, as `bodyLayers` samples them. */
+export interface BodyLayerRow {
+  /** Wall clock, ms: the clock the burst's frames carry. */
+  wall: number;
+  cardId: string;
+  state: string;
+  painted: boolean;
+  covered: boolean;
+  /** The container's `isHidden`. */
+  hidden: boolean;
+  /** The container's presented opacity. */
+  opacity: number;
+  /** A host face stands for the card. */
+  faced: boolean;
+  /** The host shows it: placed visible and showable. */
+  shown: boolean;
+  start: "warm" | "cold";
+}
+
+/** A `bodyLayers` window's rows so far (surface `1.24.0`). */
+export interface BodyLayersReading {
+  done: boolean;
+  rows: BodyLayerRow[];
+}
+
+/** Arm the host's per-frame layer sampler for `windowMs`, or read what it has sampled. */
+export function bodyLayers(
+  caller: HarnessCaller,
+  params: { op: "arm"; windowMs: number } | { op: "read" },
+): Promise<{ armed: boolean; windowMs: number } | BodyLayersReading> {
+  return caller.rpcCall("bodyLayers", params);
+}
+
 /**
  * Tell the host a memory-pressure level as its dispatch source would: on
  * `warning` hidden bodies are evicted oldest-hidden first, on `critical`

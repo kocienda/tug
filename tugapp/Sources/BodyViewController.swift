@@ -64,6 +64,113 @@ final class DeckContainerView: NSView {
     }
 }
 
+/// A card's face while a departing view is handed over: a still picture of
+/// the shell's stand-in, drawn from the display list the shell read off it
+/// (`FaceDraw`) — a layer per box, a layer per icon drawn from its SVG, a
+/// text layer per run — at the card's view rect, stacked at the card's
+/// order. It stands from the transaction that
+/// hides the departing view until the shell's own frame is on screen, and
+/// answers no point.
+///
+/// Layer-hosting, its root layer flipped, so the list's top-left rects are
+/// the layers' frames as they are.
+final class BodyFaceView: NSView, StackedView {
+    var order = 0
+    let serial: Int
+    let cardId: String
+    /// The list drawn now, so a re-post carrying the same one redraws nothing.
+    private(set) var drawn: FaceDraw?
+
+    init(cardId: String, serial: Int) {
+        self.cardId = cardId
+        self.serial = serial
+        super.init(frame: .zero)
+        let root = CALayer()
+        root.isGeometryFlipped = true
+        root.masksToBounds = true
+        layer = root
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Draw `list` at `scale` backing pixels per point, in place of whatever
+    /// was drawn before.
+    func draw(_ list: FaceDraw, scale: CGFloat) {
+        guard let root = layer, list != drawn else { return }
+        drawn = list
+        root.sublayers = nil
+        for box in list.boxes {
+            let sub = CALayer()
+            sub.frame = box.rect.cgRect
+            sub.backgroundColor = box.fill.flatMap(BodyHandOver.color(rgba:))
+            if let border = box.border, let color = BodyHandOver.color(rgba: border.color) {
+                sub.borderWidth = border.width
+                sub.borderColor = color
+            }
+            sub.cornerRadius = box.radius
+            root.addSublayer(sub)
+        }
+        for icon in list.images {
+            // AppKit reads SVG; markup it cannot read leaves the icon out.
+            guard let image = NSImage(data: Data(icon.svg.utf8)) else { continue }
+            let sub = CALayer()
+            sub.frame = icon.rect.cgRect
+            sub.contentsGravity = .resize
+            sub.contentsScale = scale
+            sub.contents = image.layerContents(forContentsScale: scale)
+            root.addSublayer(sub)
+        }
+        for run in list.texts {
+            let font = Self.font(run.font)
+            let text = CATextLayer()
+            text.string = run.text
+            text.font = font
+            text.fontSize = font.pointSize
+            text.foregroundColor = BodyHandOver.color(rgba: run.color)
+            text.contentsScale = scale
+            text.truncationMode = .end
+            text.isWrapped = false
+            // The run's rect is its line box; the glyphs sit centred in it.
+            let line = font.ascender - font.descender
+            var frame = run.rect.cgRect
+            frame.origin.y += max(0, (frame.height - line) / 2)
+            frame.size.height = max(frame.height, line)
+            frame.size.width += 1
+            text.frame = frame
+            root.addSublayer(text)
+        }
+    }
+
+    /// The run's font: its family at its CSS weight when the system has it,
+    /// else the system font at that weight.
+    private static func font(_ font: FaceDraw.Font) -> NSFont {
+        let size = CGFloat(font.size)
+        // CSS 100–900 onto the font manager's 0–15, 400 → 5, 700 → 9.
+        let managerWeight = Int(((font.weight - 400) / 100 * 1.33 + 5).rounded())
+        if let named = NSFontManager.shared.font(
+            withFamily: font.family, traits: [], weight: min(15, max(0, managerWeight)), size: size
+        ) {
+            return named
+        }
+        let weight: NSFont.Weight = switch font.weight {
+        case ..<250: .ultraLight
+        case ..<350: .light
+        case ..<450: .regular
+        case ..<550: .medium
+        case ..<650: .semibold
+        case ..<750: .bold
+        default: .heavy
+        }
+        return NSFont.systemFont(ofSize: size, weight: weight)
+    }
+}
+
 /// A body's container: layer-backed and clipped to its bounds, carrying its
 /// stacking order and its creation serial for `sortStacked`. A rail member's
 /// container stands in its rail's `RailView`; every other in the host view.
@@ -895,7 +1002,11 @@ final class BodyViewController {
         body.cover = nil
         TugLog.info("bodies", "painted", [TugLog.field("card", cardId)])
         notifyShell(BodyStateReport(cardId: cardId, state: .painted))
+        // The show and its face's removal land together.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         applyVisibility(body)
+        CATransaction.commit()
         // A revived body is shown by opacity under its cover and was never
         // `isHidden`, so `applyVisibility`'s re-take never fires for it: the
         // card the shell names for the keyboard takes it on its paint.
@@ -914,6 +1025,8 @@ final class BodyViewController {
         guard let layer = body.container.layer else { return }
         defer { reportVisibility(body) }
         if showing {
+            // The card's own page is on screen: its face goes in this same transaction.
+            if let cardId = body.cardId { removeFace(cardId) }
             let wasHidden = body.container.isHidden
             body.container.isHidden = false
             body.container.passesPointer = false
@@ -1049,6 +1162,9 @@ final class BodyViewController {
         var rect: CGRect
         var visible: Bool
         var sibling: Bool
+        /// The card is hidden only because its page cannot show yet: a
+        /// hand-over draws its face (`BodyHandOver`).
+        var face: Bool
         var z: Int
         var grips: Set<ResizeEdge>
         var free: Bool
@@ -1200,6 +1316,9 @@ final class BodyViewController {
     /// carries; the view is the pane outset by `apron`, grown to whole
     /// points. A body the placement does not name is hidden.
     func placeCards(_ placement: PlaceCards) {
+        // What is on screen before this placement moves anything, which the
+        // hand-over is planned against.
+        let handOverPlan = BodyHandOver.plan(onScreen: onScreenRects(), entries: placement.cards)
         placementHeld = Set(placement.held ?? [])
         cardApron = CGFloat(placement.apron)
         // A canvas the shell does not show leaves the last one standing.
@@ -1217,6 +1336,7 @@ final class BodyViewController {
                 rect: entry.rect,
                 visible: entry.visible,
                 sibling: entry.sibling == true,
+                face: entry.face == true,
                 z: Int(entry.z),
                 grips: Set(entry.grips),
                 free: entry.free,
@@ -1249,10 +1369,323 @@ final class BodyViewController {
         // Each rail's members into its rail view, and the containers in the
         // panes' order, back to front, moved in place.
         reconcileRails()
+        // The views it takes down over an arriving card are handed to faces
+        // in this same transaction.
+        handOver(handOverPlan, placement)
         CATransaction.commit()
         refreshRegion()
         // The lane's order is the placement's: a card waiting on it may go.
         if !lane.isEmpty { drainLane() }
+    }
+
+    // MARK: - Hand-over
+
+    /// One hand-over's account, for the harness (`handOvers`): what it
+    /// planned, how long the shell's snapshot took to answer — how long its
+    /// faces stood before they began to retire — how it ended, and each
+    /// face's title-band ink as the snapshot drew the shell beneath them.
+    struct HandOverRecord {
+        let serial: Int
+        let leaving: [String]
+        let handedOver: [String]
+        let faces: [String]
+        var snapshotMs: Double?
+        /// `pending` until the snapshot answers; then `landed`, `failed`,
+        /// `deadline` at the horizon, or `superseded` by a newer hand-over.
+        var outcome: String
+        var faceInk: [String: Double]
+
+        var json: JSONValue {
+            let strings = { (list: [String]) in JSONValue.array(list.map(JSONValue.string)) }
+            return .object([
+                "serial": .number(Double(serial)),
+                "leaving": strings(leaving),
+                "handedOver": strings(handedOver),
+                "faces": strings(faces),
+                "snapshotMs": snapshotMs.map(JSONValue.number) ?? .null,
+                "outcome": .string(outcome),
+                "faceInk": .object(faceInk.mapValues(JSONValue.number)),
+            ])
+        }
+    }
+
+    /// A hand-over whose snapshot has not answered yet.
+    private struct PendingHandOver {
+        let serial: Int
+        let plan: HandOverPlan
+        /// When the placement that first stood its faces did: its horizon
+        /// runs from here, however many hand-overs supersede it.
+        let start: CFTimeInterval
+    }
+
+    /// How long a hand-over waits on the shell's snapshot before its faces
+    /// retire regardless ([L33]): the placer's own landing guard.
+    static let handOverDeadlineMs = 250
+    /// How many host frames a landed hand-over's faces stand past the
+    /// snapshot's answer: the shell's frame it answered for, presented.
+    static let faceRetireFrames = 2
+    /// How many hand-overs the account keeps, oldest dropped first.
+    private static let handOverAccountLength = 16
+    /// The last hand-over's serial; each takes the next.
+    private var handOverSerial = 0
+    private var handOverRecords: [HandOverRecord] = []
+    private var pendingHandOver: PendingHandOver?
+    /// The faces standing now, by card.
+    private var faces: [String: BodyFaceView] = [:]
+    /// Counting the host frames to a landed hand-over's retirement.
+    private var retireLink: CADisplayLink?
+
+    /// The last hand-overs, oldest first, and the faces standing now.
+    func handOverAccount() -> JSONValue {
+        .object([
+            "handOvers": .array(handOverRecords.map(\.json)),
+            "standing": .array(faces.keys.sorted().map(JSONValue.string)),
+        ])
+    }
+
+    /// Hand over what `plan` names, inside `placement`'s own transaction:
+    /// every view it hands over hides there by its placement, and here each
+    /// card it faces gets a face drawn from its stand-in's display list, so
+    /// the hide and the faces land in one commit. The shell's snapshot then
+    /// says when the shell's own frame, with the live stand-ins, has
+    /// rendered, and the faces retire two host frames after it answers.
+    ///
+    /// A face whose card the placement no longer marks, and does not place
+    /// visible, goes; the rest follow their cards. A placement handing
+    /// nothing over leaves a pending hand-over alone, and one re-posting the
+    /// pending hand-over (`continues`) leaves it untouched; any other
+    /// supersedes it, its horizon running from the first one's start.
+    private func handOver(_ plan: HandOverPlan, _ placement: PlaceCards) {
+        let named = Dictionary(placement.cards.map { ($0.cardId, $0) }, uniquingKeysWith: { first, _ in first })
+        for (cardId, face) in faces {
+            guard let entry = named[cardId], entry.face == true || entry.visible else {
+                removeFace(cardId)
+                continue
+            }
+            face.frame = entry.view.cgRect
+            face.order = Int(entry.z)
+        }
+        guard !plan.handedOver.isEmpty else { return }
+        var start = CACurrentMediaTime()
+        if let pending = pendingHandOver {
+            if BodyHandOver.continues(pending: pending.plan, next: plan) { return }
+            setHandOverOutcome(pending.serial, "superseded")
+            if !faces.isEmpty { start = pending.start }
+        }
+        let scale = window.backingScaleFactor
+        for face in plan.faces {
+            guard let entry = named[face.cardId], let draw = entry.faceDraw else { continue }
+            // A card whose own page is on screen needs no face, and no later
+            // show would take one down.
+            if let body = body(forCard: face.cardId), body.visible, body.canShow { continue }
+            let view: BodyFaceView
+            if let standing = faces[face.cardId] {
+                view = standing
+            } else {
+                serials += 1
+                view = BodyFaceView(cardId: face.cardId, serial: serials)
+                hostView.addSubview(view)
+                faces[face.cardId] = view
+            }
+            view.frame = face.rect
+            view.order = Int(entry.z)
+            view.draw(draw, scale: scale)
+        }
+        sortStacking()
+        // A newer hand-over owns every face standing: a retirement counting
+        // for an older one stops.
+        retireLink?.invalidate()
+        retireLink = nil
+        handOverSerial += 1
+        let serial = handOverSerial
+        pendingHandOver = PendingHandOver(serial: serial, plan: plan, start: start)
+        handOverRecords.append(HandOverRecord(
+            serial: serial,
+            leaving: plan.leaving,
+            handedOver: plan.handedOver,
+            faces: plan.faces.map(\.cardId),
+            snapshotMs: nil,
+            outcome: "pending",
+            faceInk: [:]
+        ))
+        if handOverRecords.count > Self.handOverAccountLength {
+            handOverRecords.removeFirst(handOverRecords.count - Self.handOverAccountLength)
+        }
+        let remaining = max(0, Double(Self.handOverDeadlineMs) / 1000 - (CACurrentMediaTime() - start))
+        DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { [weak self] in
+            guard let self, self.pendingHandOver?.serial == serial else { return }
+            self.pendingHandOver = nil
+            self.setHandOverOutcome(serial, "deadline")
+            TugLog.warn("bodies", "hand-over past its horizon", [TugLog.field("serial", serial)])
+            self.retireFaces()
+        }
+        guard let union = BodyHandOver.union(plan.faces) else { return }
+        let faceEntries = placement.cards.filter { $0.face == true }
+        let asked = CACurrentMediaTime()
+        window.snapshotShell(rect: union) { [weak self] image in
+            self?.snapshotAnswered(serial: serial, ms: (CACurrentMediaTime() - asked) * 1000, image: image, union: union, entries: faceEntries)
+        }
+    }
+
+    /// The shell's snapshot answered for hand-over `serial`: its frame with
+    /// the live stand-ins has rendered. Record what it took and what it drew
+    /// beneath each face, and retire the faces two host frames on; with no
+    /// image, retire them at once.
+    private func snapshotAnswered(serial: Int, ms: Double, image: CGImage?, union: CGRect, entries: [CardPlacementEntry]) {
+        guard pendingHandOver?.serial == serial else { return }
+        pendingHandOver = nil
+        let index = handOverRecords.firstIndex(where: { $0.serial == serial })
+        if let index { handOverRecords[index].snapshotMs = ms }
+        guard let image else {
+            if let index { handOverRecords[index].outcome = "failed" }
+            TugLog.warn("bodies", "hand-over snapshot failed", [TugLog.field("serial", serial)])
+            retireFaces()
+            return
+        }
+        if let index {
+            let scale = CGFloat(image.width) / max(union.width, 1)
+            var ink: [String: Double] = [:]
+            for entry in entries {
+                let rect = entry.view.cgRect
+                guard let crop = image.cropping(to: BodyHandOver.cropRect(of: rect, in: union, scale: scale)) else { continue }
+                let band = BodyHandOver.titleBand(viewSize: rect.size, insets: entry.insets, scale: scale)
+                ink[entry.cardId] = BodyHandOver.inkShare(image: crop, band: band)
+            }
+            handOverRecords[index].faceInk = ink
+            handOverRecords[index].outcome = "landed"
+        }
+        TugLog.info("bodies", "hand-over", [
+            TugLog.field("serial", serial),
+            TugLog.field("snapshot_ms", Int(ms.rounded())),
+            TugLog.field("faces", faces.count),
+        ])
+        var frames = 0
+        let tick = RailSpringTick { [weak self] link in
+            guard let self, link === self.retireLink, self.handOverSerial == serial else {
+                link.invalidate()
+                return
+            }
+            frames += 1
+            if frames >= Self.faceRetireFrames { self.retireFaces() }
+        }
+        let link = hostView.displayLink(target: tick, selector: #selector(RailSpringTick.fire(_:)))
+        link.add(to: .main, forMode: .common)
+        retireLink = link
+    }
+
+    private func setHandOverOutcome(_ serial: Int, _ outcome: String) {
+        guard let index = handOverRecords.firstIndex(where: { $0.serial == serial }) else { return }
+        handOverRecords[index].outcome = outcome
+    }
+
+    /// Every face goes, at once, and the live stand-ins beneath them show.
+    private func retireFaces() {
+        retireLink?.invalidate()
+        retireLink = nil
+        guard !faces.isEmpty else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for cardId in Array(faces.keys) { removeFace(cardId) }
+        CATransaction.commit()
+    }
+
+    /// Take `cardId`'s face down, within the caller's transaction.
+    private func removeFace(_ cardId: String) {
+        faces.removeValue(forKey: cardId)?.removeFromSuperview()
+    }
+
+    // MARK: - Layers, tick by tick
+
+    /// Every body's host layers, one row per body per display-link tick,
+    /// while the harness's `bodyLayers` window runs: what the host put on
+    /// screen for each card, frame by frame, beside what it believed of it.
+    private var layerRows: [JSONValue] = []
+    /// The display link sampling the layers, while a window runs.
+    private var layerLink: CADisplayLink?
+    /// When the window running now ends, in `CACurrentMediaTime`.
+    private var layerUntil: CFTimeInterval = 0
+
+    /// Sample every body's layers on each host frame for `windowMs`,
+    /// beginning now, the rows of any earlier window dropped.
+    func armBodyLayers(windowMs: Int) {
+        layerLink?.invalidate()
+        layerRows = []
+        layerUntil = CACurrentMediaTime() + Double(windowMs) / 1000
+        let tick = RailSpringTick { [weak self] link in
+            guard let self, link === self.layerLink else {
+                link.invalidate()
+                return
+            }
+            self.sampleLayers()
+            if CACurrentMediaTime() >= self.layerUntil { self.stopBodyLayers() }
+        }
+        let link = hostView.displayLink(target: tick, selector: #selector(RailSpringTick.fire(_:)))
+        link.add(to: .main, forMode: .common)
+        layerLink = link
+        sampleLayers()
+    }
+
+    /// The window's rows so far, and whether it has ended.
+    func readBodyLayers() -> JSONValue {
+        .object(["done": .bool(layerLink == nil), "rows": .array(layerRows)])
+    }
+
+    private func stopBodyLayers() {
+        layerLink?.invalidate()
+        layerLink = nil
+    }
+
+    /// One row per bound body: its state, whether it has painted, stands
+    /// under a cover, and is hidden; its container's presented opacity;
+    /// whether a face stands for it; and whether the host shows it.
+    private func sampleLayers() {
+        let wall = Date().timeIntervalSince1970 * 1000
+        var sampled = Set<String>()
+        for body in bodies {
+            guard let cardId = body.cardId else { continue }
+            sampled.insert(cardId)
+            let layer = body.container.layer
+            layerRows.append(.object([
+                "wall": .number(wall),
+                "cardId": .string(cardId),
+                "state": .string(body.state.rawValue),
+                "painted": .bool(body.painted),
+                "covered": .bool(body.cover != nil),
+                "hidden": .bool(body.container.isHidden),
+                "opacity": .number(Double(layer?.presentation()?.opacity ?? layer?.opacity ?? 0)),
+                "faced": .bool(faces[cardId] != nil),
+                "shown": .bool(body.visible && body.canShow),
+                "start": .string(body.warm ? "warm" : "cold"),
+            ]))
+        }
+        // A face for a card whose page is not made yet: the card has no
+        // layers of its own to read, but the face is on screen for it.
+        for cardId in faces.keys.sorted() where !sampled.contains(cardId) {
+            layerRows.append(.object([
+                "wall": .number(wall),
+                "cardId": .string(cardId),
+                "state": .string("unmade"),
+                "painted": .bool(false),
+                "covered": .bool(false),
+                "hidden": .bool(true),
+                "opacity": .number(0),
+                "faced": .bool(true),
+                "shown": .bool(false),
+                "start": .string("cold"),
+            ]))
+        }
+    }
+
+    /// Every body the user can see now — its container on screen and its
+    /// placement showing it — by card, at its view rect.
+    private func onScreenRects() -> [String: CGRect] {
+        var out: [String: CGRect] = [:]
+        for body in bodies {
+            guard let cardId = body.cardId, !body.container.isHidden,
+                  (body.container.layer?.opacity ?? 0) > 0, body.visible, body.canShow else { continue }
+            out[cardId] = body.frame
+        }
+        return out
     }
 
     /// Stand `body` where its placement entry puts it.
@@ -2054,6 +2487,7 @@ final class BodyViewController {
     /// `bodyDestroy`. With `save`, the body writes its card's state first.
     /// The card is gone from here: an eviction in flight leaves it alone.
     func destroy(cardId: String, save: Bool) {
+        removeFace(cardId)
         covers.removeValue(forKey: cardId)
         // A card still waiting in the lane has no page to save.
         lane.removeAll { $0.cardId == cardId }
@@ -2075,6 +2509,12 @@ final class BodyViewController {
     /// window's bridge is taken down.
     func destroyAll() {
         clearLane()
+        stopBodyLayers()
+        // A hand-over in flight ends with the window: its answer, horizon
+        // and retirement find a serial moved on.
+        handOverSerial += 1
+        pendingHandOver = nil
+        retireFaces()
         covers.removeAll()
         for body in bodies { remove(body) }
         // After the removals, which leave the lane idle and would ask for a

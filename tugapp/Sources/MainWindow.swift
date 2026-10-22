@@ -1604,6 +1604,26 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         devInfoOverlay?.isHidden = false
     }
 
+    /// The shell's page over `rect` (the shell view's points, which are
+    /// viewport points) as the shell's web process next renders it:
+    /// `afterScreenUpdates` makes the answer wait for a rendering update
+    /// that includes every commit made before the call, so the image holds
+    /// what the shell has committed — a switch's stand-ins, in its theme.
+    /// Answers nil on an error or no image. The body controller's hand-over
+    /// retires its faces on this answer; the web view stays private.
+    func snapshotShell(rect: CGRect, completion: @escaping (CGImage?) -> Void) {
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = rect
+        configuration.afterScreenUpdates = true
+        webView.takeSnapshot(with: configuration) { image, error in
+            if let error {
+                TugLog.warn("bodies", "shell snapshot failed", [TugLog.field("error", error.localizedDescription)])
+            }
+            var proposed = CGRect(origin: .zero, size: image?.size ?? .zero)
+            completion(image?.cgImage(forProposedRect: &proposed, context: nil, hints: nil))
+        }
+    }
+
     /// Capture the window's composite — the shell and every body beneath it —
     /// as one static snapshot over the container, so the user sees a frozen
     /// frame during shutdown instead of disconnect banners, theme flashes, or

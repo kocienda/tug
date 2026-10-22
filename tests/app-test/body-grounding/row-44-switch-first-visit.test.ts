@@ -11,12 +11,22 @@
  * the shell sends its page, and its content box in the pane's surface. Its
  * title is its page's to compute — a Text card with no file names itself —
  * so it lands with the page; what the bar holds is that no frame shows the
- * floor where a card stands, title band or box.
+ * canvas where a card stands, in its title band, or in its box beyond what
+ * the settled frame shows. The home card's view stood over both panes, and
+ * the host hides it in the transaction that stands its own face for each
+ * arriving card, drawn from the shell's stand-in, so the first switched
+ * frame shows those faces where the home card stood; the switch's
+ * hand-over lands, and no face is left standing once both pages have
+ * painted.
  *
  * @family row-44-switch
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx
  * @covers tugdeck/src/lib/body-stand-in-store.ts
  * @covers tugdeck/src/components/chrome/card-host.tsx
+ * @covers tugdeck/src/lib/card-placement.ts
+ * @covers tugapp/Sources/BodyViewController.swift
+ * @covers tugapp/Sources/BodyHandOver.swift
+ * @covers tugapp/Sources/MainWindow.swift
  */
 
 import { describe, expect, test } from "bun:test";

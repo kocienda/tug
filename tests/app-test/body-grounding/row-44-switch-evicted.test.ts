@@ -1,7 +1,8 @@
 /**
  * row-44-switch-evicted.test.ts — a workspace switch onto Session cards
- * whose bodies the clock evicted shows each card's title from the first
- * switched frame, and never the floor through a pane.
+ * whose bodies the clock evicted holds each card's title, at three quarters
+ * of the settled title's ink or more, from the first switched frame, and
+ * shows no more canvas in a pane than the settled frame does.
  *
  * The app launches on two workspaces: two Session cards side by side, shown,
  * and a Text card's, parked. The Text card's workspace is shown, which parks
@@ -12,13 +13,22 @@
  * already stands in the parked workspace so the first switched frame shows
  * it, and under the last frame the host kept at its eviction where that has
  * not aged out: the host drops a cover older than `evictAfterMs`, which the
- * row shortens, so either may be what stands.
+ * row shortens, so either may be what stands. The Text card's view stood
+ * across both panes, and the host hides it in the transaction that stands
+ * its own face for each Session card, drawn from the shell's stand-in, so
+ * the first switched frame shows those faces where the Text card stood; the
+ * switch's hand-over lands, and no face is left standing once both pages
+ * have painted.
  *
  * @family row-44-switch
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-stand-in-store.ts
  * @covers tugapp/Sources/BodyViewController.swift
+ * @covers tugapp/Sources/BodyHandOver.swift
+ * @covers tugapp/Sources/MainWindow.swift
+ * @covers tugdeck/src/body/body-chrome-frame.tsx
+ * @covers tugdeck/src/body/body-chrome.ts
  */
 
 import { describe, expect, test } from "bun:test";

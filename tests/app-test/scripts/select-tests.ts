@@ -242,13 +242,19 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // body crosses. Recorded at their counts on 2026-10-21; both were past
     // the budget (22 and 25 families) before the dormancy and eviction rows
     // joined them.
-    "tugdeck/src/lib/body-shell.ts": 24,
+    // Deleted and re-added across two commits at 26 (from 24) on 2026-10-22:
+    // the base had reached 25, and row 44's switch hand-over pieces are body
+    // rows like the rest.
+    "tugdeck/src/lib/body-shell.ts": 26,
     // Deleted and re-added across two commits at 28 (from 27) for the rows
     // whose subject is the host's own reading: a body never shown reports
     // not shown, and an eviction whose snapshot never answers goes on at its
     // deadline. Both assert what this file decides, and nothing narrower
     // carries it.
-    "tugapp/Sources/BodyViewController.swift": 28,
+    // Deleted and re-added again at 30 (from 28) on 2026-10-22: the base had
+    // reached 29, and row 44's first-visit piece names it for the hand-over
+    // the host plans there.
+    "tugapp/Sources/BodyViewController.swift": 30,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that

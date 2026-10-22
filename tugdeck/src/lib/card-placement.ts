@@ -25,7 +25,11 @@
  * over its pane, so nothing the shell paints shows through a card and
  * nothing is cut for a card to show through. A card that stops showing is
  * hidden on the far side of the paint of the commit that hid it, so the
- * shell's frame and the host's hide land together.
+ * shell's frame and the host's hide land together — unless its view meets a
+ * card whose page has not painted (`face`), whose stand-in it would stand
+ * over: that view is posted hidden at once, and the host hides it in the same
+ * transaction that stands a face it draws for each such card, from the
+ * stand-in's own display list ({@link FaceDraw}).
  *
  * **When it measures.** After every deck commit, from a beacon at the deck
  * root, and on what moves a placeholder without one — a window resize, a zoom
@@ -126,6 +130,7 @@ import { CARD_APRON_PX } from "./chrome-placement";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "./pane-frame-selectors";
 import { paneStandingOf } from "./pane-chrome-projection";
 import { overlaySurfaceBook } from "./overlay-surfaces";
+import { faceDrawOf, type FaceDraw } from "./face-draw";
 
 // ---------------------------------------------------------------------------
 // The rule
@@ -148,6 +153,17 @@ export interface BodyShownFacts {
  */
 export function bodyVisible(facts: BodyShownFacts): boolean {
   return facts.painted && facts.active && !facts.arriving && facts.layerShown;
+}
+
+/**
+ * Whether a body placed `visible` with these facts wants a face: it is
+ * hidden only because its page cannot show yet — it would show were it
+ * painted. The shell paints its stand-in meanwhile, and a host hand-over
+ * covers that stand-in with a face drawn from it ({@link FaceDraw}). Never a sibling,
+ * whose facts are not active, and never a card in no pane.
+ */
+export function wantsFace(facts: BodyShownFacts | null, visible: boolean): boolean {
+  return facts !== null && !visible && bodyVisible({ ...facts, painted: true });
 }
 
 /** One card's view in a placement: its viewport rect and whether it shows. */
@@ -173,6 +189,17 @@ export interface BodyPlacement {
   readonly z: number;
   /** An inactive card of a pane: placed at the pane, hidden by opacity so it keeps painting. */
   readonly sibling?: true;
+  /**
+   * The card is hidden only because its page cannot show yet ({@link wantsFace}):
+   * the host may stand a face for it while it hands a departing view over.
+   */
+  readonly face?: true;
+  /**
+   * What the host draws the card's face from: its stand-in read into a
+   * display list, on a `face` card only. Read once, when the card becomes a
+   * face, and carried by every later placement that still marks it.
+   */
+  readonly faceDraw?: FaceDraw;
   /**
    * The card's pane, inset within its view: the apron plus whatever the
    * view's growth to whole points added on each side. The card's page lays
@@ -220,6 +247,10 @@ export interface CardPlacementEntry {
   readonly shell: readonly Rect[];
   readonly visible: boolean;
   readonly sibling?: true;
+  /** The card wants a face ({@link BodyPlacement.face}). */
+  readonly face?: true;
+  /** What its face draws ({@link BodyPlacement.faceDraw}). */
+  readonly faceDraw?: FaceDraw;
   readonly z: number;
   /** The edges the arrangement lets the hand resize the pane from. */
   readonly grips: readonly string[];
@@ -383,6 +414,8 @@ export function placeCardsOf(placement: Placement, facts: CardFacts): PlaceCards
         shell: b.shell,
         visible: b.visible,
         ...(b.sibling === true ? { sibling: true as const } : {}),
+        ...(b.face === true ? { face: true as const } : {}),
+        ...(b.faceDraw !== undefined ? { faceDraw: b.faceDraw } : {}),
         z: b.z,
         grips: f.grips,
         free: f.free,
@@ -412,6 +445,9 @@ export function samePlacement(a: Placement | null, b: Placement): boolean {
       p.visible !== q.visible ||
       p.z !== q.z ||
       p.sibling !== q.sibling ||
+      p.face !== q.face ||
+      // By reference: a carried list is not news.
+      p.faceDraw !== q.faceDraw ||
       p.planId !== q.planId ||
       !sameInsets(p.insets, q.insets) ||
       !sameRects(p.shell, q.shell)
@@ -660,9 +696,16 @@ export function inReadingOrder(bodies: readonly BodyPlacement[]): BodyPlacement[
  * Read every card's stand-in under `root` once, and decide each one's
  * visibility from the deck. The cards are posted in reading order
  * (`inReadingOrder`).
+ *
+ * A card that becomes a face — `face` here and not in `last` — has its
+ * stand-in read into its face's display list ({@link faceDrawOf}); a card
+ * `last` already faced carries the list it was read with.
  */
-export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Placement {
+export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, last: Placement | null = null): Placement {
   const bodies: BodyPlacement[] = [];
+  const lastFaced = new Map(
+    (last?.bodies ?? []).flatMap((b) => (b.face === true && b.faceDraw !== undefined ? [[b.cardId, b.faceDraw] as const] : [])),
+  );
   for (const el of root.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
     const cardId = el.dataset.cardId;
     if (cardId === undefined || !bodyCardsStore.has(cardId)) continue;
@@ -673,6 +716,11 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Pl
     const rect = wholePoints(measured);
     const z = parseInt(getComputedStyle(frame).zIndex, 10);
     const visible = facts !== null && bodyVisible(facts);
+    const face = wantsFace(facts, visible);
+    const standIn = face && !lastFaced.has(cardId) ? el.querySelector("[data-body-stand-in]") : null;
+    const faceDraw = face
+      ? (lastFaced.get(cardId) ?? (standIn !== null ? faceDrawOf(standIn, rect, pageZoomStore.getFactor()) : undefined))
+      : undefined;
     bodies.push({
       cardId,
       x: rect.x,
@@ -691,6 +739,9 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Pl
       ...(!visible && facts !== null && !facts.active && bodyVisible({ ...facts, active: true })
         ? { sibling: true as const }
         : {}),
+      // A card hidden only for want of its first paint: the host may face it.
+      ...(face ? { face: true as const } : {}),
+      ...(faceDraw !== undefined ? { faceDraw } : {}),
     });
   }
   return { bodies: inReadingOrder(bodies) };
@@ -738,6 +789,14 @@ export function hiddenSince(
  * screen: a view taken down a frame early shows what lies beneath it, which
  * on a workspace switch is the canvas, before the switch's own stand-ins
  * have composited. Held one paint, the old view stands until they have.
+ *
+ * A view that meets a card `next` marks `face` ({@link meetsAFace}) is not
+ * held either: it goes in `next` hidden, and the host hides it in the same
+ * transaction that stands that card's face, which covers the stand-in the
+ * held view would have stood over. The rule is the placement's shape, not
+ * the gesture: a switch and a tab put behind a card that cannot show yet are
+ * handed over alike. A view that meets no face — a close, a switch onto
+ * cards that all show at once — keeps its paint.
  */
 export function heldForThePaint(
   last: Placement | null,
@@ -748,7 +807,7 @@ export function heldForThePaint(
   const shown = new Set(shownNext.map((b) => b.cardId));
   const takenBy = (b: BodyPlacement): boolean =>
     shownNext.some((s) => s.x === b.x && s.y === b.y && s.width === b.width && s.height === b.height);
-  const leaving = last.bodies.filter((b) => b.visible && !shown.has(b.cardId) && !takenBy(b));
+  const leaving = last.bodies.filter((b) => b.visible && !shown.has(b.cardId) && !takenBy(b) && !meetsAFace(b, next));
   if (leaving.length === 0) return null;
   const leavingIds = new Set(leaving.map((b) => b.cardId));
   const kept = next.bodies.filter((b) => !leavingIds.has(b.cardId));
@@ -757,6 +816,25 @@ export function heldForThePaint(
     held: { bodies: [...kept, ...leaving] },
     releasing: { bodies: [...kept, ...leaving.map((b) => nextOf.get(b.cardId) ?? { ...b, visible: false })] },
   };
+}
+
+/**
+ * Whether `body`'s view shares some area with the view of a card `next`
+ * marks `face` and carries a display list for: the host hands such a view
+ * over to the faces, so the shell does not hold it. A face with no list —
+ * its stand-in not mounted when the card was measured — is one the host
+ * cannot draw, so a view over it keeps its paint. An edge in common is not
+ * a meeting.
+ */
+export function meetsAFace(body: BodyPlacement, next: Placement): boolean {
+  return next.bodies.some(
+    (f) =>
+      f.face === true &&
+      f.faceDraw !== undefined &&
+      f.cardId !== body.cardId &&
+      Math.min(body.x + body.width, f.x + f.width) > Math.max(body.x, f.x) &&
+      Math.min(body.y + body.height, f.y + f.height) > Math.max(body.y, f.y),
+  );
 }
 
 /** What the placer remembers of a card a posted plan is carrying, until the host says it landed or was cancelled. */
@@ -947,7 +1025,7 @@ export class CardPlacer {
     for (const cardId of this.inFlight.keys()) overlaySurfaceBook.hold(cardId, "plan");
     // A card a plan is carrying to the rect this measurement reads names its
     // plan, so the host leaves the plan's beats to land it ([B11]).
-    const placement = namePlans(measurePlacements(this.deck, container), this.inFlight);
+    const placement = namePlans(measurePlacements(this.deck, container, this.poster.lastPosted), this.inFlight);
     this.paneBoxes = this.readPaneBoxes(container);
     const state = this.deck.getSnapshot();
     const run = this.deck.getColumnRunHeight();

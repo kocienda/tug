@@ -173,7 +173,19 @@ final class TestHarnessConnection {
     /// session event tap and reports whether this app received it, which
     /// is how a run proves its real key window never pulled the user's
     /// keyboard. Additive; major stays `1`.
-    static let surfaceVersion = "1.22.0"
+    ///
+    /// `1.23.0`: adds `handOvers` — the body controller's last hand-overs
+    /// of a departing view to faces it draws from the arriving cards'
+    /// stand-ins, oldest first: what each planned, how long the shell's
+    /// snapshot took to answer, how it ended, and the title-band ink beneath
+    /// each face — and the faces standing now. Additive; major stays `1`.
+    ///
+    /// `1.24.0`: adds `bodyLayers` — every body's host layers sampled on
+    /// each host display-link frame for a window: state, painted, covered,
+    /// hidden, presented opacity, faced and shown, per card, each row
+    /// stamped with the wall clock the burst's frames carry. Additive;
+    /// major stays `1`.
+    static let surfaceVersion = "1.24.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -372,6 +384,10 @@ final class TestHarnessConnection {
             dispatchSpikeBody(id: id, verbObj: obj)
         case "bodies":
             dispatchBodies(id: id)
+        case "handOvers":
+            dispatchHandOvers(id: id)
+        case "bodyLayers":
+            dispatchBodyLayers(id: id, verbObj: obj)
         case "accessibilityOrder":
             dispatchAccessibilityOrder(id: id)
         case "simulateMemoryPressure":
@@ -419,6 +435,41 @@ final class TestHarnessConnection {
                 return
             }
             self.respond(id: id, ok: true, payload: ["value": bodies.snapshot().map(\.foundation)])
+        }
+    }
+
+    /// `handOvers` → `{handOvers, standing}`: the body controller's last 16
+    /// hand-overs, oldest first, and the faces on screen now.
+    private func dispatchHandOvers(id: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let mainWindow = self.webView?.window as? MainWindow, let bodies = mainWindow.bodies else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            self.respond(id: id, ok: true, payload: ["value": bodies.handOverAccount().foundation])
+        }
+    }
+
+    /// `bodyLayers {op: "arm", windowMs}` samples every body's host layers
+    /// on each host frame for the window; `{op: "read"}` → `{done, rows}`.
+    private func dispatchBodyLayers(id: Int, verbObj: [String: Any]) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let mainWindow = self.webView?.window as? MainWindow, let bodies = mainWindow.bodies else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            switch verbObj["op"] as? String {
+            case "arm":
+                let windowMs = (verbObj["windowMs"] as? NSNumber)?.intValue ?? 2000
+                bodies.armBodyLayers(windowMs: windowMs)
+                self.respond(id: id, ok: true, payload: ["value": ["armed": true, "windowMs": windowMs]])
+            case "read":
+                self.respond(id: id, ok: true, payload: ["value": bodies.readBodyLayers().foundation])
+            default:
+                self.respondError(id: id, name: "ProtocolError", message: "bodyLayers: op must be 'arm' or 'read'")
+            }
         }
     }
 

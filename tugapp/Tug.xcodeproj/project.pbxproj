@@ -74,6 +74,9 @@
 		AA000001000000000000005E /* BodyBeats.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000055 /* BodyBeats.swift */; };
 		AA000001000000000000005F /* BodyBeats.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000055 /* BodyBeats.swift */; };
 		AA0000010000000000000060 /* BodyBeatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000056 /* BodyBeatsTests.swift */; };
+		AA000001000000000000006C /* BodyHandOver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005F /* BodyHandOver.swift */; };
+		AA000001000000000000006D /* BodyHandOver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005F /* BodyHandOver.swift */; };
+		AA000001000000000000006E /* BodyHandOverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000060 /* BodyHandOverTests.swift */; };
 		AA0000010000000000000061 /* CardGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000057 /* CardGeometry.swift */; };
 		AA0000010000000000000062 /* CardGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000057 /* CardGeometry.swift */; };
 		AA0000010000000000000063 /* CardGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000058 /* CardGeometryTests.swift */; };
@@ -145,6 +148,8 @@
 		AA0000020000000000000054 /* BodyGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyGeometryTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000055 /* BodyBeats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyBeats.swift; sourceTree = "<group>"; };
 		AA0000020000000000000056 /* BodyBeatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyBeatsTests.swift; sourceTree = "<group>"; };
+		AA000002000000000000005F /* BodyHandOver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyHandOver.swift; sourceTree = "<group>"; };
+		AA0000020000000000000060 /* BodyHandOverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyHandOverTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000057 /* CardGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGeometry.swift; sourceTree = "<group>"; };
 		AA0000020000000000000058 /* CardGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGeometryTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000059 /* HostMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostMessages.swift; sourceTree = "<group>"; };
@@ -204,6 +209,7 @@
 				AA0000020000000000000052 /* BodyGeometry.swift */,
 				AA0000020000000000000057 /* CardGeometry.swift */,
 				AA0000020000000000000055 /* BodyBeats.swift */,
+				AA000002000000000000005F /* BodyHandOver.swift */,
 				AA0000020000000000000059 /* HostMessages.swift */,
 				AA000002000000000000005A /* HostChannel.swift */,
 				AA0000020000000000000053 /* HostCapabilitiesScript.swift */,
@@ -263,6 +269,7 @@
 				AA0000020000000000000058 /* CardGeometryTests.swift */,
 				AA000002000000000000005E /* RailGeometryTests.swift */,
 				AA0000020000000000000056 /* BodyBeatsTests.swift */,
+				AA0000020000000000000060 /* BodyHandOverTests.swift */,
 				AA000002000000000000005B /* HostChannelTests.swift */,
 				AA000002000000000000004B /* MenuBarBuilderTests.swift */,
 				AA0000020000000000000045 /* ShellPathResolverTests.swift */,
@@ -384,6 +391,7 @@
 				AA000001000000000000005A /* BodyGeometry.swift in Sources */,
 				AA0000010000000000000061 /* CardGeometry.swift in Sources */,
 				AA000001000000000000005E /* BodyBeats.swift in Sources */,
+				AA000001000000000000006C /* BodyHandOver.swift in Sources */,
 				AA0000010000000000000064 /* HostMessages.swift in Sources */,
 				AA0000010000000000000066 /* HostChannel.swift in Sources */,
 				AA000001000000000000005C /* HostCapabilitiesScript.swift in Sources */,
@@ -435,6 +443,7 @@
 				AA0000010000000000000063 /* CardGeometryTests.swift in Sources */,
 				AA000001000000000000006B /* RailGeometryTests.swift in Sources */,
 				AA0000010000000000000060 /* BodyBeatsTests.swift in Sources */,
+				AA000001000000000000006E /* BodyHandOverTests.swift in Sources */,
 				AA0000010000000000000067 /* HostChannelTests.swift in Sources */,
 				AA0000010000000000000052 /* MenuBarBuilderTests.swift in Sources */,
 				AA000001000000000000004A /* ShellPathResolverTests.swift in Sources */,
@@ -448,6 +457,7 @@
 				AA0000010000000000000062 /* CardGeometry.swift in Sources */,
 				AA000001000000000000006A /* RailView.swift in Sources */,
 				AA000001000000000000005F /* BodyBeats.swift in Sources */,
+				AA000001000000000000006D /* BodyHandOver.swift in Sources */,
 				AA0000010000000000000065 /* HostMessages.swift in Sources */,
 				AA0000010000000000000051 /* MenuBarBuilder.swift in Sources */,
 				AA0000010000000000000045 /* ShellPathResolver.swift in Sources */,

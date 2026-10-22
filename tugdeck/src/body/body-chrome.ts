@@ -19,6 +19,7 @@ import type { CardState } from "../layout-tree";
 import type { SlotStackEntry } from "../deck-store-selectors";
 import type { PaneChromeValue } from "../bus/declarations/pane";
 import type { DeckCardFacts } from "../bus/declarations/deck";
+import type { CardMastheadPayload } from "../lib/card-title-store";
 import { getRegistration } from "../card-registry";
 import { deckCardIcon, deckCardTabTitle } from "../lib/deck-cards";
 import {
@@ -76,6 +77,26 @@ export function slotStackOf(value: PaneChromeValue, cards: Record<string, DeckCa
 export function chromeCardsKey(value: PaneChromeValue, cards: Record<string, DeckCardFacts>): string {
   const ids = [...value.tabs.map((t) => t.cardId), ...value.slotStack.map((e) => e.cardId)];
   return JSON.stringify(ids.map((id) => namedCard(cards, id)));
+}
+
+/**
+ * Whether this page's chrome frame is the card's face, whole, so the host may
+ * show it (`painted`): the shell's pane facts have arrived, and the frame
+ * draws the masthead the shell holds for the card. The shell's stand-in draws
+ * that masthead; a frame showing its one-line bar in its place would show
+ * the card with an empty title until its content set the masthead.
+ * `shellHoldsMasthead` is read off the card's own `deck.cards` record, and
+ * undefined until the shell's facts reach the page. A frame that never
+ * qualifies is shown at the card's ready, which says `painted` whatever this
+ * answers.
+ */
+export function chromeFrameWhole(
+  hasChrome: boolean,
+  shellHoldsMasthead: boolean | undefined,
+  masthead: CardMastheadPayload | null,
+): boolean {
+  if (!hasChrome || shellHoldsMasthead === undefined) return false;
+  return !shellHoldsMasthead || masthead !== null;
 }
 
 /**

@@ -40,7 +40,7 @@ import { getCardCloseGuard } from "../lib/card-close-guard";
 import { cardModalHoldStore, isCardHeld } from "../lib/card-modal-hold-store";
 import { readCardCloseAdvice } from "../lib/card-close-advice";
 import { deckCards } from "../bus/declarations/deck";
-import { bodyChromeVerbs, chromeCardsKey, chromeModelOf, soleCardCloseAdvice } from "./body-chrome";
+import { bodyChromeVerbs, chromeCardsKey, chromeFrameWhole, chromeModelOf, soleCardCloseAdvice } from "./body-chrome";
 import type { BodyCardDeck } from "./body-card-deck";
 import "../components/chrome/rail-shadow.css";
 
@@ -213,17 +213,22 @@ export function BodyChromeFrame({
     return () => cardDragCoordinator.initRemote(null);
   }, [deck]);
 
-  // The first frame with the shell's chrome facts: the host may show the
-  // view now. Two frames on, so the frame carrying the chrome has gone to the
-  // compositor (`body-main.ts`'s rule for `painted`).
-  const hasChrome = chrome !== null;
+  // The first frame with the shell's chrome facts and the masthead the shell
+  // holds for the card: the host may show the view now. Two frames on, so the
+  // frame carrying the chrome has gone to the compositor (`body-main.ts`'s
+  // rule for `painted`).
+  const shellHoldsMasthead = useSyncExternalStore(deckCards.subscribe, () => {
+    const own = deckCards.getSnapshot()[cardId];
+    return own === undefined ? undefined : own.masthead !== null;
+  });
+  const whole = chromeFrameWhole(chrome !== null, shellHoldsMasthead, masthead);
   useLayoutEffect(() => {
-    if (!hasChrome || chromePaintPosted) return;
+    if (!whole || chromePaintPosted) return;
     chromePaintPosted = true;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => postToHost(paintedToHost, {}));
     });
-  }, [hasChrome]);
+  }, [whole]);
 
   // The frame's tier, as the shell's pane stamps its own: which masthead,
   // and the rail tier.
