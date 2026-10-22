@@ -293,10 +293,19 @@ impl UnitRun {
     }
 
     /// The report this run makes, with `text` as its line.
+    ///
+    /// It nests while an item is running: a loop's item is often a runner
+    /// that reports for itself — `just app-test <file>` posts its own
+    /// `app-test` run under the same call — and that report belongs beneath
+    /// the running row, not in place of the loop. Without it the block flipped
+    /// between the loop and the item's run on every item. With nothing
+    /// running the run does not nest, so a later loop under another label
+    /// still replaces a finished one.
     pub fn report(&self, text: &str) -> RunReport {
         let all = self.all_rows();
         let done = all.iter().filter(|r| r.status.landed()).count() as u64;
         let failures = all.iter().filter(|r| r.status.red()).count() as u64;
+        let nests = all.iter().any(|r| r.status == UnitStatus::Running);
         RunReport {
             label: Some(self.plan.label.clone()),
             text: text.to_string(),
@@ -307,7 +316,7 @@ impl UnitRun {
             jobs: self.plan.jobs,
             units: serde_json::to_value(self.rows()).ok(),
             needles: self.plan.needles.clone(),
-            nests: false,
+            nests,
         }
     }
 
@@ -796,6 +805,25 @@ mod tests {
         assert_eq!(
             report.units.unwrap()[2],
             serde_json::json!({"name": "c", "status": "pending", "index": 2})
+        );
+    }
+
+    #[test]
+    fn a_loop_nests_only_while_an_item_runs() {
+        let mut run = planned(&["a", "b"], &[]);
+        assert!(!run.report("planned").nests, "nothing running, nothing to nest");
+        run.start("a", None, 1_000);
+        assert!(
+            run.report("a started").nests,
+            "an item's own runner reports beneath its row, not in place of the loop"
+        );
+        run.done("a", UnitStatus::Pass, Landing::default(), 2_000);
+        assert!(!run.report("a PASS").nests);
+        run.start("b", None, 3_000);
+        run.done("b", UnitStatus::Fail, Landing::default(), 4_000);
+        assert!(
+            !run.report("done").nests,
+            "a finished loop is replaced by a later run under another label"
         );
     }
 

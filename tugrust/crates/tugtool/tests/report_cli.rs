@@ -530,14 +530,9 @@ fn a_wait_reports_each_probe_and_exits_when_its_condition_holds() {
     let (port, requests) = fake_tugcast(Answer::Ok);
     register_fake_instance(&tmp, port);
     let flag = tmp.join("ready");
-    let later = flag.clone();
-    let writer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(400));
-        std::fs::write(later, "1\n").unwrap();
-    });
 
     let started = Instant::now();
-    let out = report(&tmp)
+    let child = report(&tmp)
         .env("TUG_SESSION_ID", "seg-0")
         .args([
             "wait",
@@ -553,13 +548,21 @@ fn a_wait_reports_each_probe_and_exits_when_its_condition_holds() {
             "--for",
             "20",
         ])
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .unwrap();
-    writer.join().unwrap();
+    // The condition holds only once the first probe has reported it did not,
+    // so the test never races the verb's start-up against a timer.
+    let first_body = requests
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the first probe reports");
+    std::fs::write(&flag, "1\n").unwrap();
+    let out = child.wait_with_output().unwrap();
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     assert!(started.elapsed() < Duration::from_secs(10));
 
-    let mut bodies = Vec::new();
+    let mut bodies = vec![first_body];
     while let Ok(body) = requests.recv_timeout(Duration::from_millis(500)) {
         bodies.push(body);
     }
