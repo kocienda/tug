@@ -559,7 +559,8 @@ pub async fn execute_probe(
     let start = Instant::now();
 
     let wire_tap = wire_tap_path(&bank_path);
-    let tugcast = TestTugcast::spawn_with_wire_tap(project_dir, bank_path, Some(&wire_tap)).await;
+    let tugcast =
+        TestTugcast::spawn_with_env(project_dir, bank_path, Some(&wire_tap), probe.env).await;
     let mut ws = TestWs::connect(tugcast.port).await;
 
     let card_id = format!("probe-{}", probe.name);

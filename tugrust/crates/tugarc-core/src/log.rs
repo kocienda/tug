@@ -433,6 +433,27 @@ pub struct ArcDeclarations {
     /// when no run was declared, so a legacy generation never arms on
     /// arithmetic it never recorded.
     pub run_complete: bool,
+    /// The open step's waiting hand-off: the latest `yield:` note, until the
+    /// step it was written in closes, withdraws or parks. What a resumed
+    /// stage reads to know where inside the step it left off ([B05]).
+    pub latest_yield: Option<String>,
+    /// A `yield:` note is newer than every line that asks a stage for work —
+    /// a rotation (`arc-stage`), a compaction (`compact`), a resume or a
+    /// continue, and any step declaration. True means the stage ended its
+    /// turn on a hand-off nothing has answered yet, which is what the wheel's
+    /// step-open compaction keys on ([B06]); the compaction's own line spends
+    /// it, so one yield buys one compaction.
+    pub yielded_since_ask: bool,
+}
+
+/// How a `yield:` hand-off begins ([B05]): the subject of the round commit a
+/// stage ends a turn on when it yields mid-step, and the note
+/// [`crate::ops::commit_in`] writes beside that round as an `arc-note`.
+pub const YIELD_PREFIX: &str = "yield:";
+
+/// Whether an `arc-note` is a stage's mid-step hand-off.
+pub fn is_yield_note(note: &str) -> bool {
+    note.trim_start().starts_with(YIELD_PREFIX)
 }
 
 /// Split an arc-log line into its timestamp, arc, marker, and note fields.
@@ -622,6 +643,9 @@ pub fn read_declarations(paths: &Paths, repo_root: &Path, arc: &str) -> ArcDecla
                     if found.run_through.is_some() {
                         found.run_first.get_or_insert(current);
                     }
+                    // Any step declaration answers a hand-off: the stage
+                    // moved the ledger after it, so it is working again.
+                    found.yielded_since_ask = false;
                     match marker {
                         // The two markers that leave a step *open*. Both carry
                         // a title in the note's tail, and both put the step
@@ -643,6 +667,7 @@ pub fn read_declarations(paths: &Paths, repo_root: &Path, arc: &str) -> ArcDecla
                         "step-reset" => {
                             found.step_title = read_step_title(note, current);
                             found.step_in_flight = false;
+                            found.latest_yield = None;
                             outstanding.insert(current);
                         }
                         // The closes. A done note's tail is the round's sha,
@@ -655,6 +680,7 @@ pub fn read_declarations(paths: &Paths, repo_root: &Path, arc: &str) -> ArcDecla
                         // its debt without dragging the run back to it.
                         _ => {
                             found.step_in_flight = false;
+                            found.latest_yield = None;
                             outstanding.remove(&current);
                             frontier = Some(frontier.map_or(current, |far| far.max(current)));
                         }
@@ -665,6 +691,17 @@ pub fn read_declarations(paths: &Paths, repo_root: &Path, arc: &str) -> ArcDecla
             "audited" => found.latest = Some(ArcDeclaration::Audited),
             "replayed" => found.last_replay = Some(note.to_owned()),
             "verified" => found.last_verified = Some(note.to_owned()),
+            "arc-note" if is_yield_note(note) => {
+                found.latest_yield = Some(note.trim().to_owned());
+                found.yielded_since_ask = true;
+            }
+            // The lines the wheel writes when it asks a stage for work. A
+            // rotation seats a session that has read no hand-off yet, which
+            // is why it spends the yield without clearing it: the fresh
+            // stage still resumes from it.
+            "compact" | "arc-stage" | "arc-resume" | "arc-continue" => {
+                found.yielded_since_ask = false;
+            }
             "run-through" => {
                 found.run_through = note.trim().parse().ok();
                 // A new selection is being declared: whatever step opened the
@@ -974,6 +1011,56 @@ mod tests {
             read_declarations(&fixture.paths, fixture.root(), "some-arc"),
             ArcDeclarations::default()
         );
+    }
+
+    #[test]
+    fn a_yield_waits_until_an_ask_spends_it_and_a_close_retires_it() {
+        let yield_note = "yield: wired the facts; files: arc.rs; next: tests";
+        let read = |lines: &[String]| {
+            let fixture = log_repo(&lines.concat());
+            read_declarations(&fixture.paths, fixture.root(), "d")
+        };
+        let mut lines = vec![
+            log_line("d", "run-through", "3"),
+            log_line("d", "step-start", "2/3 Facts"),
+            log_line("d", "abc1234", "Step 2: Facts"),
+            log_line("d", "arc-note", yield_note),
+        ];
+        let waiting = read(&lines);
+        assert!(waiting.yielded_since_ask, "nothing has answered the yield");
+        assert_eq!(waiting.latest_yield.as_deref(), Some(yield_note));
+
+        // The wheel's compaction spends the yield; the hand-off still waits
+        // for the stage that resumes from it.
+        lines.push(log_line("d", "compact", "at 0.62 >= 0.60"));
+        let compacted = read(&lines);
+        assert!(!compacted.yielded_since_ask);
+        assert_eq!(compacted.latest_yield.as_deref(), Some(yield_note));
+
+        // A note that is not a hand-off is not one.
+        lines.push(log_line("d", "arc-note", "second review skipped"));
+        assert!(!read(&lines).yielded_since_ask);
+
+        // Closing the step retires the hand-off.
+        lines.push(log_line("d", "step-done", "2/3 def5678"));
+        let closed = read(&lines);
+        assert!(!closed.yielded_since_ask);
+        assert_eq!(closed.latest_yield, None);
+    }
+
+    #[test]
+    fn a_rotation_and_a_resume_each_spend_a_yield() {
+        for asker in ["arc-stage", "arc-resume", "arc-continue"] {
+            let fixture = log_repo(&format!(
+                "{}{}{}",
+                log_line("d", "step-start", "1/2 One"),
+                log_line("d", "arc-note", "yield: half; next: rest"),
+                log_line("d", asker, "implement"),
+            ));
+            let found = read_declarations(&fixture.paths, fixture.root(), "d");
+            assert!(!found.yielded_since_ask, "{asker} asks the stage again");
+            assert!(found.latest_yield.is_some(), "{asker} keeps the hand-off");
+        }
     }
 
     #[test]

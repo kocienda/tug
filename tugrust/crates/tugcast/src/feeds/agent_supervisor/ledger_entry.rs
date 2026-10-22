@@ -429,6 +429,14 @@ pub struct LedgerEntry {
     /// `session_init` naming a different claude clears it, so a fresh session
     /// is never judged on the window of the one it replaced.
     pub context_window_tokens: Option<i64>,
+    /// How many live `compact_boundary` frames this entry has relayed — every
+    /// compaction its sessions performed, whoever asked for it.
+    ///
+    /// A count, not a flag, because the reader is the arc runner, which holds
+    /// the previous reading and asks whether one *happened* since: that is how
+    /// a compaction the harness's own autocompact drove reaches the wheel
+    /// ([B09]). A replayed boundary is history and is not counted.
+    pub compact_boundaries: u32,
     /// The session ids the most recent `request_replay` carried, oldest
     /// first, or `None` when it carried no lineage ([B02]).
     ///
@@ -470,6 +478,7 @@ impl LedgerEntry {
             pending_segments: std::collections::VecDeque::new(),
             deck_model: None,
             context_window_tokens: None,
+            compact_boundaries: 0,
             replayed_lineage: None,
             spawn_state: SpawnState::Idle,
             ever_live_here: false,

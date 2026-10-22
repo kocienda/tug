@@ -211,6 +211,20 @@ impl TestTugcast {
         bank_path: PathBuf,
         wire_tap: Option<&Path>,
     ) -> Self {
+        Self::spawn_with_env(project_dir, bank_path, wire_tap, &[]).await
+    }
+
+    /// [`TestTugcast::spawn_with_wire_tap`], with `env` set on the spawned
+    /// tugcast — and so inherited by the tugcode, the claude and every hook
+    /// under it, since each passes its environment down. A probe that
+    /// exercises a knob read from the environment (`ProbeRecord::env`) rides
+    /// this; the ordinary spawn passes nothing.
+    pub async fn spawn_with_env(
+        project_dir: &Path,
+        bank_path: PathBuf,
+        wire_tap: Option<&Path>,
+        env: &[(&str, &str)],
+    ) -> Self {
         // Defense-in-depth (C): on the first spawn in this test process,
         // reap any leftover `tug-test-*` tmux sessions from prior crashed
         // runs. Covers the gap where a test died before Drop could fire
@@ -306,6 +320,20 @@ impl TestTugcast {
             Some(path) => command.env("TUGCODE_WIRE_TAP", path),
             None => command.env_remove("TUGCODE_WIRE_TAP"),
         };
+        // The hooks claude runs find `tugtool` on PATH, and on a developer's
+        // machine that is the app's Release binary, not the one this
+        // checkout builds. When the checkout's own is built beside tugcast,
+        // put its directory first, so the chain a probe exercises — tugcast,
+        // tugcode, claude, hook — is the checkout's end to end.
+        if let Some(dir) = Path::new(bin).parent().filter(|d| d.join("tugtool").is_file()) {
+            let mut joined = std::ffi::OsString::from(dir);
+            joined.push(":");
+            joined.push(std::env::var_os("PATH").unwrap_or_default());
+            command.env("PATH", joined);
+        }
+        for (key, value) in env {
+            command.env(key, value);
+        }
         let mut child = command.spawn().expect("failed to spawn tugcast");
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {

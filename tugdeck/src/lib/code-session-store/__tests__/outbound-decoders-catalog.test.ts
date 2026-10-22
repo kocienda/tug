@@ -47,7 +47,6 @@ const UNCAPTURED = [
   "add_user_message",
   "api_retry",
   "assistant_opener",
-  "compact_boundary",
   "compact_summary",
   "error",
   "goal_feedback",

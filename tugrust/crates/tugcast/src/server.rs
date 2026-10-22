@@ -595,6 +595,37 @@ struct ArcApiRequest {
 // (A review-start route is gone: a review is an ordinary turn the user starts,
 // so there is no signal for a skill to fire and nothing for the server to relay.)
 
+/// A seated implement stage's share of its window, beside the line it yields
+/// at: `{"share", "yield_share"}`. `None` for any other stage and for a share
+/// with either half unmeasured — the hook then says nothing, which is the
+/// ordinary session's answer.
+fn yield_reading(
+    ledger: &crate::session_ledger::SessionLedger,
+    live: &str,
+    tokens: Option<i64>,
+    project: &std::path::Path,
+) -> Option<serde_json::Value> {
+    let (label, _) = ledger.stage_provenance(live)?;
+    if label != tugarc_core::arc::ArcStage::Implement.as_str() {
+        return None;
+    }
+    let max = ledger
+        .get_context_breakdown(live)
+        .ok()
+        .flatten()
+        .and_then(|row| crate::feeds::arc_runner::context_max_of(&row.payload));
+    let share = crate::feeds::arc_runner::context_share(
+        tokens.and_then(|used| u64::try_from(used).ok()),
+        max,
+    )?;
+    let yield_share = tugtool_core::config::Config::load_from_project(project)
+        .unwrap_or_default()
+        .tugtool
+        .arc
+        .yield_share();
+    Some(serde_json::json!({ "share": share, "yield_share": yield_share }))
+}
+
 /// Handle POST /api/arc. Loopback only, like every tugcast API; the ledger
 /// work runs on the blocking pool.
 ///
@@ -1354,6 +1385,22 @@ async fn session_handler(
             // closed a step?
             _ => {
                 let closed = supervisor.step_closed_this_turn(&live).await;
+                // The stage's share of its window, for the hook's yield line.
+                // Only an implement stage yields mid-step, and only a reading
+                // with both halves measured is one ([B03]).
+                let context = match (on_arc, supervisor.context_reading(&live).await) {
+                    (true, Some((tokens, project))) => {
+                        let ledger = Arc::clone(&ledger);
+                        let live = live.clone();
+                        tokio::task::spawn_blocking(move || {
+                            yield_reading(&ledger, &live, tokens, &project)
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                    }
+                    _ => None,
+                };
                 (
                     StatusCode::OK,
                     axum::Json(serde_json::json!({
@@ -1361,6 +1408,7 @@ async fn session_handler(
                         "session_id": live,
                         "on_arc": on_arc,
                         "step_closed_this_turn": closed,
+                        "context": context,
                     })),
                 )
                     .into_response()

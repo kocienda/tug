@@ -56,7 +56,7 @@ use tugtool_core::plan;
 use super::agent_supervisor::{AgentSupervisor, SpawnState, TurnOpener};
 use super::arc::{
     ArcAction, ArcFacts, PromptKind, PromptWhy, QUIET_TURN_HORIZON, Rotation, StepLedgerFacts,
-    arc_action, step_range,
+    arc_action, stage_autocompact_pct, step_range,
 };
 use super::arc_ownership;
 use crate::wheel::{self, RotationRequest};
@@ -135,6 +135,12 @@ pub(crate) struct ArcState {
     /// and the context only grows, so a latched flag would compact exactly
     /// once, having compacted not at all.
     compacted_since_below: bool,
+    /// A yield's compaction was sent on the seated session and no reading
+    /// since — idle or not — has measured the share under the yield line
+    /// ([`ArcFacts::yield_compacted`]). Set where the yield's `/compact` is
+    /// delivered, cleared by a reading under the line, a compact turn that
+    /// never happened, or a fresh seat.
+    yield_compacted: bool,
     /// A prompt the runner sent whose turn has not been read back yet.
     pending: Option<PendingPrompt>,
     /// How many turns the seated stage has ended in a row without closing a
@@ -188,6 +194,14 @@ pub(crate) struct ArcState {
     /// have to be: it only has to stop the clock being *reset* by a turn that
     /// is producing nothing.
     tokens_seen: Option<u64>,
+    /// The seated card's `compact_boundaries` count as the previous tick read
+    /// it. `None` until the first tick, which seeds it without counting: a
+    /// compaction tugcast did not watch is not one this arc may act on.
+    ///
+    /// A count that moved is a compaction that happened, whoever drove it —
+    /// and the one the wheel did not send is the harness's backstop, which
+    /// reaches the wheel only this way ([B09]).
+    compact_boundaries_seen: Option<u32>,
     /// What the arc looked like at the moment it stopped, and the only field
     /// a stop leaves behind.
     ///
@@ -935,7 +949,15 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         match map.get(&key) {
             Some(entry) => TickMemory {
                 last_done_count: entry.last_done_count,
-                compacted_since_below: entry.compacted_since_below,
+                // A compaction the card relayed since the last tick counts as
+                // one the wheel sent ([B09]): the harness's backstop brought
+                // the context down, so the next boundary does not compact
+                // again over it.
+                compacted_since_below: entry.compacted_since_below
+                    || entry
+                        .compact_boundaries_seen
+                        .is_some_and(|seen| session.compact_boundaries > seen),
+                yield_compacted: entry.yield_compacted,
                 compact_turn_just_ended: entry.pending.as_ref().is_some_and(|pending| {
                     pending.kind == PromptKind::Compact
                         && session.prompt_turns_ended > pending.turns_ended_at
@@ -960,6 +982,7 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         memory.compact_turn_just_ended && (session.api_error || session.turn_cancelled);
     let memory = TickMemory {
         compacted_since_below: memory.compacted_since_below && !compaction_never_happened,
+        yield_compacted: memory.yield_compacted && !compaction_never_happened,
         ..memory
     };
 
@@ -1113,7 +1136,12 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         let any_turn_ended = previously_seen_all.is_some_and(|seen| reading.all_turns_ended > seen);
         if reading.facts.ledger.step_just_done {
             entry.quiet_turns = 0;
-        } else if a_turn_ended && !reading.facts.compact_turn_just_ended {
+        } else if a_turn_ended
+            && !reading.facts.compact_turn_just_ended
+            // A yield is not a quiet turn ([B08]): the stage ended it on
+            // purpose, on a hand-off the wheel answers with a compaction.
+            && !reading.facts.yield_owed()
+        {
             entry.quiet_turns = entry.quiet_turns.saturating_add(1);
         }
         quiet_turns = entry.quiet_turns;
@@ -1209,6 +1237,22 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
                 .is_some_and(|tokens| tokens <= reading.facts.compact_tokens);
         if came_down || compaction_never_happened {
             entry.compacted_since_below = false;
+        }
+        // A yield's compaction is retired by the share, not the tokens, and by
+        // a reading at any moment: the resumed turn's first usage frame is the
+        // first measurement of the compacted context, and it lands mid-turn.
+        let under_the_line = reading
+            .facts
+            .context_share
+            .is_some_and(|share| share < reading.facts.yield_share);
+        if under_the_line || compaction_never_happened {
+            entry.yield_compacted = false;
+        }
+        // The harness's own compaction, read the same way as the turn counts:
+        // seeded on the first tick, counted on every later one ([B09]).
+        let boundaries_before = entry.compact_boundaries_seen.replace(session.compact_boundaries);
+        if boundaries_before.is_some_and(|seen| session.compact_boundaries > seen) {
+            entry.compacted_since_below = true;
         }
         // **The boundary the wheel cannot read idle.** The step closed, the
         // turn ended, and a job is still open: the one shape where a boundary
@@ -1716,6 +1760,10 @@ fn describe_action(action: Option<&ArcAction>) -> String {
             kind: PromptKind::StillOpen { .. },
             ..
         }) => "prompt:still-open".to_string(),
+        Some(ArcAction::Prompt {
+            kind: PromptKind::Resume { .. },
+            ..
+        }) => "prompt:resume".to_string(),
         Some(ArcAction::Done) => "done".to_string(),
         Some(ArcAction::Stop { reason, .. }) => format!("stop:{}", reason.as_str()),
         Some(ArcAction::Reverse { stage }) => format!("reverse:{}", stage.as_str()),
@@ -1777,6 +1825,13 @@ struct SessionSnapshot {
     stage_seated: bool,
     claude_session_id: Option<String>,
     context_window: Option<i64>,
+    /// The model's window cap in tokens — `context_max` from the session's
+    /// persisted `context_breakdown_latest` row. `None` when no breakdown has
+    /// been recorded, or the row does not carry one.
+    context_max: Option<u64>,
+    /// How many live compactions the card has relayed
+    /// (`LedgerEntry::compact_boundaries`).
+    compact_boundaries: u32,
 }
 
 async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<SessionSnapshot> {
@@ -1892,6 +1947,14 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     let stage_seated = claude_session_id
         .as_deref()
         .is_some_and(|id| ctx.session_ledger.stage_provenance(id).is_some());
+    let compact_boundaries = entry_arc.lock().await.compact_boundaries;
+    // The window cap is the persisted half of the share ([F04]): tugcode's
+    // `context_breakdown` frame carries it, and the supervisor keeps the
+    // latest per session.
+    let context_max = claude_session_id.as_deref().and_then(|id| {
+        let row = ctx.session_ledger.get_context_breakdown(id).ok()??;
+        context_max_of(&row.payload)
+    });
     Some(SessionSnapshot {
         live,
         idle,
@@ -1908,7 +1971,25 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         open_job_facts,
         claude_session_id,
         context_window,
+        context_max,
+        compact_boundaries,
     })
+}
+
+/// The `context_max` a persisted `context_breakdown` payload carries — the
+/// wire frame's JSON, verbatim. Anything that does not parse into a positive
+/// count is no reading.
+pub(crate) fn context_max_of(payload: &[u8]) -> Option<u64> {
+    let frame: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    frame.get("context_max")?.as_u64().filter(|max| *max > 0)
+}
+
+/// The stage's share of its window: tokens used over the window cap. `None`
+/// when either half is missing, because a share guessed from one half is not
+/// a reading the wheel may act on.
+pub(crate) fn context_share(used: Option<u64>, max: Option<u64>) -> Option<f64> {
+    let (used, max) = (used?, max.filter(|max| *max > 0)?);
+    Some(used as f64 / max as f64)
 }
 
 /// Everything one tick read, kept together so the act does not read it again.
@@ -1940,6 +2021,9 @@ struct ArcReading {
     /// and no snapshot, and the marks a stop leaves behind are read from it.
     wake_turns_ended: u32,
     config: ArcConfig,
+    /// The open step's waiting `yield:` hand-off, which the implement stage's
+    /// `where` line names ([B10]). Retired by the record when the step closes.
+    latest_yield: Option<String>,
 }
 
 /// The runner's per-arc memory as one tick reads it — the facts no document
@@ -1949,6 +2033,7 @@ struct TickMemory {
     last_done_count: Option<usize>,
     compacted_since_below: bool,
     compact_turn_just_ended: bool,
+    yield_compacted: bool,
     /// A re-ask is out and the turn it opened has not ended yet ([P06]).
     reask_pending: bool,
 }
@@ -2099,6 +2184,7 @@ fn read(
                 // happened here was a close, and nothing has answered it.
                 None => !step_open && done_count > 0 && first_pending.is_some(),
             },
+            step_open,
         },
         session_live: session.live,
         session_idle: session.idle,
@@ -2109,9 +2195,14 @@ fn read(
         stage_session_current,
         context_tokens,
         compact_tokens: config.compact_tokens(),
+        context_share: context_share(context_tokens, session.context_max),
+        yield_share: config.yield_share(),
+        backstop_share: config.backstop_share(),
+        yielded_since_ask: declarations.yielded_since_ask,
         stage_continues,
         compacted_since_below: memory.compacted_since_below,
         compact_turn_just_ended: memory.compact_turn_just_ended,
+        yield_compacted: memory.yield_compacted,
         reask_pending: memory.reask_pending,
         audit_declared: matches!(
             declarations.latest,
@@ -2152,6 +2243,7 @@ fn read(
         all_turns_ended: session.turns_ended,
         wake_turns_ended: session.wake_turns_ended,
         config,
+        latest_yield: declarations.latest_yield.clone(),
     })
 }
 
@@ -2236,6 +2328,7 @@ fn opening_prompt(
         arc.seat.as_str(),
         rotation.stage.as_str(),
         steps_in_hand,
+        reading.latest_yield.as_deref(),
     );
     // A stopped arc that is rotating again is resuming, and the stage it opens
     // is owed that fact: it is the difference between starting the work and
@@ -2544,6 +2637,7 @@ async fn deliver_prompt(
                 arc.seat.as_str(),
                 ArcStage::Implement.as_str(),
                 Some(*steps),
+                reading.latest_yield.as_deref(),
             );
             wheel::prompt::compose(&ask, Some(&place), &[], &[], None, None)
         }
@@ -2560,6 +2654,24 @@ async fn deliver_prompt(
                 arc.seat.as_str(),
                 ArcStage::Implement.as_str(),
                 Some(*steps),
+                reading.latest_yield.as_deref(),
+            );
+            wheel::prompt::compose(&ask, Some(&place), &[], &[], None, None)
+        }
+        // The resume ask after a yield's compaction ([B07]), composed like the
+        // re-ask: the session holds its own context, and the hand-off it
+        // resumes from is in the arc record.
+        PromptKind::Resume { steps } => {
+            let ask = wheel::prompt::resume_ask(&reading.name, steps.0, steps.1);
+            let Some(seat) = seat_or_stop(ctx, arc, ArcStage::Implement).await else {
+                return;
+            };
+            let place = wheel::prompt::where_clause(
+                &seat,
+                arc.seat.as_str(),
+                ArcStage::Implement.as_str(),
+                Some(*steps),
+                reading.latest_yield.as_deref(),
             );
             wheel::prompt::compose(&ask, Some(&place), &[], &[], None, None)
         }
@@ -2598,12 +2710,26 @@ async fn deliver_prompt(
         entry.quiet_marks = None;
     }
 
-    if let PromptWhy::Compact {
-        tokens,
-        compact_tokens,
-    } = why
-    {
-        let note = format!("{tokens} > {compact_tokens}");
+    // Both compactions write the same `compact` line and set the same memory;
+    // only the reading they name differs. The line is also what spends a
+    // yield's `yielded_since_ask`, so it is written before the turn it opens
+    // can end.
+    let compact_note = match why {
+        PromptWhy::Compact {
+            tokens,
+            compact_tokens,
+        } => Some(format!("{tokens} > {compact_tokens}")),
+        PromptWhy::Yield {
+            share: Some(share),
+            yield_share,
+        } => Some(format!("yield at share {share:.2} >= {yield_share:.2}")),
+        PromptWhy::Yield {
+            share: None,
+            yield_share,
+        } => Some(format!("yield at an unmeasured share, line {yield_share:.2}")),
+        _ => None,
+    };
+    if let Some(note) = compact_note {
         let (project, name) = (arc.project.clone(), arc.name.clone());
         let arc_note = format!("compacted at {note}");
         let paths = Arc::clone(&ctx.paths);
@@ -2616,6 +2742,9 @@ async fn deliver_prompt(
         let mut map = state.lock().await;
         let entry = map.entry(key.to_string()).or_default();
         entry.compacted_since_below = true;
+        if matches!(why, PromptWhy::Yield { .. }) {
+            entry.yield_compacted = true;
+        }
         entry.pending = Some(PendingPrompt {
             kind: PromptKind::Compact,
             turns_ended_at: reading.turns_ended,
@@ -2830,7 +2959,11 @@ async fn rotate(
             rotation
                 .steps
                 .map(|(from, through)| step_range(from, through)),
-        );
+        )
+        .autocompact_pct(stage_autocompact_pct(
+            rotation.stage,
+            reading.config.backstop_share(),
+        ));
 
     let dispatched_at = reading.record.stages.len();
     // **The seat's owner, before the seat exists.** The arc log is shared
@@ -2880,6 +3013,7 @@ async fn rotate(
         entry.last_done_count = Some(reading.done_count);
         // A fresh session has compacted nothing and is owed no turn.
         entry.compacted_since_below = false;
+        entry.yield_compacted = false;
         entry.pending = None;
         // A fresh stage is owed the whole horizon: whatever the last one did
         // or failed to do is not this one's record. Both turn counts go with
@@ -3044,6 +3178,7 @@ async fn reverse(
         // way it would have read it had the stop never happened.
         entry.last_done_count = Some(marks.map_or(reading.done_count, |marks| marks.done_count));
         entry.compacted_since_below = false;
+        entry.yield_compacted = false;
         entry.pending = None;
         entry.quiet_turns = 0;
         // **Seeded, never cleared** — the session is the stage's own and its
@@ -3197,7 +3332,13 @@ async fn continue_stage(
         );
     }
 
-    let place = wheel::prompt::where_clause(&seat, arc.seat.as_str(), stage.as_str(), steps);
+    let place = wheel::prompt::where_clause(
+        &seat,
+        arc.seat.as_str(),
+        stage.as_str(),
+        steps,
+        reading.latest_yield.as_deref(),
+    );
     let resume = reading
         .record
         .last_stop
@@ -3235,6 +3376,7 @@ async fn continue_stage(
         entry.in_flight_at = None;
         entry.last_done_count = Some(reading.done_count);
         entry.compacted_since_below = false;
+        entry.yield_compacted = false;
         entry.pending = None;
         entry.quiet_turns = 0;
         // Seeded rather than cleared, as `reverse` seeds them and for the
@@ -3751,6 +3893,8 @@ Some context.
             stage_seated: true,
             claude_session_id: claude.map(str::to_string),
             context_window: None,
+            context_max: None,
+            compact_boundaries: 0,
         }
     }
 
@@ -3803,6 +3947,77 @@ Some context.
                 note: None,
             }))
         );
+    }
+
+    #[test]
+    fn the_share_is_used_tokens_over_the_window_and_absent_without_either() {
+        assert_eq!(context_share(Some(120_000), Some(200_000)), Some(0.6));
+        assert_eq!(context_share(None, Some(200_000)), None);
+        assert_eq!(context_share(Some(120_000), None), None);
+        assert_eq!(context_share(Some(120_000), Some(0)), None);
+
+        // The persisted breakdown is the wire frame verbatim; only a positive
+        // `context_max` is a cap.
+        assert_eq!(
+            context_max_of(br#"{"context_max":1000000,"categories":[]}"#),
+            Some(1_000_000)
+        );
+        assert_eq!(context_max_of(br#"{"context_max":0}"#), None);
+        assert_eq!(context_max_of(br#"{"categories":[]}"#), None);
+        assert_eq!(context_max_of(b"not json"), None);
+    }
+
+    #[test]
+    fn a_reading_carries_the_share_the_shares_and_an_unanswered_yield() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, ".tug/arcs/demo/brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.arc]\nidle_settle_secs = 0\nimplement_yield_share = 0.5\n",
+        )
+        .unwrap();
+        let paths = Paths::from_env();
+        tugarc_core::arc::append_arc_start(&paths, root, "demo", ".tug/arcs/demo/brief.md")
+            .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &paths,
+            root,
+            "demo",
+            ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        let mut session = snapshot(true, true, Some("claude-1"));
+        session.context_window = Some(130_000);
+        session.context_max = Some(200_000);
+        let reading_of = |session: &SessionSnapshot| {
+            read(&paths, root, "demo", session, TickMemory::default()).unwrap()
+        };
+
+        let before = reading_of(&session);
+        assert_eq!(before.facts.context_share, Some(0.65));
+        assert_eq!(before.facts.yield_share, 0.5);
+        assert_eq!(
+            before.facts.backstop_share,
+            tugtool_core::config::IMPLEMENT_BACKSTOP_SHARE_DEFAULT
+        );
+        assert!(!before.facts.yielded_since_ask);
+
+        // The stage yields: its hand-off is the newest line, so it waits.
+        tugarc_core::arc::append_arc_note(&paths, root, "demo", "yield: half; next: rest")
+            .unwrap();
+        assert!(reading_of(&session).facts.yielded_since_ask);
+
+        // The wheel's compaction answers it.
+        tugarc_core::log::append_arc_log(&paths, root, "demo", "compact", "at 0.65 >= 0.50")
+            .unwrap();
+        assert!(!reading_of(&session).facts.yielded_since_ask);
+
+        // No cap recorded, no share.
+        session.context_max = None;
+        assert_eq!(reading_of(&session).facts.context_share, None);
     }
 
     #[test]
@@ -9459,6 +9674,230 @@ Some context.
                     );
                 }
             }
+        }
+    }
+
+    /// A mid-step yield, end to end ([B06]–[B08]): the yielding turn ends with
+    /// step 1 open over the line, the wheel compacts without counting the turn
+    /// as quiet, and the compact turn's end resumes the open step on the same
+    /// session or — still over the line — rotates over it.
+    #[tokio::test]
+    async fn a_yield_compacts_mid_step_and_its_compact_turn_resumes_or_rotates() {
+        for (after, expected) in [(30_000_i64, "resume"), (150_000, "rotate")] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "in progress", "pending");
+            let paths = Paths::from_env();
+            // The step the stage opened, as the verb records it beside the row.
+            tugarc_core::log::append_arc_log(
+                &paths,
+                root,
+                "demo",
+                "step-start",
+                "1/2 Step 1: The first step",
+            )
+            .unwrap();
+            tugarc_core::arc::append_arc_note(&paths, root, "demo", "yield: half; next: rest")
+                .unwrap();
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            ctx.session_ledger
+                .record_context_breakdown("claude-1", br#"{"context_max":200000}"#, 0)
+                .unwrap();
+            // 65% of the window: over the 60% line, under the token threshold.
+            set_context(&entry, 130_000).await;
+            let state = Arc::new(Mutex::new(HashMap::new()));
+            state.lock().await.insert(
+                demo_key(root),
+                ArcState {
+                    last_done_count: Some(0),
+                    prompt_turns_seen: Some(1),
+                    ..Default::default()
+                },
+            );
+
+            // The yielding turn ends.
+            asked(&entry, 2).await;
+            sweep(&ctx, &state).await;
+
+            assert_eq!(submitted(&entry).await, vec!["/compact".to_string()]);
+            {
+                let map = state.lock().await;
+                assert_eq!(
+                    map[&demo_key(root)].quiet_turns,
+                    0,
+                    "a yield is not a quiet turn"
+                );
+                assert!(map[&demo_key(root)].compacted_since_below);
+            }
+            assert!(
+                !tugarc_core::log::read_declarations(&paths, root, "demo").yielded_since_ask,
+                "the compaction's own line spent the yield"
+            );
+
+            // The compact turn ends on a new reading.
+            set_context(&entry, after).await;
+            asked(&entry, 3).await;
+            sweep(&ctx, &state).await;
+
+            match expected {
+                "resume" => assert_eq!(
+                    submitted_asks(&entry).await.last().map(String::as_str),
+                    Some(
+                        "/tugplug:arc-implement demo resume Step 1 from its yield: hand-off in the arc record, close it, and end the turn; Steps 1-2 remain on this arc"
+                    ),
+                    "a window the compaction brought under the line keeps its session"
+                ),
+                _ => {
+                    // Still over the line: a fresh session, opened over the
+                    // open step through the declared end.
+                    assert_eq!(
+                        submitted_asks(&entry).await.last().map(String::as_str),
+                        Some(
+                            "/tugplug:arc-implement demo implement Step 1 and end the turn; Steps 1-2 remain on this arc"
+                        ),
+                    );
+                    assert!(
+                        state.lock().await[&demo_key(root)].in_flight_at.is_some(),
+                        "the rotation was dispatched"
+                    );
+                }
+            }
+            // Either way, the session picking the step up — compacted or
+            // fresh — is handed the waiting note on its `where` line ([B10]).
+            let last = submitted(&entry).await.last().cloned().unwrap_or_default();
+            assert!(
+                last.contains("· Step 1 in hand, through 2 · its hand-off: yield: half; next: rest"),
+                "{expected}: {last}"
+            );
+        }
+    }
+
+    /// A yield's compaction that did not bring the window down, as the wheel
+    /// really sees it ([B07]): the compact turn retires the reading, so its
+    /// end resumes on the same session; the resumed turn's first measurement
+    /// is still over the line and the stage yields again. That second yield is
+    /// answered by a fresh session over the open step — a second `/compact`
+    /// of the same context would loop, since a yield is never a quiet turn.
+    /// A resumed turn that measured under the line before growing back over
+    /// it is a compaction that worked, and its next yield compacts again.
+    #[tokio::test]
+    async fn a_second_yield_over_a_compaction_that_never_came_down_rotates() {
+        for came_down_mid_turn in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "in progress", "pending");
+            let paths = Paths::from_env();
+            tugarc_core::log::append_arc_log(
+                &paths,
+                root,
+                "demo",
+                "step-start",
+                "1/2 Step 1: The first step",
+            )
+            .unwrap();
+            tugarc_core::arc::append_arc_note(&paths, root, "demo", "yield: half; next: rest")
+                .unwrap();
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            ctx.session_ledger
+                .record_context_breakdown("claude-1", br#"{"context_max":200000}"#, 0)
+                .unwrap();
+            set_context(&entry, 130_000).await;
+            let state = Arc::new(Mutex::new(HashMap::new()));
+            state.lock().await.insert(
+                demo_key(root),
+                ArcState {
+                    last_done_count: Some(0),
+                    prompt_turns_seen: Some(1),
+                    ..Default::default()
+                },
+            );
+
+            // The yielding turn ends: the first answer is a compaction.
+            asked(&entry, 2).await;
+            sweep(&ctx, &state).await;
+            assert_eq!(submitted(&entry).await, vec!["/compact".to_string()]);
+
+            // The compact turn ends with no reading behind it, which is all a
+            // compaction leaves: the step is resumed on the same session.
+            retire_context(&entry).await;
+            asked(&entry, 3).await;
+            sweep(&ctx, &state).await;
+            assert!(
+                submitted_asks(&entry)
+                    .await
+                    .last()
+                    .is_some_and(|ask| ask.contains("resume Step 1")),
+                "{:?}",
+                submitted_asks(&entry).await
+            );
+
+            // Mid-way through the resumed turn, the first measurement of the
+            // compacted context.
+            if came_down_mid_turn {
+                set_context(&entry, 30_000).await;
+                entry.lock().await.turn_active = true;
+                sweep(&ctx, &state).await;
+            }
+
+            // The resumed turn yields again, over the line.
+            set_context(&entry, 130_000).await;
+            tugarc_core::arc::append_arc_note(&paths, root, "demo", "yield: more; next: rest")
+                .unwrap();
+            let before = submitted(&entry).await.len();
+            asked(&entry, 4).await;
+            sweep(&ctx, &state).await;
+
+            let compacted_again = submitted(&entry).await[before..].contains(&"/compact".to_string());
+            let rotated = state.lock().await[&demo_key(root)].in_flight_at.is_some();
+            assert_eq!(compacted_again, came_down_mid_turn, "came down: {came_down_mid_turn}");
+            assert_eq!(rotated, !came_down_mid_turn, "came down: {came_down_mid_turn}");
+            assert_eq!(
+                state.lock().await[&demo_key(root)].quiet_turns,
+                0,
+                "neither yield is a quiet turn"
+            );
+        }
+    }
+
+    /// The harness's backstop reaches the wheel through the card's boundary
+    /// count ([B09]): a compaction the wheel did not send still makes the next
+    /// boundary over the threshold a rotation rather than a second compaction.
+    /// The first tick only seeds the count, so a boundary tugcast never
+    /// watched is not held against the stage.
+    #[tokio::test]
+    async fn a_harness_compaction_counts_as_one_at_the_next_boundary() {
+        for (seen, compacts) in [(Some(0), false), (None, true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            set_context(&entry, 350_000).await;
+            entry.lock().await.compact_boundaries = 1;
+            let state = Arc::new(Mutex::new(HashMap::new()));
+            state.lock().await.insert(
+                demo_key(root),
+                ArcState {
+                    last_done_count: Some(0),
+                    compact_boundaries_seen: seen,
+                    ..Default::default()
+                },
+            );
+
+            sweep(&ctx, &state).await;
+
+            assert_eq!(
+                submitted(&entry).await.contains(&"/compact".to_string()),
+                compacts,
+                "with the boundary count seen at {seen:?}"
+            );
+            assert_eq!(
+                state.lock().await[&demo_key(root)].in_flight_at.is_some(),
+                !compacts,
+                "a compaction already behind the context is answered by a rotation"
+            );
         }
     }
 

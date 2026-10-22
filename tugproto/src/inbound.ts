@@ -199,6 +199,14 @@ export interface SessionStageSpec {
    */
   steps?: string;
   /**
+   * The harness's own autocompact line, as a percent of the window, that the
+   * stage's claude spawns under (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`). Present
+   * only on an implement stage, where it is the backstop behind the model's
+   * yield; absent leaves the harness at its default, and like `arc` it is
+   * cleared by a rotation that names none.
+   */
+  autocompact_pct?: number;
+  /**
    * The stage's opening prompt — the `user_message` the runner sends right
    * behind this command. Echoed on the rotation's `session_segment` announcement so the
    * deck can open the turn it is about to watch: a turn nobody in the deck

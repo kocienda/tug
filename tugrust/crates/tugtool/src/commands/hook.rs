@@ -63,12 +63,37 @@ pub fn run_hook(command: HookCommands) -> Result<(), AppError> {
             let Ok(payload) = serde_json::from_str::<Value>(&raw) else {
                 return Ok(());
             };
-            if let Some(decision) = pre_tool_use(&payload) {
-                println!("{}", decision.render());
+            // One ask of the owning instance per call, read twice: by the
+            // turn boundary, and by the yield line. Neither is asked off an
+            // arc, so an ordinary session pays no round trip.
+            let answer = std::cell::OnceCell::new();
+            let ask = || answer.get_or_init(ask_turn);
+            let decision = pre_tool_use_with(&payload, || turn_facts_of(ask()));
+            let context = additional_context().or_else(|| {
+                let arc = std::env::var("TUG_ARC").ok().filter(|arc| !arc.is_empty())?;
+                yield_line(&arc, ask())
+            });
+            if let Some(answer) = render_answer(decision.as_ref(), context.as_deref()) {
+                println!("{answer}");
             }
             Ok(())
         }
     }
+}
+
+/// The capture's instrument: text set here rides every answer this hook
+/// gives as `hookSpecificOutput.additionalContext`, the channel Claude Code
+/// documents for putting a sentence in front of the model on its next
+/// inference. The stream-json catalog's `test-47` sets it to settle whether
+/// the channel reaches the model under the pinned version, which is the
+/// precondition for a hook that tells a seated stage its share of the
+/// context window. Unset in production, like `TUGCODE_WIRE_TAP`.
+const ADDITIONAL_CONTEXT_ENV: &str = "TUGTOOL_HOOK_ADDITIONAL_CONTEXT";
+
+fn additional_context() -> Option<String> {
+    std::env::var(ADDITIONAL_CONTEXT_ENV)
+        .ok()
+        .filter(|text| !text.trim().is_empty())
 }
 
 /// Bash commands approved by prefix: read-only lookups, and the CLI whose
@@ -92,59 +117,77 @@ pub enum Decision {
     AllowRewrite(&'static str, Value),
 }
 
+#[cfg(test)]
 impl Decision {
+    /// The answer for this decision alone — the tests' shorthand for
+    /// [`render_answer`] with no additional context.
     fn render(&self) -> String {
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Specific<'a> {
-            hook_event_name: &'a str,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            permission_decision: Option<&'a str>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            permission_decision_reason: Option<&'a str>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            updated_input: Option<&'a Value>,
-        }
-        #[derive(Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Output<'a> {
-            hook_specific_output: Specific<'a>,
-        }
-        let mut specific = Specific {
-            hook_event_name: "PreToolUse",
-            permission_decision: None,
-            permission_decision_reason: None,
-            updated_input: None,
-        };
-        match self {
-            Decision::Allow(reason) => {
-                specific.permission_decision = Some("allow");
-                specific.permission_decision_reason = Some(reason);
-            }
-            Decision::Deny(reason) => {
-                specific.permission_decision = Some("deny");
-                specific.permission_decision_reason = Some(reason);
-            }
-            Decision::Rewrite(input) => specific.updated_input = Some(input),
-            Decision::AllowRewrite(reason, input) => {
-                specific.permission_decision = Some("allow");
-                specific.permission_decision_reason = Some(reason);
-                specific.updated_input = Some(input);
-            }
-        }
-        serde_json::to_string(&Output {
-            hook_specific_output: specific,
-        })
-        .unwrap_or_default()
+        render_answer(Some(self), None).unwrap_or_default()
     }
 }
 
-/// The decision for one PreToolUse payload, or `None` for "no opinion".
-pub fn pre_tool_use(payload: &Value) -> Option<Decision> {
-    pre_tool_use_with(payload, turn_facts)
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Specific<'a> {
+    hook_event_name: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_decision: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission_decision_reason: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated_input: Option<&'a Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    additional_context: Option<&'a str>,
 }
 
-/// [`pre_tool_use`], with the turn boundary's one I/O call injected.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Output<'a> {
+    hook_specific_output: Specific<'a>,
+}
+
+/// The JSON the hook prints: the decision, if any, and the additional
+/// context, if any, in one `hookSpecificOutput`. `None` when there is
+/// neither — an empty stdout is "no opinion", and that stays the answer for
+/// every call the instrument is not set on.
+pub(crate) fn render_answer(decision: Option<&Decision>, context: Option<&str>) -> Option<String> {
+    if decision.is_none() && context.is_none() {
+        return None;
+    }
+    let mut specific = Specific {
+        hook_event_name: "PreToolUse",
+        permission_decision: None,
+        permission_decision_reason: None,
+        updated_input: None,
+        additional_context: context,
+    };
+    match decision {
+        Some(Decision::Allow(reason)) => {
+            specific.permission_decision = Some("allow");
+            specific.permission_decision_reason = Some(reason);
+        }
+        Some(Decision::Deny(reason)) => {
+            specific.permission_decision = Some("deny");
+            specific.permission_decision_reason = Some(reason);
+        }
+        Some(Decision::Rewrite(input)) => specific.updated_input = Some(input),
+        Some(Decision::AllowRewrite(reason, input)) => {
+            specific.permission_decision = Some("allow");
+            specific.permission_decision_reason = Some(reason);
+            specific.updated_input = Some(input);
+        }
+        None => {}
+    }
+    Some(
+        serde_json::to_string(&Output {
+            hook_specific_output: specific,
+        })
+        .unwrap_or_default(),
+    )
+}
+
+/// The decision for one PreToolUse payload, or `None` for "no opinion", with
+/// the turn boundary's one I/O call injected.
 ///
 /// The boundary asks a running instance, and a unit test that asked one would
 /// be asking the *developer's own card* about the developer's own turn — the
@@ -1006,22 +1049,42 @@ fn spawned_into_an_arc() -> bool {
     std::env::var("TUG_ARC").is_ok_and(|value| !value.is_empty())
 }
 
-/// Ask the owning instance whether this turn has already closed a step.
-fn turn_facts() -> TurnFacts {
+/// The owning instance's one answer about the calling turn: whether it has
+/// closed a step, and the stage's share of its window.
+#[derive(Debug)]
+pub(crate) enum TurnAnswer {
+    /// Not spawned into an arc, so nothing was asked.
+    NotAsked,
+    /// Nobody to ask, or an instance that refused — `skewed` when the refusal
+    /// was an instance too old to know the op.
+    Unanswered { skewed: bool },
+    Answered(Value),
+}
+
+/// Ask the owning instance about this turn, once.
+fn ask_turn() -> TurnAnswer {
     if !spawned_into_an_arc() {
-        return TurnFacts::Open;
+        return TurnAnswer::NotAsked;
     }
-    let answer = crate::session_identity::ask_about_calling_session(
+    match crate::session_identity::ask_about_calling_session(
         "turn_facts",
         "checking the arc's turn boundary",
         serde_json::json!({}),
-    );
-    match answer {
-        None => TurnFacts::Unknown { skewed: false },
-        Some(Err(message)) => TurnFacts::Unknown {
+    ) {
+        None => TurnAnswer::Unanswered { skewed: false },
+        Some(Err(message)) => TurnAnswer::Unanswered {
             skewed: message.contains("unknown op"),
         },
-        Some(Ok(response)) => {
+        Some(Ok(response)) => TurnAnswer::Answered(response),
+    }
+}
+
+/// The boundary gate's reading of the instance's answer.
+fn turn_facts_of(answer: &TurnAnswer) -> TurnFacts {
+    match answer {
+        TurnAnswer::NotAsked => TurnFacts::Open,
+        TurnAnswer::Unanswered { skewed } => TurnFacts::Unknown { skewed: *skewed },
+        TurnAnswer::Answered(response) => {
             if response.get("on_arc").and_then(Value::as_bool) != Some(true) {
                 return TurnFacts::Open;
             }
@@ -1034,6 +1097,33 @@ fn turn_facts() -> TurnFacts {
             }
         }
     }
+}
+
+/// The one line of context a seated implement stage is handed once its share
+/// of the window reaches the yield line ([B03], [B05]): the share, the line,
+/// and the instruction to land the round, write the hand-off and end the turn.
+///
+/// `None` below the line, off an arc, on any other stage (the server sends no
+/// `context` for one), and whenever the instance could not answer — so every
+/// session the yield is not for sees the hook's output exactly as before. It
+/// rides every tool call once over the line, so one more read cannot hide it.
+pub(crate) fn yield_line(arc: &str, answer: &TurnAnswer) -> Option<String> {
+    let TurnAnswer::Answered(response) = answer else {
+        return None;
+    };
+    if response.get("on_arc").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let context = response.get("context")?;
+    let share = context.get("share")?.as_f64()?;
+    let line = context.get("yield_share")?.as_f64()?;
+    (share >= line).then(|| {
+        format!(
+            "Context window: this implement stage is at {:.0}% of its window, at or over the {:.0}% yield line. Finish the round you are in so the tree holds only committed work, then commit it and write the hand-off in one call: `tugtool arc commit {arc} --message \"yield: <the round just landed>; files: <the files it touched>; next: <the next task inside this step>\"`. Then end the turn with the step still open. The wheel compacts this session and resumes the step from that line.",
+            share * 100.0,
+            line * 100.0,
+        )
+    })
 }
 
 /// The boundary's verdict on one payload: `Some(deny)` only when an arc
@@ -1080,7 +1170,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// The units' own `pre_tool_use`, shadowing the glob-imported one: every
+    /// The units' `pre_tool_use`, answering the boundary as open: every
     /// pre-boundary test is about the *other* rules, and none of them may
     /// reach a running instance to find out about a turn.
     fn pre_tool_use(payload: &Value) -> Option<Decision> {
@@ -1321,16 +1411,110 @@ mod tests {
 
     #[test]
     fn the_rendered_json_is_what_claude_code_reads() {
-        let out: Value = serde_json::from_str(&Decision::Allow("x").render()).unwrap();
+        let out: Value =
+            serde_json::from_str(&render_answer(Some(&Decision::Allow("x")), None).unwrap())
+                .unwrap();
         assert_eq!(out["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
         assert_eq!(out["hookSpecificOutput"]["permissionDecisionReason"], "x");
         assert!(out["hookSpecificOutput"].get("updatedInput").is_none());
-        let both = Decision::AllowRewrite("x", json!({"command": "c"})).render();
+        let both =
+            render_answer(Some(&Decision::AllowRewrite("x", json!({"command": "c"}))), None)
+                .unwrap();
         let out: Value = serde_json::from_str(&both).unwrap();
         assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
         assert_eq!(out["hookSpecificOutput"]["permissionDecisionReason"], "x");
         assert_eq!(out["hookSpecificOutput"]["updatedInput"]["command"], "c");
+        assert!(out["hookSpecificOutput"].get("additionalContext").is_none());
+    }
+
+    fn answered(context: Value) -> TurnAnswer {
+        TurnAnswer::Answered(serde_json::json!({
+            "status": "ok",
+            "on_arc": true,
+            "step_closed_this_turn": null,
+            "context": context,
+        }))
+    }
+
+    #[test]
+    fn the_yield_line_rides_a_stage_at_or_over_the_line() {
+        let line = yield_line(
+            "demo",
+            &answered(serde_json::json!({"share": 0.65, "yield_share": 0.6})),
+        )
+        .expect("over the line, the stage is told");
+        assert!(line.contains("65% of its window"), "{line}");
+        assert!(line.contains("the 60% yield line"), "{line}");
+        assert!(
+            line.contains("`tugtool arc commit demo --message \"yield: "),
+            "the hand-off is one arc commit naming the arc: {line}"
+        );
+        assert!(line.contains("end the turn with the step still open"), "{line}");
+
+        // Exactly at the line is at it.
+        assert!(
+            yield_line(
+                "demo",
+                &answered(serde_json::json!({"share": 0.6, "yield_share": 0.6}))
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn below_the_line_or_off_an_arc_the_hook_says_nothing_new() {
+        let below = answered(serde_json::json!({"share": 0.59, "yield_share": 0.6}));
+        assert_eq!(yield_line("demo", &below), None);
+        // Another stage, or a share with a half unmeasured: no `context`.
+        assert_eq!(yield_line("demo", &answered(Value::Null)), None);
+        let off_arc = TurnAnswer::Answered(serde_json::json!({
+            "on_arc": false,
+            "context": {"share": 0.9, "yield_share": 0.6},
+        }));
+        assert_eq!(yield_line("demo", &off_arc), None);
+        assert_eq!(yield_line("demo", &TurnAnswer::NotAsked), None);
+        assert_eq!(
+            yield_line("demo", &TurnAnswer::Unanswered { skewed: true }),
+            None
+        );
+        // And with no line, the answer is exactly what it was.
+        assert_eq!(render_answer(None, None), None);
+    }
+
+    #[test]
+    fn the_boundary_reads_the_same_answer_the_yield_line_does() {
+        assert_eq!(turn_facts_of(&TurnAnswer::NotAsked), TurnFacts::Open);
+        assert_eq!(
+            turn_facts_of(&TurnAnswer::Unanswered { skewed: true }),
+            TurnFacts::Unknown { skewed: true }
+        );
+        let closed = TurnAnswer::Answered(serde_json::json!({
+            "on_arc": true,
+            "step_closed_this_turn": 3,
+            "context": {"share": 0.7, "yield_share": 0.6},
+        }));
+        assert_eq!(turn_facts_of(&closed), TurnFacts::ClosedStep(3));
+        assert!(yield_line("demo", &closed).is_some());
+    }
+
+    #[test]
+    fn the_additional_context_instrument_rides_any_answer_and_stands_alone() {
+        // Beside a decision: one hookSpecificOutput carries both.
+        let both = render_answer(Some(&Decision::Allow("x")), Some("the share is 0.62")).unwrap();
+        let out: Value = serde_json::from_str(&both).unwrap();
+        assert_eq!(out["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+        assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
+        assert_eq!(out["hookSpecificOutput"]["additionalContext"], "the share is 0.62");
+        // With no decision: the context is the whole answer, no permission
+        // opinion beside it, so Claude Code's own flow still judges the call.
+        let alone = render_answer(None, Some("the share is 0.62")).unwrap();
+        let out: Value = serde_json::from_str(&alone).unwrap();
+        assert_eq!(out["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+        assert!(out["hookSpecificOutput"].get("permissionDecision").is_none());
+        assert_eq!(out["hookSpecificOutput"]["additionalContext"], "the share is 0.62");
+        // Neither: silence, which is "no opinion".
+        assert!(render_answer(None, None).is_none());
     }
 
     // ── The test-runner wrap ──────────────────────────────────────────────

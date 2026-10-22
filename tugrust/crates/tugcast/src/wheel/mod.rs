@@ -86,6 +86,10 @@ pub struct RotationRequest {
     /// `None` on every other stage, which is what tells the transcript's
     /// divider a continued stage from a first one.
     steps: Option<String>,
+    /// The harness's own autocompact line, as a percent of the window, for the
+    /// stage's claude to spawn under. `None` on every stage but implement,
+    /// which leaves the harness at its default.
+    autocompact_pct: Option<u32>,
 }
 
 impl RotationRequest {
@@ -105,6 +109,7 @@ impl RotationRequest {
             document: None,
             plan: None,
             steps: None,
+            autocompact_pct: None,
         }
     }
 
@@ -141,6 +146,12 @@ impl RotationRequest {
     /// The step range a continued implement stage walks.
     pub fn steps(mut self, steps: Option<String>) -> Self {
         self.steps = steps;
+        self
+    }
+
+    /// The harness's autocompact line for the stage's claude, a percent.
+    pub fn autocompact_pct(mut self, pct: Option<u32>) -> Self {
+        self.autocompact_pct = pct;
         self
     }
 }
@@ -459,6 +470,9 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
     if let Some(effort) = request.effort.as_deref() {
         stage["effort"] = serde_json::Value::String(effort.to_owned());
     }
+    if let Some(pct) = request.autocompact_pct {
+        stage["autocompact_pct"] = serde_json::Value::from(pct);
+    }
     // The prompt rides the command as well as its own frame: tugcode echoes it
     // on the rotation's `session_segment`, which is how the deck opens the turn
     // it is about to watch.
@@ -765,6 +779,20 @@ mod tests {
                 "prompt": "/tugplug:arc-implement arc/some.md Steps 4-9",
             })
         );
+    }
+
+    /// An implement stage's backstop rides the stage object as the percent
+    /// tugcode hands the harness, and a stage that names none sends no key.
+    #[test]
+    fn a_stages_autocompact_line_rides_the_stage_object_only_when_named() {
+        let named = RotationRequest::new(TugSessionId::new("sess-1"), "go", "implement")
+            .autocompact_pct(Some(85));
+        let (frames, _) = frames_for(&named);
+        assert_eq!(body(&frames[0])["stage"]["autocompact_pct"], 85);
+
+        let unnamed = RotationRequest::new(TugSessionId::new("sess-1"), "go", "review");
+        let (frames, _) = frames_for(&unnamed);
+        assert!(body(&frames[0])["stage"].get("autocompact_pct").is_none());
     }
 
     /// The invariant floor cannot be widened without editing this test: a

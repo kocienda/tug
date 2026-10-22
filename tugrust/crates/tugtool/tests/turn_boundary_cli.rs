@@ -39,6 +39,9 @@ enum Facts {
     OnArcClosed(u32),
     /// An arc stage with the turn's step still open.
     OnArcOpen,
+    /// An implement stage with its step open, at 65% of its window over a
+    /// 60% yield line.
+    OnArcOverTheLine,
     /// Bound to no arc at all — an ordinary card.
     OffArc,
     /// An instance older than W8: it does not know the op.
@@ -57,6 +60,11 @@ impl Facts {
             Facts::OnArcOpen => (
                 "200 OK",
                 r#"{"status":"ok","session_id":"seg-1","on_arc":true,"step_closed_this_turn":null}"#
+                    .to_string(),
+            ),
+            Facts::OnArcOverTheLine => (
+                "200 OK",
+                r#"{"status":"ok","session_id":"seg-1","on_arc":true,"step_closed_this_turn":null,"context":{"share":0.65,"yield_share":0.6}}"#
                     .to_string(),
             ),
             Facts::OffArc => (
@@ -301,6 +309,39 @@ fn the_same_session_with_the_step_still_open_edits_freely() {
     cmd.env("TUG_SESSION_ID", "seg-1");
     let stdout = decide(&mut cmd, edit_of(&tmp));
     assert_eq!(verdict(&stdout).map(|(d, _)| d), None, "{stdout}");
+}
+
+/// The yield line ([B03]): a stage over the line is told on a call the
+/// boundary never asks about — a read — and the call itself is left alone.
+#[test]
+fn a_stage_over_the_yield_line_is_told_on_every_call() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp = tmp.path().canonicalize().unwrap();
+    let (port, _requests) = fake_tugcast(Facts::OnArcOverTheLine);
+    register_fake_instance(&tmp, port);
+
+    for payload in [
+        serde_json::json!({
+            "tool_name": "Read",
+            "tool_input": { "file_path": "README.md" },
+            "cwd": tmp.to_string_lossy(),
+        }),
+        edit_of(&tmp),
+    ] {
+        let mut cmd = hook(&tmp);
+        cmd.env("TUG_SESSION_ID", "seg-1");
+        let stdout = decide(&mut cmd, payload);
+        assert_eq!(verdict(&stdout), None, "no decision rides it: {stdout}");
+        let value: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        let context = value["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            context.contains("65% of its window")
+                && context.contains("tugtool arc commit demo --message \"yield: "),
+            "{stdout}"
+        );
+    }
 }
 
 #[test]

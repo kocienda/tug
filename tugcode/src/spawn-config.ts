@@ -102,6 +102,7 @@ export function buildClaudeSpawnEnv(
   processEnv: Record<string, string | undefined>,
   sessionId: string,
   arc: string | null,
+  autocompactPct: number | null = null,
 ): Record<string, string | undefined> {
   const {
     ANTHROPIC_API_KEY,
@@ -129,6 +130,14 @@ export function buildClaudeSpawnEnv(
     scrubbedEnv.TUG_ARC = arc;
   } else {
     delete scrubbedEnv.TUG_ARC;
+  }
+
+  // An implement stage spawns under the harness's autocompact line as the
+  // backstop behind its own yield ([B01], [B02]): a percent of the window,
+  // which is the unit the variable takes. Every other session is left alone,
+  // including a value the user set themselves.
+  if (autocompactPct !== null) {
+    scrubbedEnv.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = String(autocompactPct);
   }
   return scrubbedEnv;
 }

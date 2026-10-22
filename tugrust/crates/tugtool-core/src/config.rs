@@ -118,6 +118,29 @@ pub struct ArcConfig {
     #[serde(default)]
     pub implement_compact_tokens: Option<u64>,
 
+    /// The share of the model's context window at which a seated implement
+    /// stage is told to yield mid-step: finish its round on committed bytes,
+    /// leave a `yield:` line, and end the turn so the wheel can compact it.
+    /// Absent means [`IMPLEMENT_YIELD_SHARE_DEFAULT`], which
+    /// [`ArcConfig::yield_share`] applies.
+    ///
+    /// A second line beside `implement_compact_tokens`, not a replacement for
+    /// it ([P07] stands): the token line says when a context has grown long
+    /// enough to work badly, and is read at a step boundary; this one says
+    /// when a step is at risk of meeting the harness's own forced compaction,
+    /// and is read inside a step.
+    #[serde(default)]
+    pub implement_yield_share: Option<f64>,
+
+    /// The share of the model's context window passed to the harness's own
+    /// autocompact override when an implement stage is spawned — the backstop
+    /// for a step that runs past the yield line between two readings. Absent
+    /// means [`IMPLEMENT_BACKSTOP_SHARE_DEFAULT`], which
+    /// [`ArcConfig::backstop_share`] applies. Claude Code reads its override
+    /// as a percent, so a share of `0.85` is passed as `85`.
+    #[serde(default)]
+    pub implement_backstop_share: Option<f64>,
+
     /// How long an arc may go without motion of any kind before it stops and
     /// hands the card back — the arc's clock, in seconds. Absent means
     /// [`ARC_STALL_SECS_DEFAULT`], which [`ArcConfig::stall_timeout`]
@@ -291,6 +314,32 @@ pub const RUN_STREAMS: &[&str] = &["stdout", "stderr", "both"];
 /// same judgement, and on a very large window it is not even close to it.
 pub const IMPLEMENT_COMPACT_TOKENS_DEFAULT: u64 = 300_000;
 
+/// The share of the window a seated implement stage yields at mid-step, when
+/// a project declares none.
+///
+/// Sixty percent leaves the step room to finish the round it is in — a commit,
+/// a test run, the hand-off line — before the backstop's line, and is well
+/// above the fixed prefix (system prompt plus tools) of any window a stage
+/// runs on.
+pub const IMPLEMENT_YIELD_SHARE_DEFAULT: f64 = 0.60;
+
+/// The share of the window passed to the harness's autocompact override as the
+/// backstop, when a project declares none.
+///
+/// Above the yield line by enough that a cooperating stage never meets it, and
+/// below the harness's own default line, so the backstop is the one that fires
+/// for a step that runs away between readings.
+pub const IMPLEMENT_BACKSTOP_SHARE_DEFAULT: f64 = 0.85;
+
+/// A declared share taken at its word only when it is a share: above zero and
+/// at most one. Anything else is the default, so a typo of `60` for `0.60`
+/// cannot turn the line off or put it out of reach.
+fn share_or(declared: Option<f64>, default: f64) -> f64 {
+    declared
+        .filter(|share| share.is_finite() && *share > 0.0 && *share <= 1.0)
+        .unwrap_or(default)
+}
+
 /// How long an arc may go without motion before the clock stops it, when a
 /// project declares nothing ([P07]).
 ///
@@ -343,6 +392,21 @@ impl ArcConfig {
     pub fn compact_tokens(&self) -> u64 {
         self.implement_compact_tokens
             .unwrap_or(IMPLEMENT_COMPACT_TOKENS_DEFAULT)
+    }
+
+    /// The mid-step yield line to actually use: the declaration when it is a
+    /// share in `(0, 1]`, or the default.
+    pub fn yield_share(&self) -> f64 {
+        share_or(self.implement_yield_share, IMPLEMENT_YIELD_SHARE_DEFAULT)
+    }
+
+    /// The backstop line to actually use: the declaration when it is a share
+    /// in `(0, 1]`, or the default.
+    pub fn backstop_share(&self) -> f64 {
+        share_or(
+            self.implement_backstop_share,
+            IMPLEMENT_BACKSTOP_SHARE_DEFAULT,
+        )
     }
 
     /// The clock's deadline to actually use: the declaration, or the default.
@@ -443,6 +507,17 @@ post_create = []
 # compacted at a step boundary. A stage a compaction cannot bring back under
 # this line rotates to a fresh session instead. Declare none and it is 300000.
 # implement_compact_tokens = 300000
+
+# The share of the model's context window at which a seated implement stage
+# is told, on its next tool call, to finish the round it is in, commit, leave a
+# `yield:` line and end the turn, so the wheel can compact it mid-step. Declare
+# none and it is 0.60.
+# implement_yield_share = 0.60
+
+# The share of the window handed to the harness's own autocompact as the
+# backstop for a step that runs past the yield line between readings. Declare
+# none and it is 0.85.
+# implement_backstop_share = 0.85
 
 # How long an idle reading must stay idle before the arc runner spends it on a
 # rotation, a prompt or a stop. A turn ending and the wake that answers it are
@@ -1400,6 +1475,49 @@ mod tests {
     }
 
     #[test]
+    fn yield_and_backstop_shares_parse_and_default() {
+        let toml = "[tugtool.arc]\nimplement_yield_share = 0.5\nimplement_backstop_share = 0.9\n";
+        let config: Config = toml::from_str(toml).expect("declared shares should parse");
+        let arc = &config.tugtool.arc;
+        assert_eq!(arc.implement_yield_share, Some(0.5));
+        assert_eq!(arc.implement_backstop_share, Some(0.9));
+        assert_eq!(arc.yield_share(), 0.5);
+        assert_eq!(arc.backstop_share(), 0.9);
+
+        // Undeclared stays `None` in the parse, so `arc config` can say so,
+        // and the default is applied at the consumer.
+        let silent: Config = toml::from_str("[tugtool.arc]\npost_create = []\n").unwrap();
+        let arc = &silent.tugtool.arc;
+        assert!(arc.implement_yield_share.is_none());
+        assert!(arc.implement_backstop_share.is_none());
+        assert_eq!(arc.yield_share(), IMPLEMENT_YIELD_SHARE_DEFAULT);
+        assert_eq!(arc.backstop_share(), IMPLEMENT_BACKSTOP_SHARE_DEFAULT);
+        assert_eq!(IMPLEMENT_YIELD_SHARE_DEFAULT, 0.60);
+        assert_eq!(IMPLEMENT_BACKSTOP_SHARE_DEFAULT, 0.85);
+
+        // The token line is untouched by either.
+        assert_eq!(arc.compact_tokens(), IMPLEMENT_COMPACT_TOKENS_DEFAULT);
+    }
+
+    #[test]
+    fn a_share_outside_zero_to_one_is_the_default() {
+        for bad in [0.0, -0.2, 1.5, 60.0, f64::NAN] {
+            let arc = ArcConfig {
+                implement_yield_share: Some(bad),
+                implement_backstop_share: Some(bad),
+                ..ArcConfig::default()
+            };
+            assert_eq!(arc.yield_share(), IMPLEMENT_YIELD_SHARE_DEFAULT, "{bad}");
+            assert_eq!(arc.backstop_share(), IMPLEMENT_BACKSTOP_SHARE_DEFAULT, "{bad}");
+        }
+        let whole = ArcConfig {
+            implement_yield_share: Some(1.0),
+            ..ArcConfig::default()
+        };
+        assert_eq!(whole.yield_share(), 1.0, "one is a share");
+    }
+
+    #[test]
     fn stage_declarations_default_to_none_and_the_threshold_to_the_consumer() {
         // Undeclared stays `None` in the parse — that is what lets `arc
         // config` report honestly that the project chose nothing — and the
@@ -1497,6 +1615,8 @@ mod tests {
             "review_model",
             "implement_model",
             "implement_compact_tokens",
+            "implement_yield_share",
+            "implement_backstop_share",
             "idle_settle_secs",
             "boundary_horizon_secs",
         ] {

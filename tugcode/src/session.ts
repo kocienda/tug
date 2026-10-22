@@ -502,6 +502,13 @@ export class SessionManager {
    */
   private currentArc: string | null = null;
   /**
+   * The harness autocompact line this session's claude spawns under, a
+   * percent, or null for the harness's default. Set by an implement stage's
+   * rotation and kept across tugcode's own respawns for the same reason
+   * {@link currentArc} is; a rotation naming none clears it.
+   */
+  private currentAutocompactPct: number | null = null;
+  /**
    * Working directories added via `/add-dir` ([#step-13c]), in add order. Like
    * {@link currentEffort}, tugcode owns the `--add-dir` flags and re-applies
    * these on every (re)spawn (claude has no live add-directory control verb
@@ -1015,6 +1022,7 @@ export class SessionManager {
       process.env,
       this.sessionId,
       this.currentArc,
+      this.currentAutocompactPct,
     );
 
     return this.claude.launch(args, scrubbedEnv);
@@ -4357,6 +4365,7 @@ export class SessionManager {
     // Absent is what *clears* it: the arc variable belongs to an arc, not to a
     // card, so a rotation naming none spawns claude without it.
     this.currentArc = stage?.arc ?? null;
+    this.currentAutocompactPct = stage?.autocompact_pct ?? null;
 
     // The effort is recorded before the spawn so the level rides that one
     // spawn. Setting it afterwards would cost a second respawn through

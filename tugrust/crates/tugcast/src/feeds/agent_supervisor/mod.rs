@@ -2877,6 +2877,19 @@ impl AgentSupervisor {
         entry.lock().await.step_closed_this_turn
     }
 
+    /// The card's resident context window in tokens and its project, for
+    /// the session `segment` is a segment of — the live half of the share a
+    /// seated stage's hook reads against its yield line ([B03]). `None` when
+    /// no card carries the segment.
+    pub async fn context_reading(
+        &self,
+        segment: &str,
+    ) -> Option<(Option<i64>, std::path::PathBuf)> {
+        let (_, entry) = self.card_entry_for_segment(segment).await?;
+        let entry = entry.lock().await;
+        Some((entry.context_window_tokens, entry.project_dir.clone()))
+    }
+
     /// Announce one arc ledger gesture on `session`'s card as durable ink.
     ///
     /// The same two halves `record_arc_receipt` does, for the same reason: a
@@ -4033,6 +4046,8 @@ impl AgentSupervisor {
                                 ContextWindowUpdate::Retired => {
                                     if entry.replay_brackets_open == 0 {
                                         entry.context_window_tokens = None;
+                                        entry.compact_boundaries =
+                                            entry.compact_boundaries.saturating_add(1);
                                     }
                                 }
                             }

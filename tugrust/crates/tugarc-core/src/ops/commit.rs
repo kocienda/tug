@@ -14,7 +14,9 @@ use super::identity::{
 use super::listing::has_uncommitted;
 use super::show::sessions_db_file;
 use crate::error::ArcError;
-use crate::log::{ArcRoundMeta, MarkStage, append_arc_log, append_mark_declaration};
+use crate::log::{
+    ArcRoundMeta, MarkStage, append_arc_log, append_mark_declaration, is_yield_note,
+};
 
 /// Outcome of [`commit_in`].
 #[derive(Debug, Clone, Serialize)]
@@ -190,6 +192,16 @@ pub fn commit_in(
     let marker = commit_hash.as_deref().unwrap_or("-");
     append_arc_log(paths, repo_root, name, marker, instruction)
         .map_err(|e| ArcError::arc_log(paths, repo_root, e))?;
+    // A `yield:` subject is the stage's mid-step hand-off ([B05]), and it is
+    // written as an `arc-note` whether or not the round had bytes to commit:
+    // a stage that yields on a clean tree still owes the wheel the line it
+    // compacts on and the next session the task it resumes from.
+    // The subject line alone: an arc-log note is one line.
+    let subject = message.lines().next().unwrap_or("").trim();
+    if is_yield_note(subject) {
+        append_arc_log(paths, repo_root, name, "arc-note", subject)
+            .map_err(|e| ArcError::arc_log(paths, repo_root, e))?;
+    }
 
     Ok(CommitOutcome {
         committed: has_changes,
@@ -608,6 +620,18 @@ mod tests {
 
         let result = commit_in(&paths, repo, "test-arc", "No changes", None, None);
         assert!(!result.unwrap().committed);
+
+        // Nothing to commit, so no hand-off was written either.
+        let log = fs::read_to_string(arc_log_path(&temp.path().join("state"), repo)).unwrap();
+        assert!(!log.contains("arc-note"), "no yield, no note: {log}");
+
+        // A yield on a clean tree still writes its hand-off ([B05]).
+        let yield_subject = "yield: half the facts; files: arc.rs; next: tests";
+        let result = commit_in(&paths, repo, "test-arc", yield_subject, None, None);
+        assert!(!result.unwrap().committed);
+        let declarations = crate::log::read_declarations(&paths, repo, "test-arc");
+        assert!(declarations.yielded_since_ask);
+        assert_eq!(declarations.latest_yield.as_deref(), Some(yield_subject));
 
         // No commit ahead of base.
         let count = tugcore::test_fixtures::git::command()

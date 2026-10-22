@@ -46,6 +46,13 @@ pub struct ProbeRecord {
     /// 60 s for longer streaming, 90 s for subagent / `/tugplug:plan`
     /// multi-agent flows.
     pub timeout_secs: u64,
+    /// Environment the probe's whole process chain runs under — set on the
+    /// spawned tugcast and inherited by tugcode, claude and every hook
+    /// claude runs. Empty for the ordinary probe. A probe that exercises a
+    /// knob the harness reads from the environment (claude's autocompact
+    /// override, the hook's additional-context instrument) names it here,
+    /// so the capture and the drift test run it the same way.
+    pub env: &'static [(&'static str, &'static str)],
     /// If `Some`, the probe is unconditionally skipped at capture
     /// time with this reason. Used for probes blocked on a known
     /// upstream bug that has a `dev.md §T0.5` follow-up pointer —
@@ -217,6 +224,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 2: Longer response / streaming behavior ---
@@ -234,6 +242,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 60,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 3: Slash command /cost ---
@@ -244,6 +253,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text"],
         prerequisites: &[],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 4: Slash command /status ---
@@ -254,6 +264,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text"],
         prerequisites: &[],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 5: Tool use (Read file) ---
@@ -274,6 +285,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 6: Interrupt mid-stream ---
@@ -299,6 +311,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 7: Multiple tool calls in one turn ---
@@ -319,6 +332,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 60,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 8: Tool error (nonexistent file) ---
@@ -355,6 +369,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["tool_use_structured", "thinking_text"],
         prerequisites: &[ProbePrereq::DenialCapableTool],
         timeout_secs: 60,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 9: Bash tool (auto-approved) ---
@@ -375,6 +390,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 10: Long streaming (300 words) ---
@@ -397,6 +413,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 180,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 11: Permission approval round-trip (deny) ---
@@ -427,6 +444,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["tool_use_structured", "thinking_text"],
         prerequisites: &[ProbePrereq::DenialCapableTool],
         timeout_secs: 60,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 12: /compact and /model ---
@@ -444,6 +462,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text"],
         prerequisites: &[],
         timeout_secs: 60,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 13: session_command new ---
@@ -473,6 +492,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: Some("blocked on dev.md §T0.5 P16 — session_command routing bug"),
     },
     // --- Test 14: Message during active turn ---
@@ -500,6 +520,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 90,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 15: /btw side question ---
@@ -512,6 +533,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text"],
         prerequisites: &[],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 16: model_change round-trip ---
@@ -548,6 +570,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 150,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 17: session_command continue ---
@@ -575,6 +598,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["system_metadata", "cost_update", "thinking_text"],
         prerequisites: &[],
         timeout_secs: 60,
+        env: &[],
         skip_reason: Some("blocked on dev.md §T0.5 P16 — session_command routing bug"),
     },
     // --- Test 18: Message during turn (detailed variant of 14) ---
@@ -605,6 +629,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 90,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 19: /compact (rich cost_update) ---
@@ -622,6 +647,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text", "thinking_text", "compact_boundary"],
         prerequisites: &[],
         timeout_secs: 60,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 20: session_command fork ---
@@ -649,6 +675,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: Some("blocked on dev.md §T0.5 P16 — session_command routing bug"),
     },
     // --- Test 21: Glob tool (auto-approved) ---
@@ -668,6 +695,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["tool_use_structured", "thinking_text"],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 22: Subagent spawn (Agent tool) ---
@@ -687,6 +715,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["tool_use_structured", "thinking_text"],
         prerequisites: &[],
         timeout_secs: 120,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 23: Image attachment ---
@@ -711,6 +740,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 60,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 24: @ file references ---
@@ -733,6 +763,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 25: Tugplug skill invocation (/plan) ---
@@ -763,6 +794,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[ProbePrereq::TugplugPluginLoaded],
         timeout_secs: 180,
+        env: &[],
         skip_reason: Some(
             "probe script incomplete — /tugplug:devise asks clarifying questions the script never answers; needs redesign (not P19)",
         ),
@@ -783,6 +815,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[ProbePrereq::TugplugPluginLoaded],
         timeout_secs: 60,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 27: @ file references (24a/24b variant) ---
@@ -805,6 +838,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 28: system_metadata deep dive (plugin skill visibility) ---
@@ -825,6 +859,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["thinking_text"],
         prerequisites: &[],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 29: /tugplug:ping with correct --plugin-dir ---
@@ -837,6 +872,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text", "cost_update", "thinking_text"],
         prerequisites: &[ProbePrereq::TugplugPluginLoaded],
         timeout_secs: 45,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 30: /tugplug:arc status (full orchestrator run) ---
@@ -856,6 +892,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[ProbePrereq::TugplugPluginLoaded],
         timeout_secs: 90,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 31: /cost classification ---
@@ -866,6 +903,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text"],
         prerequisites: &[],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 32: /compact classification ---
@@ -876,6 +914,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text"],
         prerequisites: &[],
         timeout_secs: 45,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 33: /model classification ---
@@ -886,6 +925,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text"],
         prerequisites: &[],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 34: Plugin agent enumeration ---
@@ -904,6 +944,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["cost_update", "thinking_text"],
         prerequisites: &[ProbePrereq::TugplugPluginLoaded],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 35: Live /tugplug:plan with AskUserQuestion flow ---
@@ -936,6 +977,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[ProbePrereq::TugplugPluginLoaded],
         timeout_secs: 180,
+        env: &[],
         // P19 is resolved. Un-skipping this probe during the P19
         // landing revealed it is flaky at `TUG_STABILITY>=2`: the
         // first capture run returns 0 events in ~90 s (below both
@@ -974,6 +1016,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["session_init", "cost_update", "thinking_text"],
         prerequisites: &[],
         timeout_secs: 30,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 37: `rewind_files` round-trip through tugcode ([#step-7-1]) ---
@@ -1031,6 +1074,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["tool_use", "tool_result", "assistant_text", "cost_update"],
         prerequisites: &[],
         timeout_secs: 120,
+        env: &[],
         // Skipped at 2.1.197: the setup turn uses the Write tool, and the
         // turn does not complete through tugcode — `turn_complete` never
         // arrives after `prompt_anchor` (0 events, 90 s timeout), even in
@@ -1101,6 +1145,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text", "cost_update", "system_metadata"],
         prerequisites: &[],
         timeout_secs: 240,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 39: `scope:"both"` composition — code revert THEN fork ---
@@ -1148,6 +1193,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 300,
+        env: &[],
         // Skipped at 2.1.197 for the same reason as test-37: the `both`
         // composition's setup writes a file, and a Write-tool turn hangs
         // (no `turn_complete`) under acceptEdits + file checkpointing.
@@ -1195,6 +1241,7 @@ pub static PROBES: &[ProbeRecord] = &[
         optional_events: &["assistant_text", "cost_update", "system_metadata"],
         prerequisites: &[],
         timeout_secs: 240,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 41: background Bash, clean completion + wake ---
@@ -1241,6 +1288,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 120,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 42: background Agent, progress ticks + wake ---
@@ -1297,6 +1345,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 150,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 43: ScheduleWakeup — scheduled re-init wake ---
@@ -1333,6 +1382,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 120,
+        env: &[],
         // Skipped in the recurring suite: a 5 s `ScheduleWakeup` does not
         // reliably fire its harness-timer re-init wake within the probe
         // window in a spawned stream-json session — the live capture
@@ -1390,6 +1440,7 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 120,
+        env: &[],
         skip_reason: None,
     },
     // --- Test 45: Background-agent transcript restore on resume ---
@@ -1436,12 +1487,117 @@ pub static PROBES: &[ProbeRecord] = &[
         ],
         prerequisites: &[],
         timeout_secs: 150,
+        env: &[],
         skip_reason: Some(
             "resume-replay restore needs a launch->await->resume capture the \
              recurring single-session harness does not model, and awaiting bg-agent \
              completion is nondeterministic; deterministic coverage is the \
              tugcode/tugdeck real-fixture tests (subagent-resume*.test)",
         ),
+    },
+    // --- Test 46: autocompact override fires on the second turn ---
+    // Settles the first of the mid-step-compaction brief's open questions:
+    // whether `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` is honoured under tugcode's
+    // stream-json spawn, and what unit it takes. The binary reads it with
+    // `parseFloat` and honours `0 < pct <= 100` as a PERCENT of the window:
+    // `threshold = min(floor(window * pct / 100), window - 13000)`. Two
+    // more facts the 2.1.285 debug log taught, and the probe is shaped by:
+    // the threshold has to clear the conversation's fixed prefix (system
+    // prompt plus tools, ~17k tokens with tugplug loaded) or claude logs
+    // `compaction cannot help` and does nothing; and a threshold whose
+    // source is not `auto` routes through the *reactive* compaction, which
+    // summarizes whole rounds and bails on a conversation with fewer than
+    // two. So the window is pinned with `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
+    // to make the percent model-independent, the percent puts the line
+    // between the prefix and one tool round's usage (~36k), and the probe
+    // runs two short turns so the second has a round to fold. The
+    // `compact_boundary` then lands twice in the second turn — before its
+    // first API call, and again between its tool result and the next call,
+    // which is the mid-turn fire the backstop is for — with a trigger of
+    // `auto`. The knobs ride `env`, so the drift test exercises the same
+    // ones.
+    ProbeRecord {
+        name: "test-46-autocompact-pct-override",
+        input_script: &[
+            ProbeMsg::UserMessage {
+                text: "Run the Bash command `ls README.md` exactly once, then end \
+                       your turn with the single word: done. Do not call any other \
+                       tools.",
+            },
+            ProbeMsg::ConsumeEvent {
+                event_type: "turn_complete",
+                max_secs: 45,
+            },
+            ProbeMsg::UserMessage {
+                text: "Run the Bash command `ls README.md` exactly once more, then \
+                       end your turn with the single word: again. Do not call any \
+                       other tools.",
+            },
+        ],
+        required_events: &[
+            "session_init",
+            "system_metadata",
+            "tool_use",
+            "tool_result",
+            "compact_boundary",
+            "turn_complete",
+        ],
+        optional_events: &[
+            "thinking_text",
+            "assistant_text",
+            "cost_update",
+            "compact_summary",
+            "tool_use_structured",
+        ],
+        prerequisites: &[],
+        timeout_secs: 120,
+        env: &[
+            ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "200000"),
+            ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "15"),
+        ],
+        skip_reason: None,
+    },
+    // --- Test 47: PreToolUse additionalContext reaches the model ---
+    // Settles the second open question: whether `additionalContext`
+    // returned by a `PreToolUse` hook reaches the model's next inference
+    // under the pinned version. `tugtool hook pre-tool-use` emits the text
+    // in `TUGTOOL_HOOK_ADDITIONAL_CONTEXT` as that field on every call —
+    // the capture's instrument, like `TUGCODE_WIRE_TAP` — and the text
+    // tells the model to make one more, otherwise unmotivated tool call.
+    // The extra tool call is the evidence: the model only reaches for Glob
+    // (directly, or through `ToolSearch` when Glob is deferred) if the
+    // hook's sentence reached it. On the wire the context
+    // arrives as a `user` message reading `PreToolUse:Bash hook additional
+    // context: …`, which `wire/` records.
+    ProbeRecord {
+        name: "test-47-pretooluse-additional-context",
+        input_script: &[ProbeMsg::UserMessage {
+            text: "Run the Bash command `ls README.md` exactly once. A hook may \
+                   add context to that call. If it asks you to do something, do \
+                   exactly that and nothing else, then end your turn with the \
+                   single word: done. If no such context arrived, end your turn \
+                   with the single word: none.",
+        }],
+        required_events: &[
+            "session_init",
+            "system_metadata",
+            "tool_use",
+            "tool_result",
+            "turn_complete",
+        ],
+        optional_events: &[
+            "thinking_text",
+            "assistant_text",
+            "cost_update",
+            "tool_use_structured",
+        ],
+        prerequisites: &[ProbePrereq::TugplugPluginLoaded],
+        timeout_secs: 60,
+        env: &[(
+            "TUGTOOL_HOOK_ADDITIONAL_CONTEXT",
+            "Before you end the turn, call the Glob tool exactly once with the pattern README.md.",
+        )],
+        skip_reason: None,
     },
 ];
 
@@ -1450,8 +1606,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn probe_table_has_45_entries() {
-        assert_eq!(PROBES.len(), 45, "probe table must contain all 45 probes");
+    fn probe_table_has_47_entries() {
+        assert_eq!(PROBES.len(), 47, "probe table must contain all 47 probes");
+    }
+
+    #[test]
+    fn probe_env_names_are_well_formed() {
+        for probe in PROBES {
+            for (key, value) in probe.env {
+                assert!(
+                    !key.is_empty() && key.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()),
+                    "probe {:?} env key {key:?} is not an environment variable name",
+                    probe.name
+                );
+                assert!(
+                    !value.is_empty(),
+                    "probe {:?} env {key} is empty — an empty value is what unsetting it means",
+                    probe.name
+                );
+            }
+        }
     }
 
     #[test]

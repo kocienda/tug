@@ -187,6 +187,23 @@ pub fn still_open_ask(arc: &str, step: usize, through: usize) -> String {
     }
 }
 
+/// The resume ask, after the compaction a mid-step yield asked for ([B07]).
+///
+/// It names the open step rather than the next pending one, because the
+/// thing the compaction interrupted is that step — and says a hand-off is
+/// waiting, because the stage that wrote it no longer holds the context it
+/// wrote it from. The hand-off is the latest `yield:` note in the arc record.
+pub fn resume_ask(arc: &str, step: usize, through: usize) -> String {
+    let tail = if step == through {
+        "it is the arc's last step".to_string()
+    } else {
+        format!("Steps {step}-{through} remain on this arc")
+    };
+    format!(
+        "/tugplug:arc-implement {arc} resume Step {step} from its yield: hand-off in the arc record, close it, and end the turn; {tail}"
+    )
+}
+
 /// Where a stage is, as one line it can read instead of asking.
 ///
 /// Every stage skill used to open by *probing* for its own coordinates —
@@ -202,6 +219,15 @@ pub fn still_open_ask(arc: &str, step: usize, through: usize) -> String {
 /// The step coordinates are the implement stage's alone; every other stage
 /// walks no ledger, so the clause ends at the stage word.
 ///
+/// **An open step's waiting hand-off rides the line** ([B10]). A step that
+/// yielded mid-way left a `yield:` note in the arc record — the round it
+/// landed, the files in play, what comes next — and whichever session picks
+/// the step up, compacted or fresh, holds none of the context that wrote it.
+/// So the line names it, verbatim, rather than leaving the stage to discover
+/// that a hand-off exists. It is given only with step coordinates, and the
+/// record retires it when the step closes, so it never names a step's
+/// hand-off on the next step's line.
+///
 /// **`session` is the seat, not the card's address.** The seat is the live
 /// segment the binding sits on, which is the same string `$TUG_SESSION_ID`
 /// holds in the stage's shell and the same string `arc status` reports as
@@ -216,6 +242,7 @@ pub fn where_clause(
     session: &str,
     stage: &str,
     steps: Option<(usize, usize)>,
+    hand_off: Option<&str>,
 ) -> String {
     let mut out = format!(
         "where: worktree {} · session {session} bound · stage {stage}",
@@ -223,6 +250,9 @@ pub fn where_clause(
     );
     if let Some((from, through)) = steps {
         out.push_str(&format!(" · Step {from} in hand, through {through}"));
+        if let Some(note) = hand_off {
+            out.push_str(&format!(" · its hand-off: {note}"));
+        }
     }
     out
 }
@@ -420,6 +450,25 @@ mod tests {
         assert_eq!(cited_paths(&source, root, 0).len(), 0);
     }
 
+    /// A yielded step's hand-off rides the line verbatim, so the session that
+    /// resumes it reads the note rather than discovering that one exists; a
+    /// stage with no step coordinates has no step for a hand-off to belong to.
+    #[test]
+    fn the_where_clause_names_an_open_steps_waiting_hand_off() {
+        let worktree = Path::new("/repo/.tug/worktrees/demo");
+        let note = "yield: landed the parser; files: src/a.rs; next: the printer";
+        assert_eq!(
+            where_clause(worktree, "s-1", "implement", Some((4, 9)), Some(note)),
+            format!(
+                "where: worktree /repo/.tug/worktrees/demo · session s-1 bound · stage implement · Step 4 in hand, through 9 · its hand-off: {note}"
+            )
+        );
+        assert_eq!(
+            where_clause(worktree, "s-1", "audit", None, Some(note)),
+            "where: worktree /repo/.tug/worktrees/demo · session s-1 bound · stage audit"
+        );
+    }
+
     /// The `where` clause is a stage's coordinates, handed down rather than
     /// probed for. Four facts on one line: the worktree it works in, the
     /// session it is seated on and that the arc is bound to it, the stage it
@@ -429,20 +478,20 @@ mod tests {
     fn the_where_clause_hands_a_stage_its_coordinates() {
         let worktree = Path::new("/repo/.tug/worktrees/demo");
         assert_eq!(
-            where_clause(worktree, "s-1", "implement", Some((4, 9))),
+            where_clause(worktree, "s-1", "implement", Some((4, 9)), None),
             "where: worktree /repo/.tug/worktrees/demo · session s-1 bound · stage implement · Step 4 in hand, through 9"
         );
         // Devise, review and audit walk no ledger, so the clause has no step
         // coordinates to give and ends at the stage word rather than inventing
         // a pair.
         assert_eq!(
-            where_clause(worktree, "s-1", "devise", None),
+            where_clause(worktree, "s-1", "devise", None, None),
             "where: worktree /repo/.tug/worktrees/demo · session s-1 bound · stage devise"
         );
 
         // In a composed prompt it sits directly under the ask, above the
         // citations: what to do, then from where, then what to read.
-        let place = where_clause(worktree, "s-1", "review", None);
+        let place = where_clause(worktree, "s-1", "review", None, None);
         let composed = compose(
             ASK,
             Some(&place),

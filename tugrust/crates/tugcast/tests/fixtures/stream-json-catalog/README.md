@@ -206,6 +206,7 @@ ProbeRecord {
     optional_events: &[],
     prerequisites: &[],
     timeout_secs: 30,
+    env: &[],
     skip_reason: None,
 },
 ```
@@ -218,6 +219,7 @@ ProbeRecord {
 - **`optional_events`** — event types that *may* appear but are not shape-checked if absent.
 - **`prerequisites`** — capture-time preconditions. `TugplugPluginLoaded` is satisfied when `$project_dir/tugplug/` exists on disk (true for the capture binary, false for some other test harnesses). `DenialCapableTool` is currently always considered satisfied.
 - **`timeout_secs`** — generous budget. Anything over ~45 s will hit the §T0.5 P19 "45s WebSocket reset" ceiling and fail; until P19 is fixed, probes requiring long turns must be `skip_reason`-gated.
+- **`env`** — environment set on the probe's tugcast and inherited by the tugcode, the claude and every hook under it. Empty for the ordinary probe. A probe that exercises a knob read from the environment names it here, so the capture and the drift test run it identically: `test-46` sets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` (claude's autocompact line, a **percent** of the window, honoured for `0 < pct <= 100`), and `test-47` sets `TUGTOOL_HOOK_ADDITIONAL_CONTEXT`, which `tugtool hook pre-tool-use` emits as `hookSpecificOutput.additionalContext` on every call. The harness also puts the checkout's own `tugtool` (built beside `tugcast`) first on the spawned `PATH`, so a hook claude runs reaches the binary under test rather than the app's.
 - **`skip_reason`** — `Some("blocked on tide.md §T0.5 P<N> — <one-line reason>")` for probes that are blocked on a known upstream bug. Capture-time execution bypasses the probe and emits an empty JSONL file with an explicit `skipped` status in the manifest. This is how we keep blocked probes in the table without polluting the fixtures.
 
 After editing the probe table, re-run the capture workflow against the current claude version to get the new probe into the baseline. The drift test will then pin its shape on subsequent runs.

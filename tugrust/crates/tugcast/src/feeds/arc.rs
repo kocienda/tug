@@ -69,6 +69,9 @@ pub struct StepLedgerFacts {
     /// done, and only a caller holding the previous reading can say one *just*
     /// became so. Rotation happens at a step boundary and never mid-step.
     pub step_just_done: bool,
+    /// A ledger row reads `in progress`: a step is open and unfinished. What
+    /// tells a mid-step yield's compaction from a step boundary's ([B06]).
+    pub step_open: bool,
 }
 
 /// Everything the predicate is allowed to know, gathered by the dispatcher.
@@ -176,6 +179,34 @@ pub struct ArcFacts {
     /// boundary, `[tugtool.arc].implement_compact_tokens`. The arc's one
     /// threshold: a stage a compaction cannot bring back under it rotates.
     pub compact_tokens: u64,
+    /// The stage's share of its model's window: `context_tokens` over the
+    /// `context_max` the session's persisted breakdown carries. `None` when
+    /// either half is missing — the same rule as `context_tokens`, a missing
+    /// measurement is not a reason to guess.
+    pub context_share: Option<f64>,
+    /// The share at which an implement stage yields mid-step,
+    /// `[tugtool.arc].implement_yield_share` ([B02]).
+    pub yield_share: f64,
+    /// The share handed to the harness as its own autocompact line,
+    /// `[tugtool.arc].implement_backstop_share` ([B02]).
+    pub backstop_share: f64,
+    /// The stage ended its turn on a `yield:` hand-off nothing has answered
+    /// yet — no compaction, rotation, resume or step declaration since
+    /// ([B05], [B06]). Read from the arc log, so it survives a restart.
+    pub yielded_since_ask: bool,
+    /// A yield's compaction was sent on this session and no reading since has
+    /// measured the share under the yield line. Runner memory, like
+    /// [`Self::compacted_since_below`], but read against the share rather
+    /// than the token threshold, and cleared by a reading at any moment rather
+    /// than only an idle one.
+    ///
+    /// It is what makes a rotation the second answer to a yield ([B07]). A
+    /// compact turn writes no reading of its own, so its end cannot tell
+    /// whether the compaction worked; the next yield can. One that arrives
+    /// with this still set is the compacted context still over the line, and
+    /// compacting it again would loop — a yield is never a quiet turn, so
+    /// nothing else would ever stop it.
+    pub yield_compacted: bool,
     /// The seated stage has more turns to run on this session — it is an
     /// implement stage whose run is not complete and whose next pending step
     /// is within the declared range. Devise and review end by rotating, so
@@ -255,6 +286,28 @@ pub struct ArcFacts {
     pub stalled: bool,
 }
 
+impl ArcFacts {
+    /// The stage ended its turn on a hand-off the wheel owes an answer
+    /// ([B06], [B08]) — a compaction, or a rotation when a yield's compaction
+    /// already failed to bring the window down: a step is open, a `yield:`
+    /// note is newer than every ask, and the share is not known to sit below
+    /// the yield line.
+    ///
+    /// An unknown share is honoured rather than doubted. The hook tells the
+    /// model to yield only over a reading at or above the line, so the yield is
+    /// itself the evidence — and a tugcast restart drops the in-memory window,
+    /// which must not turn a yield into a stranded turn. A share *known* to be
+    /// below the line is a yield nothing asked for, and it is answered as the
+    /// quiet turn it then is.
+    pub fn yield_owed(&self) -> bool {
+        self.yielded_since_ask
+            && self.ledger.step_open
+            && self
+                .context_share
+                .is_none_or(|share| share >= self.yield_share)
+    }
+}
+
 /// How many turns an implement stage may end without closing a step before
 /// the arc stops and hands the card back.
 ///
@@ -270,6 +323,17 @@ pub const QUIET_TURN_HORIZON: u32 = 2;
 /// prompt and the transcript's divider both spell it.
 pub fn step_range(from: usize, through: usize) -> String {
     format!("{from}-{through}")
+}
+
+/// The harness's autocompact line an arc stage's claude spawns under, as the
+/// percent `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` reads ([B02]).
+///
+/// Only an implement stage has one: it is the backstop behind the model's
+/// own yield, for a step that runs away between readings, and every other
+/// stage keeps the harness's default. The share is already clamped to
+/// `(0, 1]` by the config, so the percent is in `1..=100`.
+pub fn stage_autocompact_pct(stage: ArcStage, backstop_share: f64) -> Option<u32> {
+    (stage == ArcStage::Implement).then(|| ((backstop_share * 100.0).round() as u32).max(1))
 }
 
 /// A rotation the runner should perform.
@@ -310,6 +374,10 @@ pub enum PromptKind {
     /// inclusive pair the continue ask carries: the open step, and the run's
     /// declared end.
     StillOpen { steps: (usize, usize) },
+    /// The resume ask after a mid-step yield's compaction ([B07]): the open
+    /// step named back, with its hand-off waiting in the arc record. `steps`
+    /// is the open step and the run's declared end.
+    Resume { steps: (usize, usize) },
 }
 
 /// The facts that produced a prompt, carried so the runner records exactly
@@ -319,6 +387,12 @@ pub enum PromptWhy {
     Compact {
         tokens: u64,
         compact_tokens: u64,
+    },
+    /// A mid-step yield's compaction ([B06]): the share the turn ended on,
+    /// `None` when unmeasured, and the line it is read against.
+    Yield {
+        share: Option<f64>,
+        yield_share: f64,
     },
     Continue,
     StillOpen,
@@ -663,6 +737,32 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         }
     }
 
+    // A stage that ended its turn mid-step on a `yield:` hand-off is compacted
+    // in place, exactly as at a boundary ([B06]): same prompt, same memory.
+    // The compaction's own `compact` line spends the yield, so one hand-off
+    // buys one compaction and a second yield in the same step buys a second.
+    if facts.stage_continues && !facts.ledger.step_just_done && facts.yield_owed() {
+        // …unless a yield's compaction is already behind this context and no
+        // reading since has come under the line: that compaction did not
+        // work, and the second answer is a fresh session over the open step
+        // ([B07]), which resumes from the hand-off alone.
+        if facts.yield_compacted {
+            let (open, through) = facts.ledger.first_pending.zip(facts.ledger.run_through)?;
+            return (open <= through).then_some(ArcAction::Rotate(Rotation {
+                stage: ArcStage::Implement,
+                steps: Some((open, through)),
+                note: None,
+            }));
+        }
+        return Some(ArcAction::Prompt {
+            kind: PromptKind::Compact,
+            why: PromptWhy::Yield {
+                share: facts.context_share,
+                yield_share: facts.yield_share,
+            },
+        });
+    }
+
     match stage {
         None => Some(start_action(record, facts)),
         Some(ArcStage::Devise) => Some(devise_action(facts)),
@@ -777,6 +877,37 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
     // than costing a rotation for a turn nobody took.
     if facts.compact_turn_just_ended {
         let steps = facts.ledger.first_pending.zip(facts.ledger.run_through);
+        // **A yield's compaction resumes the step it interrupted** ([B07]).
+        // A step still open at the compact turn's end means the compaction
+        // was mid-step — a boundary's compaction comes after a close, with
+        // nothing open. Still above either line, with the compaction really
+        // performed, it rotates over the open step: the fresh session resumes
+        // from the hand-off alone.
+        if facts.ledger.step_open {
+            let (open, through) = steps?;
+            if open > through {
+                return None;
+            }
+            let still_above = facts
+                .context_share
+                .is_some_and(|share| share >= facts.yield_share)
+                || facts
+                    .context_tokens
+                    .is_some_and(|tokens| tokens > facts.compact_tokens);
+            if facts.compacted_since_below && still_above {
+                return Some(ArcAction::Rotate(Rotation {
+                    stage: ArcStage::Implement,
+                    steps: Some((open, through)),
+                    note: None,
+                }));
+            }
+            return Some(ArcAction::Prompt {
+                kind: PromptKind::Resume {
+                    steps: (open, through),
+                },
+                why: PromptWhy::Continue,
+            });
+        }
         if facts.compacted_since_below {
             if let (Some(tokens), Some((next, through))) = (facts.context_tokens, steps) {
                 if tokens > facts.compact_tokens && next <= through {
@@ -951,6 +1082,11 @@ mod tests {
             stage_session_current: true,
             context_tokens: None,
             compact_tokens: 300_000,
+            context_share: None,
+            yield_share: 0.60,
+            backstop_share: 0.85,
+            yielded_since_ask: false,
+            yield_compacted: false,
             stage_continues: false,
             boundary_held: false,
             open_jobs: Vec::new(),
@@ -1963,6 +2099,112 @@ mod tests {
         assert_eq!(arc_action(&record(&[ArcStage::Implement]), &facts), None);
     }
 
+    /// Step 4 is open mid-walk and the stage ended its turn on a `yield:`
+    /// hand-off at 65% of its window — over the 60% line.
+    fn yielded(share: Option<f64>) -> ArcFacts {
+        let mut facts = implementing(Some(130_000), false);
+        facts.ledger.step_open = true;
+        facts.context_share = share;
+        facts.yielded_since_ask = true;
+        facts
+    }
+
+    #[test]
+    fn a_yield_over_the_line_compacts_mid_step() {
+        let (kind, why) = prompt(arc_action(
+            &record(&[ArcStage::Implement]),
+            &yielded(Some(0.65)),
+        ));
+        assert_eq!(kind, PromptKind::Compact);
+        assert_eq!(
+            why,
+            PromptWhy::Yield {
+                share: Some(0.65),
+                yield_share: 0.60,
+            }
+        );
+    }
+
+    /// The hook told the model to yield only over the line, so a yield with no
+    /// measurement behind it — a restart dropped the window — is still owed.
+    #[test]
+    fn a_yield_over_an_unmeasured_share_still_compacts() {
+        let (kind, _) = prompt(arc_action(
+            &record(&[ArcStage::Implement]),
+            &yielded(None),
+        ));
+        assert_eq!(kind, PromptKind::Compact);
+    }
+
+    /// A share known to be below the line is a yield nothing asked for, so it
+    /// buys no compaction and is not exempt from the horizon.
+    #[test]
+    fn a_yield_below_the_line_is_a_quiet_turn() {
+        let facts = yielded(Some(0.40));
+        assert!(!facts.yield_owed());
+        assert_eq!(arc_action(&record(&[ArcStage::Implement]), &facts), None);
+    }
+
+    /// Over the line with no hand-off is the step still working: the wheel
+    /// never compacts mid-step on the reading alone ([B04]).
+    #[test]
+    fn over_the_line_without_a_yield_does_not_compact() {
+        let mut facts = yielded(Some(0.90));
+        facts.yielded_since_ask = false;
+        assert!(!facts.yield_owed());
+        assert_eq!(arc_action(&record(&[ArcStage::Implement]), &facts), None);
+    }
+
+    /// The yield's compaction came down: the open step is named back, with its
+    /// hand-off, on the same session ([B07]).
+    #[test]
+    fn a_yields_compact_turn_resumes_the_open_step() {
+        let mut facts = yielded(Some(0.20));
+        facts.yielded_since_ask = false;
+        facts.compact_turn_just_ended = true;
+        facts.compacted_since_below = true;
+        let (kind, _) = prompt(arc_action(&record(&[ArcStage::Implement]), &facts));
+        assert_eq!(kind, PromptKind::Resume { steps: (4, 9) });
+    }
+
+    /// Still over the line after the compaction: a fresh session over the open
+    /// step through the declared end ([B07]).
+    #[test]
+    fn a_yields_compact_turn_still_over_the_line_rotates_over_the_open_step() {
+        let mut facts = yielded(Some(0.70));
+        facts.yielded_since_ask = false;
+        facts.compact_turn_just_ended = true;
+        facts.compacted_since_below = true;
+        let rotation = rotation(arc_action(&record(&[ArcStage::Implement]), &facts));
+        assert_eq!(rotation.stage, ArcStage::Implement);
+        assert_eq!(rotation.steps, Some((4, 9)));
+    }
+
+    /// A compaction nobody took leaves no `compacted_since_below`, so however
+    /// high the reading it resumes rather than spending a rotation.
+    #[test]
+    fn a_yields_compact_turn_nobody_took_resumes_rather_than_rotating() {
+        let mut facts = yielded(Some(0.70));
+        facts.yielded_since_ask = false;
+        facts.compact_turn_just_ended = true;
+        let (kind, _) = prompt(arc_action(&record(&[ArcStage::Implement]), &facts));
+        assert_eq!(kind, PromptKind::Resume { steps: (4, 9) });
+    }
+
+    /// A second yield over a yield's compaction that never measured under the
+    /// line is that compaction failing: a fresh session over the open step,
+    /// never a second `/compact` of the same context ([B07]).
+    #[test]
+    fn a_yield_after_a_yields_compaction_that_never_came_down_rotates() {
+        for share in [Some(0.65), None] {
+            let mut facts = yielded(share);
+            facts.yield_compacted = true;
+            let rotation = rotation(arc_action(&record(&[ArcStage::Implement]), &facts));
+            assert_eq!(rotation.stage, ArcStage::Implement, "{share:?}");
+            assert_eq!(rotation.steps, Some((4, 9)), "{share:?}");
+        }
+    }
+
     /// Devise and review end by rotating, so they never continue — and the
     /// compaction arm, keyed on `stage_continues`, never fires for them.
     #[test]
@@ -2013,6 +2255,16 @@ mod tests {
     #[test]
     fn a_step_range_is_spelled_the_same_everywhere_it_appears() {
         assert_eq!(step_range(4, 9), "4-9");
+    }
+
+    #[test]
+    fn only_an_implement_stage_spawns_under_the_backstop_as_a_percent() {
+        assert_eq!(stage_autocompact_pct(ArcStage::Implement, 0.85), Some(85));
+        assert_eq!(stage_autocompact_pct(ArcStage::Implement, 1.0), Some(100));
+        assert_eq!(stage_autocompact_pct(ArcStage::Implement, 0.001), Some(1));
+        for stage in [ArcStage::Devise, ArcStage::Review, ArcStage::Audit] {
+            assert_eq!(stage_autocompact_pct(stage, 0.85), None, "{stage:?}");
+        }
     }
 
     #[test]

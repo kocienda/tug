@@ -211,6 +211,27 @@ describe("a stage rotation announces lineage", () => {
     expect(spawnEnvs.length).toBe(before + 1);
     expect(spawnEnvs.at(-1)?.TUG_ARC).toBe("some-arc");
   });
+
+  test("an implement stage spawns under its backstop, kept across respawns and cleared by the next rotation", async () => {
+    // The backstop behind the model's yield is the harness's own autocompact
+    // line, passed as the percent the variable takes. It must outlive tugcode's
+    // own respawns as the arc does, and leave with the stage that set it.
+    const m = manager();
+    await rotate(m, "new", { ...STAGE, name: "implement", autocompact_pct: 85 });
+    expect(spawnEnvs.at(-1)?.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("85");
+
+    m.spawnClaude(m.sessionId, "resume");
+    expect(spawnEnvs.at(-1)?.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("85");
+
+    await rotate(m, "new", { ...STAGE, name: "audit" });
+    expect(spawnEnvs.at(-1)).not.toHaveProperty("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE");
+  });
+
+  test("a stage naming no backstop leaves the harness at its default", async () => {
+    const m = manager();
+    await rotate(m, "new", STAGE);
+    expect(spawnEnvs.at(-1)).not.toHaveProperty("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE");
+  });
 });
 
 describe("a rotation with no arc behind it", () => {

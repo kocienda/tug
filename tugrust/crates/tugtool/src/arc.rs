@@ -2662,6 +2662,8 @@ struct ConfigPayload {
     implement_model: Option<String>,
     audit_model: Option<String>,
     implement_compact_tokens: Option<u64>,
+    implement_yield_share: Option<f64>,
+    implement_backstop_share: Option<f64>,
     idle_settle_secs: Option<u64>,
 }
 
@@ -2687,6 +2689,8 @@ impl ConfigPayload {
             implement_model: arc.implement_model,
             audit_model: arc.audit_model,
             implement_compact_tokens: arc.implement_compact_tokens,
+            implement_yield_share: arc.implement_yield_share,
+            implement_backstop_share: arc.implement_backstop_share,
             idle_settle_secs: arc.idle_settle_secs,
         }
     }
@@ -2769,6 +2773,22 @@ fn run_config(json: bool, quiet: bool) -> Result<(), AppError> {
                 "implement_compact_tokens: {} (defaults to {})",
                 undeclared,
                 tugtool_core::config::IMPLEMENT_COMPACT_TOKENS_DEFAULT
+            ),
+        }
+        match payload.implement_yield_share {
+            Some(share) => println!("implement_yield_share: {}", share),
+            None => println!(
+                "implement_yield_share: {} (defaults to {})",
+                undeclared,
+                tugtool_core::config::IMPLEMENT_YIELD_SHARE_DEFAULT
+            ),
+        }
+        match payload.implement_backstop_share {
+            Some(share) => println!("implement_backstop_share: {}", share),
+            None => println!(
+                "implement_backstop_share: {} (defaults to {})",
+                undeclared,
+                tugtool_core::config::IMPLEMENT_BACKSTOP_SHARE_DEFAULT
             ),
         }
         match payload.idle_settle_secs {
