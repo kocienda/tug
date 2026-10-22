@@ -1,5 +1,5 @@
 /**
- * A placement names each rail member's side, order and reflow policy, each
+ * A placement names each rail member's side and order, each
  * imposed card's travel under a rail width change, each standing rail's width
  * bounds and the band, so the host can build one rail view per rail and carry
  * a rail's width drag from the pointer with the arithmetic the shell's own
@@ -29,8 +29,8 @@ const facts: CardFacts = {
   zoom: 1,
   gap: 15,
   byCard: new Map([
-    ["overview", { ...base, rail: { side: "left", index: 0, reflow: "pause" } }],
-    ["jots", { ...base, rail: { side: "left", index: 1, reflow: "live" } }],
+    ["overview", { ...base, rail: { side: "left", index: 0 } }],
+    ["jots", { ...base, rail: { side: "left", index: 1 } }],
     ["session", { ...base, railTravel: { kind: "fit", fraction: 0.5, slotWidth: 600 } }],
   ]),
   rails: { left: { min: 240, max: 675 } },
@@ -41,9 +41,9 @@ describe("placeCardsOf names the rails", () => {
   const cards = placeCardsOf({ bodies: [view("overview", 0, 40), view("jots", 0, 260), view("session", 320, 40), view("free", 900, 40)] }, facts);
   const byId = new Map(cards.cards.map((c) => [c.cardId, c]));
 
-  test("a member carries its side, order and reflow policy", () => {
-    expect(byId.get("overview")?.rail).toEqual({ side: "left", index: 0, reflow: "pause" });
-    expect(byId.get("jots")?.rail).toEqual({ side: "left", index: 1, reflow: "live" });
+  test("a member carries its side and order", () => {
+    expect(byId.get("overview")?.rail).toEqual({ side: "left", index: 0 });
+    expect(byId.get("jots")?.rail).toEqual({ side: "left", index: 1 });
     expect(byId.get("overview")?.railTravel).toBeUndefined();
   });
 

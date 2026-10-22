@@ -93,7 +93,6 @@ import { postToHost } from "../host/channel";
 import { placeCardsToHost } from "../host/declarations/geometry";
 import { cardArrivingOf, railMembersOf } from "../deck-store-selectors";
 import {
-  RAIL_REFLOW_ATTR,
   RAIL_TRAVEL_ATTR,
   parseRailTravel,
   type RailTravel,
@@ -246,12 +245,11 @@ export interface CardPlacementEntry {
   readonly railTravel?: RailTravel;
 }
 
-/** A pinned rail member's place on its side, and how its content follows a width drag. */
+/** A pinned rail member's place on its side. */
 export interface RailMembership {
   readonly side: SidebarSide;
   /** The member's order on the side, top to bottom, from `railMembersOf`. */
   readonly index: number;
-  readonly reflow: "live" | "pause";
 }
 
 /** Each standing rail's width bounds, layout px; a side with no rail is absent. */
@@ -334,7 +332,7 @@ export function readCardFacts(
     const member = paneId === undefined ? undefined : memberIndex.get(paneId);
     const rail: RailMembership | undefined =
       member !== undefined && frame?.dataset.railSide === member.side
-        ? { ...member, reflow: frame.getAttribute(RAIL_REFLOW_ATTR) === "pause" ? "pause" : "live" }
+        ? member
         : undefined;
     const railTravel = rail === undefined ? parseRailTravel(frame?.getAttribute(RAIL_TRAVEL_ATTR) ?? null) : null;
     byCard.set(b.cardId, {

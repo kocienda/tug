@@ -736,6 +736,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     fallbackSave(view.webView)
                 case .success(.verdict(let verdict)):
                     verdicts[view.label] = Self.describeVerdict(verdict)
+                case .success(.railEdge):
+                    // `PageReply.decode` reads a rail edge only for `onRailEdge`.
+                    verdicts[view.label] = "answered with a rail edge — saved synchronously"
+                    fallbackSave(view.webView)
                 case .failure(let error as HostDecodeError):
                     verdicts[view.label] = "unreadable (\(error)) — saved synchronously"
                     fallbackSave(view.webView)

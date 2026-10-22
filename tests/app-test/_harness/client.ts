@@ -1318,6 +1318,8 @@ export interface BodyViewSnapshot {
    * through the last plan's mapping while a plan carries it.
    */
   presentedFrame: { x: number; y: number; width: number; height: number };
+  /** The page's view's size: its container's, but while a crossing holds it. */
+  pageSize: { width: number; height: number };
   /** Placed visible and ready — what the user can see. */
   visible: boolean;
   /**
@@ -1349,18 +1351,29 @@ export interface BodyViewSnapshot {
   url: string | null;
   /**
    * The card's rail membership as the last placement named it — its side,
-   * its order there and its reflow policy — and the frame of the host's rail
-   * view its container stands in (null when it stands in none); null for a
-   * card no rail holds.
+   * and its order there — and the frame of the host's rail view its
+   * container stands in (null when it stands in none); null for a card no
+   * rail holds.
    */
   rail: {
     side: "left" | "right";
     index: number;
-    reflow: "live" | "pause";
     railFrame: { x: number; y: number; width: number; height: number } | null;
   } | null;
   /** Whether the host's gesture holds this card in its hand now. */
   inHand: boolean;
+  /**
+   * A rail width drag's hold on the card's page, while one stands: the width
+   * its content stays laid out at, the strip the host draws from the page's
+   * clip to the pane's deck-facing edge (container coordinates), and whether
+   * the page has said its edge's colours. Null outside a rail drag and once
+   * the page has painted at its landing.
+   */
+  railCrossing: {
+    contentWidth: number;
+    strip: { x: number; y: number; width: number; height: number };
+    painted: boolean;
+  } | null;
 }
 
 /** Every body view the host holds, the spare included. */

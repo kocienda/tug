@@ -121,6 +121,15 @@ export async function seed(app: App): Promise<void> {
     `document.querySelector("[data-imposer-settling]") === null`,
     { timeoutMs: 8_000 },
   );
+  // The shell's frames standing is not the host's views shown: a reading of
+  // the views at the press waits until the host shows every one it carries.
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const shown = new Set((await app.bodies()).filter((b) => b.visible).map((b) => b.cardId));
+    if ([...MEMBER_CARDS, CHAIN_FIRST].every((id) => shown.has(id))) break;
+    if (Date.now() > deadline) throw new Error(`rail width seed: the host never showed every view (shown ${[...shown].join(", ")})`);
+    await wait(50);
+  }
   await wait(AFTER_LAND_MS);
 }
 

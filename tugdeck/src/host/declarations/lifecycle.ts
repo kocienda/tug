@@ -120,6 +120,75 @@ export const bodySurfaceToHost = defineToHost<BodySurface>({
   refused: [[28, 30, 34, 255], { surface: [28, 30, 34, 256] }],
 });
 
+/**
+ * A rail member's deck-facing edge as its page paints it, for the host to
+ * draw while a width drag holds the page still: the pane's surface; the
+ * border's colour at rest, held and past a limit; the border's width; and
+ * the shadow the rail casts into its gutter, its colour and its reach. The
+ * colours are sRGB bytes; the widths are view points.
+ */
+export interface RailEdge {
+  readonly surface: number[];
+  readonly rest: number[];
+  readonly held: number[];
+  readonly limit: number[];
+  readonly width: number;
+  readonly shadow: number[];
+  readonly reach: number;
+}
+
+const SAMPLE_RAIL_EDGE: RailEdge = {
+  surface: [28, 30, 34, 255],
+  rest: [60, 64, 70, 255],
+  held: [70, 130, 230, 255],
+  limit: [230, 160, 60, 255],
+  width: 1,
+  shadow: [0, 0, 0, 102],
+  reach: 10,
+};
+
+/**
+ * The host asks a rail member's page for its edge as a hand presses the
+ * rail's edge. A page with no pane to read answers nothing, and the host
+ * draws no edge for it.
+ */
+export const railEdgeCall = definePageCall({
+  receiver: "bridge",
+  member: "onRailEdge",
+  codec: empty,
+  replyCodec: nullable(
+    obj({
+      surface: rgbaBytes,
+      rest: rgbaBytes,
+      held: rgbaBytes,
+      limit: rgbaBytes,
+      width: num,
+      shadow: rgbaBytes,
+      reach: num,
+    }),
+  ),
+  samples: [{}],
+  refused: [true],
+  replies: [SAMPLE_RAIL_EDGE, null],
+  refusedReplies: [{ ...SAMPLE_RAIL_EDGE, held: [70, 130, 230] }, true],
+});
+
+/**
+ * The host has given a rail member's page its new size at a width drag's
+ * release, and awaits this: it resolves once the page has painted there, so
+ * the host can take away what it drew over the page meanwhile.
+ */
+export const railLandCall = definePageCall({
+  receiver: "bridge",
+  member: "onRailLand",
+  codec: empty,
+  replyCodec: noReply,
+  samples: [{}],
+  refused: [true],
+  replies: [null],
+  refusedReplies: [true, {}],
+});
+
 /** The shell asks for a card's body: which card, which kind, and what the body is to do with it. */
 export interface BodyCreate {
   readonly cardId: string;

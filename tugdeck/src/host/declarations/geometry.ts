@@ -97,7 +97,7 @@ const placeCardsCodec: Codec<PlaceCards> = obj({
       min: obj({ width: num, height: num }),
       maxHeight: optional(num),
       planId: optional(num),
-      rail: optional(obj({ side: literal("left", "right"), index: num, reflow: literal("live", "pause") })),
+      rail: optional(obj({ side: literal("left", "right"), index: num })),
       railTravel: optional(railTravelCodec),
     }),
   ),
@@ -157,7 +157,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           grips: ["e", "s", "se"],
           free: true,
           min: { width: 240, height: 160 },
-          rail: { side: "left", index: 0, reflow: "pause" },
+          rail: { side: "left", index: 0 },
         },
         {
           cardId: "c3",

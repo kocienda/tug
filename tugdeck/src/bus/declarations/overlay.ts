@@ -150,22 +150,43 @@ export interface OverlayZone extends OverlayRect {
 }
 
 /**
+ * The width a rail width drag's release would commit, beside the pointer:
+ * its text, the limit the hand presses past (`"floor"`, `"ceiling"`) or
+ * null, and the pointer, in viewport points. The overlay draws the pill a
+ * little above and beside the point, and fades it when the readout goes.
+ */
+export interface OverlayReadout {
+  x: number;
+  y: number;
+  text: string;
+  limit: string | null;
+}
+
+/**
  * What a drag indicates, drawn in the overlay against stationary zones and
  * the pointer, never against a moving card ([B08]): the zone a release would
  * land in, the title band a tab or a card would merge onto, the guides the
- * host snapped the step to, and the ghost of a tab dragged past its bar. The
- * shell computes each from the zones it enumerated at the drag's start and
- * the pointer the host or the card's page reported; the overlay only draws.
+ * host snapped the step to, the ghost of a tab dragged past its bar, and the
+ * width a rail's release would commit. The shell computes each from the zones
+ * it enumerated at the drag's start and the pointer the host or the card's
+ * page reported; the overlay only draws.
  */
 export interface OverlayIndication {
   zone: OverlayZone | null;
   band: OverlayRect | null;
   guides: { x: number | null; y: number | null };
   ghost: OverlayGhost | null;
+  readout: OverlayReadout | null;
 }
 
 /** Nothing indicated. */
-export const NO_INDICATION: OverlayIndication = { zone: null, band: null, guides: { x: null, y: null }, ghost: null };
+export const NO_INDICATION: OverlayIndication = {
+  zone: null,
+  band: null,
+  guides: { x: null, y: null },
+  ghost: null,
+  readout: null,
+};
 
 export const overlayIndication = defineSharedStore<OverlayIndication>({
   key: "overlay.indication",
@@ -176,6 +197,7 @@ export const overlayIndication = defineSharedStore<OverlayIndication>({
     band: nullable(rect),
     guides: obj({ x: nullable(num), y: nullable(num) }),
     ghost: nullable(obj({ x: num, y: num, width: num, height: num, label: str })),
+    readout: nullable(obj({ x: num, y: num, text: str, limit: nullable(str) })),
   }),
   initial: NO_INDICATION,
 });

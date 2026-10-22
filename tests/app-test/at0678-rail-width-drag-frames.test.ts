@@ -34,23 +34,27 @@
  * commit, then found unmarked after it — is held invisible and faded back
  * up, which reads as the rail vanishing at the release. An end-state check
  * cannot see that; only a per-frame sample can. The host carries the views,
- * so the same reading is taken where they are: each member's page samples
- * its own frame's width on every frame, and the host's snapshot is polled
- * for the members' frames, from the release until the deck is quiet.
+ * so the same reading is taken where they are: the host's snapshot is
+ * polled for the members' frames from the release until the deck is quiet,
+ * and each member's page samples its own frame's width on every frame. A
+ * page is held at its press width for the whole drag and takes the released
+ * width once, at the release, under the host's edge, so its frame reads the
+ * press width and then the released one, and nothing else.
  *
  * **The members move together, under the hand.** The host moves every
  * member's view and the cards beside the rail in one transaction, and the
  * second reading's drag is read for that too, in the composite: a capture
  * burst over its grow leg finds each member's deck-facing edge, and the
  * chain's first card's leading edge, by colour against the ground beside
- * them. On every frame with the hand down each member's edge stands where
- * the host drew it within the last two display frames (the pipeline's
- * latency, and no more), the chain card stands where the ported travel puts
- * it at those widths, and the members stand no further apart than the hand
- * moved in that window. They may stand that far apart: each member's page
- * repaints its view at a new size on its own clock, so on a frame one can
- * show the step before its siblings, though the host moves their views in
- * one transaction. The edge is read where the rail's shadow meets the
+ * them. On every frame with the hand down the members stand in one column,
+ * within 1 device px of one another, with no frame admitted where one shows
+ * a step its siblings do not: no member's page is resized while the hand is
+ * down, and every edge the eye sees is the host's, drawn in the one layout
+ * pass that moves the rail view. That column stands where the host drew the
+ * rail for the frame on screen — the host's last move before the capture, a
+ * report being stamped when the shell hears it and so read up to a display
+ * period either side — and the chain card stands where the ported travel
+ * puts it at that width. The edge is read where the rail's shadow meets the
  * ground, which every member draws alike, rather than at its first dark
  * pixel, which the pressed member's held edge line covers. A stand-in's
  * rect is not evidence of any of this: it is the shell's model, moved on the
@@ -523,16 +527,23 @@ describe.skipIf(!SHOULD_RUN)(
               `${member} held ${expected}px on every frame (read ${w.min.toFixed(1)}–${w.max.toFixed(1)})`,
             ).toBeLessThanOrEqual(PIXEL_TOL);
           }
-          // Where the views are: each member's page drew its frame at the
-          // released width on every frame from the release on, and the host
-          // never moved a member's view, nor held one, once the hand let go.
+          // Where the views are: the host never moved a member's view, nor
+          // held one, once the hand let go; and each member's page, held at
+          // its press width through the drag, took the released width once
+          // and kept it.
           for (const card of MEMBER_CARDS) {
             const page = pages[card];
             note(`${card} after release: page ${page.length} frames ${spanOf(page)}; host ${spanOf(host.widths[card])}`);
             expect(page.length, `${card}'s page drew frames after the release`).toBeGreaterThanOrEqual(MIN_FRAMES);
+            const landed = page.findIndex((w) => Math.abs(w - expected) <= PIXEL_TOL);
+            expect(landed, `${card}'s page took the released width`).toBeGreaterThanOrEqual(0);
             expect(
-              Math.max(...page.map((w) => Math.abs(w - expected))),
-              `${card}'s page stood at ${expected}px on every frame after the release (read ${spanOf(page)})`,
+              Math.max(...page.slice(0, landed).map((w) => Math.abs(w - RAIL_WIDTH)), 0),
+              `${card}'s page stood at its press width ${RAIL_WIDTH}px until it landed (read ${spanOf(page.slice(0, landed))})`,
+            ).toBeLessThanOrEqual(PIXEL_TOL);
+            expect(
+              Math.max(...page.slice(landed).map((w) => Math.abs(w - expected))),
+              `${card}'s page stood at ${expected}px on every frame once it landed (read ${spanOf(page.slice(landed))})`,
             ).toBeLessThanOrEqual(PIXEL_TOL);
             expect(host.widths[card].length, `${card}'s view was read after the release`).toBeGreaterThan(0);
             expect(
@@ -561,10 +572,12 @@ describe.skipIf(!SHOULD_RUN)(
           note(`burst frames kept at ${kept} (${reading.frames.length})`);
 
           const toDevice = reader.toDevice;
-          // Two display frames of pipeline latency, and no more ([B05]).
-          // A report heard up to a frame after the composite may already be on it.
+          // The frame on screen is the host's last move before it: one
+          // display period back, and a report heard up to a period after
+          // the composite may already be on it. This places the column; it
+          // admits no member apart from another.
           const period = (await app.bodies()).find((b) => b.cardId === "J")?.displayPeriodMs ?? 1000 / 60;
-          const latencyMs = 2 * period;
+          const latencyMs = period;
           let judged = 0;
           let together = 0;
           const unread: string[] = [];
@@ -586,12 +599,10 @@ describe.skipIf(!SHOULD_RUN)(
             const hand = expectedEdgeAt(f.wall, reports, dragged.restEdge, latencyMs, period);
             const lo = toDevice(hand.lo) - EDGE_TOL_DEVICE;
             const hi = toDevice(hand.hi) + EDGE_TOL_DEVICE;
-            // Each member's page repaints its view at a new size on its own
-            // clock, so on a frame one may show the step before its
-            // siblings ([B03]); none may stand further from another than
-            // the hand moved inside the latency window.
+            // Every edge is the host's, drawn in one pass: one column on
+            // every frame, whatever the hand did.
             if (spread <= COLUMN_TOL_DEVICE) together += 1;
-            else if (spread > toDevice(hand.hi) - toDevice(hand.lo) + COLUMN_TOL_DEVICE) apart.push(`${at} ${JSON.stringify(es)}`);
+            else apart.push(`${at} ${JSON.stringify(es)}`);
             es.forEach((e, i) => {
               if (e < lo || e > hi) offHand.push(`${at} ${MEMBER_CARDS[i]} ${e} not in ${lo.toFixed(1)}..${hi.toFixed(1)}`);
             });
@@ -610,8 +621,9 @@ describe.skipIf(!SHOULD_RUN)(
           }
           expect(judged, "frames were judged with the hand down").toBeGreaterThanOrEqual(10);
           expect(unread.length, "every frame with the hand down is read by colour").toBe(0);
-          expect(apart.length, "on no frame do the members stand further apart than the hand moved in two display frames").toBe(0);
-          expect(offHand.length, "on every frame each edge stands where the host drew it within two display frames").toBe(0);
+          expect(together, "on every frame with the hand down the members stand in one column").toBe(judged);
+          expect(apart.length, "on no frame does one member stand apart from another").toBe(0);
+          expect(offHand.length, "on every frame the column stands where the host drew the rail").toBe(0);
           expect(offChain.length, "on every frame the chain stands where its travel puts it").toBe(0);
         } finally {
           await app.close();

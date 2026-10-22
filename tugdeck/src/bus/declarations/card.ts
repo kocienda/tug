@@ -5,8 +5,7 @@
  * (`cardContextFor` in `lib/body-shell.ts`). `card.crossing` is the crossing
  * its pane stands under, which moves with every mark a fold or settle
  * writes, so it travels apart from the context and never resends it.
- * `card.railHold` holds a rail card's content at a width while a rail width
- * drag moves its frame. `card.inspected` says a devtools card follows the card, and
+ * `card.inspected` says a devtools card follows the card, and
  * `devtools.inspection` is what a devtools card is shown of the card it
  * follows.
  *
@@ -70,26 +69,6 @@ export interface CardGeometryCounts {
 
 /** No move and no resize yet. */
 export const NO_CARD_GEOMETRY: CardGeometryCounts = { moves: 0, resizes: 0 };
-
-/**
- * A rail width drag's hold on a card whose content cannot reflow in a frame
- * (`railReflow: "pause"`): lay the content out as if its frame stood `width`
- * layout px wide, anchored to the rail's outer edge (`side`), while the frame
- * itself follows the hand. The shell moves it to the frame's width when the
- * hand rests and clears it at the release (`rail-width-draft.ts`).
- */
-export interface CardRailHold {
-  side: "left" | "right";
-  width: number;
-}
-
-export const cardRailHold = defineSharedStore<CardRailHold | null>({
-  key: "card.railHold",
-  owner: "shell",
-  scope: { card: true },
-  codec: nullable(obj({ side: literal("left", "right"), width: num })),
-  initial: null,
-});
 
 /** The context before the shell's has arrived: an unfolded card, nobody key, its layer hidden. */
 export const NO_CARD_CONTEXT: CardContextValue = {

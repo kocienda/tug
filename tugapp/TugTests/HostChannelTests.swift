@@ -233,7 +233,7 @@ final class HostChannelTests: XCTestCase {
         let hostCalls = Set(PageCall.declared.map { "\($0.receiver).\($0.member)" })
         check("the page and the host name the same calls", fixtureCalls == hostCalls,
               "page only: \(fixtureCalls.subtracting(hostCalls).sorted()); host only: \(hostCalls.subtracting(fixtureCalls).sorted())")
-        let made: [PageCall] = [.saveState, .prepareForTermination, .reauthenticate(token: "t"), .pageZoomApply(factor: 1)]
+        let made: [PageCall] = [.saveState, .prepareForTermination, .reauthenticate(token: "t"), .pageZoomApply(factor: 1), .railEdge, .railLand]
         check("every call the host makes is declared",
               Set(made.map { "\($0.receiver).\($0.member)" }) == hostCalls)
     }
@@ -245,7 +245,7 @@ final class HostChannelTests: XCTestCase {
     }
 
     func testEveryPageCallIsMadeWithAPayloadThePageReads() throws {
-        let made: [PageCall] = [.saveState, .prepareForTermination, .reauthenticate(token: "t0k3n"), .pageZoomApply(factor: 1.25)]
+        let made: [PageCall] = [.saveState, .prepareForTermination, .reauthenticate(token: "t0k3n"), .pageZoomApply(factor: 1.25), .railEdge, .railLand]
         for call in made {
             let samples = try XCTUnwrap(try pageCallRow(call.member)["samples"] as? [Any])
             let sent = try JSONSerialization.jsonObject(with: try XCTUnwrap(call.payloadJSON()), options: [.fragmentsAllowed])

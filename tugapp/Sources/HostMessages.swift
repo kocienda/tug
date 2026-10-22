@@ -120,18 +120,11 @@ enum RailSide: String, Codable, Equatable {
     case left, right
 }
 
-/// How a rail member's content follows a width drag: at every step, or once
-/// the hand rests.
-enum RailReflow: String, Decodable, Equatable {
-    case live, pause
-}
-
 /// A pinned rail member's place on its side.
 struct RailMembership: Decodable, Equatable {
     var side: RailSide
     /// The member's order on the side, top to bottom.
     var index: Int
-    var reflow: RailReflow
 }
 
 /// What an imposed card's horizontal place depends on besides the rail
@@ -1170,6 +1163,12 @@ enum PageCall {
     case reauthenticate(token: String)
     /// Write the deck root's zoom; resolves once the factor has painted.
     case pageZoomApply(factor: Double)
+    /// A rail member's page, as a hand presses its rail's edge: the colours
+    /// its deck-facing edge paints in; the reply is `RailEdgeColors`.
+    case railEdge
+    /// A rail member's page, given its new size at a width drag's release:
+    /// resolves once it has painted at it.
+    case railLand
 
     /// Every call, by its receiver and member, as the page's registry lists them.
     static let declared: [(receiver: String, member: String)] = [
@@ -1177,12 +1176,14 @@ enum PageCall {
         ("tugdeck", "prepareForTermination"),
         ("tugdeck", "reauthenticate"),
         ("bridge", "onPageZoomApply"),
+        ("bridge", "onRailEdge"),
+        ("bridge", "onRailLand"),
     ]
 
     var receiver: String {
         switch self {
         case .saveState, .prepareForTermination, .reauthenticate: return "tugdeck"
-        case .pageZoomApply: return "bridge"
+        case .pageZoomApply, .railEdge, .railLand: return "bridge"
         }
     }
 
@@ -1192,6 +1193,8 @@ enum PageCall {
         case .prepareForTermination: return "prepareForTermination"
         case .reauthenticate: return "reauthenticate"
         case .pageZoomApply: return "onPageZoomApply"
+        case .railEdge: return "onRailEdge"
+        case .railLand: return "onRailLand"
         }
     }
 
@@ -1204,7 +1207,7 @@ enum PageCall {
     func payloadJSON() -> Data? {
         let encoder = JSONEncoder()
         switch self {
-        case .saveState, .prepareForTermination: return try? encoder.encode(EmptyPayload())
+        case .saveState, .prepareForTermination, .railEdge, .railLand: return try? encoder.encode(EmptyPayload())
         case .reauthenticate(let token): return try? encoder.encode(Token(token: token))
         case .pageZoomApply(let factor): return try? encoder.encode(factor)
         }
@@ -1235,6 +1238,44 @@ struct TerminationVerdict: Decodable, Equatable {
     var elapsedMs: Double
 }
 
+/// A rail member's deck-facing edge as its page paints it (`onRailEdge`'s
+/// reply): the pane's surface, the border's colour at rest, held and past a
+/// limit, each as four sRGB bytes, and the border's width in view points;
+/// and the shadow the rail casts off it (`rail-shadow.css`), its colour and
+/// its reach in view points.
+struct RailEdgeColors: Decodable, Equatable {
+    var surface: [Double]
+    var rest: [Double]
+    var held: [Double]
+    var limit: [Double]
+    var width: Double
+    var shadow: [Double]
+    var reach: Double
+
+    private enum CodingKeys: String, CodingKey { case surface, rest, held, limit, width, shadow, reach }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func bytes(_ key: CodingKeys) throws -> [Double] {
+            let value = try c.decode([Double].self, forKey: key)
+            guard value.count == 4, value.allSatisfy({ (0...255).contains($0) }) else {
+                throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: "not four sRGB bytes")
+            }
+            return value
+        }
+        surface = try bytes(.surface)
+        rest = try bytes(.rest)
+        held = try bytes(.held)
+        limit = try bytes(.limit)
+        shadow = try bytes(.shadow)
+        width = try c.decode(Double.self, forKey: .width)
+        reach = try c.decode(Double.self, forKey: .reach)
+        guard width >= 0, reach >= 0 else {
+            throw DecodingError.dataCorruptedError(forKey: .width, in: c, debugDescription: "a negative width or reach")
+        }
+    }
+}
+
 /// What a page answers a `PageCall` with.
 enum PageReply: Equatable {
     /// Nothing: a call that answers `null`, or a page with no such member,
@@ -1242,18 +1283,24 @@ enum PageReply: Equatable {
     case nothing
     /// `prepareForTermination`'s verdict.
     case verdict(TerminationVerdict)
+    /// `onRailEdge`'s colours.
+    case railEdge(RailEdgeColors)
 
     /// The reply `member`'s call answered with, from its JSON. Every call
-    /// may answer nothing; `prepareForTermination` may answer its verdict,
-    /// and any other value is refused.
+    /// may answer nothing; `prepareForTermination` may answer its verdict
+    /// and `onRailEdge` its colours, and any other value is refused.
     static func decode(member: String, data: Data) -> Result<PageReply, HostDecodeError> {
         let decoder = JSONDecoder()
         do {
             if try decoder.decode(NullProbe.self, from: data).isNull { return .success(.nothing) }
-            guard member == "prepareForTermination" else {
+            switch member {
+            case "prepareForTermination":
+                return .success(.verdict(try decoder.decode(TerminationVerdict.self, from: data)))
+            case "onRailEdge":
+                return .success(.railEdge(try decoder.decode(RailEdgeColors.self, from: data)))
+            default:
                 return .failure(.typed("\(member) answers nothing, and the page answered a value"))
             }
-            return .success(.verdict(try decoder.decode(TerminationVerdict.self, from: data)))
         } catch {
             return .failure(HostDecodeError(decoding: error))
         }

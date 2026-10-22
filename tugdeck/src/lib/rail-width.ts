@@ -119,17 +119,6 @@ export function withRailWidth(
 export const RAIL_TRAVEL_ATTR = "data-rail-travel";
 
 /**
- * The attribute a rail member's frame carries when its content reflows on a
- * pause rather than live (`railReflow: "pause"` in its registration): a
- * width drag holds that frame's body at its last laid-out width until the
- * hand rests.
- */
-export const RAIL_REFLOW_ATTR = "data-rail-reflow";
-
-/** How long the hand must rest before held rail content reflows. */
-export const RAIL_REFLOW_PAUSE_MS = 80;
-
-/**
  * What an imposed element's horizontal place depends on, besides the rail.
  * A FIT element stands at its slot's travel fraction of the band's slack over
  * its slot width; a FLOW element stands on the strip, under an offset the

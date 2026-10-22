@@ -526,10 +526,11 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   border-color: var(--tugx-rail-edge-limit);
 }
 
-/* The width readout [B12]: written into the canvas beside the pointer by the
- * draft, which places it and removes it; it fades here once `data-leaving`
- * is set, over the duration the draft states on it as
- * `--tugx-rail-readout-fade` and waits out before removing it. */
+/* The width readout [B12]: drawn by the overlay page above every card, beside
+ * the pointer the rail width draft reports (`overlay-indication.ts`), which
+ * places it and removes it; it fades here once `data-leaving` is set, over
+ * the duration the overlay states on it as `--tugx-rail-readout-fade` and
+ * waits out before removing it. */
 .tug-rail-readout {
   position: absolute;
   z-index: 99971;

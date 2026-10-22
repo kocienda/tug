@@ -46,28 +46,28 @@
  *    each one carries stamped beside its style). A fit card's width is its
  *    own and does not change, so nothing about it reflows at all.
  *
- * **Content that cannot reflow in a frame waits for the hand to rest**
- * ([B11]). A member whose registration says `railReflow: "pause"` — stamped
- * on its frame as `data-rail-reflow` — has its body held at the width it last
- * laid out at while the frame tracks the hand: anchored to the rail's outer
- * edge (`align-self`) and clipped by the frame's own chrome. Once the hand
- * has rested `RAIL_REFLOW_PAUSE_MS`, the hold moves to the width the frame
- * now stands at — one reflow, while nothing else is moving — and the release
- * lets it go with the rest of the preview. A member whose reflow is cheap is
- * never held and reflows every frame.
+ * **No member's content reflows while the hand is down.** The host holds
+ * each member's page at the size the press found it, behind a crossing that
+ * clips it at the moving edge and draws the edge itself, and gives the page
+ * its new size once, at the release (`RailView.swift`'s `RailCrossing`).
+ * Nothing here holds content: the stand-ins below the cards follow the aim,
+ * and the cards above them are the host's.
  *
  * **The drag says what it is doing** ([B09], [B12]). At the press every member
  * is marked `data-rail-held`, which lights the rail's whole edge and gives its
  * border the accent; once the press is a drag a readout pill rides beside the
- * pointer showing the width the release would commit. Past a limit the edge
- * keeps following with diminishing returns (`aimRailWidth`), the members are
- * marked `data-rail-limit` and the readout reads the limit, and the release
- * springs the edge back to it — the one motion a release makes, a TugAnimator
- * tween of the same elements the preview moves, ending on the pose the commit
- * stands them at, so it still lands with nothing left to move. Its commit
- * carries a deadline, so a window whose frames have stopped still lands it.
- * There are no catches between the limits ([B13]). The readout fades once the
- * hand lets go, and is removed by this owner however the drag ended.
+ * pointer showing the width the release would commit — composed here from the
+ * host's aim and sent as the `readout` of `overlay.indication`, so the
+ * overlay draws it above every card, the rail's own included ([B05]). Past a
+ * limit the edge keeps following with diminishing returns (`aimRailWidth`),
+ * the members are marked `data-rail-limit` and the readout reads the limit,
+ * and the release springs the edge back to it — the one motion a release
+ * makes, a TugAnimator tween of the same elements the preview moves, ending
+ * on the pose the commit stands them at, so it still lands with nothing left
+ * to move. Its commit carries a deadline, so a window whose frames have
+ * stopped still lands it.
+ * There are no catches between the limits ([B13]). The readout is taken down
+ * however the drag ended, and the overlay fades it out.
  *
  * **The release has nothing left to move** ([B08]). At the commit the width
  * property goes onto the canvas and the shown layer, and every pin and
@@ -112,11 +112,10 @@ import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { pageZoomFactor } from "@/lib/page-zoom-store";
 import { sidebarWidthProperty, type SidebarSide } from "@/lib/layout-imposer";
 import { holdCardsForHost, releaseCardsHeldForHost } from "@/lib/card-placement";
+import { indicate } from "@/lib/drag-indication";
 import {
   LIMIT_SPRING_EASING,
   LIMIT_SPRING_MS,
-  RAIL_REFLOW_ATTR,
-  RAIL_REFLOW_PAUSE_MS,
   RAIL_TRAVEL_ATTR,
   parseRailTravel,
   railTravelShift,
@@ -132,7 +131,6 @@ import {
 } from "@/lib/resize-episode";
 import { group } from "@/components/tugways/tug-animator";
 import { landByDeadline } from "@/lib/land-by-deadline";
-import { cardRailHold } from "@/bus/declarations/card";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_CLASS,
@@ -189,12 +187,6 @@ const SHOWN = `:not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
 const HELD_ATTR = "data-rail-held";
 /** A rail's members while the hand presses past a limit: the caution tint. */
 const LIMIT_ATTR = "data-rail-limit";
-/** The readout pill beside the pointer. */
-const READOUT_CLASS = "tug-rail-readout";
-/** How long the readout takes to fade once the hand lets go, at a timing of
- *  1. Stated here only: the readout carries it as `--tugx-rail-readout-fade`,
- *  which the stylesheet's transition reads and scales by `--tug-timing`. */
-const READOUT_FADE_MS = 400;
 /** How far past the spring's scaled duration its commit waits before landing
  *  anyway, for a window whose frames have stopped. */
 const LIMIT_SPRING_DEADLINE_SLACK_MS = 100;
@@ -223,50 +215,15 @@ interface Carried {
   readonly savedTranslate: string;
 }
 
-/** A member whose content waits for the hand to rest. */
-interface Held {
-  /** The press has become a drag: hold the content at the width it stands at, anchored to the rail's outer edge. */
-  latch(side: SidebarSide): void;
-  /** Lay the content out for a frame `width` layout px wide. */
-  hold(width: number): void;
-  /** Give the content back to its frame. */
-  restore(): void;
-}
-
-/**
- * A member's card draws its chrome in its own page: the frame here is a
- * stand-in, and the content is the card's page's. The hold is said to the
- * card (`card.railHold`), whose page lays its content out at it.
- */
-function heldCard(cardId: string, frame: HTMLElement): Held {
-  const width0 = frame.offsetWidth;
-  let side: SidebarSide = "left";
-  return {
-    latch(s) {
-      side = s;
-      cardRailHold.setFor(cardId, { side, width: width0 });
-    },
-    hold(width) {
-      cardRailHold.setFor(cardId, { side, width });
-    },
-    restore() {
-      cardRailHold.setFor(cardId, null);
-    },
-  };
-}
-
 interface Draft {
   readonly side: SidebarSide;
   readonly container: HTMLElement;
-  readonly zoom: number;
   readonly growSign: 1 | -1;
   readonly startWidth: number;
-  readonly canvasBounds: DOMRect;
   readonly band: RailTravelBand;
   readonly members: readonly HTMLElement[];
   readonly pinned: readonly Pinned[];
   readonly carried: readonly Carried[];
-  readonly held: readonly Held[];
   /** Where the arrangement's width property lives for the shown deck. */
   readonly propertyTargets: readonly HTMLElement[];
   readonly episodes: readonly ResizeEpisodeHandle[];
@@ -276,14 +233,13 @@ interface Draft {
   /** The aim the host last reported: what the preview draws and the release commits. */
   aim: RailWidthAim;
   rafId: number | null;
-  /** The rest that reflows the held members, re-armed by every move. */
-  pauseTimer: ReturnType<typeof setTimeout> | null;
   /** The width the edge was last drawn at, and the limit it was past. */
   shown: number;
   limit: RailWidthAim["limit"];
   /** A release past a limit springing back, and the width it lands. */
   spring: { width: number; landNow: () => void } | null;
-  readout: HTMLElement | null;
+  /** Whether the overlay is showing this drag's readout. */
+  readout: boolean;
 }
 
 /**
@@ -293,9 +249,6 @@ interface Draft {
  */
 class RailWidthDraft implements RailWidthGesture {
   private draft: Draft | null = null;
-  /** Readouts fading after their drag ended, removed when the fade is done
-   *  or the canvas unmounts. */
-  private readonly leaving = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
 
   constructor(
     private readonly canvasRef: RefObject<HTMLElement | null>,
@@ -330,7 +283,6 @@ class RailWidthDraft implements RailWidthGesture {
     );
 
     const zoom = pageZoomFactor();
-    const canvasBounds = container.getBoundingClientRect();
     const frameRect = frame.getBoundingClientRect();
     const members = [
       ...container.querySelectorAll<HTMLElement>(
@@ -366,26 +318,16 @@ class RailWidthDraft implements RailWidthGesture {
       const travel = parseRailTravel(el.getAttribute(RAIL_TRAVEL_ATTR));
       if (travel !== null) carried.push(carry(el, travel));
     }
-    const held: Held[] = [];
-    for (const el of members) {
-      if (!el.hasAttribute(RAIL_REFLOW_ATTR)) continue;
-      const paneId = el.dataset.paneId;
-      const cardId = this.store.getSnapshot().panes.find((p) => p.id === paneId)?.activeCardId;
-      if (cardId !== undefined) held.push(heldCard(cardId, el));
-    }
-
     // The width the RAIL stands at — its widest member's — measured, since
     // the grabbed member's stored width may be narrower than the rail.
     const startWidth = frameRect.width / zoom;
     this.draft = {
       side,
       container,
-      zoom,
       // A left rail's deck edge faces right: rightward motion grows it. A
       // right rail's faces left: leftward motion grows it.
       growSign: side === "left" ? 1 : -1,
       startWidth,
-      canvasBounds,
       // Signed: a rail widened until the rails cover the canvas leaves a band
       // of no width, and that rail must still narrow back. The travel terms
       // clamp a band below zero exactly as the `left` expressions do.
@@ -396,7 +338,6 @@ class RailWidthDraft implements RailWidthGesture {
         ...seams.map((el) => pin(el, false)),
       ],
       carried,
-      held,
       // The canvas, for the seams, caps and shadows outside every layer, and
       // the shown layer's wrapper, whose own copy its frames inherit.
       propertyTargets: [
@@ -411,11 +352,10 @@ class RailWidthDraft implements RailWidthGesture {
       latestY: clientY,
       aim: { width: startWidth, shown: startWidth, limit: null },
       rafId: null,
-      pauseTimer: null,
       shown: startWidth,
       limit: null,
       spring: null,
-      readout: null,
+      readout: false,
     };
     // Grabbed: the rail reads as held from the press, before it moves.
     for (const el of members) el.setAttribute(HELD_ATTR, "");
@@ -437,16 +377,6 @@ class RailWidthDraft implements RailWidthGesture {
         this.preview(draft, draft.aim);
       });
     }
-    // The held members reflow once the hand has rested; every move puts
-    // that off again.
-    if (draft.held.length > 0) {
-      if (draft.pauseTimer !== null) clearTimeout(draft.pauseTimer);
-      draft.pauseTimer = setTimeout(() => {
-        draft.pauseTimer = null;
-        if (this.draft !== draft) return;
-        this.hold(draft, draft.aim.shown);
-      }, RAIL_REFLOW_PAUSE_MS);
-    }
   }
 
   commit(clientX: number, _altKey: boolean, aim: RailWidthAim): void {
@@ -459,14 +389,12 @@ class RailWidthDraft implements RailWidthGesture {
     // with no move before it, when the event merger folded every move into
     // it. That is still a drag, and it latches here.
     this.latch(draft);
-    this.fadeReadout(draft, aim);
+    // The readout's last word is the width the release commits.
+    this.writeReadout(draft, { ...aim, limit: null });
+    this.dropReadout(draft);
     if (draft.rafId !== null) {
       cancelAnimationFrame(draft.rafId);
       draft.rafId = null;
-    }
-    if (draft.pauseTimer !== null) {
-      clearTimeout(draft.pauseTimer);
-      draft.pauseTimer = null;
     }
     // Released past a limit: the edge springs back to it through the same
     // preview, and the commit lands when it arrives — so the release still
@@ -495,7 +423,7 @@ class RailWidthDraft implements RailWidthGesture {
       draft.spring.landNow();
       return;
     }
-    this.fadeReadout(draft, null);
+    this.dropReadout(draft);
     // The host has put every view back where the press found it: the
     // placement after the restore says so of every card.
     releaseCardsHeldForHost();
@@ -503,15 +431,9 @@ class RailWidthDraft implements RailWidthGesture {
     this.release(draft);
   }
 
-  /** The canvas is going: any open draft is cancelled and every readout,
-   *  fading or not, is removed now. */
+  /** The canvas is going: any open draft is cancelled, its readout with it. */
   dispose(): void {
     this.cancel();
-    for (const [el, timer] of this.leaving) {
-      clearTimeout(timer);
-      el.remove();
-    }
-    this.leaving.clear();
   }
 
   /** The commit proper: the width property takes `width`, the preview comes
@@ -595,20 +517,12 @@ class RailWidthDraft implements RailWidthGesture {
     // The rail's frames are the hand's from here: a settle landing mid-drag
     // skips them, as it skips any frame a pointer is positioning.
     for (const el of draft.members) el.setAttribute("data-pointer-owned", "true");
-    // The content that cannot follow the hand is held where it stands,
-    // anchored to the edge the rail does not move.
-    for (const h of draft.held) h.latch(draft.side);
     // The host is moving every card of the rail's panes and of the panes
     // beside it, inactive siblings included: the placer posts them as they
     // stood at the press until the release.
     holdCardsForHost(cardsMovedBy(draft));
     // The readout rides beside the pointer for as long as the hand drags.
-    const readout = document.createElement("div");
-    readout.className = READOUT_CLASS;
-    readout.style.setProperty("--tugx-rail-readout-fade", `${READOUT_FADE_MS}ms`);
-    readout.setAttribute("aria-hidden", "true");
-    draft.container.appendChild(readout);
-    draft.readout = readout;
+    draft.readout = true;
   }
 
   /** Every inline style the preview wrote, given back as it was found. */
@@ -619,14 +533,7 @@ class RailWidthDraft implements RailWidthGesture {
       }
     }
     for (const c of draft.carried) c.el.style.translate = c.savedTranslate;
-    for (const h of draft.held) h.restore();
     for (const el of draft.members) el.removeAttribute(LIMIT_ATTR);
-  }
-
-  /** The held members laid out at the width the rail now stands at: the
-   *  one reflow they take, made while the hand rests. */
-  private hold(draft: Draft, width: number): void {
-    for (const h of draft.held) h.hold(width);
   }
 
   /**
@@ -639,16 +546,12 @@ class RailWidthDraft implements RailWidthGesture {
       cancelAnimationFrame(draft.rafId);
       draft.rafId = null;
     }
-    if (draft.pauseTimer !== null) {
-      clearTimeout(draft.pauseTimer);
-      draft.pauseTimer = null;
-    }
     for (const el of draft.members) {
       el.removeAttribute(HELD_ATTR);
       el.removeAttribute(LIMIT_ATTR);
     }
     releaseCardsHeldForHost();
-    if (draft.readout !== null) this.fadeReadout(draft, null);
+    this.dropReadout(draft);
     if (draft.latched) {
       for (const el of draft.members) el.removeAttribute("data-pointer-owned");
     }
@@ -682,39 +585,20 @@ class RailWidthDraft implements RailWidthGesture {
     }
   }
 
-  /** The readout's text and place: the width the release would commit, a
-   *  little above and beside the pointer. */
+  /** The readout's text and place: the width the release would commit, at
+   *  the pointer, in the viewport points the host reported it in. */
   private writeReadout(draft: Draft, aim: RailWidthAim): void {
-    const readout = draft.readout;
-    if (readout === null) return;
-    readout.textContent = `${Math.round(aim.width)} px`;
-    if (aim.limit === null) readout.removeAttribute("data-limit");
-    else readout.setAttribute("data-limit", aim.limit);
-    const x = (draft.latestX - draft.canvasBounds.left) / draft.zoom;
-    const y = (draft.latestY - draft.canvasBounds.top) / draft.zoom;
-    readout.style.left = `${x + 14}px`;
-    readout.style.top = `${y - 34}px`;
+    if (!draft.readout) return;
+    indicate({
+      readout: { x: draft.latestX, y: draft.latestY, text: `${Math.round(aim.width)} px`, limit: aim.limit },
+    });
   }
 
-  /** The readout let go: it shows `aim` (or what it last showed), fades, and
-   *  is removed once the fade is done. */
-  private fadeReadout(draft: Draft, aim: RailWidthAim | null): void {
-    const readout = draft.readout;
-    if (readout === null) return;
-    draft.readout = null;
-    if (aim !== null) {
-      readout.textContent = `${Math.round(aim.width)} px`;
-      readout.removeAttribute("data-limit");
-    }
-    readout.setAttribute("data-leaving", "");
-    const timer = setTimeout(
-      () => {
-        this.leaving.delete(readout);
-        readout.remove();
-      },
-      READOUT_FADE_MS * getTugTiming() + 50,
-    );
-    this.leaving.set(readout, timer);
+  /** The readout let go: the overlay fades what it last showed. */
+  private dropReadout(draft: Draft): void {
+    if (!draft.readout) return;
+    draft.readout = false;
+    indicate({ readout: null });
   }
 }
 

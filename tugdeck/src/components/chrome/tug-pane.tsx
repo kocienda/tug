@@ -85,7 +85,6 @@ import {
 import { panePlaceFactsOf, placeFactsFor, placeSource } from "./pane-place-facts";
 import { useRailWidthGesture } from "@/components/chrome/rail-width-draft";
 import {
-  RAIL_REFLOW_ATTR,
   RAIL_TRAVEL_ATTR,
   railTravelOf,
 } from "@/lib/rail-width";
@@ -765,13 +764,6 @@ function TugPaneImpl({
         ? railGripsOf(barSide, bullseye)
         : NO_GRIPS
       : resizeEdges;
-  // Whether this rail member's content follows a width drag live or waits
-  // for the hand to rest — the registration's call, stamped where the draft
-  // that holds it can read it (`rail-width-draft.ts`).
-  const railReflow =
-    sidebarStack !== undefined
-      ? getRegistration(sidebarStack.componentId)?.railReflow
-      : undefined;
 
   // Another pane is in bullseye, so this one leaves the canvas by the
   // horizontal edge it is already nearest. Overrides `left` alone, so the
@@ -841,7 +833,6 @@ function TugPaneImpl({
       // rail has rail chrome with no side.
       {...(sidebarSide !== undefined ? { "data-rail-side": sidebarSide } : {})}
       {...(railTravel !== undefined ? { [RAIL_TRAVEL_ATTR]: railTravel } : {})}
-      {...(railReflow === "pause" ? { [RAIL_REFLOW_ATTR]: railReflow } : {})}
       // A member of a rail that is currently divided rather than stacked —
       // what the seam elements and the reorder drag find their fellow members
       // by.

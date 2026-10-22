@@ -523,6 +523,25 @@ extension CardGeometry {
         return RailAim(width: asked, shown: asked, limit: nil)
     }
 
+    /// A CSS `cubic-bezier(x1, y1, x2, y2)` timing function's progress at
+    /// time `t` in 0...1: the curve's x solved for `t` by bisection, its y
+    /// read there.
+    static func cubicBezier(_ t: Double, x1: Double, y1: Double, x2: Double, y2: Double) -> Double {
+        func coordinate(_ s: Double, _ p1: Double, _ p2: Double) -> Double {
+            let u = 1 - s
+            return 3 * u * u * s * p1 + 3 * u * s * s * p2 + s * s * s
+        }
+        guard t > 0 else { return 0 }
+        guard t < 1 else { return 1 }
+        var lo = 0.0
+        var hi = 1.0
+        for _ in 0..<48 {
+            let mid = (lo + hi) / 2
+            if coordinate(mid, x1, x2) < t { lo = mid } else { hi = mid }
+        }
+        return coordinate((lo + hi) / 2, y1, y2)
+    }
+
     /// `railTravelShift`: how far an imposed card moves, layout px, when the
     /// rail on `side` grows by `growth` (negative when it narrows) — the
     /// difference between the `left` its expression resolves to at the two

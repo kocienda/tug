@@ -23,7 +23,7 @@ import React, { useLayoutEffect, useMemo, useRef, type Ref } from "react";
 import { useSyncExternalStore } from "../lib/gesture-scope";
 import { cardKindName, getRegistration } from "../card-registry";
 import { cardTitleStore } from "../lib/card-title-store";
-import { cardPainted, cardRailHold } from "../bus/declarations/card";
+import { cardPainted } from "../bus/declarations/card";
 import { paneChrome, paneReorderTabs, paneTabDrag, type PaneChromeValue } from "../bus/declarations/pane";
 import { cardDragCoordinator } from "../card-drag-coordinator";
 import { PaneChrome } from "../components/chrome/pane-chrome";
@@ -32,8 +32,9 @@ import { CardHost } from "../components/chrome/card-host";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
 import { CARD_APRON_PX } from "../lib/chrome-placement";
 import { pageZoomStore } from "../lib/page-zoom-store";
-import { onHostMessage, postToHost } from "../host/channel";
-import { paintedToHost } from "../host/declarations/lifecycle";
+import { answerPageCall, onHostMessage, postToHost } from "../host/channel";
+import { paintedToHost, railEdgeCall, railLandCall } from "../host/declarations/lifecycle";
+import { readRailEdge } from "./rail-edge";
 import { cardInsetsToPage } from "../host/declarations/geometry";
 import { getCardCloseGuard } from "../lib/card-close-guard";
 import { cardModalHoldStore, isCardHeld } from "../lib/card-modal-hold-store";
@@ -187,27 +188,28 @@ export function BodyChromeFrame({
     };
   }, []);
 
-  // A rail width drag's hold on content that cannot reflow in a frame: the
-  // shell's draft says the width to lay it out at while the frame follows
-  // the hand, and this page holds its own body there, anchored to the rail's
-  // outer edge, as the shell holds an in-document member's ([L06]: written
-  // to the DOM). The chrome's borders — the frame's width less its body's —
-  // are read as the hold opens, while the body still fills its frame.
-  const railHold = useSyncExternalStore(cardRailHold.subscribe, cardRailHold.getSnapshot);
-  const railInsetRef = useRef<number | null>(null);
+  // A rail width drag holds this page at the size the press found it, and
+  // the host draws the moving edge over it: it asks for the edge's colours
+  // as the press lands, read off the frame as it stands, and at the release
+  // waits on the page's first paint at its new size before it takes its
+  // drawing away. Answered from mount, before any press can ask ([L03]).
   useLayoutEffect(() => {
-    const body = rootEl?.querySelector<HTMLElement>(".tug-pane-body") ?? null;
-    if (body === null || frameEl === null) return;
-    if (railHold === null) {
-      railInsetRef.current = null;
-      body.style.removeProperty("width");
-      body.style.removeProperty("align-self");
-      return;
-    }
-    railInsetRef.current ??= frameEl.offsetWidth - body.offsetWidth;
-    body.style.setProperty("align-self", railHold.side === "left" ? "flex-start" : "flex-end");
-    body.style.setProperty("width", `${railHold.width - railInsetRef.current}px`);
-  }, [railHold, rootEl, frameEl]);
+    if (frameEl === null) return;
+    const releaseEdge = answerPageCall(railEdgeCall, () => readRailEdge(frameEl, pageZoomStore.getFactor()));
+    const releaseLand = answerPageCall(
+      railLandCall,
+      () =>
+        new Promise<null>((resolve) => {
+          // Two frames on, the frame laid out at the new size has gone to
+          // the compositor (`body-main.ts`'s rule for `painted`).
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)));
+        }),
+    );
+    return () => {
+      releaseEdge();
+      releaseLand();
+    };
+  }, [frameEl]);
 
   // A tab drag in this page: a reorder inside the bar is the pane's verb, and
   // past the bar the shell hit-tests the other panes and commits.

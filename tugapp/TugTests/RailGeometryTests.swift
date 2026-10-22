@@ -224,9 +224,73 @@ final class RailGeometryTests: XCTestCase {
         XCTAssertEqual(step.aim, RailAim(width: 400, shown: 400, limit: nil))
     }
 
+    /// A right rail carrying a drag lays its crossing member out from the one
+    /// frame the hand writes: the member widens at its deck-facing (left)
+    /// edge, the page stands still at the outer edge, and the strip and the
+    /// page's mask meet where the pane's edge or the page's own border,
+    /// whichever is further out, less the border's width.
+    func testARailCarryingADragLaysItsCrossingOut() throws {
+        let host = Member(order: 0, serial: 0, frame: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        let rail = RailView(side: .right)
+        host.addSubview(rail)
+        let member = RailMemberView(frame: .zero)
+        member.wantsLayer = true
+        rail.addSubview(member)
+        member.frame = CGRect(x: 1000, y: 38, width: 340, height: 300)
+        let page = NSView(frame: member.bounds)
+        page.wantsLayer = true
+        page.autoresizingMask = [.minXMargin]
+        member.addSubview(page)
+        rail.place(CGRect(x: 1000, y: 38, width: 340, height: 300))
+        let crossing = RailCrossing(side: .right, insets: CardInsets(top: 10, right: 10, bottom: 10, left: 10), page: page)
+        crossing.colors = try JSONDecoder().decode(RailEdgeColors.self, from: Data(#"""
+            {"surface":[28,30,34,255],"rest":[60,64,70,255],"held":[70,130,230,255],"limit":[230,160,60,255],
+             "width":1,"shadow":[0,0,0,102],"reach":10}
+            """#.utf8))
+        crossing.strip.edgeWidth = 1
+        member.railCrossing = crossing
+        rail.carriesDrag = true
+
+        // Grown by 40 at the deck-facing edge.
+        rail.place(CGRect(x: 960, y: 38, width: 380, height: 300))
+        XCTAssertEqual(member.frame, CGRect(x: 960, y: 38, width: 380, height: 300))
+        XCTAssertEqual(page.frame, CGRect(x: 40, y: 0, width: 340, height: 300))
+        XCTAssertEqual(crossing.strip.frame, CGRect(x: 10, y: 10, width: 41, height: 280))
+        XCTAssertEqual(crossing.mask.frame, CGRect(x: 11, y: 0, width: 329, height: 300))
+
+        // Narrowed by 40 past where it started.
+        rail.place(CGRect(x: 1040, y: 38, width: 300, height: 300))
+        XCTAssertEqual(member.frame, CGRect(x: 1040, y: 38, width: 300, height: 300))
+        XCTAssertEqual(page.frame.minX, -40)
+        XCTAssertEqual(crossing.strip.frame, CGRect(x: 10, y: 10, width: 1, height: 280))
+        XCTAssertEqual(crossing.mask.frame, CGRect(x: 51, y: 0, width: 289, height: 300))
+
+        // Carrying nothing, a placement of the rail moves no member.
+        rail.carriesDrag = false
+        rail.place(CGRect(x: 1000, y: 38, width: 340, height: 300))
+        XCTAssertEqual(member.frame, CGRect(x: 1040, y: 38, width: 300, height: 300))
+        member.railCrossing = nil
+        XCTAssertNil(crossing.strip.superview)
+        XCTAssertNil(page.layer?.mask)
+    }
+
+    /// The spring's curve is CSS's `cubic-bezier`: it starts at 0, ends at
+    /// 1, rises throughout, and `(0.33, 1, 0.68, 1)` is well past half way
+    /// at half time.
+    func testTheSpringCurveIsCSSsCubicBezier() {
+        let at = { (t: Double) in CardGeometry.cubicBezier(t, x1: 0.33, y1: 1, x2: 0.68, y2: 1) }
+        XCTAssertEqual(at(0), 0)
+        XCTAssertEqual(at(1), 1)
+        let samples = stride(from: 0.0, through: 1.0, by: 0.05).map(at)
+        XCTAssertEqual(samples, samples.sorted())
+        XCTAssertGreaterThan(at(0.5), 0.8)
+        // The linear curve is the identity.
+        XCTAssertEqual(CardGeometry.cubicBezier(0.3, x1: 0, y1: 0, x2: 1, y2: 1), 0.3, accuracy: 1e-6)
+    }
+
     func testACarriedCardIsNeverASnapTarget() {
-        let member = RailMembership(side: .left, index: 0, reflow: .live)
-        let other = RailMembership(side: .right, index: 0, reflow: .live)
+        let member = RailMembership(side: .left, index: 0)
+        let other = RailMembership(side: .right, index: 0)
         let targets = CardGeometry.railSnapTargets(side: .left, [
             .init(rect: CGRect(x: 10, y: 38, width: 340, height: 300), visible: true, sibling: false, rail: member),
             .init(rect: CGRect(x: 365, y: 38, width: 400, height: 800), visible: true, sibling: false,

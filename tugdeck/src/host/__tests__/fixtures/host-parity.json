@@ -55,8 +55,7 @@
               },
               "rail": {
                 "side": "left",
-                "index": 0,
-                "reflow": "pause"
+                "index": 0
               }
             },
             {
@@ -2138,6 +2137,106 @@
           "layoutSaved": true,
           "elapsedMs": 41.5
         }
+      ]
+    },
+    {
+      "receiver": "bridge",
+      "member": "onRailEdge",
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ],
+      "replies": [
+        {
+          "surface": [
+            28,
+            30,
+            34,
+            255
+          ],
+          "rest": [
+            60,
+            64,
+            70,
+            255
+          ],
+          "held": [
+            70,
+            130,
+            230,
+            255
+          ],
+          "limit": [
+            230,
+            160,
+            60,
+            255
+          ],
+          "width": 1,
+          "shadow": [
+            0,
+            0,
+            0,
+            102
+          ],
+          "reach": 10
+        },
+        null
+      ],
+      "refusedReplies": [
+        {
+          "surface": [
+            28,
+            30,
+            34,
+            255
+          ],
+          "rest": [
+            60,
+            64,
+            70,
+            255
+          ],
+          "held": [
+            70,
+            130,
+            230
+          ],
+          "limit": [
+            230,
+            160,
+            60,
+            255
+          ],
+          "width": 1,
+          "shadow": [
+            0,
+            0,
+            0,
+            102
+          ],
+          "reach": 10
+        },
+        true
+      ]
+    },
+    {
+      "receiver": "bridge",
+      "member": "onRailLand",
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ],
+      "replies": [
+        null
+      ],
+      "refusedReplies": [
+        true,
+        {}
       ]
     },
     {

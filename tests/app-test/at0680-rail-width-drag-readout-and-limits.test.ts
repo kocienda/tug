@@ -12,10 +12,12 @@
  * motion a release makes — and commits the limit. Either way the readout
  * fades once the hand lets go and is gone shortly after.
  *
- * The readout, the held marks and the limit marks are the shell's own state,
- * and are read in the shell. Where the rail stands is not: the host carries
- * every member's view, and the shell's stand-ins are only its preview, moved
- * on its own clock. So the give past the ceiling and a release that moves
+ * The held marks and the limit marks are the shell's own state, and are read
+ * in the shell; the readout is the shell's answer drawn by the overlay page
+ * above every card, and is read there. Where the rail stands is neither: the
+ * host carries every member's view, and the shell's stand-ins are only its
+ * preview, moved on its own clock. So the give past the ceiling and a
+ * release that moves
  * nothing are read off the host's snapshot of the views, and the spring is
  * read in the composite: a capture burst from the release finds the dragged
  * member's deck-facing edge by colour on every frame, so the frames between
@@ -28,6 +30,7 @@
  *
  * @visible
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
+ * @covers tugdeck/src/overlay/overlay-indication.ts
  * @covers tugdeck/src/lib/rail-width.ts
  * @covers tugdeck/src/lib/host-card-gesture.ts
  * @covers tugapp/Sources/CardGeometry.swift
@@ -39,6 +42,7 @@ import { launchTugApp, note, type App } from "./_harness";
 import { chromePoint } from "./card-chrome-fixture";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import { armBurst, readBurst } from "./one-view-fixture";
+import { overlayReady } from "./overlay-fixture";
 import { CARD_APRON_PX, armReportRecord, railReader, readRailFacts, takeReportRecord } from "./rail-width-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -182,11 +186,16 @@ interface Mid {
   limit: (string | null)[];
 }
 
-/** The drag as it stands mid-gesture. */
-function readMid(app: App): Promise<Mid> {
-  return app.evalJS<Mid>(
+/** The drag as it stands mid-gesture: the marks in the shell, the readout in the overlay. */
+async function readMid(app: App): Promise<Mid> {
+  const pill = await (await overlayReady(app)).evalJS<{ text: string | null; limit: string | null } | null>(
     `(function () {
       var r = document.querySelector(".tug-rail-readout:not([data-leaving])");
+      return r === null ? null : { text: r.textContent, limit: r.getAttribute("data-limit") };
+    })()`,
+  );
+  const marks = await app.evalJS<{ held: number; limit: (string | null)[] }>(
+    `(function () {
       var members = document.querySelectorAll('.tug-pane[data-rail-side="left"]');
       var limit = [];
       var held = 0;
@@ -194,14 +203,10 @@ function readMid(app: App): Promise<Mid> {
         if (el.hasAttribute("data-rail-held")) held++;
         limit.push(el.getAttribute("data-rail-limit"));
       });
-      return {
-        readout: r === null ? null : r.textContent,
-        readoutLimit: r === null ? null : r.getAttribute("data-limit"),
-        held: held,
-        limit: limit,
-      };
+      return { held: held, limit: limit };
     })()`,
   );
+  return { readout: pill?.text ?? null, readoutLimit: pill?.limit ?? null, ...marks };
 }
 
 function storedWidth(app: App, paneId: string): Promise<number> {
@@ -213,8 +218,9 @@ function storedWidth(app: App, paneId: string): Promise<number> {
   );
 }
 
-function count(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+/** How many elements match `selector` in `page`: the shell, or the overlay. */
+function count(page: Pick<App, "evalJS">, selector: string): Promise<number> {
+  return page.evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 }
@@ -256,6 +262,7 @@ describe.skipIf(!SHOULD_RUN)(
             `the readout reads ${target} (read ${mid.readout})`,
           ).toBeLessThanOrEqual(PIXEL_TOL);
           expect(mid.readoutLimit, "the readout is at no limit").toBeNull();
+          expect(await count(app, ".tug-rail-readout"), "the shell draws no readout of its own").toBe(0);
           expect(mid.limit.every((l) => l === null), "no member is at a limit").toBe(true);
 
           expect(
@@ -271,11 +278,11 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(0);
 
           expect(
-            await count(app, ".tug-rail-readout[data-leaving]"),
+            await count(await overlayReady(app), ".tug-rail-readout[data-leaving]"),
             "the readout is fading once the hand lets go",
           ).toBe(1);
           await wait(READOUT_GONE_MS);
-          expect(await count(app, ".tug-rail-readout"), "the readout is gone").toBe(0);
+          expect(await count(await overlayReady(app), ".tug-rail-readout"), "the readout is gone").toBe(0);
           expect(await count(app, "[data-rail-held]"), "nothing is still held").toBe(0);
           expect(Math.abs((await storedWidth(app, "pLayout")) - target)).toBeLessThanOrEqual(PIXEL_TOL);
           await expectHostAt(app, target, "after the land");
@@ -364,7 +371,7 @@ describe.skipIf(!SHOULD_RUN)(
           await expectHostAt(app, ceiling, "after the spring");
 
           await wait(READOUT_GONE_MS);
-          expect(await count(app, ".tug-rail-readout"), "the readout is gone").toBe(0);
+          expect(await count(await overlayReady(app), ".tug-rail-readout"), "the readout is gone").toBe(0);
           expect(await count(app, "[data-rail-limit]"), "no member is still at a limit").toBe(0);
           expect(await count(app, "[data-rail-held]"), "nothing is still held").toBe(0);
           for (const pane of ["pJots", "pLayout"]) {
