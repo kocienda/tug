@@ -21,6 +21,14 @@
  * @module body/spike-page
  */
 
+// A reload Vite scopes to this page (`lib/scoped-reload.ts`'s `tug:reload`),
+// read inline so the page still imports nothing from the deck.
+if (import.meta.hot) {
+  import.meta.hot.on("tug:reload", (payload: { entries?: readonly string[] }) => {
+    if (payload.entries?.includes("spike")) window.location.reload();
+  });
+}
+
 const LOG_LINES_KEPT = 200;
 
 interface SpikeReading {

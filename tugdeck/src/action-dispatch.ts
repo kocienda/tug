@@ -171,21 +171,66 @@ export const SHIPPED_THEME_NAMES: readonly string[] = [
   "pinnace", // light
 ];
 
-/** Module-level flag to prevent duplicate reload calls */
-let reloadPending = false;
+/**
+ * This module's state, in one object a hot update carries to the module's
+ * next instance (`import.meta.hot.data`). Importers keep calling the
+ * instance they imported — `registerThemeSetter` from the theme provider's
+ * mount, say — so both instances read and write the same object, and a
+ * handler the new instance registered sees what the old one was told.
+ */
+interface DispatchState {
+  /** Set by the first reload request, so a second does nothing. */
+  reloadPending: boolean;
+  /**
+   * Whether the current `accessibility` keyboard-access mode was flipped on
+   * by VoiceOver detection (vs. persisted by the user). VoiceOver turning
+   * off undoes only a detection-driven flip.
+   */
+  voiceOverDroveAccessibility: boolean;
+  /** The theme setter, populated by TugThemeProvider on mount. */
+  themeSetter: ((theme: string) => void) | null;
+  /** The theme getter, populated by TugThemeProvider on mount. */
+  themeGetter: (() => string) | null;
+}
+
+const state: DispatchState = (import.meta.hot?.data.dispatchState as DispatchState | undefined) ?? {
+  reloadPending: false,
+  voiceOverDroveAccessibility: false,
+  themeSetter: null,
+  themeGetter: null,
+};
+if (import.meta.hot) import.meta.hot.data.dispatchState = state;
 
 /**
- * Whether the current `accessibility` keyboard-access mode was flipped on
- * by VoiceOver detection (vs. persisted by the user). VoiceOver turning
- * off undoes only a detection-driven flip.
+ * The registrations a page made, as its boot called them, so a hot update of
+ * this module can make them again with the handlers the new instance
+ * defines. The handler map is `action-registry.ts`'s, which outlives the
+ * update, and every page dispatches through it; registering again replaces
+ * each handler in place. Only the page's own calls are kept: the registrars
+ * `initActionDispatch` calls itself are made again by its own replay.
  */
-let voiceOverDroveAccessibility = false;
+type Registrar =
+  | "initActionDispatch"
+  | "registerRunCardCommand"
+  | "registerEvalAction"
+  | "registerAppLifecycleAction"
+  | "registerSetupActions"
+  | "registerStoreTailActions";
 
-/** Module-level reference to the theme setter, populated by TugThemeProvider on mount. */
-let themeSetterRef: ((theme: string) => void) | null = null;
+interface Registration {
+  readonly registrar: Registrar;
+  readonly args: readonly unknown[];
+  /** What undoes it, for a registration that holds more than handlers. */
+  readonly dispose?: () => void;
+}
 
-/** Module-level reference to the theme getter, populated by TugThemeProvider on mount. */
-let themeGetterRef: (() => string) | null = null;
+const registrations: Registration[] = [];
+/** Inside `initActionDispatch`, whose own registrar calls are not the page's. */
+let wiring = false;
+
+function remember(registration: Registration): void {
+  if (!wiring) registrations.push(registration);
+}
 
 /**
  * Register the theme setter function from TugThemeProvider.
@@ -193,7 +238,7 @@ let themeGetterRef: (() => string) | null = null;
  * can call it when a Theme submenu item is selected.
  */
 export function registerThemeSetter(setter: (theme: string) => void): void {
-  themeSetterRef = setter;
+  state.themeSetter = setter;
 }
 
 /**
@@ -201,7 +246,7 @@ export function registerThemeSetter(setter: (theme: string) => void): void {
  * Returns null if TugThemeProvider has not yet mounted.
  */
 export function getThemeSetter(): ((theme: string) => void) | null {
-  return themeSetterRef;
+  return state.themeSetter;
 }
 
 /**
@@ -210,7 +255,7 @@ export function getThemeSetter(): ((theme: string) => void) | null {
  * can read the current theme name.
  */
 export function registerThemeGetter(getter: () => string): void {
-  themeGetterRef = getter;
+  state.themeGetter = getter;
 }
 
 /**
@@ -218,7 +263,7 @@ export function registerThemeGetter(getter: () => string): void {
  * Returns null if TugThemeProvider has not yet mounted.
  */
 export function getThemeGetter(): (() => string) | null {
-  return themeGetterRef;
+  return state.themeGetter;
 }
 
 /** TextDecoder for UTF-8 payload decoding */
@@ -237,10 +282,11 @@ function originOf(payload: Record<string, unknown>): string | null {
  */
 export function _resetForTest(): void {
   _resetActionRegistryForTest();
-  reloadPending = false;
-  voiceOverDroveAccessibility = false;
-  themeSetterRef = null;
-  themeGetterRef = null;
+  state.reloadPending = false;
+  state.voiceOverDroveAccessibility = false;
+  state.themeSetter = null;
+  state.themeGetter = null;
+  registrations.length = 0;
 }
 
 /**
@@ -304,6 +350,7 @@ export const RUN_CARD_COMMAND = "run-card-command";
  * body card, and sending it there ran nothing.
  */
 export function registerRunCardCommand(): void {
+  remember({ registrar: "registerRunCardCommand", args: [] });
   // Spelled out: `command-routing-drift.test.ts` reads the registrations here.
   registerAction("run-card-command", (payload) => {
     const name = payload.name;
@@ -343,6 +390,7 @@ export function registerRunCardCommand(): void {
  * it — the shell from {@link initActionDispatch}, a body from its own boot.
  */
 export function registerEvalAction(connection: TugConnection): void {
+  remember({ registrar: "registerEvalAction", args: [connection] });
   // Gated twice on the tugcast side before an `eval` frame is ever broadcast:
   // loopback callers only, and dev mode only. A release instance answers
   // `forbidden` without consulting the deck at all.
@@ -424,6 +472,7 @@ export function cycleFocusMode(): void {
  * never hears it.
  */
 export function registerAppLifecycleAction(): void {
+  remember({ registrar: "registerAppLifecycleAction", args: [] });
   registerAction("app-lifecycle", (payload) => {
     const event = payload.event;
     if (typeof event !== "string") {
@@ -490,7 +539,19 @@ export function registerAppLifecycleAction(): void {
  * The Control-frame `onFrame` unsubscribe is registered into the
  * disposer set like every other acquisition ([L27]).
  */
-export function initActionDispatch(
+export function initActionDispatch(connection: TugConnection, deckManager: DeckManager): () => void {
+  wiring = true;
+  let dispose: () => void;
+  try {
+    dispose = wireActionDispatch(connection, deckManager);
+  } finally {
+    wiring = false;
+  }
+  remember({ registrar: "initActionDispatch", args: [connection, deckManager], dispose });
+  return dispose;
+}
+
+function wireActionDispatch(
   connection: TugConnection,
   deckManager: DeckManager
 ): () => void {
@@ -568,8 +629,8 @@ export function initActionDispatch(
   // on DeckManager so the beforeunload handler skips the redundant keepalive
   // flush (which fails in WKWebView during page navigation with CORS errors).
   registerAction("reload", () => {
-    if (reloadPending) return;
-    reloadPending = true;
+    if (state.reloadPending) return;
+    state.reloadPending = true;
     deckManager.prepareForReload().then(() => {
       location.reload();
     });
@@ -585,24 +646,24 @@ export function initActionDispatch(
       console.warn("set-theme: invalid theme", payload);
       return;
     }
-    if (themeSetterRef) {
-      themeSetterRef(theme);
+    if (state.themeSetter) {
+      state.themeSetter(theme);
     } else {
       console.warn("set-theme: theme setter not registered yet");
     }
   });
 
   // next-theme: Advance to the next shipped theme (wrapping around).
-  // Uses SHIPPED_THEME_NAMES to determine order and the registered themeGetterRef to
+  // Uses SHIPPED_THEME_NAMES to determine order and the registered theme getter to
   // read the current theme. Falls back to the base theme if the getter is not yet
   // registered or the current theme is not in the shipped list.
   registerAction("next-theme", () => {
-    const currentTheme = themeGetterRef ? themeGetterRef() : SHIPPED_THEME_NAMES[0];
+    const currentTheme = state.themeGetter ? state.themeGetter() : SHIPPED_THEME_NAMES[0];
     const idx = SHIPPED_THEME_NAMES.indexOf(currentTheme);
     const nextIdx = idx === -1 ? 0 : (idx + 1) % SHIPPED_THEME_NAMES.length;
     const nextTheme = SHIPPED_THEME_NAMES[nextIdx];
-    if (themeSetterRef) {
-      themeSetterRef(nextTheme);
+    if (state.themeSetter) {
+      state.themeSetter(nextTheme);
     } else {
       console.warn("next-theme: theme setter not registered yet");
     }
@@ -1535,11 +1596,11 @@ export function initActionDispatch(
     }
     if (enabled) {
       if (keyboardAccessStore.getMode() !== "accessibility") {
-        voiceOverDroveAccessibility = true;
+        state.voiceOverDroveAccessibility = true;
         keyboardAccessStore.setMode("accessibility", { persist: false });
       }
-    } else if (voiceOverDroveAccessibility) {
-      voiceOverDroveAccessibility = false;
+    } else if (state.voiceOverDroveAccessibility) {
+      state.voiceOverDroveAccessibility = false;
       keyboardAccessStore.setMode("standard", { persist: false });
     }
   });
@@ -1666,6 +1727,7 @@ export function initActionDispatch(
  * overlay page, where the setup wizard is mounted ([B07]).
  */
 export function registerSetupActions(): void {
+  remember({ registrar: "registerSetupActions", args: [] });
   // claude_auth_result: tugcast's answer to `check_auth` (probe) and
   // `claude_sign_in` (login). Updates the app-level authStore that the
   // app-wide sign-in sheet, the picker gate, and the per-card banner all read.
@@ -1749,6 +1811,7 @@ export function registerSetupActions(): void {
  * and never the page before them, so a body's Overview showed no posts.
  */
 export function registerStoreTailActions(): void {
+  remember({ registrar: "registerStoreTailActions", args: [] });
   // resolve_sessions_ok / _err: the ledger's answer to "which of these cited
   // sessions do you hold?" ([D132]). The store settles both the hits and the
   // misses — a named miss is what lets an unresolvable citation be a cached
@@ -1902,4 +1965,32 @@ export function registerStoreTailActions(): void {
     }
     publishListOverviewPostsOk({ posts: posts as OverviewPostWire[] });
   });
+}
+
+/**
+ * Dev only: an edit to this module is taken in place. The previous
+ * instance's registrations are undone where they hold more than handlers
+ * (`initActionDispatch`'s control-frame subscription) and made again here,
+ * so a handler edit lands without the page reloading. Importers keep the
+ * previous instance's exports; `dispatchAction` reads the shared handler map
+ * and the state is shared, so what they call still reaches the new handlers.
+ */
+if (import.meta.hot) {
+  // Spelled out: Vite marks a module self-accepting by finding this call.
+  import.meta.hot.accept();
+  const hot = import.meta.hot;
+  const previous = hot.data.registrations as Registration[] | undefined;
+  hot.data.registrations = registrations;
+  const registrars: Record<Registrar, (...args: never[]) => unknown> = {
+    initActionDispatch,
+    registerRunCardCommand,
+    registerEvalAction,
+    registerAppLifecycleAction,
+    registerSetupActions,
+    registerStoreTailActions,
+  };
+  for (const registration of previous ?? []) {
+    registration.dispose?.();
+    (registrars[registration.registrar] as (...args: readonly unknown[]) => unknown)(...registration.args);
+  }
 }

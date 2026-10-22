@@ -21,10 +21,12 @@
  *      `[data-slot="session-transcript-shell-row"]` with
  *      `[data-participant="shell"]` on its transcript entry (the [P11]
  *      visual-distinctness anchor).
- *   3. **Restore interleave ([P07])** — after Maker ▸ Reload, a real
- *      `spawn_session(resume)` replays a fixture JSONL Claude turn while
- *      the ledgered shell exchanges restore through `list_shell_exchanges`;
- *      the fixture's timestamps predate the live execs, so the reloaded
+ *   3. **Restore interleave ([P07])** — Maker ▸ Reload reloads the shell
+ *      alone and keeps the card's page. The card's own page reloaded is a
+ *      restore: the host saves the card and loads its page afresh, a real
+ *      `spawn_session(resume)` replays a fixture JSONL Claude turn while the
+ *      ledgered shell exchanges restore through `list_shell_exchanges`; the
+ *      fixture's timestamps predate the live execs, so the restored
  *      transcript must reproduce the identical row order and shell row
  *      content regardless of arrival order.
  *
@@ -41,6 +43,8 @@
  * @covers tugdeck/src/components/tugways/body-kinds/terminal-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-z1b.tsx
  * @covers tugdeck/src/components/tugways/tug-transcript-entry.tsx
+ * @covers tugdeck/src/lib/body-shell.ts
+ * @covers tugapp/Sources/BodyViewController.swift
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -56,6 +60,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
+import { waitForBodyReady } from "./_harness/card-reach";
+import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "./_harness/tugbank-helpers";
 import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -206,7 +212,17 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "echo/cd/pwd settle real exchange rows; reload reproduces the interleaved order",
       async () => {
-        const app = await launchTugApp({ testName: "at0216-shell-exchange" });
+        // Persisted and restored as the app is, so the reloaded shell comes
+        // back holding its deck: a shell booted empty would tell the card's
+        // kept page its card had gone.
+        const tugbankPath = mkTempTugbank();
+        seedTugbankForLaunch(tugbankPath);
+        const app = await launchTugApp({
+          testName: "at0216-shell-exchange",
+          persistInTestMode: true,
+          restoreInTestMode: true,
+          env: { TUGBANK_PATH: tugbankPath },
+        });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
@@ -315,13 +331,23 @@ describe.skipIf(!SHOULD_RUN)(
             "shell",
           ]);
 
-          // --- Maker ▸ Reload → real resume replay + ledger restore. ---
+          // --- Maker ▸ Reload: the shell reloads, and the card's page is kept. ---
+          await app.body("A").evalJS<boolean>(`(window.__at0216Kept = true)`);
           await app.appReload();
-          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 15_000 },
           );
+          expect(await app.body("A").evalJS<boolean>(`window.__at0216Kept === true`), "the card's page outlived the shell's reload").toBe(true);
+
+          // --- The card's own page reloads → real resume replay + ledger restore. ---
+          // The host saves the card and loads its page afresh, as a restore.
+          await app.body("A").evalJS<null>(`(location.reload(), null)`);
+          await app.body("A").waitForCondition<boolean>(
+            `window.__at0216Kept !== true && typeof window.__tug !== "undefined"`,
+            { timeoutMs: 15_000 },
+          );
+          await waitForBodyReady(app, "A");
           await app.spawnSessionResume("A", { tugSessionId: SID, projectDir });
 
           // The replayed Claude turn and the four restored exchanges must
@@ -338,7 +364,7 @@ describe.skipIf(!SHOULD_RUN)(
           const reloadedOrder = await participantOrder(app);
           expect(
             reloadedOrder,
-            "reload must reproduce the identical row order ([P07])",
+            "a restore must reproduce the identical row order ([P07])",
           ).toEqual(liveOrder);
 
           const restored = await shellRowFacts(app);
@@ -353,6 +379,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(restored[3].output).toContain(`sid=${SID}`);
         } finally {
           await app.close();
+          rmTempTugbank(tugbankPath);
         }
       },
       TEST_TIMEOUT_MS,

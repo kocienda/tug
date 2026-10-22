@@ -183,4 +183,29 @@ describe("the shell's cursor", () => {
     await bus.flush();
     expect(shell.cursor.get()).toBeNull();
   });
+
+  test("a shell that reloads under the body is told the selection and cursor again", async () => {
+    const { shell, body } = await makePages();
+    body.selection.pickOnly("A");
+    body.selection.toggle("C");
+    body.cursor.set("C");
+    await bus.flush();
+    // Only the shell reloads: a new shell page, its selection empty.
+    bus.leave(shell.page);
+    const reloaded = share(bus.shell());
+    await bus.flush();
+    expect([...reloaded.selection.getSnapshot().ids].sort()).toEqual(["A", "C"]);
+    expect(reloaded.cursor.get()).toBe("C");
+    expect([...body.selection.getSnapshot().ids].sort()).toEqual(["A", "C"]);
+  });
+
+  test("a body that has not heard the shell yet tells it nothing", async () => {
+    bus = createTestBus();
+    const shell = share(bus.shell());
+    shell.selection.pickOnly("A");
+    await bus.flush();
+    share(bus.body("cards-1", "cards"));
+    await bus.flush();
+    expect([...shell.selection.getSnapshot().ids]).toEqual(["A"]);
+  });
 });

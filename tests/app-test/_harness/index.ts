@@ -1076,7 +1076,8 @@ export class App {
   /**
    * The same surface, run in one card's body view instead of the shell: every
    * request it sends names the card. A card with no body rejects with
-   * `NoSuchBody`. Screenshots it takes are reclaimed with this app's.
+   * `NoSuchBody`, except a wait, which waits for the body too. Screenshots it
+   * takes are reclaimed with this app's.
    */
   body(cardId: string): BodyApp {
     return new BodyApp(this, cardId, this.screenshots);
@@ -2067,6 +2068,9 @@ async function concealPaneControlsIn(page: ChromePage, paneSelector: string): Pr
   );
 }
 
+/** The host's own default for `waitForCondition` (`WaitForConditionOptions`). */
+const WAIT_FOR_CONDITION_DEFAULT_MS = 2_000;
+
 /**
  * One card's body view, addressed the way {@link App} addresses the shell.
  *
@@ -2089,15 +2093,30 @@ export class BodyApp implements HarnessCaller {
     return this.rpcCall<T>("evalJS", { script, timeoutMs: opts?.timeoutMs });
   }
 
-  waitForCondition<T = unknown>(
+  /**
+   * Wait for `script` to hold in this card's page. A card the shell has asked
+   * for may have no page yet — the host makes cards' pages a few at a time,
+   * shown cards first — so a wait begun before the host holds the body waits
+   * for it too, inside the same timeout, rather than failing at once with
+   * `NoSuchBody` as every other call here does.
+   */
+  async waitForCondition<T = unknown>(
     script: string,
     opts?: WaitForConditionOptions,
   ): Promise<T> {
-    return this.rpcCall<T>("waitForCondition", {
-      script,
-      timeoutMs: opts?.timeoutMs,
-      pollMs: opts?.pollMs,
-    });
+    const deadline = Date.now() + (opts?.timeoutMs ?? WAIT_FOR_CONDITION_DEFAULT_MS);
+    for (;;) {
+      try {
+        return await this.rpcCall<T>("waitForCondition", {
+          script,
+          timeoutMs: Math.max(1, deadline - Date.now()),
+          pollMs: opts?.pollMs,
+        });
+      } catch (error) {
+        if ((error as Error | null)?.name !== "NoSuchBody" || Date.now() >= deadline) throw error;
+        await Bun.sleep(50);
+      }
+    }
   }
 
   rpcCall<T = unknown>(

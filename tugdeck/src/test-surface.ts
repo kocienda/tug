@@ -89,7 +89,7 @@ import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
 import { sendSpawnSession } from "./lib/session-lifecycle";
 import { fireNewSpawn } from "./lib/session-restore";
-import { handOffToBody } from "./lib/body-handoff";
+import { handOffToBody, isDeferredBody } from "./lib/body-handoff";
 import { sessionLineStore } from "./lib/session-line-store";
 import { applyRestoredShellExchanges } from "./lib/shell-session-store";
 import type { AtomSegment } from "./lib/tug-atom-img";
@@ -3265,6 +3265,9 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // the shell answers "is it up" from the body's state, which it holds.
       // A card mid-hand-off may still hold a root here (a Session card's
       // picker); once the shell has handed it off, the body's state decides.
+      // A card handed off while not shown has no page until it is, by
+      // design: it is as up as it will be until something shows it.
+      if (isDeferredBody(cardId)) return true;
       const state = bodyCardsStore.stateOf(cardId);
       if (state !== null) return state === "ready" || state === "painted";
       return deck.peekCardHostRoot(cardId) !== null;

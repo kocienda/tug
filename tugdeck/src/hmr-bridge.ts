@@ -111,8 +111,8 @@ import {
   sendCanvasColor,
 } from "./contexts/theme-provider";
 import { notifyThemeStyleEdit } from "./theme-tokens";
-import { postToHost } from "./host/channel";
-import { hmrUpdateToHost } from "./host/declarations/lifecycle";
+import { reportHmrLanded } from "./lib/hmr-landed";
+import { installScopedReload } from "./lib/scoped-reload";
 
 /**
  * One-shot arming window for the `tug:theme-changed` HMR signal.
@@ -195,12 +195,17 @@ export function installHmrBridge(deck: DeckManager): void {
     deck.captureAllForTeardown("hmr-full-reload");
   });
 
+  // A reload the dev server scoped to the shell (`lib/scoped-reload.ts`):
+  // the same capture a full reload runs, then the reload the host
+  // intercepts. One naming only the bodies or the overlay passes the shell by.
+  installScopedReload(hot, "shell", () => deck.captureAllForTeardown("hmr-full-reload"));
+
   // `vite:afterUpdate` fires after an incremental HMR update has been
   // applied. Notify the native host so the dev-info overlay's "load"
   // timestamp reflects when fresh modules came online. Full reloads go
   // through the WebView's didFinish navigation path on the native side
   // and are not reported here.
-  hot.on("vite:afterUpdate", () => {
+  hot.on("vite:afterUpdate", (payload) => {
     // If a theme-css edit just landed, re-read the active host canvas
     // color from the updated stylesheet and re-fire the Swift bridge
     // so the native window backdrop tracks the edit live. Reading on
@@ -217,7 +222,7 @@ export function installHmrBridge(deck: DeckManager): void {
       notifyThemeStyleEdit();
     }
 
-    postToHost(hmrUpdateToHost, {});
+    reportHmrLanded(payload);
   });
 
   // Self-HMR: ask Vite to do a full page reload if THIS module is

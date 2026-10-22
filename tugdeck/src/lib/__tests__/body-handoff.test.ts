@@ -10,7 +10,9 @@
  * workspace's card is handed off from its own workspace's deck.
  * The intent a card was handed is kept while it is a body card, a card whose
  * body failed is asked for again with the intent the shell gives it, and a
- * bound card's arrival waits on its body's ready, or its failure.
+ * bound card's arrival waits on its body's ready, or its failure. A card the
+ * shell defers stands evicted with no page asked for, keeps the latest intent
+ * and its first state, and is asked for once, with them, when released.
  *
  * @covers tugdeck/src/lib/body-handoff.ts
  * @covers tugdeck/src/lib/session-restore.ts
@@ -30,7 +32,10 @@ import {
   forgetBodyIntent,
   handOffToBody,
   isBodyKind,
+  isDeferredBody,
   isMountBodyKind,
+  releaseDeferredBody,
+  setBodyDeferral,
 } from "../body-handoff";
 import { createTestBus, type TestBus } from "../../bus/test-bus";
 import { sessionIntent } from "../../bus/declarations/verbs";
@@ -90,6 +95,12 @@ registerCard({
   contentFactory: () => null,
   defaultMeta: { title: "Mount", closable: true },
 });
+registerCard({
+  componentId: "handoff-guarded",
+  contentFactory: () => null,
+  defaultMeta: { title: "Guarded", closable: true },
+  guardsClose: true,
+});
 
 /** The state the shell holds per card; empty unless a test seeds it. */
 const cardStates = new Map<string, Record<string, unknown>>();
@@ -100,6 +111,7 @@ const live = {
     { id: "s2", componentId: "handoff-spawn" },
     { id: "g1", componentId: "git" },
     { id: "m1", componentId: "handoff-mount" },
+    { id: "k1", componentId: "handoff-guarded" },
   ],
 };
 /** A parked workspace's deck, holding one card the live deck does not. */
@@ -314,6 +326,40 @@ describe("with the capability", () => {
   test("a card that is not a body card is not asked for again", () => {
     askForBodyAgain("s2", { kind: "restore" });
     expect(posted).toEqual([]);
+  });
+
+  test("a deferred card gets no page until released, then one, with its latest intent and first state", () => {
+    setBodyDeferral((cardId) => cardId === "m1");
+    cardStates.set("m1", { scroll: 7 });
+    expect(handOffToBody("m1", () => ({ kind: "mount" }))).toBe(true);
+    expect(posted).toEqual([]);
+    expect(bodyCardsStore.stateOf("m1")).toBe("evicted");
+    expect(isDeferredBody("m1")).toBe(true);
+
+    // A funnel deciding again while it waits changes what it will be handed, and asks for nothing.
+    expect(handOffToBody("m1", () => ({ kind: "restore" }))).toBe(true);
+    expect(posted).toEqual([]);
+
+    expect(releaseDeferredBody("m1")).toBe(true);
+    expect(posted).toEqual([
+      {
+        name: "bodyCreate",
+        body: { cardId: "m1", componentId: "handoff-mount", intent: { kind: "restore", bag: { scroll: 7 } } },
+      },
+    ]);
+    expect(bodyCardsStore.stateOf("m1")).toBe("creating");
+    expect(isDeferredBody("m1")).toBe(false);
+    expect(releaseDeferredBody("m1"), "released once").toBe(false);
+
+    // A card the deferral does not name is asked for at once, as before.
+    expect(handOffToBody("s1", () => ({ kind: "restore" }))).toBe(true);
+    expect(posted).toHaveLength(2);
+
+    // Nor is one whose kind may veto its close, whatever the deferral says.
+    setBodyDeferral(() => true);
+    expect(handOffToBody("k1", () => ({ kind: "mount" }))).toBe(true);
+    expect(posted).toHaveLength(3);
+    expect(isDeferredBody("k1")).toBe(false);
   });
 });
 

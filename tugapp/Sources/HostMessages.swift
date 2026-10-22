@@ -576,6 +576,14 @@ struct LaunchLap: Decodable, Equatable {
     var detail: String?
 }
 
+/// `hmrUpdate`: an incremental update has landed in the posting page — any
+/// page — with Vite's stamp for it (ms since the epoch) and how many modules
+/// it carried.
+struct HmrUpdate: Decodable, Equatable {
+    var viteAt: Double
+    var modules: Int
+}
+
 /// `pageFault`: what `PageFaultScript` saw, its text, and where (`""` when
 /// it said nowhere).
 struct PageFault: Decodable, Equatable {
@@ -794,7 +802,7 @@ enum ToHostName: String, CaseIterable {
     /// card's own body, and the answer is the window's whole zoom either way.
     var shellOnly: Bool {
         switch self {
-        case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap, .hmrUpdate,
+        case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap,
              .bodyCreate, .bodyDestroy, .bodyEvictAfter, .bodyFocus, .hostFrames,
              .cardPlan, .placeCards, .overlayCreate:
             return true
@@ -855,7 +863,7 @@ enum ToHost {
     case bodyDestroy(BodyDestroy)
     case bodyEvictAfter(BodyEvictAfter)
     case bodyFocus(BodyFocus)
-    case hmrUpdate
+    case hmrUpdate(HmrUpdate)
     case sourceTree
     case choosePath(ChoosePath)
     case getSettings
@@ -908,7 +916,7 @@ enum ToHost {
         case .frontendLaunchStalled: return .frontendLaunchStalled(try read(FrontendLaunchStalled.self))
         case .launchLap: return .launchLap(try read(LaunchLap.self))
         case .pageFault: return .pageFault(try read(PageFault.self))
-        case .hmrUpdate: _ = try read(EmptyPayload.self); return .hmrUpdate
+        case .hmrUpdate: return .hmrUpdate(try read(HmrUpdate.self))
         case .sourceTree: _ = try read(EmptyPayload.self); return .sourceTree
         case .choosePath: return .choosePath(try read(ChoosePath.self))
         case .getSettings: _ = try read(EmptyPayload.self); return .getSettings

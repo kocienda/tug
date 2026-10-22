@@ -404,6 +404,9 @@ export class RestorePassCards extends Subscribable {
 
   has = (cardId: string): boolean => this.counts.has(cardId);
 
+  /** Whether any pass is still deciding for some card. */
+  pending = (): boolean => this.counts.size > 0;
+
   /** Hold `cardIds` for one pass; the returned release is idempotent. */
   _hold(cardIds: Iterable<string>): () => void {
     const held = [...cardIds];

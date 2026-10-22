@@ -31,6 +31,16 @@ enum HostSender {
         if case .overlay = self { return true }
         return false
     }
+
+    /// The page as a log line names it: `shell`, `overlay`, the body's card,
+    /// or `spare` for a body not yet bound to one.
+    var pageName: String {
+        switch self {
+        case .shell: return "shell"
+        case .overlay: return "overlay"
+        case .body(let body): return body.cardId ?? "spare"
+        }
+    }
 }
 
 /// The one `WKScriptMessageHandler` every page's content controller carries,
@@ -86,7 +96,7 @@ final class HostChannel: NSObject, WKScriptMessageHandler {
         if name?.shellOnly == true, !sender.isShell {
             TugLog.warn("bodies", "shell-only message from another page", [
                 TugLog.field("name", message.name),
-                TugLog.field("card", sender.body?.cardId ?? (sender.isOverlay ? "overlay" : "spare")),
+                TugLog.field("card", sender.pageName),
             ])
             return
         }

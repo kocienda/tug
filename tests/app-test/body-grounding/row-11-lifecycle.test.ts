@@ -12,11 +12,12 @@
  * - **close all** — File › Close All Card Tabs on a pane holding a body
  *   card with a draft beside a text card; the shell asks, and both cards
  *   go, the body with them.
- * - **reload** — ⇧⌘R from inside a body; the host runs every body's save
- *   and destroys them all before the shell navigates
- *   (`saveAndDestroyAll`), and the reloaded shell's restore pass makes
- *   them again, so the draft typed in the body before the reload is the
- *   draft its body shows after it, and its bag is on tugbank disk.
+ * - **reload** — ⇧⌘R from inside a body; only the shell's page reloads.
+ *   Every body stays bound to its card across it — the same page, never
+ *   gone from the host's snapshot — and the reloaded shell re-adopts it,
+ *   so the draft typed in the body before the reload is in it after; and
+ *   each kept body still writes its card's state, so its bag is on tugbank
+ *   disk.
  * - **quit** — the app's own termination path runs each body's
  *   `prepareForTermination` under the one deadline; the draft typed after
  *   the reload reaches disk, and the host's verdict line names the body's
@@ -24,8 +25,8 @@
  *
  * The saves are read from the tugbank file the run was launched on, never
  * from the page that wrote them. And every bound body says which kind of
- * card it holds — at the start and after the reload made it again — so a
- * body brought back is bound to mount its card's kind, not a guess.
+ * card it holds — at the start and after the reload — so a body the
+ * reloaded shell re-adopts is bound to mount its card's kind, not a guess.
  *
  * Every other kind that is a body is closed, reloaded and quit the same
  * way; a rail holds no tabs, so Close All is the Session card's here. What
@@ -209,25 +210,28 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
             expect(typed, "its field holds the draft").toContain(draft);
           }
           const genBefore = await app.evalJS<number>(READY_GEN);
+          // The page itself is kept: a mark set in it before is in it after.
+          await k.evalJS<boolean>(`(window.__row11Kept = true)`);
           await app.nativeKey("r", ["cmd", "shift"]);
-          let emptySamples = 0;
+          let goneSamples = 0;
           const genAfter = await pollFor(
             async () => {
-              if ((await boundBodies(app)).length === 0) emptySamples += 1;
+              if (!(await boundBodies(app)).includes(K2)) goneSamples += 1;
               return app.evalJS<number>(READY_GEN).catch(() => genBefore);
             },
             (gen) => gen > genBefore,
             20_000,
           );
           expect(genAfter, "the shell reloaded").toBeGreaterThan(genBefore);
-          expect(emptySamples, "the host had destroyed every body before the shell came back").toBeGreaterThan(0);
+          expect(goneSamples, "the card's body stayed bound across the shell's reload").toBe(0);
           const listed = await pollFor(() => app.evalJS<string[]>(CARD_IDS), (ids) => ids.includes(K2), SETTLE_MS);
           expect(listed, "the reloaded shell restored the card").toContain(K2);
           const again = await standUpKind(app, kind, K2);
           await expectBodiesMatchCards(app, "after the reload", [K2, A]);
+          expect(await again.evalJS<boolean>(`window.__row11Kept === true`), "the body is the page it was before the reload").toBe(true);
           if (kind.field !== undefined) {
             const restored = await pollFor(() => again.evalJS<string>(`(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`), (t) => t.includes(draft), SETTLE_MS);
-            expect(restored, "the body made again shows the draft the old one saved").toContain(draft);
+            expect(restored, "the kept body still shows the draft").toContain(draft);
           }
 
           // ---- quit ----
@@ -355,27 +359,28 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         expect(await pollFor(() => bodyOf(app, B), (b) => b === null, SETTLE_MS), "the host holds no body for B after close all").toBeNull();
         await expectBodiesMatchCards(app, "after close all", [D]);
 
-        // ---- Reload: D saves, every body goes, the restored D shows the draft ----
+        // ---- Reload: only the shell reloads; D's page stays, and its draft with it ----
         await typeDraft(app, D, DRAFT_BEFORE_RELOAD);
+        await app.body(D).evalJS<boolean>(`(window.__row11Kept = true)`);
         const genBefore = await app.evalJS<number>(READY_GEN);
         await app.nativeKey("r", ["cmd", "shift"]);
-        // Across the navigation: the host destroys every body before the
-        // shell goes, and the new shell's restore makes D's again.
-        let emptySamples = 0;
+        // Across the navigation: D's body is bound in every host sample.
+        let goneSamples = 0;
         let samples = 0;
         const genAfter = await pollFor(
           async () => {
             samples += 1;
-            if ((await boundBodies(app)).length === 0) emptySamples += 1;
+            if (!(await boundBodies(app)).includes(D)) goneSamples += 1;
             return app.evalJS<number>(READY_GEN).catch(() => genBefore);
           },
           (gen) => gen > genBefore,
           20_000,
         );
-        note(`reload: ready generation ${genBefore} → ${genAfter}; ${samples} host samples across it, ${emptySamples} with no bound body`);
+        note(`reload: ready generation ${genBefore} → ${genAfter}; ${samples} host samples across it, ${goneSamples} without D's body`);
         expect(genAfter, "the shell reloaded").toBeGreaterThan(genBefore);
-        expect(emptySamples, "the host had destroyed every body before the shell came back").toBeGreaterThan(0);
-        const bagAfterReload = bagOnDisk(tugbankPath, D);
+        expect(goneSamples, "D's body stayed bound across the shell's reload").toBe(0);
+        // Kept, and still saved: a reload leaves the card's bag on disk.
+        const bagAfterReload = await pollFor(async () => bagOnDisk(tugbankPath, D), (bag) => bag?.includes(DRAFT_BEFORE_RELOAD) === true, SETTLE_MS);
         expect(bagAfterReload, "D's bag is on tugbank disk after the reload").not.toBeNull();
         expect(bagAfterReload, "and it carries the draft typed in the body before the reload").toContain(DRAFT_BEFORE_RELOAD);
         const cardsAfterReload = await pollFor(() => app.evalJS<string[]>(CARD_IDS), (ids) => ids.includes(D), SETTLE_MS);
@@ -383,8 +388,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         expect(cardsAfterReload, "the reloaded shell restored D").toContain(D);
         await waitForBody(app, D);
         await expectBodiesMatchCards(app, "after the reload", [D]);
+        expect(await app.body(D).evalJS<boolean>(`window.__row11Kept === true`), "D's body is the page it was before the reload").toBe(true);
         const restored = await pollFor(() => app.body(D).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT_BEFORE_RELOAD) === true, SETTLE_MS);
-        expect(restored, "the restored body shows the draft the old one saved").toContain(DRAFT_BEFORE_RELOAD);
+        expect(restored, "D's kept body still shows the draft").toContain(DRAFT_BEFORE_RELOAD);
 
         // ---- Quit: D saves under the termination pipeline ----
         await typeDraft(app, D, DRAFT_BEFORE_QUIT);

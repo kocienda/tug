@@ -23,6 +23,8 @@ import { fracFromAuthored, chromaFromAuthored, resolveHueAngle } from "./src/com
 import { tugReachPlugin } from "./scripts/babel-plugin-tug-reach";
 // script-src carries no 'unsafe-inline'; the deck's own inline scripts are admitted by hash.
 import { cspInlineScriptHashesPlugin } from "./scripts/csp-inline-script-hashes";
+// An edit that would reload every page reloads only the pages that import it.
+import { PAGE_ENTRY_FILES, SCOPED_RELOAD_EVENT, reloadScopeOf, type PageEntry } from "./src/lib/scoped-reload";
 
 /**
  * Vite plugin: seamless CSS hot-reload when tugcolor.ts changes.
@@ -215,6 +217,62 @@ function repaintActiveTheme(server: import("vite").ViteDevServer): void {
   if (!mod) return;
   server.ws.send({ type: "custom", event: "tug:theme-changed" });
   void server.reloadModule(mod);
+}
+
+/**
+ * Vite plugin: a reload goes only to the pages that import the changed module.
+ *
+ * Every page the host makes is served from this one dev server and one module
+ * graph, so where an edit's propagation finds no accept boundary Vite sends
+ * `full-reload` to every client — the shell, the overlay, each body and the
+ * spare reload together, and the host remakes every card, for an edit only the
+ * shell imports. This hook walks the graph as Vite would (`reloadScopeOf`),
+ * stopping each path at the page entry it passes through. When some path
+ * reaches an entry, it sends `tug:reload` naming those entries, sends Vite's
+ * own update for the accept boundaries the other paths met, and returns no
+ * modules, so Vite sends nothing more. A path that reaches the shared root
+ * without passing an entry (an edit to `entry.ts` itself) is left to Vite's
+ * full reload. Dev only: `hotUpdate` runs only on the dev server.
+ */
+function scopedReloadPlugin(): VitePlugin {
+  const entryByFile = new Map<string, PageEntry>(
+    (Object.entries(PAGE_ENTRY_FILES) as [PageEntry, string][]).map(([entry, file]) => [
+      path.resolve(__dirname, file),
+      entry,
+    ]),
+  );
+  const hmrUrl = (url: string): string => (url[0] === "/" || url[0] === "." ? url : `/@id/${url.replace("\0", "__x00__")}`);
+  return {
+    name: "tug-scoped-reload",
+    apply: "serve",
+    hotUpdate({ modules, timestamp, file }) {
+      if (this.environment.name !== "client" || modules.length === 0) return;
+      const scope = reloadScopeOf(modules, (node) => (node.file ? (entryByFile.get(node.file) ?? null) : null));
+      if (scope.kind !== "reload") return;
+      // What Vite's own update would have done before sending: stamp the
+      // changed modules, so a boundary re-imports them fresh and a reloaded
+      // page is served their new transform.
+      const invalidated = new Set<import("vite").EnvironmentModuleNode>();
+      for (const mod of modules) this.environment.moduleGraph.invalidateModule(mod, invalidated, timestamp, true);
+      const short = path.relative(__dirname, file);
+      this.environment.logger.info(`scoped reload ${short} → ${scope.entries.join(", ")}`, { timestamp: true });
+      this.environment.hot.send({ type: "custom", event: SCOPED_RELOAD_EVENT, data: { entries: scope.entries } });
+      if (scope.boundaries.length > 0) {
+        this.environment.hot.send({
+          type: "update",
+          updates: scope.boundaries.map(({ boundary, acceptedVia }) => ({
+            type: boundary.type === "css" ? ("css-update" as const) : ("js-update" as const),
+            timestamp,
+            path: hmrUrl(boundary.url),
+            acceptedPath: hmrUrl(acceptedVia.url),
+            explicitImportRequired: false,
+            isWithinCircularImport: false,
+          })),
+        });
+      }
+      return [];
+    },
+  };
 }
 
 /**
@@ -867,6 +925,7 @@ export default (defineConfig as any)((env: any = {}) => {
       themeEditApplyPlugin(),
       capabilitiesVirtualModulePlugin(),
       cspInlineScriptHashesPlugin(),
+      scopedReloadPlugin(),
     ],
     css: {
       postcss: {

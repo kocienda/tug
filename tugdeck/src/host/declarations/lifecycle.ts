@@ -175,12 +175,23 @@ export const bodyFocusToHost = defineToHost<BodyFocus>({
   refused: [null, { cardId: 7 }],
 });
 
-export const hmrUpdateToHost = defineToHost({
+/**
+ * An incremental update has landed in the posting page: Vite's own stamp for
+ * the update (ms since the epoch, on the dev server's clock, which is this
+ * machine's) and how many modules it carried, so the host can log how long
+ * the update took to reach each page.
+ */
+export interface HmrUpdate {
+  readonly viteAt: number;
+  readonly modules: number;
+}
+
+export const hmrUpdateToHost = defineToHost<HmrUpdate>({
   name: "hmrUpdate",
-  from: "shell",
-  codec: empty,
-  samples: [{}],
-  refused: [true],
+  from: "any",
+  codec: obj({ viteAt: num, modules: num }),
+  samples: [{ viteAt: 1792540800123, modules: 1 }],
+  refused: [true, {}, { viteAt: "now", modules: 1 }],
 });
 
 // Host → page.

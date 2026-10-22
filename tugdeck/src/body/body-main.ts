@@ -166,7 +166,10 @@ import {
 import { spaceBindingsLedgerStore } from "../lib/space-bindings-ledger-store";
 import { CARDS_CARD_ID } from "../lib/cards-card-id";
 import { OVERVIEW_CARD_ID } from "../lib/overview-card-id";
+import { retellOverviewDraft } from "../lib/overview-composer-draft";
 import { ARCS_CARD_ID } from "../lib/arcs-card-id";
+import { installHmrLanded } from "../lib/hmr-landed";
+import { installScopedReload } from "../lib/scoped-reload";
 import { createBodyCardDeck, createDeckView, type BodyCardDeck } from "./body-card-deck";
 import { renderBodyRoot } from "./body-root";
 import { installBodyPublisher, type InstalledBodyPublisher } from "./body-publisher";
@@ -223,6 +226,10 @@ followShellTheme();
 // first, so every receiver below has its member to arrive through.
 installHostChannel();
 installDictationBridge();
+// Each update Vite applies in this page, timed to the host's log.
+if (import.meta.hot) installHmrLanded(import.meta.hot);
+// A reload Vite scopes to the bodies; the host saves the card's state first.
+if (import.meta.hot) installScopedReload(import.meta.hot, "body");
 document.documentElement.setAttribute("data-body-page", "");
 
 const named = new URLSearchParams(window.location.search).get("body");
@@ -672,6 +679,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
   follow(appInfo, (info) => {
     if (info !== null) appInfoStore.set(info);
   });
+  // The Overview's draft is held by the shell, which a reload empties.
+  if (componentId === OVERVIEW_CARD_ID) retellOverviewDraft();
   if (componentId === CARDS_CARD_ID) {
     // The Cards list's selection and cursor are the shell's, whose deck verbs
     // read them: the list proposes each change it makes.

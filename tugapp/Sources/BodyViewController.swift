@@ -181,6 +181,10 @@ final class BodyViewController {
         var componentId: String?
         /// When the body was bound to its card, for `readyMs`.
         var boundAt: CFTimeInterval?
+        /// When the card's page was asked for — made cold, or the spare
+        /// taken — for the ready line's `whole_ms`: the wall time the card
+        /// was dark, which bind → ready leaves out.
+        var askedAt: CFTimeInterval?
         /// Whether this body began as the spare, for the ready line's
         /// `warm` / `cold`.
         var warm = false
@@ -189,6 +193,9 @@ final class BodyViewController {
         /// The body has posted `painted`: its first frame of real content
         /// has gone to the compositor. Cleared when its page is reloaded.
         var painted = false
+        /// The body outlived a shell reload: the reloaded shell has heard
+        /// nothing of it, and is told where it stands when it asks for it.
+        var keptAcrossShellReload = false
         /// Whether the body may be shown: it has painted, and its card is
         /// bound or ready. A card that draws its own chrome paints its first
         /// chrome frame before it is ready, and shows from there, its content
@@ -285,6 +292,19 @@ final class BodyViewController {
     static let spareDelay: DispatchTimeInterval = .seconds(1)
     /// A second WebContent termination inside this window fails the body.
     static let terminationWindow: TimeInterval = 10
+    /// How many cards' pages load at once. Every page fetches the deck's
+    /// whole module graph through the one connection pool the app's pages
+    /// share, so a page's load grows with how many are loading beside it:
+    /// on a warm six-card launch, six at once all painted at 4.8 s; two at
+    /// a time painted the first two at 2.2 s and the last at 5.5 s, three
+    /// at a time the first three at 2.9 s and the last at 5.2 s. The whole
+    /// is the same either way; the width decides how soon the first cards
+    /// are live. Read against the launch's `deck-populated` lap.
+    static let laneWidth = 2
+    /// How long a card asked for before the shell has placed it waits for
+    /// that placement, which says whether it is shown and where it reads,
+    /// before the lane takes it in the order it was asked for.
+    static let lanePlacementWait: DispatchTimeInterval = .milliseconds(100)
 
     private unowned let window: MainWindow
     let hostView: BodyHostView
@@ -299,6 +319,23 @@ final class BodyViewController {
     private(set) var region = CardHitRegion()
     /// The spare's pending creation, so a burst of readies makes one.
     private var pendingSpare: DispatchWorkItem?
+    /// A card whose page is not yet made: asked for, and waiting in the lane.
+    private struct LaneEntry {
+        let cardId: String
+        var componentId: String
+        var intent: JSONObject
+        let askedAt: CFTimeInterval
+        let serial: Int
+    }
+    /// The cards waiting for a page, in the order they were asked for.
+    private var lane: [LaneEntry] = []
+    private var laneSerials = 0
+    /// The lane's wait for a placement (`lanePlacementWait`).
+    private var pendingDrain: DispatchWorkItem?
+    /// Each card the last placement named, with its index in the deck's
+    /// reading order: the lane's order after whether a card is shown, and
+    /// where a page made from the lane after that placement stands.
+    private var placedEntries: [String: (entry: CardPlacementEntry, deckIndex: Int)] = [:]
     /// Creation order, for a stable stacking among bodies at one z.
     private var serials = 0
     #if DEBUG
@@ -501,10 +538,15 @@ final class BodyViewController {
     // MARK: - Create and bind
 
     /// The shell asks for a card's body. The waiting spare takes it when
-    /// there is one; otherwise a body is made cold at `/?body=<cardId>`. A
-    /// card that already has a body is re-bound only if it failed.
+    /// there is one, its page already loaded; otherwise the card waits in the
+    /// lane for a cold body at `/?body=<cardId>`. A card that already has a
+    /// body is re-bound only if it failed.
     func create(cardId: String, componentId: String, intent: JSONObject) {
         if let existing = body(forCard: cardId), existing.state != .failed {
+            if existing.keptAcrossShellReload {
+                reportKept(existing, cardId: cardId)
+                return
+            }
             TugLog.warn("bodies", "bodyCreate for a card that has a body; ignoring", [
                 TugLog.field("card", cardId),
             ])
@@ -515,16 +557,103 @@ final class BodyViewController {
             spare.componentId = componentId
             spare.intent = intent
             spare.warm = true
+            spare.askedAt = CACurrentMediaTime()
             standCover(over: spare)
             armDeadline(spare)
             if spare.state == .connected { bind(spare) }
             return
         }
-        guard let made = make(cardId: cardId, path: "/?body=\(cardId)") else { return }
-        made.componentId = componentId
-        made.intent = intent
+        if let index = lane.firstIndex(where: { $0.cardId == cardId }) {
+            lane[index].componentId = componentId
+            lane[index].intent = intent
+            return
+        }
+        laneSerials += 1
+        lane.append(LaneEntry(
+            cardId: cardId, componentId: componentId, intent: intent,
+            askedAt: CACurrentMediaTime(), serial: laneSerials
+        ))
+        if cardPlacements[cardId] != nil { drainLane() } else { scheduleDrain() }
+    }
+
+    /// A body kept across a shell reload, asked for by the reloaded shell:
+    /// it is told what the shell before it was, a ready page and its paint,
+    /// since the body will not say either again. Its stores and facts reach
+    /// the shell on the bus's hello, and its focus follows the `ready`.
+    private func reportKept(_ body: Body, cardId: String) {
+        body.keptAcrossShellReload = false
+        TugLog.info("bodies", "kept across the shell's reload", [
+            TugLog.field("card", cardId),
+            TugLog.field("state", body.state.rawValue),
+            TugLog.field("painted", body.painted ? "yes" : "no"),
+        ])
+        guard body.state == .ready else { return }
+        notifyShell(BodyStateReport(cardId: cardId, state: .ready, readyMs: body.readyMs ?? 0, start: body.warm ? .warm : .cold))
+        if body.painted { notifyShell(BodyStateReport(cardId: cardId, state: .painted)) }
+    }
+
+    /// The cards whose pages are loading: made, not yet ready. The spare is
+    /// not one: it holds no card.
+    private var inFlight: Int {
+        bodies.filter { body in
+            body.cardId != nil && (body.state == .loading || body.state == .connected || body.state == .bound)
+        }.count
+    }
+
+    /// The next card the lane makes a page for: a shown card before a hidden
+    /// one, then the deck's reading order, then the order it was asked for.
+    /// A card the shell has not placed yet reads as hidden and last.
+    private func nextInLane() -> Int? {
+        func key(_ entry: LaneEntry) -> (Int, Int, Int) {
+            let shown = cardPlacements[entry.cardId]?.visible == true ? 0 : 1
+            return (shown, placedEntries[entry.cardId]?.deckIndex ?? Int.max, entry.serial)
+        }
+        return lane.indices.min { key(lane[$0]) < key(lane[$1]) }
+    }
+
+    /// Make pages for waiting cards while fewer than `laneWidth` are loading.
+    /// Run when a card is asked for, when a placement lands, and when a page
+    /// leaves the lane: ready, failed at its deadline, or gone.
+    private func drainLane() {
+        pendingDrain?.cancel()
+        pendingDrain = nil
+        while inFlight < BodyViewController.laneWidth, let index = nextInLane() {
+            let entry = lane.remove(at: index)
+            makeFromLane(entry)
+        }
+    }
+
+    /// Drain once the shell's placement has had a moment to arrive.
+    private func scheduleDrain() {
+        guard pendingDrain == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingDrain = nil
+            self?.drainLane()
+        }
+        pendingDrain = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + BodyViewController.lanePlacementWait, execute: work)
+    }
+
+    private func makeFromLane(_ entry: LaneEntry) {
+        guard let made = make(cardId: entry.cardId, path: "/?body=\(entry.cardId)") else { return }
+        made.componentId = entry.componentId
+        made.intent = entry.intent
+        // The card has been dark since it was asked for, not since its page
+        // left the lane.
+        made.askedAt = entry.askedAt
         standCover(over: made)
         armDeadline(made)
+        // The shell placed the card while it waited, and will not again
+        // until something moves: the page stands where that placement put it.
+        if let (placed, deckIndex) = placedEntries[entry.cardId] {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            place(made, placed, deckIndex: deckIndex)
+            // Into its rail's view if it is a rail member, and stacked.
+            reconcileRails()
+            CATransaction.commit()
+            refreshRegion()
+        }
     }
 
     /// A card brought back from an eviction stands under its last frame
@@ -538,16 +667,23 @@ final class BodyViewController {
     }
 
     /// Make the spare: a body loaded at `/?body=spare`, connected and waiting
-    /// for the next card. The caller decides when.
+    /// for the next card. The caller decides when, and the lane has the last
+    /// word: while a card's page is waiting or loading the spare would compete
+    /// with the page the user is waiting for, so it is not made until the lane
+    /// has drained, and the lane's last departure schedules it again.
     func createSpare() {
         // Critical pressure took the spare; the next arrival is cold.
         guard spare == nil, pressure.level != .critical else { return }
+        guard laneIsIdle else { return }
         _ = make(cardId: nil, path: "/?body=spare")
     }
 
+    /// No card's page is waiting in the lane or loading.
+    private var laneIsIdle: Bool { lane.isEmpty && inFlight == 0 }
+
     /// Make the spare a beat from now, if there is none by then: after the
-    /// shell's launch, after a bound body's ready, and after the spare is
-    /// lost.
+    /// shell's launch, after a bound body's ready, after the lane's last page
+    /// leaves it, and after the spare is lost.
     func scheduleSpare() {
         pendingSpare?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -641,14 +777,18 @@ final class BodyViewController {
         body.state = .ready
         let readyMs = body.boundAt.map { (CACurrentMediaTime() - $0) * 1000 } ?? 0
         body.readyMs = readyMs
+        let wholeMs = body.askedAt.map { (CACurrentMediaTime() - $0) * 1000 } ?? readyMs
         TugLog.info("bodies", "ready", [
             TugLog.field("card", cardId),
             TugLog.field("ms", String(format: "%.1f", readyMs)),
+            TugLog.field("whole_ms", String(format: "%.1f", wholeMs)),
             TugLog.field("start", body.warm ? "warm" : "cold"),
         ])
         notifyShell(BodyStateReport(cardId: cardId, state: .ready, readyMs: readyMs, start: body.warm ? .warm : .cold))
         // A body hidden before it was ready has had its clock running.
         armEviction(body)
+        // Its page has left the lane; the next waiting card's may start.
+        drainLane()
         // The spare this body may have taken is replaced once it has painted.
         scheduleSpare()
     }
@@ -990,6 +1130,7 @@ final class BodyViewController {
             )
         }
         cardPlacements = placements
+        placedEntries = named
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for body in bodies {
@@ -1006,36 +1147,43 @@ final class BodyViewController {
                 applyVisibility(body)
                 continue
             }
-            let frame = entry.view.cgRect
-            let visible = entry.visible
-            setWhole(body, true)
-            body.sibling = entry.sibling == true
-            if entry.insets != body.insets {
-                body.insets = entry.insets
-                send(.cardInsets(entry.insets), to: body)
-            }
-            // A placement that names the plan carrying the card is its
-            // landing, which the shell adopted as posted: the beats run on.
-            // One that names no plan, or another — a drag taking its frame
-            // mid-settle, a measurement after the plan — takes the card from
-            // its beats. The id decides, never the rect ([B11]).
-            if let beats = body.beats, !visible || entry.planId != beats.planId {
-                cancelBeats(body)
-            }
-            body.frame = frame
-            body.shellControls = entry.shell.map(\.cgRect)
-            body.container.frame = frame
-            body.visible = visible
-            body.z = Int(entry.z)
-            body.container.order = body.z
-            body.deckIndex = deckIndex
-            applyVisibility(body)
+            place(body, entry, deckIndex: deckIndex)
         }
         // Each rail's members into its rail view, and the containers in the
         // panes' order, back to front, moved in place.
         reconcileRails()
         CATransaction.commit()
         refreshRegion()
+        // The lane's order is the placement's: a card waiting on it may go.
+        if !lane.isEmpty { drainLane() }
+    }
+
+    /// Stand `body` where its placement entry puts it.
+    private func place(_ body: Body, _ entry: CardPlacementEntry, deckIndex: Int) {
+        let frame = entry.view.cgRect
+        let visible = entry.visible
+        setWhole(body, true)
+        body.sibling = entry.sibling == true
+        if entry.insets != body.insets {
+            body.insets = entry.insets
+            send(.cardInsets(entry.insets), to: body)
+        }
+        // A placement that names the plan carrying the card is its
+        // landing, which the shell adopted as posted: the beats run on.
+        // One that names no plan, or another — a drag taking its frame
+        // mid-settle, a measurement after the plan — takes the card from
+        // its beats. The id decides, never the rect ([B11]).
+        if let beats = body.beats, !visible || entry.planId != beats.planId {
+            cancelBeats(body)
+        }
+        body.frame = frame
+        body.shellControls = entry.shell.map(\.cgRect)
+        body.container.frame = frame
+        body.visible = visible
+        body.z = Int(entry.z)
+        body.container.order = body.z
+        body.deckIndex = deckIndex
+        applyVisibility(body)
     }
 
     /// Stand every rail member's container in its rail's view and every other
@@ -1795,6 +1943,8 @@ final class BodyViewController {
     /// `bodyDestroy`. With `save`, the body writes its card's state first.
     func destroy(cardId: String, save: Bool) {
         covers.removeValue(forKey: cardId)
+        // A card still waiting in the lane has no page to save.
+        lane.removeAll { $0.cardId == cardId }
         guard let body = body(forCard: cardId) else { return }
         guard save else {
             remove(body)
@@ -1806,49 +1956,45 @@ final class BodyViewController {
     }
 
     /// Every body, at once, and the overlay with them. Used where the
-    /// window's bridge is taken down, and before the shell reloads: the
-    /// overlay is the shell's page's, and the reloaded shell asks for it
-    /// again (`overlayCreate`), so nothing it held in memory outlives the
-    /// deck it was drawn for.
+    /// window's bridge is taken down.
     func destroyAll() {
-        pendingSpare?.cancel()
-        pendingSpare = nil
+        clearLane()
         covers.removeAll()
         for body in bodies { remove(body) }
+        // After the removals, which leave the lane idle and would ask for a
+        // spare the window going away has no use for.
+        pendingSpare?.cancel()
+        pendingSpare = nil
         removeOverlay()
     }
 
-    /// Every body writes its card's state, then every body goes — the shell
-    /// is about to reload, and its restore pass makes them again. A body
-    /// that does not answer within `saveDeadline` goes unsaved rather than
-    /// holding the reload. `completion` runs once.
-    func saveAndDestroyAll(completion: @escaping () -> Void) {
-        pendingSpare?.cancel()
-        pendingSpare = nil
-        let bound = bodies.filter { $0.cardId != nil && $0.state == .ready }
-        var waiting = bound.count
-        var finished = false
-        let finish = { [weak self] in
-            guard !finished else { return }
-            finished = true
-            self?.destroyAll()
-            completion()
+    /// The shell is about to reload, and its bodies stay: each is still its
+    /// card's page, bound and on screen. Each ready one still writes its
+    /// card's state, as a reload always has, so a reload leaves every card on
+    /// disk; nothing waits on the save, which finishes in a page the reload
+    /// does not touch. What goes is what the shell's page held: the overlay,
+    /// which the reloaded shell asks for again (`overlayCreate`), and a
+    /// gesture in the host's hand, whose shell is going. The reloaded shell's
+    /// restore pass asks for every card again, and a kept body is told then
+    /// where it stands (`reportKept`).
+    func keepAcrossShellReload() {
+        if gestureLive { cancelGesture() }
+        removeOverlay()
+        for body in bodies where body.cardId != nil {
+            body.keptAcrossShellReload = true
+            if body.state == .ready { window.hostChannel.call(.saveState, in: body.webView) { _ in } }
         }
-        guard waiting > 0 else {
-            finish()
-            return
-        }
-        for body in bound {
-            window.hostChannel.call(.saveState, in: body.webView) { _ in
-                waiting -= 1
-                if waiting == 0 { finish() }
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + BodyViewController.saveDeadline) { finish() }
     }
 
-    /// How long a reload waits on the bodies' saves.
+    /// How long a body's save may hold its reload for an edit, or its eviction.
     static let saveDeadline: DispatchTimeInterval = .seconds(2)
+
+    /// Nothing waits in the lane: the bodies are all going.
+    private func clearLane() {
+        pendingDrain?.cancel()
+        pendingDrain = nil
+        lane.removeAll()
+    }
 
     /// The bodies that can answer `prepareForTermination()`: bound and ready.
     var terminable: [(cardId: String, webView: WKWebView)] {
@@ -1881,6 +2027,11 @@ final class BodyViewController {
             window.bodyDidGoAway(cardId: cardId)
         }
         refreshRegion()
+        // A page gone, failed at its deadline or destroyed, has left the lane.
+        if !lane.isEmpty { drainLane() }
+        // The last page to leave the lane may have left it by failing, with
+        // no ready to make the spare after it.
+        if laneIsIdle, spare == nil { scheduleSpare() }
     }
 
     // MARK: - Eviction
@@ -2110,16 +2261,49 @@ final class BodyViewController {
         TugLog.warn("bodies", "WebContent process terminated — reloading", [
             TugLog.field("card", cardId),
         ])
+        loadAfresh(body, cardId: cardId)
+        return true
+    }
+
+    /// A body's page asked to reload itself: the dev server named the bodies'
+    /// entry in a scoped reload (`tugdeck/src/lib/scoped-reload.ts`). Its
+    /// card's state is written first, as a shell reload writes every body's,
+    /// and the page is then loaded afresh under the same card. The spare,
+    /// which holds nothing, reloads as itself. Returns false for a view that
+    /// is not a card's body, whose reload the caller lets through.
+    func reloadForEdit(_ webView: WKWebView) -> Bool {
+        guard let body = body(for: webView), let cardId = body.cardId else { return false }
+        TugLog.info("bodies", "reloading for an edit", [TugLog.field("card", cardId)])
+        guard body.state == .ready else {
+            // Not bound yet: nothing of the card's is in the page to write.
+            loadAfresh(body, cardId: cardId)
+            return true
+        }
+        var reloaded = false
+        let reload = { [weak self, weak body] in
+            guard !reloaded, let self, let body, self.bodies.contains(where: { $0 === body }) else { return }
+            reloaded = true
+            self.loadAfresh(body, cardId: cardId)
+        }
+        window.hostChannel.call(.saveState, in: webView) { _ in reload() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + BodyViewController.saveDeadline) { reload() }
+        return true
+    }
+
+    /// Load a body's page afresh under the card it holds, and bind it again as
+    /// it would be at launch.
+    private func loadAfresh(_ body: Body, cardId: String) {
         guard let origin = window.shellOrigin,
               let url = URL(string: origin + "/?body=\(cardId)") else {
             fail(body, cause: "no origin to reload from")
-            return true
+            return
         }
         body.state = .loading
         // Its card restores as it would at launch: a Session card from the
         // ledger, a kind with no session by mounting again. The kind is kept.
         body.intent = JSONObject(["kind": .string(body.intent?["kind"] == .string("mount") ? "mount" : "restore")])
         body.warm = false
+        body.askedAt = CACurrentMediaTime()
         body.painted = false
         // The new page paints into a view that was shown: unhidden and
         // transparent until it says `painted`, as a page never shown is —
@@ -2128,8 +2312,7 @@ final class BodyViewController {
         applyVisibility(body)
         notifyShell(BodyStateReport(cardId: cardId, state: .terminated))
         armDeadline(body)
-        webView.load(URLRequest(url: url))
-        return true
+        body.webView.load(URLRequest(url: url))
     }
 
     // MARK: - Harness

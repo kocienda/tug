@@ -21,6 +21,7 @@ import { overviewDraft } from "../../../bus/declarations/relays";
 import {
   forwardOverviewDraft,
   holdOverviewDraftInShell,
+  retellOverviewDraft,
   takeShellOverviewDraft,
   type OverviewComposerDraftState,
 } from "../overview-composer-draft";
@@ -108,5 +109,21 @@ describe("the shell's hold on the Overview draft", () => {
     await bus.flush();
     expect(taken).toEqual([]);
     expect(overviewDraft.on(shell.bus).getSnapshot()?.draft).toEqual(draft("words"));
+  });
+
+  test("a shell that reloads under the Overview body is told the draft again, pictures and all", async () => {
+    const { shell, overview } = await pages();
+    retellOverviewDraft(overview.bus);
+    forwardOverviewDraft(draft("half a question ", [IMAGE_ATOM as never]), BYTES, overview.bus);
+    await bus.flush();
+    // Only the shell reloads: a new shell page, holding nothing.
+    bus.leave(shell);
+    const reloaded = bus.shell();
+    holdOverviewDraftInShell(reloaded.bus);
+    await bus.flush();
+    expect(overviewDraft.on(reloaded.bus).getSnapshot()).toEqual({
+      draft: draft("half a question ", [IMAGE_ATOM as never]),
+      attachmentBytes: BYTES,
+    });
   });
 });

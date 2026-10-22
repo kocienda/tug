@@ -313,6 +313,16 @@ export function shareLayoutSelection(
         store.propose({ ids: [...ids], anchorId });
       }),
       cursor.subscribe(() => store.propose({ cursor: cursor.get() })),
+      // A shell that reloads under this page starts from an empty selection:
+      // a page that has heard the shell before tells it what it shows.
+      bus.onPeerHello(
+        (peer) => {
+          if (peer !== "shell" || !store.arrived()) return;
+          const { ids, anchorId } = selection.getSnapshot();
+          store.propose({ ids: [...ids], anchorId, cursor: cursor.get() });
+        },
+        { name: "cards.selection:retell" },
+      ),
     );
     if (store.arrived()) take();
   }

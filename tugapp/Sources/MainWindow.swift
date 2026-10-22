@@ -1935,8 +1935,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         // A body's load is the body's business; the launch's lap and the
         // page-loaded callback are the shell's alone.
         guard webView === self.webView else {
+            let isOverlay = bodies?.overlayView.map { $0 === webView } ?? false
             TugLog.info("bodies", "page loaded", [
-                TugLog.field("card", bodies?.body(for: webView)?.cardId ?? "spare"),
+                TugLog.field("card", isOverlay ? "overlay" : bodies?.body(for: webView)?.cardId ?? "spare"),
             ])
             return
         }
@@ -2124,17 +2125,25 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         if navigationAction.navigationType == .reload, webView === self.webView {
             decisionHandler(.cancel)
             freezeForReload { [weak self] in
-                // Every body saves its card and goes first: the reloaded
-                // shell's restore pass makes them again through its funnels.
-                self?.bodies.saveAndDestroyAll { [weak self] in
-                    guard let self else { return }
-                    self.hostChannel.call(.saveState, in: self.webView) { [weak self] _ in
-                        if let url = self?.webView.url {
-                            self?.webView.load(URLRequest(url: url))
-                        }
+                // The bodies stay, each its card's page: the reloaded shell
+                // re-adopts them on the bus's hello and its restore pass.
+                self?.bodies?.keepAcrossShellReload()
+                guard let self else { return }
+                self.hostChannel.call(.saveState, in: self.webView) { [weak self] _ in
+                    if let url = self?.webView.url {
+                        self?.webView.load(URLRequest(url: url))
                     }
                 }
             }
+            return
+        }
+
+        // A card's body reloading itself — the dev server scoped an edit to
+        // the bodies — saves its card and is loaded afresh under it, rather
+        // than coming back bound with the intent it was first made for.
+        if navigationAction.navigationType == .reload, webView !== self.webView,
+           bodies?.reloadForEdit(webView) == true {
+            decisionHandler(.cancel)
             return
         }
 
@@ -2708,8 +2717,18 @@ extension MainWindow {
                     TugLog.field("from", fromBody == nil ? "shell" : "body"),
                 ])
             }
-        case .hmrUpdate:
-            bridgeDelegate?.bridgeHmrUpdate()
+        case .hmrUpdate(let update):
+            // How long an incremental update took to land in each page,
+            // from Vite's own stamp for it: on a deck of a dozen pages an
+            // edit lands a dozen times, and this is its number.
+            let sinceVite = Date().timeIntervalSince1970 * 1000 - update.viteAt
+            TugLog.info("hmr", "update landed", [
+                TugLog.field("page", sender.pageName),
+                TugLog.field("since_vite_ms", String(format: "%.0f", sinceVite)),
+                TugLog.field("modules", String(update.modules)),
+            ])
+            // The dev-info overlay's load time is the shell's.
+            if sender.isShell { bridgeDelegate?.bridgeHmrUpdate() }
         case .hostFrames(let request):
             // `window.__tugMotion.hostFrames(windowMs)`: the window's frames
             // over the next `windowMs`, read by the host's display link, so a

@@ -669,12 +669,20 @@
     },
     {
       "name": "hmrUpdate",
-      "from": "shell",
+      "from": "any",
       "samples": [
-        {}
+        {
+          "viteAt": 1792540800123,
+          "modules": 1
+        }
       ],
       "refused": [
-        true
+        true,
+        {},
+        {
+          "viteAt": "now",
+          "modules": 1
+        }
       ]
     },
     {

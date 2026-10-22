@@ -222,6 +222,8 @@ import {
   hostCapabilitiesStore,
   isBodyKind,
   isMountBodyKind,
+  releaseDeferredBody,
+  setBodyDeferral,
   setBodyReloader,
 } from "./body-handoff";
 import { onHostMessage, postToHost } from "../host/channel";
@@ -546,6 +548,15 @@ function tabMergeTargetAt(
 export function installBodyShell(connection: TugConnection, deck: IDeckManagerStore): () => void {
   if (!hostCapabilitiesStore.get().bodyViews) return () => {};
   const releases: Array<() => void> = [];
+  // A card handed off while it is not shown — an inactive tab, or a card out
+  // of the shown workspace — gets no page until it is (`body-handoff.ts`);
+  // `reviveWanted` asks for it then. An arriving card is not one: its
+  // arrival waits on its body's paint. Set before any hand-off below.
+  setBodyDeferral((cardId) => {
+    const facts = shownFactsOf(deck, cardId);
+    return facts !== null && (!facts.active || !facts.layerShown);
+  });
+  releases.push(() => setBodyDeferral(null));
   // The Layout miniature's crossing: the gauges its body draws and the
   // canvas verbs its drags drive (`miniature-bus.ts`).
   releases.push(
@@ -870,9 +881,18 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // nobody has shown has no bodies: its cards arrive as any card arrives on
   // its first visit, and a visited workspace's bodies go dormant once it is
   // parked again.
-  const unboundSessionCard = (cardId: string, componentId: string): boolean =>
+  //
+  // A Session card whose body outlived a shell reload is handed off here
+  // too, bound or not: its page has said hello to this shell before this
+  // shell asked for it, and it tells the binding it holds, which would
+  // otherwise leave the card to a restore pass that may never run for it.
+  // The host answers it with the page it kept, never a new one, so the
+  // `restore` it is handed is not replayed. The same settled-pass guards
+  // hold, so a pass that is still deciding for the card is never raced.
+  const keptBody = (cardId: string): boolean => bus.attachedCards().has(cardId);
+  const sessionCardToHandOff = (cardId: string, componentId: string): boolean =>
     isBodyKind(componentId) &&
-    cardSessionBindingStore.getBinding(cardId) === undefined &&
+    (cardSessionBindingStore.getBinding(cardId) === undefined || keptBody(cardId)) &&
     restorePassGate.getSnapshot() &&
     !restorePassCards.has(cardId) &&
     !sessionRestoreRegistry.has(cardId);
@@ -887,7 +907,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   };
   const handOffUnboundSessions = (): void => {
     for (const card of deck.getSnapshot().cards) {
-      if (bodyCardsStore.has(card.id) || !unboundSessionCard(card.id, card.componentId)) continue;
+      if (bodyCardsStore.has(card.id) || !sessionCardToHandOff(card.id, card.componentId)) continue;
       handOffToBody(card.id, () => ({ kind: "restore" }));
     }
   };
@@ -1619,10 +1639,15 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
    * restore path, which reads the state the evicted page wrote as it went,
    * and the host stands the card's last frame over it until it paints, so
    * the placer shows it from the hand-off.
+   *
+   * A card whose page was never made — handed off while it was not shown —
+   * is asked for here too, with the intent it was handed, and stands behind
+   * its stand-in until its page paints, having no last frame to show.
    */
   function reviveWanted(): void {
     for (const cardId of bodyCardsStore.cardIds()) {
       if (bodyCardsStore.stateOf(cardId) !== "evicted" || !wantsBodyShown(deck, cardId)) continue;
+      if (releaseDeferredBody(cardId)) continue;
       bodyCardsStore.markRevived(cardId);
       askAgain(cardId);
     }

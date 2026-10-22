@@ -32,6 +32,16 @@
  * What the shell does with a body card afterwards is `lib/body-shell.ts`;
  * this module is the funnels' one import, so it stays light.
  *
+ * **Not shown, not made.** A card handed off while the deck does not want
+ * it shown — an inactive tab, at launch or after — is a body card from the
+ * hand-off, but no page is asked for: it stands `evicted`, its intent kept,
+ * until the deck first wants it shown, when the shell's eviction funnel asks
+ * for it with that intent ({@link releaseDeferredBody}). A page made for a
+ * card nobody can see goes dormant within seconds, and while the deck loads
+ * it competes with the cards the user is waiting for. A kind that may veto
+ * its own close (`guardsClose`) is made at once all the same: only its page
+ * can say whether a close of it would ask.
+ *
  * **Failure.** A body that fails stays a body card: the shell has no other
  * place for its card. The shell asks the host for it again
  * ({@link askForBodyAgain}), and a card whose body fails again stands as a
@@ -94,6 +104,7 @@ export function bodyIntentOf(cardId: string): BodyIntent | null {
 /** The card is no longer a body card: forget what it was handed. */
 export function forgetBodyIntent(cardId: string): void {
   intents.delete(cardId);
+  deferred.delete(cardId);
 }
 
 /** Whether `cardId` is a body card on this page: its body, not this page, acts for it. */
@@ -117,6 +128,8 @@ export function isMountBodyKind(componentId: string): boolean {
 /** For tests. */
 export function _resetHandOffForTest(): void {
   intents.clear();
+  deferred.clear();
+  deferral = null;
   reloader = null;
   bodyCardsStore._reset();
 }
@@ -159,6 +172,37 @@ export function reloadBody(cardId: string): void {
   reloader?.(cardId);
 }
 
+/** Body cards handed off while not wanted shown, whose page is not yet asked for. */
+const deferred = new Set<string>();
+
+/** Whether a card handed off now is not to have its page made yet: the shell's, once it is installed. */
+let deferral: ((cardId: string) => boolean) | null = null;
+
+/** The shell says which cards' pages wait until they are shown; null to make every one at once. */
+export function setBodyDeferral(defer: ((cardId: string) => boolean) | null): void {
+  deferral = defer;
+}
+
+/** Whether `cardId` is a body card whose page has never been asked for. */
+export function isDeferredBody(cardId: string): boolean {
+  return deferred.has(cardId);
+}
+
+/**
+ * Ask the host for the page of `cardId`, a card handed off while it was not
+ * shown, with the intent it was handed — its bag with it, since no page has
+ * read the card's state yet. False, asking nothing, for any other card.
+ */
+export function releaseDeferredBody(cardId: string): boolean {
+  if (!deferred.delete(cardId)) return false;
+  const card = cardInItsSpace(cardId);
+  const intent = intents.get(cardId);
+  if (card === undefined || intent === undefined || !bodyCardsStore.has(cardId)) return true;
+  bodyCardsStore.setState(cardId, "creating");
+  postToHost(bodyCreateToHost, { cardId, componentId: card.componentId, intent });
+  return true;
+}
+
 /**
  * Hand `cardId` to a body, if it is one the shell hands off. Returns true
  * when the funnel must send nothing: the card is now a body card, or already
@@ -173,6 +217,14 @@ export function reloadBody(cardId: string): void {
 export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean {
   if (!capabilities.bodyViews) return false;
   if (bodyCardsStore.has(cardId)) {
+    // A card whose page waits to be shown is handed that page's intent when
+    // it is: the one just decided, carrying the state it was first handed.
+    if (deferred.has(cardId)) {
+      const made = intent();
+      const bag = made.bag ?? intents.get(cardId)?.bag;
+      intents.set(cardId, bag === undefined ? made : { ...made, bag });
+      return true;
+    }
     if (installedPageBus() === null) return true;
     const made = intent();
     intents.set(cardId, made);
@@ -189,6 +241,12 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
   const bag = asked.bag ?? deck.getCardState(cardId);
   const made = bag === undefined ? asked : { ...asked, bag };
   intents.set(cardId, made);
+  // A kind that may veto its close needs its page to answer whether it would.
+  if (getRegistration(card.componentId)?.guardsClose !== true && deferral?.(cardId) === true) {
+    deferred.add(cardId);
+    bodyCardsStore.setState(cardId, "evicted");
+    return true;
+  }
   postToHost(bodyCreateToHost, { cardId, componentId: card.componentId, intent: made });
   return true;
 }

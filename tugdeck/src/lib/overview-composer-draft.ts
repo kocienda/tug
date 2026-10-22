@@ -137,6 +137,26 @@ export function holdOverviewDraftInShell(bus: PageBus = pageBus()): () => void {
 }
 
 /**
+ * In an Overview body: tell a shell that reloads under the page the draft
+ * the old shell held, which the new one starts without. Only a page that has
+ * heard a shell before has one to tell. Returns the release.
+ */
+export function retellOverviewDraft(bus: PageBus = pageBus()): () => void {
+  const held = overviewDraft.on(bus);
+  return bus.onPeerHello(
+    (peer) => {
+      const value = peer === "shell" && held.arrived() ? held.getSnapshot() : null;
+      if (value === null) return;
+      held.propose({
+        draft: value.draft,
+        ...(value.attachmentBytes !== undefined ? { attachmentBytes: value.attachmentBytes } : {}),
+      });
+    },
+    { name: "overview.draft:retell" },
+  );
+}
+
+/**
  * Hand `take` the draft the shell holds, once it has arrived — now, or when
  * the shell's snapshot reaches a body that came up before it — and only when
  * the shell holds one. Nothing in a page that is not a body. Returns the

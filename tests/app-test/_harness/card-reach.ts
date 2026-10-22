@@ -121,7 +121,8 @@ export async function bodyOfKind(app: App, componentId: string, timeoutMs = BODY
 /**
  * The body of `cardId`, once the host holds it ready. `app.body(cardId)` is a
  * handle whose calls fail at once (`NoSuchBody`) before the host has the
- * body; a test that has just seeded or opened the card waits here first.
+ * body, its `waitForCondition` alone excepted; a test that has just seeded or
+ * opened the card and means to do anything else in it waits here first.
  * Throws with what the host holds when the body is not ready in `timeoutMs`.
  */
 export async function waitForBodyReady(app: App, cardId: string, timeoutMs = BODY_STANDS_MS): Promise<BodyApp> {

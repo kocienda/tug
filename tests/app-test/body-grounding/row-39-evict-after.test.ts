@@ -8,9 +8,13 @@
  * workspace is parked, which hides it; no pressure is raised. The body stands
  * for the delay and is gone soon after it — not before, which would be some
  * other act than the clock — and the spare stands, since the clock takes only
- * a card's hidden page. Shown again, the card is back ready, painted and shown
- * with its draft in its composer: the time trigger rides the same eviction
- * and the same arrival as pressure (row 38).
+ * a card's hidden page. The new workspace's own cards take the spare as they
+ * open, and its successor is made a beat after the last of them is ready, so
+ * the row waits for it to stand before the clock falls due: the spare it reads
+ * afterwards is one the clock passed over, never one not yet made. Shown
+ * again, the card is back ready, painted and shown with its draft in its
+ * composer: the time trigger rides the same eviction and the same arrival as
+ * pressure (row 38).
  *
  * @covers tugdeck/src/lib/evict-after-pref.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -32,8 +36,12 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 const A = "r39-a";
-/** The reader's delay before eviction, shortened from fifteen minutes for the row. */
-const EVICT_AFTER_MS = 1_500;
+/**
+ * The reader's delay before eviction, shortened from fifteen minutes for the
+ * row: long enough for the spare the new workspace's cards took to be made
+ * again before the clock falls due.
+ */
+const EVICT_AFTER_MS = 4_000;
 const DRAFT = "row39 draft before the clock";
 const CARDSTATE = "dev.tugapp.deck.cardstate";
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
@@ -90,6 +98,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 39: eviction by time hidden", (
         const hidden = await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
         const hiddenAt = Date.now();
         expect(hidden?.shown, "the host has the parked body hidden").toBe(false);
+
+        // ---- The spare stands again before the clock is due ----
+        const spare = await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === null), EVICT_AFTER_MS);
+        const spareAt = Date.now() - hiddenAt;
+        note(`the spare stood ${spareAt} ms after the body was hidden`);
+        expect(spare.some((b) => b.cardId === null), "a spare stands while the body is hidden").toBe(true);
+        expect(spare.some((b) => b.cardId === A), "and the hidden body with it, the clock not yet due").toBe(true);
 
         // ---- It stands for the delay, and is gone soon after ----
         let lastSeen = hiddenAt;

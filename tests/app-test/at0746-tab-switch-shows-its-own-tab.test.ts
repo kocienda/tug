@@ -55,6 +55,23 @@ describe.skipIf(!SHOULD_RUN)("at0746: a tab switch shows its own tab", () => {
         const placed = await pollFor(() => viewOf(app, A), (v) => v !== null, BODY_READY_MS);
         expect(placed, "the front card's view is placed visible").not.toBeNull();
         const a = await cardAtRest(app, A);
+        // A tab nobody has shown has no page — a card's page is made when it
+        // is first shown — so B is shown once, and A again, before the switch
+        // is read: the switch read is the one between two pages that have
+        // both painted, the host trading which view is opaque.
+        await app.evalJS<void>(`window.__tug.activateCard(${JSON.stringify(B)})`);
+        await pollFor(
+          async () => (await app.bodies()).find((s) => s.cardId === B) ?? null,
+          (s) => s !== null && s.painted && s.visible,
+          BODY_READY_MS,
+        );
+        await app.evalJS<void>(`window.__tug.activateCard(${JSON.stringify(A)})`);
+        await pollFor(
+          async () => (await app.bodies()).find((s) => s.cardId === A) ?? null,
+          (s) => s !== null && s.visible,
+          BODY_READY_MS,
+        );
+        await cardAtRest(app, A);
         // The sibling's page stands behind, painted and placed at the pane.
         const sibling = await pollFor(
           async () => (await app.bodies()).find((s) => s.cardId === B) ?? null,

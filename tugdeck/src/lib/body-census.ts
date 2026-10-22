@@ -13,8 +13,9 @@
  *    painting behind its pane's active card;
  *  - **hidden** — out of the shown workspace and still awake;
  *  - **dormant** — hidden past `dormantAfterMs`, its page asleep;
- *  - **evicted** — its process given up, the card standing until it is next
- *    shown.
+ *  - **evicted** — no process: given up, or never made because the card has
+ *    not been shown since it was handed off; the card standing until it is
+ *    next shown.
  *
  * Pure over the facts the shell reads, so the census is unit tests over data;
  * the shell publishes it as `deck.bodies`.

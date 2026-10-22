@@ -6,9 +6,9 @@
  * leg per file (see `at0738-body-placement` for the list). The app launches
  * with bodies on; shared helpers live in `session-body-fixture.ts`.
  *
- * **Reload and quit.** A shell reload saves every body, destroys it, and the
- * reloaded shell's restore pass makes the card a body again, bound to the
- * same session. A quit with the body card mid-turn prepares every view under
+ * **Reload and quit.** A shell reload keeps every body: the card's page stays
+ * bound to the same session, and the reloaded shell re-adopts it, ready and
+ * shown. A quit with the body card mid-turn prepares every view under
  * one deadline: the body's card reaches disk with the draft typed into it, and
  * the teardown fires no forced kill.
  *
@@ -70,7 +70,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         const safeBody = async () => (await app.bodies()).find((b) => b.cardId === SAFE) ?? null;
         expect(readyBody(await pollFor(safeBody, readyBody, BODY_READY_MS)), "the card's body is ready").toBe(true);
 
-        // ---- A reload: every body saves and goes; the restore makes it again ----
+        // ---- A reload: the body stays, and the reloaded shell re-adopts it ----
 
         await app.appReload({ timeoutMs: 20_000 });
         const back = await pollFor(safeBody, readyBody, BODY_READY_MS);
@@ -87,7 +87,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
           `document.querySelector('[data-body-placeholder][data-card-id="${SAFE}"]') !== null`,
         );
         note(`after the reload: body ${JSON.stringify(back)}, bound to ${boundTo} (spawned ${tugSessionId})`);
-        expect(readyBody(back), "the card is a body again after the reload").toBe(true);
+        expect(readyBody(back), "the card's body is ready and shown after the reload").toBe(true);
         expect(placeholder, "the reloaded shell stands a placeholder for it").toBe(true);
         expect(boundTo, "bound to the same session").toBe(tugSessionId);
 

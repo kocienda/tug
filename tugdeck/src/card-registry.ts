@@ -554,6 +554,14 @@ export interface CardRegistration {
    */
   bodyHandOff?: "spawn";
   /**
+   * Whether a card of this kind may veto its own close — it holds unsaved
+   * state in its page, as a manual-mode Text card does. Only the page can
+   * say whether it would ask, so such a card's page is made at its hand-off
+   * even when the card is not shown; any other card's waits until it is
+   * (`lib/body-handoff.ts`).
+   */
+  guardsClose?: true;
+  /**
    * What of the deck a card of this kind reads in its body. Omitted, the
    * body's deck is its one card. `"arrangement"` is for a kind that lists or
    * moves the whole deck — Cards, Layout — and reads the shell's

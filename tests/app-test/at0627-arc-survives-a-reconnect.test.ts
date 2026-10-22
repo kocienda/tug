@@ -256,11 +256,12 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
     `window.__tug.cardLineFacts("A")`,
   );
   await app.body("A").click(CELL);
-  await app.waitForCondition<boolean>(
+  // The placard is the card's own chrome, drawn in its page.
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(ARC_PLACARD)}) !== null`,
     { timeoutMs: 10_000 },
   );
-  const steps = await app.evalJS<string[]>(
+  const steps = await app.body("A").evalJS<string[]>(
     `(() => {
        const body = document.querySelector(${JSON.stringify(ARC_PLACARD)});
        return Array.from(body?.querySelectorAll('[data-slot="arc-step"]') ?? []).map(
@@ -269,7 +270,7 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
      })()`,
   );
   await app.body("A").click(CELL);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(ARC_PLACARD)}) === null`,
     { timeoutMs: 10_000 },
   );

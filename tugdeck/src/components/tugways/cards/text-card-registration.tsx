@@ -67,6 +67,9 @@ export function registerTextCard(): void {
     componentId: "text",
     contentFactory: (cardId) => <TextCardContent cardId={cardId} />,
     defaultMeta: { title: "File", icon: "FileText", closable: true },
+    // Its close guard asks while a manual buffer is dirty, so its page is
+    // made even in a tab nobody has shown.
+    guardsClose: true,
     engineKind: "em",
     category: { label: "Files", icon: "FileText" },
     cardsGroup: "files",

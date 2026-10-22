@@ -73,6 +73,8 @@ import { transportStateStore } from "../lib/transport-state-store";
 import { TugbankClient } from "../lib/tugbank-client";
 import { setTugbankClient } from "../lib/tugbank-singleton";
 import { setUpdateActionSink, updateStore } from "../lib/update-store";
+import { installHmrLanded } from "../lib/hmr-landed";
+import { installScopedReload } from "../lib/scoped-reload";
 import { readKeyboardAccess } from "../settings-api";
 import { FeedId } from "../protocol";
 import { createOverlayGateDeck } from "./overlay-gate-deck";
@@ -89,6 +91,10 @@ function follow<T>(store: SharedStore<T>, apply: (value: T) => void): void {
 installGestureScope(window);
 followShellTheme();
 installHostChannel();
+// Each update Vite applies in this page, timed to the host's log.
+if (import.meta.hot) installHmrLanded(import.meta.hot);
+// A reload Vite scopes to the overlay: it asks the shell for everything again.
+if (import.meta.hot) installScopedReload(import.meta.hot, "overlay");
 document.documentElement.setAttribute("data-overlay-page", "");
 
 installPage({ role: "body", cardId: OVERLAY_CARD_ID, componentId: OVERLAY_CARD_ID });

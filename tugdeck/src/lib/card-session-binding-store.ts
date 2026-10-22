@@ -279,6 +279,20 @@ export function shareCardBinding(
     };
     releases.push(store.subscribe(tell));
     if (store.getBinding(cardId) !== undefined) tell();
+    // A shell that reloads under this page starts with no binding for its
+    // card, and the page that holds one would say nothing more: its hello is
+    // the shell asking, so the binding is told again.
+    releases.push(
+      bus.onPeerHello(
+        (peer) => {
+          const binding = store.getBinding(cardId);
+          if (peer !== "shell" || binding === undefined) return;
+          said = binding;
+          shared.propose(binding);
+        },
+        { name: "card.binding:retell" },
+      ),
+    );
   }
   return () => {
     for (const release of releases.splice(0)) release();

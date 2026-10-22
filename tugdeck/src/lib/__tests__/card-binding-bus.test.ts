@@ -123,6 +123,23 @@ describe("a body card's binding", () => {
     expect(shell.store.getBinding("A")).toEqual(Y);
   });
 
+  test("a shell that reloads under a kept body is told the binding again", async () => {
+    bus = createTestBus();
+    const first = shellPage();
+    const a = share(bus.body("A", "session"));
+    await bus.flush();
+    a.store.setBinding("A", X);
+    await bus.flush();
+    expect(first.store.getBinding("A")).toEqual(X);
+
+    // Only the shell reloads: a new shell page, a store with nothing in it.
+    bus.leave(first.page);
+    const reloaded = shellPage();
+    await bus.flush();
+    expect(reloaded.store.getBinding("A")).toEqual(X);
+    expect(cardBinding.on(a.page.bus).getSnapshot()).toEqual(X);
+  });
+
   test("a card that lets its session go takes the shell's binding with it", async () => {
     bus = createTestBus();
     const shell = shellPage();

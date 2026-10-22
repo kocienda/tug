@@ -40,9 +40,14 @@ import { connectionTransport } from "./bus/transport";
 import { cardPlacementDiag } from "./lib/card-placement";
 import {
   reassertOnReconnect,
+  restorePassCards,
+  restorePassGate,
   restoreSessions,
   restoreSpaceSessions,
 } from "./lib/session-restore";
+import { watchDeckPopulated } from "./lib/deck-populated";
+import { bodyCardsStore } from "./lib/body-cards-store";
+import { isBodyKind } from "./lib/body-handoff";
 import { installDeckSeatingsReporter } from "./lib/deck-seatings-reporter";
 import { attachSessionLedgerStore } from "./lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "./lib/session-state-changes-store";
@@ -756,6 +761,37 @@ async function loadTestSurface(
   // body that outlived a shell reload hears it and answers, and is sent
   // every store it reads.
   pageBus().announce();
+  // The launch's last lap, after the boot's have closed: the moment the
+  // last body the launch asked for has painted, on this page's clock, so
+  // the log says how long the cards were dark after the reveal.
+  watchDeckPopulated(
+    {
+      deck,
+      isBodyKind,
+      passSettled: restorePassGate.getSnapshot,
+      passPending: restorePassCards.pending,
+      stateOf: bodyCardsStore.stateOf,
+      subscribe: (listener) => {
+        const releases = [
+          deck.subscribe(listener),
+          restorePassGate.subscribe(listener),
+          restorePassCards.subscribe(listener),
+          bodyCardsStore.subscribe(listener),
+        ];
+        return () => releases.forEach((release) => release());
+      },
+    },
+    ({ bodies, failed, unmade }) =>
+      postToHost(launchLapToHost, {
+        name: "deck-populated",
+        ms: performance.now(),
+        detail: [
+          `${bodies} bodies`,
+          ...(failed > 0 ? [`${failed} failed`] : []),
+          ...(unmade > 0 ? [`${unmade} not shown, no page`] : []),
+        ].join(", "),
+      }),
+  );
 
   // Sweep durable card-state bags for cards no longer in the deck. The
   // close path flushes a card's last bag to tugbank but never deletes it,
