@@ -320,18 +320,18 @@
 }
 
 .layouts-section-caption {
+  grid-column: 1;
   justify-self: end;
   white-space: nowrap;
 }
 
-.layouts-section-row [data-slot="tug-choice-group"] {
-  justify-self: start;
+/* A caption's second line — the Layout card's "(This Card)" — on a grid row
+   of its own, so the line above stays centred on its control like every other
+   caption, and drawn close under it so the two read as one name. */
+.layouts-section-subcaption {
+  margin-top: -5px;
 }
 
-/* A reading row's value: text, not a control, left-aligned with the controls. */
-.layouts-section-reading {
+.layouts-section-row [data-slot="tug-choice-group"] {
   justify-self: start;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--tug7-element-global-text-normal-default-rest);
 }

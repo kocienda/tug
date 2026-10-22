@@ -195,7 +195,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
         //
         // No rail row on either side. Slot 0 holds two cards and gets a row,
         // slot 1 holds one and gets none. The column rows come directly after
-        // the last deck-wide row, Width, and the per-card rows last.
+        // the last deck-wide row, Gap, and the per-card rows last.
         const order = await app.body("L").evalJS<string[]>(
           `Array.from(document.querySelectorAll('.layouts-section-row [data-testid^="layout-card-"]'))
             .map(function (el) { return el.getAttribute("data-testid"); })`,
@@ -206,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
           "a rail has no arrangement row: it is always divided",
         ).toEqual([]);
         expect(order.indexOf("layout-card-column-0"), "Column 1 follows the deck-wide rows").toBe(
-          order.indexOf("layout-card-width") + 1,
+          order.indexOf("layout-card-gap") + 1,
         );
         expect(
           order.indexOf("layout-card-column-1"),
