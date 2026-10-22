@@ -39,7 +39,6 @@ import {
   composerFocused,
   composerText,
   focusBody,
-  pollFor,
   settleFor,
   spawnStub,
   waitForBody,

@@ -47,7 +47,7 @@ import {
 } from "../arc-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
 import { bodyOfKind } from "../_harness/card-reach";
-import { pollFor, settleFor, waitForBody } from "./_bodies";
+import { settleFor, waitForBody } from "./_bodies";
 
 const TEST_NAME = "body-grounding-row-13-arc-tracking";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";

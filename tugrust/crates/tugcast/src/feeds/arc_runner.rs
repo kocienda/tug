@@ -1250,7 +1250,9 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         }
         // The harness's own compaction, read the same way as the turn counts:
         // seeded on the first tick, counted on every later one ([B09]).
-        let boundaries_before = entry.compact_boundaries_seen.replace(session.compact_boundaries);
+        let boundaries_before = entry
+            .compact_boundaries_seen
+            .replace(session.compact_boundaries);
         if boundaries_before.is_some_and(|seen| session.compact_boundaries > seen) {
             entry.compacted_since_below = true;
         }
@@ -2726,7 +2728,9 @@ async fn deliver_prompt(
         PromptWhy::Yield {
             share: None,
             yield_share,
-        } => Some(format!("yield at an unmeasured share, line {yield_share:.2}")),
+        } => Some(format!(
+            "yield at an unmeasured share, line {yield_share:.2}"
+        )),
         _ => None,
     };
     if let Some(note) = compact_note {
@@ -4006,8 +4010,7 @@ Some context.
         assert!(!before.facts.yielded_since_ask);
 
         // The stage yields: its hand-off is the newest line, so it waits.
-        tugarc_core::arc::append_arc_note(&paths, root, "demo", "yield: half; next: rest")
-            .unwrap();
+        tugarc_core::arc::append_arc_note(&paths, root, "demo", "yield: half; next: rest").unwrap();
         assert!(reading_of(&session).facts.yielded_since_ask);
 
         // The wheel's compaction answers it.
@@ -9767,7 +9770,9 @@ Some context.
             // fresh — is handed the waiting note on its `where` line ([B10]).
             let last = submitted(&entry).await.last().cloned().unwrap_or_default();
             assert!(
-                last.contains("· Step 1 in hand, through 2 · its hand-off: yield: half; next: rest"),
+                last.contains(
+                    "· Step 1 in hand, through 2 · its hand-off: yield: half; next: rest"
+                ),
                 "{expected}: {last}"
             );
         }
@@ -9849,10 +9854,17 @@ Some context.
             asked(&entry, 4).await;
             sweep(&ctx, &state).await;
 
-            let compacted_again = submitted(&entry).await[before..].contains(&"/compact".to_string());
+            let compacted_again =
+                submitted(&entry).await[before..].contains(&"/compact".to_string());
             let rotated = state.lock().await[&demo_key(root)].in_flight_at.is_some();
-            assert_eq!(compacted_again, came_down_mid_turn, "came down: {came_down_mid_turn}");
-            assert_eq!(rotated, !came_down_mid_turn, "came down: {came_down_mid_turn}");
+            assert_eq!(
+                compacted_again, came_down_mid_turn,
+                "came down: {came_down_mid_turn}"
+            );
+            assert_eq!(
+                rotated, !came_down_mid_turn,
+                "came down: {came_down_mid_turn}"
+            );
             assert_eq!(
                 state.lock().await[&demo_key(root)].quiet_turns,
                 0,

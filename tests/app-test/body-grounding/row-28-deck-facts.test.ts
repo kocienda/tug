@@ -39,7 +39,7 @@ import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { withModifiersHeld } from "../_harness/client";
 import { mkTempTugbank, seedTugbankForLaunch } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { SETTLE_MS, focusBody, pollFor, settleFor, spawnStub, waitForBody } from "./_bodies";
+import { SETTLE_MS, focusBody, settleFor, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest } from "./_kinds";
 

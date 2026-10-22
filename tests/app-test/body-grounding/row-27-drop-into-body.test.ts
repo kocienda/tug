@@ -45,7 +45,7 @@ import { join } from "node:path";
 import { launchTugApp, note } from "../_harness";
 import { nativeDrag, nativeFileDrag } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { PROMPT_INPUT, SETTLE_MS, bodyOf, composerText, pollFor, settleFor, spawnStub, waitForBody } from "./_bodies";
+import { PROMPT_INPUT, SETTLE_MS, bodyOf, composerText, settleFor, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 

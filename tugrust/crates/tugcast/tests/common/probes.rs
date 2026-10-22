@@ -1615,7 +1615,10 @@ mod tests {
         for probe in PROBES {
             for (key, value) in probe.env {
                 assert!(
-                    !key.is_empty() && key.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()),
+                    !key.is_empty()
+                        && key
+                            .chars()
+                            .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()),
                     "probe {:?} env key {key:?} is not an environment variable name",
                     probe.name
                 );

@@ -31,7 +31,7 @@ import { bodyOfKind } from "../_harness/card-reach";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "../_harness/tugbank-helpers";
 import { createArc, makeArcScratchRepo, rmArcScratchRepo, type ArcScratchRepo } from "../arc-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { pollFor, settleFor, sessionPane, waitForBody } from "./_bodies";
+import { settleFor, sessionPane, waitForBody } from "./_bodies";
 import { expectRailSurface } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 

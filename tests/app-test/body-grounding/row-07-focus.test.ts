@@ -46,7 +46,6 @@ import {
   composerFocused,
   composerText,
   focusBody,
-  pollFor,
   settleFor,
   pressCloseOfPopover,
   responders,

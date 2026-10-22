@@ -24,7 +24,7 @@ import { launchTugApp, note } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, focusBody, pollFor, settleFor, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, focusBody, settleFor, spawnStub, waitForBody } from "./_bodies";
 import { near, type Rgb } from "./_frames";
 
 const TEST_NAME = "body-grounding-row-22-compaction-cover";

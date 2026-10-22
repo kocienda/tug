@@ -38,7 +38,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, pollFor, settleFor, sessionPane, spawnStub } from "./_bodies";
+import { bodyOf, settleFor, sessionPane, spawnStub } from "./_bodies";
 import { activate, readSwitch, SHOULD_RUN, TEST_TIMEOUT_MS, textDeck } from "./_row-44";
 
 const A = "r44e-a";

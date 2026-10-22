@@ -36,7 +36,7 @@ import { join } from "node:path";
 
 import { launchTugApp, note } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { SETTLE_MS, focusBody, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { SETTLE_MS, focusBody, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { standUpKind } from "./_kind-bodies";
 import { kindPane, kindSidebars, kindsUnderTest, sessionUnderTest } from "./_kinds";
 

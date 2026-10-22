@@ -12,7 +12,7 @@ import { expect } from "bun:test";
 
 import { note, type App, type BodyApp } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
-import { BODY_READY_MS, pollFor, settleFor, sessionPane, spawnStub } from "./_bodies";
+import { BODY_READY_MS, settleFor, sessionPane, spawnStub } from "./_bodies";
 import { asRgbJs, classifyFrame, parseRgb } from "./_frames";
 import { kindPane, kindSidebars, type CardKind } from "./_kinds";
 

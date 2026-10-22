@@ -47,7 +47,6 @@ import {
   foldedOf,
   landed,
   paneOf,
-  pollFor,
   settleFor,
   promptPhase,
   responders,

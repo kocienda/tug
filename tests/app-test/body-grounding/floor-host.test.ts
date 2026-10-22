@@ -22,7 +22,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
-import { pollFor, settleFor } from "./_bodies";
+import { settleFor } from "./_bodies";
 import { asRgbJs, fillOf, near, type Rgb } from "./_frames";
 
 const TEST_NAME = "body-grounding-floor-host";

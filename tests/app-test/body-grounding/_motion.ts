@@ -16,7 +16,7 @@ import { expect } from "bun:test";
 
 import { note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
-import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, framesDiffer, pollFor, settleFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, framesDiffer, settleFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
 import { focusBody } from "./_bodies";
 
 export interface Rect {

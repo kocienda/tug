@@ -26,7 +26,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { BODY_READY_MS, pollFor, settleFor, spawnStub } from "./body-grounding/_bodies";
+import { BODY_READY_MS, settleFor, spawnStub } from "./body-grounding/_bodies";
 import { CARD_KINDS, kindPane, kindSidebars } from "./body-grounding/_kinds";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "./streaming-stub-fixture";
 

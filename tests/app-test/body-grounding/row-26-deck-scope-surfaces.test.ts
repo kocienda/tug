@@ -38,7 +38,7 @@ import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { overlayReady } from "../overlay-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, focusBody, pollFor, settleFor, promptPhase, sessionPane, SETTLE_MS, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, focusBody, settleFor, promptPhase, sessionPane, SETTLE_MS, spawnStub, waitForBody } from "./_bodies";
 
 const TEST_NAME = "body-grounding-row-26-deck-scope-surfaces";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";

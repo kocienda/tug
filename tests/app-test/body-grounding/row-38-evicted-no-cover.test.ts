@@ -28,7 +28,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp, note, type App } from "../_harness";
+import { launchTugApp, type App } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { bodyOf, pollFor, settleFor, sessionPane } from "./_bodies";
 import { readSwitch } from "./_row-44";

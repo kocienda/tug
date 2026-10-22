@@ -70,7 +70,9 @@ pub fn run_hook(command: HookCommands) -> Result<(), AppError> {
             let ask = || answer.get_or_init(ask_turn);
             let decision = pre_tool_use_with(&payload, || turn_facts_of(ask()));
             let context = additional_context().or_else(|| {
-                let arc = std::env::var("TUG_ARC").ok().filter(|arc| !arc.is_empty())?;
+                let arc = std::env::var("TUG_ARC")
+                    .ok()
+                    .filter(|arc| !arc.is_empty())?;
                 yield_line(&arc, ask())
             });
             if let Some(answer) = render_answer(decision.as_ref(), context.as_deref()) {
@@ -1057,7 +1059,9 @@ pub(crate) enum TurnAnswer {
     NotAsked,
     /// Nobody to ask, or an instance that refused — `skewed` when the refusal
     /// was an instance too old to know the op.
-    Unanswered { skewed: bool },
+    Unanswered {
+        skewed: bool,
+    },
     Answered(Value),
 }
 
@@ -1418,9 +1422,11 @@ mod tests {
         assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
         assert_eq!(out["hookSpecificOutput"]["permissionDecisionReason"], "x");
         assert!(out["hookSpecificOutput"].get("updatedInput").is_none());
-        let both =
-            render_answer(Some(&Decision::AllowRewrite("x", json!({"command": "c"}))), None)
-                .unwrap();
+        let both = render_answer(
+            Some(&Decision::AllowRewrite("x", json!({"command": "c"}))),
+            None,
+        )
+        .unwrap();
         let out: Value = serde_json::from_str(&both).unwrap();
         assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
         assert_eq!(out["hookSpecificOutput"]["permissionDecisionReason"], "x");
@@ -1450,7 +1456,10 @@ mod tests {
             line.contains("`tugtool arc commit demo --message \"yield: "),
             "the hand-off is one arc commit naming the arc: {line}"
         );
-        assert!(line.contains("end the turn with the step still open"), "{line}");
+        assert!(
+            line.contains("end the turn with the step still open"),
+            "{line}"
+        );
 
         // Exactly at the line is at it.
         assert!(
@@ -1505,14 +1514,24 @@ mod tests {
         let out: Value = serde_json::from_str(&both).unwrap();
         assert_eq!(out["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
-        assert_eq!(out["hookSpecificOutput"]["additionalContext"], "the share is 0.62");
+        assert_eq!(
+            out["hookSpecificOutput"]["additionalContext"],
+            "the share is 0.62"
+        );
         // With no decision: the context is the whole answer, no permission
         // opinion beside it, so Claude Code's own flow still judges the call.
         let alone = render_answer(None, Some("the share is 0.62")).unwrap();
         let out: Value = serde_json::from_str(&alone).unwrap();
         assert_eq!(out["hookSpecificOutput"]["hookEventName"], "PreToolUse");
-        assert!(out["hookSpecificOutput"].get("permissionDecision").is_none());
-        assert_eq!(out["hookSpecificOutput"]["additionalContext"], "the share is 0.62");
+        assert!(
+            out["hookSpecificOutput"]
+                .get("permissionDecision")
+                .is_none()
+        );
+        assert_eq!(
+            out["hookSpecificOutput"]["additionalContext"],
+            "the share is 0.62"
+        );
         // Neither: silence, which is "no opinion".
         assert!(render_answer(None, None).is_none());
     }

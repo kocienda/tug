@@ -35,7 +35,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
-import { bodyOf, pollFor, settleFor } from "./_bodies";
+import { bodyOf, settleFor } from "./_bodies";
 import { readSwitch, SHOULD_RUN, TEST_TIMEOUT_MS, textDeck } from "./_row-44";
 
 const H = "r44f-home";

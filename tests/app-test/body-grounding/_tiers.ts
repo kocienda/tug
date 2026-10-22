@@ -27,7 +27,7 @@
 import { expect } from "bun:test";
 
 import { note, type App } from "../_harness";
-import { pollFor, settleFor } from "./_bodies";
+import { settleFor } from "./_bodies";
 
 export type Tier = "dormant" | "evicted";
 

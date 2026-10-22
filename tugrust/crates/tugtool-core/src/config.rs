@@ -1508,7 +1508,11 @@ mod tests {
                 ..ArcConfig::default()
             };
             assert_eq!(arc.yield_share(), IMPLEMENT_YIELD_SHARE_DEFAULT, "{bad}");
-            assert_eq!(arc.backstop_share(), IMPLEMENT_BACKSTOP_SHARE_DEFAULT, "{bad}");
+            assert_eq!(
+                arc.backstop_share(),
+                IMPLEMENT_BACKSTOP_SHARE_DEFAULT,
+                "{bad}"
+            );
         }
         let whole = ArcConfig {
             implement_yield_share: Some(1.0),

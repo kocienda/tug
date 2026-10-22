@@ -14,9 +14,7 @@ use super::identity::{
 use super::listing::has_uncommitted;
 use super::show::sessions_db_file;
 use crate::error::ArcError;
-use crate::log::{
-    ArcRoundMeta, MarkStage, append_arc_log, append_mark_declaration, is_yield_note,
-};
+use crate::log::{ArcRoundMeta, MarkStage, append_arc_log, append_mark_declaration, is_yield_note};
 
 /// Outcome of [`commit_in`].
 #[derive(Debug, Clone, Serialize)]

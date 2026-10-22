@@ -16,7 +16,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
-import { BODY_READY_MS, pollFor, settleFor } from "./_bodies";
+import { BODY_READY_MS, settleFor } from "./_bodies";
 import { bodySnapshot } from "./_kind-bodies";
 
 const TEST_NAME = "body-grounding-kind-spike-index";

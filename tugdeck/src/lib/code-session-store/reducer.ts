@@ -60,7 +60,6 @@ import type {
   SeedQueuedSendsEvent,
   NetworkPathSatisfiedEvent,
   ReplayStartedEvent,
-  BeginCatchUpEvent,
   RespondApprovalActionEvent,
   RespondQuestionActionEvent,
   SendActionEvent,

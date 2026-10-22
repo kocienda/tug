@@ -325,7 +325,10 @@ impl TestTugcast {
         // checkout builds. When the checkout's own is built beside tugcast,
         // put its directory first, so the chain a probe exercises — tugcast,
         // tugcode, claude, hook — is the checkout's end to end.
-        if let Some(dir) = Path::new(bin).parent().filter(|d| d.join("tugtool").is_file()) {
+        if let Some(dir) = Path::new(bin)
+            .parent()
+            .filter(|d| d.join("tugtool").is_file())
+        {
             let mut joined = std::ffi::OsString::from(dir);
             joined.push(":");
             joined.push(std::env::var_os("PATH").unwrap_or_default());

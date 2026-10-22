@@ -23,7 +23,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
-import { pollFor, settleFor } from "./_bodies";
+import { settleFor } from "./_bodies";
 import { expectContentSurface, kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 

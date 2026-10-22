@@ -44,7 +44,7 @@ import { join } from "node:path";
 import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, foldedOf, pollFor, settleFor, responders, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, foldedOf, settleFor, responders, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { armLandRecords, expectEmptyLand, noteLand } from "./_land";

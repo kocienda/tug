@@ -2129,10 +2129,7 @@ mod tests {
     /// measurement behind it — a restart dropped the window — is still owed.
     #[test]
     fn a_yield_over_an_unmeasured_share_still_compacts() {
-        let (kind, _) = prompt(arc_action(
-            &record(&[ArcStage::Implement]),
-            &yielded(None),
-        ));
+        let (kind, _) = prompt(arc_action(&record(&[ArcStage::Implement]), &yielded(None)));
         assert_eq!(kind, PromptKind::Compact);
     }
 

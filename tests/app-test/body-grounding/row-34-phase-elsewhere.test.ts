@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { pollFor, settleFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { settleFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 

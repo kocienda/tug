@@ -35,7 +35,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, focusBody, pollFor, settleFor, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, focusBody, settleFor, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 

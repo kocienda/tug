@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
 import { launchTugApp, note } from "../_harness";
-import { pollFor, settleFor } from "./_bodies";
+import { settleFor } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
