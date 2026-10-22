@@ -7,23 +7,23 @@
  * can take it back themselves with Escape. Either way, everything acquired at
  * pointer-down then has to be given back by the cancel: the `data-gesture`
  * and `data-pointer-owned` marks, the scroll-preservation episodes on every
- * frame, the pointer listeners themselves, and the width the drag previewed.
+ * frame, the pointer listeners themselves, and the placer's hold.
  * The listeners are read through their one visible effect: a `pointerup`
  * arriving after the cancel finds nobody listening and commits nothing.
  *
  * The claim is read twice: in the shell, where the stored widths and the
- * marks are the shell's own state, and in the host, which carries every
- * member's view and the chain's cards from the pointer. A stand-in's rect
+ * marks are the shell's own state, and in the host, which tracks the pointer
+ * and moves nothing on the deck while the hand is down. A stand-in's rect
  * says where the shell's model put a pane, not where a view stands, so the
  * host's own snapshot says the rest: mid-drag the host holds the dragged
- * member and has drawn every member narrower, together; after the cancel,
- * and after the release that follows it, every view stands back at its
+ * member and every member's view still stands at its press frame; after the
+ * cancel, and after the release that follows it, every view stands at its
  * press frame, out of the hand.
  *
  * The rail card draws its edge grip in its own page, and the host carries
  * the press (`cardGesture` of kind `rail`). So the pointer is lost the way
- * the host loses one: the window resigns key, the host puts the views back
- * and cancels its gesture, and the shell gives the draft back. The cancel
+ * the host loses one: the window resigns key, the host cancels its gesture,
+ * and the shell gives the draft back. The cancel
  * hides the app to take its window's pointer away; in a background launch
  * the hide is the harness's in-process one, which resigns the window's key
  * status as AppKit's does.
@@ -54,7 +54,7 @@ import {
   count,
   expectEveryMember,
   expectHostAtPress,
-  expectHostCarrying,
+  expectHostHoldingStill,
   frame,
   grip,
   hostViews,
@@ -87,7 +87,7 @@ describe.skipIf(!SHOULD_RUN)(
             await count(app, `${frame(DRAGGED)}[data-pointer-owned]`),
             "the drag latched",
           ).toBe(1);
-          await expectHostCarrying(app, press);
+          await expectHostHoldingStill(app, press);
 
           // ── The moment: the window loses the mouse. ──────────────────────
           // The press is the card's page's and the host carries the pointer,
@@ -146,7 +146,7 @@ describe.skipIf(!SHOULD_RUN)(
             await count(app, `${frame(DRAGGED)}[data-pointer-owned]`),
             "the drag latched",
           ).toBe(1);
-          await expectHostCarrying(app, press);
+          await expectHostHoldingStill(app, press);
 
           // ── The moment: the user changes their mind. ─────────────────────
           await app.nativeKey("Escape");

@@ -118,44 +118,6 @@ final class RailGeometryTests: XCTestCase {
         XCTAssertGreaterThan(aim.shown, 320 - CardGeometry.railLimitGive)
     }
 
-    func testTravelOfAFitCard() {
-        let start = RailTravelBand(band: 1000, flow: nil)
-        func shift(_ fraction: Double, _ slot: Double, _ side: RailSide, _ growth: CGFloat) -> CGFloat {
-            CardGeometry.railTravelShift(.fit(fraction: fraction, slotWidth: slot), side: side, start: start, growth: growth)
-        }
-        // A left rail carries a slot-0 card by the whole growth.
-        XCTAssertEqual(shift(0, 300, .left, 60), 60)
-        XCTAssertEqual(shift(0, 300, .left, -40), -40)
-        // A last-slot card stands still under a left rail.
-        XCTAssertEqual(shift(1, 300, .left, 60), 0)
-        // Under a right rail a card moves by its fraction of the slack lost.
-        XCTAssertEqual(shift(0.5, 300, .right, 60), -30)
-        XCTAssertEqual(shift(0.5, 300, .right, -60), 30)
-        // A card nearly the band's width holds at the near edge.
-        XCTAssertEqual(shift(1, 990, .right, 60), -10)
-    }
-
-    func testTravelOnFlow() {
-        let start = RailTravelBand(band: 1000, flow: .init(offset: 380, strip: 1400))
-        func shift(_ side: RailSide, _ growth: CGFloat) -> CGFloat {
-            CardGeometry.railTravelShift(.flow, side: side, start: start, growth: growth)
-        }
-        XCTAssertEqual(shift(.left, 60), 60)
-        XCTAssertEqual(shift(.left, -60), -60 + 40)
-        XCTAssertEqual(shift(.right, 60), 0)
-        XCTAssertEqual(shift(.right, -60), 40)
-    }
-
-    func testTravelFromABandOfNoWidth() {
-        let covered = RailTravelBand(band: -200, flow: nil)
-        XCTAssertEqual(CardGeometry.railTravelShift(.fit(fraction: 0.5, slotWidth: 300), side: .right, start: covered, growth: -100), 0)
-        XCTAssertEqual(CardGeometry.railTravelShift(.fit(fraction: 0.5, slotWidth: 300), side: .right, start: covered, growth: -600), 50)
-        XCTAssertEqual(CardGeometry.railTravelShift(.fit(fraction: 0, slotWidth: 300), side: .left, start: covered, growth: -600), -600)
-        let flow = RailTravelBand(band: -200, flow: .init(offset: 380, strip: 1400))
-        XCTAssertEqual(CardGeometry.railTravelShift(.flow, side: .right, start: flow, growth: -600), 0)
-        XCTAssertEqual(CardGeometry.railTravelShift(.flow, side: .right, start: flow, growth: -1300), 80)
-    }
-
     // MARK: The tracker
 
     private let canvas = CGRect(x: 0, y: 28, width: 1440, height: 872)
@@ -224,54 +186,45 @@ final class RailGeometryTests: XCTestCase {
         XCTAssertEqual(step.aim, RailAim(width: 400, shown: 400, limit: nil))
     }
 
-    /// A right rail carrying a drag lays its crossing member out from the one
-    /// frame the hand writes: the member widens at its deck-facing (left)
-    /// edge, the page stands still at the outer edge, and the strip and the
-    /// page's mask meet where the pane's edge or the page's own border,
-    /// whichever is further out, less the border's width.
-    func testARailCarryingADragLaysItsCrossingOut() throws {
+    /// A left rail's ghost keeps its outer (left) edge and moves its
+    /// deck-facing (right) edge with the aim, at the full height of the
+    /// members' union; it narrows to nothing, never past it.
+    func testALeftRailsGhostGrowsAtItsRightEdge() {
+        let panes = CGRect(x: 10, y: 38, width: 300, height: 700)
+        XCTAssertEqual(RailView.ghostFrame(side: .left, panes: panes, growth: 40), CGRect(x: 10, y: 38, width: 340, height: 700))
+        XCTAssertEqual(RailView.ghostFrame(side: .left, panes: panes, growth: -60), CGRect(x: 10, y: 38, width: 240, height: 700))
+        XCTAssertEqual(RailView.ghostFrame(side: .left, panes: panes, growth: -400), CGRect(x: 10, y: 38, width: 0, height: 700))
+    }
+
+    /// A right rail's ghost keeps its outer (right) edge and moves its
+    /// deck-facing (left) edge with the aim.
+    func testARightRailsGhostGrowsAtItsLeftEdge() {
+        let panes = CGRect(x: 1100, y: 38, width: 330, height: 700)
+        XCTAssertEqual(RailView.ghostFrame(side: .right, panes: panes, growth: 40), CGRect(x: 1060, y: 38, width: 370, height: 700))
+        XCTAssertEqual(RailView.ghostFrame(side: .right, panes: panes, growth: -30), CGRect(x: 1130, y: 38, width: 300, height: 700))
+        XCTAssertEqual(RailView.ghostFrame(side: .right, panes: panes, growth: -400), CGRect(x: 1430, y: 38, width: 0, height: 700))
+    }
+
+    /// The ghost stands in the host view, not the rail, above every card's
+    /// container whatever their stacking, and answers no point; removed, it
+    /// stands nowhere and wears no limit.
+    func testTheGhostStandsAboveEveryCardInTheHostView() {
         let host = Member(order: 0, serial: 0, frame: CGRect(x: 0, y: 0, width: 1440, height: 900))
-        let rail = RailView(side: .right)
+        let rail = RailView(side: .left)
         host.addSubview(rail)
-        let member = RailMemberView(frame: .zero)
-        member.wantsLayer = true
-        rail.addSubview(member)
-        member.frame = CGRect(x: 1000, y: 38, width: 340, height: 300)
-        let page = NSView(frame: member.bounds)
-        page.wantsLayer = true
-        page.autoresizingMask = [.minXMargin]
-        member.addSubview(page)
-        rail.place(CGRect(x: 1000, y: 38, width: 340, height: 300))
-        let crossing = RailCrossing(side: .right, insets: CardInsets(top: 10, right: 10, bottom: 10, left: 10), page: page)
-        crossing.colors = try JSONDecoder().decode(RailEdgeColors.self, from: Data(#"""
-            {"surface":[28,30,34,255],"rest":[60,64,70,255],"held":[70,130,230,255],"limit":[230,160,60,255],
-             "width":1,"shadow":[0,0,0,102],"reach":10}
-            """#.utf8))
-        crossing.strip.edgeWidth = 1
-        member.railCrossing = crossing
-        rail.carriesDrag = true
-
-        // Grown by 40 at the deck-facing edge.
-        rail.place(CGRect(x: 960, y: 38, width: 380, height: 300))
-        XCTAssertEqual(member.frame, CGRect(x: 960, y: 38, width: 380, height: 300))
-        XCTAssertEqual(page.frame, CGRect(x: 40, y: 0, width: 340, height: 300))
-        XCTAssertEqual(crossing.strip.frame, CGRect(x: 10, y: 10, width: 41, height: 280))
-        XCTAssertEqual(crossing.mask.frame, CGRect(x: 11, y: 0, width: 329, height: 300))
-
-        // Narrowed by 40 past where it started.
-        rail.place(CGRect(x: 1040, y: 38, width: 300, height: 300))
-        XCTAssertEqual(member.frame, CGRect(x: 1040, y: 38, width: 300, height: 300))
-        XCTAssertEqual(page.frame.minX, -40)
-        XCTAssertEqual(crossing.strip.frame, CGRect(x: 10, y: 10, width: 1, height: 280))
-        XCTAssertEqual(crossing.mask.frame, CGRect(x: 51, y: 0, width: 289, height: 300))
-
-        // Carrying nothing, a placement of the rail moves no member.
-        rail.carriesDrag = false
-        rail.place(CGRect(x: 1000, y: 38, width: 340, height: 300))
-        XCTAssertEqual(member.frame, CGRect(x: 1040, y: 38, width: 300, height: 300))
-        member.railCrossing = nil
-        XCTAssertNil(crossing.strip.superview)
-        XCTAssertNil(page.layer?.mask)
+        let card = Member(order: 9, serial: 9, frame: CGRect(x: 320, y: 38, width: 600, height: 700))
+        host.addSubview(card)
+        rail.ghost.pastLimit = true
+        rail.standGhost(CGRect(x: 10, y: 38, width: 360, height: 700), in: host)
+        XCTAssertTrue(rail.ghost.superview === host)
+        XCTAssertEqual(rail.ghost.frame, CGRect(x: 10, y: 38, width: 360, height: 700))
+        XCTAssertGreaterThan(rail.ghost.layer?.zPosition ?? 0, card.layer?.zPosition ?? 0)
+        XCTAssertNil(rail.ghost.hitTest(CGPoint(x: 20, y: 40)))
+        sortStacked(in: host)
+        XCTAssertTrue(rail.ghost.superview === host)
+        rail.removeGhost()
+        XCTAssertNil(rail.ghost.superview)
+        XCTAssertFalse(rail.ghost.pastLimit)
     }
 
     /// The spring's curve is CSS's `cubic-bezier`: it starts at 0, ends at

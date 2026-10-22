@@ -2,13 +2,15 @@
  * rail-width-fixture.ts — what the rail width readings share: the host's
  * reports of the hand as the shell hears them, the facts the host was told
  * the rail stands on, and a reader that finds each member's deck-facing edge
- * and the chain's first card's leading edge by colour in a composite.
+ * and the chain's first card's leading edge by colour in a composite, the
+ * ghost's edge by its accent line, and whether an edge stands where it did.
  *
- * The host carries a rail's width drag: it moves every member's view and the
- * cards beside the rail itself, and the shell only previews its stand-ins at
- * the aim the host reports. So where a view stands is read where the views
- * are, in the composite, never from a stand-in's rect, which is the shell's
- * model of the deck and moves on the shell's clock (`at0677`–`at0680`).
+ * The host carries a rail's width drag: while the hand is down it moves one
+ * thing, the ghost of the rail's new footprint, which it draws above every
+ * card, and nothing of the deck moves until the release commits and the
+ * settle carries it. So where a view stands is read where the views are, in
+ * the composite, never from a stand-in's rect, which is the shell's model of
+ * the deck and moves on the shell's clock (`at0677`, `at0678`, `at0680`).
  *
  * Every reading here is of a left rail, the shape those files seed: its
  * deck-facing edge is a member's right edge, and the chain stands to its
@@ -19,7 +21,7 @@ import { expect } from "bun:test";
 
 import { note, type App } from "./_harness";
 import type { BodyViewSnapshot, CaptureBurstFrame } from "./_harness/client";
-import { fillOnRow, groundStartOnRow, leadingEdgeOnRow, near, type Rgb } from "./body-grounding/_frames";
+import { fillOnRow, groundStartOnRow, leadingEdgeOnRow, near, saturatedLineEndOnRow, stepsOnRow, type Rgb } from "./body-grounding/_frames";
 import { COLOUR_TOLERANCE, still, type Rect } from "./one-view-fixture";
 import { RAIL_GUTTER_PX } from "../../tugdeck/src/lib/layout-imposer";
 
@@ -158,6 +160,8 @@ interface MemberRow {
   /** The device row the edge is read on, and the ground beside it there. */
   row: number;
   ground: Rgb;
+  /** Where the edge's strongest step in colour stands on the standing deck, device px, and how strong it is. */
+  step: { x: number; step: number };
   /** The pane's deck-facing edge at rest, window points. */
   restEdge: number;
   /** The colour edge less the pane's edge, device px: the reach of the shadow the rail casts, read off the standing deck. */
@@ -176,6 +180,23 @@ export interface RailReader {
   memberEdges(frame: CaptureBurstFrame): (number | null)[];
   /** The chain's first card's leading edge by colour, the same way. */
   chainEdge(frame: CaptureBurstFrame): number | null;
+  /**
+   * The ghost's deck-facing edge on each member's row, device px: one past
+   * its accent edge line, the one saturated line on a near-neutral deck;
+   * null on a row no ghost crosses.
+   */
+  ghostEdges(frame: CaptureBurstFrame): (number | null)[];
+  /**
+   * How far each member's deck-facing edge, and the chain card's leading
+   * edge, stands from where it stood on the standing deck, device px: the
+   * edge's strongest step in colour, found again within a few px of where
+   * it was. The ghost's translucent fill over an edge, and a card repainted
+   * as the press moves the deck's focus, change the colours either side of
+   * the step and leave it where it is, so this reads through both. An edge
+   * the ghost's own edge line stands across is `"line"`, and one whose step
+   * is not found again is null.
+   */
+  edgesMoved(frame: CaptureBurstFrame): { members: (number | "line" | null)[]; chain: number | "line" | null };
 }
 
 /**
@@ -187,6 +208,16 @@ export interface RailReader {
  * member draws the same shadow beside its frame.
  */
 const SHADOW_TAIL_TOLERANCE = 3;
+
+/**
+ * The chroma the ghost's edge line reads at. The line is the rail's held or
+ * limit colour, an accent; the deck's surfaces, its readout pill and the
+ * ghost's tinted fill over them all read far below it.
+ */
+const GHOST_LINE_CHROMA = 120;
+
+/** How far either side of where an edge stood its step is looked for again, device px. */
+const STEP_SEARCH_PX = 3;
 
 /** A member's deck-facing edge on `row`: where its shadow meets the ground, scanning out of the member from `x0`. */
 function railEdgeOn(frame: CaptureBurstFrame, row: number, ground: Rgb, from: number, to: number): number | null {
@@ -233,6 +264,8 @@ export async function railReader(app: App, members: readonly string[], chain: st
   const toDevice = (x: number): number => (x - crop.x) * scale;
   const rowOf = (y: number): number => (y - crop.y) * scale;
   const fullWidth = crop.width * scale;
+  const strongestStep = (row: number, x0: number, x1: number): { x: number; step: number } =>
+    stepsOnRow(standing.frame, row, x0, x1).reduce((a, s) => (s.step > a.step ? s : a), { x: -1, step: 0 });
 
   const calibrate = (cardId: string, pane: Rect, y: number): MemberRow => {
     const row = rowOf(y);
@@ -245,7 +278,7 @@ export async function railReader(app: App, members: readonly string[], chain: st
     expect(near(ground, surface, COLOUR_TOLERANCE), `${cardId} is told apart from the ground beside it`).toBe(false);
     const read = railEdgeOn(standing.frame, row, ground, toDevice(edge - 40), fullWidth);
     expect(read, `${cardId}'s edge is read by colour on the standing deck`).not.toBeNull();
-    return { cardId, row, ground, restEdge: edge, offset: read! - toDevice(edge) };
+    return { cardId, row, ground, step: strongestStep(row, toDevice(edge) - 12, toDevice(edge) + 4), restEdge: edge, offset: read! - toDevice(edge) };
   };
   const rows = members.map((m, i) => calibrate(m, panes[i], panes[i].y + panes[i].height / 2));
 
@@ -258,7 +291,8 @@ export async function railReader(app: App, members: readonly string[], chain: st
     const from = railEdgeOn(standing.frame, m.row, m.ground, toDevice(m.restEdge - 40), fullWidth)!;
     const read = chainEdgeOn(standing.frame, m.row, m.ground, from, fullWidth);
     expect(read, `${chain}'s leading edge is read by colour on the standing deck`).not.toBeNull();
-    chainRow = { ...m, cardId: chain, member, restLeft: chainPane.x, offset: read! - toDevice(chainPane.x) };
+    const step = strongestStep(m.row, toDevice(chainPane.x) - 8, toDevice(chainPane.x) + 8);
+    chainRow = { ...m, cardId: chain, member, step, restLeft: chainPane.x, offset: read! - toDevice(chainPane.x) };
   }
   note(
     `rail reader: crop ${JSON.stringify(crop)} at ${scale}x; offsets ${rows.map((r) => `${r.cardId} ${r.offset}`).join(", ")}` +
@@ -266,6 +300,19 @@ export async function railReader(app: App, members: readonly string[], chain: st
   );
 
   const scanFrom = (r: MemberRow): number => toDevice(r.restEdge - 40);
+  const ghostOn = (frame: CaptureBurstFrame, r: MemberRow): number | null => saturatedLineEndOnRow(frame, r.row, GHOST_LINE_CHROMA);
+  /**
+   * How far `r`'s step stands from where it stood: the strongest step within
+   * {@link STEP_SEARCH_PX} of it, which must keep at least half its strength
+   * under the ghost's tint; `"line"` where the ghost's edge line is that
+   * near, since the line's own steps would be read instead.
+   */
+  const movedOn = (frame: CaptureBurstFrame, r: MemberRow): number | "line" | null => {
+    const ghost = ghostOn(frame, r);
+    if (ghost !== null && Math.abs(ghost - r.step.x) <= STEP_SEARCH_PX + 4) return "line";
+    const found = stepsOnRow(frame, r.row, r.step.x - STEP_SEARCH_PX, r.step.x + STEP_SEARCH_PX + 1).reduce((a, s) => (s.step > a.step ? s : a), { x: -1, step: 0 });
+    return found.step >= r.step.step / 2 ? found.x - r.step.x : null;
+  };
   return {
     crop,
     scale,
@@ -284,5 +331,10 @@ export async function railReader(app: App, members: readonly string[], chain: st
       const e = chainEdgeOn(frame, chainRow.row, chainRow.ground, from, fullWidth);
       return e === null ? null : e - chainRow.offset;
     },
+    ghostEdges: (frame) => rows.map((r) => ghostOn(frame, r)),
+    edgesMoved: (frame) => ({
+      members: rows.map((r) => movedOn(frame, r)),
+      chain: chainRow === null ? null : movedOn(frame, chainRow),
+    }),
   };
 }

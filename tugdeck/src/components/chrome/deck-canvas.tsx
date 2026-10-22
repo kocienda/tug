@@ -2208,19 +2208,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * are rendered into. [D03]
    */
   const containerRef = useRef<HTMLDivElement | null>(null);
-  // The rail width drag's draft: this canvas owns the arrangement properties
-  // the drag previews, so it is the one writer of them for the gesture's
-  // length and the one party that rolls them back ([L10], [L32]). A rail's
-  // edge handle only emits the gesture into it. It reads the flow strip as
-  // this render arranged it, because a flow card's travel under the rail is
-  // clamped by the strip's length and the offset standing over it.
+  // The flow strip as this render arranged it, for the placer: a flow card's
+  // travel under a rail width change is clamped by the strip's length and
+  // the offset standing over it.
   const flowTermsRef = useRef<RailTravelBand["flow"]>(null);
   flowTermsRef.current =
     flowStrip === null
       ? null
       : { offset: Math.round(flowOffset), strip: flowStrip.width };
   const readFlowTerms = useCallback(() => flowTermsRef.current, []);
-  const railWidthDraft = useRailWidthDraft(containerRef, store, readFlowTerms);
+  // The rail width drag's draft: this canvas maps the deck to its panes, so
+  // it is the one party that marks, holds and commits for the gesture, and
+  // the one that gives every acquisition back ([L10], [L32]). A rail's edge
+  // handle only emits the gesture into it.
+  const railWidthDraft = useRailWidthDraft(containerRef, store);
   // The host's card gesture reports, taken in this page. A rail's edge drag
   // pressed in its card's own page is this canvas's draft, opened against the
   // rail pane's frame here (`railEdgeDriverFor`).

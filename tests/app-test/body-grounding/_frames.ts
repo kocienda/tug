@@ -431,6 +431,54 @@ export function framesDiffer(a: CaptureBurstFrame, b: CaptureBurstFrame, toleran
   return differing / Math.max(1, sampled) >= minShare;
 }
 
+/**
+ * One past the right end of the last line on row `y` drawn in a saturated
+ * colour, or null when the row carries none: the last pixel whose chroma —
+ * the spread between its highest and lowest channel — is at least
+ * `minChroma`, carried on through any pixel past it still at a third of that,
+ * which is the line's own paint partly covering a pixel where it ends between
+ * two. The deck's surfaces are near-neutral, so a line drawn in an accent
+ * stands out by chroma alone, whatever is tinted or repainted around it; a
+ * line two device px wide covers at least one pixel whole wherever it lands.
+ */
+export function saturatedLineEndOnRow(frame: CaptureBurstFrame, y: number, minChroma: number): number | null {
+  const png = decoded(frame.path);
+  const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
+  const chroma = (x: number): number => {
+    const i = (row * png.width + x) * 4;
+    return Math.max(png.rgba[i], png.rgba[i + 1], png.rgba[i + 2]) - Math.min(png.rgba[i], png.rgba[i + 1], png.rgba[i + 2]);
+  };
+  for (let x = png.width - 1; x >= 0; x--) {
+    if (chroma(x) < minChroma) continue;
+    let end = x + 1;
+    while (end < png.width && chroma(end) >= minChroma / 3) end += 1;
+    return end;
+  }
+  return null;
+}
+
+/**
+ * The step in colour into each x (device px) on row `y` from `x0` to `x1`:
+ * the largest channel difference between the pixel and the one before it.
+ * Where an edge stands is where its step is, and a tint over it or a repaint
+ * of the surfaces either side scales the step without moving it.
+ */
+export function stepsOnRow(frame: CaptureBurstFrame, y: number, x0: number, x1: number): { x: number; step: number }[] {
+  const png = decoded(frame.path);
+  const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
+  const out: { x: number; step: number }[] = [];
+  for (let x = Math.max(1, Math.round(x0)); x < Math.min(png.width, Math.round(x1)); x++) {
+    const i = (row * png.width + x) * 4;
+    const step = Math.max(
+      Math.abs(png.rgba[i] - png.rgba[i - 4]),
+      Math.abs(png.rgba[i + 1] - png.rgba[i - 3]),
+      Math.abs(png.rgba[i + 2] - png.rgba[i - 2]),
+    );
+    out.push({ x, step });
+  }
+  return out;
+}
+
 /** The commonest colour along row `y` of the frame between `x0` and `x1` (device px). */
 export function fillOnRow(frame: CaptureBurstFrame, y: number, x0: number, x1: number): Rgb {
   const png = decoded(frame.path);

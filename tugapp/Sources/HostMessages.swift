@@ -1166,9 +1166,6 @@ enum PageCall {
     /// A rail member's page, as a hand presses its rail's edge: the colours
     /// its deck-facing edge paints in; the reply is `RailEdgeColors`.
     case railEdge
-    /// A rail member's page, given its new size at a width drag's release:
-    /// resolves once it has painted at it.
-    case railLand
 
     /// Every call, by its receiver and member, as the page's registry lists them.
     static let declared: [(receiver: String, member: String)] = [
@@ -1177,13 +1174,12 @@ enum PageCall {
         ("tugdeck", "reauthenticate"),
         ("bridge", "onPageZoomApply"),
         ("bridge", "onRailEdge"),
-        ("bridge", "onRailLand"),
     ]
 
     var receiver: String {
         switch self {
         case .saveState, .prepareForTermination, .reauthenticate: return "tugdeck"
-        case .pageZoomApply, .railEdge, .railLand: return "bridge"
+        case .pageZoomApply, .railEdge: return "bridge"
         }
     }
 
@@ -1194,7 +1190,6 @@ enum PageCall {
         case .reauthenticate: return "reauthenticate"
         case .pageZoomApply: return "onPageZoomApply"
         case .railEdge: return "onRailEdge"
-        case .railLand: return "onRailLand"
         }
     }
 
@@ -1207,7 +1202,7 @@ enum PageCall {
     func payloadJSON() -> Data? {
         let encoder = JSONEncoder()
         switch self {
-        case .saveState, .prepareForTermination, .railEdge, .railLand: return try? encoder.encode(EmptyPayload())
+        case .saveState, .prepareForTermination, .railEdge: return try? encoder.encode(EmptyPayload())
         case .reauthenticate(let token): return try? encoder.encode(Token(token: token))
         case .pageZoomApply(let factor): return try? encoder.encode(factor)
         }
@@ -1241,8 +1236,9 @@ struct TerminationVerdict: Decodable, Equatable {
 /// A rail member's deck-facing edge as its page paints it (`onRailEdge`'s
 /// reply): the pane's surface, the border's colour at rest, held and past a
 /// limit, each as four sRGB bytes, and the border's width in view points;
-/// and the shadow the rail casts off it (`rail-shadow.css`), its colour and
-/// its reach in view points.
+/// the shadow the rail casts off it (`rail-shadow.css`), its colour and its
+/// reach in view points; and the fill a width drag's ghost paints its
+/// footprint in.
 struct RailEdgeColors: Decodable, Equatable {
     var surface: [Double]
     var rest: [Double]
@@ -1251,8 +1247,9 @@ struct RailEdgeColors: Decodable, Equatable {
     var width: Double
     var shadow: [Double]
     var reach: Double
+    var fill: [Double]
 
-    private enum CodingKeys: String, CodingKey { case surface, rest, held, limit, width, shadow, reach }
+    private enum CodingKeys: String, CodingKey { case surface, rest, held, limit, width, shadow, reach, fill }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1268,6 +1265,7 @@ struct RailEdgeColors: Decodable, Equatable {
         held = try bytes(.held)
         limit = try bytes(.limit)
         shadow = try bytes(.shadow)
+        fill = try bytes(.fill)
         width = try c.decode(Double.self, forKey: .width)
         reach = try c.decode(Double.self, forKey: .reach)
         guard width >= 0, reach >= 0 else {

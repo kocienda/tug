@@ -1,11 +1,10 @@
 /**
  * rail-edge.ts — a rail member's deck-facing edge as this page paints it.
  *
- * While a hand drags a rail's width, the host holds each member's page at
- * the size the press found it and draws the moving edge itself, over the
- * page: the pane's surface where the page does not reach, the border, and
- * the shadow the rail casts into its gutter (`RailView.swift`'s
- * `RailCrossing`). It asks the page for those as the press lands
+ * While a hand drags a rail's width, the host draws a ghost of the rail's
+ * new footprint itself (`RailView.swift`'s `RailEdgeView`): a translucent
+ * fill of the accent and the border on its deck-facing side, held or past a
+ * limit. It asks the page for those as the press lands
  * (`onRailEdge`), and this reads them off the page's computed styles as
  * they stand then — the theme, the rail treatment and the zoom included —
  * so the host draws what the page would have.
@@ -69,8 +68,11 @@ export function readRailEdge(frame: HTMLElement, zoom: number): RailEdge | null 
   const held = cssColorBytes(resolvedColor(frame, "var(--tugx-rail-edge-held)"));
   const limit = cssColorBytes(resolvedColor(frame, "var(--tugx-rail-edge-limit)"));
   const shadow = cssColorBytes(resolvedColor(frame, "var(--tugx-rail-shadow-color)"));
-  if (surface === null || rest === null || held === null || limit === null || shadow === null) return null;
+  const fill = cssColorBytes(resolvedColor(frame, "var(--tugx-rail-ghost-fill)"));
+  if (surface === null || rest === null || held === null || limit === null || shadow === null || fill === null) {
+    return null;
+  }
   const width = parseFloat(style.getPropertyValue(`border-${facing}-width`)) || 0;
   const reach = parseFloat(getComputedStyle(frame).getPropertyValue("--tugx-rail-shadow-reach")) || 0;
-  return { surface, rest, held, limit, width: width * zoom, shadow, reach: reach * zoom };
+  return { surface, rest, held, limit, width: width * zoom, shadow, reach: reach * zoom, fill };
 }

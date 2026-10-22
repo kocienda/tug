@@ -542,27 +542,6 @@ extension CardGeometry {
         return coordinate((lo + hi) / 2, y1, y2)
     }
 
-    /// `railTravelShift`: how far an imposed card moves, layout px, when the
-    /// rail on `side` grows by `growth` (negative when it narrows) — the
-    /// difference between the `left` its expression resolves to at the two
-    /// widths. A left rail's growth moves everything after it; the band's
-    /// narrowing moves only what stands a fraction across its slack (fit) or
-    /// what the flow offset's clamp lets back in (flow).
-    static func railTravelShift(_ travel: RailTravel, side: RailSide, start: RailTravelBand, growth: CGFloat) -> CGFloat {
-        let insetShift: CGFloat = side == .left ? growth : 0
-        let startBand = CGFloat(start.band)
-        let band = startBand - growth
-        switch travel {
-        case let .fit(fraction, slotWidth):
-            func slack(_ b: CGFloat) -> CGFloat { max(0, b - CGFloat(slotWidth)) }
-            return insetShift + CGFloat(fraction) * (slack(band) - slack(startBand))
-        case .flow:
-            guard let flow = start.flow else { return insetShift }
-            func clamped(_ b: CGFloat) -> CGFloat { min(CGFloat(flow.offset), max(0, CGFloat(flow.strip) - b)) }
-            return insetShift - (clamped(band) - clamped(startBand))
-        }
-    }
-
     /// A pane as a rail drag's snap reads it.
     struct RailSnapCandidate {
         var rect: CGRect

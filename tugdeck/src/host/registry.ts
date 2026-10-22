@@ -39,7 +39,6 @@ import {
   paintedToHost,
   prepareForTerminationCall,
   railEdgeCall,
-  railLandCall,
   reauthenticateCall,
   saveStateCall,
 } from "./declarations/lifecycle";
@@ -155,7 +154,6 @@ export const PAGE_CALLS: readonly PageCall<unknown, unknown>[] = [
   saveStateCall,
   prepareForTerminationCall,
   railEdgeCall,
-  railLandCall,
   reauthenticateCall,
   pageZoomApplyCall,
 ] as readonly PageCall<unknown, unknown>[];

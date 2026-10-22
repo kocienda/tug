@@ -94,6 +94,13 @@ body {
   );
   --tugx-rail-edge-held: var(--tug7-element-global-border-normal-accent-rest);
   --tugx-rail-edge-limit: var(--tug7-element-tone-border-normal-caution-rest);
+  /* The width drag's ghost: the host fills the rail's new footprint with
+     this while the hand is down (`rail-edge.ts`). */
+  --tugx-rail-ghost-fill: color-mix(
+    in oklch,
+    var(--tug7-element-global-border-normal-accent-rest) 14%,
+    transparent
+  );
   --tugx-rail-readout-bg: var(--tug7-surface-global-primary-normal-screen-rest);
   --tugx-rail-readout-fg: var(--tug7-element-global-text-normal-default-rest);
   --tugx-rail-readout-border: var(--tug7-element-global-border-normal-default-rest);

@@ -71,7 +71,7 @@ final class DeckContainerView: NSView {
 /// Flipped, so the web view's top-left is its origin: while a crossing
 /// animates the container's bounds, the page stays pinned at the top and
 /// the container clips its bottom edge, never its masthead edge.
-final class BodyContainerView: RailMemberView, StackedView {
+final class BodyContainerView: NSView, StackedView {
     var order = 0
     let serial: Int
     override var isFlipped: Bool { true }
@@ -1073,13 +1073,8 @@ final class BodyViewController {
     private(set) var cardApron: CGFloat = CardGeometry.apron
     /// Each standing rail's width bounds, layout px, as the last `placeCards` named them.
     private(set) var railLimits = RailLimitsBySide()
-    /// The band and the flow strip, layout px, as the last `placeCards` named them.
-    private(set) var railBand = RailTravelBand(band: 0, flow: nil)
     /// One view per shown rail, holding its members' containers.
     private var rails: [RailSide: RailView] = [:]
-    /// The last `placeCards`, which a rail's spring re-applies when it ends:
-    /// the landing placement may have come while the spring held the views.
-    private var lastPlacement: PlaceCards?
     /// The cards the last placement says the shell's rail draft holds: the
     /// host's, until the shell's release, though the hand has let go.
     private var placementHeld: Set<String> = []
@@ -1115,19 +1110,18 @@ final class BodyViewController {
     }
     private var gesture: Gesture?
 
-    /// A rail width drag in the host's hand: the members it widens and the
-    /// content cards it carries by their travel, each from its frame at the
-    /// press, and the spring a release past a limit runs.
+    /// A rail width drag in the host's hand: the aim it tracks, the footprint
+    /// its ghost grows from, and the spring a release past a limit runs. It
+    /// moves no card: the release commits the width, and the settle the
+    /// commit runs carries the members and the cards beside the rail.
     private struct RailHand {
         var tracker: RailWidthTracker
         let view: RailView
-        /// The rail view's frame at the press, which every step widens.
-        let railStart: CGRect
         /// The pane rect of the member pressed, viewport points.
         let startRect: CGRect
-        let members: [(body: Body, start: CGRect)]
-        let carried: [(body: Body, start: CGRect, travel: RailTravel)]
-        let band: RailTravelBand
+        /// The union of the moving members' pane rects at the press, viewport
+        /// points: the footprint the ghost grows from.
+        let panes: CGRect
         /// How long a release past a limit springs back, ms; 0 for none.
         let springMs: Double
         var springing = false
@@ -1141,9 +1135,6 @@ final class BodyViewController {
     private var springSerial = 0
     /// The display link stepping the spring, while one runs.
     private var springLink: CADisplayLink?
-    /// How long a page that took its new size at a release has to say it has
-    /// painted there before its member's crossing comes off regardless.
-    private static let railLandDeadline: DispatchTimeInterval = .milliseconds(500)
 
     /// Whether a placement or a plan leaves `body` alone: the gesture holds
     /// it, or the shell's rail draft does and the shell has not yet released.
@@ -1209,7 +1200,6 @@ final class BodyViewController {
     /// carries; the view is the pane outset by `apron`, grown to whole
     /// points. A body the placement does not name is hidden.
     func placeCards(_ placement: PlaceCards) {
-        lastPlacement = placement
         placementHeld = Set(placement.held ?? [])
         cardApron = CGFloat(placement.apron)
         // A canvas the shell does not show leaves the last one standing.
@@ -1217,7 +1207,6 @@ final class BodyViewController {
         if placement.zoom > 0 { cardZoom = CGFloat(placement.zoom) }
         if placement.gap >= 0 { cardGap = CGFloat(placement.gap) }
         railLimits = placement.rails
-        railBand = placement.band
         var placements: [String: CardPlacement] = [:]
         // Each named card with where the placement lists it: the deck's
         // reading order, which is the window's VoiceOver order.
@@ -1314,8 +1303,6 @@ final class BodyViewController {
             rails[side] = nil
         }
         for view in rails.values {
-            // A rail a hand carries is laid out by its frame, which the hand writes.
-            if view.carriesDrag { continue }
             let members = bodies.filter { $0.container.superview === view }
             if members.contains(where: { $0.beats != nil }) { continue }
             let shown = members.filter { $0.visible && $0.canShow }
@@ -1437,7 +1424,7 @@ final class BodyViewController {
             return
         }
         gesture = pressed
-        if let hand { beginRailCrossing(hand) }
+        if let hand { askRailEdge(hand, page: body) }
     }
 
     /// Take `body` from any beats running on it, its container standing
@@ -1462,17 +1449,20 @@ final class BodyViewController {
         side: RailSide, limits: RailWidthLimits, startRect: CGRect, pointer: CGPoint, springMs: Double
     ) -> (hand: RailHand, held: [Body]) {
         var held: [Body] = []
-        var members: [(body: Body, start: CGRect, index: Int)] = []
-        var carried: [(body: Body, start: CGRect, travel: RailTravel)] = []
+        var panes: [CGRect] = []
         for other in bodies {
             guard let id = other.cardId, let placement = cardPlacements[id] else { continue }
             let moves = placement.visible && !placement.sibling
+            // A card a settle is carrying stands still where the press finds it.
             if let seat = placement.rail, seat.side == side {
                 held.append(other)
-                if moves { members.append((other, standOutOfBeats(other), seat.index)) }
-            } else if placement.rail == nil, let travel = placement.railTravel {
+                if moves {
+                    _ = standOutOfBeats(other)
+                    panes.append(placement.rect)
+                }
+            } else if placement.rail == nil, placement.railTravel != nil {
                 held.append(other)
-                if moves { carried.append((other, standOutOfBeats(other), travel)) }
+                if moves { _ = standOutOfBeats(other) }
             }
         }
         let others = CardGeometry.railSnapTargets(side: side, cardPlacements.values.map {
@@ -1485,9 +1475,9 @@ final class BodyViewController {
             zoom: cardZoom, gap: cardGap, others: others
         )
         let hand = RailHand(
-            tracker: tracker, view: railView(for: side), railStart: railView(for: side).frame, startRect: startRect,
-            members: members.sorted { $0.index < $1.index }.map { ($0.body, $0.start) },
-            carried: carried, band: railBand, springMs: springMs,
+            tracker: tracker, view: railView(for: side), startRect: startRect,
+            panes: panes.isEmpty ? startRect : RailView.union(of: panes),
+            springMs: springMs,
             last: RailWidthTracker.Step(aim: tracker.startAim, moved: false)
         )
         return (hand, held)
@@ -1536,8 +1526,9 @@ final class BodyViewController {
             if var hand = live.rail {
                 hand.last = hand.tracker.step(pointer: live.pointer, alt: live.alt)
                 if hand.last.moved { moveRail(hand, shown: hand.last.aim.shown, limit: hand.last.aim.limit != nil) }
-                // Released past a limit, the views spring back to it, and the
-                // hand keeps them until they arrive.
+                // Released past a limit, the ghost springs back to it, and the
+                // hand keeps the rail until it arrives: the release is said
+                // to the shell, and the width committed, when the spring lands.
                 let aim = hand.last.aim
                 springs = hand.last.moved && aim.limit != nil && hand.springMs > 0 && abs(aim.shown - aim.width) > 0.5
                 hand.springing = springs
@@ -1547,9 +1538,9 @@ final class BodyViewController {
                 move(live)
             }
             gesture = springs ? live : nil
-            report(live, phase: .end)
+            report(live, phase: springs ? .move : .end)
             if springs, let hand = live.rail { springRail(hand) }
-            if !springs, let hand = live.rail { landRail(hand, width: hand.last.aim.width) }
+            if !springs, let hand = live.rail { landRail(hand) }
             if pressedOutOfBeats === live.body {
                 pressedOutOfBeats = nil
                 // A hold that went nowhere commits nothing, so no placement
@@ -1566,8 +1557,8 @@ final class BodyViewController {
     /// the mouse. The card goes back where the press found it.
     func cancelGesture() {
         guard let live = gesture else { return }
-        // The hand already let go of a springing rail, and the shell has
-        // taken the release: the views land on the limit, and nothing is said.
+        // The hand already let go of a springing rail: what it released is
+        // owed its commit, whatever interrupts the spring.
         if live.rail?.springing == true {
             finishSpring()
             return
@@ -1576,7 +1567,7 @@ final class BodyViewController {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let hand = live.rail {
-            landRail(hand, width: hand.tracker.startWidth)
+            landRail(hand)
         } else {
             live.body.container.frame = live.containerStart
         }
@@ -1649,127 +1640,46 @@ final class BodyViewController {
         return r
     }
 
-    /// Every frame the rail's hand stands its views at with the rail drawn at
-    /// `shown`: each member widened, each carried card moved by its travel.
-    private func railFrames(_ hand: RailHand, shown: CGFloat) -> (members: [CGRect], carried: [CGRect]) {
-        let growth = shown - hand.tracker.startWidth
-        let members = hand.members.map { railFrame($0.start, hand, shown: shown) }
-        let carried = hand.carried.map {
-            $0.start.offsetBy(
-                dx: CardGeometry.railTravelShift($0.travel, side: hand.tracker.side, start: hand.band, growth: growth) * hand.tracker.zoom,
-                dy: 0
-            )
+    /// The press on a rail's edge: the pressed member's page is asked for the
+    /// colours its edge paints in, which the ghost wears once they arrive.
+    private func askRailEdge(_ hand: RailHand, page body: Body) {
+        let ghost = hand.view.ghost
+        window.hostChannel.call(.railEdge, in: body.webView) { result in
+            guard case .success(.railEdge(let colors)) = result else { return }
+            ghost.colors = colors
         }
-        return (members, carried)
     }
 
-    /// Stand the rail at `shown`, in one transaction with nothing animating:
-    /// the rail view's frame, which lays out its members and their crossings
-    /// (`RailView`, `RailCrossing`), and each carried card by its travel.
-    /// `limit` tints the edge for a hand pressing past one.
+    /// A step of the hand on a rail's edge, or of the spring a release past a
+    /// limit runs: the ghost stands at the footprint the rail would take at
+    /// `shown`, its edge in the limit's colour for a hand pressing past one.
+    /// Nothing on the deck moves while the hand is down: not a member, not
+    /// its page, not the cards beside the rail.
     private func moveRail(_ hand: RailHand, shown: CGFloat, limit: Bool) {
-        let frames = railFrames(hand, shown: shown)
+        let growth = (shown - hand.tracker.startWidth) * hand.tracker.zoom
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        hand.view.place(railFrame(hand.railStart, hand, shown: shown))
-        for (c, frame) in zip(hand.carried, frames.carried) { c.body.container.frame = frame }
-        for m in hand.members { tintRail(m.body, limit ? .limit : .held) }
+        hand.view.ghost.pastLimit = limit
+        hand.view.standGhost(RailView.ghostFrame(side: hand.tracker.side, panes: hand.panes, growth: growth), in: hostView)
         CATransaction.commit()
     }
 
-    /// The press on a rail's edge: the rail view carries the drag, and each
-    /// member's page is held at its size, anchored at the rail's outer edge,
-    /// behind its crossing. The page is asked for the colours its edge
-    /// paints in, which the crossing wears once they arrive.
-    private func beginRailCrossing(_ hand: RailHand) {
-        let side = hand.tracker.side
-        hand.view.carriesDrag = true
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for m in hand.members {
-            let body = m.body
-            body.webView.autoresizingMask = side == .left ? [] : [.minXMargin]
-            let crossing = RailCrossing(
-                side: side, insets: body.insets ?? CardInsets(top: 0, right: 0, bottom: 0, left: 0), page: body.webView
-            )
-            body.container.railCrossing = crossing
-            tintRail(body, .held)
-            window.hostChannel.call(.railEdge, in: body.webView) { [weak self] result in
-                guard let self, case .success(.railEdge(let colors)) = result,
-                      body.container.railCrossing === crossing else { return }
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                crossing.colors = colors
-                crossing.strip.surface = Self.color(colors.surface)
-                crossing.strip.edgeWidth = CGFloat(colors.width)
-                crossing.strip.gutterShadow = (Self.color(colors.shadow), CGFloat(colors.reach))
-                crossing.layout(in: body.container)
-                self.tintRail(body, crossing.tint)
-                CATransaction.commit()
-            }
-        }
-        CATransaction.commit()
-    }
-
-    /// Paint `body`'s crossing's edge in `tint`'s colour, as its page said it.
-    private func tintRail(_ body: Body, _ tint: RailCrossing.Tint) {
-        guard let crossing = body.container.railCrossing else { return }
-        crossing.tint = tint
-        guard let colors = crossing.colors else { return }
-        let bytes = switch tint {
-        case .rest: colors.rest
-        case .held: colors.held
-        case .limit: colors.limit
-        }
-        let color = Self.color(bytes)
-        if crossing.strip.edgeColor != color { crossing.strip.edgeColor = color }
-    }
-
-    /// The hand has let go, or the gesture was cancelled: the rail stands at
-    /// `width`, its members and carried cards at their frames there, and the
-    /// rail view no longer carries them. Each member's page takes its
-    /// container's size, once; a page whose size that changed keeps its
-    /// crossing, the edge at rest, until it has painted there.
-    private func landRail(_ hand: RailHand, width: CGFloat) {
+    /// The hand has let go, or the gesture was cancelled: the ghost goes, and
+    /// every card still stands where the press found it. A release's commit
+    /// lands the width through the settle it runs (`runPlan`), whose beats
+    /// carry each member and each card beside the rail, every page that
+    /// changes size pinned at its landing and clipped as it moves; a cancel
+    /// commits nothing, and nothing moved to be put back.
+    private func landRail(_ hand: RailHand) {
         springLink?.invalidate()
         springLink = nil
-        let landing = railFrames(hand, shown: width)
-        hand.view.carriesDrag = false
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for (m, frame) in zip(hand.members, landing.members) {
-            m.body.container.frame = frame
-            m.body.webView.frame = m.body.container.bounds
-            m.body.webView.autoresizingMask = Self.pageResizing
-            m.body.container.railCrossing?.layout(in: m.body.container)
-            tintRail(m.body, .rest)
-        }
-        for (c, frame) in zip(hand.carried, landing.carried) { c.body.container.frame = frame }
-        hand.view.place(RailView.union(of: landing.members))
-        CATransaction.commit()
-        for m in hand.members { settleRailCrossing(m.body) }
+        hand.view.removeGhost()
     }
 
-    /// Take `body`'s crossing off once its page has painted at its new size,
-    /// or at once when its size is the one the crossing held it at.
-    private func settleRailCrossing(_ body: Body) {
-        guard let crossing = body.container.railCrossing else { return }
-        let end = { [weak body] in
-            guard let body, body.container.railCrossing === crossing else { return }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            body.container.railCrossing = nil
-            CATransaction.commit()
-        }
-        if abs(body.webView.frame.width - crossing.contentWidth) < 0.5 { return end() }
-        window.hostChannel.call(.railLand, in: body.webView) { _ in end() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.railLandDeadline, execute: end)
-    }
-
-    /// A release past a limit: the rail springs from where the hand left it
+    /// A release past a limit: the ghost springs from where the hand left it
     /// to the limit, over the span the body page posted at the press, on the
     /// shell's spring curve, through the same step the hand's moves take, so
-    /// the spring is in step as the drag is. The hand keeps the views until
+    /// the spring is in step as the drag is. The hand keeps the rail until
     /// the spring arrives.
     private func springRail(_ hand: RailHand) {
         springSerial += 1
@@ -1794,17 +1704,18 @@ final class BodyViewController {
         springLink = link
     }
 
-    /// The spring is over, naturally or cut short: the rail lands at its
-    /// limit, the hand lets go, and the last placement is applied, since the
-    /// landing placement may have come while the hand held the views.
-    /// `serial` names the spring a tick is for; nil finishes the one running
-    /// now.
+    /// The spring is over, naturally or cut short: the ghost goes, the hand
+    /// lets go, and the release is said to the shell at the limit, which
+    /// commits it. `serial` names the spring a tick is for; nil finishes the
+    /// one running now.
     private func finishSpring(serial: Int? = nil) {
-        guard let live = gesture, let hand = live.rail, hand.springing else { return }
+        guard var live = gesture, var hand = live.rail, hand.springing else { return }
         if let serial, serial != springSerial { return }
         gesture = nil
-        landRail(hand, width: hand.last.aim.width)
-        if let placement = lastPlacement { placeCards(placement) }
+        landRail(hand)
+        hand.last.aim.shown = hand.last.aim.width
+        live.rail = hand
+        report(live, phase: .end)
     }
 
     // MARK: - Beats
@@ -2224,7 +2135,7 @@ final class BodyViewController {
         body.evictDue?.cancel()
         body.evictDue = nil
         // A card going away mid-gesture takes its gesture with it: a rail's
-        // drag puts its views back, or lands a spring the shell has taken.
+        // drag takes its ghost away, or commits the spring the hand released.
         if let live = gesture, live.holds(body) {
             if live.rail != nil { cancelGesture() } else { gesture = nil }
         }
@@ -2693,26 +2604,21 @@ final class BodyViewController {
             entry["displayPeriodMs"] = .number(displayPeriodSec * 1000)
             entry["url"] = body.webView.url.map { .string($0.absoluteString) } ?? .null
             // Its rail membership as the last placement named it, and the
-            // frame of the rail view its container stands in (null outside one).
+            // frame of the rail view its container stands in (null outside one),
+            // and that rail's width drag ghost while one stands.
             if let rail = body.cardId.flatMap({ cardPlacements[$0]?.rail }) {
+                let railView = body.container.superview as? RailView
+                let ghost = railView.flatMap { $0.ghost.superview == nil ? nil : $0.ghost }
                 entry["rail"] = .object([
                     "side": .string(rail.side.rawValue),
                     "index": .number(Double(rail.index)),
-                    "railFrame": (body.container.superview as? RailView).map { Self.json($0.frame) } ?? .null,
+                    "railFrame": railView.map { Self.json($0.frame) } ?? .null,
+                    "ghost": ghost.map { .object(["frame": Self.json($0.frame), "pastLimit": .bool($0.pastLimit)]) } ?? .null,
                 ])
             } else {
                 entry["rail"] = .null
             }
             entry["inHand"] = .bool(gesture?.holds(body) ?? false)
-            // A rail width drag's hold on the page: the width its content
-            // stays laid out at, and the strip the host draws at its edge.
-            entry["railCrossing"] = body.container.railCrossing.map { crossing in
-                .object([
-                    "contentWidth": .number(crossing.contentWidth),
-                    "strip": Self.json(crossing.strip.frame),
-                    "painted": .bool(crossing.colors != nil),
-                ])
-            } ?? .null
             return .object(entry)
         }
     }

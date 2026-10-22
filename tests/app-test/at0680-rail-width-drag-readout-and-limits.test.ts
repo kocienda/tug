@@ -4,28 +4,31 @@
  *
  * While the hand drags a rail's edge, a readout pill rides beside the pointer
  * showing the width the release would commit, and every member is marked as
- * held. Between the floor and the ceiling the edge follows the hand exactly
- * and the release lands where it stands, with nothing left to move. Past a
- * limit the edge keeps following with diminishing returns, the rail is marked
- * as at its limit, and the readout reads the limit rather than the hand's
- * overshoot; the release then springs the edge back to the limit — the one
- * motion a release makes — and commits the limit. Either way the readout
+ * held. The edge the hand moves is the ghost's — the host's layer showing the
+ * rail's new footprint — and nothing of the rail moves until the release
+ * commits. Between the floor and the ceiling the ghost's edge follows the
+ * hand exactly, and the release removes it at once and commits where it
+ * stood. Past a limit the ghost's edge keeps following with diminishing
+ * returns, the rail is marked as at its limit, and the readout reads the
+ * limit rather than the hand's overshoot; the release then springs the
+ * ghost's edge back to the limit, the members still standing where they were
+ * pressed, and commits the limit when the spring lands. Either way the
+ * settle then carries the members to the committed width, and the readout
  * fades once the hand lets go and is gone shortly after.
  *
  * The held marks and the limit marks are the shell's own state, and are read
  * in the shell; the readout is the shell's answer drawn by the overlay page
- * above every card, and is read there. Where the rail stands is neither: the
- * host carries every member's view, and the shell's stand-ins are only its
- * preview, moved on its own clock. So the give past the ceiling and a
- * release that moves
- * nothing are read off the host's snapshot of the views, and the spring is
- * read in the composite: a capture burst from the release finds the dragged
- * member's deck-facing edge by colour on every frame, so the frames between
- * the release and the landing are counted rather than guessed at, and the
- * host's snapshot after the land says every member stands at the ceiling.
+ * above every card, and is read there. Where the ghost and the rail stand is
+ * neither: the host draws both, and the shell's stand-ins are only its model.
+ * So the ghost's width, its give past the ceiling and the members standing
+ * still are read off the host's snapshot, and the spring is read in the
+ * composite: a capture burst from the release finds the ghost's edge by its
+ * accent line on every frame until the commit, so the
+ * frames of the spring are counted rather than guessed at, and the host's
+ * snapshot after the settle says every member stands at the ceiling.
  *
  * **The window renders** (`visible`): a covered app-test window otherwise gets
- * no animation frames, and the preview, the readout and the spring are all
+ * no animation frames, and the ghost, the readout and the spring are all
  * written in one.
  *
  * @visible
@@ -34,6 +37,7 @@
  * @covers tugdeck/src/lib/rail-width.ts
  * @covers tugdeck/src/lib/host-card-gesture.ts
  * @covers tugapp/Sources/CardGeometry.swift
+ * @covers tugapp/Sources/RailView.swift
  */
 
 import { describe, expect, test } from "bun:test";
@@ -69,8 +73,6 @@ const FRAMES_MS = 250;
 const READOUT_GONE_MS = 800;
 /** How far a composite edge may stand from where it should, device px. */
 const EDGE_TOL_DEVICE = 2;
-/** How often the host's snapshot is read after a release. */
-const POLL_MS = 30;
 
 const MEMBERS = ["jots", "layout"] as const;
 
@@ -152,15 +154,12 @@ async function hostWidth(app: App, card: string): Promise<number> {
   return view!.presentedFrame.width - 2 * CARD_APRON_PX;
 }
 
-/** The host's shown width of `card` every {@link POLL_MS} for `ms`. */
-async function pollHostWidths(app: App, card: string, ms: number): Promise<number[]> {
-  const out: number[] = [];
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    out.push(await hostWidth(app, card));
-    await wait(POLL_MS);
-  }
-  return out;
+/** The ghost standing over `card`'s rail, as the host's snapshot reports it: its width in layout px and whether it is past a limit; null when none stands. */
+async function hostGhost(app: App, card: string, zoom: number): Promise<{ width: number; pastLimit: boolean } | null> {
+  const view = (await app.bodies()).find((b) => b.cardId === card && b.visible);
+  expect(view, `the host holds ${card}'s view`).toBeDefined();
+  const ghost = view!.rail?.ghost ?? null;
+  return ghost === null ? null : { width: ghost.frame.width / zoom, pastLimit: ghost.pastLimit };
 }
 
 /** Every member's view, placed and shown, at `width` plus the apron, and out of the hand. */
@@ -245,6 +244,7 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await seed(app);
+          const { zoom } = await readRailFacts(app);
           const from = await grip(app);
           const to = { x: from.x - NARROW_PX, y: from.y };
           await app.nativeDragWithoutRelease(from, to, {
@@ -265,17 +265,21 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await count(app, ".tug-rail-readout"), "the shell draws no readout of its own").toBe(0);
           expect(mid.limit.every((l) => l === null), "no member is at a limit").toBe(true);
 
+          const ghost = await hostGhost(app, "J", zoom);
+          note(`mid-drag ghost: ${JSON.stringify(ghost)}`);
+          expect(ghost, "the host draws the ghost while the hand is down").not.toBeNull();
           expect(
-            Math.abs((await hostWidth(app, "J")) - target),
-            "the host shows the rail at the hand's width",
+            Math.abs(ghost!.width - target),
+            `the ghost stands at the hand's width (read ${ghost!.width.toFixed(1)})`,
+          ).toBeLessThanOrEqual(PIXEL_TOL);
+          expect(ghost!.pastLimit, "the ghost is at no limit").toBe(false);
+          expect(
+            Math.abs((await hostWidth(app, "J")) - RAIL_WIDTH),
+            "the rail itself stands where it was pressed",
           ).toBeLessThanOrEqual(PIXEL_TOL);
           await app.nativeMouseUp(to);
-          const after = await pollHostWidths(app, "J", FRAMES_MS);
-          const between = after.filter((w) => Math.abs(w - target) > PIXEL_TOL);
-          expect(
-            between.length,
-            `the release moves nothing: ${JSON.stringify(between.slice(0, 5))}`,
-          ).toBe(0);
+          await wait(FRAMES_MS);
+          expect(await hostGhost(app, "J", zoom), "the release takes the ghost away with no spring").toBeNull();
 
           expect(
             await count(await overlayReady(app), ".tug-rail-readout[data-leaving]"),
@@ -327,30 +331,41 @@ describe.skipIf(!SHOULD_RUN)(
           expect(mid.limit, "every member is marked at the ceiling").toEqual(
             MEMBERS.map(() => "ceiling"),
           );
-          // The give is the host's: it draws the views past the ceiling.
-          const given = await hostWidth(app, "J");
+          // The give is the ghost's: the host draws it past the ceiling, and
+          // the rail itself stands where it was pressed.
+          const ghost = await hostGhost(app, "J", zoom);
+          expect(ghost, "the host draws the ghost while the hand is down").not.toBeNull();
+          const given = ghost!.width;
           note(`the host shows the rail at ${given.toFixed(1)} past a ${ceiling} ceiling`);
           expect(given, "the edge gives past the ceiling").toBeGreaterThan(ceiling + 10);
           expect(given, "and never by the whole give").toBeLessThan(ceiling + RAIL_LIMIT_GIVE_PX);
+          expect(ghost!.pastLimit, "the ghost's edge is drawn past its limit").toBe(true);
+          expect(
+            Math.abs((await hostWidth(app, "J")) - RAIL_WIDTH),
+            "the rail itself stands where it was pressed",
+          ).toBeLessThanOrEqual(PIXEL_TOL);
 
-          // The spring, in the composite: the dragged member's edge by
-          // colour on every frame from the release.
+          // The spring, in the composite: the ghost's edge against the
+          // standing deck on every frame from the release until the commit,
+          // read on the row the readout beside the pointer does not cross,
+          // and the members' edges read through it.
           await armBurst(app, reader.crop);
+          const upAt = Date.now();
           await app.nativeMouseUp(to);
           const reading = await readBurst(app);
-          const releasedAt = (await takeReportRecord(app)).find((r) => r.phase === "end")?.wall;
-          expect(releasedAt, "the host reported the release").toBeDefined();
+          const committedAt = (await takeReportRecord(app)).find((r) => r.phase === "end")?.wall;
+          expect(committedAt, "the host reported the commit when the spring landed").toBeDefined();
           const releaseEdge = reader.toDevice(paneLeft + given * zoom);
           const ceilingEdge = reader.toDevice(paneLeft + ceiling * zoom);
           const after = reading.frames
-            .filter((f) => f.wall >= releasedAt!)
-            .map((f) => ({ t: f.wall - releasedAt!, edge: reader.memberEdges(f)[0] }));
+            .filter((f) => f.wall >= upAt && f.wall < committedAt!)
+            .map((f) => ({ t: f.wall - upAt, edge: reader.ghostEdges(f)[1], members: reader.edgesMoved(f).members }));
           note(
-            `after release (release edge ${releaseEdge.toFixed(1)}, ceiling edge ${ceilingEdge.toFixed(1)} device px): ` +
-              after.map((a) => `+${a.t.toFixed(0)}ms ${a.edge}`).join(", "),
+            `from release to commit, ${(committedAt! - upAt).toFixed(0)} ms (release edge ${releaseEdge.toFixed(1)}, ceiling edge ${ceilingEdge.toFixed(1)} device px): ` +
+              after.map((a) => `+${a.t.toFixed(0)}ms ${a.edge} members ${JSON.stringify(a.members)}`).join(", "),
           );
-          expect(after.length, "the burst caught frames after the release").toBeGreaterThanOrEqual(5);
-          expect(after.every((a) => a.edge !== null), "every frame after the release is read by colour").toBe(true);
+          expect(after.length, "the burst caught frames of the spring").toBeGreaterThanOrEqual(5);
+          expect(after.every((a) => a.edge !== null), "the ghost stands on every frame until the commit").toBe(true);
           const edges = after.map((a) => a.edge!);
           const spring = edges.filter((e) => e > ceilingEdge + EDGE_TOL_DEVICE && e < releaseEdge - EDGE_TOL_DEVICE);
           expect(spring.length, "the edge springs back over several frames").toBeGreaterThanOrEqual(3);
@@ -362,13 +377,25 @@ describe.skipIf(!SHOULD_RUN)(
           }
           expect(
             Math.abs(edges[edges.length - 1] - ceilingEdge),
-            "the rail lands on the ceiling",
+            "the ghost's edge lands on the ceiling before the commit",
           ).toBeLessThanOrEqual(EDGE_TOL_DEVICE);
+          after.forEach((a) =>
+            a.members.forEach((d, i) => {
+              if (d === "line") return;
+              expect(d, `${MEMBERS[i]}'s edge is read through the ghost at +${a.t.toFixed(0)}ms`).not.toBeNull();
+              expect(
+                Math.abs(d as number),
+                `${MEMBERS[i]} stands where it was pressed through the spring, at +${a.t.toFixed(0)}ms`,
+              ).toBeLessThanOrEqual(EDGE_TOL_DEVICE);
+            }),
+          );
           await app.waitForCondition<boolean>(
             `document.querySelector("[data-pointer-owned]") === null`,
             { timeoutMs: 3_000 },
           );
+          await wait(AFTER_LAND_MS);
           await expectHostAt(app, ceiling, "after the spring");
+          expect(await hostGhost(app, "J", zoom), "no ghost stands once the spring has landed").toBeNull();
 
           await wait(READOUT_GONE_MS);
           expect(await count(await overlayReady(app), ".tug-rail-readout"), "the readout is gone").toBe(0);

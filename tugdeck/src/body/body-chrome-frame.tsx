@@ -33,7 +33,7 @@ import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
 import { CARD_APRON_PX } from "../lib/chrome-placement";
 import { pageZoomStore } from "../lib/page-zoom-store";
 import { answerPageCall, onHostMessage, postToHost } from "../host/channel";
-import { paintedToHost, railEdgeCall, railLandCall } from "../host/declarations/lifecycle";
+import { paintedToHost, railEdgeCall } from "../host/declarations/lifecycle";
 import { readRailEdge } from "./rail-edge";
 import { cardInsetsToPage } from "../host/declarations/geometry";
 import { getCardCloseGuard } from "../lib/card-close-guard";
@@ -188,27 +188,12 @@ export function BodyChromeFrame({
     };
   }, []);
 
-  // A rail width drag holds this page at the size the press found it, and
-  // the host draws the moving edge over it: it asks for the edge's colours
-  // as the press lands, read off the frame as it stands, and at the release
-  // waits on the page's first paint at its new size before it takes its
-  // drawing away. Answered from mount, before any press can ask ([L03]).
+  // A rail width drag's edge is the host's to draw: it asks for the edge's
+  // colours as the press lands, read off the frame as it stands. Answered
+  // from mount, before any press can ask ([L03]).
   useLayoutEffect(() => {
     if (frameEl === null) return;
-    const releaseEdge = answerPageCall(railEdgeCall, () => readRailEdge(frameEl, pageZoomStore.getFactor()));
-    const releaseLand = answerPageCall(
-      railLandCall,
-      () =>
-        new Promise<null>((resolve) => {
-          // Two frames on, the frame laid out at the new size has gone to
-          // the compositor (`body-main.ts`'s rule for `painted`).
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)));
-        }),
-    );
-    return () => {
-      releaseEdge();
-      releaseLand();
-    };
+    return answerPageCall(railEdgeCall, () => readRailEdge(frameEl, pageZoomStore.getFactor()));
   }, [frameEl]);
 
   // A tab drag in this page: a reorder inside the bar is the pane's verb, and

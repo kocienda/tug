@@ -51,8 +51,8 @@ export function clampRailWidth(width: number, limits: RailWidthLimits): number {
 export const RAIL_LIMIT_GIVE_PX = 48;
 
 /** How long a release past a limit takes to spring back to it, at a timing
- *  of 1. The host springs the views and the shell's draft its stand-ins over
- *  the same span, which the body page posts at the press. */
+ *  of 1. The host springs the ghost's edge over this span, which the body
+ *  page posts at the press, and the width commits when it lands. */
 export const LIMIT_SPRING_MS = 220;
 
 /** The spring's curve: a cubic ease-out, `1 - (1 - t)³`. */

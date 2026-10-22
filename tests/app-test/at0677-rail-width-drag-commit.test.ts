@@ -12,8 +12,9 @@
  * is still a drag when it travelled, and commits too.
  *
  * The claim is read twice: in the shell, where the stored widths and the
- * marks are the shell's own state, and in the host, which carries every
- * member's view and the chain's cards from the pointer. A stand-in's rect
+ * marks are the shell's own state, and in the host, whose settle carries
+ * every member's view and the chain's cards to the committed width at the
+ * release, nothing having moved while the hand was down. A stand-in's rect
  * says where the shell's model put a pane, not where a view stands, so the
  * host's own snapshot says the rest: after each commit every member's view
  * stands at the committed width, the chain's first card on its rest, and

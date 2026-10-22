@@ -248,22 +248,18 @@ export async function expectHostAtPress(
   }
 }
 
-/** Mid-drag: the host has the dragged member in its hand and has drawn every member narrower than at the press, all at one width. */
-export async function expectHostCarrying(
+/** Mid-drag: the host has the dragged member in its hand, and every member's view still stands at its press frame — the hand moves only the ghost. */
+export async function expectHostHoldingStill(
   app: App,
   press: Record<string, { frame: Frame; shown: Frame; inHand: boolean }>,
 ): Promise<void> {
   const views = await hostViews(app);
   expect(views.J?.inHand, "the host holds the dragged member").toBe(true);
-  expect(
-    press.J.frame.width - (views.J?.shown.width ?? press.J.frame.width),
-    `the host drew the dragged member narrower (read ${views.J?.shown.width}, was ${press.J.frame.width})`,
-  ).toBeGreaterThan(NARROW_PX / 2);
   for (const cardId of MEMBER_CARDS) {
-    expect(
-      Math.abs((views[cardId]?.shown.width ?? 0) - (views.J?.shown.width ?? 0)),
-      `the host drew ${cardId} at the dragged member's width (read ${views[cardId]?.shown.width}, J ${views.J?.shown.width})`,
-    ).toBeLessThanOrEqual(0.5);
+    const was = press[cardId]?.shown;
+    const now = views[cardId]?.shown;
+    const off = was === undefined || now === undefined ? Infinity : Math.max(Math.abs(now.x - was.x), Math.abs(now.width - was.width));
+    expect(off, `mid-drag: ${cardId}'s view stands at its press frame (read ${JSON.stringify(now)}, was ${JSON.stringify(was)})`).toBeLessThanOrEqual(0.5);
   }
 }
 

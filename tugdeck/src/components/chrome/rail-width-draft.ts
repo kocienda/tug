@@ -2,56 +2,30 @@
  * rail-width-draft.ts — the rail width drag's draft, owned by `DeckCanvas`.
  *
  * Dragging a sidebar rail's deck-facing edge is a mutation transaction whose
- * draft is one side's width ([L08]): the hand moves the rail live, and only
- * the release crosses into state, as one `setRailWidth` for every member of
- * the side. A drag the system takes away — a lost pointer capture, a
- * `pointercancel`, Escape — commits nothing and puts the deck back where the
- * record says it stands.
+ * draft is one side's width ([L08]): the hand aims a width, and only the
+ * release crosses into state, as one `setRailWidth` for every member of the
+ * side. A drag the system takes away — a lost pointer capture, a
+ * `pointercancel`, Escape — commits nothing, and since nothing moved there is
+ * nothing to put back.
  *
- * **The host carries the views; this previews the shell at the host's aim.**
- * Every card's view is the host's, so the host moves the rail's members and
- * the content cards beside it from the pointer, and reports with each step
- * the aim it drew them at (`lib/host-card-gesture.ts`): the width the
+ * **Nothing on the deck moves while the hand is down.** Not a member, not
+ * its page, not the content cards beside the rail, and not the stand-ins
+ * here under them. The host tracks the pointer and reports with each step
+ * the aim it reads from it (`lib/host-card-gesture.ts`): the width the
  * release commits, the width the edge is drawn at, and the limit it presses
- * past. Each `change` and the `commit` hand that aim in, and everything here
- * is drawn at it — so the shell computes no width and no snap of its own,
- * and the stand-ins stand under the views. While the drag holds, the placer
- * posts the cards the host is moving as they stood at the press
- * (`holdCardsForHost`); the hold is released before the commit, so the
- * commit's placement names every card where it now stands.
+ * past. Each `change` and the `commit` hand that aim in, so the shell
+ * computes no width and no snap of its own. While the drag holds, the placer
+ * posts the cards of the rail's panes and of the panes beside it as they
+ * stood at the press (`holdCardsForHost`); the hold is released before the
+ * commit, so the commit's placement names every card where it now stands.
  *
  * **Two layers, one writer each.** The pane whose edge was grabbed translates
  * pointer input into four calls — `begin`, `change`, `commit`, `cancel` — and
  * does nothing else: it writes no arrangement property, finds no canvas, and
  * clamps nothing. Everything the drag does to the deck is done here, by the
- * party that maps the deck's state to its panes and owns the arrangement's
- * custom properties ([L10]), because only that party knows where they live: a
- * pane's own write once landed on an element the frames no longer read, and
- * the drag went dead without an error.
- *
- * **The preview is graded by what actually moves** — and the rail's width
- * property is NOT what it writes. That property is inherited, so a write of
- * it on the canvas or a layer restyles every card in the deck, transcripts
- * included, every frame. Instead each element is moved by the cheapest write
- * that puts it where the committed width will:
- *
- *  - the rail's own frames, and the seams of a split rail, are pinned inline
- *    to a px `width` (and, on a right rail, the `left` its pinned edge implies),
- *    with `contain: layout` keeping each frame's reflow inside it — the
- *    pattern a seam drag pins its members by;
- *  - the rail's shadow strip moves by `translate`, compositor only;
- *  - every imposed element — the content frames, the held-open vacancies, a
- *    split column's seams — moves by `translate`, by exactly the distance its
- *    own `left` expression would move (`railTravelShift`, over the travel
- *    each one carries stamped beside its style). A fit card's width is its
- *    own and does not change, so nothing about it reflows at all.
- *
- * **No member's content reflows while the hand is down.** The host holds
- * each member's page at the size the press found it, behind a crossing that
- * clips it at the moving edge and draws the edge itself, and gives the page
- * its new size once, at the release (`RailView.swift`'s `RailCrossing`).
- * Nothing here holds content: the stand-ins below the cards follow the aim,
- * and the cards above them are the host's.
+ * party that maps the deck's state to its panes ([L10]), because only that
+ * party knows where they live: a pane's own write once landed on an element
+ * the frames no longer read, and the drag went dead without an error.
  *
  * **The drag says what it is doing** ([B09], [B12]). At the press every member
  * is marked `data-rail-held`, which lights the rail's whole edge and gives its
@@ -60,33 +34,29 @@
  * host's aim and sent as the `readout` of `overlay.indication`, so the
  * overlay draws it above every card, the rail's own included ([B05]). Past a
  * limit the edge keeps following with diminishing returns (`aimRailWidth`),
- * the members are marked `data-rail-limit` and the readout reads the limit,
- * and the release springs the edge back to it — the one motion a release
- * makes, a TugAnimator tween of the same elements the preview moves, ending
- * on the pose the commit stands them at, so it still lands with nothing left
- * to move. Its commit carries a deadline, so a window whose frames have
- * stopped still lands it.
+ * the members are marked `data-rail-limit` and the readout reads the limit.
  * There are no catches between the limits ([B13]). The readout is taken down
  * however the drag ended, and the overlay fades it out.
  *
- * **The release has nothing left to move** ([B08]). At the commit the width
- * property goes onto the canvas and the shown layer, and every pin and
- * translate comes off, in one task: the geometry the properties now resolve
- * to is the geometry the preview was showing, so no frame paints a jump. Only
- * then does `setRailWidth` commit, so whatever the settle measures as its
- * first rect is already the last. The member frames' `data-pointer-owned`
- * comes off BEFORE the commit, as a seam drag's does: the settle looks for it
- * twice — at the arm, inside the commit, and in the layout effect of the
- * render the commit causes, which the gesture scope holds past the next
- * paint — and a frame the arm skipped but the later look does not is read as
- * an ARRIVAL, held invisible and faded back up. Cleared first, every member
- * gets a First rect equal to its Last, and the settle carries it nowhere.
+ * **The release commits, and the settle carries every card.** Nothing moved
+ * while the hand was down, so at the commit the members and the content
+ * cards beside the rail all stand at the press, and the settle the commit
+ * runs is the one motion of the gesture: it plans each moved card's beats
+ * from there to the committed width, and the host runs them with each page
+ * that changes size pinned at its landing and clipped as it moves, so a
+ * page's one repaint at its new width is hidden under the motion. For that
+ * the member frames' `data-pointer-owned` comes off BEFORE the commit: the
+ * settle skips a frame a pointer owns, at its arm inside the commit and
+ * again in the layout effect after it, and a member skipped at the arm but
+ * not after would be read as an arrival and faded in. The placer's hold
+ * comes off with it; then `setRailWidth` commits the width the host aimed.
+ * A release past a limit reaches here only when the host's spring of the
+ * ghost lands, so the commit is the limit and nothing moves before it.
  *
- * **The rollback belongs to whoever wrote the draft** ([L32]). Every inline
- * style this writes is saved first and given back on cancel; every
- * acquisition it makes — the members' marks, the
- * scroll-preservation episodes, the placer's hold — is released by one
- * idempotent path that runs on commit, cancel and unmount alike ([L27]).
+ * **The rollback belongs to whoever wrote the draft** ([L32]). Every
+ * acquisition the draft makes — the members' marks, the scroll-preservation
+ * episodes, the placer's hold, the readout — is released by one idempotent
+ * path that runs on commit, cancel and unmount alike ([L27]).
  *
  * The bounds are the rail's own, read from the deck (`railWidthLimits`): its
  * tightest member's floor and the allocator's slim ceiling, which the host
@@ -108,29 +78,16 @@ import {
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { railMembersOf } from "@/deck-store-selectors";
 import type { RailEdgeDriver } from "@/lib/host-card-gesture";
-import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { pageZoomFactor } from "@/lib/page-zoom-store";
-import { sidebarWidthProperty, type SidebarSide } from "@/lib/layout-imposer";
+import type { SidebarSide } from "@/lib/layout-imposer";
 import { holdCardsForHost, releaseCardsHeldForHost } from "@/lib/card-placement";
 import { indicate } from "@/lib/drag-indication";
-import {
-  LIMIT_SPRING_EASING,
-  LIMIT_SPRING_MS,
-  RAIL_TRAVEL_ATTR,
-  parseRailTravel,
-  railTravelShift,
-  type RailTravel,
-  type RailTravelBand,
-  type RailWidthAim,
-  type ReadFlowTerms,
-} from "@/lib/rail-width";
+import { RAIL_TRAVEL_ATTR, type RailWidthAim } from "@/lib/rail-width";
 import {
   GESTURE_EPISODE_WINDOW_MS,
   beginResizeEpisode,
   type ResizeEpisodeHandle,
 } from "@/lib/resize-episode";
-import { group } from "@/components/tugways/tug-animator";
-import { landByDeadline } from "@/lib/land-by-deadline";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_CLASS,
@@ -140,11 +97,10 @@ import {
 /** What the pane hands over at pointer-down. */
 export interface RailWidthGestureBegin {
   readonly side: SidebarSide;
-  /** The frame whose edge was grabbed — the rail's measured width and its
-   *  pinned edge are read off it. */
+  /** The frame whose edge was grabbed — the rail's measured width is read
+   *  off it. */
   readonly frame: HTMLElement;
-  /** Where the press landed; every later width is the start width plus the
-   *  pointer's travel from here. */
+  /** Where the press landed. */
   readonly clientX: number;
   readonly clientY: number;
 }
@@ -156,8 +112,8 @@ export interface RailWidthGestureBegin {
  * travelled) or `cancel` (a release that never travelled, a lost capture, a
  * `pointercancel`, Escape, a pane torn down mid-drag). A `cancel` with no draft
  * open is a no-op, so an emitter may call it on every path out. `change` and
- * `commit` carry the aim the host drew the rail at, which is what the preview
- * draws and the commit commits.
+ * `commit` carry the aim the host read from the hand, which is what the
+ * readout shows and the commit commits.
  */
 export interface RailWidthGesture {
   begin(start: RailWidthGestureBegin): void;
@@ -177,8 +133,6 @@ export function useRailWidthGesture(): RailWidthGesture | null {
   return useContext(RailWidthGestureContext);
 }
 
-export type { ReadFlowTerms } from "@/lib/rail-width";
-
 /** Every element of the shown deck, and none under a hidden layer. */
 const SHOWN = `:not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
 
@@ -187,57 +141,22 @@ const SHOWN = `:not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
 const HELD_ATTR = "data-rail-held";
 /** A rail's members while the hand presses past a limit: the caution tint. */
 const LIMIT_ATTR = "data-rail-limit";
-/** How far past the spring's scaled duration its commit waits before landing
- *  anyway, for a window whose frames have stopped. */
-const LIMIT_SPRING_DEADLINE_SLACK_MS = 100;
-/** How many steps a carried element's spring is sampled in. Its travel is
- *  piecewise linear in the rail's width, so a two-keyframe tween would cut
- *  across the kinks a clamp puts in it. */
-const LIMIT_SPRING_SAMPLES = 8;
-
-/** The inline properties the preview writes, saved as it found them. */
-const PINNED_PROPERTIES = ["width", "left", "contain"] as const;
-
-/** An element pinned to the rail: a member frame or a split rail's seam. */
-interface Pinned {
-  readonly el: HTMLElement;
-  readonly left0: number;
-  readonly saved: Readonly<Record<(typeof PINNED_PROPERTIES)[number], string>>;
-  /** A member frame takes `contain: layout`; a seam has no interior. */
-  readonly contain: boolean;
-}
-
-/** An element moved by `translate`: an imposed one, or the rail's shadow. */
-interface Carried {
-  readonly el: HTMLElement;
-  /** Its travel, or `null` for the shadow, which moves with the rail edge. */
-  readonly travel: RailTravel | null;
-  readonly savedTranslate: string;
-}
 
 interface Draft {
   readonly side: SidebarSide;
-  readonly container: HTMLElement;
-  readonly growSign: 1 | -1;
-  readonly startWidth: number;
-  readonly band: RailTravelBand;
   readonly members: readonly HTMLElement[];
-  readonly pinned: readonly Pinned[];
-  readonly carried: readonly Carried[];
-  /** Where the arrangement's width property lives for the shown deck. */
-  readonly propertyTargets: readonly HTMLElement[];
+  /** The panes beside the rail whose cards a width change moves: every one
+   *  carrying a travel. */
+  readonly carriedPanes: readonly Element[];
   readonly episodes: readonly ResizeEpisodeHandle[];
   latched: boolean;
   latestX: number;
   latestY: number;
-  /** The aim the host last reported: what the preview draws and the release commits. */
+  /** The aim the host last reported: what the readout shows and the release commits. */
   aim: RailWidthAim;
   rafId: number | null;
-  /** The width the edge was last drawn at, and the limit it was past. */
-  shown: number;
+  /** The limit the members were last marked past. */
   limit: RailWidthAim["limit"];
-  /** A release past a limit springing back, and the width it lands. */
-  spring: { width: number; landNow: () => void } | null;
   /** Whether the overlay is showing this drag's readout. */
   readout: boolean;
 }
@@ -253,7 +172,6 @@ class RailWidthDraft implements RailWidthGesture {
   constructor(
     private readonly canvasRef: RefObject<HTMLElement | null>,
     private readonly store: IDeckManagerStore,
-    private readonly readFlow: ReadFlowTerms,
   ) {}
 
   begin({ side, frame, clientX, clientY }: RailWidthGestureBegin): void {
@@ -282,79 +200,32 @@ class RailWidthDraft implements RailWidthGesture {
       beginResizeEpisode(paneFrame, GESTURE_EPISODE_WINDOW_MS),
     );
 
-    const zoom = pageZoomFactor();
-    const frameRect = frame.getBoundingClientRect();
     const members = [
       ...container.querySelectorAll<HTMLElement>(
         `${SHOWN_PANE_FRAMES}[data-rail-side="${side}"]`,
       ),
     ];
-    const seams = [
-      ...container.querySelectorAll<HTMLElement>(
-        `.tug-place-seam[data-rail-seam^="${side}:"]`,
-      ),
-    ];
-    // `offsetLeft` is layout px in the frames' own containing block, which is
-    // the unit and the origin an inline `left` is written in, at every zoom.
-    const pin = (el: HTMLElement, contain: boolean): Pinned => ({
-      el,
-      left0: el.offsetLeft,
-      saved: {
-        width: el.style.width,
-        left: el.style.left,
-        contain: el.style.contain,
-      },
-      contain,
-    });
-    const carry = (el: HTMLElement, travel: RailTravel | null): Carried => ({
-      el,
-      travel,
-      savedTranslate: el.style.translate,
-    });
-    const carried: Carried[] = [];
+    const carriedPanes = new Set<Element>();
     for (const el of container.querySelectorAll<HTMLElement>(
       `[${RAIL_TRAVEL_ATTR}]${SHOWN}`,
     )) {
-      const travel = parseRailTravel(el.getAttribute(RAIL_TRAVEL_ATTR));
-      if (travel !== null) carried.push(carry(el, travel));
+      const pane = el.closest(".tug-pane");
+      if (pane !== null) carriedPanes.add(pane);
     }
     // The width the RAIL stands at — its widest member's — measured, since
     // the grabbed member's stored width may be narrower than the rail.
-    const startWidth = frameRect.width / zoom;
+    const startWidth = frame.getBoundingClientRect().width / pageZoomFactor();
     this.draft = {
       side,
-      container,
-      // A left rail's deck edge faces right: rightward motion grows it. A
-      // right rail's faces left: leftward motion grows it.
-      growSign: side === "left" ? 1 : -1,
-      startWidth,
-      // Signed: a rail widened until the rails cover the canvas leaves a band
-      // of no width, and that rail must still narrow back. The travel terms
-      // clamp a band below zero exactly as the `left` expressions do.
-      band: { band: this.store.getBandSpan(), flow: this.readFlow() },
       members,
-      pinned: [
-        ...members.map((el) => pin(el, true)),
-        ...seams.map((el) => pin(el, false)),
-      ],
-      carried,
-      // The canvas, for the seams, caps and shadows outside every layer, and
-      // the shown layer's wrapper, whose own copy its frames inherit.
-      propertyTargets: [
-        container,
-        ...container.querySelectorAll<HTMLElement>(
-          `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
-        ),
-      ],
+      carriedPanes: [...carriedPanes],
       episodes,
       latched: false,
       latestX: clientX,
       latestY: clientY,
       aim: { width: startWidth, shown: startWidth, limit: null },
       rafId: null,
-      shown: startWidth,
       limit: null,
-      spring: null,
       readout: false,
     };
     // Grabbed: the rail reads as held from the press, before it moves.
@@ -363,25 +234,25 @@ class RailWidthDraft implements RailWidthGesture {
 
   change(clientX: number, clientY: number, _altKey: boolean, aim: RailWidthAim): void {
     const draft = this.draft;
-    if (draft === null || draft.spring !== null) return;
+    if (draft === null) return;
     draft.latestX = clientX;
     draft.latestY = clientY;
     draft.aim = aim;
     this.latch(draft);
     // [L13]: a gesture frame loop is what rAF is for; the pointer may report
-    // several times a frame, and the preview is written once per frame.
+    // several times a frame, and the feedback is written once per frame.
     if (draft.rafId === null) {
       draft.rafId = requestAnimationFrame(() => {
         draft.rafId = null;
         if (this.draft !== draft) return;
-        this.preview(draft, draft.aim);
+        this.show(draft, draft.aim);
       });
     }
   }
 
   commit(clientX: number, _altKey: boolean, aim: RailWidthAim): void {
     const draft = this.draft;
-    if (draft === null || draft.spring !== null) return;
+    if (draft === null) return;
     draft.latestX = clientX;
     draft.aim = aim;
     // The emitter calls `commit` only for a press that travelled, and it
@@ -392,42 +263,12 @@ class RailWidthDraft implements RailWidthGesture {
     // The readout's last word is the width the release commits.
     this.writeReadout(draft, { ...aim, limit: null });
     this.dropReadout(draft);
-    if (draft.rafId !== null) {
-      cancelAnimationFrame(draft.rafId);
-      draft.rafId = null;
-    }
-    // Released past a limit: the edge springs back to it through the same
-    // preview, and the commit lands when it arrives — so the release still
-    // has nothing left to move. Under reduced motion, or a timing scale of
-    // zero, there is no spring: the edge lands on the limit at once. The host
-    // springs the views over the same span, from the `springMs` the body
-    // page posted at the press.
-    if (
-      aim.limit !== null &&
-      Math.abs(draft.shown - aim.width) > 0.5 &&
-      isTugMotionEnabled() &&
-      getTugTiming() > 0
-    ) {
-      this.springTo(draft, aim.width);
-      return;
-    }
     this.land(draft, aim.width);
   }
 
   cancel(): void {
     const draft = this.draft;
     if (draft === null) return;
-    // The hand already let go of a springing edge: what it released is owed
-    // its commit, whatever interrupts the spring.
-    if (draft.spring !== null) {
-      draft.spring.landNow();
-      return;
-    }
-    this.dropReadout(draft);
-    // The host has put every view back where the press found it: the
-    // placement after the restore says so of every card.
-    releaseCardsHeldForHost();
-    this.restore(draft);
     this.release(draft);
   }
 
@@ -436,77 +277,20 @@ class RailWidthDraft implements RailWidthGesture {
     this.cancel();
   }
 
-  /** The commit proper: the width property takes `width`, the preview comes
-   *  off, and the store commits — in one task. */
+  /** The commit proper: the marks and the hold come off, and the store
+   *  commits `width`. */
   private land(draft: Draft, width: number): void {
     try {
-      // The hand-over: the property the arrangement resolves against takes
-      // the width the preview was showing, and the preview comes off, in one
-      // task — so the frames stand on the record before anything paints, and
-      // before the commit's settle takes its first measurement.
-      const property = sidebarWidthProperty(draft.side);
-      for (const el of draft.propertyTargets) {
-        el.style.setProperty(property, `${width}px`);
-      }
-      this.restore(draft);
       // Off before the commit, so the settle's arm measures the members where
-      // they now stand rather than skipping them (see the module docblock).
+      // they stand rather than skipping them (see the module docblock).
       for (const el of draft.members) el.removeAttribute("data-pointer-owned");
       // And the host's hold, so the commit's placement names every card
-      // where it now stands, and is posted though the preview read the same.
+      // where it now stands.
       releaseCardsHeldForHost();
       this.store.setRailWidth(draft.side, width);
     } finally {
       this.release(draft);
     }
-  }
-
-  /**
-   * The edge sprung back from where it was drawn to `width`, then landed.
-   *
-   * Programmatic motion with a completion, so it is TugAnimator's ([L13]):
-   * every pinned and carried element is tweened from the pose the preview
-   * left it in to the pose `width` gives it. The commit lands on whichever
-   * comes first of the spring finishing, the spring being cancelled, a
-   * deadline just past its duration, or `cancel()` — so the store write, the
-   * lifted marks and the closed brackets never wait on a frame that does not
-   * come ([L31], [L32]). On every path but a natural finish the tweens are
-   * stopped where they stand before the commit takes the preview off.
-   */
-  private springTo(draft: Draft, width: number): void {
-    const from = draft.shown;
-    // The limit's caution comes off as the edge starts back.
-    this.preview(draft, { width, shown: from, limit: null });
-    const motion = group({ duration: LIMIT_SPRING_MS, easing: LIMIT_SPRING_EASING });
-    for (const p of draft.pinned) {
-      motion.animate(
-        p.el,
-        [from, width].map((w): Keyframe =>
-          draft.side === "right"
-            ? { width: `${w}px`, left: `${p.left0 - (w - draft.startWidth)}px` }
-            : { width: `${w}px` },
-        ),
-      );
-    }
-    for (const c of draft.carried) {
-      const frames: Keyframe[] = [];
-      for (let i = 0; i <= LIMIT_SPRING_SAMPLES; i++) {
-        const w = from + ((width - from) * i) / LIMIT_SPRING_SAMPLES;
-        frames.push({ translate: `${carriedShift(draft, c, w - draft.startWidth)}px 0px` });
-      }
-      motion.animate(c.el, frames);
-    }
-    const landNow = landByDeadline(
-      motion.finished,
-      LIMIT_SPRING_MS * getTugTiming() + LIMIT_SPRING_DEADLINE_SLACK_MS,
-      (cause) => {
-        if (this.draft !== draft) return;
-        if (cause !== "finished") motion.cancel("hold-at-current");
-        draft.spring = null;
-        this.land(draft, width);
-      },
-    );
-    draft.spring = { width, landNow };
   }
 
   /** The press has become a drag: the acquisitions a drag makes beyond a
@@ -517,23 +301,11 @@ class RailWidthDraft implements RailWidthGesture {
     // The rail's frames are the hand's from here: a settle landing mid-drag
     // skips them, as it skips any frame a pointer is positioning.
     for (const el of draft.members) el.setAttribute("data-pointer-owned", "true");
-    // The host is moving every card of the rail's panes and of the panes
-    // beside it, inactive siblings included: the placer posts them as they
-    // stood at the press until the release.
+    // Every card of the rail's panes and of the panes beside it, inactive
+    // siblings included, is posted as it stood at the press until the release.
     holdCardsForHost(cardsMovedBy(draft));
     // The readout rides beside the pointer for as long as the hand drags.
     draft.readout = true;
-  }
-
-  /** Every inline style the preview wrote, given back as it was found. */
-  private restore(draft: Draft): void {
-    for (const p of draft.pinned) {
-      for (const property of PINNED_PROPERTIES) {
-        p.el.style.setProperty(property, p.saved[property]);
-      }
-    }
-    for (const c of draft.carried) c.el.style.translate = c.savedTranslate;
-    for (const el of draft.members) el.removeAttribute(LIMIT_ATTR);
   }
 
   /**
@@ -558,13 +330,9 @@ class RailWidthDraft implements RailWidthGesture {
     for (const episode of draft.episodes) episode.end();
   }
 
-  /** The deck as it will stand at the aim's drawn width, written by the
-   *  cheapest means each element allows — and the feedback that says where
-   *  the release would land. */
-  private preview(draft: Draft, aim: RailWidthAim): void {
-    const width = aim.shown;
-    const growth = width - draft.startWidth;
-    draft.shown = width;
+  /** The feedback that says where the release would land: the limit marks
+   *  and the readout. */
+  private show(draft: Draft, aim: RailWidthAim): void {
     if (aim.limit !== draft.limit) {
       for (const el of draft.members) {
         if (aim.limit === null) el.removeAttribute(LIMIT_ATTR);
@@ -573,16 +341,6 @@ class RailWidthDraft implements RailWidthGesture {
       draft.limit = aim.limit;
     }
     this.writeReadout(draft, aim);
-    for (const p of draft.pinned) {
-      p.el.style.width = `${width}px`;
-      // A right rail is pinned by its right edge, so its left edge is what
-      // moves as it grows.
-      if (draft.side === "right") p.el.style.left = `${p.left0 - growth}px`;
-      if (p.contain) p.el.style.contain = "layout";
-    }
-    for (const c of draft.carried) {
-      c.el.style.translate = `${carriedShift(draft, c, growth)}px 0px`;
-    }
   }
 
   /** The readout's text and place: the width the release would commit, at
@@ -602,14 +360,10 @@ class RailWidthDraft implements RailWidthGesture {
   }
 }
 
-/** Every card whose view the host moves in `draft`'s drag: each card of a
- *  member's pane and of each carried element's pane, siblings included. */
+/** Every card a width change of `draft`'s rail moves: each card of a
+ *  member's pane and of each carried pane, siblings included. */
 function cardsMovedBy(draft: Draft): Set<string> {
-  const panes = new Set<Element>(draft.members);
-  for (const c of draft.carried) {
-    const pane = c.el.closest(".tug-pane");
-    if (pane !== null) panes.add(pane);
-  }
+  const panes = new Set<Element>([...draft.members, ...draft.carriedPanes]);
   const ids = new Set<string>();
   for (const pane of panes) {
     for (const el of pane.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
@@ -619,15 +373,6 @@ function cardsMovedBy(draft: Draft): Set<string> {
   return ids;
 }
 
-/** How far a carried element stands from its own place when the rail has
- *  grown by `growth`: a shadow strip moves with the edge, an imposed element
- *  by what its own `left` expression gives. */
-function carriedShift(draft: Draft, c: Carried, growth: number): number {
-  return c.travel === null
-    ? draft.growSign * growth
-    : railTravelShift(c.travel, draft.side, draft.band, growth);
-}
-
 /**
  * The rail width draft for the deck canvas at `canvasRef`, stable for the
  * store's life. A draft open when the canvas unmounts is cancelled.
@@ -635,11 +380,10 @@ function carriedShift(draft: Draft, c: Carried, growth: number): number {
 export function useRailWidthDraft(
   canvasRef: RefObject<HTMLElement | null>,
   store: IDeckManagerStore,
-  readFlow: ReadFlowTerms,
 ): RailWidthGesture {
   const draft = useMemo(
-    () => new RailWidthDraft(canvasRef, store, readFlow),
-    [canvasRef, store, readFlow],
+    () => new RailWidthDraft(canvasRef, store),
+    [canvasRef, store],
   );
   useLayoutEffect(() => () => draft.dispose(), [draft]);
   return draft;
@@ -653,10 +397,9 @@ export function useRailWidthDraft(
  * The card takes the press on its edge grip in its own page and the host
  * tracks the pointer (`lib/host-card-gesture.ts`). The drag is still
  * `draft`'s, opened against the shell's frame for the pane (`frameOf`), so
- * every member of the side moves with the hand and the release commits one
- * width. The host owns the press and its Escape; this owns only the frame's
- * `data-gesture` mark, and gives the draft back if the frame leaves the
- * document mid-drag.
+ * the release commits one width for every member of the side. The host owns
+ * the press and its Escape; this owns only the frame's `data-gesture` mark,
+ * and gives the draft back if the frame leaves the document mid-drag.
  */
 export function railEdgeDriverFor(
   deck: Pick<IDeckManagerStore, "getSnapshot">,
