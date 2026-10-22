@@ -552,8 +552,16 @@ function Masthead({
     <div className="tug-report-panel-masthead">
       {state === "finished" && <span className="tug-report-panel-verdict-word">{verdictWord(m)}</span>}
       {m.label.length > 0 && <span className="tug-report-panel-label">{m.label}</span>}
-      <Fraction done={m.done} total={m.total} unit={m.unit} />
-      <Tally m={m} />
+      {m.countWords !== null ? (
+        <span className="tug-report-panel-fraction" data-slot="tug-report-panel-fraction">
+          <span className="tug-report-panel-unit">{m.countWords}</span>
+        </span>
+      ) : (
+        <>
+          <Fraction done={m.done} total={m.total} unit={m.unit} />
+          <Tally m={m} />
+        </>
+      )}
       <span className="tug-report-panel-spacer" />
       {facts.length > 0 && <TugMetaRun parts={facts} />}
     </div>

@@ -225,6 +225,30 @@ describe("reportPanelModel", () => {
     expect(verdictSentence(green)).toBe("10 files passed");
   });
 
+  test("a run of errors says its count alone, never a fraction or a pass", () => {
+    const clean: Report = { toolUseId: "t", label: "bunx tsc", done: 0, total: 0, failures: 0, unit: "error", units: [] };
+    expect(reportPanelModel(clean, "finished", NOW).countWords).toBe("no errors");
+    expect(reportPanelModel(clean, "running", NOW).countWords).toBe("no errors yet");
+    const red: Report = {
+      ...clean,
+      done: 3,
+      total: 3,
+      failures: 3,
+      units: [{ name: "src/a.ts(1,14)", status: "fail", index: 0, message: "Type 'x' is not assignable" }],
+    };
+    const m = reportPanelModel(red, "finished", NOW);
+    expect(m.countWords).toBe("3 errors");
+    expect(m.verdict).toBe("red");
+  });
+
+  test("a finished run that counted nothing says so, rather than 0/0", () => {
+    const none: Report = { toolUseId: "t", label: "bun test", done: 0, total: 0, unit: "test", units: [] };
+    expect(reportPanelModel(none, "finished", NOW).countWords).toBe("no tests");
+    expect(reportPanelModel({ ...none, total: undefined }, "finished", NOW).countWords).toBe("no tests");
+    expect(reportPanelModel(none, "running", NOW).countWords, "a run still going has not counted yet").toBeNull();
+    expect(reportPanelModel(MID_RUN, "finished", NOW).countWords, "a counting run keeps its fraction").toBeNull();
+  });
+
   test("words and times read as a person would say them", () => {
     expect(unitWord("file", 1)).toBe("file");
     expect(unitWord("phase", 4)).toBe("phases");

@@ -29,6 +29,13 @@ export function isRed(status: RunUnitStatus): boolean {
   return status === "fail" || status === "error" || status === "stalled";
 }
 
+/**
+ * Units that are only ever reds: a type check counts its errors, and an error
+ * never passes. Such a run has no denominator and nothing to tally as a pass,
+ * so its masthead says the count alone — `3 errors`, `no errors`.
+ */
+const REDS_ONLY_UNITS: ReadonlySet<string> = new Set(["error"]);
+
 export interface RunLane {
   unit: RunUnit;
   /** Seconds since it started, by the clock the panel was handed. */
@@ -48,6 +55,13 @@ export interface ReportPanelModel {
   counts: { pass: number; red: number; fail: number; stalled: number; skipped: number; pending: number };
   /** One cell per unit, or a band. */
   track: "cells" | "band" | "none";
+  /**
+   * What the masthead says of the count, when a fraction and a tally would say
+   * nothing true: `3 errors` for a run whose units are only reds, `no errors`
+   * or `no tests` for a finished run that counted none. Null when the
+   * fraction and the tally carry it.
+   */
+  countWords: string | null;
   /**
    * Whether the report lists every unit as a row — an app-test batch's files,
    * a build's phases. A test run lists only its reds and counts the rest, so
@@ -216,6 +230,7 @@ export function reportPanelModel(
       pending: count("pending"),
     },
     track,
+    countWords: countWordsFor(p.unit ?? "unit", state, red, p.done ?? 0, total, units.length),
     listed: full,
     lanes,
     reds,
@@ -229,6 +244,22 @@ export function reportPanelModel(
     nextAct: verdict === "red" ? nextActFor(p.label ?? "", p.unit ?? "unit") : null,
     verdict,
   };
+}
+
+function countWordsFor(
+  unit: string,
+  state: ReportPanelState,
+  red: number,
+  done: number,
+  total: number | undefined,
+  rows: number,
+): string | null {
+  if (REDS_ONLY_UNITS.has(unit)) {
+    if (red > 0) return `${red} ${unitWord(unit, red)}`;
+    return state === "finished" ? `no ${unitWord(unit, 0)}` : `no ${unitWord(unit, 0)} yet`;
+  }
+  const nothing = done === 0 && rows === 0 && (total === undefined || total === 0);
+  return nothing && state === "finished" ? `no ${unitWord(unit, 0)}` : null;
 }
 
 /** The projection as the masthead says it: `~2m 05s left · 3 unknown`. */
