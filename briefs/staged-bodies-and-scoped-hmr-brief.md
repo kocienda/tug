@@ -10,7 +10,7 @@
 
 The user's report, 2026-10-21: "Long launch times and deck-clearing in the debug app has basically broken HMR. This is bad. This super-looooonngggg delay to populate the deck must go away. Can't have this. Make a sketch for how we can get back *lively* debug-app launches and snappy HMR."
 
-The sketch found two mechanisms. One is the cost of a single card page under Vite, which is the sibling brief's subject (`briefs/vite-full-bundle-mode-brief.md`). The other two are this brief's: the host loads every card's page at once the moment the shell reveals, and Vite's full reload is a broadcast that the host answers by destroying every body. These two are fixable without touching how Vite serves a page, and together they end the deck-clearing on their own.
+The sketch found two mechanisms. One is the cost of a single card page under Vite, which is the sibling brief's subject (`briefs/vite-bundled-dev-mode-brief.md`). The other two are this brief's: the host loads every card's page at once the moment the shell reveals, and Vite's full reload is a broadcast that the host answers by destroying every body. These two are fixable without touching how Vite serves a page, and together they end the deck-clearing on their own.
 
 ---
 
@@ -43,6 +43,7 @@ The sketch found two mechanisms. One is the cost of a single card page under Vit
 **[B03] The spare is made after the restore pass has drained, not during it.** The spare's purpose is a warm page for a *new* card; during the restore it competes with cards the user is waiting for ([F04]). `scheduleSpare` waits for the lane to be empty.
 
 **[B04] A full reload is scoped to the pages that import the changed module.** A Vite plugin in `vite.config.ts` implements `hotUpdate`: when propagation would reach an entry, it walks the module graph from the changed file to the entries that import it (`src/main.tsx`, `src/body/body-main.ts`, `src/overlay/overlay-main.ts`, `src/body/spike-page.ts`), sends a `tug:reload` event naming them, and returns an empty array so Vite sends no `full-reload`. Each page's client (`hmr-bridge.ts` for the shell; a sibling installed by `body-main.ts` and `overlay-main.ts`) reloads itself only when its own entry is named, through the same `captureAllForTeardown` path the shell runs today. A layout edit reloads the shell alone; a transcript edit reloads the bodies alone. The plugin lives in dev only, as every `import.meta.hot` path does ([F08]). What would revisit this: Vite gaining per-client module graphs, which it does not have in 7.3.
+If the sibling brief's bundled dev mode is on, `hotUpdate` is not called (that mode does not support it); the same scoping is then done on the client from Vite's `vite:bundled-dev:reload-needed` event, which names the changed file, with the entry walk answered by a small server endpoint or a build-time map. The decision is the scoping, not the hook.
 
 **[B05] A shell reload keeps its bodies.** The reload intercept in `MainWindow.swift` stops calling `saveAndDestroyAll`. The shell saves its own state and reloads; the bodies stay bound to their cards and their views, the reloaded shell's `announce()` re-adopts them ([F06]), and the shell's restore pass's `bodyCreate` for an existing body is ignored as it is today. The snapshot freeze is kept for the shell's own canvas. A shell-only edit then costs the shell's own load (1–3 s, [F01]) with every card still on screen. `destroyAll` on bridge teardown is untouched; it is for the window going away, not for a reload. What has to be confirmed in the work: that a kept body's `card.facts`, focus and geometry are re-sent by the reloaded shell and not only by a fresh bind, and that a body which was mid-save when the shell reloaded does not lose its bag.
 
@@ -60,7 +61,7 @@ The sketch found two mechanisms. One is the cost of a single card page under Vit
 
 ## Non-goals {#non-goals}
 
-- **Making a page cheaper to load.** That is `briefs/vite-full-bundle-mode-brief.md`. This brief assumes a page costs what it costs today, and its numbers in [B06] hold even so.
+- **Making a page cheaper to load.** That is `briefs/vite-bundled-dev-mode-brief.md`. This brief assumes a page costs what it costs today, and its numbers in [B06] hold even so.
 - **Shrinking the body module graph or loading card kinds by dynamic import.** Ruled out by the user on 2026-10-21: no hacking on page content unless the full bundle mode spike fails.
 - **Making Vite's `/src/*` responses cacheable across WebContent processes.** Vite stamps import versions only after invalidation, so a cache-friendly header cannot be made safe without forking the import rewriter. Rejected in the sketch.
 - **Changing what the shipped build does.** Every change here is under `import.meta.hot`, in the dev-serving branch of the host, or in the body loading order, which the Release app also benefits from but which carries no dev-only switch.
