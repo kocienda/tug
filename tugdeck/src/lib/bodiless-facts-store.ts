@@ -49,7 +49,7 @@
 import type { CardFactsValue } from "../bus/declarations/card";
 import type { SessionRow } from "../protocol";
 import { ACTIVITY_BIN_MS } from "./activity-meter";
-import { bodyCardsStore } from "./body-cards-store";
+import { bodyCardsStore, pageless, type BodyCardState } from "./body-cards-store";
 import { bodyFactsStore } from "./body-facts-store";
 import { cardSessionBindingStore, ledgerSegmentForCard } from "./card-session-binding-store";
 import { getShellDeck } from "./deck-store-registry";
@@ -179,8 +179,8 @@ export interface BodilessSources {
   hasBody(cardId: string): boolean;
   /** The card's body's facts as the shell holds them, by identity. */
   facts(cardId: string): CardFactsValue | null;
-  /** Whether the host has the card's body evicted. */
-  evicted(cardId: string): boolean;
+  /** Whether the card's body has no page: evicted by the host, or never made. */
+  withoutPage(cardId: string): boolean;
   /**
    * The session address the card is bound to, which ACTIVITY is tagged
    * with; for a card with no page, the live ledger row that names it.
@@ -195,6 +195,23 @@ export interface BodilessSources {
   now(): number;
   /** Run `fire` once, `ms` from now; the return cancels it. */
   after(ms: number, fire: () => void): () => void;
+}
+
+/**
+ * The session a bodiless card follows: the one its binding names, or, for a
+ * card no page has bound — in a workspace nobody has shown (`state` null), or
+ * handed off `unmade` — the session the ledger's live row says the card
+ * holds, so a busy inactive tab's dot ticks and a question waiting in it is
+ * heard before the tab is chosen ([L31]). A card that has had a page and
+ * holds no binding follows nothing.
+ */
+export function followedSession(
+  bound: string | undefined,
+  state: BodyCardState | null,
+  liveRow: () => string | null,
+): string | null {
+  if (bound !== undefined) return bound;
+  return state === null || state === "unmade" ? liveRow() : null;
 }
 
 /** The cards of every workspace nobody has shown this run, which have no page. */
@@ -218,10 +235,11 @@ const DECK_SOURCES: BodilessSources = {
   },
   hasBody: (cardId) => bodyCardsStore.has(cardId),
   facts: (cardId) => bodyFactsStore.factsOf(cardId),
-  evicted: (cardId) => bodyCardsStore.stateOf(cardId) === "evicted",
+  withoutPage: (cardId) => pageless(bodyCardsStore.stateOf(cardId)),
   sessionOf: (cardId) =>
-    cardSessionBindingStore.getBinding(cardId)?.tugSessionId ??
-    (bodyCardsStore.has(cardId) ? null : (getSessionLedgerStore()?.liveRowForCard(cardId)?.session_id ?? null)),
+    followedSession(cardSessionBindingStore.getBinding(cardId)?.tugSessionId, bodyCardsStore.stateOf(cardId), () =>
+      getSessionLedgerStore()?.liveRowForCard(cardId)?.session_id ?? null,
+    ),
   row: (cardId, address) => getSessionLedgerStore()?.findRow(ledgerSegmentForCard(cardId, address)) ?? null,
   subscribe: (listener) => {
     const releases = [
@@ -307,10 +325,10 @@ export class BodilessFactsStore extends Subscribable {
 
   /**
    * Whether the card's body is not listening: no page made for it, dormant,
-   * evicted, or a new page that has not spoken.
+   * evicted, never made, or a new page that has not spoken.
    */
   private bodiless(cardId: string, facts: CardFactsValue | null): boolean {
-    if (!this.sources.hasBody(cardId) || facts?.dormant === true || this.sources.evicted(cardId)) return true;
+    if (!this.sources.hasBody(cardId) || facts?.dormant === true || this.sources.withoutPage(cardId)) return true;
     const entry = this.entries.get(cardId);
     return entry !== undefined && entry.frozen === facts;
   }

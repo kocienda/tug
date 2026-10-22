@@ -36,7 +36,7 @@ import { join } from "node:path";
 
 import { launchTugApp, note } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { SETTLE_MS, focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { SETTLE_MS, focusBody, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { standUpKind } from "./_kind-bodies";
 import { kindPane, kindSidebars, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
@@ -104,11 +104,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
           await standUpKind(app, kind, K);
           await focusBody(app, A, { composer: false });
           const expected = ["shell", A, T, K, "overlay"];
-          const first = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
+          const first = await settleFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
           note(`A in front: order ${JSON.stringify(first)}`);
           expect(first, "the shell, then the bodies left to right").toEqual(expected);
           await focusBody(app, K, { composer: false });
-          const second = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
+          const second = await settleFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
           note(`${K} in front: order ${JSON.stringify(second)}`);
           expect(second, `bringing the ${kind.componentId} card forward leaves the deck's order`).toEqual(expected);
         } finally {
@@ -144,13 +144,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
         const expected = ["shell", A, T, B, "overlay"];
 
         const bodies = await app.bodies();
-        const first = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
+        const first = await settleFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
         note(`A in front: z ${JSON.stringify(bodies.filter((x) => x.cardId !== null).map((x) => ({ card: x.cardId, z: x.z })))}; order ${JSON.stringify(first)}`);
         expect(first, "the shell, then the bodies left to right").toEqual(expected);
 
         await focusBody(app, B, { composer: false });
         const zAfter = (await app.bodies()).filter((x) => x.cardId !== null).map((x) => ({ card: x.cardId, z: x.z }));
-        const second = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
+        const second = await settleFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
         note(`B in front: z ${JSON.stringify(zAfter)}; order ${JSON.stringify(second)}`);
         expect(second, "bringing B forward leaves the deck's order").toEqual(expected);
       } finally {

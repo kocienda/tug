@@ -63,7 +63,7 @@ import {
   cardSurface,
   devtoolsInspection,
 } from "./declarations/card";
-import { deckBodies, deckCards, deckFacts, deckFrontmostProject, deckMenu } from "./declarations/deck";
+import { deckCards, deckFacts, deckFrontmostProject, deckMenu, harnessBodyDelays } from "./declarations/deck";
 import {
   paneArrangePlace,
   paneChrome,
@@ -137,7 +137,7 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
   deckMenu,
   deckFrontmostProject,
   deckCards,
-  deckBodies,
+  harnessBodyDelays,
   cardCrossing,
   cardContext,
   paneChrome,

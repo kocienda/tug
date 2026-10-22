@@ -15,7 +15,7 @@
  * @module lib/deck-populated
  */
 
-import type { BodyCardState } from "./body-cards-store";
+import { pageless, type BodyCardState } from "./body-cards-store";
 
 /** The cards the deck holds, as read here. */
 export interface PopulatedDeck {
@@ -44,13 +44,13 @@ export interface Population {
 
 /** A body that has painted, or never will on this page's word: either way the launch is not waiting on it. */
 function settled(state: BodyCardState | null): boolean {
-  return state === "painted" || state === "failed" || state === "evicted";
+  return state === "painted" || state === "failed" || pageless(state);
 }
 
 /**
  * Null while the launch is still waiting on a body; once it is not, how many
  * bodies the launch populated, how many of those failed, and how many cards
- * stood without a page — not shown, so none was made, or evicted already.
+ * stood without a page — `unmade`, not shown so none was asked for, or evicted already.
  */
 export function populationOf(reading: PopulationReading): Population | null {
   if (!reading.passSettled || reading.passPending) return null;
@@ -60,7 +60,7 @@ export function populationOf(reading: PopulationReading): Population | null {
     const state = reading.stateOf(cardId);
     if (!settled(state)) return null;
     if (state === "failed") failed += 1;
-    if (state === "evicted") unmade += 1;
+    if (pageless(state)) unmade += 1;
   }
   return { bodies: reading.expected.length - unmade, failed, unmade };
 }

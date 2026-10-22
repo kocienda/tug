@@ -15,7 +15,7 @@
 import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
-import { BODY_READY_MS, bodyOf, pollFor } from "./_bodies";
+import { BODY_READY_MS, bodyOf, pollFor, settleFor } from "./_bodies";
 import { armLandRecords, expectEmptyLand, noteLand } from "./_land";
 import { planDiag } from "./_motion";
 
@@ -80,7 +80,7 @@ export async function fitLeg(): Promise<void> {
     await app.seedDeckState({ state: railDeck(), focusCardId: CARDS });
     // A list card has no composer, so the wait is the body's own: ready and placed visible.
     for (const id of MEMBERS) {
-      const ready = await pollFor(() => bodyOf(app, id), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);
+      const ready = await settleFor(() => bodyOf(app, id), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);
       expect(ready?.visible, `${id}: the body is ready and placed visible`).toBe(true);
     }
     await pollFor(() => isSettled(app), (v) => v, SETTLE_MS);
@@ -96,7 +96,7 @@ export async function fitLeg(): Promise<void> {
 
     await app.performMenuItem("view.resizeSidebarsToFit");
 
-    const plan = await pollFor(
+    const plan = await settleFor(
       () => planDiag(app),
       (p) => p.runs > runsBefore && MEMBERS.every((id) => p.last?.landed.some((l) => l.cardId === id) ?? false),
       SETTLE_MS,

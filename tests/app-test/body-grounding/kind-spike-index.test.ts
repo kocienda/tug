@@ -16,7 +16,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
-import { BODY_READY_MS, pollFor } from "./_bodies";
+import { BODY_READY_MS, pollFor, settleFor } from "./_bodies";
 import { bodySnapshot } from "./_kind-bodies";
 
 const TEST_NAME = "body-grounding-kind-spike-index";
@@ -66,10 +66,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the Spikes index's rows
       const app = await launchTugApp({ testName: TEST_NAME });
       try {
         await app.seedDeckState({ state: DECK, focusCardId: HOME });
-        const ready = await pollFor(() => bodySnapshot(app, HOME), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);
+        const ready = await settleFor(() => bodySnapshot(app, HOME), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);
         expect(ready?.state, "the index's body stands ready").toBe("ready");
         const body = app.body(HOME);
-        const up = await pollFor(() => body.evalJS<boolean>(present(FIRST_ROW)), (v) => v, BODY_READY_MS);
+        const up = await settleFor(() => body.evalJS<boolean>(present(FIRST_ROW)), (v) => v, BODY_READY_MS);
         expect(up, "the index's first row is mounted in its body").toBe(true);
         expect(await app.evalJS<boolean>(present(ROOT)), "the shell's document holds none of the index").toBe(false);
 
@@ -80,7 +80,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the Spikes index's rows
 
         await Bun.sleep(300);
         await body.nativeClickAtElement(FIRST_ROW);
-        const panes = await pollFor(() => app.evalJS<string[][]>(deckKinds), (p) => p.length > 1, READ_MS);
+        const panes = await settleFor(() => app.evalJS<string[][]>(deckKinds), (p) => p.length > 1, READ_MS);
         note(`panes after the click: ${panes.map((p) => p.join("+")).join(", ")}`);
         expect(panes, "the index's pane still holds the index alone").toContainEqual(["spike-home"]);
         expect(panes, "the clicked row's spike stands in a card of its own").toContainEqual([expected]);

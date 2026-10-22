@@ -44,7 +44,7 @@ import { join } from "node:path";
 import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, foldedOf, pollFor, responders, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, foldedOf, pollFor, settleFor, responders, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { armLandRecords, expectEmptyLand, noteLand } from "./_land";
@@ -101,7 +101,7 @@ function deck(): Record<string, unknown> {
 
 /** The frame's rect has held still for two samples in a row, and the fold reads `folded`. */
 async function cameToRest(app: App, card: string, folded: boolean): Promise<Rect> {
-  const rest = await pollFor(
+  const rest = await settleFor(
     async () => {
       const state = await samplerState(app);
       const count = state.count;
@@ -151,11 +151,11 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
     await expectAtRest(app, card, `${label}: at the land`);
   }
   const samples = await readSampler(app);
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
   expect(reading.done, `${label}: the burst finished`).toBe(true);
   if (carried) {
     const boxAfter = await expectAtRest(app, card, `${label}: at the land`);
-    const plan = await pollFor(
+    const plan = await settleFor(
       () => planDiag(app),
       (p) => p.runs > runsBefore && (p.last?.landed.some((l) => l.cardId === card) ?? false),
       3_000,

@@ -24,10 +24,9 @@ import {
   bodyBindToPage,
   bodyCreateToHost,
   bodyDestroyToHost,
-  bodyEvictAfterToHost,
+  bodyDelaysToHost,
   bodyFocusToHost,
   bodyHelloToHost,
-  bodyPressureToPage,
   bodyStateToPage,
   bodySurfaceToHost,
   bodyVisibilityToPage,
@@ -102,7 +101,7 @@ export const TO_HOST: readonly ToHost<unknown>[] = [
   bodySurfaceToHost,
   bodyCreateToHost,
   bodyDestroyToHost,
-  bodyEvictAfterToHost,
+  bodyDelaysToHost,
   bodyFocusToHost,
   hmrUpdateToHost,
   // services
@@ -135,7 +134,6 @@ export const TO_PAGE: readonly ToPage<unknown>[] = [
   windowResizeToPage,
   // lifecycle
   bodyBindToPage,
-  bodyPressureToPage,
   bodyStateToPage,
   bodyVisibilityToPage,
   planStartedToPage,

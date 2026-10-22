@@ -20,6 +20,9 @@ import type { DeckState } from "../layout-tree";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { ArrangementDeckValue, ArrangementSpaces } from "../bus/declarations/arrangement";
 import type { DeckCardFacts } from "../bus/declarations/deck";
+import type { SessionRow } from "../protocol";
+
+type SessionRowState = SessionRow["state"];
 
 /** What the projectors read from the shell's deck. */
 export type ArrangementDeck = Pick<
@@ -51,6 +54,21 @@ function arrangementCards(deck: ArrangementDeck): Array<{ id: string; componentI
 /** Every card the arrangement holds — every workspace's — in a stable order. */
 export function arrangementCardIds(deck: ArrangementDeck): string[] {
   return arrangementCards(deck).map((card) => card.id);
+}
+
+/** The supervisor's SESSION_STATE words for a session with no subprocess: tugcast's `Idle`, `Errored` and `Closed`. */
+const CHILDLESS = new Set(["pending", "errored", "closed"]);
+
+/**
+ * A card's `sessionState` from its ledger row (`row`, null when the shell
+ * holds none) and the supervisor's last SESSION_STATE for the session
+ * (`child`, null when none was heard): a `live` row whose child the
+ * supervisor last said was gone is `childless`, since tugcast answers no
+ * replay for it. A row with no word of its child is taken as it reads.
+ */
+export function sessionStateOf(row: SessionRowState | null, child: string | null): DeckCardFacts["sessionState"] {
+  if (row === "live" && child !== null && CHILDLESS.has(child)) return "childless";
+  return row;
 }
 
 /** What {@link projectDeckCards} reads of each card beyond the deck. */

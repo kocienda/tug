@@ -30,7 +30,7 @@ import { join } from "node:path";
 import { launchTugApp, note } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, STREAM_PACE_MS, stubDirectory, streamingTranscript } from "../streaming-stub-fixture";
-import { bodyOf, pollFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
+import { bodyOf, pollFor, settleFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -101,9 +101,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a turn streaming at reveal"
         await app.spawnSessionNew(A, { tugSessionId, projectDir });
         await waitForBody(app, A);
         const body = app.body(A);
-        await body.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.body-dormancy", "dormantAfterMs", { kind: "i64", value: ${DORMANT_AFTER_MS} }), null)`,
-        );
+        await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS });
         await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 10_000 });
 
         // ---- The first turn, heard whole; the second sent, and the workspace parked under it ----
@@ -132,7 +130,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a turn streaming at reveal"
         // ---- Shown again: the finished turns land, and the streaming one goes on ----
         const revealAt = Date.now();
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(home)} }), null)`);
-        const caught = await pollFor(() => body.evalJS<Read>(READ), (r) => !r.dormant && r.behind > 0, 10_000);
+        const caught = await settleFor(() => body.evalJS<Read>(READ), (r) => !r.dormant && r.behind > 0, 10_000);
         note(`caught up ${Date.now() - revealAt} ms after the switch: ${JSON.stringify(caught)}`);
         expect(caught, "awake with the turns that finished behind the streaming one, each once, and that one still running").toMatchObject({
           dormant: false,
@@ -143,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a turn streaming at reveal"
           streamed: 0,
         });
 
-        const done = await pollFor(() => body.evalJS<Read>(READ), (r) => r.phase === "idle" && r.streamed > 0, 15_000);
+        const done = await settleFor(() => body.evalJS<Read>(READ), (r) => r.phase === "idle" && r.streamed > 0, 15_000);
         note(`settled ${Date.now() - revealAt} ms after the switch: ${JSON.stringify(done)}`);
         expect(done, "the streaming turn ended once and whole, every turn before it once").toMatchObject({
           dormant: false,

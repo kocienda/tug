@@ -48,6 +48,7 @@ import {
   landed,
   paneOf,
   pollFor,
+  settleFor,
   promptPhase,
   responders,
   sessionPane,
@@ -168,7 +169,7 @@ export function editChords(): Promise<void> {
 
     // ---- Typing ----
     await app.nativeType("hello");
-    const typed = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("hello") === true, SETTLE_MS);
+    const typed = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("hello") === true, SETTLE_MS);
     expect(typed, "typing lands in A's composer").toContain("hello");
     expect(await b.evalJS<string | null>(composerText), "and not in B's").not.toContain("hello");
 
@@ -176,7 +177,7 @@ export function editChords(): Promise<void> {
     await a.evalJS(`(document.activeElement && document.activeElement.blur(), true)`);
     expect(await a.evalJS<boolean>(composerFocused), "A's composer is blurred").toBe(false);
     await app.nativeKey("k", ["cmd"]);
-    const refocused = await pollFor(() => a.evalJS<boolean>(composerFocused), (v) => v, SETTLE_MS);
+    const refocused = await settleFor(() => a.evalJS<boolean>(composerFocused), (v) => v, SETTLE_MS);
     expect(refocused, "⌘K focuses A's composer").toBe(true);
 
     // ---- Edit chords in the composer: select all, cut, paste, undo, redo ----
@@ -186,24 +187,24 @@ export function editChords(): Promise<void> {
     );
     await app.nativeKey("a", ["cmd"]);
     await app.nativeKey("x", ["cmd"]);
-    const cut = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t !== null && !t.includes("hello"), SETTLE_MS);
+    const cut = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t !== null && !t.includes("hello"), SETTLE_MS);
     expect(cut ?? "", "⌘A ⌘X empties A's composer").not.toContain("hello");
     await app.nativeKey("v", ["cmd"]);
-    const pasted = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("hello") === true, SETTLE_MS);
+    const pasted = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("hello") === true, SETTLE_MS);
     expect(pasted, "⌘V pastes the cut text back").toContain("hello");
     await app.nativeKey("z", ["cmd"]);
-    const undone = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t !== null && !t.includes("hello"), SETTLE_MS);
+    const undone = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t !== null && !t.includes("hello"), SETTLE_MS);
     expect(undone ?? "", "⌘Z undoes the paste").not.toContain("hello");
     await app.nativeKey("z", ["cmd", "shift"]);
-    const redone = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("hello") === true, SETTLE_MS);
+    const redone = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("hello") === true, SETTLE_MS);
     expect(redone, "⇧⌘Z redoes it").toContain("hello");
     note(`edit chords in A: cut ${JSON.stringify(cut)} → paste ${JSON.stringify(pasted)} → undo ${JSON.stringify(undone)} → redo ${JSON.stringify(redone)}`);
 
     // ---- Find chords: ⌘F opens the body's find bar and focuses it; ⌘G, ⇧⌘G; Escape closes ----
     await app.nativeKey("f", ["cmd"]);
-    const barUp = await pollFor(() => a.evalJS<boolean>(findBarShown), (v) => v, SETTLE_MS);
+    const barUp = await settleFor(() => a.evalJS<boolean>(findBarShown), (v) => v, SETTLE_MS);
     expect(barUp, "⌘F opens A's find bar").toBe(true);
-    const barFocused = await pollFor(() => a.evalJS<boolean>(findInputFocused), (v) => v, SETTLE_MS);
+    const barFocused = await settleFor(() => a.evalJS<boolean>(findInputFocused), (v) => v, SETTLE_MS);
     note(
       `after ⌘F in A: input focused ${barFocused}; A's active element ${await a.evalJS<string>(`document.activeElement ? document.activeElement.tagName + "." + document.activeElement.className + "#" + (document.activeElement.getAttribute("data-testid") || "") : "none"`)}; ` +
         `A's responder ${await a.evalJS<string>("String(window.__tug.getFirstResponderId())")}; A's key card ${await a.evalJS<string>("String(window.__tug.getKeyCardId())")}; ` +
@@ -220,7 +221,7 @@ export function editChords(): Promise<void> {
       return true;
     })()`);
     await app.nativeType("message");
-    const query = await pollFor(() => a.evalJS<string>(findQuery), (v) => v.includes("message"), SETTLE_MS);
+    const query = await settleFor(() => a.evalJS<string>(findQuery), (v) => v.includes("message"), SETTLE_MS);
     note(
       `after typing in the find bar: query ${JSON.stringify(query)}; bar ${await a.evalJS<string>(`(function () { var b = document.querySelector(${JSON.stringify(FIND_BAR)}); return b ? b.outerHTML.slice(0, 900) : "none"; })()`)}; ` +
         `active ${await a.evalJS<string>(`document.activeElement ? document.activeElement.tagName + "." + document.activeElement.className + " text=" + JSON.stringify((document.activeElement.textContent || "").slice(0, 40)) : "none"`)}; ` +
@@ -231,7 +232,7 @@ export function editChords(): Promise<void> {
     await app.nativeKey("g", ["cmd", "shift"]);
     expect(await a.evalJS<boolean>(findBarShown), "⌘G and ⇧⌘G leave the bar standing").toBe(true);
     await app.nativeKey("Escape");
-    const barDown = await pollFor(() => a.evalJS<boolean>(findBarShown), (v) => !v, SETTLE_MS);
+    const barDown = await settleFor(() => a.evalJS<boolean>(findBarShown), (v) => !v, SETTLE_MS);
     expect(barDown, "Escape closes the find bar").toBe(false);
     expect(await b.evalJS<boolean>(findBarShown), "B never showed a find bar").toBe(false);
   });
@@ -254,9 +255,9 @@ export function turnChords(): Promise<void> {
     await focusBody(app, A);
     const beforeTurn = await a.evalJS<string>(transcriptStand);
     await app.nativeKey("[", ["ctrl", "cmd"]);
-    const afterPrev = await pollFor(() => a.evalJS<string>(transcriptStand), (v) => v !== beforeTurn, 1_500);
+    const afterPrev = await settleFor(() => a.evalJS<string>(transcriptStand), (v) => v !== beforeTurn, 1_500);
     await app.nativeKey("]", ["ctrl", "cmd"]);
-    const afterNext = await pollFor(() => a.evalJS<string>(transcriptStand), (v) => v !== afterPrev, 1_500);
+    const afterNext = await settleFor(() => a.evalJS<string>(transcriptStand), (v) => v !== afterPrev, 1_500);
     note(
       `turn navigation in A: ${JSON.stringify(beforeTurn)} → ⌃⌘[ ${JSON.stringify(afterPrev)} → ⌃⌘] ${JSON.stringify(afterNext)}; ` +
         `items ${JSON.stringify(await app.menuItemState("go.previousTurn"))}; ` +
@@ -268,12 +269,12 @@ export function turnChords(): Promise<void> {
     await focusBody(app, A);
     const idle = await a.evalJS<string | null>(dictationMode);
     await app.nativeKey("d", ["cmd"]);
-    const live = await pollFor(() => a.evalJS<string | null>(dictationMode), (m) => m !== null && m !== idle, SETTLE_MS);
+    const live = await settleFor(() => a.evalJS<string | null>(dictationMode), (m) => m !== null && m !== idle, SETTLE_MS);
     note(`dictation in A: ${idle} → ⌘D ${live}`);
     expect(live, "⌘D starts dictation in A").not.toBe(idle);
     expect(await b.evalJS<string | null>(dictationMode), "B's dictation is untouched").toBe(idle);
     await app.nativeKey("d", ["cmd"]);
-    const stopped = await pollFor(() => a.evalJS<string | null>(dictationMode), (m) => m === idle, 6_000);
+    const stopped = await settleFor(() => a.evalJS<string | null>(dictationMode), (m) => m === idle, 6_000);
     expect(stopped, "⌘D again stops it").toBe(idle);
   });
 }
@@ -283,27 +284,27 @@ export function deckChords(): Promise<void> {
   return withDeck("deck", async ({ app }) => {
     await focusBody(app, A);
     await app.nativeKey("y", ["ctrl", "cmd"]);
-    const folded = await pollFor(() => foldedOf(app, A), (v) => v, SETTLE_MS);
+    const folded = await settleFor(() => foldedOf(app, A), (v) => v, SETTLE_MS);
     expect(folded, "⌃⌘Y folds A's pane").toBe(true);
     // A Session card draws its own folded form in its body, so the host keeps
     // that body shown under the fold ([B23] of the bodies-migration brief,
     // which reversed "a folded body hides" for such kinds).
-    const underFold = await pollFor(() => bodyOf(app, A), (x) => x !== null && x !== undefined, SETTLE_MS);
+    const underFold = await settleFor(() => bodyOf(app, A), (x) => x !== null && x !== undefined, SETTLE_MS);
     expect(underFold?.visible, "the host keeps A's folded body shown: the Session card draws its own fold").toBe(true);
     await app.nativeKey("y", ["ctrl", "cmd"]);
-    const unfolded = await pollFor(() => foldedOf(app, A), (v) => !v, SETTLE_MS);
+    const unfolded = await settleFor(() => foldedOf(app, A), (v) => !v, SETTLE_MS);
     expect(unfolded, "⌃⌘Y unfolds it").toBe(false);
-    const shownAgain = await pollFor(() => bodyOf(app, A), (x) => x?.visible === true, SETTLE_MS);
+    const shownAgain = await settleFor(() => bodyOf(app, A), (x) => x?.visible === true, SETTLE_MS);
     expect(shownAgain?.visible, "the host shows A's body again").toBe(true);
 
     await focusBody(app, A, { composer: false });
     expect(await slotOf(app, A), "A starts in slot 1").toBe(0);
     await app.nativeKey("2", ["cmd"]);
-    const moved = await pollFor(() => slotOf(app, A), (s) => s === 1, SETTLE_MS);
+    const moved = await settleFor(() => slotOf(app, A), (s) => s === 1, SETTLE_MS);
     expect(moved, "⌘2 moves A to slot 2").toBe(1);
     await landed(app, A);
     await app.nativeKey("1", ["cmd"]);
-    const back = await pollFor(() => slotOf(app, A), (s) => s === 0, SETTLE_MS);
+    const back = await settleFor(() => slotOf(app, A), (s) => s === 0, SETTLE_MS);
     expect(back, "⌘1 moves it back").toBe(0);
     await landed(app, A);
     note(
@@ -311,14 +312,14 @@ export function deckChords(): Promise<void> {
         `shell focused card ${await app.getFocusedCardId()}; host ${await responders(app)}`,
     );
     await app.nativeKey("]", ["cmd", "alt", "shift"]);
-    const nudged = await pollFor(() => slotOf(app, A), (s) => s === 1, SETTLE_MS);
+    const nudged = await settleFor(() => slotOf(app, A), (s) => s === 1, SETTLE_MS);
     if (nudged !== 1) {
       note(`the nudge did not move A: slots A ${await slotOf(app, A)} B ${await slotOf(app, B)} T ${await slotOf(app, T)}; host ${await responders(app)}; shell responder ${await app.evalJS<string>("String(window.__tug.getFirstResponderId())")}`);
     }
     expect(nudged, "⇧⌥⌘] nudges A right").toBe(1);
     await landed(app, A);
     await app.nativeKey("[", ["cmd", "alt", "shift"]);
-    const nudgedBack = await pollFor(() => slotOf(app, A), (s) => s === 0, SETTLE_MS);
+    const nudgedBack = await settleFor(() => slotOf(app, A), (s) => s === 0, SETTLE_MS);
     expect(nudgedBack, "⇧⌥⌘[ nudges it back").toBe(0);
     await landed(app, A);
     note(`deck chords from A: ${await responders(app)}`);
@@ -331,12 +332,12 @@ export function textChords(): Promise<void> {
     await focusBody(app, T, { composer: false });
     await t.nativeClickAtElement(TEXT_EDITOR);
     await t.waitForCondition<boolean>(`document.activeElement !== null && document.activeElement.matches(${JSON.stringify(TEXT_EDITOR)})`, { timeoutMs: SETTLE_MS });
-    const holders = await pollFor(() => app.bodies(), (bs) => bs.every((x) => x.firstResponder === (x.cardId === T)), SETTLE_MS);
+    const holders = await settleFor(() => app.bodies(), (bs) => bs.every((x) => x.firstResponder === (x.cardId === T)), SETTLE_MS);
     expect(holders.filter((x) => x.firstResponder).map((x) => x.cardId), "only the Text card's body holds the keyboard").toEqual([T]);
     const aBefore = await a.evalJS<string | null>(composerText);
     await app.nativeType("shell");
     const editorText = `document.querySelector(${JSON.stringify(TEXT_EDITOR)})?.textContent ?? ""`;
-    const textTyped = await pollFor(() => t.evalJS<string>(editorText), (s) => s.includes("shell"), SETTLE_MS);
+    const textTyped = await settleFor(() => t.evalJS<string>(editorText), (s) => s.includes("shell"), SETTLE_MS);
     expect(textTyped, "typing lands in the Text card's body").toContain("shell");
     expect(await a.evalJS<string | null>(composerText), "and not in A's body").toBe(aBefore);
     note(
@@ -344,24 +345,24 @@ export function textChords(): Promise<void> {
         `undo item ${JSON.stringify(await app.menuItemState("edit.undo"))}; host ${await responders(app)}`,
     );
     await app.nativeKey("z", ["cmd"]);
-    const textUndone = await pollFor(() => t.evalJS<string>(editorText), (s) => !s.includes("shell"), SETTLE_MS);
+    const textUndone = await settleFor(() => t.evalJS<string>(editorText), (s) => !s.includes("shell"), SETTLE_MS);
     expect(textUndone, "⌘Z undoes the typing in the Text card's body").not.toContain("shell");
 
     expect(await slotOf(app, T), "the Text card starts in slot 3").toBe(2);
     await app.nativeKey("1", ["cmd"]);
-    const tMoved = await pollFor(() => slotOf(app, T), (s) => s === 0, SETTLE_MS);
+    const tMoved = await settleFor(() => slotOf(app, T), (s) => s === 0, SETTLE_MS);
     expect(tMoved, "⌘1 from the Text card's body moves it to slot 1").toBe(0);
     await landed(app, T);
     await app.nativeKey("3", ["cmd"]);
-    const tBack = await pollFor(() => slotOf(app, T), (s) => s === 2, SETTLE_MS);
+    const tBack = await settleFor(() => slotOf(app, T), (s) => s === 2, SETTLE_MS);
     expect(tBack, "⌘3 moves it back").toBe(2);
     await landed(app, T);
     await app.nativeKey("y", ["ctrl", "cmd"]);
-    const tFolded = await pollFor(() => foldedOf(app, T), (v) => v, SETTLE_MS);
+    const tFolded = await settleFor(() => foldedOf(app, T), (v) => v, SETTLE_MS);
     expect(tFolded, "⌃⌘Y from the Text card's body folds it").toBe(true);
     await Bun.sleep(1_200);
     await app.nativeKey("y", ["ctrl", "cmd"]);
-    const tUnfolded = await pollFor(() => foldedOf(app, T), (v) => !v, SETTLE_MS);
+    const tUnfolded = await settleFor(() => foldedOf(app, T), (v) => !v, SETTLE_MS);
     expect(tUnfolded, "⌃⌘Y unfolds it").toBe(false);
     const aStill = await bodyOf(app, A);
     expect(aStill?.visible, "A's body stood visible through the Text card's chords").toBe(true);
@@ -391,33 +392,33 @@ export async function overviewChords(): Promise<void> {
     await o.nativeClickAtElement(kind.field!);
 
     await app.nativeType("hello");
-    expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "typing lands in its composer").toContain("hello");
+    expect(await settleFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "typing lands in its composer").toContain("hello");
     await app.nativeKey("a", ["cmd"]);
     await app.nativeKey("x", ["cmd"]);
-    expect(await pollFor(() => o.evalJS<string>(field), (t) => !t.includes("hello"), SETTLE_MS), "⌘A ⌘X empties it").not.toContain("hello");
+    expect(await settleFor(() => o.evalJS<string>(field), (t) => !t.includes("hello"), SETTLE_MS), "⌘A ⌘X empties it").not.toContain("hello");
     await app.nativeKey("v", ["cmd"]);
-    expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "⌘V pastes the cut text back").toContain("hello");
+    expect(await settleFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "⌘V pastes the cut text back").toContain("hello");
     await app.nativeKey("z", ["cmd"]);
-    expect(await pollFor(() => o.evalJS<string>(field), (t) => !t.includes("hello"), SETTLE_MS), "⌘Z undoes the paste").not.toContain("hello");
+    expect(await settleFor(() => o.evalJS<string>(field), (t) => !t.includes("hello"), SETTLE_MS), "⌘Z undoes the paste").not.toContain("hello");
     await app.nativeKey("z", ["cmd", "shift"]);
-    expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "⇧⌘Z redoes it").toContain("hello");
+    expect(await settleFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "⇧⌘Z redoes it").toContain("hello");
 
     const before = await o.evalJS<string>(transcriptStand);
     await app.nativeKey("[", ["ctrl", "cmd"]);
-    const afterPrev = await pollFor(() => o.evalJS<string>(transcriptStand), (v) => v !== before, 1_500);
+    const afterPrev = await settleFor(() => o.evalJS<string>(transcriptStand), (v) => v !== before, 1_500);
     await app.nativeKey("]", ["ctrl", "cmd"]);
-    const afterNext = await pollFor(() => o.evalJS<string>(transcriptStand), (v) => v !== afterPrev, 1_500);
+    const afterNext = await settleFor(() => o.evalJS<string>(transcriptStand), (v) => v !== afterPrev, 1_500);
     note(`paging the column: ${JSON.stringify(before)} → ⌃⌘[ ${JSON.stringify(afterPrev)} → ⌃⌘] ${JSON.stringify(afterNext)}`);
     expect(afterPrev !== before || afterNext !== afterPrev, "⌃⌘[ or ⌃⌘] pages its column").toBe(true);
 
     await o.nativeClickAtElement(kind.field!);
     const idle = await o.evalJS<string | null>(dictationMode);
     await app.nativeKey("d", ["cmd"]);
-    const live = await pollFor(() => o.evalJS<string | null>(dictationMode), (m) => m !== null && m !== idle, SETTLE_MS);
+    const live = await settleFor(() => o.evalJS<string | null>(dictationMode), (m) => m !== null && m !== idle, SETTLE_MS);
     note(`dictation in its composer: ${idle} → ⌘D ${live}`);
     expect(live, "⌘D starts dictation in its composer").not.toBe(idle);
     await app.nativeKey("d", ["cmd"]);
-    expect(await pollFor(() => o.evalJS<string | null>(dictationMode), (m) => m === idle, 6_000), "⌘D again stops it").toBe(idle);
+    expect(await settleFor(() => o.evalJS<string | null>(dictationMode), (m) => m === idle, 6_000), "⌘D again stops it").toBe(idle);
   } finally {
     await app.close();
   }

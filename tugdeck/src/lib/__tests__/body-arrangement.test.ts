@@ -13,6 +13,7 @@ import {
   arrangementSnapshot,
   projectArrangementDeck,
   projectArrangementSpaces,
+  sessionStateOf,
   type ArrangementDeck,
 } from "../body-arrangement";
 
@@ -92,5 +93,25 @@ describe("arrangementSnapshot", () => {
 
   test("a card the deck does not hold sees the deck as it is", () => {
     expect(arrangementSnapshot(LIVE, "nowhere", "body-pane-nowhere")).toBe(LIVE);
+  });
+});
+
+describe("sessionStateOf", () => {
+  test("a live row whose child the supervisor last said was idle, errored or closed is childless", () => {
+    expect(sessionStateOf("live", "pending")).toBe("childless");
+    expect(sessionStateOf("live", "errored")).toBe("childless");
+    expect(sessionStateOf("live", "closed")).toBe("childless");
+  });
+
+  test("a live row whose child is spawning or live, or of which nothing was heard, reads live", () => {
+    expect(sessionStateOf("live", "spawning")).toBe("live");
+    expect(sessionStateOf("live", "live")).toBe("live");
+    expect(sessionStateOf("live", null)).toBe("live");
+  });
+
+  test("a closed or failed row, or none, reads as it is whatever its child said", () => {
+    expect(sessionStateOf("closed", "live")).toBe("closed");
+    expect(sessionStateOf("failed", "errored")).toBe("failed");
+    expect(sessionStateOf(null, "errored")).toBeNull();
   });
 });

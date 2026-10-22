@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { launchTugApp, note } from "../_harness";
 import { claudeProjectDir } from "../_harness/claude-home";
 import { onTestRunEnd } from "../_harness/test-cleanup";
-import { bodyOf, pollFor, promptPhase, sessionPane } from "./_bodies";
+import { bodyOf, pollFor, settleFor, promptPhase, sessionPane } from "./_bodies";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -139,11 +139,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a bracket open at sleep", (
         await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.visible, 30_000);
         await app.spawnSessionResume(A, { tugSessionId: sid, projectDir });
         const body = app.body(A);
-        const read = await pollFor(() => body.evalJS<Read>(READ), (r) => r.newest === 1 && r.coldFirst === 1 && r.phase === "idle", 30_000);
+        const read = await settleFor(() => body.evalJS<Read>(READ), (r) => r.newest === 1 && r.coldFirst === 1 && r.phase === "idle", 30_000);
         expect(read, "the cold read holds the last ten turns and nothing older").toMatchObject({ turns: COLD_WINDOW, newest: 1, coldFirst: 1, pageFirst: 0 });
-        await body.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.body-dormancy", "dormantAfterMs", { kind: "i64", value: ${DORMANT_AFTER_MS} }), null)`,
-        );
+        await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS });
 
         // ---- Parked; asleep, it pages older turns in, and the bracket opens ----
         const home = await app.evalJS<string>(ACTIVE_SPACE);
@@ -162,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a bracket open at sleep", (
         // ---- Shown again: the page is asked again and completes the bracket ----
         const revealAt = Date.now();
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(home)} }), null)`);
-        const done = await pollFor(
+        const done = await settleFor(
           () => body.evalJS<Read>(READ),
           (r) => !r.dormant && r.phase === "idle" && r.pageFirst > 0,
           10_000,

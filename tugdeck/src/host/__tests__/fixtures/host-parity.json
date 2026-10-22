@@ -127,6 +127,92 @@
               "railTravel": {
                 "kind": "flow"
               }
+            },
+            {
+              "cardId": "c4",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "view": {
+                "x": 111,
+                "y": 86,
+                "width": 418,
+                "height": 503
+              },
+              "insets": {
+                "top": 10,
+                "right": 10,
+                "bottom": 10,
+                "left": 10
+              },
+              "shell": [],
+              "visible": false,
+              "face": true,
+              "faceDraw": {
+                "boxes": [
+                  {
+                    "rect": {
+                      "x": 10,
+                      "y": 10,
+                      "width": 398,
+                      "height": 483
+                    },
+                    "fill": "rgba(30, 32, 36, 1)",
+                    "border": {
+                      "width": 1,
+                      "color": "rgba(80, 84, 90, 0.6)"
+                    },
+                    "radius": 6
+                  },
+                  {
+                    "rect": {
+                      "x": 10,
+                      "y": 10,
+                      "width": 398,
+                      "height": 28
+                    },
+                    "fill": null,
+                    "border": null,
+                    "radius": 0
+                  }
+                ],
+                "texts": [
+                  {
+                    "rect": {
+                      "x": 40,
+                      "y": 17,
+                      "width": 120,
+                      "height": 14
+                    },
+                    "text": "Session",
+                    "font": {
+                      "family": "Inter",
+                      "size": 12,
+                      "weight": 600
+                    },
+                    "color": "rgba(220, 222, 226, 1)"
+                  }
+                ],
+                "images": [
+                  {
+                    "rect": {
+                      "x": 18,
+                      "y": 17,
+                      "width": 14,
+                      "height": 14
+                    },
+                    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\"></svg>"
+                  }
+                ]
+              },
+              "z": 3,
+              "grips": [],
+              "free": false,
+              "min": {
+                "width": 0,
+                "height": 0
+              }
             }
           ],
           "rails": {
@@ -203,6 +289,64 @@
               }
             }
           ]
+        },
+        {
+          "apron": 10,
+          "canvas": null,
+          "zoom": 1,
+          "gap": 5,
+          "cards": [
+            {
+              "cardId": "c4",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "view": {
+                "x": 121,
+                "y": 96,
+                "width": 398,
+                "height": 483
+              },
+              "insets": {
+                "top": 0,
+                "right": 0,
+                "bottom": 0,
+                "left": 0
+              },
+              "shell": [],
+              "visible": false,
+              "face": true,
+              "faceDraw": {
+                "boxes": [],
+                "texts": [
+                  {
+                    "rect": {
+                      "x": 121,
+                      "y": 96,
+                      "width": 398,
+                      "height": 483
+                    },
+                    "text": "Session",
+                    "color": "rgba(0, 0, 0, 1)"
+                  }
+                ],
+                "images": []
+              },
+              "z": 1,
+              "grips": [],
+              "free": false,
+              "min": {
+                "width": 0,
+                "height": 0
+              }
+            }
+          ],
+          "rails": {},
+          "band": {
+            "band": 0,
+            "flow": null
+          }
         }
       ]
     },
@@ -619,6 +763,14 @@
           "componentId": "text",
           "intent": {
             "kind": "mount"
+          },
+          "guardsClose": true
+        },
+        {
+          "cardId": "c2",
+          "componentId": "session",
+          "intent": {
+            "kind": "mount"
           }
         }
       ],
@@ -634,6 +786,14 @@
           "cardId": "c1",
           "componentId": "text",
           "intent": "mount"
+        },
+        {
+          "cardId": "c1",
+          "componentId": "text",
+          "intent": {
+            "kind": "mount"
+          },
+          "guardsClose": "yes"
         }
       ]
     },
@@ -654,17 +814,23 @@
       ]
     },
     {
-      "name": "bodyEvictAfter",
+      "name": "bodyDelays",
       "from": "shell",
       "samples": [
         {
-          "ms": 900000
+          "evictAfterMs": 1500,
+          "readyDeadlineMs": null
+        },
+        {
+          "evictAfterMs": null,
+          "readyDeadlineMs": 50
         }
       ],
       "refused": [
-        900000,
+        1500,
         {
-          "ms": "900000"
+          "evictAfterMs": "1500",
+          "readyDeadlineMs": null
         }
       ]
     },
@@ -1568,30 +1734,6 @@
             "keyboardAccess": false,
             "appActive": true
           }
-        }
-      ]
-    },
-    {
-      "member": "onBodyPressure",
-      "to": "shell",
-      "samples": [
-        {
-          "level": "warning",
-          "at": 1760000000000
-        },
-        {
-          "level": "normal",
-          "at": 1760000060000.5
-        }
-      ],
-      "refused": [
-        "warning",
-        {
-          "level": "low",
-          "at": 0
-        },
-        {
-          "level": "critical"
         }
       ]
     },

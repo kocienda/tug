@@ -26,15 +26,15 @@ describe("populationOf", () => {
     }
   });
 
-  test("a failed or evicted body does not hold the lap open; failures and pageless cards are counted", () => {
+  test("a failed, evicted or unmade body does not hold the lap open; failures and pageless cards are counted", () => {
     expect(
       populationOf({
         passSettled: true,
         passPending: false,
-        expected: ["a", "b", "c"],
-        stateOf: states({ a: "painted", b: "failed", c: "evicted" }),
+        expected: ["a", "b", "c", "d"],
+        stateOf: states({ a: "painted", b: "failed", c: "evicted", d: "unmade" }),
       }),
-    ).toEqual({ bodies: 2, failed: 1, unmade: 1 });
+    ).toEqual({ bodies: 2, failed: 1, unmade: 2 });
   });
 });
 

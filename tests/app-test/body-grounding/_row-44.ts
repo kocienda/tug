@@ -1,17 +1,22 @@
 /**
  * _row-44.ts — row 44's helpers: a workspace switch onto cards whose pages
- * have not painted, read frame by frame.
+ * have not painted, read frame by frame — and the judge any gesture that
+ * shows such cards is read by (`readGesture`), row 38's eviction rows among
+ * them.
  *
  * Each piece launches on two workspaces from a seeded layout, arms a burst of
  * window captures over the whole window, switches, and waits for the cards'
- * pages to paint. From the first frame that differs from the standing
- * workspace on, every frame is judged per pane against the settled frame:
- * its box shows no more of the canvas colour than the settled pane does,
- * and its title band holds at least three quarters of the settled title's
- * ink. The first switched frame shows the host's face where the departing
- * view stood: the host hides that view in the transaction that stands a
- * face for each arriving card whose page has not painted, so neither the
- * departing card nor the canvas shows over an arriving pane.
+ * pages to paint. Every frame from the gesture on is judged per pane against
+ * the settled frame — all but one still showing the standing workspace while
+ * the commit reaches the compositor (~80 ms and a frame): its box shows no
+ * more of the canvas colour than the
+ * settled pane does, and its title band holds at least three quarters of the
+ * settled title's ink — or, for a card that has never had a page, three
+ * quarters of the settled band's chrome. The first switched frame shows the
+ * host's face where the departing view stood: the host hides that view in
+ * the transaction that stands a face for each arriving card whose page has
+ * not painted, so neither the departing card nor the canvas shows over an
+ * arriving pane.
  *
  * Not a test: no `describe` here.
  */
@@ -23,8 +28,8 @@ import { join } from "node:path";
 import { note, type App } from "../_harness";
 import type { BodyLayerRow, BodyLayersReading, CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
-import { bodyOf, pollFor } from "./_bodies";
-import { asRgbJs, framesDiffer, near, parseRgb, type FrameRegion, type Rgb } from "./_frames";
+import { bodyOf, pollFor, settleFor } from "./_bodies";
+import { asRgbJs, FLOOR_COLUMNS, framesDiffer, gridColumnsIn, near, parseRgb, type FrameRegion, type Rgb } from "./_frames";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 60_000;
@@ -37,14 +42,20 @@ const STANDING_MS = 120;
 /** The title line, from a pane's top edge, in points: inside the one-line bar every masthead begins with. */
 const TITLE_TOP = 6;
 const TITLE_HEIGHT = 20;
-/** How far from the band's own surface a pixel must lie to be the title's ink; the floor's grid lies far nearer the canvas. */
+/** How far from the band's own surface a pixel must lie to be the title's ink; the canvas's grid lies far nearer the canvas colour. */
 const INK_REACH = 60;
-/** A title band with less ink than this is not showing a title. */
-const TITLE_INK_MIN = 0.01;
 /** How much more of a pane box may be the canvas colour than in the settled frame: row 1's bar. */
 const BOX_CANVAS_SLACK = 0.005;
-/** On every switched frame, a title band holds at least this share of the settled title's ink. */
+/** On every frame from the gesture, a title band holds at least this share of the settled band's ink (or chrome). */
 const HELD_TITLE_SHARE = 0.75;
+/**
+ * How long after the gesture a frame still identical to the standing one is
+ * the commit's own way to the compositor, and not judged: the ~80 ms a
+ * switch's commit has been read to take (the hand-over's snapshot answers in
+ * the same time) and one display frame. Past it, a frame the gesture never
+ * reached is a stall, judged like the rest.
+ */
+const STANDING_GRACE_MS = 100;
 const TOLERANCE = 8;
 
 export interface Rect {
@@ -76,10 +87,12 @@ export function textDeck(cardIds: readonly string[]): Record<string, unknown> {
 
 /** The shell's pane frame for `cardId`, in viewport points, or null while it has no box. */
 export const paneRect = (app: App, cardId: string): Promise<Rect | null> =>
-  // card-dom: shell — the pane stand-in is the shell's.
+  // card-dom: shell — the pane stand-in is the shell's: the one holding the
+  // card's placeholder, which a tab shares with its pane's other cards.
   app.evalJS<Rect | null>(
     `(function () {
-      var el = document.querySelector('.tug-pane[data-pane-id="${cardId}-pane"]');
+      var ph = document.querySelector('[data-body-placeholder][data-card-id="${cardId}"]');
+      var el = ph !== null ? ph.closest(".tug-pane") : document.querySelector('.tug-pane[data-pane-id="${cardId}-pane"]');
       if (el === null) return null;
       var r = el.getBoundingClientRect();
       return r.width > 0 ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
@@ -140,16 +153,35 @@ export function canvasShare(png: Png, region: FrameRegion, canvas: Rgb): number 
 }
 
 /**
- * Switch to `spaceId` under a burst, wait for every card's page to paint,
- * read each card's pane box — the arrangement's, which a pane has only
- * while its workspace is shown — and judge each frame from the first
- * switched one. Answers the frames that
- * failed, after noting the reading — and on a red, keeping the first red
- * frame and the settled one under the temp directory to look at.
+ * Switch to `spaceId` under a burst and judge it ({@link readGesture}).
  */
 export async function readSwitch(
   app: App,
   spaceId: string,
+  cardIds: readonly string[],
+  label: string,
+  band: "title" | "chrome" = "title",
+): Promise<string[]> {
+  return readGesture(
+    app,
+    () => app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(spaceId)} }), null)`),
+    cardIds,
+    label,
+    band,
+  );
+}
+
+/**
+ * Run `gesture` under a burst, wait for every card in `cardIds` to have its
+ * page painted and shown, read each card's pane box — the arrangement's,
+ * which a pane has only while it is shown — and judge every frame from the
+ * gesture on. Answers the frames that failed, after noting the reading —
+ * and on a red, keeping the first red frame and the settled one under the
+ * temp directory to look at.
+ */
+export async function readGesture(
+  app: App,
+  gesture: () => Promise<unknown>,
   cardIds: readonly string[],
   label: string,
   /**
@@ -169,27 +201,27 @@ export async function readSwitch(
   const handOversBefore = (await app.handOvers()).handOvers;
   const serialBefore = handOversBefore.length > 0 ? handOversBefore[handOversBefore.length - 1].serial : 0;
   const choseWall = Date.now();
-  await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(spaceId)} }), null)`);
-  // Whether the placer measured the switch's commit or deferred it to a set-up.
+  await gesture();
+  // Whether the placer measured the gesture's commit or deferred it to a set-up.
   const skipAtSwitch = await app.evalJS<string | null>("window.tugdeck.diag.getBodyPlacement()?.lastSkip ?? null");
   for (const id of cardIds) {
-    const b = await pollFor(() => bodyOf(app, id), (s) => s?.state === "ready" && s.painted === true && s.visible && !s.covered, 10_000);
+    const b = await settleFor(() => bodyOf(app, id), (s) => s?.state === "ready" && s.painted === true && s.visible && !s.covered, 10_000);
     note(`${label} ${id}: painted and shown ${Date.now() - choseWall} ms after the switch, start ${b?.start ?? "?"}`);
     if (b?.painted !== true || b.visible !== true) return [`${id}: its page never painted and showed`];
   }
   const rects: Record<string, Rect> = {};
   for (const id of cardIds) {
-    const rect = await pollFor(() => paneRect(app, id), (r) => r !== null, 5_000);
+    const rect = await settleFor(() => paneRect(app, id), (r) => r !== null, 5_000);
     if (rect === null) return [`${id}: its pane has no box`];
     rects[id] = rect;
   }
-  const reading = await pollFor(
+  const reading = await settleFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
     (r) => r.done,
     BURST_MS + 5_000,
   );
   if (!reading.done) return ["the burst did not finish"];
-  const layers = (await pollFor(
+  const layers = (await settleFor(
     () => app.bodyLayers({ op: "read" }) as Promise<BodyLayersReading>,
     (r) => r.done,
     BURST_MS + 5_000,
@@ -197,8 +229,11 @@ export async function readSwitch(
   const account = await app.handOvers();
   const handOver = account.handOvers.find((h) => h.serial > serialBefore) ?? null;
   const handOverBad: string[] = [];
-  if (handOver === null) handOverBad.push("the switch planned no hand-over");
-  else if (handOver.outcome !== "landed") handOverBad.push(`the switch's hand-over ended ${handOver.outcome}, not landed`);
+  // A hand-over is the host's when the gesture takes a view down over a card
+  // waiting on its page: one with no view on screen to take down plans none.
+  const departing = layers.rows.some((r) => r.wall >= choseWall && !cardIds.includes(r.cardId) && !r.hidden && r.opacity > 0);
+  if (handOver === null && departing) handOverBad.push("the switch planned no hand-over");
+  else if (handOver !== null && handOver.outcome !== "landed") handOverBad.push(`the switch's hand-over ended ${handOver.outcome}, not landed`);
   if (account.standing.length > 0) handOverBad.push(`faces still standing once every card painted: ${account.standing.join(", ")}`);
   note(
     handOver === null
@@ -209,12 +244,14 @@ export async function readSwitch(
           `standing now [${account.standing.join(", ")}]; placer skip at the switch ${skipAtSwitch ?? "none"}`,
   );
   const last = reading.frames[reading.frames.length - 1];
+  // Every frame from the gesture, but the few still identical to the
+  // standing frame while the commit reaches the compositor.
   const before = reading.frames.filter((f) => f.wall < choseWall);
-  if (before.length === 0) return ["no frame of the standing workspace was captured before the switch"];
-  const standing = before[before.length - 1];
-  const start = reading.frames.findIndex((f) => f.wall >= choseWall && framesDiffer(f, standing));
-  if (start < 0) return ["the switch never reached the composite within the burst"];
-  const switched = reading.frames.slice(start);
+  const standing = before.length > 0 ? before[before.length - 1] : null;
+  const switched = reading.frames.filter(
+    (f) => f.wall >= choseWall && !(standing !== null && f.wall - choseWall <= STANDING_GRACE_MS && !framesDiffer(f, standing)),
+  );
+  if (switched.length === 0) return ["no frame was captured after the gesture"];
   const scope = heldTitleScope(layers.rows, cardIds, choseWall);
   note(
     `${label}: host layers ${layers.rows.length} rows; ` +
@@ -247,7 +284,7 @@ export async function readSwitch(
   const settledInk: Record<string, number> = {};
   const settledCanvas: Record<string, number> = {};
   for (const id of cardIds) {
-    settledInk[id] = inkShare(settled, titleOf(rects[id]));
+    settledInk[id] = band === "title" ? inkShare(settled, titleOf(rects[id])) : 1 - canvasShare(settled, titleOf(rects[id]), canvas);
     settledCanvas[id] = canvasShare(settled, boxOf(rects[id]), canvas);
   }
   let firstTitleBad: { wall: number; path: string } | null = null;
@@ -257,24 +294,27 @@ export async function readSwitch(
       const r = rects[id];
       const titleRegion = titleOf(r);
       // A title band holds the settled title's ink. A never-shown card's
-      // title is its page's to compute, so its band need only be the
-      // card's chrome, not the canvas, whatever it says.
+      // title is its page's to compute, so its band need only hold the
+      // settled band's chrome, not the canvas, whatever it says.
       const ink = band === "title" ? inkShare(png, titleRegion) : 1 - canvasShare(png, titleRegion, canvas);
       const floor = canvasShare(png, boxOf(r), canvas);
       const w = (worst[id] ??= { ink: 1, floor: 0 });
       w.ink = Math.min(w.ink, ink);
       w.floor = Math.max(w.floor, floor);
       const ms = Math.round(f.wall - choseWall);
-      if (floor > settledCanvas[id] + BOX_CANVAS_SLACK) {
+      // The floor is told by its grid as well as its colour: a card's own
+      // dark surface (a Session card's restore lid) lies within the colour
+      // tolerance of the canvas and draws no grid.
+      if (floor > settledCanvas[id] + BOX_CANVAS_SLACK && gridColumnsIn(png, canvas, boxOf(r)) >= FLOOR_COLUMNS) {
         bad.push(`${id} at ${ms} ms: box canvas ${(floor * 100).toFixed(1)}% against settled ${(settledCanvas[id] * 100).toFixed(1)}%`);
         firstBad ??= { path: f.path, ms };
       }
-      const titleFails = band === "title" ? ink < HELD_TITLE_SHARE * settledInk[id] : ink < TITLE_INK_MIN;
+      const titleFails = ink < HELD_TITLE_SHARE * settledInk[id];
       if (titleFails) {
         bad.push(
           band === "title"
             ? `${id} at ${ms} ms: title ${(ink * 100).toFixed(1)}% held against settled ${(settledInk[id] * 100).toFixed(1)}%`
-            : `${id} at ${ms} ms: title band chrome ${(ink * 100).toFixed(1)}%`,
+            : `${id} at ${ms} ms: title band chrome ${(ink * 100).toFixed(1)}% held against settled ${(settledInk[id] * 100).toFixed(1)}%`,
         );
         firstBad ??= { path: f.path, ms };
         firstTitleBad ??= { wall: f.wall, path: f.path };
@@ -282,7 +322,7 @@ export async function readSwitch(
     }
   }
   note(
-    `${label}: ${switched.length} frames from the first switched one at ${Math.round(switched[0].wall - choseWall)} ms; ` +
+    `${label}: ${switched.length} frames from the gesture, the first at ${Math.round(switched[0].wall - choseWall)} ms; ` +
       cardIds.map((id) => `${id} least title band ${band} ${(worst[id].ink * 100).toFixed(1)}%, most box canvas ${(worst[id].floor * 100).toFixed(1)}%`).join("; "),
   );
   if (bad.length > 0) note(`${label}: frames without a title or showing the floor: ${bad.slice(0, 10).join("; ")}${bad.length > 10 ? ` (+${bad.length - 10} more)` : ""}`);

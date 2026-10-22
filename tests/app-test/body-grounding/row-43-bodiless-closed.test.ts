@@ -29,7 +29,7 @@ import { launchTugApp, note } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { STREAM_PACE_MS, STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { pollFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
+import { pollFor, settleFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
 import { standUpKind } from "./_kind-bodies";
 import { cardKind, kindPane, kindSidebars } from "./_kinds";
 
@@ -100,7 +100,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card whose sessi
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
       tugbankWrite(tugbankPath, "dev.tugapp.deck.layout", "layout", "json", JSON.stringify(LAYOUT));
-      tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "dormantAfterMs", "int", String(DORMANT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-43-bodiless-closed",
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
@@ -108,6 +107,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card whose sessi
         restoreInTestMode: true,
       });
       try {
+        await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS });
         const sid = randomUUID();
         const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-r43c-project-")));
         onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
@@ -125,16 +125,16 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card whose sessi
         const cards = await standUpKind(app, cardKind("cards"), CARDS);
 
         // ---- Dormant mid-turn: the row runs ----
-        const asleep = await pollFor(() => body.evalJS<boolean>("window.__tug.bodyDormancy().dormant"), (d) => d, 5_000);
+        const asleep = await settleFor(() => body.evalJS<boolean>("window.__tug.bodyDormancy().dormant"), (d) => d, 5_000);
         expect(asleep, "the parked body is dormant past its delay").toBe(true);
-        const running = await pollFor(() => cards.evalJS<string | null>(rowDot(sid)), (s) => s !== null, 5_000);
+        const running = await settleFor(() => cards.evalJS<string | null>(rowDot(sid)), (s) => s !== null, 5_000);
         expect(running, "the Cards row runs for a dormant card mid-turn").toBe("running");
 
         // ---- The session is closed under the dormant card, its turn never ended: the row stills ----
         const closedAt = Date.now();
         expect(closedAt - streamingAt, "the turn is still streaming when the session is closed").toBeLessThan(TURN_MS - 2_000);
         await app.evalJS<null>(`(window.__tug.closeSession(${JSON.stringify(A)}, ${JSON.stringify(sid)}), null)`);
-        const still = await pollFor(() => cards.evalJS<string | null>(rowDot(sid)), (s) => s === "stopped", 5_000);
+        const still = await settleFor(() => cards.evalJS<string | null>(rowDot(sid)), (s) => s === "stopped", 5_000);
         note(`closed ${closedAt - streamingAt} ms into a ${TURN_MS} ms turn; the row's dot ${still} ${Date.now() - closedAt} ms after the close`);
         expect(still, "the row's dot stills once the session's row is closed, though no turn's end was stamped").toBe("stopped");
         expect(

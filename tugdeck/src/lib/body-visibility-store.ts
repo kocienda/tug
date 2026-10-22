@@ -6,7 +6,7 @@
  * container paints, a sibling behind its pane's active card included; hidden
  * once the host has hidden it, a parked or folded body. This store keeps that
  * fact for the page's readers, and runs the clock it implies: a body hidden
- * for `dormantAfterMs` goes dormant by itself.
+ * for {@link DORMANT_AFTER_MS} goes dormant by itself.
  *
  * Dormant is sticky in one direction. Being shown again cancels a clock that
  * has not fired, but a body that has gone dormant stays dormant until it says
@@ -26,8 +26,20 @@
  */
 
 import type { BodyVisibility } from "../host/declarations/lifecycle";
-import { DEFAULT_DORMANT_AFTER_MS } from "./dormant-after-pref";
 import { Subscribable } from "./subscribable";
+
+/**
+ * How long a body stays hidden before it goes dormant: a minute. A body the
+ * host has hidden (a parked workspace's card, a folded pane) keeps its page,
+ * but after this long it stops working on behalf of nobody: it empties its
+ * session subscription, so tugcast sends it nothing and its ingest worker,
+ * hearing nothing, idles with its model kept, and the page catches up when
+ * it is shown again. Long enough that a fold and an unfold, or a glance at
+ * another workspace, never pay a catch-up; short enough that a workspace left
+ * parked stops costing. A constant: the app-tests shorten it through the
+ * harness's `bodyDelays` seam, never a preference.
+ */
+export const DORMANT_AFTER_MS = 60_000;
 
 /** What the store says of the page. */
 export interface BodyVisibilitySnapshot {
@@ -35,7 +47,7 @@ export interface BodyVisibilitySnapshot {
   readonly shown: boolean;
   /** When `shown` last changed, wall-clock ms (the host's `since`). */
   readonly since: number;
-  /** Hidden past `dormantAfterMs`, and not yet caught up since. */
+  /** Hidden past the dormant delay, and not yet caught up since. */
   readonly dormant: boolean;
 }
 
@@ -61,7 +73,7 @@ export class BodyVisibilityStore extends Subscribable {
 
   constructor(
     private readonly clock: DormantClock = SYSTEM_CLOCK,
-    private dormantAfterMs: number = DEFAULT_DORMANT_AFTER_MS,
+    private dormantAfterMs: number = DORMANT_AFTER_MS,
   ) {
     super();
   }

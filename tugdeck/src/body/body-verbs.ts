@@ -56,6 +56,11 @@ export interface BodyVerbHost {
   componentId: string;
   /** Replay a session the shell decided for the card after handing it here, as the bind's own intent was. */
   replayIntent(intent: BodyIntent): void;
+  /**
+   * Settles once the card has mounted. A question the bus held for this page
+   * until its hello arrives before the card's guard exists, so it waits.
+   */
+  mounted: Promise<void>;
 }
 
 /** Whether `value` is a log entry as the shell relays one, its id left to this page. */
@@ -156,8 +161,11 @@ export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
       tugDevLogStore.adopt("shell", entries.filter(isRelayedLogEntry));
     }),
     // The shell's close gesture asks this card's own close guard: its sheet
-    // comes up here, in the card it concerns, and its answer is the reply.
+    // comes up here, in the card it concerns, and its answer is the reply. A
+    // close asked of a page that brings an evicted card back reaches it at
+    // hello, before the card has mounted and registered its guard.
     cardCloseDecision.on(bus).handle(async () => {
+      await host.mounted;
       const guard = getCardCloseGuard(cardId);
       return { answer: guard === null ? ("close" as const) : await guard.run() };
     }),

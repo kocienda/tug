@@ -2,17 +2,10 @@
  * The body visibility store and its dormant clock, over a hand-driven clock.
  *
  * @covers tugdeck/src/lib/body-visibility-store.ts
- * @covers tugdeck/src/lib/dormant-after-pref.ts
  */
 
 import { describe, expect, test } from "bun:test";
-import { BodyVisibilityStore, type DormantClock } from "../body-visibility-store";
-import {
-  DEFAULT_DORMANT_AFTER_MS,
-  dormantAfterLabel,
-  parseBodyDelayMs,
-  resolveDormantAfterMs,
-} from "../dormant-after-pref";
+import { BodyVisibilityStore, DORMANT_AFTER_MS, type DormantClock } from "../body-visibility-store";
 
 /** A clock that only moves when the test says so. */
 class ManualClock implements DormantClock {
@@ -153,26 +146,9 @@ describe("BodyVisibilityStore", () => {
   });
 });
 
-describe("the dormant-after preference", () => {
-  test("a positive whole number of ms is the delay; anything else is no preference", () => {
-    expect(parseBodyDelayMs({ kind: "i64", value: 2000 })).toBe(2000);
-    expect(parseBodyDelayMs(undefined)).toBeNull();
-    expect(parseBodyDelayMs({ kind: "i64", value: 0 })).toBeNull();
-    expect(parseBodyDelayMs({ kind: "i64", value: -5 })).toBeNull();
-    expect(parseBodyDelayMs({ kind: "f64", value: 1.5 })).toBeNull();
-    expect(parseBodyDelayMs({ kind: "string", value: "60000" })).toBeNull();
-  });
-
-  test("no preference is a minute", () => {
-    expect(resolveDormantAfterMs(null)).toBe(DEFAULT_DORMANT_AFTER_MS);
-    expect(DEFAULT_DORMANT_AFTER_MS).toBe(60_000);
-    expect(resolveDormantAfterMs(5000)).toBe(5000);
-  });
-
-  test("labels read as the row shows them", () => {
-    expect(dormantAfterLabel(30_000)).toBe("30s");
-    expect(dormantAfterLabel(60_000)).toBe("1m");
-    expect(dormantAfterLabel(900_000)).toBe("15m");
-    expect(dormantAfterLabel(2_500)).toBe("2.5s");
+describe("the dormant delay", () => {
+  test("is a minute, and the clock runs to it unless told otherwise", () => {
+    expect(DORMANT_AFTER_MS).toBe(60_000);
+    expect(new BodyVisibilityStore().delayMs).toBe(DORMANT_AFTER_MS);
   });
 });

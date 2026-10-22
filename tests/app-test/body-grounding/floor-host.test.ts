@@ -22,7 +22,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
-import { pollFor } from "./_bodies";
+import { pollFor, settleFor } from "./_bodies";
 import { asRgbJs, fillOf, near, type Rgb } from "./_frames";
 
 const TEST_NAME = "body-grounding-floor-host";
@@ -78,7 +78,7 @@ function lineCentres(share: number[]): number[] {
 /** Read a crop of bare canvas: its commonest colour and where its grid lines run. */
 async function readCanvas(app: App, crop: Crop): Promise<CanvasReading> {
   await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop });
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
   expect(reading.done, "the burst finished").toBe(true);
   const frame = reading.frames[reading.frames.length - 1];
   const canvas = fillOf(frame);

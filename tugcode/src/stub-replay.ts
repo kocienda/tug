@@ -93,6 +93,7 @@ import type {
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
 import { errorFrame } from "./ipc.ts";
+import { turnAfterHeld } from "./replay.ts";
 import type { ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
 
 /**
@@ -491,14 +492,13 @@ export class StubReplayEngine {
     } as unknown as OutboundMessage);
   }
 
-  /** The first finished turn after the newest one the card names, as production's `turnAfterHeld` finds it. */
+  /** The first finished turn after the newest one the card names, placed by production's {@link turnAfterHeld}. */
   private turnAfter(held: ReplayAfterTurn): number {
-    for (const id of held.msgIds) {
-      for (let i = this.turnsDone.length - 1; i >= 0; i--) {
-        if (this.turnsDone[i].some((m) => "msg_id" in m && m.msg_id === id)) return i + 1;
-      }
-    }
-    return Math.max(0, Math.floor(held.heldTurns) - 1);
+    const turnOf = new Map<string, number>();
+    this.turnsDone.forEach((outputs, i) => {
+      for (const m of outputs) if ("msg_id" in m && typeof m.msg_id === "string" && m.msg_id !== "") turnOf.set(m.msg_id, i);
+    });
+    return turnAfterHeld(held, this.turnsDone.length, turnOf);
   }
 
   /** Resolves when every paced turn dispatched so far has emitted its last output. */

@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { launchTugApp, note } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, STREAM_PACE_MS, stubDirectory, streamingTranscript } from "../streaming-stub-fixture";
-import { bodyOf, pollFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
+import { bodyOf, pollFor, settleFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -98,14 +98,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a lineage card's catch-up",
         await app.spawnSessionNew(A, { tugSessionId, projectDir });
         await waitForBody(app, A);
         const body = app.body(A);
-        await body.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.body-dormancy", "dormantAfterMs", { kind: "i64", value: ${DORMANT_AFTER_MS} }), null)`,
-        );
+        await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS });
         await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 10_000 });
 
         // ---- The session's own first turn, heard whole ----
         await body.driveSession({ op: "send", text: "The first turn." });
-        const heard = await pollFor(() => body.evalJS<Read>(READ), (r) => r.first === 1 && r.phase === "idle", 10_000);
+        const heard = await settleFor(() => body.evalJS<Read>(READ), (r) => r.first === 1 && r.phase === "idle", 10_000);
         expect(heard, "the session's own first turn is in").toMatchObject({ first: 1, phase: "idle" });
 
         // ---- The restore a lineage replay makes: the ancestors' turns, then the session's ----
@@ -124,7 +122,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a lineage card's catch-up",
         }
         await ingest({ type: "turn_complete", seq: MESSAGES, msg_id: `stub-msg-${MESSAGES - 1}`, result: "success" });
         await ingest({ type: "replay_complete", count: ANCESTOR_TURNS + 1 });
-        const restored = await pollFor(() => body.evalJS<Read>(READ), (r) => r.ancestor === 1 && r.first === 1 && r.phase === "idle", 5_000);
+        const restored = await settleFor(() => body.evalJS<Read>(READ), (r) => r.ancestor === 1 && r.first === 1 && r.phase === "idle", 5_000);
         expect(restored, "the card holds the lineage's turns and the session's first, each once").toMatchObject({ ancestor: 1, first: 1, phase: "idle" });
 
         // ---- The second streams; the workspace is parked under it ----
@@ -135,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a lineage card's catch-up",
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
         await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
-        const asleep = await pollFor(() => body.evalJS<Read>(READ), (r) => r.dormant, 5_000);
+        const asleep = await settleFor(() => body.evalJS<Read>(READ), (r) => r.dormant, 5_000);
         expect(asleep, "the hidden body is dormant past its delay, the second turn still running").toMatchObject({ dormant: true, ended: 0 });
         await Bun.sleep(Math.max(0, streamingAt + TURN_MS + 1_000 - Date.now()));
         const unheard = await body.evalJS<Read>(READ);
@@ -144,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a lineage card's catch-up",
         // ---- Shown again: it catches up on the second turn, and on nothing else ----
         const revealAt = Date.now();
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(home)} }), null)`);
-        const caught = await pollFor(
+        const caught = await settleFor(
           () => body.evalJS<Read>(READ),
           (r) => !r.dormant && r.ended > 0 && r.phase === "idle",
           10_000,

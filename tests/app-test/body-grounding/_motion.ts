@@ -16,7 +16,7 @@ import { expect } from "bun:test";
 
 import { note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
-import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, framesDiffer, pollFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, framesDiffer, pollFor, settleFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
 import { focusBody } from "./_bodies";
 
 export interface Rect {
@@ -66,7 +66,7 @@ export const postedShownJs = (cardId: string): string => `(function () {
 
 /** Wait until the host shows `cardId`'s view, placed visible and opaque. */
 export async function hostShows(app: App, cardId: string, timeoutMs = 5_000): Promise<boolean> {
-  const b = await pollFor(() => app.bodies().then((all) => all.find((s) => s.cardId === cardId) ?? null), (s) => s !== null && s.visible && s.opacity >= 0.99, timeoutMs);
+  const b = await settleFor(() => app.bodies().then((all) => all.find((s) => s.cardId === cardId) ?? null), (s) => s !== null && s.visible && s.opacity >= 0.99, timeoutMs);
   return b !== null && b.visible && b.opacity >= 0.99;
 }
 
@@ -220,7 +220,7 @@ export async function expectAtRest(app: App, cardId: string, label: string): Pro
 
 /** The host's container for `cardId` is hidden, and the shell posts it hidden. */
 export async function expectHidden(app: App, cardId: string, label: string): Promise<void> {
-  const body = await pollFor(() => bodyOf(app, cardId), (b) => b !== null && !b.visible, 5_000);
+  const body = await settleFor(() => bodyOf(app, cardId), (b) => b !== null && !b.visible, 5_000);
   // card-dom: shell — the placer's record of what it posted, in the shell.
   const posted = await app.evalJS<boolean>(postedShownJs(cardId));
   note(`${label}: host ${JSON.stringify(body === null ? null : { visible: body.visible, frame: body.frame })}; posted shown ${posted}`);
@@ -244,7 +244,7 @@ export async function readStanding(app: App, cardId: string, placeholder: Rect):
     height: Math.floor(placeholder.height) - 4,
   };
   await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop: probeCrop });
-  const probe = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
+  const probe = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
   const standingFrame = probe.frames[probe.frames.length - 1];
   const palette = await readPalette(app, probe.windowBackground, standingFrame);
   const standing = classifyFrame(standingFrame, palette);
@@ -371,26 +371,33 @@ export async function pollPresented(app: App, cardId: string, stop: () => boolea
   return out;
 }
 
+/** One plan the placer ran, and what the host has said of it. */
+export interface PlanReport {
+  /** The settle count the plan was run at. */
+  run: number;
+  planId: number | null;
+  planned: string[];
+  /** Where the plan lands each planned body. */
+  landings?: Record<string, Rect>;
+  refused: string[];
+  reasons: Record<string, string>;
+  landed: { cardId: string; lateMs: number | null }[];
+  cancelled: string[];
+}
+
 /** The placer's account of its beat plans (`tugdeck.diag.getBodyPlacement()`). */
 export interface PlanDiag {
   runs: number;
-  last: {
-    planId: number | null;
-    planned: string[];
-    /** Where the plan lands each planned body. */
-    landings?: Record<string, Rect>;
-    refused: string[];
-    reasons: Record<string, string>;
-    landed: { cardId: string; lateMs: number | null }[];
-    cancelled: string[];
-  } | null;
+  last: PlanReport | null;
+  /** The last few plans, oldest first, ending with `last`: a settle re-armed mid-tween plans again. */
+  plans: PlanReport[];
   inFlight: string[];
 }
 
 export const planDiag = (app: App): Promise<PlanDiag> =>
   app.evalJS<PlanDiag>(`(function () {
     var d = window.tugdeck.diag.getBodyPlacement();
-    return { runs: d ? d.planRuns : 0, last: d ? d.lastPlan : null, inFlight: d ? d.inFlight : [] };
+    return { runs: d ? d.planRuns : 0, last: d ? d.lastPlan : null, plans: d ? d.recentPlans : [], inFlight: d ? d.inFlight : [] };
   })()`);
 
 export interface CarriedVerdict {
@@ -630,13 +637,13 @@ export async function carryLeg(
   await app.evalJS<null>(`(${js}, null)`);
   let polling = true;
   const presentedRead = pollPresented(app, card, () => !polling, CARRY_SETTLE_MS + 2_000);
-  const settle = await pollFor(() => samplerState(app), (s) => s.saw && !s.now, CARRY_SETTLE_MS);
+  const settle = await settleFor(() => samplerState(app), (s) => s.saw && !s.now, CARRY_SETTLE_MS);
   polling = false;
   const presented = await presentedRead;
   note(`${label}: settle seen ${settle.saw}, running ${settle.now}`);
   await onSettled?.();
 
-  const plan = await pollFor(
+  const plan = await settleFor(
     () => planDiag(app),
     (p) => p.runs > runsBefore && moved.every((id) => p.last?.landed.some((l) => l.cardId === id) ?? false),
     3_000,
@@ -660,7 +667,7 @@ export async function carryLeg(
   expect(travelled, `${label}: the gesture moved the card`).toBeGreaterThan(20);
 
   const samples = await readSampler(app);
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, CARRY_BURST_MS + 5_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, CARRY_BURST_MS + 5_000);
   expect(reading.done, `${label}: the burst finished`).toBe(true);
   const v = judgeCarried(label, reading, samples, presented, gestureWall, before, after, standing.palette, crop);
   expect(v.motion, `${label}: frames were captured while the chrome moved`).toBeGreaterThan(3);
@@ -689,7 +696,7 @@ export async function carryLeg(
 export async function setUpGesture(app: App, card: string, label: string, run: (app: App) => Promise<unknown>): Promise<void> {
   await armSampler(app, card);
   await run(app);
-  const settle = await pollFor(() => samplerState(app), (v) => v.saw && !v.now, CARRY_SETTLE_MS);
+  const settle = await settleFor(() => samplerState(app), (v) => v.saw && !v.now, CARRY_SETTLE_MS);
   note(`${label} (set-up): settle seen ${settle.saw}, running ${settle.now}`);
   await focusBody(app, card, { composer: false });
   await Bun.sleep(300);

@@ -164,9 +164,7 @@ describe.skipIf(!SHOULD_RUN)("at0750 — a dormant body's cost, and its reveal",
         await app.spawnSessionNew(A, { tugSessionId, projectDir });
         await waitForBody(app, A);
         const body = app.body(A);
-        await body.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.body-dormancy", "dormantAfterMs", { kind: "i64", value: ${AWAKE_WINDOW_MS} }), null)`,
-        );
+        await app.bodyDelays({ dormantAfterMs: AWAKE_WINDOW_MS });
 
         // ---- The fill: 500 turns, whole ----
         await Bun.sleep(1_000);

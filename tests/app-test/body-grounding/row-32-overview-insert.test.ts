@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
 import { launchTugApp, note } from "../_harness";
-import { pollFor } from "./_bodies";
+import { pollFor, settleFor } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -70,24 +70,24 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 32: the Overview's insert stays
         await app.seedDeckState({ state: kindDeck(cardKind("overview"), OVERVIEW, { sessions: ["r32-a"] }), focusCardId: OVERVIEW });
         const body = await standUpKind(app, cardKind("overview"), OVERVIEW);
 
-        const annotated = await pollFor(() => body.evalJS<boolean>(present(ANNOTATION)), (v) => v, 15_000);
+        const annotated = await settleFor(() => body.evalJS<boolean>(present(ANNOTATION)), (v) => v, 15_000);
         expect(annotated, "the seeded post reached the Overview's body and its prose names the file").toBe(true);
         // card-dom: shell
         expect(await app.evalJS<boolean>(present(CARD)), "the shell's document holds no Overview").toBe(false);
 
         expect(await body.evalJS<string>(OPEN_MENU_OVER_ANNOTATION)).toBe("ok");
-        const offered = await pollFor(() => body.evalJS<boolean>(present(INSERT_ITEM)), (v) => v, 5_000);
+        const offered = await settleFor(() => body.evalJS<boolean>(present(INSERT_ITEM)), (v) => v, 5_000);
         expect(offered, "the row menu offers the insert, in the Overview's body").toBe(true);
         const label = await body.evalJS<string>(`(document.querySelector(${JSON.stringify(INSERT_ITEM)}).textContent || "").trim()`);
         expect(label).toBe("Insert Atom into Prompt");
 
         await body.nativeClickAtElement(INSERT_ITEM);
-        const landed = await pollFor(() => body.evalJS<boolean>(present(FIELD_ATOM)), (v) => v, 10_000);
+        const landed = await settleFor(() => body.evalJS<boolean>(present(FIELD_ATOM)), (v) => v, 10_000);
         expect(landed, "the atom landed in the Overview's composer").toBe(true);
         const atomLabel = await body.evalJS<string>(`document.querySelector(${JSON.stringify(FIELD_ATOM)}).getAttribute("data-atom-label")`);
         note(`composer atom label ${JSON.stringify(atomLabel)}`);
         expect(atomLabel).toBe(MENTIONED_NAME);
-        const caret = await pollFor(
+        const caret = await settleFor(
           () => body.evalJS<boolean>(`(function(){ var f = document.querySelector(${JSON.stringify(FIELD)}); return f !== null && document.activeElement !== null && f.contains(document.activeElement); })()`),
           (v) => v,
           10_000,

@@ -201,10 +201,13 @@ export interface BodyPlacement {
   readonly face?: true;
   /**
    * What the host draws the card's face from: its stand-in read into a
-   * display list, on a `face` card only. Read once, when the card becomes a
-   * face, and carried by every later placement that still marks it.
+   * display list, on a `face` card only. Read when the card becomes a face,
+   * and carried by every later placement that still marks it until the
+   * stand-in's facts move ({@link faceKey}), when it is read again.
    */
   readonly faceDraw?: FaceDraw;
+  /** The stand-in's `data-face-key` that {@link faceDraw} was read under; the shell's own, never posted. */
+  readonly faceKey?: string;
   /**
    * The card's pane, inset within its view: the apron plus whatever the
    * view's growth to whole points added on each side. The card's page lays
@@ -739,18 +742,39 @@ export function inReadingOrder(bodies: readonly BodyPlacement[]): BodyPlacement[
 }
 
 /**
+ * The display list a `face` card posts, and the stand-in facts it was read
+ * under: the list `carried` from the last placement while the stand-in's
+ * `data-face-key` (`standInKey`) is the one it was read under, or while no
+ * stand-in stands to read again (null); otherwise a fresh `read()`. Null
+ * when there is neither.
+ */
+export function faceToCarry(
+  carried: { readonly draw: FaceDraw; readonly key: string } | undefined,
+  standInKey: string | null,
+  read: () => FaceDraw | undefined,
+): { readonly draw: FaceDraw; readonly key: string } | null {
+  if (carried !== undefined && (standInKey === null || carried.key === standInKey)) return carried;
+  if (standInKey === null) return null;
+  const draw = read();
+  return draw === undefined ? null : { draw, key: standInKey };
+}
+
+/**
  * Read every card's stand-in under `root` once, and decide each one's
  * visibility from the deck. The cards are posted in reading order
  * (`inReadingOrder`).
  *
  * A card that becomes a face — `face` here and not in `last` — has its
  * stand-in read into its face's display list ({@link faceDrawOf}); a card
- * `last` already faced carries the list it was read with.
+ * `last` already faced carries the list it was read with, while its
+ * stand-in's facts (`data-face-key`) are the ones that list was read under.
  */
 export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, last: Placement | null = null): Placement {
   const bodies: BodyPlacement[] = [];
   const lastFaced = new Map(
-    (last?.bodies ?? []).flatMap((b) => (b.face === true && b.faceDraw !== undefined ? [[b.cardId, b.faceDraw] as const] : [])),
+    (last?.bodies ?? []).flatMap((b) =>
+      b.face === true && b.faceDraw !== undefined ? [[b.cardId, { draw: b.faceDraw, key: b.faceKey ?? "" }] as const] : [],
+    ),
   );
   for (const el of root.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
     const cardId = el.dataset.cardId;
@@ -763,10 +787,12 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, las
     const z = parseInt(getComputedStyle(frame).zIndex, 10);
     const visible = facts !== null && bodyVisible(facts);
     const face = wantsFace(facts, visible);
-    const standIn = face && !lastFaced.has(cardId) ? el.querySelector("[data-body-stand-in]") : null;
-    const faceDraw = face
-      ? (lastFaced.get(cardId) ?? (standIn !== null ? faceDrawOf(standIn, rect, pageZoomStore.getFactor()) : undefined))
-      : undefined;
+    const standIn = face ? el.querySelector("[data-body-stand-in]") : null;
+    const drawn = face
+      ? faceToCarry(lastFaced.get(cardId), standIn === null ? null : (standIn.getAttribute("data-face-key") ?? ""), () =>
+          standIn === null ? undefined : faceDrawOf(standIn, rect, pageZoomStore.getFactor()),
+        )
+      : null;
     bodies.push({
       cardId,
       x: rect.x,
@@ -787,7 +813,7 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, las
         : {}),
       // A card hidden only for want of its first paint: the host may face it.
       ...(face ? { face: true as const } : {}),
-      ...(faceDraw !== undefined ? { faceDraw } : {}),
+      ...(drawn !== null ? { faceDraw: drawn.draw, faceKey: drawn.key } : {}),
     });
   }
   return { bodies: inReadingOrder(bodies) };
@@ -936,11 +962,12 @@ export interface ArrangementWrites {
  * the whole of how a gesture moves a stand-in without a commit, so it is the
  * one wake the placer needs for all of them ([B06]). A write of the value
  * already standing queues a record too; the measurement it wakes posts
- * nothing new, and posts nothing.
+ * nothing new, and posts nothing. A stand-in's `data-face-key` wakes it
+ * too: a face whose facts moved is read again.
  */
 export function watchArrangementWrites(container: HTMLElement, wake: () => void): ArrangementWrites {
   const observer = new MutationObserver(() => wake());
-  observer.observe(container, { subtree: true, attributes: true, attributeFilter: ["style"] });
+  observer.observe(container, { subtree: true, attributes: true, attributeFilter: ["style", "data-face-key"] });
   return {
     release: () => observer.disconnect(),
     drop: () => {
@@ -986,6 +1013,12 @@ export class CardPlacer {
   private readonly inFlight = new Map<string, InFlightPlan>();
   /** What the last {@link runPlan} decided, and what the host has said of it since. */
   private lastPlan: CardPlanReport | null = null;
+  /**
+   * The last few plans' reports, oldest first, the last of them
+   * {@link lastPlan}: a settle re-armed mid-tween plans again, and its report
+   * would otherwise hide the one that carried the card.
+   */
+  private recentPlans: CardPlanReport[] = [];
   /** How many times {@link runPlan} has run, so a reader can tell its last report is new. */
   private planRuns = 0;
   /** The plan whose landed cards the land's measurement has been checked against, and which of them it has. */
@@ -1325,7 +1358,8 @@ export class CardPlacer {
       this.poster.adopt(adopted);
       this.postCards(adopted);
     }
-    this.lastPlan = {
+    this.report({
+      run: this.planRuns,
       planId,
       planned: out.cards.map((c) => c.cardId),
       landings: Object.fromEntries(out.cards.map((c) => [c.cardId, c.landing])),
@@ -1334,7 +1368,7 @@ export class CardPlacer {
       landed: [],
       cancelled: [],
       shellLanded: [],
-    };
+    });
     return planId === null ? null : { planId, solves: out.solves };
   }
 
@@ -1442,7 +1476,8 @@ export class CardPlacer {
     const now = document.timeline.currentTime;
     const planId = this.postPlan(out, typeof now === "number" ? now : performance.now(), new Set(out.cards.map((c) => c.cardId)));
     for (const cardId of out.refused) this.deck.noteCardDidLand(cardId);
-    this.lastPlan = {
+    this.report({
+      run: this.planRuns,
       planId,
       planned: out.cards.map((c) => c.cardId),
       landings: Object.fromEntries(out.cards.map((c) => [c.cardId, c.landing])),
@@ -1451,7 +1486,7 @@ export class CardPlacer {
       landed: [],
       cancelled: [],
       shellLanded: [],
-    };
+    });
     if (planId === null) return placement;
     const planned = new Set(out.cards.map((c) => c.cardId));
     return { bodies: placement.bodies.map((b) => (planned.has(b.cardId) ? { ...b, planId } : b)) };
@@ -1469,7 +1504,7 @@ export class CardPlacer {
     this.inFlight.delete(cardId);
     if (flight.lands) this.deck.noteCardDidLand(cardId);
     overlaySurfaceBook.release(cardId, "plan");
-    if (this.lastPlan?.planId === planId) this.lastPlan.shellLanded.push(cardId);
+    this.reportOf(planId)?.shellLanded.push(cardId);
     this.traceAnswer(cardId, planId, false, null);
     tugDevLogStore.warn("placement", "landing guard fired", { cardId, planId, guardMs: LANDING_GUARD_MS });
     const last = this.poster.lastPosted;
@@ -1482,6 +1517,17 @@ export class CardPlacer {
         return rest;
       }),
     });
+  }
+
+  /** Record a plan's report as the last, keeping the few before it. */
+  private report(report: CardPlanReport): void {
+    this.lastPlan = report;
+    this.recentPlans = [...this.recentPlans.slice(-(RECENT_PLANS - 1)), report];
+  }
+
+  /** The kept report of plan `planId`, which the host's answers are written into. */
+  private reportOf(planId: number): CardPlanReport | undefined {
+    return this.recentPlans.find((r) => r.planId === planId);
   }
 
   private clearHorizon(cardId: string): void {
@@ -1511,7 +1557,7 @@ export class CardPlacer {
       if (flight.lands) this.deck.noteCardDidLand(cardId);
       this.measureAtRest();
     }
-    if (this.lastPlan?.planId === planId) this.lastPlan.landed.push({ cardId, lateMs });
+    this.reportOf(planId)?.landed.push({ cardId, lateMs });
   }
 
   /** A placement or a newer plan took `cardId` before plan `planId` landed it. */
@@ -1524,7 +1570,7 @@ export class CardPlacer {
       if (flight.lands) this.deck.noteCardDidLand(cardId);
       this.measureAtRest();
     }
-    if (this.lastPlan?.planId === planId) this.lastPlan.cancelled.push(cardId);
+    this.reportOf(planId)?.cancelled.push(cardId);
   }
 
   /**
@@ -1652,11 +1698,15 @@ export class CardPlacer {
       lastSkip: this.lastSkip,
       measures: this.measures,
       lastPlan: this.lastPlan,
+      recentPlans: this.recentPlans,
       planRuns: this.planRuns,
       inFlight: [...this.inFlight.keys()],
     };
   }
 }
+
+/** How many plans' reports {@link CardPlacementDiag.recentPlans} keeps. */
+const RECENT_PLANS = 8;
 
 /** The placer's own account of itself, for `tugdeck.diag`. */
 export interface CardPlacementDiag {
@@ -1667,6 +1717,8 @@ export interface CardPlacementDiag {
   readonly measures: number;
   /** The last beat plan the placer ran, or null before one. */
   readonly lastPlan: CardPlanReport | null;
+  /** The last few plans, oldest first, ending with {@link lastPlan}. */
+  readonly recentPlans: readonly CardPlanReport[];
   /** How many settles have handed the placer frames to plan. */
   readonly planRuns: number;
   /** The bodies a plan is carrying now. */
@@ -1675,6 +1727,8 @@ export interface CardPlacementDiag {
 
 /** What one {@link CardPlacer.runPlan} decided and what the host has said of it. */
 export interface CardPlanReport {
+  /** The {@link CardPlacementDiag.planRuns} count the plan was run at. */
+  readonly run: number;
   /** Null when nothing was planned and nothing posted. */
   readonly planId: number | null;
   readonly planned: readonly string[];

@@ -35,7 +35,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, focusBody, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, focusBody, pollFor, settleFor, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 
@@ -83,7 +83,7 @@ async function lap(app: App, label: string, press: () => Promise<void>, card = A
   let at: string | null = (await read()).id;
   for (let i = 0; i < MAX_STEPS; i++) {
     await press();
-    const { id, where } = await pollFor(read, (v) => v.id !== null && v.id !== at, 1_500);
+    const { id, where } = await settleFor(read, (v) => v.id !== null && v.id !== at, 1_500);
     const holder = await bodyOf(app, card);
     steps.push({ id, bodyHolds: holder?.firstResponder === true, where });
     at = id;

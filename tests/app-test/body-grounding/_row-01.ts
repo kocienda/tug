@@ -45,7 +45,7 @@ import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
-import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, type FloorMeasure, type FrameClasses } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, pollFor, settleFor, readPalette, type FloorMeasure, type FrameClasses } from "./_frames";
 import { armPlaceholderSampler, landedFrom, openKind, placeholderAt, readPlaceholderSampler } from "./_kind-bodies";
 import { planDiag } from "./_motion";
 import type { CardKind } from "./_kinds";
@@ -112,7 +112,7 @@ const hostShowsIt = async (app: App, cardId: string): Promise<boolean> => {
 /** ⌘N through the tap; resolves the new card's id as soon as the deck focuses it. */
 async function pressNew(app: App, before: string | null): Promise<string> {
   await app.nativeKey("n", ["cmd"]);
-  const id = await pollFor(() => app.getFocusedCardId(), (c) => c !== null && c !== before, PLACED_MS);
+  const id = await settleFor(() => app.getFocusedCardId(), (c) => c !== null && c !== before, PLACED_MS);
   expect(id, "⌘N opened a new card and the deck focused it").not.toBe(before);
   return id!;
 }
@@ -129,7 +129,7 @@ async function newCardByChord(app: App, before: string | null): Promise<string> 
  * running, and a beat more for the arrive beat's last frame.
  */
 async function deckStill(app: App): Promise<void> {
-  const still = await pollFor(
+  const still = await settleFor(
     () =>
       app.evalJS<boolean>(
         `document.querySelector('[data-imposer-settling]') === null && document.querySelector('.tug-pane[data-arriving]') === null`,
@@ -221,24 +221,24 @@ async function arriveOpened(
   const handOffWall = Date.now();
   await pollFor(() => bodyOf(app, cardId), (b) => b !== null, PLACED_MS);
   const armed = await app.hostFrames({ op: "arm", windowMs: BURST_MS, layer: cardId }).catch(() => null);
-  const shown = await pollFor(
+  const shown = await settleFor(
     () => bodyOf(app, cardId),
     (b) => b !== null && b.state === "ready" && b.painted && b.visible,
     BODY_READY_MS,
   );
   expect(shown?.visible, `${label}: the body is placed visible`).toBe(true);
   expect(shown?.componentId, `${label}: the body holds a ${componentId} card`).toBe(componentId);
-  const lifted = await pollFor(() => hostShowsIt(app, cardId), (v) => v, PLACED_MS);
+  const lifted = await settleFor(() => hostShowsIt(app, cardId), (v) => v, PLACED_MS);
   // A body the placer planned on its own arrival was never shown before it:
   // the host carried it in, and the plan says whether it landed.
   const plan = (await planDiag(app)).last;
   const carried = plan?.planned.includes(cardId) === true;
   if (carried) {
-    const landedPlan = await pollFor(() => planDiag(app), (p) => p.last?.landed.some((l) => l.cardId === cardId) ?? false, PLACED_MS);
+    const landedPlan = await settleFor(() => planDiag(app), (p) => p.last?.landed.some((l) => l.cardId === cardId) ?? false, PLACED_MS);
     expect(landedPlan.last?.landed.some((l) => l.cardId === cardId), `${label}: the plan that carried the body in landed it`).toBe(true);
   }
   expect(lifted, `${label}: the host shows the card's view, opaque`).toBe(true);
-  const reading = await pollFor(
+  const reading = await settleFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
     (r) => r.done,
     BURST_MS + 5_000,
@@ -300,7 +300,7 @@ async function withSpare(name: string, body: (app: App) => Promise<void>): Promi
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     // The spare is made a beat after the shell paints, and waits connected.
-    const spares = await pollFor(
+    const spares = await settleFor(
       () => app.bodies(),
       (all) => all.some((b) => b.cardId === null && b.state === "connected"),
       BODY_READY_MS,

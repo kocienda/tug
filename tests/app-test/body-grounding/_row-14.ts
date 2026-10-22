@@ -45,7 +45,7 @@ import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { armLandRecords, bodyClock, expectEmptyLand, readBodyCommits, readBodyLand, readSettleLand } from "./_land";
@@ -145,7 +145,7 @@ export async function flowLeg(app: App, card: string, label: string, js: string,
   await carryLeg(app, card, FLOW_BODIES, label, js, standing, crop, async () => {
     // Read before `carryLeg` focuses the body again, which is a commit of
     // the page's own that the slide did not cause.
-    const shell = await pollFor(() => readSettleLand(app, shellMark), (row) => row !== null, 2_000);
+    const shell = await settleFor(() => readSettleLand(app, shellMark), (row) => row !== null, 2_000);
     note(`${label}: settle-land ${JSON.stringify(shell)}`);
     for (const id of FLOW_BODIES) {
       const commits = await readBodyCommits(app, id, clocks.get(id) ?? 0);

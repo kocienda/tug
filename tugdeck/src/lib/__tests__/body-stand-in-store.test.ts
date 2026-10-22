@@ -17,8 +17,8 @@ function facts(over: Partial<StandInFacts> = {}): StandInFacts {
 }
 
 describe("whether a card wants a face", () => {
-  test("a page being made, made and not painted, or evicted wants one", () => {
-    for (const state of ["creating", "ready", "evicted"] as BodyCardState[]) {
+  test("a page being made, made and not painted, evicted, or never made wants one", () => {
+    for (const state of ["creating", "ready", "evicted", "unmade"] as BodyCardState[]) {
       expect(standInOf(facts({ state }))).toBe(true);
     }
   });

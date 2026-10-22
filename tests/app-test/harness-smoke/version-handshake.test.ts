@@ -41,9 +41,9 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 describe.skipIf(!SHOULD_RUN)("in-app: version handshake", () => {
   test("wrong expected version throws VersionSkewError with expected/actual populated", async () => {
     // Deliberately bump the expected major into the future. The
-    // server is pinned at `1.0.0`; comparing `2.x` vs `1.x` triggers
+    // server is at major `2`; comparing `3.x` vs `2.x` triggers
     // the mismatch branch in `launchTugApp`.
-    const bogusExpected = "2.0.0";
+    const bogusExpected = "3.0.0";
 
     let caught: unknown;
     try {
@@ -57,7 +57,7 @@ describe.skipIf(!SHOULD_RUN)("in-app: version handshake", () => {
     expect(err.name).toBe("VersionSkewError");
     // The harness preserves the caller-supplied expected in the error.
     expect(err.expected).toBe(bogusExpected);
-    // The server advertises major `1`. We don't pin the exact patch
+    // The server advertises major `2`. We don't pin the exact patch
     // here — that belongs to a separate test — but it must be a
     // non-empty string that is obviously different from `bogusExpected`.
     expect(typeof err.actual).toBe("string");

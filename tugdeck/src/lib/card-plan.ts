@@ -444,7 +444,7 @@ export function planCards(input: CardPlanInput): CardPlanOutput {
       // anywhere else is stale. An arrival was never shown: it is placed at
       // its landing, wherever the hidden pane happened to stand.
       if (!arrives && !sameRect(view(frame.first), placed, STALE_PX)) {
-        refuse(cardId, "its placement is not where its frame's First rect stands");
+        refuse(cardId, `its placement is not where its frame's First rect stands: placed at ${JSON.stringify({ x: placed.x, y: placed.y, width: placed.width, height: placed.height })}, First at ${JSON.stringify(view(frame.first))}`);
         continue;
       }
       const beats: CardBeat[] = walk.steps.map(({ beat, from, to }) => {

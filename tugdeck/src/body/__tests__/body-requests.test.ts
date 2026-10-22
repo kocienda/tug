@@ -6,7 +6,9 @@
  * would not ask answers at once, so the shell waits on it only to its
  * deadline and then cancels the close; a guard that asks waits on the person
  * at its sheet with no deadline at all; the card's page going away cancels
- * it. A question for a Session card is shown in the body's dialog, stands
+ * it; and one asked of a page that is still coming up — an evicted card's
+ * next page — is asked of the guard its card registers once it has mounted.
+ * A question for a Session card is shown in the body's dialog, stands
  * across a reload of the page, and its caller hears the choice once; a
  * question the shell takes back takes the dialog down.
  *
@@ -41,9 +43,9 @@ async function shellAndBody(cardId: string): Promise<TestPage> {
   return body;
 }
 
-function answeringBody(cardId: string): TestPage {
+function answeringBody(cardId: string, mounted: Promise<void> = Promise.resolve()): TestPage {
   const body = bus.body(cardId, "session");
-  releases.push(answerBodyVerbs(body.bus, { cardId, componentId: "session", replayIntent: () => {} }));
+  releases.push(answerBodyVerbs(body.bus, { cardId, componentId: "session", replayIntent: () => {}, mounted }));
   return body;
 }
 
@@ -88,6 +90,38 @@ describe("a close decision", () => {
     bus.detach("C");
     await bus.flush();
     expect(await decided).toBe("cancel");
+  });
+
+  test("asked before the card's next page has mounted, is asked of the guard the card registers", async () => {
+    bus = createTestBus();
+    bus.install(bus.shell());
+    let decided = null as string | null;
+    void askCloseDecision("C", true).then((d) => (decided = d));
+    await bus.flush();
+
+    // The page says hello before its card mounts; the question it was held
+    // for arrives with nothing yet to ask.
+    let mount!: () => void;
+    answeringBody("C", new Promise<void>((resolve) => (mount = resolve)));
+    await bus.flush();
+    await elapse(0);
+    expect(decided).toBeNull();
+
+    let answer!: (a: "close" | "cancel") => void;
+    releases.push(
+      registerCardCloseGuard("C", {
+        needsDecision: () => true,
+        run: () => new Promise((resolve) => (answer = resolve)),
+      }),
+    );
+    mount();
+    await elapse(0);
+    expect(decided).toBeNull();
+    answer("cancel");
+    await elapse(0);
+    await bus.flush();
+    await elapse(0);
+    expect(decided).toBe("cancel");
   });
 });
 

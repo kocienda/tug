@@ -517,17 +517,25 @@ const GRID_CANVAS_TOLERANCE = 8;
  * of runs a steady pitch apart.
  */
 export function gridColumns(path: string, canvas: Rgb): number {
-  const png = decodePngFile(path);
+  return gridColumnsIn(decodePngFile(path), canvas);
+}
+
+/** {@link gridColumns} over `region` of a decoded frame, in its pixels (the whole frame when none). */
+export function gridColumnsIn(png: DecodedPng, canvas: Rgb, region?: FrameRegion): number {
+  const x0 = Math.max(0, Math.floor(region?.x ?? 0));
+  const y0 = Math.max(0, Math.floor(region?.y ?? 0));
+  const x1 = Math.min(png.width, Math.ceil(region === undefined ? png.width : region.x + region.width));
+  const y1 = Math.min(png.height, Math.ceil(region === undefined ? png.height : region.y + region.height));
   const starts: number[] = [];
   let on = false;
-  for (let x = 0; x < png.width; x++) {
+  for (let x = x0; x < x1; x++) {
     let hits = 0;
-    for (let y = 0; y < png.height; y += 2) {
+    for (let y = y0; y < y1; y += 2) {
       const i = (y * png.width + x) * 4;
       const p = { r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] };
       if (!near(p, canvas, GRID_CANVAS_TOLERANCE) && near(p, canvas, GRID_REACH)) hits += 1;
     }
-    const line = hits / Math.ceil(png.height / 2) > 0.5;
+    const line = hits / Math.max(1, Math.ceil((y1 - y0) / 2)) > 0.5;
     if (line && !on) starts.push(x);
     on = line;
   }
@@ -591,8 +599,28 @@ export async function readPalette(
   };
 }
 
-/** Poll `read` until `done` holds or `timeoutMs` passes; returns the last reading. */
+/**
+ * Poll `read` until `done` holds; returns the reading that satisfied it, and
+ * throws once `timeoutMs` passes without one, naming the last reading. A
+ * wait is a step: a defect that leaves it waiting stops the test there, with
+ * what it saw, rather than letting it run on into a later and misleading red.
+ * A wait whose value the caller asserts itself is {@link settleFor}.
+ */
 export async function pollFor<T>(read: () => Promise<T>, done: (value: T) => boolean, timeoutMs: number): Promise<T> {
+  const value = await settleFor(read, done, timeoutMs);
+  if (!done(value)) {
+    const seen = JSON.stringify(value) ?? String(value);
+    throw new Error(`pollFor: not done after ${timeoutMs} ms; the last reading ${seen.length > 400 ? `${seen.slice(0, 400)}…` : seen}`);
+  }
+  return value;
+}
+
+/**
+ * Poll `read` until `done` holds or `timeoutMs` passes, and return the last
+ * reading either way: for a wait whose value the caller asserts itself, with
+ * its own message — or one whose running out is an answer, not a fault.
+ */
+export async function settleFor<T>(read: () => Promise<T>, done: (value: T) => boolean, timeoutMs: number): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   let value = await read();
   while (!done(value) && Date.now() < deadline) {

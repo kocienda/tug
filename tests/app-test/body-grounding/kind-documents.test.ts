@@ -39,7 +39,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App, type BodyApp } from "../_harness";
-import { paneOf, pollFor } from "./_bodies";
+import { paneOf, pollFor, settleFor } from "./_bodies";
 import { heldRectOf } from "../card-chrome-fixture";
 import { expectContentSurface, standUpKind } from "./_kind-bodies";
 import { cardKind, kindPane, kindSidebars } from "./_kinds";
@@ -97,7 +97,7 @@ const PINNED_COMMIT = "b7a4dcaed";
  */
 async function bringIntoView(app: App, cardId: string): Promise<void> {
   await app.dispatchControlAction("focus-session-card", { cardId });
-  const inView = await pollFor(
+  const inView = await settleFor(
     async () => {
       const frame = await heldRectOf(app, cardId);
       const rail = await app.evalJS<number>(`(function () { var p = document.querySelector(${JSON.stringify(paneOf(R))}); return p === null ? innerWidth : p.getBoundingClientRect().left; })()`);
@@ -122,7 +122,7 @@ async function clickSettled(app: App | BodyApp, selector: string): Promise<void>
     return { key: [r.left, r.top, r.width, r.height].join(","), on: hit !== null && b.contains(hit) };
   })()`;
   let last = "";
-  const settled = await pollFor(
+  const settled = await settleFor(
     async () => {
       const now = await app.evalJS<{ key: string; on: boolean } | null>(read);
       const steady = now !== null && now.on && now.key === last;
@@ -193,16 +193,16 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         mark("all five stood up");
 
         // ── Text: its file, an edit the Cards rail sees, ⌘S to disk ─────
-        const loaded = await pollFor(() => text.evalJS<string>(textOf(TEXT_EDITOR)), (t) => t.includes("alpha"), READ_MS);
+        const loaded = await settleFor(() => text.evalJS<string>(textOf(TEXT_EDITOR)), (t) => t.includes("alpha"), READ_MS);
         expect(loaded, "the Text body shows the file's text").toContain("beta");
-        const listed = await pollFor(
+        const listed = await settleFor(
           () => cards.evalJS<string[]>(`Array.from(document.querySelectorAll(${JSON.stringify(ROW_TITLE)})).map(function (el) { return el.textContent || ""; })`),
           (rows) => rows.some((r) => r.includes("notes.md")),
           READ_MS,
         );
         note(`cards rail rows: ${JSON.stringify(listed)}`);
         expect(listed.some((r) => r.includes("notes.md")), "the Cards rail names the Text card by its file").toBe(true);
-        const reveal = await pollFor(
+        const reveal = await settleFor(
           () => text.evalJS<boolean | null>(`(function () { var b = document.querySelector(${JSON.stringify(titleBarItem("reveal-card-file"))}); return b === null ? null : !b.disabled; })()`),
           (v) => v === true,
           READ_MS,
@@ -210,28 +210,28 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         expect(reveal, "the Text card's Reveal button stands enabled in the title bar its page draws").toBe(true);
         await text.nativeClickAtElement(TEXT_EDITOR);
         await app.nativeType("EDIT ");
-        const edited = await pollFor(() => text.evalJS<string>(textOf(TEXT_EDITOR)), (t) => t.includes("EDIT"), READ_MS);
+        const edited = await settleFor(() => text.evalJS<string>(textOf(TEXT_EDITOR)), (t) => t.includes("EDIT"), READ_MS);
         expect(edited, "typing lands in the Text body").toContain("EDIT");
-        const dirty = await pollFor(() => cards.evalJS<number>(count(UNSAVED)), (n) => n === 1, READ_MS);
+        const dirty = await settleFor(() => cards.evalJS<number>(count(UNSAVED)), (n) => n === 1, READ_MS);
         expect(dirty, "the Cards rail marks the Text card unsaved").toBe(1);
         expect(readFileSync(textFile, "utf8"), "the edit is in the buffer only").toBe("alpha\nbeta\n");
         await app.nativeKey("s", ["cmd"]);
-        const saved = await pollFor(() => Promise.resolve(readFileSync(textFile, "utf8")), (t) => t.includes("EDIT"), READ_MS);
+        const saved = await settleFor(() => Promise.resolve(readFileSync(textFile, "utf8")), (t) => t.includes("EDIT"), READ_MS);
         expect(saved, "⌘S wrote the buffer to the file").toContain("EDIT");
-        const clean = await pollFor(() => cards.evalJS<number>(count(UNSAVED)), (n) => n === 0, READ_MS);
+        const clean = await settleFor(() => cards.evalJS<number>(count(UNSAVED)), (n) => n === 0, READ_MS);
         expect(clean, "and the Cards rail's dot is gone").toBe(0);
 
         // ── File view: the picture, and the gear's sheet in the body ─────
         mark("text done");
         await bringIntoView(app, F);
-        const natural = await pollFor(
+        const natural = await settleFor(
           () => file.evalJS<number>(`(function () { var i = document.querySelector(${JSON.stringify(IMAGE)}); return i === null ? 0 : i.naturalWidth; })()`),
           (w) => w > 0,
           READ_MS,
         );
         expect(natural, "the file-view body decodes the picture at its natural size").toBe(1024);
         const gear = titleBarItem("show-card-settings");
-        const gearUp = await pollFor(
+        const gearUp = await settleFor(
           () => file.evalJS<boolean>(`(function () { var b = document.querySelector(${JSON.stringify(gear)}); return b !== null && !b.disabled; })()`),
           (v) => v,
           READ_MS,
@@ -250,29 +250,29 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         // hover and unhittable until then. Pin the row open first (at0416).
         await file.revealPaneControls();
         await clickSettled(file, gear);
-        const sheet = await pollFor(() => file.evalJS<boolean>(present(IMAGE_SHEET)), (v) => v, READ_MS);
+        const sheet = await settleFor(() => file.evalJS<boolean>(present(IMAGE_SHEET)), (v) => v, READ_MS);
         expect(sheet, "the gear in the card's title bar opens the image settings sheet in its page").toBe(true);
         await app.nativeKey("Escape");
-        const gone = await pollFor(() => file.evalJS<boolean>(present(IMAGE_SHEET)), (v) => !v, READ_MS);
+        const gone = await settleFor(() => file.evalJS<boolean>(present(IMAGE_SHEET)), (v) => !v, READ_MS);
         expect(gone, "Escape closes it").toBe(false);
 
         // ── Diff: the commit's files, and a section folds ────────────────
         mark("file view done");
         await bringIntoView(app, D);
-        const files = await pollFor(() => diff.evalJS<number>(count(DIFF_FILE)), (n) => n > 0, READ_MS);
+        const files = await settleFor(() => diff.evalJS<number>(count(DIFF_FILE)), (n) => n > 0, READ_MS);
         expect(files, "the Diff body lists the commit's files").toBeGreaterThan(0);
         expect(await diff.evalJS<string>(textOf(DIFF_LABEL)), "under the commit's label").toContain(sha.slice(0, 9));
         const state = `(document.querySelector(${JSON.stringify(DIFF_FILE)}) || { getAttribute: function () { return null; } }).getAttribute("data-state")`;
         const before = await diff.evalJS<string | null>(state);
         await diff.nativeClickAtElement(`${DIFF_FILE} .tug-accordion-trigger`);
-        const after = await pollFor(() => diff.evalJS<string | null>(state), (s) => s !== before, READ_MS);
+        const after = await settleFor(() => diff.evalJS<string | null>(state), (s) => s !== before, READ_MS);
         note(`diff: first section ${before} → ${after}`);
         expect(after, "a click on a section's trigger toggles it").not.toBe(before);
 
         // ── Commit: its masthead, and the roster opens a file ────────────
         mark("diff done");
         await bringIntoView(app, C);
-        const masthead = await pollFor(
+        const masthead = await settleFor(
           () => commit.evalJS<string>(textOf('[data-testid="commit-masthead-subject"]')),
           (t) => t.trim().length > 0,
           READ_MS,
@@ -281,7 +281,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
         await pollFor(() => commit.evalJS<boolean>(present(ROSTER_PATH)), (v) => v, READ_MS);
         const textCards = "window.tugdeck.diag.getDeckState().cards.filter(function (c) { return c.componentId === \"text\"; }).length";
         await commit.nativeClickAtElement(ROSTER_PATH);
-        const opened = await pollFor(() => app.evalJS<number>(textCards), (n) => n === 2, READ_MS);
+        const opened = await settleFor(() => app.evalJS<number>(textCards), (n) => n === 2, READ_MS);
         expect(opened, "a roster path opens its file in a new card on the shell's deck").toBe(2);
         // The card it opened is a body; the same path again goes to it, found
         // by the path its page published, rather than to a second card.

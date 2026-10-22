@@ -348,6 +348,8 @@ export class TextCardStore extends Subscribable {
   private _baselineText: string | null = null;
   private _debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private _flushInFlight: Promise<void> | null = null;
+  /** The opens in flight: each a read and, in manual mode, the aside read back after it. */
+  private readonly _opens = new Set<Promise<void>>();
   /**
    * A manual-mode real-file `save()` in flight. A second ⌘S waits on it
    * rather than reissuing a write against the baseline the first save is
@@ -464,8 +466,29 @@ export class TextCardStore extends Subscribable {
 
   // ── Open ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Settles once no open is in flight: the document bound and, in manual
+   * mode, its set-aside edits read back. Whether the buffer is dirty is
+   * only known from here — a card's page brought back after an eviction is
+   * clean until its aside is read.
+   */
+  async whenOpened(): Promise<void> {
+    while (this._opens.size > 0) await Promise.allSettled([...this._opens]);
+  }
+
+  /** Track `open` until it settles, for {@link whenOpened}. */
+  private _opened(open: Promise<void>): Promise<void> {
+    this._opens.add(open);
+    void open.finally(() => this._opens.delete(open)).catch(() => undefined);
+    return open;
+  }
+
   /** Bind the card to `path`: read it and enter `ready` (or `error`). */
-  async openPath(path: string): Promise<void> {
+  openPath(path: string): Promise<void> {
+    return this._opened(this._openPath(path));
+  }
+
+  private async _openPath(path: string): Promise<void> {
     this._clearDebounce();
     this._resetAsideState();
     this._update({
@@ -514,7 +537,11 @@ export class TextCardStore extends Subscribable {
    * anywhere until the first Save; crash-safety rides an aside keyed by
    * the draft id. An existing aside for this draft restores it dirty.
    */
-  async openUntitled(draftId: string, untitledNumber?: number): Promise<void> {
+  openUntitled(draftId: string, untitledNumber?: number): Promise<void> {
+    return this._opened(this._openUntitled(draftId, untitledNumber));
+  }
+
+  private async _openUntitled(draftId: string, untitledNumber?: number): Promise<void> {
     this._clearDebounce();
     this._resetAsideState();
     this._setBaseline(null, null);
@@ -560,7 +587,11 @@ export class TextCardStore extends Subscribable {
    * drafts directory that autosaves like any other file (autosave-
    * elsewhere until the user names it via Move To).
    */
-  async openDraft(draftId: string): Promise<void> {
+  openDraft(draftId: string): Promise<void> {
+    return this._opened(this._openDraft(draftId));
+  }
+
+  private async _openDraft(draftId: string): Promise<void> {
     const path = draftPathFor(draftId);
     const existing = await readFileFromDisk(path);
     if (this._disposed) return;

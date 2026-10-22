@@ -38,7 +38,7 @@ import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { overlayReady } from "../overlay-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, focusBody, pollFor, promptPhase, sessionPane, SETTLE_MS, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, focusBody, pollFor, settleFor, promptPhase, sessionPane, SETTLE_MS, spawnStub, waitForBody } from "./_bodies";
 
 const TEST_NAME = "body-grounding-row-26-deck-scope-surfaces";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -81,7 +81,7 @@ const present = (selector: string): string => `document.querySelector(${JSON.str
 async function column(app: App, x: number, y: number, height: number): Promise<{ rows: number[][]; scale: number }> {
   const crop = { x: Math.floor(x), y: Math.floor(y), width: 2, height: Math.max(4, Math.floor(height)) };
   await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop });
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
   const png = decodePngFile(reading.frames[reading.frames.length - 1].path);
   const out: number[][] = [];
   for (let row = 0; row < png.height; row++) {
@@ -142,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
         // column re-divides lands on a body still moving, which is all the
         // wait guards.
         let lastAt = "";
-        const rested = await pollFor(
+        const rested = await settleFor(
           async () => {
             await Bun.sleep(250);
             const claimed = await app.evalJS<boolean>(`(window.tugdeck.diag.getDeckState().sheetReservations || {})[${JSON.stringify(`${A}-pane`)}] !== undefined`);
@@ -187,7 +187,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
 
         // ---- The placard ----
         await body.nativeClickAtElement(TIME_CELL);
-        const drawn = await pollFor(() => ui.evalJS<Rect | null>(rectOf(DRAWN)), (r) => r !== null, SETTLE_MS);
+        const drawn = await settleFor(() => ui.evalJS<Rect | null>(rectOf(DRAWN)), (r) => r !== null, SETTLE_MS);
         expect(drawn, "the overlay draws the placard the body opened").not.toBeNull();
         expect(await body.evalJS<boolean>(present(HIDDEN)), "the body keeps its own, hidden").toBe(true);
         // At rest: the entrance travels 4 pt.
@@ -234,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
         expect(overBody.length, "a turn button stands over the body").toBeGreaterThan(0);
         const target = overBody[overBody.length - 1];
         await app.nativeClick({ x: (target.left + target.right) / 2, y: (target.top + target.bottom) / 2 });
-        const clicks = await pollFor(() => body.evalJS<string[]>("window.__r26Clicks"), (c) => c.length > 0, SETTLE_MS);
+        const clicks = await settleFor(() => body.evalJS<string[]>("window.__r26Clicks"), (c) => c.length > 0, SETTLE_MS);
         expect(clicks, "the body's own button received the press").toEqual([target.text]);
 
         // A click in the body outside the panel dismisses it there, and the
@@ -245,7 +245,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
           "the dismissing click lands outside the panel",
         ).toBe(true);
         await app.nativeClick(outside);
-        const gone = await pollFor(() => ui.evalJS<Rect | null>(rectOf(DRAWN)), (r) => r === null, SETTLE_MS);
+        const gone = await settleFor(() => ui.evalJS<Rect | null>(rectOf(DRAWN)), (r) => r === null, SETTLE_MS);
         expect(gone, "the overlay takes the panel down").toBeNull();
         expect(await body.evalJS<boolean>(present(HIDDEN)), "the body's closed too").toBe(false);
         await Bun.sleep(250);

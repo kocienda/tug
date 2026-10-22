@@ -31,8 +31,9 @@
  * @module components/chrome/body-stand-in
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { getOnScreenTheme, subscribeOnScreenTheme } from "@/contexts/theme-provider";
 import { bodyStandInStore } from "@/lib/body-stand-in-store";
 import { bodyCardsStore } from "@/lib/body-cards-store";
 import { deckCards } from "@/bus/declarations/deck";
@@ -67,12 +68,14 @@ export interface BodyStandInProps {
 
 /** The card's face while its page has not painted, or nothing once it has. */
 export function BodyStandIn({ cardId, componentId }: BodyStandInProps): React.ReactElement | null {
-  // A card with no body at all yet — on a workspace nobody has shown, whose
-  // page the switch onto it is about to ask for — stands too: its placeholder
-  // mounts in the switch's own commit, before its page is asked for.
+  // A card that is not yet a body card at all — on a workspace nobody has
+  // shown, whose page the switch onto it is about to ask for — stands too:
+  // its placeholder mounts in the switch's own commit, before it is handed
+  // off. (A card handed off `unmade` is the stand-in store's, which stands a
+  // face for every state short of `painted` and `failed`.)
   const standing = useSyncExternalStore(bodyStandInStore.subscribe, () => bodyStandInStore.standing(cardId));
-  const unmade = useSyncExternalStore(bodyCardsStore.subscribe, () => bodyCardsStore.stateOf(cardId) === null);
-  if (!standing && !unmade) return null;
+  const notHandedOff = useSyncExternalStore(bodyCardsStore.subscribe, () => !bodyCardsStore.has(cardId));
+  if (!standing && !notHandedOff) return null;
   return <StandInFace cardId={cardId} componentId={componentId} />;
 }
 
@@ -84,19 +87,33 @@ function StandInFace({ cardId, componentId }: BodyStandInProps): React.ReactElem
   const deck = useDeckManager();
   const state = useSyncExternalStore(deck.subscribe, deck.getSnapshot);
   const spaces = useSyncExternalStore(deck.subscribe, deck.getSpacesSnapshot);
+  const spaceOf = useSyncExternalStore(deck.subscribe, () => deck.spaceOf(cardId));
   useSyncExternalStore(cardTitleStore.subscribe, () => cardTitleStore.get(cardId));
-  const ownSpaceId = deck.spaceOf(cardId) ?? spaces.activeSpaceId;
+  const ownSpaceId = spaceOf ?? spaces.activeSpaceId;
   const own = ownSpaceId === spaces.activeSpaceId ? state : (spaces.mountedDecks.get(ownSpaceId) ?? state);
   const value = paneChromeFor(own, cardId, {
     titleOf: (id) => cardTitleStore.get(id),
     waives: (id) => bodyFactsStore.waives(id),
     spaces: { list: spaces.spaces, ownSpaceId },
   });
-  // The names the chrome draws come from `deck.cards`; read through a key so
-  // the face re-renders when one moved and not on every phase tick.
-  useSyncExternalStore(deckCards.subscribe, () => (value === null ? "" : chromeCardsKey(value, deckCards.getSnapshot())));
+  // The names the chrome draws come from `deck.cards`; the snapshot is held
+  // while its key stands, so the face re-renders when a name it draws moved
+  // and not on every phase tick.
+  const heldCards = useRef<{ key: string; cards: ReturnType<typeof deckCards.getSnapshot> } | null>(null);
+  const cards = useSyncExternalStore(deckCards.subscribe, () => {
+    const next = deckCards.getSnapshot();
+    const key = value === null ? "" : chromeCardsKey(value, next);
+    if (heldCards.current !== null && heldCards.current.key === key) return heldCards.current.cards;
+    heldCards.current = { key, cards: next };
+    return next;
+  });
   const masthead = useSyncExternalStore(cardTitleStore.subscribe, () => cardTitleStore.getMasthead(cardId));
   const folded = useIsCardFolded(cardId);
+  const theme = useSyncExternalStore(subscribeOnScreenTheme, getOnScreenTheme);
+  // Everything the face is drawn from, as one string: the placer reads the
+  // face's display list again when it moves while the card stays a face, so
+  // a masthead, name or theme change is not drawn stale (`card-placement.ts`).
+  const faceKey = JSON.stringify([theme, value, value === null ? "" : chromeCardsKey(value, cards), masthead, folded]);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   const refs = useMemo(
     () => ({
@@ -110,11 +127,12 @@ function StandInFace({ cardId, componentId }: BodyStandInProps): React.ReactElem
   const cardKind = cardKindName(getRegistration(componentId)?.defaultMeta);
   // A pane id of its own, so nothing that registers by the pane's id — the
   // tab bar's drop targets, the chrome's portal root — finds the picture.
-  const model = chromeModelOf(value, deckCards.getSnapshot(), `stand-in:${value.paneId}`, cardKind, folded);
+  const model = chromeModelOf(value, cards, `stand-in:${value.paneId}`, cardKind, folded);
   return (
     <div
       className="tug-body-stand-in"
       data-body-stand-in
+      data-face-key={faceKey}
       aria-hidden="true"
       inert
       {...(masthead !== null

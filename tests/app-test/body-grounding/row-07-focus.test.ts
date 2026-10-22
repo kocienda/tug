@@ -47,6 +47,7 @@ import {
   composerText,
   focusBody,
   pollFor,
+  settleFor,
   pressCloseOfPopover,
   responders,
   sessionPane,
@@ -117,19 +118,19 @@ function withText(deck: Record<string, unknown>): Record<string, unknown> {
 async function typesInto(app: App, page: BodyApp, kind: CardKind, text: string, other: BodyApp): Promise<void> {
   const fieldText = `(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`;
   await app.nativeType(text);
-  const landed = await pollFor(() => page.evalJS<string>(fieldText), (t) => t.includes(text), SETTLE_MS);
+  const landed = await settleFor(() => page.evalJS<string>(fieldText), (t) => t.includes(text), SETTLE_MS);
   expect(landed, `typing lands in the ${kind.componentId} card's field`).toContain(text);
   expect(await other.evalJS<string | null>(composerText), "and not in B's composer").not.toContain(text);
 }
 
 /** The host says exactly `cardId`'s body holds the keyboard, or no body does for `null`; the spare is never counted. */
 async function expectHolder(app: App, cardId: string | null, label: string, timeoutMs = SETTLE_MS): Promise<void> {
-  const bodies = await pollFor(
+  const bodies = await settleFor(
     async () => (await app.bodies()).filter((x) => x.cardId !== null),
     (bs) => bs.every((x) => x.firstResponder === (cardId !== null && x.cardId === cardId)),
     timeoutMs,
   );
-  const focused = cardId === null ? await app.getFocusedCardId() : await pollFor(() => app.getFocusedCardId(), (id) => id === cardId, SETTLE_MS);
+  const focused = cardId === null ? await app.getFocusedCardId() : await settleFor(() => app.getFocusedCardId(), (id) => id === cardId, SETTLE_MS);
   note(`${label}: ${JSON.stringify(bodies.map((x) => ({ card: x.cardId, fr: x.firstResponder })))}; shell focused card ${focused}`);
   for (const x of bodies) {
     const should = cardId !== null && x.cardId === cardId;
@@ -148,7 +149,7 @@ async function expectPopoverHoldsKeyboard(app: App, cardId: string): Promise<voi
   const page = await closePopoverPage(app, cardId);
   expect(page, "the Close popover stands").not.toBeNull();
   if (page === app) {
-    const shellHolds = await pollFor(() => app.bodies(), (bs) => bs.every((x) => !x.firstResponder), SETTLE_MS);
+    const shellHolds = await settleFor(() => app.bodies(), (bs) => bs.every((x) => !x.firstResponder), SETTLE_MS);
     expect(shellHolds.every((x) => !x.firstResponder), "the shell holds the keyboard while its popover stands").toBe(true);
     return;
   }
@@ -196,11 +197,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
 
           // ---- The Close popover takes focus and gives it back ----
           await app.nativeKey("w", ["cmd"]);
-          const asked = await pollFor(() => closePopoverUp(app, card), (v) => v, SETTLE_MS);
+          const asked = await settleFor(() => closePopoverUp(app, card), (v) => v, SETTLE_MS);
           if (asked) {
             await expectPopoverHoldsKeyboard(app, card);
             await app.nativeKey("Escape");
-            expect(await pollFor(() => closePopoverUp(app, card), (v) => v === false, SETTLE_MS), "Escape dismisses it").toBe(false);
+            expect(await settleFor(() => closePopoverUp(app, card), (v) => v === false, SETTLE_MS), "Escape dismisses it").toBe(false);
             await expectHolder(app, card, "after the popover");
           }
 
@@ -212,10 +213,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
           const cardsBefore = await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`);
           const closeItem = await app.performMenuItem("file.closeCard");
           expect(closeItem.found && closeItem.performed, "File › Close performs").toBe(true);
-          if (await pollFor(() => closePopoverUp(app, card), (v) => v, 1_000)) await pressCloseOfPopover(app, card);
-          const cardsAfter = await pollFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
+          if (await settleFor(() => closePopoverUp(app, card), (v) => v, 1_000)) await pressCloseOfPopover(app, card);
+          const cardsAfter = await settleFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
           expect(cardsAfter, "the card closes").toBe(cardsBefore - 1);
-          expect(await pollFor(() => bodyOf(app, card), (x) => x === null, SETTLE_MS), "the host holds no body for it").toBeNull();
+          expect(await settleFor(() => bodyOf(app, card), (x) => x === null, SETTLE_MS), "the host holds no body for it").toBeNull();
           await expectHolder(app, B, "after closing the card", 8_000);
         } finally {
           await app.close();
@@ -262,7 +263,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         await expectHolder(app, B, "after a click in B's composer");
         await b.waitForCondition<boolean>(composerFocused, { timeoutMs: SETTLE_MS });
         await app.nativeType("bb");
-        const inB = await pollFor(() => b.evalJS<string | null>(composerText), (t) => t?.includes("bb") === true, SETTLE_MS);
+        const inB = await settleFor(() => b.evalJS<string | null>(composerText), (t) => t?.includes("bb") === true, SETTLE_MS);
         expect(inB, "typing lands in B's composer").toContain("bb");
         expect(await a.evalJS<string | null>(composerText), "and not in A's").not.toContain("bb");
 
@@ -272,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         await app.nativeKey("k", ["cmd"]);
         await a.waitForCondition<boolean>(composerFocused, { timeoutMs: SETTLE_MS });
         await app.nativeType("aa");
-        const inA = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("aa") === true, SETTLE_MS);
+        const inA = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("aa") === true, SETTLE_MS);
         expect(inA, "typing lands in A's composer").toContain("aa");
         expect(await b.evalJS<string | null>(composerText), "and not in B's").not.toContain("aa");
 
@@ -280,7 +281,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         await t.nativeClickAtElement(TEXT_EDITOR);
         await expectHolder(app, T, "after a click in the Text card");
         await app.nativeType("tt");
-        const inT = await pollFor(() => t.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)})?.textContent ?? ""`), (s) => s.includes("tt"), SETTLE_MS);
+        const inT = await settleFor(() => t.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)})?.textContent ?? ""`), (s) => s.includes("tt"), SETTLE_MS);
         expect(inT, "typing lands in the Text card's body").toContain("tt");
         expect(await a.evalJS<string | null>(composerText), "and not in A's body").not.toContain("tt");
         expect(await b.evalJS<string | null>(composerText), "nor in B's").not.toContain("tt");
@@ -293,7 +294,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         await app.nativeKey("Backspace");
         const picked = await app.performMenuItem("session.commandPicker");
         note(`Session › Open Command Picker: ${JSON.stringify(picked)}`);
-        const popup = await pollFor(() => a.evalJS<boolean>(slashPopupShown), (v) => v, SETTLE_MS);
+        const popup = await settleFor(() => a.evalJS<boolean>(slashPopupShown), (v) => v, SETTLE_MS);
         note(
           `after Open Command Picker in A: popup ${popup}; composer text ${JSON.stringify(await a.evalJS<string | null>(composerText))}; composer focused ${await a.evalJS<boolean>(composerFocused)}; ` +
             `tooltips ${await a.evalJS<string>(`JSON.stringify(Array.from(document.querySelectorAll(".cm-tooltip")).map(function (t) { return t.className; }))`)}; ` +
@@ -306,22 +307,22 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         // focus, so the draft is emptied here and the popup follows it. That
         // Escape closes it from the keyboard is row 12's assertion ([F17]).
         await a.evalJS(`(function () { var v = document.querySelector(${JSON.stringify(PROMPT_INPUT)}); if (v) { v.focus(); document.execCommand("selectAll"); document.execCommand("delete"); } return true; })()`);
-        const popupDown = await pollFor(() => a.evalJS<boolean>(slashPopupShown), (v) => !v, SETTLE_MS);
+        const popupDown = await settleFor(() => a.evalJS<boolean>(slashPopupShown), (v) => !v, SETTLE_MS);
         expect(popupDown, "the popup goes with the draft").toBe(false);
 
         const picker = await app.performMenuItem("session.resume");
         note(`Session › Resume: ${JSON.stringify(picker)}`);
         if (picker.found && picker.performed) {
-          const shown = await pollFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(PICKER)}) !== null`), (v) => v, SETTLE_MS);
+          const shown = await settleFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(PICKER)}) !== null`), (v) => v, SETTLE_MS);
           expect(shown, "the session picker opens in A").toBe(true);
-          const inPicker = await pollFor(
+          const inPicker = await settleFor(
             () => a.evalJS<boolean>(`(function () { var p = document.querySelector(${JSON.stringify(PICKER)}); return p !== null && document.activeElement !== null && p.contains(document.activeElement); })()`),
             (v) => v,
             SETTLE_MS,
           );
           expect(inPicker, "the picker takes focus").toBe(true);
           await app.nativeKey("Escape");
-          const gone = await pollFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(PICKER)}) !== null`), (v) => !v, SETTLE_MS);
+          const gone = await settleFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(PICKER)}) !== null`), (v) => !v, SETTLE_MS);
           expect(gone, "Escape closes the picker").toBe(false);
           await expectHolder(app, A, "after the picker");
         }
@@ -332,16 +333,16 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         // the confirm protects, so A gets one; it stands through the close below.
         await a.nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("draft");
-        const draft = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("draft") === true, SETTLE_MS);
+        const draft = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("draft") === true, SETTLE_MS);
         expect(draft, "the draft lands in A").toContain("draft");
         await app.nativeKey("w", ["cmd"]);
-        expect(await pollFor(() => closePopoverUp(app, A), (v) => v, SETTLE_MS), "⌘W raises A's Close popover").toBe(true);
+        expect(await settleFor(() => closePopoverUp(app, A), (v) => v, SETTLE_MS), "⌘W raises A's Close popover").toBe(true);
         await expectPopoverHoldsKeyboard(app, A);
         await app.nativeKey("Escape");
-        expect(await pollFor(() => closePopoverUp(app, A), (v) => v === false, SETTLE_MS), "Escape dismisses it").toBe(false);
+        expect(await settleFor(() => closePopoverUp(app, A), (v) => v === false, SETTLE_MS), "Escape dismisses it").toBe(false);
         await expectHolder(app, A, "after the popover");
         await app.nativeType("!");
-        const bang = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("!") === true, SETTLE_MS);
+        const bang = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("!") === true, SETTLE_MS);
         expect(bang, "typing after the popover lands in A").toContain("!");
 
         // ---- Closing the key card hands the keyboard to the next card ----
@@ -358,7 +359,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         expect(closeItem.found && closeItem.performed, "File › Close performs").toBe(true);
         // A still holds its draft, so the close asks; the popover's Close
         // button answers it.
-        const raised = await pollFor(
+        const raised = await settleFor(
           async () => ({ popover: await closePopoverUp(app, A), cards: await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`) }),
           (r) => r.popover || r.cards < cardsBefore,
           SETTLE_MS,
@@ -366,9 +367,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         note(`after File › Close: popover ${raised.popover}, cards ${cardsBefore} → ${raised.cards}`);
         expect(raised.popover, "File › Close over A's draft raises the popover").toBe(true);
         expect(await pressCloseOfPopover(app, A), "the popover's Close button is pressed").toBe(true);
-        const cardsAfter = await pollFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
+        const cardsAfter = await settleFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
         expect(cardsAfter, "A closes").toBe(cardsBefore - 1);
-        const gone = await pollFor(() => bodyOf(app, A), (x) => x === null, SETTLE_MS);
+        const gone = await settleFor(() => bodyOf(app, A), (x) => x === null, SETTLE_MS);
         expect(gone, "the host holds no body for A").toBeNull();
         // The close reflows B and T through a settle, which hides and re-shows
         // B's body; the keyboard lands in it at the land.
@@ -376,7 +377,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         await app.nativeKey("k", ["cmd"]);
         await b.waitForCondition<boolean>(composerFocused, { timeoutMs: SETTLE_MS });
         await app.nativeType("next");
-        const inNext = await pollFor(() => b.evalJS<string | null>(composerText), (t) => t?.includes("next") === true, SETTLE_MS);
+        const inNext = await settleFor(() => b.evalJS<string | null>(composerText), (t) => t?.includes("next") === true, SETTLE_MS);
         expect(inNext, "typing lands in B, the next card").toContain("next");
         note(`at the end: ${await responders(app)}`);
       } finally {

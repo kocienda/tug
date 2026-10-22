@@ -15,12 +15,12 @@
  * with no cover the card arrives as any card does: its stand-in stands until
  * the new page paints.
  *
- * From the tab's choosing every composited frame of the pane is read for the
- * floor (row 1's bar): no frame shows the canvas or the bare window through
- * the pane. The floor is told by its grid (`gridColumns`).
- * The body is back ready and painted, its transcript
- * settled with the last turn in it and its composer holding the draft, and the
- * time from the choosing to its own first paint is the row's cold reading.
+ * From the tab's choosing every composited frame is read by row 44's judge
+ * (`_row-44.ts`'s `readGesture`): the pane's box shows no more of the canvas
+ * than it does settled, its title band holds the settled title, the host's
+ * hand-over at the choosing landed, and no face stands once the page has
+ * painted. The body is back ready and painted, its transcript settled with
+ * the last turn in it and its composer holding the draft.
  *
  * @family row-38
  * @covers tugdeck/src/lib/body-shell.ts
@@ -30,17 +30,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "../_harness";
-import type { CaptureBurstReading } from "../_harness/client";
 import { claudeProjectDir } from "../_harness/claude-home";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from "../_harness/tugbank-helpers";
 import { onTestRunEnd } from "../_harness/test-cleanup";
-import { bodyOf, composerText, focusBody, pollFor } from "./_bodies";
-import { classifyFrame, FLOOR_COLUMNS, gridColumns, readPalette } from "./_frames";
+import { bodyOf, composerText, focusBody, pollFor, settleFor } from "./_bodies";
+import { readGesture } from "./_row-44";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -51,8 +50,6 @@ const TURNS = 50;
 const DRAFT = "row38 draft before the eviction";
 const LAST_TURN = `Turn ${TURNS}: the last reading`;
 const CARDSTATE = "dev.tugapp.deck.cardstate";
-const BURST_MS = 2_000;
-const BURST_INTERVAL_MS = 33;
 
 function deck(): Record<string, unknown> {
   return {
@@ -178,7 +175,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: the evicted body", () => {
         await focusBody(app, B, { composer: true });
         await app.nativeType(DRAFT);
         await pollFor(() => app.body(B).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);
-        const saved = await pollFor(
+        const saved = await settleFor(
           async () => JSON.stringify(tugbankRead<unknown>(tugbankPath, CARDSTATE, B)?.value ?? null),
           (bag) => bag.includes(DRAFT),
           10_000,
@@ -188,14 +185,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: the evicted body", () => {
         // ---- The first tab chosen: the second stands behind it, painting ----
         await app.body(B).click(`[data-testid="tug-tab-${A}"]`);
         await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.visible, 10_000);
-        const sibling = await pollFor(() => bodyOf(app, B), (b) => b !== null && !b.visible && b.shown, 5_000);
+        const sibling = await settleFor(() => bodyOf(app, B), (b) => b !== null && !b.visible && b.shown, 5_000);
         expect(sibling, "the second card stands behind the first as a sibling, still painting").toMatchObject({ visible: false, shown: true });
-        const rect = await pollFor(() => placeholderRect(app, A), (r) => r !== null, 5_000);
+        const rect = await settleFor(() => placeholderRect(app, A), (r) => r !== null, 5_000);
         expect(rect, "the pane's placeholder has a box").not.toBeNull();
 
         // ---- Critical pressure takes the sibling and the spare ----
         await app.simulateMemoryPressure("critical");
-        const gone = await pollFor(
+        const gone = await settleFor(
           () => app.bodies(),
           (all) => !all.some((b) => b.cardId === B) && !all.some((b) => b.cardId === null),
           5_000,
@@ -204,76 +201,17 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: the evicted body", () => {
         expect(gone.some((b) => b.cardId === null), "the spare is evicted with it").toBe(false);
         expect((await bodyOf(app, A))?.visible, "the shown card keeps its body").toBe(true);
 
-        // ---- The second tab chosen: an arrival under the last frame ----
-        const inset = 4;
-        const crop = { x: rect!.x + inset, y: rect!.y + inset, width: rect!.width - 2 * inset, height: rect!.height - 2 * inset };
-        await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop });
-        // Each shell frame from the choosing on: whether the chosen card's stand-in face is in its placeholder.
-        await app.evalJS<null>(`(function () {
-          var log = (window.__r38Faces = []);
-          var until = Date.now() + ${BURST_MS};
-          (function tick() {
-            var phs = document.querySelectorAll('[data-body-placeholder][data-card-id="${B}"]');
-            var state = phs.length === 0 ? -1 : 0;
-            for (var i = 0; i < phs.length; i++) {
-              var face = phs[i].querySelector("[data-body-stand-in]");
-              if (face === null) continue;
-              if (face.getBoundingClientRect().width > 0) state = 1;
-              else if (state === 0) state = 2;
-            }
-            log.push([Date.now(), state]);
-            if (Date.now() < until) requestAnimationFrame(tick);
-          })();
-          return null;
-        })()`);
-        const choseWall = Date.now();
-        const chose = performance.now();
-        await app.body(A).click(`[data-testid="tug-tab-${B}"]`);
-        const back = await pollFor(() => bodyOf(app, B), (b) => b?.state === "ready" && b.painted && b.visible && !b.covered, 10_000);
-        const coldMs = performance.now() - chose;
+        // ---- The second tab chosen: an arrival with no cover, every frame read by row 44's judge ----
+        const bad = await readGesture(app, () => app.body(A).click(`[data-testid="tug-tab-${B}"]`), [B], "row-38-evicted");
+        const back = await bodyOf(app, B);
         expect(back?.wasCovered, "critical pressure kept no last frame, so the new body stood under no cover").toBe(false);
         expect(back, "the card's new body is ready, painted and shown, its cover gone").toMatchObject({ state: "ready", painted: true, visible: true, covered: false });
         expect(back?.start, "with no spare under critical pressure the new body is made cold").toBe("cold");
         await app.body(B).waitForCondition<boolean>(SETTLED_WITH_LAST, { timeoutMs: 10_000 });
-        const settledMs = performance.now() - chose;
-        const draft = await pollFor(() => app.body(B).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);
+        const draft = await settleFor(() => app.body(B).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);
         expect(draft, "the new body's composer holds the draft").toContain(DRAFT);
-
-        // ---- Every frame from the choosing on, by surface colour ----
-        const reading = await pollFor(
-          () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
-          (r) => r.done,
-          BURST_MS + 5_000,
-        );
-        expect(reading.done, "the burst finished").toBe(true);
-        const last = reading.frames[reading.frames.length - 1];
-        const palette = await readPalette(app, reading.windowBackground, last);
-        const after = reading.frames.filter((f) => f.wall >= choseWall);
-        expect(after.length, "frames were captured after the tab was chosen").toBeGreaterThan(0);
-        const read = after.map((f) => ({ f, classes: classifyFrame(f, palette), columns: gridColumns(f.path, palette.canvas) }));
-        const final = read[read.length - 1].classes;
-        const pct = (v: number): string => (v * 100).toFixed(2) + "%";
-        note(
-          `evicted reveal: ${read.length} frames; most grid columns in a frame ${Math.max(...read.map((r) => r.columns))}; ` +
-            `worst bare ${pct(Math.max(...read.map((r) => r.classes.bare)))}; final surface ${pct(final.surface)}; ` +
-            `cold: chosen → painted ${Math.round(coldMs)} ms, → settled with the last turn ${Math.round(settledMs)} ms; body ready ${back?.readyMs?.toFixed(0)} ms`,
-        );
-        const floor = read.filter((r) => r.columns >= FLOOR_COLUMNS || r.classes.bare > final.bare + 0.005);
-        const faces = await app.evalJS<Array<[number, number]>>("window.__r38Faces");
-        const runs: string[] = [];
-        for (const [wall, face] of faces) {
-          const label = ["no placeholder", "no face", "face", "face with no box"][face + 1];
-          if (runs.length === 0 || !runs[runs.length - 1].startsWith(label + " ")) runs.push(`${label} from ${Math.round(wall - choseWall)} ms`);
-        }
-        note(`the shell's frames for the chosen card: ${runs.join(", ")}`);
-        if (floor.length > 0) {
-          note(`frames showing the floor: ${floor.map((r) => `${Math.round(r.f.wall - choseWall)} ms (${r.columns} grid columns, bare ${pct(r.classes.bare)})`).join(", ")}`);
-          const kept = join(tmpdir(), "row-38-evicted-first-red-frame.png");
-          copyFileSync(floor[0].f.path, kept);
-          note(`kept the first red frame at ${kept}`);
-        }
-        expect(floor.length, "no frame after the choosing shows the floor's grid or the bare window through the pane").toBe(0);
-        expect(final.surface, "the finished rect is the body's own surface").toBeGreaterThan(0.3);
+        note(`body ready ${back?.readyMs?.toFixed(0)} ms after its bind`);
+        expect(bad, "no frame from the choosing shows more canvas than the settled pane or loses its title, and the hand-over landed").toEqual([]);
       } finally {
         await app.simulateMemoryPressure("normal").catch(() => undefined);
         await app.close();

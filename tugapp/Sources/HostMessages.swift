@@ -293,11 +293,13 @@ struct BodySurface: Decodable, Equatable {
     }
 }
 
-/// `bodyCreate`: the shell asks for a card's body.
+/// `bodyCreate`: the shell asks for a card's body. `guardsClose`: the kind
+/// may veto its close, which only its page can answer.
 struct BodyCreate: Decodable, Equatable {
     var cardId: String
     var componentId: String
     var intent: JSONObject
+    var guardsClose: Bool?
 }
 
 /// `bodyDestroy`: the shell is done with a card's body.
@@ -306,10 +308,12 @@ struct BodyDestroy: Decodable, Equatable {
     var save: Bool
 }
 
-/// `bodyEvictAfter`: how long a body may stay hidden before the host evicts
-/// it, ms — the reader's `evictAfterMs`.
-struct BodyEvictAfter: Decodable, Equatable {
-    var ms: Double
+/// `bodyDelays`: the harness's seam on the host's body clocks, never sent by
+/// the product — how long a hidden body keeps its process, and how long a new
+/// page has to say it is ready, ms; nil for the host's own constant.
+struct BodyDelays: Decodable, Equatable {
+    var evictAfterMs: Double?
+    var readyDeadlineMs: Double?
 }
 
 /// `bodyFocus`: the card whose body takes the keyboard, or nil for the shell.
@@ -452,17 +456,6 @@ struct BodyBind: Codable, Equatable {
     var componentId: String
     var intent: JSONObject
     var facts: BindFacts
-}
-
-/// `onBodyPressure`: how short of memory the machine said it was, and when,
-/// wall-clock ms — told to the shell at every pressure event.
-struct BodyPressure: Codable, Equatable {
-    enum Level: String, Codable, Equatable {
-        case normal, warning, critical
-    }
-
-    var level: Level
-    var at: Double
 }
 
 /// `onBodyState`: what the host reports of a body to the shell.
@@ -855,7 +848,7 @@ enum ToHostName: String, CaseIterable {
     case overlayCreate, overlayClaim
     // Page lifecycle.
     case bodyHello, painted, frontendReady, frontendLaunchStalled, launchLap, pageFault
-    case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyEvictAfter, bodyFocus, hmrUpdate
+    case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyDelays, bodyFocus, hmrUpdate
     // The host's services.
     case sourceTree, choosePath, getSettings, setTheme
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
@@ -869,7 +862,7 @@ enum ToHostName: String, CaseIterable {
     var shellOnly: Bool {
         switch self {
         case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap,
-             .bodyCreate, .bodyDestroy, .bodyEvictAfter, .bodyFocus, .hostFrames,
+             .bodyCreate, .bodyDestroy, .bodyDelays, .bodyFocus, .hostFrames,
              .cardPlan, .placeCards, .overlayCreate:
             return true
         default:
@@ -928,7 +921,7 @@ enum ToHost {
     case bodySurface(BodySurface)
     case bodyCreate(BodyCreate)
     case bodyDestroy(BodyDestroy)
-    case bodyEvictAfter(BodyEvictAfter)
+    case bodyDelays(BodyDelays)
     case bodyFocus(BodyFocus)
     case hmrUpdate(HmrUpdate)
     case sourceTree
@@ -979,7 +972,7 @@ enum ToHost {
         case .bodySurface: return .bodySurface(try read(BodySurface.self))
         case .bodyCreate: return .bodyCreate(try read(BodyCreate.self))
         case .bodyDestroy: return .bodyDestroy(try read(BodyDestroy.self))
-        case .bodyEvictAfter: return .bodyEvictAfter(try read(BodyEvictAfter.self))
+        case .bodyDelays: return .bodyDelays(try read(BodyDelays.self))
         case .bodyFocus: return .bodyFocus(try read(BodyFocus.self))
         case .frontendLaunchStalled: return .frontendLaunchStalled(try read(FrontendLaunchStalled.self))
         case .launchLap: return .launchLap(try read(LaunchLap.self))
@@ -1107,7 +1100,7 @@ enum ToPageMember: String, CaseIterable {
     // Placement and gestures.
     case onCardGesture, onCardInsets, onBodyCrossing, onWindowResize
     // Page lifecycle.
-    case onBodyBind, onBodyState, onBodyPressure, onBodyVisibility, onPlanStarted
+    case onBodyBind, onBodyState, onBodyVisibility, onPlanStarted
     // The host's services.
     case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
@@ -1121,7 +1114,6 @@ enum ToPage {
     case windowResize(WindowResize)
     case bodyBind(BodyBind)
     case bodyState(BodyStateReport)
-    case bodyPressure(BodyPressure)
     case bodyVisibility(BodyVisibility)
     case planStarted(PlanStarted)
     case settingsLoaded(SettingsLoaded)
@@ -1146,7 +1138,6 @@ enum ToPage {
         case .windowResize: return .onWindowResize
         case .bodyBind: return .onBodyBind
         case .bodyState: return .onBodyState
-        case .bodyPressure: return .onBodyPressure
         case .bodyVisibility: return .onBodyVisibility
         case .planStarted: return .onPlanStarted
         case .settingsLoaded: return .onSettingsLoaded
@@ -1175,7 +1166,6 @@ enum ToPage {
         case .windowResize(let resize): return try? encoder.encode(resize)
         case .bodyBind(let bind): return try? encoder.encode(bind)
         case .bodyState(let report): return try? encoder.encode(report)
-        case .bodyPressure(let pressure): return try? encoder.encode(pressure)
         case .bodyVisibility(let visibility): return try? encoder.encode(visibility)
         case .planStarted(let started): return try? encoder.encode(started)
         case .settingsLoaded(let settings): return try? encoder.encode(settings)
@@ -1207,7 +1197,6 @@ enum ToPage {
             case .onWindowResize: return .success(.windowResize(try read(WindowResize.self)))
             case .onBodyBind: return .success(.bodyBind(try read(BodyBind.self)))
             case .onBodyState: return .success(.bodyState(try read(BodyStateReport.self)))
-            case .onBodyPressure: return .success(.bodyPressure(try read(BodyPressure.self)))
             case .onBodyVisibility: return .success(.bodyVisibility(try read(BodyVisibility.self)))
             case .onPlanStarted: return .success(.planStarted(try read(PlanStarted.self)))
             case .onSettingsLoaded: return .success(.settingsLoaded(try read(SettingsLoaded.self)))

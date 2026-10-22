@@ -449,6 +449,12 @@ describe("request_replay", () => {
     captured.length = 0;
     engine.answerReplay({ afterTurn: { msgIds: ["unknown"], heldTurns: 3 } });
     expect(textsOf()).toEqual(["c"]);
+
+    // A count past what the engine finished is clamped as production clamps it.
+    captured.length = 0;
+    engine.answerReplay({ afterTurn: { msgIds: [], heldTurns: 40 } });
+    expect(textsOf()).toEqual([]);
+    expect(captured.at(-1)).toMatchObject({ count: 0, firstLoadedTurnIndex: 3, totalTurns: 3 });
   });
 
   test("a turn still streaming rides the bracket as its snapshot, after the finished turns", () => {

@@ -8,6 +8,47 @@ use crate::Error;
 use crate::Value;
 use crate::value::{check_blob_size, decode_value, encode_value};
 
+/// Every entry of `domain`, decoded.
+fn read_entries(
+    conn: &rusqlite::Connection,
+    domain: &str,
+) -> Result<BTreeMap<String, Value>, Error> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT key, value_kind, value_i64, value_f64, value_text, value_blob \
+         FROM entries WHERE domain = ?1",
+    )?;
+    let mut map = BTreeMap::new();
+    let rows = stmt.query_map(rusqlite::params![domain], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i32>(1)?,
+            row.get::<_, Option<i64>>(2)?,
+            row.get::<_, Option<f64>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<Vec<u8>>>(5)?,
+        ))
+    })?;
+    for row in rows {
+        let (key, kind, i64v, f64v, textv, blobv) = row?;
+        map.insert(key, decode_value(kind, i64v, f64v, textv, blobv)?);
+    }
+    Ok(map)
+}
+
+/// The generation of `domain`, `0` before its first write.
+fn read_generation(conn: &rusqlite::Connection, domain: &str) -> Result<u64, Error> {
+    let result = conn.query_row(
+        "SELECT generation FROM domains WHERE name = ?1",
+        rusqlite::params![domain],
+        |row| row.get::<_, i64>(0),
+    );
+    match result {
+        Ok(g) => Ok(g as u64),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(0),
+        Err(e) => Err(Error::Sqlite(e)),
+    }
+}
+
 /// Outcome of a `set_if_generation` operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SetOutcome {
@@ -160,26 +201,21 @@ impl<'a> DomainHandle<'a> {
     /// Read all key-value pairs in this domain.
     pub fn read_all(&self) -> Result<BTreeMap<String, Value>, Error> {
         let conn = self.store.conn.lock();
-        let mut stmt = conn.prepare_cached(
-            "SELECT key, value_kind, value_i64, value_f64, value_text, value_blob \
-             FROM entries WHERE domain = ?1",
-        )?;
-        let mut map = BTreeMap::new();
-        let rows = stmt.query_map(rusqlite::params![self.domain], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i32>(1)?,
-                row.get::<_, Option<i64>>(2)?,
-                row.get::<_, Option<f64>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<Vec<u8>>>(5)?,
-            ))
-        })?;
-        for row in rows {
-            let (key, kind, i64v, f64v, textv, blobv) = row?;
-            map.insert(key, decode_value(kind, i64v, f64v, textv, blobv)?);
-        }
-        Ok(map)
+        read_entries(&conn, &self.domain)
+    }
+
+    /// Every key-value pair and the generation they stand at, read in one
+    /// transaction so the pair is one state of the domain. Two separate reads
+    /// can straddle another process's write and pair the old entries with the
+    /// new generation, which a reader comparing generations then takes for a
+    /// state it already has.
+    pub fn read_all_with_generation(&self) -> Result<(BTreeMap<String, Value>, u64), Error> {
+        let mut conn = self.store.conn.lock();
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
+        let entries = read_entries(&txn, &self.domain)?;
+        let generation = read_generation(&txn, &self.domain)?;
+        txn.commit()?;
+        Ok((entries, generation))
     }
 
     /// Set a key to a value.
@@ -266,16 +302,7 @@ impl<'a> DomainHandle<'a> {
     /// Returns `0` if the domain has no rows yet (no writes have occurred).
     pub fn generation(&self) -> Result<u64, Error> {
         let conn = self.store.conn.lock();
-        let result = conn.query_row(
-            "SELECT generation FROM domains WHERE name = ?1",
-            rusqlite::params![self.domain],
-            |row| row.get::<_, i64>(0),
-        );
-        match result {
-            Ok(g) => Ok(g as u64),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(0),
-            Err(e) => Err(Error::Sqlite(e)),
-        }
+        read_generation(&conn, &self.domain)
     }
 
     /// Set a key only if the domain generation matches `expected_generation`.

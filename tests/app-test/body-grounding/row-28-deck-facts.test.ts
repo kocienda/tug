@@ -39,7 +39,7 @@ import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { withModifiersHeld } from "../_harness/client";
 import { mkTempTugbank, seedTugbankForLaunch } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { SETTLE_MS, focusBody, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { SETTLE_MS, focusBody, pollFor, settleFor, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest } from "./_kinds";
 
@@ -111,7 +111,7 @@ const EMPTY_CANVAS = `(function () {
 
 /** Both pages' `data-mods`, polled until `done` or the settle runs out. */
 async function modsOf(app: App, a: BodyApp, done: (shell: string | null, body: string | null) => boolean): Promise<{ shell: string | null; body: string | null }> {
-  return pollFor(
+  return settleFor(
     async () => ({ shell: await app.evalJS<string | null>(mods), body: await a.evalJS<string | null>(mods) }),
     (m) => done(m.shell, m.body),
     SETTLE_MS,
@@ -148,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
         const atStart = { shell: await app.evalJS<boolean | null>(ringFollowsPointer), body: await a.evalJS<boolean | null>(ringFollowsPointer) };
         expect(atStart, "at the start both pages paint the ring on the keyboard only").toEqual({ shell: false, body: false });
         writeModality(app, tugbankPath, "pointer");
-        const pointer = await pollFor(
+        const pointer = await settleFor(
           async () => ({ shell: await app.evalJS<boolean | null>(ringFollowsPointer), body: await a.evalJS<boolean | null>(ringFollowsPointer) }),
           (m) => m.shell === true && m.body === true,
           SETTLE_MS * 3,
@@ -156,7 +156,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
         note(`ring follows pointer: at the start ${JSON.stringify(atStart)}; after the write ${JSON.stringify(pointer)}`);
         expect(pointer, "the shell takes the write and the body follows it").toEqual({ shell: true, body: true });
         writeModality(app, tugbankPath, "keyboard");
-        const back = await pollFor(
+        const back = await settleFor(
           async () => ({ shell: await app.evalJS<boolean | null>(ringFollowsPointer), body: await a.evalJS<boolean | null>(ringFollowsPointer) }),
           (m) => m.shell === false && m.body === false,
           SETTLE_MS * 3,
@@ -167,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
         const empty = await app.evalJS<{ x: number; y: number } | null>(EMPTY_CANVAS);
         expect(empty, "the deck canvas has a spot no pane stands over").not.toBeNull();
         await app.nativeClick(empty!);
-        const holders = await pollFor(() => app.bodies(), (bs) => bs.every((b) => !b.firstResponder), SETTLE_MS);
+        const holders = await settleFor(() => app.bodies(), (bs) => bs.every((b) => !b.firstResponder), SETTLE_MS);
         expect(holders.filter((b) => b.firstResponder).map((b) => b.cardId), "a click on the empty canvas gives the shell the keyboard").toEqual([]);
         let held: { shell: string | null; body: string | null } = { shell: null, body: null };
         await withModifiersHeld(app, ["shift"], async () => {

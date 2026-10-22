@@ -18,7 +18,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
-import { bodyOf, pollFor, sessionPane } from "./_bodies";
+import { bodyOf, pollFor, settleFor, sessionPane } from "./_bodies";
 import { standUpKind } from "./_kind-bodies";
 import { cardKind, kindPane, kindSidebars } from "./_kinds";
 
@@ -30,7 +30,8 @@ const A = "r42-a";
 const SESSION_SPACE = "r42-session";
 const LAYOUT_SPACE = "r42-layout-space";
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
-const hasSpare = async (app: App): Promise<boolean> => (await app.bodies()).some((b) => b.cardId === null);
+/** The spare's page, or null while there is none. */
+const sparePage = async (app: App): Promise<number | null> => (await app.bodies()).find((b) => b.cardId === null)?.page ?? null;
 
 /** The Session card's workspace, shown at launch, and the Layout card's, shown next. */
 const LAYOUT = {
@@ -83,15 +84,17 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 42: a warning keeps the spare",
         await standUpKind(app, cardKind("layout"), L);
         await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
 
-        const spareBefore = await pollFor(() => hasSpare(app), (s) => s, 10_000);
-        expect(spareBefore, "the spare stands before the warning").toBe(true);
+        const spareBefore = await settleFor(() => sparePage(app), (s) => s !== null, 10_000);
+        expect(spareBefore, "the spare stands before the warning").not.toBeNull();
         await app.simulateMemoryPressure("warning");
-        const taken = await pollFor(() => bodyOf(app, A), (b) => b === null, 10_000);
+        const taken = await settleFor(() => bodyOf(app, A), (b) => b === null, 10_000);
         expect(taken, "the warning took the hidden body").toBeNull();
-        expect(await hasSpare(app), "a warning keeps the spare").toBe(true);
+        // The same page: a spare the warning took and the lane made again a
+        // second later would stand in the list all the same.
+        expect(await sparePage(app), "a warning keeps the spare, the same page").toBe(spareBefore);
         expect(await bodyOf(app, L), "and left the shown one").not.toBeNull();
         await app.simulateMemoryPressure("normal");
-        expect(await hasSpare(app), "the spare stands after the warning clears").toBe(true);
+        expect(await sparePage(app), "the same spare stands after the warning clears").toBe(spareBefore);
         note("the warning took the parked Session card's body; the spare stood through it");
       } finally {
         await app.close();

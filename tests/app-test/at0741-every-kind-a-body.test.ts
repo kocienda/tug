@@ -26,7 +26,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { BODY_READY_MS, pollFor, spawnStub } from "./body-grounding/_bodies";
+import { BODY_READY_MS, pollFor, settleFor, spawnStub } from "./body-grounding/_bodies";
 import { CARD_KINDS, kindPane, kindSidebars } from "./body-grounding/_kinds";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "./streaming-stub-fixture";
 
@@ -84,7 +84,7 @@ async function proveDeck(app: App, kinds: readonly RegisteredKind[], stubDir: st
   for (const kind of kinds) {
     if (kind.bodyHandOff === "spawn") await spawnStub(app, cardIdOf(kind.componentId), stubDir, 2);
   }
-  const bodies = await pollFor(
+  const bodies = await settleFor(
     () => app.bodies(),
     (list) => ids.every((id) => list.some((b) => b.cardId === id && b.state === "ready")),
     BODY_READY_MS,

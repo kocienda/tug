@@ -32,6 +32,8 @@ The user: a user "can set up a series of sessions, kick off some work, and then 
 
 **[B03] Nothing names the tier to the user except the Layout card.** No badge, no dimming, no "parked" label on a card or in a list. A dormant or evicted card looks like any card that is not in front; the Layout card's Bodies row (stage 2 [B05]) is where the state is read by someone who wants it. The tiers are an implementation of "the work goes on", and showing them would suggest it might not.
 
+*Amended, 2026-10-22.* The exception is gone: `4f3c12e34` removed the Layout card's Bodies row, and the census behind it was deleted with the body-lifecycle second fixups. Nothing names the tier to the user anywhere. The rest of this decision stands.
+
 **[B04] A reveal may show one thing, and only when it must: the arrival lid.** A dormant reveal shows the standing DOM and the missed turns land into it; if stage 1's reading says stale content shows for more than a frame, the lid covers the catch-up. An evicted reveal is always lidded, as any arrival. No spinner, no "restoring…" text, no placard: the restore path's own `SessionRestoring` state stays for a session that has to spawn, not for one that is running.
 
 **[B05] A cold reveal that fails shows the failed-body placard, with Reload.** The one failure a user can see is the path that exists: a body that never reports ready hands back to the shell, which shows the lid with Reload. Nothing new is invented for eviction; the message says the card is reloading, never that work was lost, because none was.

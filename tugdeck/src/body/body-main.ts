@@ -101,7 +101,14 @@ import { bindPageCard, installPage, page } from "../bus/page";
 import { createPageBus, installPageBus, pageBus } from "../bus/page-bus";
 import { connectionTransport } from "../bus/transport";
 import type { SharedStore } from "../bus/shared-store";
-import { deckCards, deckFacts, deckFrontmostProject, deckMenu, type DeckFactsValue } from "../bus/declarations/deck";
+import {
+  deckCards,
+  deckFacts,
+  deckFrontmostProject,
+  deckMenu,
+  harnessBodyDelays,
+  type DeckFactsValue,
+} from "../bus/declarations/deck";
 import {
   cardContext,
   cardCrossing,
@@ -149,12 +156,7 @@ import { relayFrontmostProjectBinding, relayWorkspaceProjectDirs } from "../lib/
 import { bodyVisibilityStore } from "../lib/body-visibility-store";
 import { withholdBodySurface } from "../lib/surface-mirror";
 import { BODY_DORMANT_ATTRIBUTE, installBodyDormancy, sessionAnswersCatchUp } from "./body-dormancy";
-import {
-  DORMANT_AFTER_DOMAIN,
-  DORMANT_AFTER_KEY,
-  parseBodyDelayMs,
-  resolveDormantAfterMs,
-} from "../lib/dormant-after-pref";
+import { DORMANT_AFTER_MS } from "../lib/body-visibility-store";
 import { applyCrossingMirror } from "../lib/fold-crossing";
 import { telemetryInspectionStore } from "../lib/telemetry-inspection-store";
 import { installInspectionPublisher } from "./body-inspection";
@@ -352,6 +354,8 @@ function applyMotion(): void {
 function catchUpCard(cardId: string, done: () => void): () => void {
   const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
   if (store === null || !sessionAnswersCatchUp(deckCards.getSnapshot()[cardId]?.sessionState)) {
+    // Nothing will answer: the deadlines the sleep stopped start from now.
+    store?.noteAwake();
     done();
     return () => {};
   }
@@ -460,6 +464,7 @@ function signalReadyWhenQuiet(
   deck: BodyCardDeck,
   publisher: InstalledBodyPublisher,
   mounting: boolean,
+  onMounted: () => void,
 ): void {
   let done = false;
   const releases: Array<() => void> = [];
@@ -468,6 +473,7 @@ function signalReadyWhenQuiet(
     done = true;
     for (const release of releases) release();
     scheduleAfterPaint(() => {
+      onMounted();
       deck.revealLayer();
       postToHost(frontendReadyToHost, {});
       postSurface();
@@ -651,6 +657,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
     lidContent: (on) => document.documentElement.toggleAttribute(BODY_DORMANT_ATTRIBUTE, on),
     withholdSurface: withholdBodySurface,
     saveBag: () => void deck.saveNow(),
+    sleepSession: () => cardServicesStore.getServices(cardId)?.codeSessionStore?.noteDormant(),
     catchUp: (done) => catchUpCard(cardId, done),
   });
 
@@ -719,10 +726,15 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // through `getMiniatureDropHost`.
   if (registration?.bodyDeck === "arrangement") followMiniatureGauges();
   // The verbs and questions the shell asks of this card (`body-verbs.ts`).
+  let markMounted = (): void => {};
+  const mounted = new Promise<void>((resolve) => {
+    markMounted = resolve;
+  });
   answerBodyVerbs(pageBus(), {
     cardId,
     componentId,
     replayIntent: (forwarded) => replayBodyIntent(forwarded, cardId, connection, deck),
+    mounted,
   });
 
   initBodyHostMenuState(deck, view);
@@ -801,7 +813,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
     },
   } as unknown as typeof window.tugdeck;
 
-  signalReadyWhenQuiet(cardId, deck, publisher, intent.kind === "mount");
+  signalReadyWhenQuiet(cardId, deck, publisher, intent.kind === "mount", markMounted);
 }
 
 (async () => {
@@ -853,14 +865,11 @@ async function bindBody(bind: BodyBind): Promise<void> {
   tugbankClient.onDomainChanged((domain, entries) => {
     if (domain === KEYMAP_DOMAIN) keymapOverrideStore.applyRemote(entries);
   });
-  // How long this body may stay hidden before it goes dormant: the Layout
-  // card's row, written anywhere, reaches every body's clock here.
-  const readDormantAfter = () =>
-    resolveDormantAfterMs(parseBodyDelayMs(tugbankClient.get(DORMANT_AFTER_DOMAIN, DORMANT_AFTER_KEY)));
+  // How long this body may stay hidden before it goes dormant: the constant,
+  // unless the harness has shortened it (`harnessBodyDelays`).
+  const readDormantAfter = () => harnessBodyDelays.getSnapshot().dormantAfterMs ?? DORMANT_AFTER_MS;
   bodyVisibilityStore.setDormantAfterMs(readDormantAfter());
-  tugbankClient.onDomainChanged((domain) => {
-    if (domain === DORMANT_AFTER_DOMAIN) bodyVisibilityStore.setDormantAfterMs(readDormantAfter());
-  });
+  harnessBodyDelays.subscribe(() => bodyVisibilityStore.setDormantAfterMs(readDormantAfter()));
   initMotionObserver();
   // The body's own motion guard: its loops take holds in this page's
   // registry, so the probe, the input-latency observer and

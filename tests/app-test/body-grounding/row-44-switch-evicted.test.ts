@@ -6,13 +6,13 @@
  *
  * The app launches on two workspaces: two Session cards side by side, shown,
  * and a Text card's, parked. The Text card's workspace is shown, which parks
- * the Session cards'; past the reader's `evictAfterMs`, shortened here, both
+ * the Session cards'; past the host's eviction delay, shortened here, both
  * Session bodies are evicted by the clock. Then the Session workspace is
  * shown again and read frame by frame until both new bodies have painted.
  * Each card comes back under the face the shell stands in for it, which
  * already stands in the parked workspace so the first switched frame shows
  * it, and under the last frame the host kept at its eviction where that has
- * not aged out: the host drops a cover older than `evictAfterMs`, which the
+ * not aged out: the host drops a cover older than the eviction delay, which the
  * row shortens, so either may be what stands. The Text card's view stood
  * across both panes, and the host hides it in the transaction that stands
  * its own face for each Session card, drawn from the shell's stand-in, so
@@ -26,6 +26,8 @@
  * @covers tugdeck/src/lib/body-stand-in-store.ts
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/BodyHandOver.swift
+ * @covers tugapp/Sources/BodyFaceHandOver.swift
+ * @covers tugdeck/src/lib/face-draw.ts
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugdeck/src/body/body-chrome.ts
@@ -36,7 +38,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, pollFor, sessionPane, spawnStub } from "./_bodies";
+import { bodyOf, pollFor, settleFor, sessionPane, spawnStub } from "./_bodies";
 import { activate, readSwitch, SHOULD_RUN, TEST_TIMEOUT_MS, textDeck } from "./_row-44";
 
 const A = "r44e-a";
@@ -70,13 +72,12 @@ const LAYOUT = {
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 44: a workspace switch onto evicted cards", () => {
   test(
-    "each evicted card's title is on screen from the first switched frame, and no pane shows the floor",
+    "each evicted card's title is on screen from the first switched frame, and no pane shows the canvas",
     async () => {
       const stubDir = stubDirectory();
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
       tugbankWrite(tugbankPath, "dev.tugapp.deck.layout", "layout", "json", JSON.stringify(LAYOUT));
-      tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "evictAfterMs", "int", String(EVICT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-44-switch-evicted",
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
@@ -84,21 +85,22 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: a workspace switch onto evi
         restoreInTestMode: true,
       });
       try {
+        await app.bodyDelays({ evictAfterMs: EVICT_AFTER_MS });
         // ---- Two Session cards, each with a session, shown ----
         await Promise.all([spawnStub(app, A, stubDir, 2), spawnStub(app, B, stubDir, 2)]);
         for (const id of [A, B]) {
-          const up = await pollFor(() => bodyOf(app, id), (b) => b?.state === "ready" && b.painted && b.visible, 30_000);
+          const up = await settleFor(() => bodyOf(app, id), (b) => b?.state === "ready" && b.painted && b.visible, 30_000);
           expect(up?.visible, `${id}: its body is ready and shown`).toBe(true);
         }
 
         // ---- Parked, and evicted by the clock ----
         await activate(app, TEXT_SPACE);
-        const gone = await pollFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A || b.cardId === B), EVICT_AFTER_MS + 6_000);
+        const gone = await settleFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A || b.cardId === B), EVICT_AFTER_MS + 6_000);
         expect(gone.some((b) => b.cardId === A || b.cardId === B), "both parked bodies are evicted").toBe(false);
 
         // ---- The switch back, read frame by frame ----
         const bad = await readSwitch(app, SESSION_SPACE, [A, B], "row-44-switch-evicted");
-        expect(bad, "every switched frame shows each card's title, and none shows the floor through a pane").toEqual([]);
+        expect(bad, "every switched frame shows each card's title, and none shows the canvas through a pane").toEqual([]);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

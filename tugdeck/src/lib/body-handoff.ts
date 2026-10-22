@@ -34,13 +34,17 @@
  *
  * **Not shown, not made.** A card handed off while the deck does not want
  * it shown — an inactive tab, at launch or after — is a body card from the
- * hand-off, but no page is asked for: it stands `evicted`, its intent kept,
+ * hand-off, but no page is asked for: it stands `unmade`, its intent kept,
  * until the deck first wants it shown, when the shell's eviction funnel asks
  * for it with that intent ({@link releaseDeferredBody}). A page made for a
  * card nobody can see goes dormant within seconds, and while the deck loads
  * it competes with the cards the user is waiting for. A kind that may veto
  * its own close (`guardsClose`) is made at once all the same: only its page
- * can say whether a close of it would ask.
+ * can say whether a close of it would ask. So is a card whose page is already
+ * attached — a body the host kept across a shell reload, which said hello to
+ * this shell before it was handed off: the host answers with the page it
+ * kept, which goes on reporting its state, and a card stood `unmade` over a
+ * live page would read bodiless and be shown by a stand-in.
  *
  * **Failure.** A body that fails stays a body card: the shell has no other
  * place for its card. The shell asks the host for it again
@@ -104,7 +108,6 @@ export function bodyIntentOf(cardId: string): BodyIntent | null {
 /** The card is no longer a body card: forget what it was handed. */
 export function forgetBodyIntent(cardId: string): void {
   intents.delete(cardId);
-  deferred.delete(cardId);
 }
 
 /** Whether `cardId` is a body card on this page: its body, not this page, acts for it. */
@@ -128,7 +131,6 @@ export function isMountBodyKind(componentId: string): boolean {
 /** For tests. */
 export function _resetHandOffForTest(): void {
   intents.clear();
-  deferred.clear();
   deferral = null;
   reloader = null;
   bodyCardsStore._reset();
@@ -147,6 +149,34 @@ function cardInItsSpace(cardId: string): DeckState["cards"][number] | undefined 
 }
 
 /**
+ * Ask the host for a page of `componentId` for `cardId`. A kind that may veto
+ * its close says so, since only its page can answer that guard: the host
+ * keeps such a page through the clock and a warning, and lets critical
+ * pressure alone take it.
+ */
+function askHostForBody(cardId: string, componentId: string, intent: BodyIntent): void {
+  const guardsClose = getRegistration(componentId)?.guardsClose === true;
+  postToHost(bodyCreateToHost, guardsClose ? { cardId, componentId, intent, guardsClose } : { cardId, componentId, intent });
+}
+
+/**
+ * What a card's next body is to do when the shell asks for it again, from
+ * what its gone body was handed (`handed`, without its bag: the gone body
+ * wrote the card's state as it went, so the new one reads it back). A kind
+ * the shell hands off itself mounts. The harness's fake bind is handed
+ * again, since no ledger holds it. A Session card the shell holds a binding
+ * for (`bound`) restores it: the gone body's spawn was acknowledged, so
+ * re-running a `new` or `fresh` would start a second session. Any other
+ * card re-runs what it was handed, or restores when it was handed nothing.
+ */
+export function intentToAskAgain(handed: BodyIntent | null, mountKind: boolean, bound: boolean): BodyIntent {
+  if (mountKind) return { kind: "mount" };
+  if (handed?.kind === "bind") return handed;
+  if (bound) return { kind: "restore" };
+  return handed ?? { kind: "restore" };
+}
+
+/**
  * Ask the host again for the body of `cardId`, a body card whose body
  * failed: the card is `creating` again and the host makes it a new body,
  * which acts on `intent`. Nothing when the deck no longer holds the card.
@@ -156,7 +186,7 @@ export function askForBodyAgain(cardId: string, intent: BodyIntent): void {
   if (card === undefined || !bodyCardsStore.has(cardId)) return;
   intents.set(cardId, intent);
   bodyCardsStore.setState(cardId, "creating");
-  postToHost(bodyCreateToHost, { cardId, componentId: card.componentId, intent });
+  askHostForBody(cardId, card.componentId, intent);
 }
 
 /** How a failed card's Reload asks for its body: the shell's, once it is installed. */
@@ -172,9 +202,6 @@ export function reloadBody(cardId: string): void {
   reloader?.(cardId);
 }
 
-/** Body cards handed off while not wanted shown, whose page is not yet asked for. */
-const deferred = new Set<string>();
-
 /** Whether a card handed off now is not to have its page made yet: the shell's, once it is installed. */
 let deferral: ((cardId: string) => boolean) | null = null;
 
@@ -185,7 +212,7 @@ export function setBodyDeferral(defer: ((cardId: string) => boolean) | null): vo
 
 /** Whether `cardId` is a body card whose page has never been asked for. */
 export function isDeferredBody(cardId: string): boolean {
-  return deferred.has(cardId);
+  return bodyCardsStore.stateOf(cardId) === "unmade";
 }
 
 /**
@@ -194,12 +221,12 @@ export function isDeferredBody(cardId: string): boolean {
  * read the card's state yet. False, asking nothing, for any other card.
  */
 export function releaseDeferredBody(cardId: string): boolean {
-  if (!deferred.delete(cardId)) return false;
+  if (!isDeferredBody(cardId)) return false;
   const card = cardInItsSpace(cardId);
   const intent = intents.get(cardId);
-  if (card === undefined || intent === undefined || !bodyCardsStore.has(cardId)) return true;
+  if (card === undefined || intent === undefined) return true;
   bodyCardsStore.setState(cardId, "creating");
-  postToHost(bodyCreateToHost, { cardId, componentId: card.componentId, intent });
+  askHostForBody(cardId, card.componentId, intent);
   return true;
 }
 
@@ -219,7 +246,7 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
   if (bodyCardsStore.has(cardId)) {
     // A card whose page waits to be shown is handed that page's intent when
     // it is: the one just decided, carrying the state it was first handed.
-    if (deferred.has(cardId)) {
+    if (isDeferredBody(cardId)) {
       const made = intent();
       const bag = made.bag ?? intents.get(cardId)?.bag;
       intents.set(cardId, bag === undefined ? made : { ...made, bag });
@@ -235,19 +262,23 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
   if (deck === null) return false;
   const card = cardInItsSpace(cardId);
   if (card === undefined || !isBodyKind(card.componentId)) return false;
-  bodyCardsStore.mark(cardId);
   // The card's first body: it takes the state the shell holds for it.
   const asked = intent();
   const bag = asked.bag ?? deck.getCardState(cardId);
   const made = bag === undefined ? asked : { ...asked, bag };
   intents.set(cardId, made);
-  // A kind that may veto its close needs its page to answer whether it would.
-  if (getRegistration(card.componentId)?.guardsClose !== true && deferral?.(cardId) === true) {
-    deferred.add(cardId);
-    bodyCardsStore.setState(cardId, "evicted");
+  // A kind that may veto its close needs its page to answer whether it
+  // would, and a page already attached is the card's whatever is shown.
+  if (
+    getRegistration(card.componentId)?.guardsClose !== true &&
+    installedPageBus()?.isAttached({ card: cardId }) !== true &&
+    deferral?.(cardId) === true
+  ) {
+    bodyCardsStore.mark(cardId, "unmade");
     return true;
   }
-  postToHost(bodyCreateToHost, { cardId, componentId: card.componentId, intent: made });
+  bodyCardsStore.mark(cardId);
+  askHostForBody(cardId, card.componentId, made);
   return true;
 }
 

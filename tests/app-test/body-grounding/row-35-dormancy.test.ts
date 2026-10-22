@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { launchTugApp, note } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, STREAM_PACE_MS, stubDirectory, streamingTranscript } from "../streaming-stub-fixture";
-import { bodyOf, pollFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
+import { bodyOf, pollFor, settleFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -94,9 +94,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: dormancy and the catch-up",
         await app.spawnSessionNew(A, { tugSessionId, projectDir });
         await waitForBody(app, A);
         const body = app.body(A);
-        await body.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.body-dormancy", "dormantAfterMs", { kind: "i64", value: ${DORMANT_AFTER_MS} }), null)`,
-        );
+        await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS });
         const before = await body.evalJS<Read>(READ);
         expect(before, "shown, awake and unlidded before anything is hidden").toMatchObject({ shown: true, dormant: false, lidded: false });
 
@@ -107,11 +105,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: dormancy and the catch-up",
         const home = await app.evalJS<string>(ACTIVE_SPACE);
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
-        const hidden = await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
+        const hidden = await settleFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
         expect(hidden?.shown, "the host has the parked body hidden").toBe(false);
 
         // ---- Past its delay, it goes dormant; the turn ends unheard ----
-        const asleep = await pollFor(() => body.evalJS<Read>(READ), (r) => r.dormant, 5_000);
+        const asleep = await settleFor(() => body.evalJS<Read>(READ), (r) => r.dormant, 5_000);
         expect(asleep, "the hidden body is dormant past its delay, its turn still running on its page").toMatchObject({
           shown: false,
           dormant: true,

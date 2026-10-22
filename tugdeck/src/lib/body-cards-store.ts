@@ -6,8 +6,10 @@
  * quiet, `painted` when its first frame of real content has gone to the
  * compositor, `failed` when the body never answered, `evicted` when the host
  * gave its process up under memory pressure and the card waits, its facts
- * standing, for a placement to want it shown again. A card leaves when it
- * is destroyed or when its body fails and the shell takes the card back.
+ * standing, for a placement to want it shown again. A card handed off while
+ * it was not shown enters `unmade` instead: no page has been asked for, and
+ * none is until the deck first wants it shown (`body-handoff.ts`). A card
+ * leaves when it is destroyed.
  * `CardHost` reads membership to decide between the card's content and the
  * body's placeholder; the placer shows a body only once it is `painted`;
  * nothing here knows what a body is for.
@@ -20,7 +22,12 @@
 import type { ArrivalQuiet } from "./arrival-reveal";
 import { Subscribable } from "./subscribable";
 
-export type BodyCardState = "creating" | "ready" | "painted" | "failed" | "evicted";
+export type BodyCardState = "creating" | "ready" | "painted" | "failed" | "evicted" | "unmade";
+
+/** Whether a body card in `state` has no page: `evicted`, its page given up, or `unmade`, never asked for. */
+export function pageless(state: BodyCardState | null): boolean {
+  return state === "evicted" || state === "unmade";
+}
 
 export class BodyCardsStore extends Subscribable {
   private readonly states = new Map<string, BodyCardState>();
@@ -36,10 +43,10 @@ export class BodyCardsStore extends Subscribable {
   private readonly revived = new Set<string>();
   private ids: readonly string[] = [];
 
-  /** Mark `cardId` a body card, in `creating`. A card already marked keeps its state. */
-  mark(cardId: string): void {
+  /** Mark `cardId` a body card, in `state` (`creating` unless said). A card already marked keeps its state. */
+  mark(cardId: string, state: "creating" | "unmade" = "creating"): void {
     if (this.states.has(cardId)) return;
-    this.states.set(cardId, "creating");
+    this.states.set(cardId, state);
     this.changed();
   }
 
@@ -48,10 +55,10 @@ export class BodyCardsStore extends Subscribable {
     const prev = this.states.get(cardId);
     if (prev === undefined || prev === state) return;
     this.states.set(cardId, state);
-    // A page starting again, or gone, has no chrome on screen.
-    if (state === "creating" || state === "failed" || state === "evicted") this.chrome.delete(cardId);
+    // A page starting again, gone, or never made has no chrome on screen.
+    if (state !== "ready" && state !== "painted") this.chrome.delete(cardId);
     // A revived card that has painted, or failed, stands on its own again.
-    if (state === "painted" || state === "failed" || state === "evicted") this.revived.delete(cardId);
+    if (state !== "creating" && state !== "ready") this.revived.delete(cardId);
     this.changed();
   }
 

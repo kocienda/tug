@@ -217,19 +217,33 @@ export const railEdgeCall = definePageCall({
   refusedReplies: [{ ...SAMPLE_RAIL_EDGE, held: [70, 130, 230] }, { ...SAMPLE_RAIL_EDGE, fill: undefined }, { ...SAMPLE_RAIL_EDGE, ghostEdge: undefined }, true],
 });
 
-/** The shell asks for a card's body: which card, which kind, and what the body is to do with it. */
+/**
+ * The shell asks for a card's body: which card, which kind, and what the body
+ * is to do with it. `guardsClose` says the kind may veto its close, which only
+ * its page can answer, so the host keeps that page through every eviction but
+ * critical pressure's.
+ */
 export interface BodyCreate {
   readonly cardId: string;
   readonly componentId: string;
   readonly intent: Record<string, unknown>;
+  readonly guardsClose?: boolean;
 }
 
 export const bodyCreateToHost = defineToHost<BodyCreate>({
   name: "bodyCreate",
   from: "shell",
-  codec: obj({ cardId: str, componentId: str, intent: jsonObject }),
-  samples: [{ cardId: "c1", componentId: "text", intent: { kind: "mount" } }],
-  refused: ["c1", { cardId: "c1", intent: { kind: "mount" } }, { cardId: "c1", componentId: "text", intent: "mount" }],
+  codec: obj({ cardId: str, componentId: str, intent: jsonObject, guardsClose: optional(bool) }),
+  samples: [
+    { cardId: "c1", componentId: "text", intent: { kind: "mount" }, guardsClose: true },
+    { cardId: "c2", componentId: "session", intent: { kind: "mount" } },
+  ],
+  refused: [
+    "c1",
+    { cardId: "c1", intent: { kind: "mount" } },
+    { cardId: "c1", componentId: "text", intent: "mount" },
+    { cardId: "c1", componentId: "text", intent: { kind: "mount" }, guardsClose: "yes" },
+  ],
 });
 
 /** The shell is done with a card's body; with `save`, the body writes its card's state first. */
@@ -246,17 +260,28 @@ export const bodyDestroyToHost = defineToHost<BodyDestroy>({
   refused: ["c1", { cardId: "c1" }],
 });
 
-/** How long a body may stay hidden before the host evicts it, in ms: the reader's `evictAfterMs`. */
-export interface BodyEvictAfter {
-  readonly ms: number;
+/**
+ * The harness's seam on the host's body clocks, never sent by the product:
+ * how long a hidden body keeps its process before the host evicts it, and
+ * how long a new page has to say it is ready, ms — null for the host's own
+ * constant. The app-tests shorten them through `__tug.bodyDelays`
+ * (`test-surface.ts`), which sends this, and the host honours it only under
+ * the harness.
+ */
+export interface BodyDelays {
+  readonly evictAfterMs: number | null;
+  readonly readyDeadlineMs: number | null;
 }
 
-export const bodyEvictAfterToHost = defineToHost<BodyEvictAfter>({
-  name: "bodyEvictAfter",
+export const bodyDelaysToHost = defineToHost<BodyDelays>({
+  name: "bodyDelays",
   from: "shell",
-  codec: obj({ ms: num }),
-  samples: [{ ms: 900_000 }],
-  refused: [900_000, { ms: "900000" }],
+  codec: obj({ evictAfterMs: nullable(num), readyDeadlineMs: nullable(num) }),
+  samples: [
+    { evictAfterMs: 1_500, readyDeadlineMs: null },
+    { evictAfterMs: null, readyDeadlineMs: 50 },
+  ],
+  refused: [1_500, { evictAfterMs: "1500", readyDeadlineMs: null }],
 });
 
 /** The card whose body takes the keyboard, or null for the shell. */
@@ -351,7 +376,7 @@ export interface BodyStateReport {
   /**
    * `failed`: why the host gave the body up. `evicted`: what took its
    * process — `pressure-warning`, `pressure-critical`, or `hidden` for a
-   * body hidden past `evictAfterMs`.
+   * body hidden past the host's eviction delay.
    */
   readonly cause?: string;
 }
@@ -402,27 +427,6 @@ export const bodyVisibilityToPage = defineToPage<BodyVisibility>({
     { shown: false, since: 1_760_000_060_000.5 },
   ],
   refused: [true, { shown: "yes", since: 0 }, { shown: false }],
-});
-
-/**
- * How short of memory the machine said it was, and when, wall-clock ms: the
- * host's memory-pressure source, told to the shell at every event. A reading
- * for the Layout card; the host acts on it itself.
- */
-export interface BodyPressure {
-  readonly level: "normal" | "warning" | "critical";
-  readonly at: number;
-}
-
-export const bodyPressureToPage = defineToPage<BodyPressure>({
-  member: "onBodyPressure",
-  to: "shell",
-  codec: obj({ level: literal("normal", "warning", "critical"), at: num }),
-  samples: [
-    { level: "warning", at: 1_760_000_000_000 },
-    { level: "normal", at: 1_760_000_060_000.5 },
-  ],
-  refused: ["warning", { level: "low", at: 0 }, { level: "critical" }],
 });
 
 // The host's calls into `window.tugdeck`.

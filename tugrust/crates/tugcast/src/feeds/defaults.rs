@@ -104,21 +104,20 @@ fn build_domain_entries(client: &TugbankClient) -> Vec<(String, JsonValue, usize
     };
 
     for domain_name in &domain_names {
-        let snapshot: BTreeMap<String, tugbank_core::Value> = match client.read_domain(domain_name)
+        // The entries and the generation they were read at, as one pair,
+        // never a fresh number beside cached entries: a frame built for
+        // another domain's change between a write and its notice would
+        // otherwise carry the new number with the old entries, and every page
+        // would drop the refreshed frame as one it already has.
+        let (snapshot, generation): (BTreeMap<String, tugbank_core::Value>, u64) = match client
+            .read_domain_with_generation(domain_name)
         {
-            Ok(snap) => snap,
+            Ok(pair) => pair,
             Err(e) => {
                 warn!(domain = %domain_name, error = %e, "defaults_feed: failed to read domain");
                 continue;
             }
         };
-
-        // Get generation from the store.
-        let generation: u64 = client
-            .store()
-            .domain(domain_name)
-            .and_then(|h| h.generation())
-            .unwrap_or(0);
 
         let mut entries = Map::new();
         for (key, value) in &snapshot {

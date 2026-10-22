@@ -36,7 +36,7 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, showsBareHole, type FloorMeasure } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, FLOOR_BY_CLASS, floorMeasure, pollFor, settleFor, readPalette, showsBareHole, type FloorMeasure } from "./_frames";
 import { closePopoverUp, pressCloseOfPopover } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest, sessionUnderTest } from "./_kinds";
@@ -111,7 +111,7 @@ async function departLeg(app: App, card: string, measure: FloorMeasure = FLOOR_B
   };
   const probe = (await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop })) as { armed: true };
   expect(probe.armed).toBe(true);
-  const probeReading = await pollFor(
+  const probeReading = await settleFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
     (r) => r.done,
     PLACED_MS,
@@ -135,17 +135,17 @@ async function departLeg(app: App, card: string, measure: FloorMeasure = FLOOR_B
   // the page that draws it — the card's own, for a kind that carries its
   // chrome — and the close is that confirm's Close. A Session card with no
   // turn running waives it; the Overview never does.
-  const asked = await pollFor(() => closePopoverUp(app, card), (up) => up, 600);
+  const asked = await settleFor(() => closePopoverUp(app, card), (up) => up, 600);
   if (asked) {
     note("the card asked before closing; answering Close");
     expect(await pressCloseOfPopover(app, card), "the confirm's Close is pressed").toBe(true);
   }
-  const gone = await pollFor(() => bodyOf(app, card), (b) => b === null, BODY_READY_MS);
+  const gone = await settleFor(() => bodyOf(app, card), (b) => b === null, BODY_READY_MS);
   if (gone !== null) {
     note(`after the close the deck holds ${JSON.stringify(await app.evalJS<string[]>(`Array.from(document.querySelectorAll(".tug-pane [data-card-id]")).map(function (el) { return el.getAttribute("data-card-id"); })`))}; it still names ${card}: ${await app.evalJS<boolean>(`document.querySelector('.tug-pane [data-card-id="${card}"]') !== null`)}; its body ${JSON.stringify({ state: gone.state, visible: gone.visible, frame: gone.frame })}; the sidebars ${JSON.stringify(await app.evalJS<unknown>("window.tugdeck.diag.getDeckState().imposition.sidebars"))}`);
   }
   expect(gone, "the host holds no body for the closed card once it has departed").toBeNull();
-  const reading = await pollFor(
+  const reading = await settleFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
     (r) => r.done,
     BURST_MS + 5_000,
@@ -189,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 3: departure", () => {
           await app.seedDeckState({ state: kindDeck(kind, card, { sessions: [NEIGHBOUR] }), focusCardId: card });
           await standUpKind(app, kind, card);
           await app.dispatchControlAction("focus-session-card", { cardId: card });
-          const key = await pollFor(() => app.evalJS<string | null>("window.__tug.getActiveCardId()"), (id) => id === card, PLACED_MS);
+          const key = await settleFor(() => app.evalJS<string | null>("window.__tug.getActiveCardId()"), (id) => id === card, PLACED_MS);
           expect(key, `the ${kind.componentId} card is the key card`).toBe(card);
           await Bun.sleep(400);
           await departLeg(app, card, floorMeasure(kind.rail));
@@ -216,7 +216,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 3: departure", () => {
         onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
         writeFileSync(join(stubDir, `${tugSessionId}.json`), JSON.stringify(streamingTranscript(2, 1)));
         await app.spawnSessionNew(BODY_CARD, { tugSessionId, projectDir });
-        const shown = await pollFor(() => bodyOf(app, BODY_CARD), (b) => b !== null && b.visible, BODY_READY_MS);
+        const shown = await settleFor(() => bodyOf(app, BODY_CARD), (b) => b !== null && b.visible, BODY_READY_MS);
         expect(shown?.visible, "the body card's body is placed visible").toBe(true);
 
         // The turn the stub replays runs out, so the close asks nothing.

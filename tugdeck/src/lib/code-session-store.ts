@@ -110,6 +110,7 @@ import type {
   PendingAsk,
   TurnEntry,
 } from "./code-session-store/types";
+import { isInkOrigin } from "./code-session-store/types";
 
 export type {
   ActiveTurnSnapshot,
@@ -242,17 +243,33 @@ const CATCH_UP_NAMED_TURNS = 16;
  * first. Several ids ride so a turn tugcode cannot find by its id — one that
  * committed with no content, under an id the translator minted — does not
  * leave the card unplaced; the count is tugcode's last resort.
+ *
+ * Only turns are named or counted. An ink entry (a shell exchange, a refs
+ * run) is never in the JSONL: its `msgId` is an id the deck minted, and
+ * counting it would place the card past turns it never held. An entry
+ * carrying such a minted id is passed over whatever its origin says.
  */
-function heldTurnsOf(
+export function heldTurnsOf(
   transcript: ReadonlyArray<TurnEntry>,
   firstLoadedTurnIndex: number,
 ): ReplayAfterTurn {
-  const msgIds: string[] = [];
-  for (let i = transcript.length - 1; i >= 0 && msgIds.length < CATCH_UP_NAMED_TURNS; i--) {
-    const id = transcript[i].msgId;
-    if (id !== "") msgIds.push(id);
+  const minted = new Set<string>();
+  for (const entry of transcript) {
+    for (const m of entry.messages) {
+      if (m.kind === "refs_result") minted.add(m.runId);
+      else if (m.kind === "shell_exchange") minted.add(m.exchangeId);
+    }
   }
-  return { msgIds, heldTurns: firstLoadedTurnIndex + transcript.length };
+  const isTurn = (entry: TurnEntry) => !isInkOrigin(entry.origin) && !minted.has(entry.msgId);
+  const msgIds: string[] = [];
+  let held = 0;
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const entry = transcript[i];
+    if (!isTurn(entry)) continue;
+    held += 1;
+    if (entry.msgId !== "" && msgIds.length < CATCH_UP_NAMED_TURNS) msgIds.push(entry.msgId);
+  }
+  return { msgIds, heldTurns: firstLoadedTurnIndex + held };
 }
 
 export interface CodeSessionStoreOptions {
@@ -865,7 +882,7 @@ export class CodeSessionStore extends Subscribable {
       replayWindow: this.state.replayWindow,
       sessionCreatedAtMs: this.state.sessionCreatedAtMs,
       loadingPrevious: this.state.replayPrependActive,
-      catchingUp: this.state.replayCatchUpActive,
+      catchingUp: this.state.catchUp.stage !== "none",
       // Determinate load-previous progress: target turns requested vs
       // turns staged so far. Both 0 when no load is in flight.
       loadingPreviousTarget: this.state.replayPrependActive
@@ -1242,8 +1259,10 @@ export class CodeSessionStore extends Subscribable {
   }
 
   /**
-   * Catch up on what a dormant body missed: called on its reveal, after its
-   * session subscription is restored. It asks for every committed turn after
+   * Catch up on what a dormant body missed: called on its reveal, before its
+   * session subscription is restored, since a body scoped to nothing hears no
+   * acknowledgement and what the session says between the ask and the
+   * bracket that answers it is set aside. It asks for every committed turn after
    * the newest one it holds, naming its turns by msg-id rather than by an
    * index: tugcode counts turns in the tip's coordinates, and a card's
    * transcript also holds a lineage's ancestors, so a count the card
@@ -1257,8 +1276,8 @@ export class CodeSessionStore extends Subscribable {
    */
   catchUp(): void {
     if (this._disposed) return;
-    const open = this.state.phase === "replaying" ? this.state.replayOpenWindow : null;
-    this.dispatch({ type: "begin_catch_up", reaskWindow: open !== null });
+    const open = this.state.phase === "replaying" ? this.state.catchUp.openWindow : null;
+    this.dispatch({ type: "begin_catch_up" });
     // Read after the dispatch: inside a bracket the transcript's post is held
     // until something publishes, and `begin_catch_up` does.
     const window: ReplayWindow = open ?? {
@@ -1267,6 +1286,26 @@ export class CodeSessionStore extends Subscribable {
     this.dispatch({ type: "replay_asked", window });
     const frame = encodeRequestReplay(this.tugSessionId, "catch-up", window);
     this.write(frame.feedId, frame.payload);
+  }
+
+  /**
+   * The body went dormant: its subscription is about to empty, and an open
+   * bracket's deadlines stop until it is shown again, since it will hear
+   * nothing to measure them by.
+   */
+  noteDormant(): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "went_dormant" });
+  }
+
+  /**
+   * The dormant body is shown again with nothing to ask, its session being
+   * unable to answer a catch-up: an open bracket's deadlines start from now.
+   * {@link catchUp} does the same as part of its ask.
+   */
+  noteAwake(): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "woke" });
   }
 
   /**

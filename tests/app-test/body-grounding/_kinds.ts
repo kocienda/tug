@@ -173,16 +173,17 @@ const SHAPE_REPRESENTATIVES: readonly string[] = ["session", "overview"];
 
 /**
  * The width each rail kind opens at, from its registration's preferred size
- * (the Overview's is its measure: 64 characters at 7.8 px and 46 px of
- * row chrome). A rail is seeded at it, so the allocator leaves it where it
- * stands and moving it to the other edge is a move, not a move and a resize.
+ * (the factory rails: 452 px on the left, 375 px on the right). A rail is
+ * seeded at it, so the allocator leaves it where it stands and moving it to
+ * the other edge is a move, not a move and a resize. Kept by hand, since this
+ * module imports nothing; a registration that moves its width moves it here.
  */
 const RAIL_WIDTHS: Readonly<Record<string, number>> = {
-  overview: 545,
-  jots: 420,
-  dashes: 420,
-  cards: 420,
-  layout: 420,
+  overview: 452,
+  jots: 452,
+  dashes: 452,
+  cards: 375,
+  layout: 375,
 };
 
 /**

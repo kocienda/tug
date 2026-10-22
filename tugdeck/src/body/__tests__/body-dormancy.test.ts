@@ -91,6 +91,7 @@ function recordingEffects(): { effects: BodyDormancyEffects; log: string[]; clos
       lidContent: (on) => log.push(`lidContent ${on}`),
       withholdSurface: (on) => log.push(`withholdSurface ${on}`),
       saveBag: () => log.push("saveBag"),
+      sleepSession: () => log.push("sleepSession"),
       catchUp: (d) => {
         log.push("catchUp");
         done = d;
@@ -112,7 +113,7 @@ describe("installBodyDormancy", () => {
     expect(log).toEqual([]);
     clock.advance(1);
     expect(installed.asleep).toBe(true);
-    expect(log).toEqual(["saveBag", "stillLoops true", "lidContent true", "withholdSurface true", "rescope"]);
+    expect(log).toEqual(["saveBag", "sleepSession", "stillLoops true", "lidContent true", "withholdSurface true", "rescope"]);
     installed.release();
   });
 
@@ -141,7 +142,7 @@ describe("installBodyDormancy", () => {
     expect(installed.asleep).toBe(false);
     expect(log.filter((e) => e === "saveBag")).toHaveLength(1);
     // The ask is written before the subscription is restored.
-    expect(log.slice(5)).toEqual(["catchUp", "rescope", "stillLoops false", "lidContent false", "withholdSurface false"]);
+    expect(log.slice(6)).toEqual(["catchUp", "rescope", "stillLoops false", "lidContent false", "withholdSurface false"]);
     store.apply({ shown: false, since: clock.now() });
     clock.advance(500);
     expect(log.filter((e) => e === "saveBag")).toHaveLength(2);
@@ -167,7 +168,7 @@ describe("installBodyDormancy", () => {
     clock.advance(500);
     store.apply({ shown: true, since: clock.now() });
     expect(installed.asleep).toBe(false);
-    expect(log.slice(5)).toEqual(["catchUp", "stillLoops false", "lidContent false", "withholdSurface false", "rescope"]);
+    expect(log.slice(6)).toEqual(["catchUp", "stillLoops false", "lidContent false", "withholdSurface false", "rescope"]);
     installed.release();
   });
 });
@@ -176,6 +177,7 @@ describe("sessionAnswersCatchUp", () => {
   test("a closed or failed session has nothing to answer; a live one, or one with no row, is asked", () => {
     expect(sessionAnswersCatchUp("closed")).toBe(false);
     expect(sessionAnswersCatchUp("failed")).toBe(false);
+    expect(sessionAnswersCatchUp("childless")).toBe(false);
     expect(sessionAnswersCatchUp("live")).toBe(true);
     expect(sessionAnswersCatchUp(null)).toBe(true);
     expect(sessionAnswersCatchUp(undefined)).toBe(true);

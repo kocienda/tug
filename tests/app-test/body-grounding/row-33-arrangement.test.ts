@@ -30,7 +30,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { expectRailSurface, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -64,7 +64,7 @@ const spaces = (app: App): Promise<SpacesRead> => app.evalJS<SpacesRead>("window
  * front.
  */
 async function shownCards(app: App): Promise<BodyApp> {
-  const shown = await pollFor(
+  const shown = await settleFor(
     () => app.bodies(),
     (bodies) => bodies.some((b) => b.componentId === "cards" && b.state === "ready" && b.visible),
     READ_MS,
@@ -207,7 +207,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         expect(await app.evalJS<boolean>(present('[data-testid="layout-card-section"]')), "the shell's document holds no Layout card").toBe(false);
 
         // ── Its data: the shell's six slots, drawn in the body ──────────
-        const blocks = await pollFor(() => body.evalJS<number>(`document.querySelectorAll(${JSON.stringify(BLOCKS)}).length`), (n) => n > 0, READ_MS);
+        const blocks = await settleFor(() => body.evalJS<number>(`document.querySelectorAll(${JSON.stringify(BLOCKS)}).length`), (n) => n > 0, READ_MS);
         expect(blocks, "the body's miniature draws the shell's arrangement").toBeGreaterThan(0);
 
         // ── A row press: Fit, to the shell and back ─────────────────────
@@ -223,9 +223,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
           return true;
         })()`);
         await clickIn(body, FIT);
-        const imposed = await pollFor(() => deckState(app), (d) => d.imposition?.layout === "fit", READ_MS);
+        const imposed = await settleFor(() => deckState(app), (d) => d.imposition?.layout === "fit", READ_MS);
         expect(imposed.imposition?.layout, "the press set the shell's imposition").toBe("fit");
-        const back = await pollFor(() => body.evalJS<boolean>(present(`${MINI}[data-layout="fit"]`)), (v) => v, READ_MS);
+        const back = await settleFor(() => body.evalJS<boolean>(present(`${MINI}[data-layout="fit"]`)), (v) => v, READ_MS);
         expect(back, "the miniature in the body shows the shell's new layout").toBe(true);
         const rt = await body.evalJS<{ press: number | null; arrived: number | null }>("window.__r33");
         const shellAt = (await app.evalJS<{ committed: number | null }>("window.__r33Shell")).committed;
@@ -240,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         // carried to its new frame takes its down and its up at two points of
         // the page, and lands on neither.
         // card-dom: shell — the rail's landing is its stand-in's width against the model, both the shell's.
-        const settled = await pollFor(() => app.evalJS<boolean>(RAIL_LANDED), (v) => v, READ_MS);
+        const settled = await settleFor(() => app.evalJS<boolean>(RAIL_LANDED), (v) => v, READ_MS);
         expect(settled, "the rail lands after the Fit commit").toBe(true);
         await clickIn(body, FLOW);
         await pollFor(() => deckState(app), (d) => d.imposition?.layout === "flow", READ_MS);
@@ -254,11 +254,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
           var r = el.getBoundingClientRect();
           return { x: r.right - 1, y: r.top + r.height / 2 };
         })()`;
-        const grip = await pollFor(() => body.evalJS<{ x: number; y: number } | null>(gripEdge), (g) => g !== null, READ_MS);
+        const grip = await settleFor(() => body.evalJS<{ x: number; y: number } | null>(gripEdge), (g) => g !== null, READ_MS);
         expect(grip, "flow draws the window's grip in the body").not.toBeNull();
         const before = (await deckState(app)).flowOffset ?? 0;
         await body.nativeDrag(grip!, { x: grip!.x + 60, y: grip!.y }, { mouseDownDelayMs: 120, mouseUpDelayMs: 200, interpolationSteps: 16, interpolationDelayMs: 20 });
-        const after = await pollFor(() => deckState(app), (d) => (d.flowOffset ?? 0) !== before, READ_MS);
+        const after = await settleFor(() => deckState(app), (d) => (d.flowOffset ?? 0) !== before, READ_MS);
         note(`layout: flow offset ${before} → ${after.flowOffset ?? 0}`);
         expect(after.flowOffset ?? 0, "the drag moved the shell's flow offset").not.toBe(before);
 
@@ -284,7 +284,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         expect(await app.evalJS<boolean>(present(".cards-card")), "the shell's document holds no Cards card").toBe(false);
 
         // ── Its data: the Session card's row names its session ──────────
-        const session = await pollFor(
+        const session = await settleFor(
           () => body.evalJS<string | null>(`(function () { var r = document.querySelector(".cards-row[data-session-id]"); return r === null ? null : r.getAttribute("data-session-id"); })()`),
           (s) => s !== null && s !== "",
           READ_MS,
@@ -294,41 +294,41 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         expect(await body.evalJS<boolean>(present('[data-testid="cards-unconnected-session-row"]')), "no row reads as unconnected").toBe(false);
 
         // ── A card's row ×: the shell closes it ─────────────────────────
-        const box = await pollFor(() => body.evalJS<{ x: number; y: number } | null>(closeBoxOf(H_TITLE)), (b) => b !== null, READ_MS);
+        const box = await settleFor(() => body.evalJS<{ x: number; y: number } | null>(closeBoxOf(H_TITLE)), (b) => b !== null, READ_MS);
         expect(box, "the Hello card's row has its close box in the body").not.toBeNull();
         await body.nativeClick(box!);
-        const closed = await pollFor(() => deckState(app), (d) => !d.cards.some((c) => c.id === H), READ_MS);
+        const closed = await settleFor(() => deckState(app), (d) => !d.cards.some((c) => c.id === H), READ_MS);
         expect(closed.cards.some((c) => c.id === H), "the row × closed the card in the shell's deck").toBe(false);
 
         // ── A new workspace, named in the body ──────────────────────────
         const home = (await spaces(app)).activeSpaceId;
         await clickIn(body, NEW_SPACE);
-        const created = await pollFor(() => spaces(app), (s) => s.activeSpaceId !== home, READ_MS);
+        const created = await settleFor(() => spaces(app), (s) => s.activeSpaceId !== home, READ_MS);
         expect(created.activeSpaceId, "the body's New Workspace made a workspace in the shell and went there").not.toBe(home);
         const fresh: BodyApp = await shownCards(app);
-        const field = await pollFor(() => fresh.evalJS<boolean>(present(RENAME)), (v) => v, READ_MS);
+        const field = await settleFor(() => fresh.evalJS<boolean>(present(RENAME)), (v) => v, READ_MS);
         expect(field, "the new workspace's Cards body opened its name field").toBe(true);
         await app.nativeType(NEW_NAME);
         await app.nativeKey("Return");
-        const named = await pollFor(() => spaces(app), (s) => s.spaces.some((x) => x.name === NEW_NAME), READ_MS);
+        const named = await settleFor(() => spaces(app), (s) => s.spaces.some((x) => x.name === NEW_NAME), READ_MS);
         const createdId = named.spaces.find((x) => x.name === NEW_NAME)?.id ?? "";
         expect(createdId, "the shell holds the workspace named in the body").toBe(created.activeSpaceId);
 
         // ── Go there: the home workspace's header ───────────────────────
         const homeName = named.spaces.find((x) => x.id === home)?.name ?? "";
-        const header = await pollFor(() => fresh.evalJS<{ x: number; y: number } | null>(headerOf(homeName)), (h) => h !== null, READ_MS);
+        const header = await settleFor(() => fresh.evalJS<{ x: number; y: number } | null>(headerOf(homeName)), (h) => h !== null, READ_MS);
         expect(header, `the ${homeName} header stands in the body`).not.toBeNull();
         await fresh.nativeClick(header!);
-        const back = await pollFor(() => spaces(app), (s) => s.activeSpaceId === home, READ_MS);
+        const back = await settleFor(() => spaces(app), (s) => s.activeSpaceId === home, READ_MS);
         expect(back.activeSpaceId, "a click on the other workspace's header went there").toBe(home);
 
         // ── Delete Workspace: the confirm in the body, the delete in the shell ──
         const cardsBody: BodyApp = await shownCards(app);
         await app.dispatchControlAction("delete-space", { spaceId: createdId });
-        const asked = await pollFor(() => cardsBody.evalJS<boolean>(present(CONFIRM_OK)), (v) => v, READ_MS);
+        const asked = await settleFor(() => cardsBody.evalJS<boolean>(present(CONFIRM_OK)), (v) => v, READ_MS);
         expect(asked, "the menu's delete raised its confirm in the Cards body").toBe(true);
         await clickIn(cardsBody, CONFIRM_OK);
-        const gone = await pollFor(() => spaces(app), (s) => !s.spaces.some((x) => x.id === createdId), READ_MS);
+        const gone = await settleFor(() => spaces(app), (s) => !s.spaces.some((x) => x.id === createdId), READ_MS);
         expect(gone.spaces.some((x) => x.id === createdId), "the confirmed delete removed the workspace in the shell").toBe(false);
 
         await expectRailSurface(app, CARDS);

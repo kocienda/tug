@@ -7,7 +7,7 @@
  * workspace is shown under it, which parks the Session card's, and the Cards
  * body lists the parked card.
  * The parked body goes dormant past its delay and is evicted past the
- * reader's, both shortened here, so for most of the turn the card has a body
+ * host's, both shortened here, so for most of the turn the card has a body
  * that hears nothing, and then none. Its row's dot in the Cards body reads
  * working through both tiers, and when the turn ends on tugcast — which no
  * page of that card hears — the dot goes still. The facts the body last
@@ -29,7 +29,7 @@ import { launchTugApp, note } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { STREAM_PACE_MS, STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { pollFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
+import { pollFor, settleFor, promptPhase, sessionPane, waitForBody } from "./_bodies";
 import { standUpKind } from "./_kind-bodies";
 import { cardKind, kindPane, kindSidebars } from "./_kinds";
 
@@ -40,7 +40,7 @@ const A = "r43-a";
 const CARDS = "r43-cards";
 const SESSION_SPACE = "r43-session";
 const CARDS_SPACE = "r43-cards-space";
-/** The body's delay before dormancy and the reader's before eviction, shortened for the row. */
+/** The delays before dormancy and before eviction, shortened for the row. */
 const DORMANT_AFTER_MS = 800;
 const EVICT_AFTER_MS = 1_500;
 const WORDS_PER_MESSAGE = 100;
@@ -101,8 +101,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card's dot follo
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
       tugbankWrite(tugbankPath, "dev.tugapp.deck.layout", "layout", "json", JSON.stringify(LAYOUT));
-      tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "dormantAfterMs", "int", String(DORMANT_AFTER_MS));
-      tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "evictAfterMs", "int", String(EVICT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-43-bodiless-phase",
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
@@ -110,6 +108,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card's dot follo
         restoreInTestMode: true,
       });
       try {
+        await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS, evictAfterMs: EVICT_AFTER_MS });
         const sid = randomUUID();
         const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-r43-project-")));
         onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
@@ -127,15 +126,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card's dot follo
         const cards = await standUpKind(app, cardKind("cards"), CARDS);
 
         // ---- Dormant: the body hears nothing, and the row runs ----
-        const asleep = await pollFor(() => body.evalJS<boolean>("window.__tug.bodyDormancy().dormant"), (d) => d, 5_000);
+        const asleep = await settleFor(() => body.evalJS<boolean>("window.__tug.bodyDormancy().dormant"), (d) => d, 5_000);
         expect(asleep, "the parked body is dormant past its delay").toBe(true);
-        const dormantDot = await pollFor(() => cards.evalJS<string | null>(rowDot(sid)), (s) => s !== null, 5_000);
+        const dormantDot = await settleFor(() => cards.evalJS<string | null>(rowDot(sid)), (s) => s !== null, 5_000);
         note(`dormant ${Date.now() - streamingAt} ms into a ${TURN_MS} ms turn; the row's dot ${dormantDot}`);
         expect(dormantDot, "the Cards row runs for a dormant card mid-turn").toBe("running");
 
         // ---- Evicted: no body at all, and the row still runs ----
-        const gone = await pollFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A), EVICT_AFTER_MS + 5_000);
-        expect(gone.some((b) => b.cardId === A), "the parked body is evicted past the reader's delay").toBe(false);
+        const gone = await settleFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A), EVICT_AFTER_MS + 5_000);
+        expect(gone.some((b) => b.cardId === A), "the parked body is evicted past the eviction delay").toBe(false);
         const evictedAt = Date.now() - streamingAt;
         const evictedDot = await cards.evalJS<string | null>(rowDot(sid));
         note(`evicted ${evictedAt} ms into the turn; the row's dot ${evictedDot}`);
@@ -143,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card's dot follo
         expect(evictedDot, "the Cards row runs for an evicted card mid-turn").toBe("running");
 
         // ---- The turn ends on tugcast, unheard by any page of the card: the row stills ----
-        const still = await pollFor(
+        const still = await settleFor(
           () => cards.evalJS<string | null>(rowDot(sid)),
           (s) => s === "stopped",
           Math.max(0, streamingAt + TURN_MS - Date.now()) + 6_000,

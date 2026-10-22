@@ -2799,7 +2799,10 @@ extension MainWindow {
                 ])
                 return
             }
-            bodies.create(cardId: create.cardId, componentId: create.componentId, intent: create.intent)
+            bodies.create(
+                cardId: create.cardId, componentId: create.componentId, intent: create.intent,
+                guardsClose: create.guardsClose ?? false
+            )
         case .placeCards(let placement):
             // The shell's placement of every card's view.
             bodies.placeCards(placement)
@@ -2810,8 +2813,8 @@ extension MainWindow {
             bodies.claimGesture(from: fromBody, begin: begin)
         case .bodyDestroy(let destroy):
             bodies.destroy(cardId: destroy.cardId, save: destroy.save)
-        case .bodyEvictAfter(let evictAfter):
-            bodies.setEvictAfter(ms: evictAfter.ms)
+        case .bodyDelays(let delays):
+            bodies.setDelays(delays)
         case .bodyFocus(let focus):
             bodies.focus(cardId: focus.cardId)
         case .overlayCreate:

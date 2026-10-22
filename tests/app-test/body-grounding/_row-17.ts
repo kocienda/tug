@@ -36,11 +36,6 @@
  * container clips the page at its old size over the page's surface); and
  * at rest the page is the container's size.
  *
- * The container's corners are named in its own, flipped, geometry: at rest
- * the content box's top corners, which stand square under the masthead,
- * show none of the canvas; the bottom corner's reading, where the pane's
- * own rounding lets the canvas through, is noted beside it.
- *
  * Every other kind that is a body is crossed by the gestures that change its
  * box. A pinned rail changes size when another rail card joins its edge and
  * when that card goes, and when the sidebars are resized to fit; the
@@ -61,8 +56,7 @@ import { join } from "node:path";
 import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { classifyFrame, describeFrames } from "./_frames";
+import { focusBody, settleFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { armLandRecords, expectEmptyLand, noteLand } from "./_land";
@@ -75,6 +69,8 @@ import {
   judgeCarried,
   planDiag,
   pollPresented,
+  type PlanDiag,
+  type PlanReport,
   readSampler,
   readStanding,
   rectOf,
@@ -132,7 +128,7 @@ const scrollReading = `(function () {
  * scroller's follow and the read is followed on the next frame.
  */
 async function scrollOf(app: App, cardId: string): Promise<{ top: number; max: number } | null> {
-  return pollFor(
+  return settleFor(
     () => app.body(cardId).evalJS<{ top: number; max: number } | null>(scrollReading),
     (r) => r !== null && r.max - r.top <= PINNED_PX,
     1_000,
@@ -221,25 +217,6 @@ async function standing(app: App, card: string, rail?: string): Promise<{ standi
   return { standing: s, crop };
 }
 
-/**
- * The content box's top-left corner, read off the composite at rest: square
- * under the masthead, so none of it is canvas. A container rounding its top
- * corners shows the canvas there. (The pane's border line crosses the
- * patch and reads as grid, so the canvas alone is the reading.)
- */
-export async function expectSquareTop(app: App, card: string, palette: Standing["palette"]): Promise<void> {
-  const box = await expectAtRest(app, card, `${card}: corner`);
-  const read = async (y: number) => {
-    await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop: { x: Math.ceil(box.x), y, width: 4, height: 4 } });
-    const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
-    return classifyFrame(reading.frames[reading.frames.length - 1], palette);
-  };
-  const top = await read(Math.ceil(box.y));
-  const bottom = await read(Math.floor(box.y + box.height) - 4);
-  note(`${card}: the content box's top-left corner ${describeFrames([top])}; its bottom-left corner ${describeFrames([bottom])}`);
-  expect(top.canvas + top.bare, `${card}: the content box's top corner is square, never the canvas`).toBeLessThan(0.05);
-}
-
 export interface Leg {
   label: string;
   /** The gesture. */
@@ -284,17 +261,22 @@ export async function crossLeg(app: App, card: string, leg: Leg, s: Standing, cr
   await leg.run(app);
   let polling = true;
   const presentedRead = pollPresented(app, card, () => !polling, SETTLE_MS + 2_000);
-  const settle = await pollFor(() => samplerState(app), (v) => v.saw && !v.now, SETTLE_MS);
+  const settle = await settleFor(() => samplerState(app), (v) => v.saw && !v.now, SETTLE_MS);
   polling = false;
   const presented = await presentedRead;
   note(`${label}: settle seen ${settle.saw}, running ${settle.now}`);
 
-  const plan = await pollFor(
+  // The plan that carried the card, which need not be the last: a settle
+  // re-armed mid-tween plans again, and finds the card already placed at
+  // the landing the first plan is carrying it to.
+  const carrying = (p: PlanDiag): PlanReport | null => p.plans.find((r) => r.run > runsBefore && r.planned.includes(card)) ?? null;
+  const plan = await settleFor(
     () => planDiag(app),
-    (p) => p.runs > runsBefore && (p.last?.landed.some((l) => l.cardId === card) ?? false),
+    (p) => carrying(p)?.landed.some((l) => l.cardId === card) ?? false,
     3_000,
   );
-  note(`${label}: ${plan.runs - runsBefore} plan run(s); last plan ${JSON.stringify(plan.last)}`);
+  const carried = carrying(plan);
+  note(`${label}: ${plan.runs - runsBefore} plan run(s); the plan that carried it ${JSON.stringify(carried)}; last plan ${JSON.stringify(plan.last)}`);
 
   // ⌘N focuses the card it opens: the body card is focused again so the
   // landed frame reads as its own paint.
@@ -315,9 +297,11 @@ export async function crossLeg(app: App, card: string, leg: Leg, s: Standing, cr
   for (const id of leg.solved ?? []) {
     const reading = id === card ? land : await noteLand(app, id, `${label} ${id}`, { body: bodyMarks.get(id), shell: shellMark });
     expectEmptyLand(reading, `${label} ${id}`);
-    const said = await pollFor(() => planDiag(app), (p) => p.last?.landed.some((l) => l.cardId === id) ?? false, 3_000);
-    expect(said.last?.planId, `${label}: ${id} rode the leg's plan`).toBe(plan.last?.planId ?? -1);
-    expect(said.last?.landed.some((l) => l.cardId === id), `${label}: the host said ${id} landed`).toBe(true);
+    const landedIn = (p: PlanDiag): PlanReport | null =>
+      p.plans.find((r) => r.run > runsBefore && r.landed.some((l) => l.cardId === id)) ?? null;
+    const said = landedIn(await settleFor(() => planDiag(app), (p) => landedIn(p) !== null, 3_000));
+    expect(said?.planId, `${label}: ${id} rode the leg's plan`).toBe(carried?.planId ?? -1);
+    expect(said?.landed.some((l) => l.cardId === id), `${label}: the host said ${id} landed`).toBe(true);
   }
   if ((leg.solved ?? []).length > 0) {
     const solved = new Set(leg.solved);
@@ -326,15 +310,15 @@ export async function crossLeg(app: App, card: string, leg: Leg, s: Standing, cr
     );
     expect(drifts, `${label}: the land's measurement moved nothing the plan landed`).toEqual([]);
   }
-  expect(plan.last?.planned.includes(card), `${label}: the host carried the body`).toBe(true);
-  expect(plan.last?.landed.some((l) => l.cardId === card), `${label}: the host said the body landed`).toBe(true);
-  expect(plan.last?.cancelled ?? [], `${label}: no carried body was cancelled`).toEqual([]);
+  expect(carried?.planned.includes(card), `${label}: the host carried the body`).toBe(true);
+  expect(carried?.landed.some((l) => l.cardId === card), `${label}: the host said the body landed`).toBe(true);
+  expect(carried?.cancelled ?? [], `${label}: no carried body was cancelled`).toEqual([]);
 
   const body = (await bodyOf(app, card)) as CrossingSnapshot | null;
   const crossing = body?.crossing ?? null;
   note(`${label}: host crossing ${JSON.stringify(crossing)}; page ${JSON.stringify(body?.pageSize)}; frame ${JSON.stringify(body?.frame)}`);
   if (resized > 0.5) {
-    expect(crossing?.planId, `${label}: the host crossed the body on the last plan`).toBe(plan.last?.planId ?? -1);
+    expect(crossing?.planId, `${label}: the host crossed the body on the plan that carried it`).toBe(carried?.planId ?? -1);
     expect(crossing?.readyLeadMs, `${label}: the body said crossingReady`).not.toBeNull();
     // One hop to the body's page and one back: the page takes its size within a display period of
     // the first moving beat, the container's surface standing in for it until then.
@@ -350,7 +334,7 @@ export async function crossLeg(app: App, card: string, leg: Leg, s: Standing, cr
   expect(scrollAfter!.max - scrollAfter!.top, `${label}: the transcript stands at its bottom after`).toBeLessThanOrEqual(PINNED_PX);
 
   const samples = await readSampler(app);
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
   expect(reading.done, `${label}: the burst finished`).toBe(true);
   const v = judgeCarried(label, reading, samples, presented, gestureWall, before, after, s.palette, crop);
   if (v.floorOffenders.length > 0) {

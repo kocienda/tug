@@ -26,6 +26,8 @@
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/BodyHandOver.swift
+ * @covers tugapp/Sources/BodyFaceHandOver.swift
+ * @covers tugdeck/src/lib/face-draw.ts
  * @covers tugapp/Sources/MainWindow.swift
  */
 
@@ -33,7 +35,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
-import { bodyOf, pollFor } from "./_bodies";
+import { bodyOf, pollFor, settleFor } from "./_bodies";
 import { readSwitch, SHOULD_RUN, TEST_TIMEOUT_MS, textDeck } from "./_row-44";
 
 const H = "r44f-home";
@@ -65,7 +67,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: the first visit to a worksp
         restoreInTestMode: true,
       });
       try {
-        const home = await pollFor(() => bodyOf(app, H), (b) => b?.state === "ready" && b.painted && b.visible, 30_000);
+        const home = await settleFor(() => bodyOf(app, H), (b) => b?.state === "ready" && b.painted && b.visible, 30_000);
         expect(home?.visible, "the shown workspace's card is a body, shown").toBe(true);
         expect(await bodyOf(app, W1), "a never-shown card has no page").toBeNull();
 

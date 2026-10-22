@@ -25,7 +25,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { note, type App } from "../_harness";
-import { SETTLE_MS, bodyOf, closeButtonOfPopover, composerText, focusBody, foldedOf, pollFor, popoverPresent, responders } from "./_bodies";
+import { SETTLE_MS, bodyOf, closeButtonOfPopover, composerText, focusBody, foldedOf, pollFor, settleFor, popoverPresent, responders } from "./_bodies";
 import { sessionUnderTest } from "./_kinds";
 import { A, B, SHOULD_RUN, TEST_TIMEOUT_MS, withSessions } from "./_row-06";
 
@@ -60,21 +60,21 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
         // so the host's live `NSUndoManager` path is read, not driven, here.)
         await focusBody(app, A, { composer: false });
         await app.nativeKey("f", ["cmd"]);
-        expect(await pollFor(() => a.evalJS<boolean>(findBarShown), (v) => v, SETTLE_MS), "A's find bar opens").toBe(true);
-        expect(await pollFor(() => a.evalJS<boolean>(findInputFocused), (v) => v, SETTLE_MS), "its input is focused").toBe(true);
+        expect(await settleFor(() => a.evalJS<boolean>(findBarShown), (v) => v, SETTLE_MS), "A's find bar opens").toBe(true);
+        expect(await settleFor(() => a.evalJS<boolean>(findInputFocused), (v) => v, SETTLE_MS), "its input is focused").toBe(true);
         await app.nativeType("abc");
-        expect(await pollFor(() => a.evalJS<string | null>(findValue), (v) => v === "abc", SETTLE_MS), "typing lands in the input").toBe("abc");
-        const undoState = await pollFor(() => app.menuItemState("edit.undo"), (s) => s.found && s.enabled, SETTLE_MS);
+        expect(await settleFor(() => a.evalJS<string | null>(findValue), (v) => v === "abc", SETTLE_MS), "typing lands in the input").toBe("abc");
+        const undoState = await settleFor(() => app.menuItemState("edit.undo"), (s) => s.found && s.enabled, SETTLE_MS);
         note(`edit.undo with the body's find input focused: ${JSON.stringify(undoState)}`);
         expect(undoState.found && undoState.enabled, "Undo validates enabled from the body's chain").toBe(true);
         const undone = await app.performMenuItem("edit.undo");
         expect(undone.found && undone.performed, "Undo performs").toBe(true);
-        expect(await pollFor(() => a.evalJS<string | null>(findValue), (v) => v === "", SETTLE_MS), "the typing is undone in the body's input").toBe("");
-        const redoState = await pollFor(() => app.menuItemState("edit.redo"), (s) => s.found && s.enabled, SETTLE_MS);
+        expect(await settleFor(() => a.evalJS<string | null>(findValue), (v) => v === "", SETTLE_MS), "the typing is undone in the body's input").toBe("");
+        const redoState = await settleFor(() => app.menuItemState("edit.redo"), (s) => s.found && s.enabled, SETTLE_MS);
         expect(redoState.found && redoState.enabled, "Redo validates enabled").toBe(true);
         const redone = await app.performMenuItem("edit.redo");
         expect(redone.found && redone.performed, "Redo performs").toBe(true);
-        expect(await pollFor(() => a.evalJS<string | null>(findValue), (v) => v === "abc", SETTLE_MS), "the typing is redone").toBe("abc");
+        expect(await settleFor(() => a.evalJS<string | null>(findValue), (v) => v === "abc", SETTLE_MS), "the typing is redone").toBe("abc");
         await app.nativeKey("Escape");
         await pollFor(() => a.evalJS<boolean>(findBarShown), (v) => !v, SETTLE_MS);
 
@@ -83,18 +83,18 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
         await focusBody(app, A, { composer: false });
         const fold = await app.performMenuItem("view.foldCard");
         expect(fold.found && fold.performed, "View › Fold Card performs").toBe(true);
-        expect(await pollFor(() => foldedOf(app, A), (f) => f, SETTLE_MS), "A folds").toBe(true);
+        expect(await settleFor(() => foldedOf(app, A), (f) => f, SETTLE_MS), "A folds").toBe(true);
         expect((await bodyOf(app, A))?.visible, "the host keeps A's folded body shown").toBe(true);
         const unfold = await app.performMenuItem("view.foldCard");
         expect(unfold.found && unfold.performed, "View › Fold Card performs again").toBe(true);
-        expect(await pollFor(() => foldedOf(app, A), (f) => !f, SETTLE_MS), "A unfolds").toBe(false);
-        expect((await pollFor(() => bodyOf(app, A), (x) => x?.visible === true, SETTLE_MS))?.visible, "the host shows it again").toBe(true);
+        expect(await settleFor(() => foldedOf(app, A), (f) => !f, SETTLE_MS), "A unfolds").toBe(false);
+        expect((await settleFor(() => bodyOf(app, A), (x) => x?.visible === true, SETTLE_MS))?.visible, "the host shows it again").toBe(true);
 
         // ---- Zoom In changes the body's placed width; Actual Size restores it ----
         const widthBefore = (await bodyOf(app, A))!.frame.width;
         const zoom = await app.performMenuItem("view.zoomIn");
         expect(zoom.found && zoom.performed, "View › Zoom In performs").toBe(true);
-        const zoomed = await pollFor(() => bodyOf(app, A), (x) => x !== null && x.frame.width !== widthBefore, SETTLE_MS);
+        const zoomed = await settleFor(() => bodyOf(app, A), (x) => x !== null && x.frame.width !== widthBefore, SETTLE_MS);
         expect(zoomed?.frame.width, "the body's placed width changes").not.toBe(widthBefore);
         await app.performMenuItem("view.actualSize");
         await pollFor(() => bodyOf(app, A), (x) => x !== null && x.frame.width === widthBefore, SETTLE_MS);
@@ -103,18 +103,18 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
         // The item's gate is the key body's, posted after the shell's travel
         // facts reach it; it is read enabled before it is performed.
         await focusBody(app, A, { composer: false });
-        const rightState = await pollFor(() => app.menuItemState("go.focusCardRight"), (s) => s.found && s.enabled, SETTLE_MS);
+        const rightState = await settleFor(() => app.menuItemState("go.focusCardRight"), (s) => s.found && s.enabled, SETTLE_MS);
         expect(rightState.found && rightState.enabled, "Go › Focus Card Right validates enabled with A key").toBe(true);
         const right = await app.performMenuItem("go.focusCardRight");
         expect(right.found && right.performed, "Go › Focus Card Right performs").toBe(true);
-        const bHolds = await pollFor(() => bodyOf(app, B), (x) => x?.firstResponder === true, SETTLE_MS);
+        const bHolds = await settleFor(() => bodyOf(app, B), (x) => x?.firstResponder === true, SETTLE_MS);
         expect(bHolds?.firstResponder, "B's body is the first responder").toBe(true);
         expect(await app.getFocusedCardId(), "the shell's focused card is B").toBe(B);
-        const leftState = await pollFor(() => app.menuItemState("go.focusCardLeft"), (s) => s.found && s.enabled, SETTLE_MS);
+        const leftState = await settleFor(() => app.menuItemState("go.focusCardLeft"), (s) => s.found && s.enabled, SETTLE_MS);
         expect(leftState.found && leftState.enabled, "Go › Focus Card Left validates enabled with B key").toBe(true);
         const left = await app.performMenuItem("go.focusCardLeft");
         expect(left.found && left.performed, "Go › Focus Card Left performs").toBe(true);
-        const aHolds = await pollFor(() => bodyOf(app, A), (x) => x?.firstResponder === true, SETTLE_MS);
+        const aHolds = await settleFor(() => bodyOf(app, A), (x) => x?.firstResponder === true, SETTLE_MS);
         expect(aHolds?.firstResponder, "A's body is the first responder again").toBe(true);
 
         // ---- Close over a draft: the popover, in A's own page, since a
@@ -122,11 +122,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
         // and its Close button closes A and hands it on ----
         await focusBody(app, A);
         await app.nativeType("draft");
-        expect(await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("draft") === true, SETTLE_MS), "A's composer holds a draft").toContain("draft");
+        expect(await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("draft") === true, SETTLE_MS), "A's composer holds a draft").toContain("draft");
         const cardsBefore = await cardCount(app);
         const close = await app.performMenuItem("file.closeCard");
         expect(close.found && close.performed, "File › Close performs").toBe(true);
-        const raised = await pollFor(
+        const raised = await settleFor(
           async () => ({ popover: await a.evalJS<boolean>(popoverPresent), cards: await cardCount(app) }),
           (r) => r.popover || r.cards < cardsBefore,
           SETTLE_MS,
@@ -134,20 +134,20 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
         note(`after File › Close: popover ${raised.popover}, cards ${cardsBefore} → ${raised.cards}; A ${JSON.stringify(await bodyOf(app, A))}`);
         expect(raised.popover, "File › Close over A's draft raises its popover, in A's page").toBe(true);
         await app.nativeKey("Escape");
-        expect(await pollFor(() => a.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
-        const handedBack = await pollFor(() => bodyOf(app, A), (x) => x?.firstResponder === true, SETTLE_MS);
+        expect(await settleFor(() => a.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
+        const handedBack = await settleFor(() => bodyOf(app, A), (x) => x?.firstResponder === true, SETTLE_MS);
         note(`after the popover: ${await responders(app)}`);
         expect(handedBack?.firstResponder, "A's body holds the keyboard again").toBe(true);
         expect(await cardCount(app), "no card was closed").toBe(cardsBefore);
 
         const again = await app.performMenuItem("file.closeCard");
         expect(again.found && again.performed, "File › Close performs again").toBe(true);
-        expect(await pollFor(() => a.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS), "and asks again").toBe(true);
+        expect(await settleFor(() => a.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS), "and asks again").toBe(true);
         const button = await closeButtonOfPopover(a);
         expect(button, "the popover has a Close button").not.toBeNull();
         await a.nativeClick(button!);
-        expect(await pollFor(() => cardCount(app), (n) => n < cardsBefore, SETTLE_MS), "Close closes A").toBe(cardsBefore - 1);
-        const handedOn = await pollFor(() => bodyOf(app, B), (x) => x?.firstResponder === true, 8_000);
+        expect(await settleFor(() => cardCount(app), (n) => n < cardsBefore, SETTLE_MS), "Close closes A").toBe(cardsBefore - 1);
+        const handedOn = await settleFor(() => bodyOf(app, B), (x) => x?.firstResponder === true, 8_000);
         note(`after the close: ${await responders(app)}`);
         expect(handedOn?.firstResponder, "B's body holds the keyboard").toBe(true);
       }),

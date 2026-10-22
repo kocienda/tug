@@ -77,6 +77,17 @@
 		AA000001000000000000006C /* BodyHandOver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005F /* BodyHandOver.swift */; };
 		AA000001000000000000006D /* BodyHandOver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005F /* BodyHandOver.swift */; };
 		AA000001000000000000006E /* BodyHandOverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000060 /* BodyHandOverTests.swift */; };
+		AA0000010000000000000091 /* BodyCovers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000091 /* BodyCovers.swift */; };
+		AA0000010000000000000092 /* BodyCovers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000091 /* BodyCovers.swift */; };
+		AA0000010000000000000093 /* BodyCoversTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000092 /* BodyCoversTests.swift */; };
+		AA00000100000000000000A0 /* BodyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000A0 /* BodyState.swift */; };
+		AA00000100000000000000A1 /* BodyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000A0 /* BodyState.swift */; };
+		AA00000100000000000000A2 /* BodyStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000A1 /* BodyStateTests.swift */; };
+		AA00000100000000000000A3 /* BodyLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000A2 /* BodyLifecycle.swift */; };
+		AA00000100000000000000A4 /* BodyLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000A3 /* BodyLane.swift */; };
+		AA00000100000000000000A5 /* BodyFaceHandOver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000A4 /* BodyFaceHandOver.swift */; };
+		AA00000100000000000000A6 /* CardGestureCarrier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000A5 /* CardGestureCarrier.swift */; };
+		AA00000100000000000000A7 /* BodyBeatsRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000A6 /* BodyBeatsRunner.swift */; };
 		AA0000010000000000000061 /* CardGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000057 /* CardGeometry.swift */; };
 		AA0000010000000000000062 /* CardGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000057 /* CardGeometry.swift */; };
 		AA0000010000000000000063 /* CardGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000058 /* CardGeometryTests.swift */; };
@@ -150,6 +161,15 @@
 		AA0000020000000000000056 /* BodyBeatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyBeatsTests.swift; sourceTree = "<group>"; };
 		AA000002000000000000005F /* BodyHandOver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyHandOver.swift; sourceTree = "<group>"; };
 		AA0000020000000000000060 /* BodyHandOverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyHandOverTests.swift; sourceTree = "<group>"; };
+		AA0000020000000000000091 /* BodyCovers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyCovers.swift; sourceTree = "<group>"; };
+		AA0000020000000000000092 /* BodyCoversTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyCoversTests.swift; sourceTree = "<group>"; };
+		AA00000200000000000000A0 /* BodyState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyState.swift; sourceTree = "<group>"; };
+		AA00000200000000000000A1 /* BodyStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyStateTests.swift; sourceTree = "<group>"; };
+		AA00000200000000000000A2 /* BodyLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyLifecycle.swift; sourceTree = "<group>"; };
+		AA00000200000000000000A3 /* BodyLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyLane.swift; sourceTree = "<group>"; };
+		AA00000200000000000000A4 /* BodyFaceHandOver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyFaceHandOver.swift; sourceTree = "<group>"; };
+		AA00000200000000000000A5 /* CardGestureCarrier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGestureCarrier.swift; sourceTree = "<group>"; };
+		AA00000200000000000000A6 /* BodyBeatsRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyBeatsRunner.swift; sourceTree = "<group>"; };
 		AA0000020000000000000057 /* CardGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGeometry.swift; sourceTree = "<group>"; };
 		AA0000020000000000000058 /* CardGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGeometryTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000059 /* HostMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostMessages.swift; sourceTree = "<group>"; };
@@ -210,6 +230,13 @@
 				AA0000020000000000000057 /* CardGeometry.swift */,
 				AA0000020000000000000055 /* BodyBeats.swift */,
 				AA000002000000000000005F /* BodyHandOver.swift */,
+				AA0000020000000000000091 /* BodyCovers.swift */,
+				AA00000200000000000000A0 /* BodyState.swift */,
+				AA00000200000000000000A2 /* BodyLifecycle.swift */,
+				AA00000200000000000000A3 /* BodyLane.swift */,
+				AA00000200000000000000A4 /* BodyFaceHandOver.swift */,
+				AA00000200000000000000A5 /* CardGestureCarrier.swift */,
+				AA00000200000000000000A6 /* BodyBeatsRunner.swift */,
 				AA0000020000000000000059 /* HostMessages.swift */,
 				AA000002000000000000005A /* HostChannel.swift */,
 				AA0000020000000000000053 /* HostCapabilitiesScript.swift */,
@@ -270,6 +297,8 @@
 				AA000002000000000000005E /* RailGeometryTests.swift */,
 				AA0000020000000000000056 /* BodyBeatsTests.swift */,
 				AA0000020000000000000060 /* BodyHandOverTests.swift */,
+				AA0000020000000000000092 /* BodyCoversTests.swift */,
+				AA00000200000000000000A1 /* BodyStateTests.swift */,
 				AA000002000000000000005B /* HostChannelTests.swift */,
 				AA000002000000000000004B /* MenuBarBuilderTests.swift */,
 				AA0000020000000000000045 /* ShellPathResolverTests.swift */,
@@ -392,6 +421,13 @@
 				AA0000010000000000000061 /* CardGeometry.swift in Sources */,
 				AA000001000000000000005E /* BodyBeats.swift in Sources */,
 				AA000001000000000000006C /* BodyHandOver.swift in Sources */,
+				AA0000010000000000000091 /* BodyCovers.swift in Sources */,
+				AA00000100000000000000A0 /* BodyState.swift in Sources */,
+				AA00000100000000000000A3 /* BodyLifecycle.swift in Sources */,
+				AA00000100000000000000A4 /* BodyLane.swift in Sources */,
+				AA00000100000000000000A5 /* BodyFaceHandOver.swift in Sources */,
+				AA00000100000000000000A6 /* CardGestureCarrier.swift in Sources */,
+				AA00000100000000000000A7 /* BodyBeatsRunner.swift in Sources */,
 				AA0000010000000000000064 /* HostMessages.swift in Sources */,
 				AA0000010000000000000066 /* HostChannel.swift in Sources */,
 				AA000001000000000000005C /* HostCapabilitiesScript.swift in Sources */,
@@ -444,6 +480,8 @@
 				AA000001000000000000006B /* RailGeometryTests.swift in Sources */,
 				AA0000010000000000000060 /* BodyBeatsTests.swift in Sources */,
 				AA000001000000000000006E /* BodyHandOverTests.swift in Sources */,
+				AA0000010000000000000093 /* BodyCoversTests.swift in Sources */,
+				AA00000100000000000000A2 /* BodyStateTests.swift in Sources */,
 				AA0000010000000000000067 /* HostChannelTests.swift in Sources */,
 				AA0000010000000000000052 /* MenuBarBuilderTests.swift in Sources */,
 				AA000001000000000000004A /* ShellPathResolverTests.swift in Sources */,
@@ -458,6 +496,8 @@
 				AA000001000000000000006A /* RailView.swift in Sources */,
 				AA000001000000000000005F /* BodyBeats.swift in Sources */,
 				AA000001000000000000006D /* BodyHandOver.swift in Sources */,
+				AA0000010000000000000092 /* BodyCovers.swift in Sources */,
+				AA00000100000000000000A1 /* BodyState.swift in Sources */,
 				AA0000010000000000000065 /* HostMessages.swift in Sources */,
 				AA0000010000000000000051 /* MenuBarBuilder.swift in Sources */,
 				AA0000010000000000000045 /* ShellPathResolver.swift in Sources */,

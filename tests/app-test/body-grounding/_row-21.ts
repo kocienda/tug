@@ -41,7 +41,7 @@ import { ringedCards, waitForRing } from "../card-chrome-fixture";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, pollFor, SETTLE_MS, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, pollFor, settleFor, SETTLE_MS, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { standUpKind } from "./_kind-bodies";
 import { kindPane, kindSidebars, type CardKind } from "./_kinds";
 
@@ -136,7 +136,7 @@ function profileOf(row: readonly Rgb[], outer: number, inward: 1 | -1, scale: nu
 /** Read the left and right edge profiles of both cards off one composite of `crop`. */
 async function readEdges(app: App, crop: Rect, frames: Record<string, Rect>): Promise<Record<string, EdgeProfile>> {
   await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop });
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
   const png = decodePngFile(reading.frames[reading.frames.length - 1].path);
   const scale = reading.scale;
   const y = Math.floor(png.height / 2);
@@ -200,7 +200,7 @@ export async function edgesOfKind(kind: CardKind): Promise<void> {
           await waitForRing(app, card, 5_000);
         } else {
           await app.evalJS<null>(`(window.__tug.dispatchControlAction("focus-pane", { paneId: ${JSON.stringify(`${T}-pane`)} }), null)`);
-          expect(await pollFor(() => app.getFocusedCardId(), (id) => id === T, SETTLE_MS), "the Text card is key").toBe(T);
+          expect(await settleFor(() => app.getFocusedCardId(), (id) => id === T, SETTLE_MS), "the Text card is key").toBe(T);
         }
         await pollFor(() => ringedCards(app), (lit) => lit.length === 0, 5_000);
         await Bun.sleep(300);
@@ -280,14 +280,14 @@ export async function edgesOfSession(): Promise<void> {
           await waitForRing(app, A, 5_000);
         } else {
           await app.evalJS<null>(`(window.__tug.dispatchControlAction("focus-pane", { paneId: ${JSON.stringify(`${T}-pane`)} }), null)`);
-          const focused = await pollFor(() => app.getFocusedCardId(), (id) => id === T, SETTLE_MS);
+          const focused = await settleFor(() => app.getFocusedCardId(), (id) => id === T, SETTLE_MS);
           expect(focused, "the Text card is key").toBe(T);
         }
         // Focusing a card by `focus-session-card` runs the pane's activation
         // flash once its settle lands, an inset accent ring over its border
         // for 1750 ms, drawn in the card's own page: it was waited for above,
         // and the edges are read once it is off.
-        const flashed = await pollFor(
+        const flashed = await settleFor(
           () => ringedCards(app),
           (lit) => lit.length === 0,
           5_000,

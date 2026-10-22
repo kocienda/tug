@@ -40,6 +40,7 @@ import {
   composerText,
   focusBody,
   pollFor,
+  settleFor,
   spawnStub,
   waitForBody,
 } from "./_bodies";
@@ -104,12 +105,12 @@ function deck(): Record<string, unknown> {
 /** The body holds the keyboard and one character typed lands in its composer. */
 async function composerTakesAKey(app: App, cardId: string, ch: string, label: string): Promise<void> {
   const body = app.body(cardId);
-  const holder = await pollFor(() => bodyOf(app, cardId), (b) => b?.firstResponder === true, SETTLE_MS);
+  const holder = await settleFor(() => bodyOf(app, cardId), (b) => b?.firstResponder === true, SETTLE_MS);
   expect(holder?.firstResponder, `${label}: the body still holds the keyboard`).toBe(true);
   await body.nativeClickAtElement(PROMPT_INPUT);
   await body.waitForCondition<boolean>(composerFocused, { timeoutMs: SETTLE_MS });
   await app.nativeType(ch);
-  const text = await pollFor(() => body.evalJS<string | null>(composerText), (t) => t?.includes(ch) === true, SETTLE_MS);
+  const text = await settleFor(() => body.evalJS<string | null>(composerText), (t) => t?.includes(ch) === true, SETTLE_MS);
   expect(text, `${label}: the character landed in the composer`).toContain(ch);
 }
 
@@ -133,7 +134,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 8: the Changes shade, History a
         // ---- The Changes shade ----
         await app.nativeKey("c", ["ctrl", "cmd"]);
         await a.waitForCondition<boolean>(present(CHANGES_SHEET), { timeoutMs: 12_000 });
-        const listed = await pollFor(() => a.evalJS<boolean>(present(CHANGES_FILE)), (v) => v, 20_000);
+        const listed = await settleFor(() => a.evalJS<boolean>(present(CHANGES_FILE)), (v) => v, 20_000);
         await Bun.sleep(400); // the shade's own rise
         const files = await a.evalJS<string[]>(`Array.from(document.querySelectorAll('[data-testid="tug-changes-list-file-block"]')).map(function (e) { return e.getAttribute("data-path"); })`);
         note(`changes: sheet ${JSON.stringify(await a.evalJS(rectOf(CHANGES_SHEET)))} in ${await a.evalJS<string>("window.innerWidth + 'x' + window.innerHeight")}; ${files.length} files; scanning ${await a.evalJS<boolean>(present('[data-testid="session-changes-scanning"]'))}; hit at Z2 ${await a.evalJS<string | null>(hitAtZ2)}`);
@@ -150,7 +151,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 8: the Changes shade, History a
         // ---- The History shade ----
         await app.nativeKey("h", ["ctrl", "cmd"]);
         await a.waitForCondition<boolean>(present(HISTORY_VIEW), { timeoutMs: 12_000 });
-        const rows = await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(HISTORY_ROWS)}).length`), (n) => n > 3, 20_000);
+        const rows = await settleFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(HISTORY_ROWS)}).length`), (n) => n > 3, 20_000);
         note(`history: view ${JSON.stringify(await a.evalJS(rectOf(HISTORY_VIEW)))}; rows ${rows}; key view ${await a.evalJS<string | null>(`document.querySelector("[data-key-view-kbd]")?.getAttribute("data-testid") ?? null`)}`);
         expect(rows, "the history lists commits").toBeGreaterThan(3);
         expect(await a.evalJS<string | null>(`document.querySelector("[data-key-view-kbd]")?.getAttribute("data-testid") ?? null`), "the shade seeds its key view on Done").toBe("session-history-done");
@@ -166,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 8: the Changes shade, History a
         await a.waitForCondition<boolean>(present(FIND_BAR), { timeoutMs: 8_000 });
         await a.waitForCondition<boolean>(`document.activeElement !== null && document.activeElement.closest(${JSON.stringify(FIND_INPUT)}) !== null`, { timeoutMs: SETTLE_MS });
         await app.nativeType("hello");
-        const findText = await pollFor(
+        const findText = await settleFor(
           () => a.evalJS<string>(`(function () { var l = document.querySelector(${JSON.stringify(`${FIND_INPUT} .cm-line`)}); if (!l) return ""; var t = ""; l.childNodes.forEach(function (n) { if (!(n.nodeType === 1 && n.classList.contains("cm-placeholder"))) t += n.textContent; }); return t; })()`),
           (t) => t.includes("hello"),
           SETTLE_MS,

@@ -45,7 +45,7 @@ import { join } from "node:path";
 import { launchTugApp, note } from "../_harness";
 import { nativeDrag, nativeFileDrag } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { PROMPT_INPUT, SETTLE_MS, bodyOf, composerText, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { PROMPT_INPUT, SETTLE_MS, bodyOf, composerText, pollFor, settleFor, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -128,7 +128,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 27: a drag over a body is the b
         // ---- A file from outside the window, dropped on the body's composer ----
         const inBody = await a.evalJS<{ x: number; y: number }>(composerCenter);
         const fileDrag = await nativeFileDrag(a, pngPath, inBody, { interpolationSteps: 24, interpolationDelayMs: 25, dwellMs: 400 });
-        const tiles = await pollFor(() => a.evalJS<number>(tileCount), (n) => n > 0, SETTLE_MS);
+        const tiles = await settleFor(() => a.evalJS<number>(tileCount), (n) => n > 0, SETTLE_MS);
         const bodyLog = await a.evalJS<DragLog>(readDragLog);
         const shellLog = await app.evalJS<DragLog>(readDragLog);
         note(`file drag: session ${JSON.stringify(fileDrag)}; body page ${JSON.stringify(bodyLog)}; shell page ${JSON.stringify(shellLog)}; ${tiles} attachment tile(s)`);
@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 27: a drag over a body is the b
         const to = { x: frame!.x + inBody.x, y: frame!.y + inBody.y };
         const dropsBefore = (await a.evalJS<DragLog>(readDragLog)).drop;
         await nativeDrag(app, from, to, { mouseDownDelayMs: 150, mouseUpDelayMs: 300, interpolationSteps: 30, interpolationDelayMs: 25 });
-        const text = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes(JOT_TEXT) === true, SETTLE_MS);
+        const text = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes(JOT_TEXT) === true, SETTLE_MS);
         const jotBodyLog = await a.evalJS<DragLog>(readDragLog);
         const jotShellLog = await app.evalJS<DragLog>(readDragLog);
         const jotSourceLog = await jots.evalJS<DragLog>(readDragLog);

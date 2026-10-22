@@ -12,7 +12,7 @@ import { expect } from "bun:test";
 
 import { note, type App, type BodyApp } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
-import { BODY_READY_MS, pollFor, sessionPane, spawnStub } from "./_bodies";
+import { BODY_READY_MS, pollFor, settleFor, sessionPane, spawnStub } from "./_bodies";
 import { asRgbJs, classifyFrame, parseRgb } from "./_frames";
 import { kindPane, kindSidebars, type CardKind } from "./_kinds";
 
@@ -61,7 +61,7 @@ export async function standUpKind(
     if (stubDir === undefined) throw new Error("standUpKind: a Session card needs a stub directory");
     await spawnStub(app, cardId, stubDir, 2);
   }
-  const ready = await pollFor(
+  const ready = await settleFor(
     () => bodySnapshot(app, cardId),
     (b) => b !== null && b.state === "ready" && b.visible,
     BODY_READY_MS,
@@ -70,7 +70,7 @@ export async function standUpKind(
   expect(ready?.componentId, `${kind.componentId} ${cardId}: the body holds the card's kind`).toBe(kind.componentId);
   const body = app.body(cardId);
   const root = JSON.stringify(kind.root);
-  const up = await pollFor(() => body.evalJS<boolean>(`document.querySelector(${root}) !== null`), (v) => v, BODY_READY_MS);
+  const up = await settleFor(() => body.evalJS<boolean>(`document.querySelector(${root}) !== null`), (v) => v, BODY_READY_MS);
   expect(up, `${kind.componentId} ${cardId}: ${kind.root} is mounted in its body`).toBe(true);
   return body;
 }
@@ -89,7 +89,7 @@ export async function openKind(app: App, kind: CardKind): Promise<string> {
     ? `window.__tug.dispatchControlAction("set-sidebar-open", { componentId: ${JSON.stringify(kind.componentId)}, open: true })`
     : `window.__tug.dispatchControlAction("add-tab", { value: ${JSON.stringify(kind.componentId)} })`;
   await app.evalJS<null>(`(${action}, null)`);
-  const ids = await pollFor(
+  const ids = await settleFor(
     () => app.evalJS<string[]>(CARD_IDS),
     (now) => now.some((id) => !before.has(id)),
     3_000,
@@ -200,7 +200,7 @@ async function expectSurface(app: App, cardId: string, token: string, label: str
   expect(frame, `${cardId}: the host reports its body's frame`).toBeDefined();
   const surface = parseRgb(await app.evalJS<string>(asRgbJs(`getComputedStyle(document.body).getPropertyValue('${token}')`)));
   await app.captureBurst({ op: "arm", durationMs: 200 });
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 5_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 5_000);
   expect(reading.done, `${cardId}: the burst finished`).toBe(true);
   const last = reading.frames[reading.frames.length - 1];
   const s = reading.scale;

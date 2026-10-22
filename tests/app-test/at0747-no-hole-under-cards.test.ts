@@ -28,6 +28,7 @@
  * @visible
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
+ * @covers tugdeck/src/components/chrome/body-stand-in.tsx
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/MainWindow.swift

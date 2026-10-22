@@ -75,6 +75,16 @@ describe("the placer's wake on arrangement writes", () => {
     watch.release();
   });
 
+  test("a stand-in's face key moving wakes it, so a face is read again", async () => {
+    const { container, p2 } = canvas();
+    let wakes = 0;
+    const watch = watchArrangementWrites(container, () => (wakes += 1));
+    p2.setAttribute("data-face-key", '["sloop"]');
+    await delivered();
+    expect(wakes).toBe(1);
+    watch.release();
+  });
+
   test("the placer's own write, dropped in its task, wakes nothing; a later write still does", async () => {
     const { container, p2 } = canvas();
     let wakes = 0;

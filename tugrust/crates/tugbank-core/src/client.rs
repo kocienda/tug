@@ -23,6 +23,15 @@ use crate::{DefaultsStore, Error, Value};
 /// A snapshot of all key-value pairs for a single domain.
 pub type DomainSnapshot = BTreeMap<String, Value>;
 
+/// A domain as the cache holds it: its entries and the generation they were
+/// read at, always from one read, so a reader that publishes the generation
+/// beside the entries never pairs one state's entries with another's number.
+#[derive(Default)]
+struct Cached {
+    entries: DomainSnapshot,
+    generation: u64,
+}
+
 // ── Callback registry ────────────────────────────────────────────────────────
 
 type Callback = Box<dyn Fn(&str, &DomainSnapshot) + Send + 'static>;
@@ -78,7 +87,7 @@ impl Drop for CallbackHandle {
 
 struct Inner {
     store: DefaultsStore,
-    cache: Mutex<HashMap<String, DomainSnapshot>>,
+    cache: Mutex<HashMap<String, Cached>>,
     callbacks: Arc<Mutex<CallbackRegistry>>,
 }
 
@@ -128,20 +137,21 @@ impl TugbankClient {
     pub fn get(&self, domain: &str, key: &str) -> Result<Option<Value>, Error> {
         self.ensure_domain_loaded(domain)?;
         let cache = self.inner.cache.lock();
-        Ok(cache.get(domain).and_then(|snap| snap.get(key)).cloned())
+        Ok(cache.get(domain).and_then(|c| c.entries.get(key)).cloned())
     }
 
-    /// Write a value to the DB and update the local cache.
+    /// Write a value to the DB and read the domain back into the local cache.
     ///
     /// Broadcasts a Unix socket notification so tugcast and other
     /// processes are notified of the change.
     pub fn set(&self, domain: &str, key: &str, value: Value) -> Result<(), Error> {
         self.inner.store.domain(domain)?.set(key, value.clone())?;
-        {
+        if self.reload(domain).is_err() {
             let mut cache = self.inner.cache.lock();
             cache
                 .entry(domain.to_owned())
                 .or_default()
+                .entries
                 .insert(key.to_owned(), value);
         }
         broadcast_domain_changed(domain);
@@ -155,11 +165,12 @@ impl TugbankClient {
     pub fn delete(&self, domain: &str, key: &str) -> Result<bool, Error> {
         let existed = self.inner.store.domain(domain)?.remove(key)?;
         if existed {
-            let mut cache = self.inner.cache.lock();
-            if let Some(snap) = cache.get_mut(domain) {
-                snap.remove(key);
+            if self.reload(domain).is_err() {
+                let mut cache = self.inner.cache.lock();
+                if let Some(c) = cache.get_mut(domain) {
+                    c.entries.remove(key);
+                }
             }
-            drop(cache);
             broadcast_domain_changed(domain);
         }
         Ok(existed)
@@ -169,7 +180,27 @@ impl TugbankClient {
     pub fn read_domain(&self, domain: &str) -> Result<DomainSnapshot, Error> {
         self.ensure_domain_loaded(domain)?;
         let cache = self.inner.cache.lock();
-        Ok(cache.get(domain).cloned().unwrap_or_default())
+        Ok(cache
+            .get(domain)
+            .map(|c| c.entries.clone())
+            .unwrap_or_default())
+    }
+
+    /// The cached entries of `domain` and the generation they were read at,
+    /// as one pair, loading the domain on first access. Read from the cache
+    /// rather than the database: published beside the cached entries, a
+    /// fresh number would claim a write whose entries the cache has not
+    /// taken yet.
+    pub fn read_domain_with_generation(
+        &self,
+        domain: &str,
+    ) -> Result<(DomainSnapshot, u64), Error> {
+        self.ensure_domain_loaded(domain)?;
+        let cache = self.inner.cache.lock();
+        Ok(cache
+            .get(domain)
+            .map(|c| (c.entries.clone(), c.generation))
+            .unwrap_or_default())
     }
 
     /// List all domain names in the database.
@@ -199,14 +230,10 @@ impl TugbankClient {
     ///
     /// Called by tugcast's notification handler when a datagram arrives.
     pub fn refresh_domain(&self, domain: &str) {
-        let snapshot = match self.inner.store.domain(domain).and_then(|h| h.read_all()) {
+        let snapshot = match self.reload(domain) {
             Ok(s) => s,
             Err(_) => return,
         };
-        {
-            let mut cache = self.inner.cache.lock();
-            cache.insert(domain.to_owned(), snapshot.clone());
-        }
         {
             let reg = self.inner.callbacks.lock();
             reg.fire(domain, &snapshot);
@@ -215,15 +242,41 @@ impl TugbankClient {
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
+    /// Read `domain`'s entries and generation in one transaction into the
+    /// cache, returning the entries.
+    fn reload(&self, domain: &str) -> Result<DomainSnapshot, Error> {
+        let (entries, generation) = self
+            .inner
+            .store
+            .domain(domain)?
+            .read_all_with_generation()?;
+        let mut cache = self.inner.cache.lock();
+        cache.insert(
+            domain.to_owned(),
+            Cached {
+                entries: entries.clone(),
+                generation,
+            },
+        );
+        Ok(entries)
+    }
+
     fn ensure_domain_loaded(&self, domain: &str) -> Result<(), Error> {
         let already_loaded = {
             let cache = self.inner.cache.lock();
             cache.contains_key(domain)
         };
         if !already_loaded {
-            let snapshot = self.inner.store.domain(domain)?.read_all()?;
+            let (entries, generation) = self
+                .inner
+                .store
+                .domain(domain)?
+                .read_all_with_generation()?;
             let mut cache = self.inner.cache.lock();
-            cache.entry(domain.to_owned()).or_insert(snapshot);
+            cache.entry(domain.to_owned()).or_insert(Cached {
+                entries,
+                generation,
+            });
         }
         Ok(())
     }
@@ -289,6 +342,35 @@ mod tests {
         client.refresh_domain("ext");
         let val = client.get("ext", "key").unwrap();
         assert_eq!(val, Some(Value::String("external-write".into())));
+    }
+
+    #[test]
+    fn test_generation_moves_with_the_entries_it_was_read_with() {
+        let tmp = NamedTempFile::new().expect("temp file");
+        let client = TugbankClient::open(tmp.path()).expect("open failed");
+        client.set("gen", "a", Value::I64(1)).unwrap();
+        let (_, before) = client.read_domain_with_generation("gen").unwrap();
+        assert_eq!(before, 1);
+
+        // Another process writes; the notice has not been handled yet.
+        let external = DefaultsStore::open(tmp.path()).expect("external store open");
+        external
+            .domain("gen")
+            .unwrap()
+            .set("b", Value::I64(2))
+            .unwrap();
+
+        // The cache still holds the old entries, so it must still say the old
+        // generation: a reader publishing the pair would otherwise claim the
+        // write, and the refreshed pair that follows would look like nothing new.
+        let (stale, generation) = client.read_domain_with_generation("gen").unwrap();
+        assert_eq!(stale.get("b"), None);
+        assert_eq!(generation, before);
+
+        client.refresh_domain("gen");
+        let (fresh, generation) = client.read_domain_with_generation("gen").unwrap();
+        assert_eq!(fresh.get("b"), Some(&Value::I64(2)));
+        assert_eq!(generation, before + 1);
     }
 
     #[test]

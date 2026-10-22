@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { pollFor, settleFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -85,9 +85,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 34: a session's phase reaches t
         await app.body(A).driveSession({ op: "send", text: "Walk the module and report each pass." });
         await app.body(A).waitForCondition<boolean>(`${promptPhase} === "streaming"`, { timeoutMs: 30_000 });
 
-        const armed = await pollFor(() => layout.evalJS<boolean>(HOVER_TARGET), (v) => v, READ_MS);
+        const armed = await settleFor(() => layout.evalJS<boolean>(HOVER_TARGET), (v) => v, READ_MS);
         expect(armed, "the miniature draws the Session card's slot in the Layout body").toBe(true);
-        const tip = await pollFor(
+        const tip = await settleFor(
           () => layout.evalJS<{ label: string; state: string | null; role: string | null } | null>(READ_TIP),
           (t) => t !== null && t.label !== "",
           READ_MS,

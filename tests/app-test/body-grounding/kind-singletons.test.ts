@@ -48,7 +48,7 @@ import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { bodyOfKind } from "../_harness/card-reach";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead, tugbankWrite } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, pollFor, sessionPane, waitForBody } from "./_bodies";
+import { focusBody, pollFor, settleFor, sessionPane, waitForBody } from "./_bodies";
 import { expectContentSurface } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -111,7 +111,7 @@ async function closeCard(app: App, cardId: string): Promise<void> {
   const paneId = await app.evalJS<string | null>(paneHolding(cardId));
   expect(paneId, `${cardId} stands in a pane`).not.toBeNull();
   await app.evalJS<null>(`(window.__tug.closePane(${JSON.stringify(paneId)}), null)`);
-  const gone = await pollFor(() => app.bodies(), (bs) => bs.every((b) => b.cardId !== cardId), READ_MS);
+  const gone = await settleFor(() => app.bodies(), (bs) => bs.every((b) => b.cardId !== cardId), READ_MS);
   expect(gone.some((b) => b.cardId === cardId), `${cardId}'s body is gone with its card`).toBe(false);
 }
 
@@ -123,7 +123,7 @@ async function closeCard(app: App, cardId: string): Promise<void> {
 async function openedKind(app: App, kind: string): Promise<{ body: BodyApp; cardId: string }> {
   const body = await bodyOfKind(app, kind);
   const root = JSON.stringify(cardKind(kind).root);
-  const up = await pollFor(() => body.evalJS<boolean>(`document.querySelector(${root}) !== null`), (v) => v, READ_MS);
+  const up = await settleFor(() => body.evalJS<boolean>(`document.querySelector(${root}) !== null`), (v) => v, READ_MS);
   expect(up, `${kind}: its root is mounted in its body`).toBe(true);
   // card-dom: shell
   expect(await app.evalJS<boolean>(`document.querySelector(${root}) !== null`), `${kind}: the shell's document holds none of it`).toBe(false);
@@ -132,7 +132,7 @@ async function openedKind(app: App, kind: string): Promise<{ body: BodyApp; card
   const cardId = ids[0];
   await app.dispatchControlAction("focus-session-card", { cardId });
   const width = await app.evalJS<number>("innerWidth");
-  const inView = await pollFor(
+  const inView = await settleFor(
     () => app.bodies(),
     (bs) => {
       const b = bs.find((x) => x.cardId === cardId);
@@ -179,22 +179,22 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         // ── Settings: its stored values, a section click, a write the shell reads ──
         await app.performMenuItem("app.settings");
         const settings = await openedKind(app, "settings");
-        const section = await pollFor(() => settings.body.evalJS<string | null>(showingSection), (s) => s === "general", READ_MS);
+        const section = await settleFor(() => settings.body.evalJS<string | null>(showingSection), (s) => s === "general", READ_MS);
         expect(section, "Settings opens on General in its body").toBe("general");
-        const stored = await pollFor(() => settings.body.evalJS<string | null>(valueOf(PROJECT_DIR_INPUT)), (v) => v === projectDir, READ_MS);
+        const stored = await settleFor(() => settings.body.evalJS<string | null>(valueOf(PROJECT_DIR_INPUT)), (v) => v === projectDir, READ_MS);
         expect(stored, "the General panel shows the stored default project directory, read from tugbank").toBe(projectDir);
         await settings.body.nativeClickAtElement(SECTION_TAB("sessionCard"));
-        const sessions = await pollFor(() => settings.body.evalJS<string | null>(showingSection), (s) => s === "sessionCard", READ_MS);
+        const sessions = await settleFor(() => settings.body.evalJS<string | null>(showingSection), (s) => s === "sessionCard", READ_MS);
         expect(sessions, "a sidebar click in the body switches the panel").toBe("sessionCard");
         await pollFor(() => settings.body.evalJS<boolean>(present(SOFT_TABS)), (v) => v, READ_MS);
         await settings.body.nativeClickAtElement(SOFT_TABS);
-        const written = await pollFor(
+        const written = await settleFor(
           () => Promise.resolve(tugbankRead<{ softTabs?: boolean }>(tugbankPath, EDITOR_DOMAIN, EDITOR_KEY)?.value?.softTabs ?? null),
           (v) => v === false,
           READ_MS,
         );
         expect(written, "the Soft Tabs press in the Settings body wrote tugbank").toBe(false);
-        const shellSees = await pollFor(
+        const shellSees = await settleFor(
           // card-dom: shell
           () => app.evalJS<{ softTabs?: boolean } | null>(`(function () { var v = window.__tug.getTugbankValue(${JSON.stringify(EDITOR_DOMAIN)}, ${JSON.stringify(EDITOR_KEY)}); return v === null ? null : v.value; })()`),
           (v) => v?.softTabs === false,
@@ -210,7 +210,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         expect((await app.bodies()).filter((b) => b.componentId === "settings").length, "and one body").toBe(1);
         // A reveal dispatched in the shell lands the body on the section it names.
         await app.dispatchControlAction("reveal-settings", { section: "viewerCard" });
-        const revealed = await pollFor(() => settings.body.evalJS<string | null>(showingSection), (s) => s === "viewerCard", READ_MS);
+        const revealed = await settleFor(() => settings.body.evalJS<string | null>(showingSection), (s) => s === "viewerCard", READ_MS);
         expect(revealed, "reveal-settings shows the named section in the Settings body").toBe("viewerCard");
         await expectContentSurface(app, settings.cardId, 0.15);
         await closeCard(app, settings.cardId);
@@ -218,11 +218,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         // ── Keyboard Shortcuts: the keymap, and its filter ───────────────
         await app.performMenuItem("app.keyboardShortcuts");
         const keyboard = await openedKind(app, "keyboard");
-        const rows = await pollFor(() => keyboard.body.evalJS<number>(count(KEYMAP_ROW_TITLE)), (n) => n > 0, READ_MS);
+        const rows = await settleFor(() => keyboard.body.evalJS<number>(count(KEYMAP_ROW_TITLE)), (n) => n > 0, READ_MS);
         expect(rows, "the Keyboard Shortcuts body lists the keymap").toBeGreaterThan(0);
         await keyboard.body.nativeClickAtElement(KEYMAP_FILTER_INPUT);
         await app.nativeType("zoom");
-        const narrowed = await pollFor(() => keyboard.body.evalJS<string[]>(textsOf(KEYMAP_ROW_TITLE)), (titles) => titles.length > 0 && titles.length < rows, READ_MS);
+        const narrowed = await settleFor(() => keyboard.body.evalJS<string[]>(textsOf(KEYMAP_ROW_TITLE)), (titles) => titles.length > 0 && titles.length < rows, READ_MS);
         note(`keymap rows: ${rows} before the filter, ${narrowed.length} after: ${JSON.stringify(narrowed)}`);
         expect(narrowed.length, "typing in the filter narrows the rows").toBeLessThan(rows);
         expect(narrowed, "to the ones it names").toContain("Zoom In");
@@ -233,10 +233,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         // ── About: the host's identity, relayed through the shell ─────────
         await app.performMenuItem("app.about");
         const about = await openedKind(app, "about");
-        const version = await pollFor(() => about.body.evalJS<string>(textOf(ABOUT_VERSION)), (t) => /Version \d/.test(t), READ_MS);
+        const version = await settleFor(() => about.body.evalJS<string>(textOf(ABOUT_VERSION)), (t) => /Version \d/.test(t), READ_MS);
         note(`About body: ${version.trim()}`);
         expect(version, "the About body shows the host's version and build").toMatch(/^Version \d[^(]*\(\d+\)$/);
-        const paneTitle = await pollFor(
+        const paneTitle = await settleFor(
           () => about.body.evalJS<string>(textOf('[data-testid="tug-pane-title"]')),
           (t) => t.includes("About"),
           READ_MS,
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         await app.nativeKey("/", ["alt", "cmd"]);
         const devtools = await openedKind(app, "devtools");
         await devtools.body.nativeClickAtElement(DEVTOOLS_TAB("telemetry"));
-        const inspector = await pollFor(() => devtools.body.evalJS<Record<string, string>>(inspectorRows), (r) => r["Tug session id"] === SID, READ_MS);
+        const inspector = await settleFor(() => devtools.body.evalJS<Record<string, string>>(inspectorRows), (r) => r["Tug session id"] === SID, READ_MS);
         note(`devtools telemetry: ${JSON.stringify(inspector)}`);
         expect(inspector["Tug session id"], "the Telemetry tab shows the followed Session body's session id").toBe(SID);
         expect(inspector["Phase"], "and its phase").toBeTruthy();
@@ -265,7 +265,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         // card-dom: shell
         await app.evalJS<null>(`(window.tugDevLog.info("kind-check", "hello from the shell"), null)`);
         await devtools.body.nativeClickAtElement(DEVTOOLS_TAB("log"));
-        const logged = await pollFor(
+        const logged = await settleFor(
           () => devtools.body.evalJS<string[]>(textsOf(LOG_MESSAGES)),
           (messages) => messages.some((m) => m.includes("hello from the shell")),
           READ_MS,
@@ -275,7 +275,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
         expect(sources.some((s) => s.includes("shell/kind-check")), "under the shell's name").toBe(true);
         await expectContentSurface(app, devtools.cardId, 0.15);
         await closeCard(app, devtools.cardId);
-        const stopped = await pollFor(() => a.evalJS<boolean>("window.tugdeck.diag.inspecting()"), (v) => !v, READ_MS);
+        const stopped = await settleFor(() => a.evalJS<boolean>("window.tugdeck.diag.inspecting()"), (v) => !v, READ_MS);
         expect(stopped, "closing the devtools card stops the Session body's publishing").toBe(false);
       } finally {
         await app.close();

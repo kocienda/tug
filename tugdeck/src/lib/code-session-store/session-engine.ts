@@ -36,6 +36,7 @@ import {
   encodeRecordContextBreakdown,
   encodeRecordSessionStateChange,
   encodeRecordTurnTelemetry,
+  encodeRequestReplay,
   type ContentBlock,
 } from "@/protocol";
 import { isDecodeError } from "@tugproto/decode";
@@ -1279,6 +1280,12 @@ export class SessionEngine {
           }
           this.host.send(FeedId.CODE_INPUT, encodeCodeInputPayload(effect.msg, this.tugSessionId));
           break;
+        case "request-replay": {
+          // A catch-up's ask again, after the bracket ahead of it closed.
+          const frame = encodeRequestReplay(this.tugSessionId, "catch-up", effect.window);
+          this.host.send(frame.feedId, frame.payload);
+          break;
+        }
         case "append-transcript":
           // Copy-on-write so old snapshot refs remain valid.
           if (effect.prepend === true) {

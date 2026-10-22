@@ -31,7 +31,7 @@ import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, pollFor, settleFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { carryLeg, setUpGesture, standUp, type Rect, type Standing } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-19-streams";
@@ -145,7 +145,7 @@ async function streamLeg(
 
   await carryLeg(app, card, moved, label, js, standing, crop, async () => {
     // The open is written after the land; wait for the edge that pairs the close.
-    const edges = await pollFor(
+    const edges = await settleFor(
       () => app.evalJS<{ phase: string; t: number }[]>(TAPPED),
       (rows) => closedSpans(rows).length > 0 && rows[rows.length - 1].phase === "open",
       2_000,

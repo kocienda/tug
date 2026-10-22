@@ -24,7 +24,7 @@ import { launchTugApp, note } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, focusBody, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, focusBody, pollFor, settleFor, spawnStub, waitForBody } from "./_bodies";
 import { near, type Rgb } from "./_frames";
 
 const TEST_NAME = "body-grounding-row-22-compaction-cover";
@@ -133,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 22: a body's Compacting cover r
           height: Math.ceil(rest + 40 - mid),
         };
         await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop });
-        const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
+        const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
         const png = decodePngFile(reading.frames[reading.frames.length - 1].path);
         const at = (row: number): Rgb => {
           const i = row * png.width * 4;

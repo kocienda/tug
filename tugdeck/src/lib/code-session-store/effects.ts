@@ -11,6 +11,7 @@
  */
 
 import type { InboundMessage } from "@/protocol";
+import type { ReplayWindow } from "@tugproto/inbound";
 import type { CodeSessionEvent } from "./events";
 import type { LiveMessageUsage, TurnEntry } from "./types";
 import type { StageBoundaryFacts } from "./stages";
@@ -59,6 +60,16 @@ export interface ClearInflightEffect {
 export interface SendFrameEffect {
   kind: "send-frame";
   msg: InboundMessage;
+}
+
+/**
+ * Ask the session again for a catch-up's window: the bracket that was running
+ * when the catch-up asked has closed first, which says tugcode dropped the ask
+ * (`replay_in_flight`) rather than queue it, so the card asks once more.
+ */
+export interface RequestReplayEffect {
+  kind: "request-replay";
+  window: ReplayWindow;
 }
 
 /**
@@ -150,9 +161,9 @@ export interface DiscardPrependEffect {
  * when it fires.
  *
  * And `"catch_up"` — the horizon of a dormant body's catch-up
- * (`replayCatchUpActive`): armed by `begin_catch_up`, cancelled when the
- * bracket it asked for opens, and ending the catch-up when it fires — for a
- * session whose tugcode was not live to answer.
+ * (`CodeSessionState.catchUp`): armed by `begin_catch_up` and by a re-ask,
+ * cancelled when the bracket it asked for opens, and ending the catch-up when
+ * it fires — for a session whose tugcode was not live to answer.
  */
 export interface ScheduleTimerEffect {
   kind: "schedule_timer";
@@ -332,6 +343,7 @@ export type Effect =
   | WriteInflightEffect
   | ClearInflightEffect
   | SendFrameEffect
+  | RequestReplayEffect
   | AppendTranscriptEffect
   | IngestInkTurnEffect
   | FlushPrependEffect

@@ -112,7 +112,7 @@ import { focusRingModalityStore } from "../focus-ring-modality-store";
 import { heldModifiers, subscribeModifierLatch } from "./modifier-latch";
 import { projectDeckState } from "./host-menu-state";
 import { focusTravelDirections } from "./directional-focus";
-import { bodyCardsStore } from "./body-cards-store";
+import { bodyCardsStore, pageless } from "./body-cards-store";
 import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfaceAhead } from "./body-command-route";
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
@@ -215,7 +215,6 @@ import {
 import {
   deckCards,
   deckFacts,
-  deckBodies,
   deckFrontmostProject,
   deckMenu,
   type DeckFactsValue,
@@ -229,6 +228,7 @@ import {
   forgetBodyIntent,
   handOffToBody,
   hostCapabilitiesStore,
+  intentToAskAgain,
   isBodyKind,
   isMountBodyKind,
   releaseDeferredBody,
@@ -238,16 +238,10 @@ import {
 import { onHostMessage, postToHost } from "../host/channel";
 import {
   bodyDestroyToHost,
-  bodyEvictAfterToHost,
   bodyFocusToHost,
-  bodyPressureToPage,
   bodyStateToPage,
-  type BodyPressure,
 } from "../host/declarations/lifecycle";
-import { bodyTier, countTiers, sameCounts } from "./body-census";
 import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
-import { EVICT_AFTER_DOMAIN, readEvictAfterMs } from "./evict-after-pref";
-import { getTugbankClient } from "./tugbank-singleton";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { openingBidForCard } from "./opening-bid";
 import { deckRootElement, layoutPxOf, pageZoomStore } from "./page-zoom-store";
@@ -262,6 +256,7 @@ import {
   projectArrangementDeck,
   projectArrangementSpaces,
   projectDeckCards,
+  sessionStateOf,
 } from "./body-arrangement";
 import {
   appInfo,
@@ -297,6 +292,7 @@ import { motionBreaker } from "./motion-guard/breaker";
 import { holdOverviewDraftInShell } from "./overview-composer-draft";
 import { CROSSING_FRAME_ATTRS, crossingMirrorOf } from "./fold-crossing";
 import type { TugDevLogEntry } from "./tug-dev-log-store/types";
+import { FeedId } from "../protocol";
 
 /** The kinds the shell relays something of its own to, by their component ids. */
 const DEVTOOLS_KIND = "devtools";
@@ -649,6 +645,17 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   /** The shell's close guard held for each body card whose guard spoke, with its release. */
   const closeGuards = new Map<string, () => void>();
+  /**
+   * The body cards whose page said its guard would ask, and was then evicted:
+   * the detach clears the page's word with everything else it held, but a
+   * close must still ask, so the shell keeps it until the card's next page
+   * says so itself. That page says it only once its card has read back what
+   * the evicted one set aside, so a word of `false` before then is no answer.
+   */
+  const evictedAsking = new Set<string>();
+  /** Whether `cardId`'s close guard would ask: its page's word, or the word its evicted page left. */
+  const guardAsks = (cardId: string): boolean =>
+    cardHolds.getFor(cardId).closeGuardAsks === true || evictedAsking.has(cardId);
   /** The modal hold the shell holds for each body card whose run said so, with its release. */
   const modalHolds = new Map<string, () => void>();
   const dropModalHold = (cardId: string): void => {
@@ -690,6 +697,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     surfaces.remove(cardId);
     closeGuards.get(cardId)?.();
     closeGuards.delete(cardId);
+    evictedAsking.delete(cardId);
     dropModalHold(cardId);
     cardIdentityElsewhere.set(cardId, null);
     paneTitleBarItemsStore.set(cardId, null);
@@ -714,26 +722,17 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   /**
    * Ask the host again for `cardId`'s body, with what the new page is to do.
-   * It carries no bag: the gone body wrote the card's state as it went, so
-   * the new one reads it back. A Session card the shell holds a binding for
-   * restores it:
-   * the gone body's spawn was acknowledged, so re-running a `new` or `fresh`
-   * would start a second session. The harness's fake bind is handed again,
-   * since no ledger holds it; any other card re-runs what it was handed.
+   * It carries no bag, and the intent is {@link intentToAskAgain}'s.
    */
   const askAgain = (cardId: string): void => {
-    const handed = withoutBag(bodyIntentOf(cardId));
-    let intent: BodyIntent;
-    if (isMountBodyKind(kindOf(cardId) ?? "")) {
-      intent = { kind: "mount" };
-    } else if (handed?.kind === "bind") {
-      intent = handed;
-    } else if (cardSessionBindingStore.getBinding(cardId) !== undefined) {
-      intent = { kind: "restore" };
-    } else {
-      intent = handed ?? { kind: "restore" };
-    }
-    askForBodyAgain(cardId, intent);
+    askForBodyAgain(
+      cardId,
+      intentToAskAgain(
+        withoutBag(bodyIntentOf(cardId)),
+        isMountBodyKind(kindOf(cardId) ?? ""),
+        cardSessionBindingStore.getBinding(cardId) !== undefined,
+      ),
+    );
   };
 
   /**
@@ -800,10 +799,12 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const holdCloseGuard = (cardId: string): void => {
     if (closeGuards.has(cardId)) return;
     const release = registerCardCloseGuard(cardId, {
-      needsDecision: () => cardHolds.getFor(cardId).closeGuardAsks === true,
+      needsDecision: () => guardAsks(cardId),
       // The body's own guard decides, in the card it concerns
-      // (`close-decision.ts`): its sheet's person, or a deadline.
-      run: () => askCloseDecision(cardId, cardHolds.getFor(cardId).closeGuardAsks === true),
+      // (`close-decision.ts`): its sheet's person, or a deadline. An evicted
+      // card's close is asked of the page that brings it back, which the
+      // pane's activating it before the ask has asked for.
+      run: () => askCloseDecision(cardId, guardAsks(cardId)),
     });
     closeGuards.set(cardId, release);
   };
@@ -993,10 +994,13 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     for (const cardId of bodyCardsStore.cardIds()) paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
   };
 
+  /** The supervisor's last SESSION_STATE for each session, by its address ({@link sessionStateOf}). */
+  const childStates = new Map<string, string>();
   // What a body reads of every card beyond its own, as one record per card.
   // The store sends only what moved, so it is set on every change it might
   // follow: the arrangement, a binding, a title, an identity, a body's facts,
-  // and the bindings ledger a parked card's title resolves through.
+  // the bindings ledger a parked card's title resolves through, and a
+  // session's subprocess coming or going.
   const publishDeckCards = (): void => {
     deckCards.set(
       projectDeckCards(deck, {
@@ -1009,7 +1013,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         binding: (id) => cardSessionBindingStore.getBinding(id) ?? null,
         sessionState: (id) => {
           const address = cardSessionBindingStore.getBinding(id)?.tugSessionId;
-          return address === undefined ? null : (getSessionLedgerStore()?.findRow(ledgerSegmentForCard(id, address))?.state ?? null);
+          if (address === undefined) return null;
+          const row = getSessionLedgerStore()?.findRow(ledgerSegmentForCard(id, address))?.state ?? null;
+          return sessionStateOf(row, childStates.get(address) ?? null);
         },
         parkedTitle: (id) => {
           const identity = cardIdentity(id);
@@ -1034,6 +1040,23 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   publishArrangement();
   publishLedgerBindings();
   publishAppInfo();
+  // The supervisor's last word on each session's subprocess, which this
+  // page hears for every session: a live row whose child is gone answers
+  // no catch-up, and a body reads that off its `deck.cards` record.
+  releases.push(
+    connection.onFrame(FeedId.SESSION_STATE, (payload) => {
+      let frame: { tug_session_id?: unknown; state?: unknown };
+      try {
+        frame = JSON.parse(new TextDecoder().decode(payload)) as typeof frame;
+      } catch {
+        return;
+      }
+      if (typeof frame.tug_session_id !== "string" || typeof frame.state !== "string") return;
+      if (childStates.get(frame.tug_session_id) === frame.state) return;
+      childStates.set(frame.tug_session_id, frame.state);
+      publishDeckCards();
+    }),
+  );
 
   let focusedBody: string | null | undefined;
   /**
@@ -1301,15 +1324,40 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     releases.push(store.subscribe(sync), bodyCardsStore.subscribe(sync));
   };
 
+  /** Facts whose title waits on the card's paint ({@link applyFacts}). */
+  const titleAtPaint = new Map<string, CardFactsValue>();
   const applyFacts = (cardId: string, facts: CardFactsValue): void => {
     cardIdentityElsewhere.set(cardId, facts.identity);
     paneTitleBarItemsStore.set(cardId, facts.titleBar);
+    // A new page says its facts before it has read its own title: an empty
+    // title with no masthead, from a page that has not painted, is not the
+    // card's title, and drawn by the stand-in standing until the paint it
+    // would blank a title the shell already holds. It is taken at the paint.
+    if (
+      facts.title === "" &&
+      facts.masthead === null &&
+      bodyCardsStore.stateOf(cardId) !== "painted" &&
+      (cardTitleStore.get(cardId) ?? "") !== ""
+    ) {
+      titleAtPaint.set(cardId, facts);
+      return;
+    }
+    titleAtPaint.delete(cardId);
     if (facts.masthead !== null) {
       cardTitleStore.set(cardId, facts.title, facts.masthead);
     } else {
       cardTitleStore.set(cardId, facts.title);
     }
   };
+  releases.push(
+    bodyCardsStore.subscribe(() => {
+      for (const [cardId, facts] of [...titleAtPaint]) {
+        const state = bodyCardsStore.stateOf(cardId);
+        if (state === null) titleAtPaint.delete(cardId);
+        else if (state === "painted") applyFacts(cardId, facts);
+      }
+    }),
+  );
 
   /**
    * The holds the shell keeps for a body card in its own stores, moved with
@@ -1319,6 +1367,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
    */
   const applyHolds = (cardId: string, holds: CardHoldsValue, prev: CardHoldsValue): void => {
     if (holds.closeGuardAsks !== null) holdCloseGuard(cardId);
+    if (holds.closeGuardAsks === true) evictedAsking.delete(cardId);
     const hold = holds.modalHold;
     const was = prev.modalHold;
     if (hold?.reason !== was?.reason || hold?.admitsFold !== was?.admitsFold) {
@@ -1609,6 +1658,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // the page held clears with the detach, as at a termination. A
         // placement that wants it shown asks for it again; one that already
         // does, a reveal racing the eviction, asks now.
+        // A page that said its guard would ask leaves that word behind: the
+        // card's close asks until its next page says so itself.
+        if (cardHolds.getFor(cardId).closeGuardAsks === true) evictedAsking.add(cardId);
         bodyCardsStore.setState(cardId, "evicted");
         bus.detach(cardId);
         paintGate.forget(cardId);
@@ -1666,86 +1718,27 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // ---- Evicted cards, brought back when they are wanted ----
 
   /**
-   * Ask again for every evicted card the deck now wants shown — its tab
-   * chosen, its workspace shown, its pane unfolded. It comes back as an
-   * arrival, never by un-evicting a view that is gone: a new body on the
+   * Ask for every evicted or unmade card the deck now wants shown — its
+   * tab chosen, its workspace shown, its pane unfolded. An evicted one comes
+   * back as an arrival, never by un-evicting a view that is gone: a new body on the
    * restore path, which reads the state the evicted page wrote as it went.
    * Where the host kept the card's last frame it stands it over the new
    * body and says `covered`, and the placer shows the card from there;
    * where it kept none the stand-in stands until the page paints.
    *
-   * A card whose page was never made — handed off while it was not shown —
-   * is asked for here too, with the intent it was handed, and stands behind
-   * its stand-in until its page paints, having no last frame to show.
+   * An unmade card — handed off while it was not shown — is asked for with
+   * the intent it was handed, and stands behind its stand-in until its page
+   * paints, having no last frame to show.
    */
   function reviveWanted(): void {
     for (const cardId of bodyCardsStore.cardIds()) {
-      if (bodyCardsStore.stateOf(cardId) !== "evicted" || !wantsBodyShown(deck, cardId)) continue;
-      if (releaseDeferredBody(cardId)) continue;
-      askAgain(cardId);
+      const state = bodyCardsStore.stateOf(cardId);
+      if (!pageless(state) || !wantsBodyShown(deck, cardId)) continue;
+      if (state === "unmade") releaseDeferredBody(cardId);
+      else askAgain(cardId);
     }
   }
   releases.push(deck.subscribe(reviveWanted), deck.subscribeSpaces(reviveWanted));
-
-  // How long a hidden body keeps its process: the host's clock, so the
-  // reader's setting, written anywhere, is told to the host — once now and
-  // again whenever it changes.
-  const tugbank = getTugbankClient();
-  if (tugbank !== null) {
-    let toldEvictAfter: number | null = null;
-    const tellEvictAfter = () => {
-      const ms = readEvictAfterMs((domain, key) => tugbank.get(domain, key));
-      if (ms === toldEvictAfter) return;
-      toldEvictAfter = ms;
-      postToHost(bodyEvictAfterToHost, { ms });
-    };
-    tellEvictAfter();
-    releases.push(
-      tugbank.onDomainChanged((domain) => {
-        if (domain === EVICT_AFTER_DOMAIN) tellEvictAfter();
-      }),
-    );
-  }
-
-  // What the deck holds of its bodies, for the Layout card's Bodies row:
-  // each body card's tier from its body's state, its page's dormancy and its
-  // placement, and the host's last pressure event. Readings; nothing here
-  // decides anything.
-  // A parked workspace's card stands in no pane of the shown deck, which is
-  // all the placer reads; the census reads it in its own workspace's deck,
-  // so a parked card counts as hidden, dormant or evicted.
-  const placedOf = (cardId: string): { active: boolean; layerShown: boolean } | null => {
-    const shown = shownFactsOf(deck, cardId);
-    if (shown !== null) return shown;
-    const pane = ownDeckOf(deck, cardId).panes.find((p) => p.cardIds.includes(cardId));
-    return pane === undefined ? null : { active: pane.activeCardId === cardId, layerShown: false };
-  };
-  let lastPressure: BodyPressure | null = null;
-  const publishCensus = (): void => {
-    const counts = countTiers(
-      bodyCardsStore.cardIds().map((cardId) =>
-        bodyTier({
-          evicted: bodyCardsStore.stateOf(cardId) === "evicted",
-          dormant: cardFacts.getFor(cardId)?.dormant === true,
-          placed: placedOf(cardId),
-        }),
-      ),
-    );
-    const standing = deckBodies.getSnapshot();
-    if (sameCounts(standing.counts, counts) && standing.pressure === lastPressure) return;
-    deckBodies.set({ counts, pressure: lastPressure });
-  };
-  releases.push(
-    onHostMessage(bodyPressureToPage, (pressure) => {
-      lastPressure = pressure;
-      publishCensus();
-    }),
-    deck.subscribe(publishCensus),
-    deck.subscribeSpaces(publishCensus),
-    bodyCardsStore.subscribe(publishCensus),
-    cardFacts.subscribe(publishCensus),
-  );
-  publishCensus();
 
   // A failed card's Reload, from its placard.
   setBodyReloader(askAgain);

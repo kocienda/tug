@@ -23,7 +23,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
-import { pollFor } from "./_bodies";
+import { pollFor, settleFor } from "./_bodies";
 import { expectContentSurface, kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -68,7 +68,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the maker kinds, by the
         expect(await app.evalJS<boolean>(present(ROOT)), "the shell's document holds none of the gallery").toBe(false);
 
         // ── Its data: the card's sections are the body's rows ───────────
-        const sections = await pollFor(() => body.evalJS<number>(count(SECTIONS)), (n) => n > 3, READ_MS);
+        const sections = await settleFor(() => body.evalJS<number>(count(SECTIONS)), (n) => n > 3, READ_MS);
         note(`gallery sections in the body: ${sections}`);
         expect(sections, "the body shows the card's sections").toBeGreaterThan(3);
 
@@ -76,10 +76,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the maker kinds, by the
         expect(await body.evalJS<boolean>(markToggle), "the view toggle stands in the body").toBe(true);
         await Bun.sleep(300);
         await body.nativeClickAtElement(TOGGLE);
-        const flipped = await pollFor(() => body.evalJS<string>(textOf(TOGGLE_LABEL)), (t) => t === VIEW_ALTERNATE, READ_MS);
+        const flipped = await settleFor(() => body.evalJS<string>(textOf(TOGGLE_LABEL)), (t) => t === VIEW_ALTERNATE, READ_MS);
         expect(flipped, "a click in the body flips the toggle's label").toBe(VIEW_ALTERNATE);
         await body.nativeClickAtElement(TOGGLE);
-        const back = await pollFor(() => body.evalJS<string>(textOf(TOGGLE_LABEL)), (t) => t === VIEW_PRIMARY, READ_MS);
+        const back = await settleFor(() => body.evalJS<string>(textOf(TOGGLE_LABEL)), (t) => t === VIEW_PRIMARY, READ_MS);
         expect(back, "a second click flips it back").toBe(VIEW_PRIMARY);
 
         // ── Its surface ──────────────────────────────────────────────────

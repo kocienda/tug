@@ -50,6 +50,8 @@ Under it, the first-visit piece passes since the stand-in clips its picture (fix
 
 **[B05] Row 44's tightened judge lands with the fix.** `row-44-tightening.diff` is applied, and both row 44 pieces pass under it. `at0747-no-hole-under-cards`'s arrival census stays green: nothing painted in the shell but a stand-in face. Every placement or hand-over change that the guard would miss carries its own assertion.
 
+*Landed, `3dc927ffe` (2026-10-22).* [Q01] was settled for neither route as written: the shell reads the stand-in into a display list (`lib/face-draw.ts`) of boxes, text runs and icons, and the host draws it (`BodyFaceView`), so the face follows the chrome and the theme with no second implementation and no snapshot to wait on. [Q02] was settled by the placement's shape, not the gesture: a departing view that meets a drawable face is handed over in one transaction, a switch and a tab put behind an unpainted card alike, and one that meets none keeps the two-paint hold (`meetsAFace`). A face retires two host frames after a snapshot with `afterScreenUpdates` answers, under a 250 ms horizon. Since the body-lifecycle second fixups, `placeCards` declares `face` and `faceDraw` on the wire, and a face is read again when its stand-in's facts move.
+
 ---
 
 ## Open Questions {#open-questions}

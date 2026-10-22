@@ -11,8 +11,10 @@
  * The intent a card was handed is kept while it is a body card, a card whose
  * body failed is asked for again with the intent the shell gives it, and a
  * bound card's arrival waits on its body's ready, or its failure. A card the
- * shell defers stands evicted with no page asked for, keeps the latest intent
- * and its first state, and is asked for once, with them, when released.
+ * shell defers stands `unmade` with no page asked for, keeps the latest intent
+ * and its first state, and is asked for once, with them, when released; a
+ * card whose page is already attached — kept across a shell reload — is
+ * never deferred.
  *
  * @covers tugdeck/src/lib/body-handoff.ts
  * @covers tugdeck/src/lib/session-restore.ts
@@ -31,6 +33,7 @@ import {
   bodyIntentOf,
   forgetBodyIntent,
   handOffToBody,
+  intentToAskAgain,
   isBodyKind,
   isDeferredBody,
   isMountBodyKind,
@@ -323,6 +326,16 @@ describe("with the capability", () => {
     expect(controlActions).toEqual([]);
   });
 
+  test("a failed body is asked for again to restore a session the shell holds, never to start a second", () => {
+    const fresh: BodyIntent = { kind: "new", tugSessionId: "t1", projectDir: "/p" } as unknown as BodyIntent;
+    expect(intentToAskAgain(fresh, false, true), "the gone body's spawn was acknowledged").toEqual({ kind: "restore" });
+    expect(intentToAskAgain(fresh, false, false), "no binding yet: the spawn runs again").toBe(fresh);
+    expect(intentToAskAgain(null, false, false)).toEqual({ kind: "restore" });
+    expect(intentToAskAgain(fresh, true, true), "a kind the shell hands off itself mounts").toEqual({ kind: "mount" });
+    const bind = { kind: "bind" } as unknown as BodyIntent;
+    expect(intentToAskAgain(bind, false, true), "the harness's bind is handed again").toBe(bind);
+  });
+
   test("a card that is not a body card is not asked for again", () => {
     askForBodyAgain("s2", { kind: "restore" });
     expect(posted).toEqual([]);
@@ -333,7 +346,7 @@ describe("with the capability", () => {
     cardStates.set("m1", { scroll: 7 });
     expect(handOffToBody("m1", () => ({ kind: "mount" }))).toBe(true);
     expect(posted).toEqual([]);
-    expect(bodyCardsStore.stateOf("m1")).toBe("evicted");
+    expect(bodyCardsStore.stateOf("m1")).toBe("unmade");
     expect(isDeferredBody("m1")).toBe(true);
 
     // A funnel deciding again while it waits changes what it will be handed, and asks for nothing.
@@ -360,6 +373,27 @@ describe("with the capability", () => {
     expect(handOffToBody("k1", () => ({ kind: "mount" }))).toBe(true);
     expect(posted).toHaveLength(3);
     expect(isDeferredBody("k1")).toBe(false);
+  });
+
+  test("a kept body across a shell reload is never deferred: its page is attached, so the host is asked for it", async () => {
+    // The host kept m1's page across the shell's reload; it has said hello
+    // to this shell before the shell hands the card off.
+    bus = createTestBus();
+    bus.install(bus.shell());
+    bus.body("m1", "handoff-mount");
+    await bus.flush();
+
+    // An inactive tab: the deferral would hold any other card back.
+    setBodyDeferral(() => true);
+    expect(handOffToBody("m1", () => ({ kind: "mount" }))).toBe(true);
+    expect(posted).toEqual([{ name: "bodyCreate", body: { cardId: "m1", componentId: "handoff-mount", intent: { kind: "mount" } } }]);
+    expect(bodyCardsStore.stateOf("m1"), "not unmade, so its kept page's reports are read").toBe("creating");
+    expect(isDeferredBody("m1")).toBe(false);
+
+    // A card with no attached page is still deferred.
+    expect(handOffToBody("s1", () => ({ kind: "restore" }))).toBe(true);
+    expect(bodyCardsStore.stateOf("s1")).toBe("unmade");
+    expect(posted).toHaveLength(1);
   });
 });
 

@@ -32,7 +32,7 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, focusBody, pollFor, PROMPT_INPUT, SETTLE_MS, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, focusBody, pollFor, settleFor, PROMPT_INPUT, SETTLE_MS, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
@@ -78,7 +78,7 @@ const OUTSIDE_PT = 24;
 async function column(app: App, x: number, y: number, height: number): Promise<{ rows: number[][]; scale: number }> {
   const crop = { x: Math.floor(x), y: Math.floor(y), width: 2, height: Math.max(4, Math.floor(height)) };
   await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop });
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
   const png = decodePngFile(reading.frames[reading.frames.length - 1].path);
   const out: number[][] = [];
   for (let row = 0; row < png.height; row++) {
@@ -105,7 +105,7 @@ function differing(a: number[][], b: number[][], scale: number, tolerance = 8): 
 async function readInCard(app: App, label: string, selector: string, open: () => Promise<void>, close: () => Promise<void>, card = A): Promise<void> {
   const body = app.body(card);
   await open();
-  const appeared = await pollFor(() => body.evalJS<SurfaceReading | null>(readSurface(selector)), (r) => r !== null, SETTLE_MS);
+  const appeared = await settleFor(() => body.evalJS<SurfaceReading | null>(readSurface(selector)), (r) => r !== null, SETTLE_MS);
   expect(appeared, `${label}: the surface appears in the body`).not.toBeNull();
   // Read the box at rest: a surface that enters on a scale reads short
   // while its entrance runs.
@@ -128,7 +128,7 @@ async function readInCard(app: App, label: string, selector: string, open: () =>
   const h = box.bottom - box.top + 2 * COLUMN_REACH_PT;
   const shown = await column(app, x, y, h);
   await close();
-  const closed = await pollFor(() => body.evalJS<SurfaceReading | null>(readSurface(selector)), (r) => r === null, SETTLE_MS);
+  const closed = await settleFor(() => body.evalJS<SurfaceReading | null>(readSurface(selector)), (r) => r === null, SETTLE_MS);
   expect(closed, `${label}: the surface closes`).toBeNull();
   await Bun.sleep(250);
   const gone = await column(app, x, y, h);

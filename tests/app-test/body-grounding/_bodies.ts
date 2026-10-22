@@ -25,6 +25,7 @@ import type { App, BodyApp } from "../_harness";
 import type { BodyViewSnapshot } from "../_harness/client";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { streamingTranscript } from "../streaming-stub-fixture";
+import { pollFor, settleFor } from "./_frames";
 
 export const PROMPT_INPUT = '[data-slot="tug-text-editor"] .cm-content';
 export const BODY_READY_MS = 30_000;
@@ -40,15 +41,7 @@ export const promptPhase = `(function () {
   return entry === null ? null : entry.getAttribute("data-phase");
 })()`;
 
-export async function pollFor<T>(read: () => Promise<T>, done: (value: T) => boolean, timeoutMs: number): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  let value = await read();
-  while (!done(value) && Date.now() < deadline) {
-    await Bun.sleep(50);
-    value = await read();
-  }
-  return value;
-}
+export { pollFor, settleFor };
 
 /** One session card's pane in a four-up flow band. */
 export function sessionPane(cardId: string, slot: number): Record<string, unknown> {
@@ -89,7 +82,7 @@ export async function spawnStub(app: App, cardId: string, stubDir: string, messa
 
 /** The body is ready and placed visible, its composer mounted, its session idle. */
 export async function waitForBody(app: App, cardId: string): Promise<void> {
-  const ready = await pollFor(() => bodyOf(app, cardId), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);
+  const ready = await settleFor(() => bodyOf(app, cardId), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);
   expect(ready?.visible, `${cardId}: the body is ready and placed visible`).toBe(true);
   const body = app.body(cardId);
   await body.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(PROMPT_INPUT)}) !== null`, { timeoutMs: BODY_READY_MS });
@@ -104,9 +97,9 @@ export async function waitForBody(app: App, cardId: string): Promise<void> {
  */
 export async function focusBody(app: App, cardId: string, opts?: { composer?: boolean }): Promise<void> {
   await app.dispatchControlAction("focus-session-card", { cardId });
-  const focused = await pollFor(() => app.getFocusedCardId(), (id) => id === cardId, SETTLE_MS);
+  const focused = await settleFor(() => app.getFocusedCardId(), (id) => id === cardId, SETTLE_MS);
   expect(focused, `${cardId}: the shell's focused card`).toBe(cardId);
-  const holder = await pollFor(() => bodyOf(app, cardId), (b) => b?.firstResponder === true, SETTLE_MS);
+  const holder = await settleFor(() => bodyOf(app, cardId), (b) => b?.firstResponder === true, SETTLE_MS);
   expect(holder?.firstResponder, `${cardId}: its body is the window's first responder`).toBe(true);
   if (opts?.composer === false) return;
   const body = app.body(cardId);
@@ -126,7 +119,7 @@ export async function responders(app: App): Promise<string> {
  * which otherwise lands while no body is first responder.
  */
 export async function landed(app: App, cardId: string): Promise<void> {
-  const body = await pollFor(() => bodyOf(app, cardId), (b) => b?.visible === true && b.firstResponder === true, 8_000);
+  const body = await settleFor(() => bodyOf(app, cardId), (b) => b?.visible === true && b.firstResponder === true, 8_000);
   expect(body?.visible === true && body.firstResponder, `${cardId}: its body is shown and holds the keyboard after the land`).toBe(true);
   // And the settle's own mark off the canvas: the body shows at the land,
   // but the settle's hold on the deck can outlast it by a tick or two.

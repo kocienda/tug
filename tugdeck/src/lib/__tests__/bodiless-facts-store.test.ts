@@ -16,6 +16,7 @@ import type { SessionRow } from "../../protocol";
 import type { ActivityChannel } from "../session-activity-store";
 import {
   BodilessFactsStore,
+  followedSession,
   enterBodiless,
   onActivity,
   onHorizon,
@@ -108,6 +109,15 @@ describe("the derivation", () => {
     expect(onActivity(ended, "text", 6_000 + TURN_TAIL_MS - 1)).toBe(ended);
     expect(onActivity(ended, "text", 6_000 + TURN_TAIL_MS)).toMatchObject({ activity: "streaming", working: true });
   });
+
+  test("the followed session: the binding, else the ledger's live row for a card no page has bound", () => {
+    const ledger = () => "s9";
+    expect(followedSession("s1", "unmade", ledger)).toBe("s1");
+    expect(followedSession(undefined, "unmade", ledger), "never made").toBe("s9");
+    expect(followedSession(undefined, null, ledger), "in a workspace nobody has shown").toBe("s9");
+    expect(followedSession(undefined, "painted", ledger), "a page that holds no binding").toBeNull();
+    expect(followedSession(undefined, "evicted", ledger), "a page that held no binding").toBeNull();
+  });
 });
 
 /** Sources holding plain values, set by the test, which wake the store when told. */
@@ -128,7 +138,7 @@ class Deck implements BodilessSources {
   cardIds = (): readonly string[] => this.cards;
   hasBody = (cardId: string): boolean => !this.pageless.has(cardId);
   facts = (cardId: string): CardFactsValue | null => this.cardFacts.get(cardId) ?? null;
-  evicted = (cardId: string): boolean => this.evictedCards.has(cardId);
+  withoutPage = (cardId: string): boolean => this.evictedCards.has(cardId);
   sessionOf = (cardId: string): string | null => this.sessions.get(cardId) ?? null;
   row = (_cardId: string, address: string): SessionRow | null => this.rows.get(address) ?? null;
   now = (): number => this.clock;
@@ -225,6 +235,22 @@ describe("the store", () => {
     deck.changed();
     expect(store.bodilessOf("a")).toBeNull();
     expect(store.activityOf("a"), "the body's own facts answer once it speaks").toBeNull();
+  });
+
+  test("a never-made busy card's dot ticks: an unmade card follows the ledger's live row", () => {
+    const { deck, store } = setup();
+    // An inactive tab handed off `unmade` at restore: no page, no facts, no
+    // binding yet — only the ledger's live row names its session.
+    deck.cards = ["a", "u"];
+    deck.evictedCards.add("u");
+    deck.sessions.set("u", followedSession(undefined, "unmade", () => "s9") ?? "");
+    deck.changed();
+    expect(store.activityOf("u")).toBeNull();
+
+    // Its first turn is in flight in tugcast.
+    deck.sample("s9", "tools");
+    expect(store.activityOf("u")).toBe("tool_work");
+    expect(store.canInterrupt("u")).toBe(true);
   });
 
   test("a woken body takes its card back, and its session's samples no longer reach the store", () => {

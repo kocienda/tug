@@ -25,7 +25,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, composerText, focusBody, landed, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, composerText, focusBody, landed, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 
 const TEST_NAME = "body-grounding-row-24-focus-through-motion";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -101,7 +101,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 24: the keyboard rides with the
         expect(readings.some((r) => r.settling), "the host was read while the move ran").toBe(true);
         const dropped = readings.filter((r) => r.firstResponder !== true);
         expect(dropped, "the mover's body is first responder at every reading").toEqual([]);
-        const text = await pollFor(() => body.evalJS<string | null>(composerText), (v) => v === TYPED, 3_000);
+        const text = await settleFor(() => body.evalJS<string | null>(composerText), (v) => v === TYPED, 3_000);
         expect(text, "what was typed during the motion is in the composer").toBe(TYPED);
       } finally {
         await app.close();

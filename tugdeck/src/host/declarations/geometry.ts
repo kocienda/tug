@@ -16,6 +16,7 @@ import { INVALID, arr, bool, literal, nullable, num, obj, oneOf, opaque, optiona
 import type { ResizeEdge } from "../../bus/declarations/pane";
 import type { CardPlan } from "../../lib/card-plan";
 import type { CardInsets, PlaceCards } from "../../lib/card-placement";
+import type { FaceDraw } from "../../lib/face-draw";
 import type { CardGestureReport } from "../../lib/host-card-gesture";
 import type { RailTravel, RailWidthLimits } from "../../lib/rail-width";
 import { defineToHost, defineToPage } from "../declare";
@@ -48,6 +49,13 @@ const railTravelCodec: Codec<RailTravel> = oneOf(
 );
 
 const railLimits: Codec<RailWidthLimits> = obj({ min: num, max: num });
+
+/** A face's display list (`lib/face-draw.ts`), checked to the shape `FaceDraw` decodes in the host. */
+const faceDrawCodec: Codec<FaceDraw> = obj({
+  boxes: arr(obj({ rect, fill: nullable(str), border: nullable(obj({ width: num, color: str })), radius: num })),
+  texts: arr(obj({ rect, text: str, font: obj({ family: str, size: num, weight: num }), color: str })),
+  images: arr(obj({ rect, svg: str })),
+});
 
 const cardPlanCodec: Codec<CardPlan> = obj({
   planId: num,
@@ -92,6 +100,8 @@ const placeCardsCodec: Codec<PlaceCards> = obj({
       shell: arr(rect),
       visible: bool,
       sibling: trueFlag,
+      face: trueFlag,
+      faceDraw: optional(faceDrawCodec),
       z: num,
       grips: arr(edge),
       free: bool,
@@ -189,6 +199,29 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           min: { width: 0, height: 0 },
           railTravel: { kind: "flow" },
         },
+        {
+          cardId: "c4",
+          ...SAMPLE_RECT,
+          view: { x: 111, y: 86, width: 418, height: 503 },
+          insets: { top: 10, right: 10, bottom: 10, left: 10 },
+          shell: [],
+          visible: false,
+          face: true,
+          faceDraw: {
+            boxes: [
+              { rect: { x: 10, y: 10, width: 398, height: 483 }, fill: "rgba(30, 32, 36, 1)", border: { width: 1, color: "rgba(80, 84, 90, 0.6)" }, radius: 6 },
+              { rect: { x: 10, y: 10, width: 398, height: 28 }, fill: null, border: null, radius: 0 },
+            ],
+            texts: [
+              { rect: { x: 40, y: 17, width: 120, height: 14 }, text: "Session", font: { family: "Inter", size: 12, weight: 600 }, color: "rgba(220, 222, 226, 1)" },
+            ],
+            images: [{ rect: { x: 18, y: 17, width: 14, height: 14 }, svg: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"></svg>' }],
+          },
+          z: 3,
+          grips: [],
+          free: false,
+          min: { width: 0, height: 0 },
+        },
       ],
       rails: { left: { min: 320, max: 675 } },
       band: { band: 980, flow: null },
@@ -217,6 +250,31 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           min: { width: 0, height: 0 },
         },
       ],
+    },
+    // A face whose text run names no font: the host could not draw it.
+    {
+      apron: 10,
+      canvas: null,
+      zoom: 1,
+      gap: 5,
+      cards: [
+        {
+          cardId: "c4",
+          ...SAMPLE_RECT,
+          view: SAMPLE_RECT,
+          insets: { top: 0, right: 0, bottom: 0, left: 0 },
+          shell: [],
+          visible: false,
+          face: true,
+          faceDraw: { boxes: [], texts: [{ rect: SAMPLE_RECT, text: "Session", color: "rgba(0, 0, 0, 1)" }], images: [] },
+          z: 1,
+          grips: [],
+          free: false,
+          min: { width: 0, height: 0 },
+        },
+      ],
+      rails: {},
+      band: { band: 0, flow: null },
     },
   ],
 });

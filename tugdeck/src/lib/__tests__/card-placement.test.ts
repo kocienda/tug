@@ -13,6 +13,7 @@ import type { IDeckManagerStore } from "../../deck-manager-store";
 import { bodyCardsStore } from "../body-cards-store";
 import {
   bodyVisible,
+  faceToCarry,
   heldForThePaint,
   hiddenSince,
   inReadingOrder,
@@ -428,6 +429,33 @@ describe("meetsAFace", () => {
     const undrawn = { bodies: [view("f", 10, 10, { visible: false, face: true, faceDraw: undefined })] };
     expect(meetsAFace(view("a", 0, 0), undrawn)).toBe(false);
     expect(heldForThePaint({ bodies: [view("a", 0, 0)] }, { bodies: [view("a", 0, 0, { visible: false }), ...undrawn.bodies] })).not.toBeNull();
+  });
+});
+
+describe("faceToCarry", () => {
+  const DRAWN: FaceDraw = { boxes: [], texts: [{ rect: { x: 0, y: 0, width: 10, height: 10 }, text: "Old", font: { family: "Inter", size: 12, weight: 400 }, color: "rgba(0, 0, 0, 1)" }], images: [] };
+  const FRESH: FaceDraw = { boxes: [], texts: [], images: [] };
+
+  test("a card becoming a face reads its stand-in, under the stand-in's key", () => {
+    expect(faceToCarry(undefined, "k1", () => FRESH)).toEqual({ draw: FRESH, key: "k1" });
+  });
+
+  test("a face whose stand-in's facts stand carries its list, read nothing", () => {
+    const carried = { draw: DRAWN, key: "k1" };
+    let reads = 0;
+    expect(faceToCarry(carried, "k1", () => ((reads += 1), FRESH))).toBe(carried);
+    expect(reads).toBe(0);
+  });
+
+  test("a face whose stand-in's facts moved — a masthead, a name, the theme — is read again", () => {
+    const next = faceToCarry({ draw: DRAWN, key: "k1" }, "k2", () => FRESH);
+    expect(next).toEqual({ draw: FRESH, key: "k2" });
+  });
+
+  test("with no stand-in to read, a carried list stands and an uncarried face has none", () => {
+    const carried = { draw: DRAWN, key: "k1" };
+    expect(faceToCarry(carried, null, () => FRESH)).toBe(carried);
+    expect(faceToCarry(undefined, null, () => FRESH)).toBeNull();
   });
 });
 

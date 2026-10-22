@@ -47,7 +47,7 @@ import {
 } from "../arc-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
 import { bodyOfKind } from "../_harness/card-reach";
-import { pollFor, waitForBody } from "./_bodies";
+import { pollFor, settleFor, waitForBody } from "./_bodies";
 
 const TEST_NAME = "body-grounding-row-13-arc-tracking";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -140,15 +140,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 13: arc tracking from a body", 
 
         // ── Bound: the body's Z2 and the shell's surfaces read one arc ────
         bindArc(projectDir, ARC, SID, { binaryRoot: CHECKOUT, env: scratch?.cli.env });
-        const z2 = await pollFor(() => body.evalJS<string>(textOf(ARC_VALUE)), (t) => t === "1/3", READ_MS);
-        const masthead = await pollFor(() => app.body("row13-a").evalJS<string>(textOf(MASTHEAD_FRACTION)), (t) => t === "1/3", READ_MS);
+        const z2 = await settleFor(() => body.evalJS<string>(textOf(ARC_VALUE)), (t) => t === "1/3", READ_MS);
+        const masthead = await settleFor(() => app.body("row13-a").evalJS<string>(textOf(MASTHEAD_FRACTION)), (t) => t === "1/3", READ_MS);
         note(`bound: body Z2 ARC ${JSON.stringify(z2)}, shell masthead fraction ${JSON.stringify(masthead)}`);
         expect(z2, "the body's Z2 reads the declared run").toBe("1/3");
         expect(masthead, "the shell's masthead for the body card reads the same run").toBe("1/3");
 
         await app.dispatchControlAction("toggle-arcs");
         const arcs = await bodyOfKind(app, "dashes");
-        const worker = await pollFor(
+        const worker = await settleFor(
           () => arcs.evalJS<boolean>(`document.querySelector(${JSON.stringify(ARCS_WORKER)}) !== null`),
           (v) => v,
           READ_MS,
@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 13: arc tracking from a body", 
           binaryRoot: CHECKOUT,
           env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
         });
-        const cleared = await pollFor(() => body.evalJS<string>(textOf(ARC_VALUE)), (t) => t === "", READ_MS);
+        const cleared = await settleFor(() => body.evalJS<string>(textOf(ARC_VALUE)), (t) => t === "", READ_MS);
         expect(cleared, "the body's Z2 reads no arc after the unbind").toBe("");
 
         // ── The Arcs body follows A: Bind would send the arc to A's session ──
@@ -170,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 13: arc tracking from a body", 
           var b = document.querySelector(${JSON.stringify(ARCS_BIND)});
           return b === null ? "absent" : b.getAttribute("data-refused") === "true" ? "refused: " + b.getAttribute("aria-label") : "offered";
         })()`;
-        const bind = await pollFor(() => arcs.evalJS<string>(bindState), (s) => s === "offered", READ_MS);
+        const bind = await settleFor(() => arcs.evalJS<string>(bindState), (s) => s === "offered", READ_MS);
         note(`Arcs body Bind after the unbind: ${bind}`);
         expect(bind, "the Arcs body offers Bind to the followed Session card's session").toBe("offered");
       } finally {

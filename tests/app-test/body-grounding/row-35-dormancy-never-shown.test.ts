@@ -2,8 +2,10 @@
  * row-35-dormancy-never-shown.test.ts — a body hidden before it was ever shown
  * is not shown, so it goes dormant and is evicted like any hidden body.
  *
- * The app launches on two workspaces, each holding a Text card, the second
- * never shown. The second is visited and left again two frames later, before
+ * The app launches on two workspaces, a Text card on the first and a Hello
+ * card on the second, never shown — a kind with no close guard, since the
+ * clock never takes the page of a kind that guards its close, and a Text
+ * card's does. The second is visited and left again two frames later, before
  * its card's body has painted: the visit makes the body, and it is parked
  * before the user ever sees it. A body not yet shown once is hidden by
  * opacity rather than `isHidden`, so it keeps painting the frame a showing
@@ -21,7 +23,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
-import { bodyOf, pollFor } from "./_bodies";
+import { bodyOf, pollFor, settleFor } from "./_bodies";
 import { intoTier } from "./_tiers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -33,9 +35,9 @@ const H = "r35n-h";
 const W = "r35n-w";
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
 
-function textDeck(cardId: string): Record<string, unknown> {
+function oneCardDeck(cardId: string, componentId: string): Record<string, unknown> {
   return {
-    cards: [{ id: cardId, componentId: "text", title: cardId, closable: true }],
+    cards: [{ id: cardId, componentId, title: cardId, closable: true }],
     panes: [
       {
         id: `${cardId}-pane`,
@@ -57,8 +59,8 @@ const LAYOUT = {
   version: 5,
   activeSpaceId: HOME,
   spaces: [
-    { id: HOME, name: "Home", deck: textDeck(H) },
-    { id: AWAY, name: "Away", deck: textDeck(W) },
+    { id: HOME, name: "Home", deck: oneCardDeck(H, "text") },
+    { id: AWAY, name: "Away", deck: oneCardDeck(W, "hello") },
   ],
 };
 
@@ -90,7 +92,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a body never shown", () => 
         })()`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id === HOME, 5_000);
         let seen = false;
-        const made = await pollFor(
+        const made = await settleFor(
           async () => {
             const b = await bodyOf(app, W);
             if (b?.visible === true) seen = true;

@@ -31,7 +31,7 @@ import { bodyOfKind } from "../_harness/card-reach";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "../_harness/tugbank-helpers";
 import { createArc, makeArcScratchRepo, rmArcScratchRepo, type ArcScratchRepo } from "../arc-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { pollFor, sessionPane, waitForBody } from "./_bodies";
+import { pollFor, settleFor, sessionPane, waitForBody } from "./_bodies";
 import { expectRailSurface } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -102,21 +102,21 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Arcs", () => {
         await app.dispatchControlAction("toggle-arcs");
         const arcs = await bodyOfKind(app, "dashes");
         const arcsId = arcs.cardId;
-        const up = await pollFor(() => arcs.evalJS<boolean>(present(cardKind("dashes").root)), (v) => v, READ_MS);
+        const up = await settleFor(() => arcs.evalJS<boolean>(present(cardKind("dashes").root)), (v) => v, READ_MS);
         expect(up, "the Arcs card is mounted in its body").toBe(true);
         // card-dom: shell
         expect(await app.evalJS<boolean>(present(".arcs-section")), "the shell's document holds no arcs list").toBe(false);
 
         // ── Its data, and the card it follows ───────────────────────────
-        const row = await pollFor(() => arcs.evalJS<boolean>(present(ROW)), (v) => v, READ_MS);
+        const row = await settleFor(() => arcs.evalJS<boolean>(present(ROW)), (v) => v, READ_MS);
         expect(row, "the workspace's arc is a row in the Arcs body").toBe(true);
-        const bind = await pollFor(() => arcs.evalJS<string>(bindState), (s) => s === "offered", READ_MS);
+        const bind = await settleFor(() => arcs.evalJS<string>(bindState), (s) => s === "offered", READ_MS);
         note(`Arcs body Bind: ${bind}`);
         expect(bind, "the Arcs body offers Bind to the followed Session card's session").toBe("offered");
 
         // ── The row's menu opens inside the body ────────────────────────
         await arcs.nativeClickAtElement(ROW, { button: "right" });
-        const menu = await pollFor(() => arcs.evalJS<boolean>(present(MENU_BIND)), (v) => v, 5_000);
+        const menu = await settleFor(() => arcs.evalJS<boolean>(present(MENU_BIND)), (v) => v, 5_000);
         expect(menu, "the row's menu opens in the Arcs body and offers Bind").toBe(true);
         await app.nativeKey("Escape");
 

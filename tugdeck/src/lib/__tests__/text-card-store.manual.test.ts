@@ -504,6 +504,29 @@ describe("manual mode — open-time aside restore", () => {
     expect(replaced).toContain("my edits\n");
   });
 
+  test("whenOpened settles only once the aside is read back, so a close asked mid-open sees the edits", async () => {
+    seedDisk("/f.txt", "disk\n");
+    seedAside(asidePathFor("/f.txt"), {
+      version: 1,
+      path: "/f.txt",
+      draftId: null,
+      content: "my edits\n",
+      lineEnding: "LF",
+      baselineSha256: shaOf("disk\n"),
+      editedAt: 1,
+    });
+    let buf = "";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    void store.openPath("/f.txt");
+    // Asked as the open starts, as a page brought back after an eviction is.
+    expect(store.getSnapshot().saveState).toBe("clean");
+    await store.whenOpened();
+    expect(store.getSnapshot().saveState).toBe("editing");
+    // With nothing opening it settles at once.
+    await store.whenOpened();
+  });
+
   test("diverged baseline surfaces pendingAsideConflict; both resolver arms", async () => {
     seedDisk("/f.txt", "disk now\n");
     seedAside(asidePathFor("/f.txt"), {

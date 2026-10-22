@@ -32,6 +32,7 @@ function body(cardId: string, componentId: string, replayed: BodyIntent[] = []):
       cardId,
       componentId,
       replayIntent: (intent) => replayed.push(intent),
+      mounted: Promise.resolve(),
     }),
   );
   return page;

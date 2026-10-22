@@ -1403,9 +1403,10 @@ export interface CodeSessionSnapshot {
 
   /**
    * True while a dormant body's catch-up is outstanding — from
-   * `CodeSessionStore.catchUp()` until the bracket it asked for closes, or
-   * `CATCH_UP_DEADLINE_MS` when none comes. The body leaves dormant when it
-   * falls. Mirrors the reducer's internal `replayCatchUpActive`.
+   * `CodeSessionStore.catchUp()` until the bracket it asked for closes or is
+   * abandoned, or `CATCH_UP_DEADLINE_MS` when none comes. The body leaves
+   * dormant when it falls. Whether the reducer's `catchUp` stage is not
+   * `none`.
    */
   catchingUp: boolean;
 

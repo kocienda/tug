@@ -1,6 +1,6 @@
 # Card Architecture
 
-*The narrative summary of the per-card web view design: why the deck was split, what the pieces are, why the split delivers better frames, what it costs, and what the record shows. This is the overview; the rules are in [shell-and-bodies.md](shell-and-bodies.md), the decisions are [D213]–[D217] in [design-decisions.md](design-decisions.md), and the program's briefs are `briefs/per-card-web-views-program-brief.md` and the stage briefs it indexes.*
+*The narrative summary of the per-card web view design: why the deck was split, what the pieces are, why the split delivers better frames, what it costs, and what the record shows. This is the overview; the rules are in [shell-and-bodies.md](shell-and-bodies.md), the decisions are [D213]–[D217] and [D219] in [design-decisions.md](design-decisions.md), and the programs' briefs are `briefs/per-card-web-views-program-brief.md`, `briefs/body-lifecycle-program-brief.md` and the stage briefs each indexes.*
 
 ---
 
@@ -16,9 +16,9 @@ WebKit runs style, layout and compositing on the main thread of the document the
 
 Three layers of web view and one host, bottom to top.
 
-**The shell page, beneath everything.** It paints only its own: the canvas and its grid, the rails' panels, the seams and the drop bands. It is still the one authority on arrangement — the layout imposer, the settle engine's planning, focus arbitration, chords and the deck's state — but it draws no card. Each Pane in it is a **paintless stand-in**: the `.tug-pane` frame with its geometry and data attributes, and nothing drawn ([D216]).
+**The shell page, beneath everything.** It paints only its own: the canvas and its grid, the rails' panels, the seams and the drop bands. It is still the one authority on arrangement — the layout imposer, the settle engine's planning, focus arbitration, chords and the deck's state — and it draws a card only while that card's page has not painted. Each Pane in it is a **stand-in**: the `.tug-pane` frame with its geometry and data attributes, paintless while the card's view stands over it ([D216]). For a card whose page is not there yet, or has not painted, the stand-in draws the card's own chrome from the facts the shell already sends the page; that is the one paint the shell makes for a card ([L09], [D219], [a card's life](#lifecycle)).
 
-**One WKWebView per card, standing over the shell.** Each card is its own page (`?body=<cardId>`) in its own WebContent process. The card's page draws **its own chrome and its own content** — title bar, masthead, border, body — so a card is one opaque view and one layer tree, and nothing is cut in the shell for it. A pane with tabs is N card views at one rect, the active one shown. A Session card's page owns its session: its own tugcast connection, its own `CODE_INPUT`, its own feed subscription. tugcast was taught to serve many pages for this ([D213]): per-page identity, per-page input ownership, per-session subscription, and reaping by a card's seating rather than by socket. One spare page is kept warm so a new card binds a page already loaded.
+**One WKWebView per card, standing over the shell.** Each card is its own page (`?body=<cardId>`) in its own WebContent process. The card's page draws **its own chrome and its own content** — title bar, masthead, border, body — so a card is one opaque view and one layer tree, and nothing is cut in the shell for it. A pane with tabs is one live view for the active card at the pane's rect, plus a sibling view for each inactive tab that has a page, placed at the same rect and painting at opacity 0. An inactive tab that has never been shown has no page at all until it is chosen. A Session card's page owns its session: its own tugcast connection, its own `CODE_INPUT`, its own feed subscription. tugcast was taught to serve many pages for this ([D213]): per-page identity, per-page input ownership, per-session subscription, and reaping by a card's seating rather than by socket. One spare page is kept warm so a new card binds a page already loaded, and the host loads at most two pages at once, shown cards first (the lane).
 
 **The overlay page, above every card.** It holds what must cover the whole deck: the restore gate, sheets, relayed menus and tooltips. It is transparent and passes every point outside its claim through to the views beneath.
 
@@ -31,6 +31,24 @@ Three layers of web view and one host, bottom to top.
 - **Host → shell**: commands over the control socket, delivered to the shell, which forwards a card-owned command to the key card's page over the bus.
 
 **The keyboard follows the shell's word.** The shell names the card that has it (`bodyFocus`) and the host makes that card's view the window's first responder. A click in a card's view takes the keyboard as a click in any view does, and the shell is told.
+
+## A card's life {#lifecycle}
+
+A card is always a body, but its page is not always there. What the user can see, and for how long they have not, decides which of five tiers its page is in ([D219], `briefs/body-lifecycle-program-brief.md`):
+
+- **Shown**: a pane's active card, its view on screen.
+- **Sibling**: an inactive tab of a shown pane whose page exists, placed at the pane and painting at opacity 0, so choosing the tab is instant.
+- **Hidden**: a page the host has hidden (a parked workspace's card, a folded card), within its dormant delay.
+- **Dormant**: hidden for 60 s. The page empties its session subscription, so its worker hears nothing and idles; its loops still, it keeps its DOM and stores, and on reveal it asks the session for every turn after the last one it holds.
+- **Evicted**: hidden for fifteen minutes, or taken by memory pressure (a warning takes hidden pages oldest-hidden first, one at a time; critical takes every page not shown, the spare with them). The page writes its card's state and the host destroys it; the card's record, seating and session stand, and the reveal is an arrival.
+
+**No page is made for a card nobody can see.** A parked workspace's card is not handed off until its workspace is shown, and an inactive tab restored at launch is handed off `unmade`: no page is asked for until the deck first wants it shown. A kind that can veto its own close is the exception, since only its page can answer. A shell reload keeps every page, and the reloaded shell re-adopts them.
+
+**What stands in while a page is not painted.** The host keeps an evicted card's last frame as a **cover**, and the card's next page stands under it until it paints. Where there is no cover, the shell's **stand-in** draws the card's chrome beneath where its view will stand. A departing view would hide that stand-in, so wherever a placement takes a view down over a card that waits on its page, the host hides the view in the same transaction that stands a **face** of its own, drawn from the stand-in's display list (`lib/face-draw.ts`), and retires the face once the shell's frame is on screen.
+
+**The lane paces loading, never counts cards.** The host loads at most two pages at once, shown cards before hidden ones, and a page leaves the lane at `ready` or its deadline. That is a pacing width: it orders when pages load, and it sleeps, evicts and refuses nothing.
+
+**While a page is not listening**, dormant, evicted or never made, the shell follows the card's session itself, so its dot still says what the session is doing. Nothing names a card's tier to the user.
 
 ## Why it is faster {#why}
 
@@ -57,7 +75,7 @@ The before figure, 77–83 ms to the first frame after a commit, was read by a d
 
 ## What it costs {#costs}
 
-- **Memory and processes.** A card page runs about 200 MB resident, the warm spare about 150 MB, the shell about 260 MB; six WebContent processes came to about 1.1 GB. A cap, with parking and unloading, is stage 5's (`briefs/every-card-a-body-brief.md`).
+- **Memory and processes.** A card page runs about 200 MB resident, the warm spare about 150 MB, the shell about 260 MB; six WebContent processes came to about 1.1 GB. There is no cap. A hidden card's page goes dormant and then is evicted, by time and by memory pressure, never by a count ([a card's life](#lifecycle)); an evicted card's reveal is a cold arrival of about half a second, under its cover or stand-in.
 - **Latency between pages.** Anything crossing shell and card is a message over tugcast or the host, not a function call. The host→shell pipeline at a landing was read at one frame.
 - **Losses the user ruled acceptable.** No text selection across cards, which was never wanted ([L12]). No single DOM to query across cards: a test reaches a card through `App.body(cardId)`, and the shell's document holds none of a card's DOM ([shell-and-bodies.md](shell-and-bodies.md#tests)).
 - **Complexity moved rather than vanished.** It now lives in declared contracts — bus stores and verbs, typed host messages, attach and snapshot ordering — that are testable without the app (`createTestBus()`) and fail where someone can see them. The one-document deck's shared mutable state failed silently.
@@ -68,4 +86,4 @@ Two areas carry the open work.
 
 **Where a card's identity crosses layers.** Focus hand-off, a ring or highlight the shell once painted on a card, an overlay anchored to a card's content. Each is a thing one layer knows and another layer draws, and each crossing is a message the shell and the card must agree on. The flash ring is the pattern: the shell cannot paint over a card, so the ring moved into the card's own page as a routed action, and the shell draws its own only for a card whose page failed.
 
-**The per-card memory budget.** One process per card is the premise, and the ceiling on open cards is the park-and-unload rule rather than a shared process ([B10] of the program brief). What that rule is, and at what count it bites on the user's deck, is stage 5's reading to take.
+**The per-card memory budget.** One process per card is the premise, and nothing caps open cards: a hidden page is given up by the clock and by the machine's pressure level, and no count of cards or bodies is a setting, a default or a threshold ([D219]). What the deck costs on the user's aged deck, with its pages dormant and evicted, is still a reading to take there.

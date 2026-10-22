@@ -2805,7 +2805,7 @@ function resolveWindow(
     endTurn = totalTurns;
   } else if ("afterTurn" in window) {
     // A catch-up: from the turn after the newest one the card holds, to the end.
-    firstTurn = turnAfterHeld(window.afterTurn, turns, parsedEntries);
+    firstTurn = turnAfterHeld(window.afterTurn, totalTurns, turnsByMsgId(turns, parsedEntries));
     endTurn = totalTurns;
   } else {
     // Explicit half-open turn range. Backward paging ("load previous N")
@@ -2833,22 +2833,39 @@ function resolveWindow(
  * The first turn a catch-up carries: the one after the newest turn the card
  * names that this session holds.
  *
- * A turn is found by any of its assistant entries' `message.id`, which is
- * what a committed turn's `turn_complete` carries as `msg_id` live and on
- * replay alike. The card's ids are tried newest first. An id the translator
- * minted for a turn with no content never appears in the JSONL, so it is
- * passed over, and the next id places the card instead.
+ * `turnOf` finds a turn by an assistant msg-id it holds (see
+ * {@link turnsByMsgId}). The card's ids are tried newest first. An id the
+ * translator minted for a turn with no content never appears in the JSONL,
+ * so it is passed over, and the next id places the card instead.
  *
  * When no named turn is here, `heldTurns` places the card, one turn early:
  * the overlap the reducer's msg-id dedupe drops. The caller states it in this
  * session's coordinates — zero when the card's turns are a lineage's
  * ancestors', which this file does not hold.
+ *
+ * Exported so the stub engine places a catch-up by this rule rather than a
+ * copy of it.
  */
-function turnAfterHeld(
+export function turnAfterHeld(
   held: ReplayAfterTurn,
+  totalTurns: number,
+  turnOf: ReadonlyMap<string, number>,
+): number {
+  for (const id of held.msgIds) {
+    const found = turnOf.get(id);
+    if (found !== undefined) return found + 1;
+  }
+  return Math.max(0, Math.min(Math.floor(held.heldTurns) - 1, totalTurns));
+}
+
+/**
+ * Each turn by the `message.id` of its assistant entries — what a committed
+ * turn's `turn_complete` carries as `msg_id` live and on replay alike.
+ */
+function turnsByMsgId(
   turns: ReadonlyArray<TurnInfo>,
   parsedEntries: ReadonlyArray<JsonlEntry | null>,
-): number {
+): Map<string, number> {
   const totalTurns = turns.length;
   const turnOf = new Map<string, number>();
   let turn = -1;
@@ -2859,11 +2876,7 @@ function turnAfterHeld(
     const id = entry.message?.id;
     if (typeof id === "string" && id.length > 0) turnOf.set(id, turn);
   }
-  for (const id of held.msgIds) {
-    const found = turnOf.get(id);
-    if (found !== undefined) return found + 1;
-  }
-  return Math.max(0, Math.min(Math.floor(held.heldTurns) - 1, totalTurns));
+  return turnOf;
 }
 
 /**

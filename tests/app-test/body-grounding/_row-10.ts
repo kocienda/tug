@@ -38,7 +38,7 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { bodyOfKind } from "../_harness/card-reach";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { escapeHasTaker, focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { escapeHasTaker, focusBody, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, openKind, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { classifyFrame, showsBareHole } from "./_frames";
@@ -181,7 +181,7 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   expect(liftedThenOn, `${leg.label}: once ${leg.watch} is posted shown it stays shown`).toBe(false);
 
   // ---- The composite: no bare hole on any frame ----
-  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
+  const reading = await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
   expect(reading.done, `${leg.label}: the burst finished`).toBe(true);
   const bare = reading.frames.filter((f) => f.wall >= gestureWall && showsBareHole(classifyFrame(f, palette)));
   note(`${leg.label}: ${reading.frames.length} frames captured, ${bare.length} show a bare hole`);
@@ -282,7 +282,7 @@ export async function switchSessions(leg: Leg, tier?: Tier): Promise<void> {
     await Bun.sleep(300);
     const focusedBefore = await app.getFocusedCardId();
     await app.nativeKey("n", ["cmd"]);
-    const C = (await pollFor(() => app.getFocusedCardId(), (c) => c !== null && c !== focusedBefore && c !== A && c !== B, 10_000))!;
+    const C = (await settleFor(() => app.getFocusedCardId(), (c) => c !== null && c !== focusedBefore && c !== A && c !== B, 10_000))!;
     expect(C, "⌘N opened a card in the away workspace and the deck focused it").not.toBe(focusedBefore);
     await pollFor(
       () => app.evalJS<boolean>(`document.querySelector('[data-imposer-settling]') === null && document.querySelector('.tug-pane[data-arriving]') === null`),

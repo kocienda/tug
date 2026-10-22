@@ -80,14 +80,16 @@ export function caughtUp(state: DormancyState): { state: DormancyState; act: Dor
 
 /**
  * Whether a card's session can answer a catch-up, by its ledger row's state
- * (`deck.cards` `sessionState`). A closed or failed session has no subprocess,
- * so nothing would answer the ask and the page would wait out the store's
- * deadline under its lid; it has nothing new to show, and wakes at once. A
- * session the shell holds no row for is asked: the store's deadline is the
- * horizon for a session that does not answer.
+ * and its subprocess (`deck.cards` `sessionState`), read as tugcast reads
+ * them: it skips a replay for a session whose child is idle, errored or
+ * closed, so a closed or failed row, and a live one whose child the
+ * supervisor last said was gone (`childless`), would leave the page waiting
+ * out the store's deadline under its lid; it has nothing new to show, and
+ * wakes at once. A session the shell holds no row for is asked: the store's
+ * deadline is the horizon for a session that does not answer.
  */
-export function sessionAnswersCatchUp(state: "live" | "closed" | "failed" | null | undefined): boolean {
-  return state !== "closed" && state !== "failed";
+export function sessionAnswersCatchUp(state: "live" | "closed" | "failed" | "childless" | null | undefined): boolean {
+  return state !== "closed" && state !== "failed" && state !== "childless";
 }
 
 /** What dormancy does to the page, each the page's own. */
@@ -102,6 +104,11 @@ export interface BodyDormancyEffects {
   withholdSurface(on: boolean): void;
   /** Write the card's bag to disk now, as a save-state call does. */
   saveBag(): void;
+  /**
+   * Tell the card's session it sleeps, before the subscription empties: an
+   * open bracket's deadlines stop until the reveal, which starts them again.
+   */
+  sleepSession(): void;
   /**
    * Ask the card's session for what it missed, and call `done` once the
    * answer's bracket has closed — at once for a card with no session, or
@@ -130,6 +137,7 @@ export function installBodyDormancy(
       case "sleep":
         // The bag first, captured from the DOM as it stands.
         effects.saveBag();
+        effects.sleepSession();
         effects.stillLoops(true);
         effects.lidContent(true);
         effects.withholdSurface(true);

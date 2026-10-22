@@ -19,7 +19,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "../_harness";
 import type { MenuItemSnapshot } from "../_harness/types";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { SETTLE_MS, bodyOf, escapeHasTaker, focusBody, foldedOf, pollFor, popoverPresent, responders, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { SETTLE_MS, bodyOf, escapeHasTaker, focusBody, foldedOf, pollFor, settleFor, popoverPresent, responders, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
 
@@ -125,7 +125,7 @@ async function settleAfter(app: App, card: string): Promise<{ handedBack: boolea
     await Bun.sleep(600);
   }
   await app.dispatchControlAction("focus-session-card", { cardId: card });
-  const holder = await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
+  const holder = await settleFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
   if (holder?.firstResponder === true) return { handedBack: true, facts: "" };
   const facts = await keyboardFacts(app, card);
   // Put the keyboard back the way a click on the card would, so the sweep goes on.
@@ -212,7 +212,7 @@ export async function withKind(kind: CardKind, name: string, body: (app: App, ca
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: [B] }), focusCardId: card });
     await standUpKind(app, kind, card);
     await app.dispatchControlAction("focus-session-card", { cardId: card });
-    const holds = await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
+    const holds = await settleFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
     expect(holds?.firstResponder, `the ${kind.componentId} card's body holds the keyboard`).toBe(true);
     await body(app, card);
   } finally {

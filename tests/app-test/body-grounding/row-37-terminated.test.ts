@@ -11,9 +11,8 @@
  * turn in it, and its composer holds the draft — all within the rebuild
  * bound, from the kill.
  *
- * The body's process is found by its growth: the one WebContent whose
- * resident size grew most across the resume. A kill that missed it is caught
- * at once, since the body would never leave `ready`.
+ * The body's process is the one the host names for it (`pid`). A kill that
+ * missed it is caught at once, since the body would never leave `ready`.
  *
  * @covers tugdeck/src/lib/session-restore.ts
  */
@@ -27,8 +26,7 @@ import { launchTugApp, note } from "../_harness";
 import { claudeProjectDir } from "../_harness/claude-home";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from "../_harness/tugbank-helpers";
 import { onTestRunEnd } from "../_harness/test-cleanup";
-import { webContentProcesses, type WebContentProcess } from "../session-body-fixture";
-import { bodyOf, composerText, focusBody, pollFor, sessionPane } from "./_bodies";
+import { bodyOf, composerText, focusBody, pollFor, settleFor, sessionPane } from "./_bodies";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -96,21 +94,6 @@ function sessionJsonl(cwd: string, sessionId: string, turns: number): string {
   return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
 }
 
-/** The pid of the WebContent process that grew most from `before` to `after`. */
-function grewMost(before: WebContentProcess[], after: WebContentProcess[]): WebContentProcess | null {
-  const was = new Map(before.map((p) => [p.pid, p.rssKb]));
-  let best: WebContentProcess | null = null;
-  let growth = -Infinity;
-  for (const p of after) {
-    const g = p.rssKb - (was.get(p.pid) ?? 0);
-    if (g > growth) {
-      growth = g;
-      best = p;
-    }
-  }
-  return best;
-}
-
 /** In the body: whether its transcript is settled with the last turn in it. */
 const SETTLED_WITH_LAST = `(function () {
   try {
@@ -146,15 +129,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 37: the terminated body", () =>
         await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready", 30_000);
 
         // ---- A resumed transcript and a draft, saved ----
-        const beforeResume = webContentProcesses();
         await app.spawnSessionResume(A, { tugSessionId: sid, projectDir });
         await app.body(A).waitForCondition<boolean>(SETTLED_WITH_LAST, { timeoutMs: 30_000 });
-        const victim = grewMost(beforeResume, webContentProcesses());
-        expect(victim, "a WebContent process grew across the resume").not.toBeNull();
+        const victim = (await bodyOf(app, A))?.pid ?? null;
+        expect(victim, "the host names the body's WebContent process").not.toBeNull();
         await focusBody(app, A, { composer: true });
         await app.nativeType(DRAFT);
         await pollFor(() => app.body(A).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);
-        const saved = await pollFor(
+        const saved = await settleFor(
           async () => JSON.stringify(tugbankRead<unknown>(tugbankPath, CARDSTATE, A)?.value ?? null),
           (bag) => bag.includes(DRAFT),
           10_000,
@@ -162,15 +144,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 37: the terminated body", () =>
         expect(saved, "the draft is in the card's bag on disk before the kill").toContain(DRAFT);
 
         // ---- The kill, and the rebuild ----
-        process.kill(victim!.pid, "SIGKILL");
+        process.kill(victim!, "SIGKILL");
         const killedAt = performance.now();
-        const left = await pollFor(() => bodyOf(app, A), (b) => b !== null && b.state !== "ready", 5_000);
+        const left = await settleFor(() => bodyOf(app, A), (b) => b !== null && b.state !== "ready", 5_000);
         expect(left?.state, "the body left ready: the kill hit its process").not.toBe("ready");
-        const back = await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.visible, 10_000);
+        const back = await settleFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.visible, 10_000);
         const visibleMs = performance.now() - killedAt;
         await app.body(A).waitForCondition<boolean>(SETTLED_WITH_LAST, { timeoutMs: 10_000 });
         const settledMs = performance.now() - killedAt;
-        const draft = await pollFor(() => app.body(A).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);
+        const draft = await settleFor(() => app.body(A).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);
         note(`rebuild: kill → ready and visible ${Math.round(visibleMs)} ms, → settled with the last turn ${Math.round(settledMs)} ms (bound ${REBUILD_BOUND_MS} ms)`);
         expect(back, "the rebuilt body is ready and visible").toMatchObject({ state: "ready", visible: true });
         expect(draft, "the rebuilt body's composer holds the draft").toContain(DRAFT);

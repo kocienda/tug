@@ -1337,19 +1337,18 @@ export interface BeginLoadPreviousEvent {
  * asking, on its reveal, for the turns it missed. The bracket's turns append
  * as a normal bracket's do, deduped against what the card holds, and its
  * `replay_complete` keeps the loaded window's start, since the turns it
- * carries continue the transcript rather than replacing it. Cleared when the
- * bracket closes, a shadow over it lifts, or `CATCH_UP_DEADLINE_MS` passes
- * with no bracket at all.
+ * carries continue the transcript rather than replacing it. Ended when the
+ * bracket closes or is abandoned, or when `CATCH_UP_DEADLINE_MS` passes with
+ * no bracket at all.
  *
  * A card that went dormant with a bracket open re-asks that bracket instead:
- * `reaskWindow` says the store re-sent the window the open bracket was asked
- * with, so the new bracket closes as that one would have and its window is
- * the card's; without it the store asked for what follows the turns it holds,
- * and the window keeps its start as any catch-up's does.
+ * when the reducer holds the window the open bracket was asked with, the store
+ * re-sends it, and the new bracket closes as that one would have; without it
+ * the store asks for what follows the turns it holds, and the window keeps its
+ * start as any catch-up's does.
  */
 export interface BeginCatchUpEvent {
   type: "begin_catch_up";
-  reaskWindow?: boolean;
 }
 
 /**
@@ -1366,6 +1365,26 @@ export interface ReplayAskedEvent {
 /** Internal action: `CATCH_UP_DEADLINE_MS` passed since `begin_catch_up`. */
 export interface TickCatchUpEvent {
   type: "tick_catch_up";
+}
+
+/**
+ * Internal action: the body went dormant, and its subscription is about to
+ * empty. The page hears nothing of its session until its reveal's
+ * `begin_catch_up`, so the deadlines that measure a bracket's silence and its
+ * length stop here and start again from the reveal: a sleeping card never
+ * wakes to a stall it could not have heard end.
+ */
+export interface WentDormantEvent {
+  type: "went_dormant";
+}
+
+/**
+ * Internal action: the dormant body is shown again with nothing to ask — its
+ * session cannot answer a catch-up — so the deadlines `went_dormant` stopped
+ * start again from now. `begin_catch_up` does the same as part of its ask.
+ */
+export interface WokeEvent {
+  type: "woke";
 }
 
 /**
@@ -1578,6 +1597,8 @@ export type CodeSessionEvent =
   | BeginCatchUpEvent
   | ReplayAskedEvent
   | TickCatchUpEvent
+  | WentDormantEvent
+  | WokeEvent
   | TranscriptEvictedEvent
   | TickSoftBudgetEvent
   | TickTimeoutDwellDoneEvent

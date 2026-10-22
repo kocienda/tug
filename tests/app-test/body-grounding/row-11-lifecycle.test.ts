@@ -54,7 +54,7 @@ import { join } from "node:path";
 import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, closePopoverPage, closePopoverUp, composerText, focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, closePopoverPage, closePopoverUp, composerText, focusBody, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind, kindPane, kindSidebars, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
@@ -114,7 +114,7 @@ async function boundBodies(app: App): Promise<string[]> {
 
 /** No body outlives its card: every bound body belongs to a card the shell lists. */
 async function expectBodiesMatchCards(app: App, label: string, expected: string[]): Promise<void> {
-  const bound = await pollFor(() => boundBodies(app), (ids) => ids.join() === [...expected].sort().join(), SETTLE_MS);
+  const bound = await settleFor(() => boundBodies(app), (ids) => ids.join() === [...expected].sort().join(), SETTLE_MS);
   const cards = await app.evalJS<string[]>(CARD_IDS);
   note(`${label}: cards ${JSON.stringify(cards)}; bound bodies ${JSON.stringify(bound)}`);
   expect(bound, `${label}: the host holds a body for exactly the body cards left`).toEqual([...expected].sort());
@@ -141,7 +141,7 @@ async function closeThrough(app: App, cardId: string, identifier: string, want: 
   const item = await app.performMenuItem(identifier);
   note(`${label}: ${identifier} ${JSON.stringify(item)}`);
   expect(item.found && item.performed, `${label}: ${identifier} performs`).toBe(true);
-  const seen = await pollFor(
+  const seen = await settleFor(
     async () => ({ popover: await closePopoverUp(app, cardId), cards: await app.evalJS<number>(`${CARD_IDS}.length`) }),
     (r) => r.popover || r.cards <= want,
     SETTLE_MS,
@@ -154,7 +154,7 @@ async function closeThrough(app: App, cardId: string, identifier: string, want: 
     await page!.nativeClickAtElement(CONFIRM_OK);
     await pollFor(() => closePopoverUp(app, cardId), (v) => !v, SETTLE_MS);
   }
-  const cards = await pollFor(() => app.evalJS<number>(`${CARD_IDS}.length`), (n) => n <= want, SETTLE_MS);
+  const cards = await settleFor(() => app.evalJS<number>(`${CARD_IDS}.length`), (n) => n <= want, SETTLE_MS);
   expect(cards, `${label}: the cards closed`).toBe(want);
 }
 
@@ -162,7 +162,7 @@ async function closeThrough(app: App, cardId: string, identifier: string, want: 
 async function typeDraft(app: App, cardId: string, text: string): Promise<void> {
   await focusBody(app, cardId, { composer: true });
   await app.nativeType(text);
-  const seen = await pollFor(() => app.body(cardId).evalJS<string | null>(composerText), (t) => t?.includes(text) === true, SETTLE_MS);
+  const seen = await settleFor(() => app.body(cardId).evalJS<string | null>(composerText), (t) => t?.includes(text) === true, SETTLE_MS);
   expect(seen, `${cardId}'s composer holds the draft`).toContain(text);
 }
 
@@ -196,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
           await expectBodiesMatchCards(app, "at the start", [K, A]);
           await app.dispatchControlAction("focus-session-card", { cardId: K });
           await closeThrough(app, K, "file.closeCard", 1, `close ${K}`, kind.rail);
-          expect(await pollFor(() => bodyOf(app, K), (b) => b === null, SETTLE_MS), "the host holds no body for the card after the close").toBeNull();
+          expect(await settleFor(() => bodyOf(app, K), (b) => b === null, SETTLE_MS), "the host holds no body for the card after the close").toBeNull();
           await expectBodiesMatchCards(app, "after the close", [A]);
 
           // ---- reload ----
@@ -206,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
           if (kind.field !== undefined) {
             await k.nativeClickAtElement(kind.field);
             await app.nativeType(draft);
-            const typed = await pollFor(() => k.evalJS<string>(`(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`), (t) => t.includes(draft), SETTLE_MS);
+            const typed = await settleFor(() => k.evalJS<string>(`(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`), (t) => t.includes(draft), SETTLE_MS);
             expect(typed, "its field holds the draft").toContain(draft);
           }
           const genBefore = await app.evalJS<number>(READY_GEN);
@@ -214,7 +214,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
           await k.evalJS<boolean>(`(window.__row11Kept = true)`);
           await app.nativeKey("r", ["cmd", "shift"]);
           let goneSamples = 0;
-          const genAfter = await pollFor(
+          const genAfter = await settleFor(
             async () => {
               if (!(await boundBodies(app)).includes(K2)) goneSamples += 1;
               return app.evalJS<number>(READY_GEN).catch(() => genBefore);
@@ -224,13 +224,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
           );
           expect(genAfter, "the shell reloaded").toBeGreaterThan(genBefore);
           expect(goneSamples, "the card's body stayed bound across the shell's reload").toBe(0);
-          const listed = await pollFor(() => app.evalJS<string[]>(CARD_IDS), (ids) => ids.includes(K2), SETTLE_MS);
+          const listed = await settleFor(() => app.evalJS<string[]>(CARD_IDS), (ids) => ids.includes(K2), SETTLE_MS);
           expect(listed, "the reloaded shell restored the card").toContain(K2);
           const again = await standUpKind(app, kind, K2);
           await expectBodiesMatchCards(app, "after the reload", [K2, A]);
           expect(await again.evalJS<boolean>(`window.__row11Kept === true`), "the body is the page it was before the reload").toBe(true);
           if (kind.field !== undefined) {
-            const restored = await pollFor(() => again.evalJS<string>(`(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`), (t) => t.includes(draft), SETTLE_MS);
+            const restored = await settleFor(() => again.evalJS<string>(`(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`), (t) => t.includes(draft), SETTLE_MS);
             expect(restored, "the kept body still shows the draft").toContain(draft);
           }
 
@@ -277,13 +277,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         await pollFor(() => text.evalJS<string>(`(document.querySelector(${JSON.stringify(TEXT_EDITOR)}) || { innerText: "" }).innerText`), (t) => t.includes("alpha"), SETTLE_MS);
         await text.nativeClickAtElement(TEXT_EDITOR);
         await app.nativeType("EDIT ");
-        const typed = await pollFor(() => text.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)}).innerText`), (t) => t.includes("EDIT"), SETTLE_MS);
+        const typed = await settleFor(() => text.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)}).innerText`), (t) => t.includes("EDIT"), SETTLE_MS);
         expect(typed, "the Text body holds an unsaved edit").toContain("EDIT");
 
         // ---- The pane's close: the Save sheet in the body, Cancel keeps the card ----
         // The pane's chrome is drawn in the card's own page, and its close button is pressed there.
         await text.nativeClickAtElement(`[data-testid="tug-pane-close-button"]`);
-        const asked = await pollFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => v, SETTLE_MS);
+        const asked = await settleFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => v, SETTLE_MS);
         expect(asked, "the pane's close puts the Save sheet up in the Text body").toBe(true);
         await text.nativeClickAtElement(SHEET_CANCEL);
         await pollFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => !v, SETTLE_MS);
@@ -295,7 +295,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         const home = await app.evalJS<string>("window.tugdeck.diag.getSpaces().activeSpaceId");
         await app.evalJS<string>(`window.tugdeck.lab.createSpace("Away")`);
         await pollFor(() => app.evalJS<string>("window.tugdeck.diag.getSpaces().activeSpaceId"), (id) => id !== home, SETTLE_MS);
-        const shown = await pollFor(
+        const shown = await settleFor(
           () => app.bodies(),
           (bodies) => bodies.some((b) => b.componentId === "cards" && b.state === "ready" && b.visible),
           SETTLE_MS,
@@ -304,7 +304,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         await app.dispatchControlAction("delete-space", { spaceId: home });
         await pollFor(() => awayCards.evalJS<boolean>(present(CONFIRM_OK)), (v) => v, SETTLE_MS);
         await awayCards.nativeClickAtElement(CONFIRM_OK);
-        const askedAgain = await pollFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => v, 15_000);
+        const askedAgain = await settleFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => v, 15_000);
         expect(askedAgain, "the confirmed delete asks in the Text body").toBe(true);
         expect(await app.evalJS<string>("window.tugdeck.diag.getSpaces().activeSpaceId"), "with its workspace fronted").toBe(home);
         await text.nativeClickAtElement(SHEET_CANCEL);
@@ -349,14 +349,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         await typeDraft(app, A, "row11 draft in A");
         await focusBody(app, A, { composer: false });
         await closeThrough(app, A, "file.closeCard", 3, "close A", true);
-        expect(await pollFor(() => bodyOf(app, A), (b) => b === null, SETTLE_MS), "the host holds no body for A after the close").toBeNull();
+        expect(await settleFor(() => bodyOf(app, A), (b) => b === null, SETTLE_MS), "the host holds no body for A after the close").toBeNull();
         await expectBodiesMatchCards(app, "after closing A", [B, D, T]);
 
         // ---- Close all: B holds a draft, so the shell asks; B's pane empties, the text card and the body card together ----
         await typeDraft(app, B, "row11 draft in B");
         await focusBody(app, B, { composer: false });
         await closeThrough(app, B, "file.closeAllCardTabs", 1, "close all in B's pane", true);
-        expect(await pollFor(() => bodyOf(app, B), (b) => b === null, SETTLE_MS), "the host holds no body for B after close all").toBeNull();
+        expect(await settleFor(() => bodyOf(app, B), (b) => b === null, SETTLE_MS), "the host holds no body for B after close all").toBeNull();
         await expectBodiesMatchCards(app, "after close all", [D]);
 
         // ---- Reload: only the shell reloads; D's page stays, and its draft with it ----
@@ -367,7 +367,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         // Across the navigation: D's body is bound in every host sample.
         let goneSamples = 0;
         let samples = 0;
-        const genAfter = await pollFor(
+        const genAfter = await settleFor(
           async () => {
             samples += 1;
             if (!(await boundBodies(app)).includes(D)) goneSamples += 1;
@@ -380,16 +380,16 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         expect(genAfter, "the shell reloaded").toBeGreaterThan(genBefore);
         expect(goneSamples, "D's body stayed bound across the shell's reload").toBe(0);
         // Kept, and still saved: a reload leaves the card's bag on disk.
-        const bagAfterReload = await pollFor(async () => bagOnDisk(tugbankPath, D), (bag) => bag?.includes(DRAFT_BEFORE_RELOAD) === true, SETTLE_MS);
+        const bagAfterReload = await settleFor(async () => bagOnDisk(tugbankPath, D), (bag) => bag?.includes(DRAFT_BEFORE_RELOAD) === true, SETTLE_MS);
         expect(bagAfterReload, "D's bag is on tugbank disk after the reload").not.toBeNull();
         expect(bagAfterReload, "and it carries the draft typed in the body before the reload").toContain(DRAFT_BEFORE_RELOAD);
-        const cardsAfterReload = await pollFor(() => app.evalJS<string[]>(CARD_IDS), (ids) => ids.includes(D), SETTLE_MS);
+        const cardsAfterReload = await settleFor(() => app.evalJS<string[]>(CARD_IDS), (ids) => ids.includes(D), SETTLE_MS);
         note(`after the reload the shell lists ${JSON.stringify(cardsAfterReload)}; bodies ${JSON.stringify((await app.bodies()).map((b) => [b.cardId, b.state, b.visible]))}`);
         expect(cardsAfterReload, "the reloaded shell restored D").toContain(D);
         await waitForBody(app, D);
         await expectBodiesMatchCards(app, "after the reload", [D]);
         expect(await app.body(D).evalJS<boolean>(`window.__row11Kept === true`), "D's body is the page it was before the reload").toBe(true);
-        const restored = await pollFor(() => app.body(D).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT_BEFORE_RELOAD) === true, SETTLE_MS);
+        const restored = await settleFor(() => app.body(D).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT_BEFORE_RELOAD) === true, SETTLE_MS);
         expect(restored, "D's kept body still shows the draft").toContain(DRAFT_BEFORE_RELOAD);
 
         // ---- Quit: D saves under the termination pipeline ----

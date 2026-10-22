@@ -49,6 +49,8 @@ The user's rule: "There *must not* be an arbitrary count to cards. Just like Saf
 
 *Built, 2026-10-21.* The Layout card had no Bodies row before this. Its Rest row (`dormantAfterMs`) now has a Release row (`evictAfterMs`) under it, followed by two caption-and-text readings with no focus stop: Bodies and Pressure. Bodies counts five tiers, a fifth beside the four named here. It adds `hidden`, a card in a parked workspace still within its dormant delay, so that every body card is counted in exactly one tier. A folded card counts as shown (the fold reading, under Open Questions). The shell computes the counts from each body's state, its page's `card.facts` `dormant` and its placement, and publishes them with the host's last pressure event (`onBodyPressure`) as `deck.bodies`. `row-42-bodies-row` holds the rows.
 
+*Reversed, 2026-10-22.* `4f3c12e34` removed the Rest, Release, Bodies and Pressure rows from the Layout card, and `row-42-bodies-row` with them (`row-42-warning-keeps-spare` took its place). The body-lifecycle second fixups then deleted what fed them: the census (`lib/body-census.ts`), `deck.bodies`, the host's `bodyPressure` message to the shell, and the two delay preferences. The tier a card is in is named to the user nowhere, and the two delays are constants (`DORMANT_AFTER_MS`, 60 s; `BodyLifecycle.evictAfter`, fifteen minutes) that only the app-test harness shortens, through `__tug.bodyDelays` ([D219]).
+
 **[B06] Eviction never races a reveal.** A body the placement is about to show is not evicted in the same turn; the host evicts only bodies the last placement did not name visible, and a placement that names an evicted card shown is answered by [B03] rather than by un-evicting a view that is already gone.
 
 ---

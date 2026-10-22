@@ -126,6 +126,9 @@ import { renderIncremental } from "./lib/markdown/render-incremental";
 import { isRenderedPending, isRenderedRecord } from "./lib/ingest/rendered-merge";
 import { bodyCardsStore } from "./lib/body-cards-store";
 import { bodyVisibilityStore } from "./lib/body-visibility-store";
+import { harnessBodyDelays } from "./bus/declarations/deck";
+import { postToHost } from "./host/channel";
+import { bodyDelaysToHost, type BodyDelays } from "./host/declarations/lifecycle";
 import {
   annotateCounters,
   type AnnotateCountersSnapshot,
@@ -579,12 +582,19 @@ import {
  * binding, so a test can end a session out from under a card whose page is
  * not listening and read what the shell says of it. Additive; major stays
  * `2`.
+ *
+ * `2.53.0`: adds {@link TugTestSurface.bodyDelays}, on the shell: the one
+ * seam on the body clocks — dormancy, eviction and the ready deadline — which
+ * are constants in the product. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.52.0" as const;
+export const SURFACE_VERSION = "2.53.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
 let nextTestMotionHold = 1;
+
+/** The host's body clocks as the harness last set them (`bodyDelays`); null is the host's constant. */
+const hostBodyDelays: { -readonly [K in keyof BodyDelays]: BodyDelays[K] } = { evictAfterMs: null, readyDeadlineMs: null };
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1788,6 +1798,20 @@ export interface TugTestSurface {
    * Throws if the shared connection is unavailable.
    */
   closeSession(cardId: string, tugSessionId: string): void;
+
+  /**
+   * Shorten, or put back, the body clocks, which are constants in the
+   * product: how long a hidden body's page waits before it goes dormant
+   * (every body, a page made later included, through `harnessBodyDelays`),
+   * and how long a hidden body keeps its process and a new page has to say
+   * it is ready (the host, through `bodyDelays`). A key left out keeps its
+   * last value; `null` puts the constant back (SURFACE_VERSION 2.53.0).
+   */
+  bodyDelays(delays: {
+    dormantAfterMs?: number | null;
+    evictAfterMs?: number | null;
+    readyDeadlineMs?: number | null;
+  }): void;
 
   // ---- Dev lifecycle-matrix driving (SURFACE_VERSION 1.6.0) ----
 
@@ -3529,6 +3553,15 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         throw new Error("closeSession: shared connection unavailable — the app must be connected to close a session");
       }
       sendCloseSessionKeepingBinding(connection, cardId, tugSessionId);
+    },
+
+    bodyDelays(delays): void {
+      if (delays.dormantAfterMs !== undefined) harnessBodyDelays.set({ dormantAfterMs: delays.dormantAfterMs });
+      if (delays.evictAfterMs !== undefined) hostBodyDelays.evictAfterMs = delays.evictAfterMs;
+      if (delays.readyDeadlineMs !== undefined) hostBodyDelays.readyDeadlineMs = delays.readyDeadlineMs;
+      if (delays.evictAfterMs !== undefined || delays.readyDeadlineMs !== undefined) {
+        postToHost(bodyDelaysToHost, { ...hostBodyDelays });
+      }
     },
 
     /**

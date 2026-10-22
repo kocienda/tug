@@ -19,7 +19,6 @@ import type { SessionRow } from "../../protocol";
 import { arr, bool, literal, nullable, num, obj, opaque, rec, str, type Codec } from "../codec";
 import { defineSharedStore } from "../shared-store";
 import { cardIdentity, cardMasthead } from "./card";
-import type { BodyCensus } from "../../lib/body-census";
 
 /** A value the bus carries without reading: anything but absent. */
 const carried: Codec<unknown> = opaque((v: unknown): v is unknown => v !== undefined, null);
@@ -137,11 +136,13 @@ export interface DeckCardFacts {
   binding: CardSessionBinding | null;
   /**
    * The card's session as the shell's ledger holds it — the `state` of its
-   * seated segment's row — or null while the shell has no row. A body reads
-   * its own on its reveal: a closed or failed session has no subprocess to
-   * answer a catch-up.
+   * seated segment's row — or null while the shell has no row; `childless`
+   * for a `live` row whose subprocess the supervisor last said was not
+   * there (its SESSION_STATE `pending`, `errored` or `closed`). A body reads
+   * its own on its reveal: a closed, failed or childless session has no
+   * subprocess to answer a catch-up.
    */
-  sessionState: SessionRow["state"] | null;
+  sessionState: SessionRow["state"] | "childless" | null;
   /** A parked workspace card's title from its bindings ledger (`cardIdentity`'s `parked` source), else null. */
   parkedTitle: string | null;
   /** Whether the card waives its type's close confirm now (`card.holds` `waive`). */
@@ -166,7 +167,7 @@ export const deckCards = defineSharedStore<Record<string, DeckCardFacts>>({
       identity: nullable(cardIdentity),
       activity: nullable(str),
       binding: nullable(sessionBinding),
-      sessionState: nullable(literal("live", "closed", "failed")),
+      sessionState: nullable(literal("live", "closed", "failed", "childless")),
       parkedTitle: nullable(str),
       waivesClose: bool,
     }),
@@ -175,18 +176,16 @@ export const deckCards = defineSharedStore<Record<string, DeckCardFacts>>({
 });
 
 /**
- * What the deck holds of its bodies — how many are shown, sibling, hidden,
- * dormant and evicted — and the host's last memory-pressure event, which the
- * Layout card's Bodies row reads (`lib/body-census.ts`). Readings: nothing
- * decides anything from them.
+ * The harness's seam on the bodies' dormancy clock, never written by the
+ * product: how long a hidden body's page waits before it goes dormant, ms,
+ * or null for its own constant (`DORMANT_AFTER_MS`). The app-tests shorten
+ * it through `__tug.bodyDelays` (`test-surface.ts`); every body reads it,
+ * a page made later included, since it is replicated at hello.
  */
-export const deckBodies = defineSharedStore<BodyCensus>({
-  key: "deck.bodies",
+export const harnessBodyDelays = defineSharedStore<{ readonly dormantAfterMs: number | null }>({
+  key: "harness.bodyDelays",
   owner: "shell",
   scope: { deck: true },
-  codec: obj({
-    counts: obj({ shown: num, sibling: num, hidden: num, dormant: num, evicted: num }),
-    pressure: nullable(obj({ level: literal("normal", "warning", "critical"), at: num })),
-  }),
-  initial: { counts: { shown: 0, sibling: 0, hidden: 0, dormant: 0, evicted: 0 }, pressure: null },
+  codec: obj({ dormantAfterMs: nullable(num) }),
+  initial: { dormantAfterMs: null },
 });

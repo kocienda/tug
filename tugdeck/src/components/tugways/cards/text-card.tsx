@@ -718,6 +718,10 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       // The answer moves with the store; a body card publishes it on each move.
       subscribe: store.subscribe,
       run: async () => {
+        // A close asked of a page that brought the card back after an
+        // eviction can arrive while its file is still opening: the buffer
+        // is dirty only once its set-aside edits are read back.
+        await store.whenOpened();
         const snap = store.getSnapshot();
         if (snap.saveState === "clean") return "close";
         const choice = await sheets.presentCloseSheet(snap.fileName ?? "Untitled");

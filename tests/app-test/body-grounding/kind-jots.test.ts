@@ -27,7 +27,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note } from "../_harness";
-import { pollFor } from "./_bodies";
+import { pollFor, settleFor } from "./_bodies";
 import { expectRailSurface, kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -74,12 +74,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Jots", () => {
         expect(await app.evalJS<boolean>(present(".jots-list")), "the shell's document holds no jot list").toBe(false);
 
         // ── Its data: the file's jots are the body's rows ────────────────
-        const rows = await pollFor(() => body.evalJS<string[]>(labels), (l) => l.length === SEEDED.length, READ_MS);
+        const rows = await settleFor(() => body.evalJS<string[]>(labels), (l) => l.length === SEEDED.length, READ_MS);
         expect(rows, "the body lists the file's jots").toEqual(SEEDED.map((j) => j.text));
 
         // ── A row's menu opens inside the body ──────────────────────────
         await body.nativeClickAtElement(rowLabel("kj-1"), { button: "right" });
-        const menu = await pollFor(() => body.evalJS<boolean>(present(MENU)), (v) => v, READ_MS);
+        const menu = await settleFor(() => body.evalJS<boolean>(present(MENU)), (v) => v, READ_MS);
         expect(menu, "the row's menu opens in the Jots body").toBe(true);
         await app.nativeKey("Escape");
         await pollFor(() => body.evalJS<boolean>(present(MENU)), (v) => !v, READ_MS);
@@ -87,11 +87,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Jots", () => {
         // ── The editor: click, Return, type, Escape commits to the file ──
         await body.nativeClickAtElement(rowLabel("kj-1"));
         await app.nativeKey("Return");
-        const editing = await pollFor(() => body.evalJS<boolean>(`document.activeElement !== null && document.activeElement.closest(${JSON.stringify(EDITOR)}) !== null`), (v) => v, READ_MS);
+        const editing = await settleFor(() => body.evalJS<boolean>(`document.activeElement !== null && document.activeElement.closest(${JSON.stringify(EDITOR)}) !== null`), (v) => v, READ_MS);
         expect(editing, "Return opens the jot's editor in the body, with the caret in it").toBe(true);
         await app.nativeType(" edited");
         await app.nativeKey("Escape");
-        const edited = await pollFor(() => Promise.resolve(onDisk().jots.find((j) => j.id === "kj-1")?.text ?? ""), (t) => t.endsWith(" edited"), READ_MS);
+        const edited = await settleFor(() => Promise.resolve(onDisk().jots.find((j) => j.id === "kj-1")?.text ?? ""), (t) => t.endsWith(" edited"), READ_MS);
         expect(edited, "the edit reached the file").toBe("first seeded jot edited");
 
         // ── Add: a new jot, written to the file ─────────────────────────
@@ -99,17 +99,17 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Jots", () => {
         await pollFor(() => body.evalJS<boolean>(`document.activeElement !== null && document.activeElement.closest(${JSON.stringify(EDITOR)}) !== null`), (v) => v, READ_MS);
         await app.nativeType("added jot");
         await app.nativeKey("Escape");
-        const added = await pollFor(() => Promise.resolve(onDisk().jots.map((j) => j.text)), (t) => t.includes("added jot"), READ_MS);
+        const added = await settleFor(() => Promise.resolve(onDisk().jots.map((j) => j.text)), (t) => t.includes("added jot"), READ_MS);
         expect(added, "the added jot reached the file").toContain("added jot");
 
         // ── Reorder: the last row dragged onto the first ────────────────
-        const order = await pollFor(() => body.evalJS<string[]>(labels), (l) => l.length === 3, READ_MS);
+        const order = await settleFor(() => body.evalJS<string[]>(labels), (l) => l.length === 3, READ_MS);
         const last = order[order.length - 1];
         const ids = await body.evalJS<string[]>(`Array.from(document.querySelectorAll(".jots-list .jot-row-content[data-jot-id]")).map(function (el) { return el.getAttribute("data-jot-id"); })`);
         const from = await body.evalJS<{ x: number; y: number }>(rectOf(rowLabel(ids[ids.length - 1])));
         const to = await body.evalJS<{ x: number; y: number }>(rectOf(rowLabel(ids[0])));
         await body.nativeDrag(from, { x: from.x, y: to.y - 6 }, { mouseDownDelayMs: 150, mouseUpDelayMs: 200, interpolationSteps: 20, interpolationDelayMs: 20 });
-        const reordered = await pollFor(() => Promise.resolve(onDisk().jots.map((j) => j.text)), (t) => t[0] === last, READ_MS);
+        const reordered = await settleFor(() => Promise.resolve(onDisk().jots.map((j) => j.text)), (t) => t[0] === last, READ_MS);
         note(`jots: before ${JSON.stringify(order)}; on disk after the drag ${JSON.stringify(reordered)}`);
         expect(reordered[0], "the dragged jot is first in the file, which a reload reads back").toBe(last);
 

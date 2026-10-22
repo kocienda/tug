@@ -6,10 +6,11 @@
  * The one failure a cold reveal can show. The app launches on two
  * workspaces: a Session card's, shown, and a Text card's, parked. The Session
  * card resumes a transcript of plain turns; its workspace is parked and its
- * body evicted by the clock, the reader's `evictAfterMs` shortened. The host
- * is then told to ignore the next two bodies' readies, and the Session
- * workspace is shown again: the card's new body fails at its deadline, the
- * shell asks once more, and that body fails too. The card stands as the
+ * body evicted by the clock, its eviction delay shortened. The host's ready
+ * deadline is then shortened below any real page's load (`bodyDelays`), and
+ * the Session workspace is shown again: the card's new body misses its
+ * deadline, the shell asks once more, and that body misses it too. The
+ * deadline is put back, and the card stands as the
  * failed placard — no body, no last frame over it — whose sentence says the
  * card needs reloading and never that anything was lost. Its Reload asks for
  * the body once more, and the card is back ready and shown, settled with
@@ -29,7 +30,7 @@ import { launchTugApp, note } from "../_harness";
 import { claudeProjectDir } from "../_harness/claude-home";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { onTestRunEnd } from "../_harness/test-cleanup";
-import { bodyOf, pollFor, sessionPane } from "./_bodies";
+import { bodyOf, pollFor, settleFor, sessionPane } from "./_bodies";
 import { activate, textDeck } from "./_row-44";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -40,8 +41,8 @@ const T = "r37f-text";
 const SESSION_SPACE = "r37f-session";
 const TEXT_SPACE = "r37f-text-space";
 const EVICT_AFTER_MS = 1_500;
-/** The host's deadline for a body's ready, shortened so the two failures are quick. */
-const READY_DEADLINE_MS = 1_500;
+/** The host's deadline for a body's ready while the card is shown again: no real page loads this fast. */
+const MISSED_DEADLINE_MS = 50;
 const TURNS = 10;
 const LAST_TURN = `Turn ${TURNS}: the last reading`;
 const SENTENCE = "This card needs reloading.";
@@ -134,29 +135,30 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 37: a cold reveal that fails", 
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
       tugbankWrite(tugbankPath, "dev.tugapp.deck.layout", "layout", "json", JSON.stringify(LAYOUT));
-      tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "evictAfterMs", "int", String(EVICT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-37-failed-reveal",
         persistInTestMode: true,
         restoreInTestMode: true,
-        env: { TUGBANK_PATH: tugbankPath, TUG_BODY_READY_DEADLINE_MS: String(READY_DEADLINE_MS) },
+        env: { TUGBANK_PATH: tugbankPath },
       });
       try {
         await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.visible, 30_000);
+        await app.bodyDelays({ evictAfterMs: EVICT_AFTER_MS });
         await app.spawnSessionResume(A, { tugSessionId: sid, projectDir });
         await app.body(A).waitForCondition<boolean>(SETTLED_WITH_LAST, { timeoutMs: 15_000 });
 
         // ---- Parked, and evicted by the clock ----
         await activate(app, TEXT_SPACE);
-        const gone = await pollFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A), EVICT_AFTER_MS + 6_000);
+        const gone = await settleFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A), EVICT_AFTER_MS + 6_000);
         expect(gone.some((b) => b.cardId === A), "the parked body is evicted").toBe(false);
 
         // ---- Shown again, and its next two bodies fail ----
-        expect(await app.stallBodyReadies(2), "the host will ignore the next two readies").toBe(2);
+        await app.bodyDelays({ readyDeadlineMs: MISSED_DEADLINE_MS });
         const shownAt = Date.now();
         await activate(app, SESSION_SPACE);
-        const standing = await pollFor(() => app.evalJS<boolean>(`${placard} !== null`), (v) => v, READY_DEADLINE_MS * 2 + 6_000);
-        note(`placard standing ${Date.now() - shownAt} ms after the reveal, for a ${READY_DEADLINE_MS} ms deadline twice`);
+        const standing = await settleFor(() => app.evalJS<boolean>(`${placard} !== null`), (v) => v, 6_000);
+        note(`placard standing ${Date.now() - shownAt} ms after the reveal, for a ${MISSED_DEADLINE_MS} ms deadline twice`);
+        await app.bodyDelays({ readyDeadlineMs: null });
         expect(standing, "the card stands as the placard once its second new body fails").toBe(true);
         expect(await bodyOf(app, A), "no body, and no last frame, stands over the placard").toBeNull();
         const text = await app.evalJS<string>(`${placard}.textContent`);
@@ -168,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 37: a cold reveal that fails", 
         await app.evalJS<null>(
           `(Array.prototype.find.call(${placard}.querySelectorAll("button"), function (b) { return b.textContent.trim() === "Reload"; }).click(), null)`,
         );
-        const back = await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.painted && b.visible, 10_000);
+        const back = await settleFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.painted && b.visible, 10_000);
         expect(back, "the Reload brings the card back ready, painted and shown").toMatchObject({ state: "ready", painted: true, visible: true });
         await app.body(A).waitForCondition<boolean>(SETTLED_WITH_LAST, { timeoutMs: 10_000 });
         expect(await app.evalJS<boolean>(`${placard} === null`), "the placard is gone").toBe(true);

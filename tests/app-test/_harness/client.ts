@@ -1350,6 +1350,14 @@ export interface BodyViewSnapshot {
   wasCovered: boolean;
   /** Whether the body began as the warm spare (`warm`) or was made for its card (`cold`). */
   start: "warm" | "cold";
+  /**
+   * The page's identity: a serial no later body takes. A body torn down and
+   * made again — the spare remade after a warning took it — reads as another
+   * page, which no other field of a spare can tell.
+   */
+  page: number;
+  /** Its WebContent process's pid, as WebKit reports it; null where it does not. */
+  pid: number | null;
   /** Bind → ready, once the body has reported ready; null before. */
   readyMs: number | null;
   /** The window's display period, ms: what a reading counts frames in. */
@@ -1446,15 +1454,6 @@ export function bodyLayers(
  */
 export function simulateMemoryPressure(caller: HarnessCaller, level: MemoryPressureLevel): Promise<string> {
   return caller.rpcCall("simulateMemoryPressure", { level });
-}
-
-/**
- * Have the host ignore the next `count` bodies' `frontendReady`, as
- * `TUG_BODY_FORCE_STALL` ignores the first ones, so each fails at its
- * deadline (surface `1.21.0`). For a body a gesture makes mid-run.
- */
-export function stallBodyReadies(caller: HarnessCaller, count: number): Promise<number> {
-  return caller.rpcCall("stallBodyReadies", { count });
 }
 
 /**

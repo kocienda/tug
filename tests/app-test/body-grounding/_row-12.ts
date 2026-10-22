@@ -37,7 +37,7 @@ import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { PROMPT_INPUT, bodyOf, composerFocused, composerText, focusBody, pollFor, promptPhase, spawnStub, waitForBody } from "./_bodies";
+import { PROMPT_INPUT, bodyOf, composerFocused, composerText, focusBody, pollFor, settleFor, promptPhase, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
 
@@ -110,15 +110,15 @@ function pasteboardImage(path: string): void {
 async function clearComposer(app: App, cardId: string): Promise<void> {
   await app.nativeKey("a", ["cmd"]);
   await app.nativeKey("Backspace");
-  const empty = await pollFor(() => app.body(cardId).evalJS<boolean>(composerIsEmpty), (v) => v, SETTLE_MS);
+  const empty = await settleFor(() => app.body(cardId).evalJS<boolean>(composerIsEmpty), (v) => v, SETTLE_MS);
   expect(empty, `${cardId}'s composer is empty after ⌘A Backspace`).toBe(true);
 }
 
 /** The body is the window's first responder and its composer holds DOM focus. */
 async function expectKeyboardInBody(app: App, cardId: string, label: string): Promise<void> {
-  const body = await pollFor(() => bodyOf(app, cardId), (b) => b?.firstResponder === true, SETTLE_MS);
+  const body = await settleFor(() => bodyOf(app, cardId), (b) => b?.firstResponder === true, SETTLE_MS);
   expect(body?.firstResponder, `${label}: ${cardId}'s body is the window's first responder`).toBe(true);
-  const focused = await pollFor(() => app.body(cardId).evalJS<boolean>(composerFocused), (v) => v, SETTLE_MS);
+  const focused = await settleFor(() => app.body(cardId).evalJS<boolean>(composerFocused), (v) => v, SETTLE_MS);
   expect(focused, `${label}: ${cardId}'s composer holds focus`).toBe(true);
 }
 
@@ -144,13 +144,13 @@ export async function overviewComposer(): Promise<void> {
     await focusBody(app, card, { composer: false });
     await o.nativeClickAtElement(kind.field!);
     await app.nativeType("typed");
-    expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes("typed"), SETTLE_MS), "typing lands in its composer").toContain("typed");
+    expect(await settleFor(() => o.evalJS<string>(field), (t) => t.includes("typed"), SETTLE_MS), "typing lands in its composer").toContain("typed");
     pasteboardText(PASTED_TEXT);
     await app.nativeKey("v", ["cmd"]);
-    expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes(PASTED_TEXT), SETTLE_MS), "⌘V pastes the pasteboard's text into its composer").toContain(PASTED_TEXT);
+    expect(await settleFor(() => o.evalJS<string>(field), (t) => t.includes(PASTED_TEXT), SETTLE_MS), "⌘V pastes the pasteboard's text into its composer").toContain(PASTED_TEXT);
     pasteboardImage(pngPath);
     await app.nativeKey("v", ["cmd"]);
-    const tiles = await pollFor(() => o.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n > 0, SETTLE_MS);
+    const tiles = await settleFor(() => o.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n > 0, SETTLE_MS);
     note(`after the image paste: ${tiles} attachment tile(s) in the Overview's composer`);
     expect(tiles, "⌘V pastes the pasteboard's image as an attachment in its composer").toBeGreaterThan(0);
   } finally {
@@ -194,26 +194,26 @@ export async function sessionComposer(part: "send" | "panel", launch: { foregrou
       // ---- The composer sends a prompt and the next turn plays ----
       const entriesBefore = await a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TRANSCRIPT_ENTRY)}).length`);
       await app.nativeType("row12 prompt");
-      expect(await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("row12 prompt") === true, SETTLE_MS), "typing lands in the body's composer").toContain("row12 prompt");
+      expect(await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("row12 prompt") === true, SETTLE_MS), "typing lands in the body's composer").toContain("row12 prompt");
       // Return writes a line in the composer; ⇧Return is the send.
       await pollFor(() => a.evalJS<string | null>(`document.querySelector('[data-slot="tug-prompt-entry"]')?.getAttribute("data-can-submit") ?? null`), (v) => v === "true", SETTLE_MS);
       await app.nativeKey("Return", ["shift"]);
-      const left = await pollFor(() => a.evalJS<string | null>(promptPhase), (p) => p !== "idle", SETTLE_MS);
+      const left = await settleFor(() => a.evalJS<string | null>(promptPhase), (p) => p !== "idle", SETTLE_MS);
       note(`after ⇧Return: phase ${JSON.stringify(left)}, Z2 phase cell ${JSON.stringify(await a.evalJS<string | null>(`document.querySelector(${JSON.stringify(PHASE_CELL)})?.textContent ?? null`))}, composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
       expect(left, "⇧Return sends the prompt: the entry's phase leaves idle").not.toBe("idle");
-      const back = await pollFor(() => a.evalJS<string | null>(promptPhase), (p) => p === "idle", TURN_MS);
+      const back = await settleFor(() => a.evalJS<string | null>(promptPhase), (p) => p === "idle", TURN_MS);
       expect(back, "the turn runs out and the entry is idle again").toBe("idle");
-      const entriesAfter = await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TRANSCRIPT_ENTRY)}).length`), (n) => n > entriesBefore, SETTLE_MS);
-      const perTurn = await pollFor(() => a.evalJS<string>(`document.querySelector(${JSON.stringify(PER_TURN_DURATION)})?.textContent ?? ""`), (t) => t.trim() !== "", SETTLE_MS);
+      const entriesAfter = await settleFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TRANSCRIPT_ENTRY)}).length`), (n) => n > entriesBefore, SETTLE_MS);
+      const perTurn = await settleFor(() => a.evalJS<string>(`document.querySelector(${JSON.stringify(PER_TURN_DURATION)})?.textContent ?? ""`), (t) => t.trim() !== "", SETTLE_MS);
       note(`after the turn: transcript entries ${entriesBefore} → ${entriesAfter}; Z2 per-turn duration ${JSON.stringify(perTurn)}; composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
       expect(entriesAfter, "the stub's next turn arrived in the body's transcript").toBeGreaterThan(entriesBefore);
-      expect(await pollFor(() => a.evalJS<boolean>(composerIsEmpty), (v) => v, SETTLE_MS), "the send cleared the composer").toBe(true);
+      expect(await settleFor(() => a.evalJS<boolean>(composerIsEmpty), (v) => v, SETTLE_MS), "the send cleared the composer").toBe(true);
       // Z2's surfaces open in the body: the time cell's popover, closed by Escape.
       await a.nativeClickAtElement(Z2_TIME_CELL);
-      const z2Open = await pollFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(Z2_SURFACE)}) !== null`), (v) => v, SETTLE_MS);
+      const z2Open = await settleFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(Z2_SURFACE)}) !== null`), (v) => v, SETTLE_MS);
       expect(z2Open, "a click on Z2's time cell opens its surface in the body").toBe(true);
       await app.nativeKey("Escape");
-      const z2Closed = await pollFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(Z2_SURFACE)}) === null`), (v) => v, SETTLE_MS);
+      const z2Closed = await settleFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(Z2_SURFACE)}) === null`), (v) => v, SETTLE_MS);
       expect(z2Closed, "Escape closes Z2's surface").toBe(true);
       await a.nativeClickAtElement(PROMPT_INPUT);
 
@@ -221,12 +221,12 @@ export async function sessionComposer(part: "send" | "panel", launch: { foregrou
       await expectKeyboardInBody(app, A, "before the paste");
       pasteboardText(PASTED_TEXT);
       await app.nativeKey("v", ["cmd"]);
-      const pastedText = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes(PASTED_TEXT) === true, SETTLE_MS);
+      const pastedText = await settleFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes(PASTED_TEXT) === true, SETTLE_MS);
       expect(pastedText, "⌘V pastes the pasteboard's text into the body's composer").toContain(PASTED_TEXT);
       await clearComposer(app, A);
       pasteboardImage(pngPath);
       await app.nativeKey("v", ["cmd"]);
-      const tiles = await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n > 0, SETTLE_MS);
+      const tiles = await settleFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n > 0, SETTLE_MS);
       note(`after the image paste: ${tiles} attachment tile(s); composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
       expect(tiles, "⌘V pastes the pasteboard's image as an attachment in the body's composer").toBeGreaterThan(0);
       await clearComposer(app, A);
@@ -247,7 +247,7 @@ export async function sessionComposer(part: "send" | "panel", launch: { foregrou
     await app.nativeKey("Return");
     await Bun.sleep(900);
     await app.nativeKey("Return");
-    const atoms = await pollFor(() => a.evalJS<string>(fileAtomLabels), (s) => s.includes("row12-insert.txt"), 15_000);
+    const atoms = await settleFor(() => a.evalJS<string>(fileAtomLabels), (s) => s.includes("row12-insert.txt"), 15_000);
     note(`after Insert File: file atoms ${atoms}; composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
     expect(atoms, "the panel's path comes back to the body as a file atom in its composer").toContain("row12-insert.txt");
     await expectKeyboardInBody(app, A, "after the panel");
@@ -255,12 +255,12 @@ export async function sessionComposer(part: "send" | "panel", launch: { foregrou
 
     // ---- The slash popup: raised in the body, closed by Escape ([F17]) ----
     await app.performMenuItem("session.commandPicker");
-    const popup = await pollFor(() => a.evalJS<boolean>(slashPopupShown), (v) => v, SETTLE_MS);
+    const popup = await settleFor(() => a.evalJS<boolean>(slashPopupShown), (v) => v, SETTLE_MS);
     expect(popup, "Open Command Picker raises the slash popup in the body").toBe(true);
     await a.evalJS(armKeyCounter);
     await app.evalJS(armKeyCounter);
     await app.nativeKey("Escape");
-    const popupDown = await pollFor(() => a.evalJS<boolean>(slashPopupShown), (v) => !v, SETTLE_MS);
+    const popupDown = await settleFor(() => a.evalJS<boolean>(slashPopupShown), (v) => !v, SETTLE_MS);
     note(
       `after Escape: popup shown ${popupDown}; keydowns seen — body ${await a.evalJS<number>("window.__row12Keys")}, shell ${await app.evalJS<number>("window.__row12Keys")}; ` +
         `host ${JSON.stringify((await app.bodies()).map((b) => ({ card: b.cardId, fr: b.firstResponder })))}; body focus ${await a.evalJS<boolean>("document.hasFocus()")}, composer focused ${await a.evalJS<boolean>(composerFocused)}, composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`,

@@ -29,7 +29,7 @@ import { randomUUID } from "node:crypto";
 import { launchTugApp, note } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "../_harness/tugbank-helpers";
 import { onTestRunEnd } from "../_harness/test-cleanup";
-import { bodyOf, pollFor } from "./_bodies";
+import { bodyOf, pollFor, settleFor } from "./_bodies";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -125,7 +125,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 40: an ask redelivered across a
         await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.visible, 10_000);
         await pollFor(() => bodyOf(app, B), (b) => b !== null && !b.visible, 5_000);
         await app.simulateMemoryPressure("critical");
-        const gone = await pollFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === B), 5_000);
+        const gone = await settleFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === B), 5_000);
         expect(gone.some((b) => b.cardId === B), "the sibling with the dialog up is evicted").toBe(false);
         await Bun.sleep(500);
         expect(proc.exitCode, "the caller is still blocked while the card has no body: the detach did not answer it").toBeNull();

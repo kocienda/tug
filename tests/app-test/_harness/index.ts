@@ -254,8 +254,11 @@ export type {
  * `1.24.0`: adds `bodyLayers` — every body's host layers sampled on each host
  * frame for a window, so a frame of the burst can be laid beside what the host
  * had on screen for each card. Additive; major stays `1`.
+ *
+ * `2.0.0`: REMOVES `stallBodyReadies`. A row fails a body by holding a real
+ * page to a shortened ready deadline instead ({@link App.bodyDelays}).
  */
-export const EXPECTED_SURFACE_VERSION = "1.24.0" as const;
+export const EXPECTED_SURFACE_VERSION = "2.0.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -1086,9 +1089,16 @@ export class App {
     return client.simulateMemoryPressure(this as HarnessCaller, level);
   }
 
-  /** Have the host ignore the next `count` bodies' readies, so each fails at its deadline. */
-  stallBodyReadies(count: number): Promise<number> {
-    return client.stallBodyReadies(this as HarnessCaller, count);
+  /**
+   * Shorten, or put back, the body clocks — constants in the product —
+   * through the shell's `__tug.bodyDelays`: the dormant delay every body
+   * runs to, a page made later included; and the host's eviction delay and
+   * ready deadline. A key left out keeps its last value; `null` puts the
+   * constant back. A ready deadline shorter than any real page's load fails
+   * every body made while it stands, at that deadline.
+   */
+  bodyDelays(delays: { dormantAfterMs?: number | null; evictAfterMs?: number | null; readyDeadlineMs?: number | null }): Promise<null> {
+    return this.evalJS<null>(`(window.__tug.bodyDelays(${JSON.stringify(delays)}), null)`);
   }
 
   /** The window's accessibility reading order: `shell`, body card ids, then `overlay`. */
