@@ -62,14 +62,6 @@ const TEST_NAME = "body-grounding-row-05-chords";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-5 launch takes
- * the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 const A = "row05-a";
 const B = "row05-b";
 const T = "row05-text";
@@ -139,14 +131,13 @@ interface Stood {
 }
 
 /** Launch the deck, stand every body up, and run `legs` on it. */
-async function withDeck(launch: Launch, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
+async function withDeck(name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const stubDir = stubDirectory();
   const textDir = mkdtempSync(join(tmpdir(), "tug-row05-text-"));
   const textFile = join(textDir, "notes.txt");
   writeFileSync(textFile, Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${name}`,
-    foreground: launch.foreground,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {
@@ -170,8 +161,8 @@ async function withDeck(launch: Launch, name: string, legs: (at: Stood) => Promi
 }
 
 /** With A holding the keyboard: typing, ⌘K, the Edit chords in its composer, and the find chords. */
-export function editChords(launch: Launch): Promise<void> {
-  return withDeck(launch, "edit", async ({ app, a, b }) => {
+export function editChords(): Promise<void> {
+  return withDeck("edit", async ({ app, a, b }) => {
     await focusBody(app, A);
     note(`A focused: ${await responders(app)}`);
 
@@ -247,8 +238,8 @@ export function editChords(launch: Launch): Promise<void> {
 }
 
 /** With A holding the keyboard: turn navigation pages its transcript, and ⌘D toggles its dictation. */
-export function turnChords(launch: Launch): Promise<void> {
-  return withDeck(launch, "turns", async ({ app, a, b }) => {
+export function turnChords(): Promise<void> {
+  return withDeck("turns", async ({ app, a, b }) => {
     // ---- Turn navigation: the transcript pages, one way or the other ----
     // The stub replays one long turn per prompt sent, and a body's
     // transcript is empty until one is: so one prompt first, run to idle,
@@ -288,8 +279,8 @@ export function turnChords(launch: Launch): Promise<void> {
 }
 
 /** With A holding the keyboard: the deck chords that move its chrome — fold, move to slot, nudge. */
-export function deckChords(launch: Launch): Promise<void> {
-  return withDeck(launch, "deck", async ({ app }) => {
+export function deckChords(): Promise<void> {
+  return withDeck("deck", async ({ app }) => {
     await focusBody(app, A);
     await app.nativeKey("y", ["ctrl", "cmd"]);
     const folded = await pollFor(() => foldedOf(app, A), (v) => v, SETTLE_MS);
@@ -335,8 +326,8 @@ export function deckChords(launch: Launch): Promise<void> {
 }
 
 /** With the Text card's body holding the keyboard: typing, undo, and the deck chords, and no other body holds it. */
-export function textChords(launch: Launch): Promise<void> {
-  return withDeck(launch, "text", async ({ app, a, t }) => {
+export function textChords(): Promise<void> {
+  return withDeck("text", async ({ app, a, t }) => {
     await focusBody(app, T, { composer: false });
     await t.nativeClickAtElement(TEXT_EDITOR);
     await t.waitForCondition<boolean>(`document.activeElement !== null && document.activeElement.matches(${JSON.stringify(TEXT_EDITOR)})`, { timeoutMs: SETTLE_MS });
@@ -379,10 +370,10 @@ export function textChords(launch: Launch): Promise<void> {
 }
 
 /** The Overview: its composer's typing and Edit chords, its paging chords and ⌘D act in its body. */
-export async function overviewChords(launch: Launch): Promise<void> {
+export async function overviewChords(): Promise<void> {
   const card = "row05-overview";
   const kind = cardKind("overview");
-  const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: launch.foreground });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-overview` });
   try {
     const now = Date.now();
     app.seedLedger({

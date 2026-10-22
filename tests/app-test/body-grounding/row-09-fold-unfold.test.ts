@@ -6,7 +6,6 @@
  * folded as the unmeasured set-up, then unfolded through the session tap
  * (⌃⌘Y), read by the composite and the shell's record together.
  *
- * @foreground activation
  * @family row-09-fold
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/card-fold.ts
@@ -23,14 +22,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 9: the unfold", () => {
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: the unfold shows the body only at the land, with no peek`,
-      () => foldKind({ foreground: true }, kind, "unfold"),
+      () => foldKind(kind, "unfold"),
       TEST_TIMEOUT_MS,
     );
   }
 
   test.skipIf(!sessionUnderTest(9))(
     "the unfold carries the body from its folded strip, with no peek",
-    () => foldSession({ foreground: true }, "unfold"),
+    () => foldSession("unfold"),
     TEST_TIMEOUT_MS,
   );
 });

@@ -410,16 +410,12 @@ final class ClickThroughWebView: WKWebView {
         dragHolder = .none
     }
 
-    /// Harness pid mode (`TUGAPP_NATIVE_EVENT_MODE=pid`) drives the app
-    /// without ever activating it, so every click arrives as a first
-    /// mouse. Swallowing them as activation clicks would eat the whole
-    /// test run's mouse stream — in this mode the click is an ordinary
-    /// one and passes through to the page.
-    private let harnessPidMode =
-        ProcessInfo.processInfo.environment["TUGAPP_NATIVE_EVENT_MODE"] == "pid"
-
+    /// Harness pid mode (`TUGAPP_NATIVE_EVENT_MODE=pid`) needs no exception
+    /// here: its window is really key, so AppKit asks this question for the
+    /// same click it asks it for in the field — one into a window that is not
+    /// key, which the harness makes only by resigning the app
+    /// (`HarnessLifecycle`).
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        if harnessPidMode { return true }
         firstMouseEventNumber = event?.eventNumber
         return true
     }
@@ -600,13 +596,15 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// the launch needs a rendering viewport, not an active app. WebKit
     /// suspends `requestAnimationFrame` in an occluded window, and the
     /// background launch's window sits a level below normal where anything
-    /// covers it, so a test of frames, paint or motion read nothing there and
-    /// went foreground for a viewport it could have had without the screen.
+    /// covers it. Every pid-mode launch turns occlusion detection off, so the
+    /// tier changes the launch only where that switch is missing: the window
+    /// is then ordered front at normal level without activating.
     static let harnessVisibleViewport = ProcessInfo.processInfo.environment["TUGAPP_HARNESS_VISIBLE"] == "1"
 
-    /// Whether the visible tier's occlusion switch took on the shell's web
-    /// view. When it did not — a WebKit without the SPI — `AppDelegate` falls
-    /// back to ordering the window front at normal level without activating.
+    /// Whether pid mode's occlusion switch took on the shell's web view. When
+    /// it did not — a WebKit without the SPI — the visible tier in
+    /// `AppDelegate` falls back to ordering the window front at normal level
+    /// without activating.
     private(set) var harnessRendersWhenCovered = false
 
     /// Keep `webView` rendering while its window is covered, by turning off
@@ -614,8 +612,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// `WebViewImpl::isViewVisible` that reads `NSWindow.occlusionState`.
     /// Private SPI (`_setWindowOcclusionDetectionEnabled:`), reached by
     /// selector so a WebKit without it declines rather than crashes; accepted
-    /// for test mode only, and never called outside the visible tier. Returns
-    /// whether the switch was there to throw.
+    /// for test mode only, and called for every web view of a pid-mode
+    /// launch, whose window sits a level below normal where anything covers
+    /// it. Returns whether the switch was there to throw.
     @discardableResult
     static func keepRenderingWhenCovered(_ webView: WKWebView) -> Bool {
         let setter = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
@@ -781,7 +780,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         webView = clickThroughWebView
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        if MainWindow.harnessVisibleViewport {
+        if AppDelegate.harnessPidMode {
             harnessRendersWhenCovered = MainWindow.keepRenderingWhenCovered(webView)
         }
         webView.allowsBackForwardNavigationGestures = false

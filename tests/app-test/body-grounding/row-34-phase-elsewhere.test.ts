@@ -10,7 +10,6 @@
  * look here: with the Session card streaming, the Layout miniature's hover
  * over that card's slot reads Streaming with a running dot, never Idle.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/body-arrangement.ts
  * @covers tugdeck/src/lib/card-activity-elsewhere.ts
  * @covers tugdeck/src/lib/code-session-store/use-session-phase.ts
@@ -75,7 +74,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 34: a session's phase reaches t
     "the Layout miniature's hover over a streaming Session card reads Streaming with a running dot",
     async () => {
       const stubDir = stubDirectory();
-      const app = await launchTugApp({ testName: "body-grounding-row-34-phase-elsewhere", foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: "body-grounding-row-34-phase-elsewhere", env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         await app.seedDeckState({ state: layoutDeck(), focusCardId: A });
         // A long stub turn, so the session is still mid-turn when the look is taken.

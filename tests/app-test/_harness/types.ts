@@ -21,6 +21,7 @@ export type RpcMethod =
   | "version"
   | "getHostPid"
   | "windowState"
+  | "sessionTapProbe"
   | "checkAccessibilityPermission"
   | "getElementScreenBounds"
   | "menuSnapshot"
@@ -173,18 +174,40 @@ export interface MenuItemSnapshot {
 /**
  * Result of `windowState`: what the keyboard would find in the app.
  * `isKeyWindow` is the harness window's own key status; `appKeyWindow` is
- * whether `NSApp.keyWindow` names any window, which AppKit reports only
- * while the app is active; `firstResponder` is the class name of the
- * window's first responder, or `null`. A pid-mode launch is inactive and
- * has no key window — AppKit refuses key status to an inactive app's
- * window — so the host resolves nil-target action sends from the window's
- * first responder instead (`AppDelegate.sendToKeyChain`).
+ * whether `NSApp.keyWindow` names any window; `firstResponder` is the class
+ * name of the window's first responder, or `null`. In pid mode the host's
+ * `TugApplication` has the app believe it is active, so the window is really
+ * key and all three read as a foreground app's would — with no activation.
+ * `frontmostAtLaunch` / `frontmostNow` are the user's frontmost app by bundle
+ * id, read before the host's `run()` and read now; `inputSourceAtLaunch` /
+ * `inputSourceNow` are the keyboard input source the same way. A background
+ * launch must leave both pairs equal.
  */
 export interface WindowState {
   isKeyWindow: boolean;
   appKeyWindow: boolean;
   isActive: boolean;
   firstResponder: string | null;
+  frontmostAtLaunch: string | null;
+  frontmostNow: string | null;
+  inputSourceAtLaunch: string | null;
+  inputSourceNow: string | null;
+}
+
+/**
+ * Result of `sessionTapProbe` (pid mode only): the host posted a Shift
+ * down/up to the session event tap — the user's keyboard, as WindowServer
+ * routes it — and `received` lists what its own local event monitor saw
+ * (`"<NSEvent type>:<keyCode>"`), which must be empty: a real key window in
+ * an inactive app must not pull the user's keyboard. `trusted` is whether the
+ * post could be delivered at all (Accessibility); a probe that is not
+ * trusted has proven nothing. `frontmost` is the user's frontmost app
+ * afterwards.
+ */
+export interface SessionTapProbe {
+  trusted: boolean;
+  received: string[];
+  frontmost: string | null;
 }
 
 /**
@@ -253,6 +276,10 @@ export type Request =
   | {
       id: number;
       method: "windowState";
+    }
+  | {
+      id: number;
+      method: "sessionTapProbe";
     }
   | {
       id: number;
@@ -715,20 +742,22 @@ export interface LaunchTugAppOptions {
    *
    * Defaults to false: an app-test launches in the background and the
    * in-app harness addresses events to its own process, so a run never
-   * takes the developer's focus, cursor, or key window. An inactive app
-   * cannot hold a key window, so the host gives the harness window what one
-   * would have supplied: each ⌘ chord is offered to the window's views
-   * before the main menu, and the Edit menu's nil-target actions resolve
-   * from the window's first responder (`AppDelegate.sendToKeyChain`). A
-   * chord, a menu command or a pasteboard read is therefore a background
-   * test.
+   * takes the developer's focus, cursor, or key window. The host has the
+   * app believe it is active and the harness window really key
+   * (`TugApplication`), so AppKit's own routing holds: each ⌘ chord is
+   * offered to the window's views before the main menu, and the Edit
+   * menu's nil-target actions resolve from the key window's first
+   * responder. A chord, a menu command or a pasteboard read is therefore a
+   * background test.
    *
-   * Pass `true` only for tests whose SUBJECT is activation — key-window
-   * status, app resign / become-active, `document.hasFocus()`, or the
-   * keyboard arriving through WindowServer as the user's does. Those
-   * cannot be observed in an inactive app. A foreground launch takes the
-   * screen for its duration, so it is the marked, minority case, declared
-   * on the file as `@foreground activation` or `@foreground lifecycle`.
+   * Pass `true` only for a test whose events can reach nothing but the
+   * really active app: keys WindowServer delivers to another process (the
+   * host's remote open panel), or a drag that moves the user's cursor.
+   * Key-window status, focus, the caret and the app's resign / become-active
+   * / hide cycle are all background tests — pid mode's window is really key
+   * and the lifecycle verbs move the app's believed activation in-process. A
+   * foreground launch takes the screen for its duration, so it is the
+   * marked, minority case, declared on the file as `@foreground activation`.
    */
   foreground?: boolean;
 
@@ -738,14 +767,15 @@ export interface LaunchTugAppOptions {
    *
    * WebKit suspends `requestAnimationFrame` in an occluded window, and the
    * background launch puts the window a level below normal, so a reading
-   * of frames, paint or motion would hang there rather than read. This
-   * tier turns the WKWebViews' occlusion detection off in the app (WebKit's
-   * `_windowOcclusionDetectionEnabled` SPI), so the window stays where the
-   * background launch left it and still renders; where that SPI is absent
-   * the app falls back to ordering the window front at normal level without
-   * activating, so the user keeps keyboard, cursor and key window and only
-   * sees a window. Declared on the file with `@visible`. A test whose
-   * subject is activation is `foreground`, never this.
+   * of frames, paint or motion would hang there rather than read. Every
+   * background launch turns the WKWebViews' occlusion detection off in the
+   * app (WebKit's `_windowOcclusionDetectionEnabled` SPI), so the window
+   * stays where it was left and still renders; this tier matters only where
+   * that SPI is absent, when the app orders the window front at normal
+   * level without activating, so the user keeps keyboard, cursor and key
+   * window and only sees a window. Declared on the file with `@visible`. A
+   * test whose events reach only the really active app is `foreground`,
+   * never this.
    */
   visible?: boolean;
 

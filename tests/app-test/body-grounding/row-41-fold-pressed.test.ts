@@ -16,7 +16,6 @@
  * bare window, the content box never shows the floor while the chrome moves,
  * the host's container tracks the placeholder, and it lands on it.
  *
- * @foreground activation
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/card-fold.ts
@@ -57,7 +56,7 @@ async function pressWhileFolded(app: App, card: string): Promise<void> {
 describe.skipIf(!SHOULD_RUN)("body-grounding row 41: a folded card under pressure", () => {
   test(
     "a folded card keeps its body under critical pressure, and the unfold carries it",
-    () => foldSession({ foreground: true }, "unfold", pressWhileFolded, "body-grounding-row-41-fold-pressed"),
+    () => foldSession("unfold", pressWhileFolded, "body-grounding-row-41-fold-pressed"),
     TEST_TIMEOUT_MS,
   );
 });

@@ -7,7 +7,6 @@
  * the set-up. The sidebars carry it as a slide or not at all, and are read
  * as whichever they are.
  *
- * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -23,7 +22,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 17: the sidebars show", () => {
   test.skipIf(!sessionUnderTest(17))(
     "showing the sidebars again carries the body with its chrome",
     () =>
-      withFlow({ foreground: true }, "sidebars-show", async ({ app, card, s, crop }) => {
+      withFlow("sidebars-show", async ({ app, card, s, crop }) => {
         await setUpGesture(app, card, "sidebars hide", control("toggle-sidebars"));
         await crossLeg(app, card, { label: "sidebars show", run: control("toggle-sidebars"), resizes: false }, s, crop);
       }),

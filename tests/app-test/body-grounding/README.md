@@ -6,14 +6,22 @@ the real app agrees. Every card is a body; there is no switch.
 
 ## The path these tests take
 
-- **Keys go through the session tap with the app active.** Every file here
-  launches `foreground: true` and declares `@foreground`, so `nativeKey` and
-  `nativeType` post to the session event tap after activating the app and
-  making its window key — the route the user's keyboard takes, through AppKit's
-  key-equivalent scan and the first responder's page. The rest of the corpus
-  reads its chords in pid mode, where the host gives the inactive window the
-  key window's view-then-menu order (`AppDelegate.swift`); the bar's rule is
-  stricter because a row is green only on WindowServer's own routing.
+- **Keys go through AppKit's own routing, to a real key window.** Every file
+  here launches in pid mode, where the app believes itself active and the
+  harness window is really key (`TugApplication` in `tugapp/Sources/main.swift`,
+  under `AppDelegate.harnessPidMode`), so `nativeKey` and `nativeType` post to
+  this process and enter `-[NSApplication sendEvent:]` as the same `NSEvent`
+  the user's keyboard makes — through AppKit's key-equivalent scan, the key
+  window's view-then-menu order and the first responder's page, with nothing
+  activated and the user's keyboard untouched. The one hop not simulated is
+  WindowServer choosing the destination process, which `postToPid` chooses
+  instead of frontmost; no in-process code can tell the two apart, so a row is
+  green on AppKit's own routing with a real key window and first responder.
+  Two files still take the screen, each with its reason in its header beside
+  `@foreground`: `row-12-composer-session-panel`, because the host's open
+  panel is a remote service only WindowServer delivers keys to, and
+  `row-27-drop-into-body`, because a drag is a real `NSDraggingSession` that
+  moves the user's cursor and WindowServer picks its destination.
 - **Menu commands are performed, not dispatched.** `app.performMenuItem(id)`
   finds the real `NSMenuItem`, validates it as AppKit does at open, and sends
   its action through `NSApp.sendAction`, so validation, the action and

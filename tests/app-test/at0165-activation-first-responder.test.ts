@@ -21,7 +21,6 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @foreground activation
  * @covers tugdeck/src/components/tugways/responder-chain.ts
  * @covers tugdeck/src/components/tugways/responder-chain-provider.tsx
  * @covers tugdeck/src/action-dispatch.ts
@@ -301,9 +300,9 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug D — closing a tab in a multi-card pane lets the next tab take Cmd-W",
     async () => {
-      // Foreground: Cmd-W routing through the responder chain needs a
-      // real key window.
-      const app = await launchTugApp({ testName: "at0165-bugD", foreground: true });
+      // Cmd-W routing through the responder chain needs a real key window,
+      // which pid mode's harness window is.
+      const app = await launchTugApp({ testName: "at0165-bugD" });
       try {
         await app.enableDeckTrace(true);
         const state = {

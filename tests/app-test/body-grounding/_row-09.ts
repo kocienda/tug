@@ -70,14 +70,6 @@ const TEST_NAME = "body-grounding-row-09-fold";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-9 launch takes
- * the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 const A = "row09-a";
 /** The burst over one gesture: its beats and its land. */
 const BURST_MS = 1_500;
@@ -211,9 +203,9 @@ async function readLeg(app: App, card: string, leg: Leg, standing: Standing, kee
 export type Folded = (app: App, card: string) => Promise<void>;
 
 /** Every other kind: a card of `kind` folded or unfolded by the chord it reads. */
-export async function foldKind(launch: Launch, kind: CardKind, leg: Leg): Promise<void> {
+export async function foldKind(kind: CardKind, leg: Leg): Promise<void> {
   const card = `row09-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}`, foreground: launch.foreground });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}` });
   try {
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row09-seed"] }), focusCardId: card });
     await standUpKind(app, kind, card);
@@ -228,11 +220,10 @@ export async function foldKind(launch: Launch, kind: CardKind, leg: Leg): Promis
 }
 
 /** The Session card, bound to a stub session, folded or unfolded; `folded` as {@link readLeg} takes it. */
-export async function foldSession(launch: Launch, leg: Leg, folded?: Folded, testName?: string): Promise<void> {
+export async function foldSession(leg: Leg, folded?: Folded, testName?: string): Promise<void> {
   const stubDir = stubDirectory();
   const app = await launchTugApp({
     testName: testName ?? `${TEST_NAME}-${leg}`,
-    foreground: launch.foreground,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {

@@ -38,14 +38,6 @@ const TEST_NAME = "body-grounding-row-19-streams";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-19 launch
- * takes the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 const action = (id: string, payload: Record<string, unknown>): string =>
   `window.__tug.dispatchControlAction(${JSON.stringify(id)}, ${JSON.stringify(payload)})`;
 
@@ -188,12 +180,11 @@ async function expectStillStreaming(app: App, bodies: readonly string[]): Promis
  * Three streaming bodies through one leg of the flow slide: out to slot 2,
  * or back to slot 1 with the way out made first, before they stream.
  */
-export async function streamFlow(launch: Launch, leg: "out" | "back"): Promise<void> {
+export async function streamFlow(leg: "out" | "back"): Promise<void> {
   const stubDir = stubDirectory();
   const bodies = ["r19-a", "r19-b", "r19-c"];
   const app = await launchTugApp({
     testName: `${TEST_NAME}-flow-${leg}`,
-    foreground: launch.foreground,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {
@@ -213,13 +204,12 @@ export async function streamFlow(launch: Launch, leg: "out" | "back"): Promise<v
 }
 
 /** Two streaming bodies through a cross-column stack move. */
-export async function streamStack(launch: Launch): Promise<void> {
+export async function streamStack(): Promise<void> {
   const stubDir = stubDirectory();
   const bodies = ["r19-s", "r19-m"];
   const mover = bodies[1];
   const app = await launchTugApp({
     testName: `${TEST_NAME}-stack`,
-    foreground: launch.foreground,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {

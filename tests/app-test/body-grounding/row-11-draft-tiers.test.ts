@@ -13,7 +13,6 @@
  * is evicted, and the card shown again comes back with the draft in its
  * composer.
  *
- * @foreground activation
  * @covers tugdeck/src/body/body-dormancy.ts
  * @covers tugdeck/src/body/body-main.ts
  */
@@ -80,7 +79,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: a draft across the dormant 
       tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "evictAfterMs", "int", String(EVICT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-11-draft-tiers",
-        foreground: true,
         persistInTestMode: true,
         restoreInTestMode: true,
         env: { TUGBANK_PATH: tugbankPath },

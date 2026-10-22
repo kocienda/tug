@@ -45,14 +45,13 @@
  * @covers tugdeck/src/components/tugways/tug-text-editor/dictation-span.ts
  * @covers tugapp/Sources/DictationEngine.swift
  *
- * @foreground lifecycle
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
-import { kindBody } from "./_harness/card-reach";
+import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -104,12 +103,8 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
   test(
     "the mic moves between composers with a fresh id, app resign ends it keeping settled text, and Escape ends it without interrupting",
     async () => {
-      // Foreground, because claim 2 is `simulateAppResign()` and an app that was
-      // never active cannot resign — the notification never fires and the verb
-      // times out. This is the declared class of test that takes the screen.
       const app = await launchTugApp({
         testName: "at0647-dictation-exclusive",
-        foreground: true,
       });
       try {
         await app.enableDeckTrace(true);
@@ -128,6 +123,9 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         // The rail, so there are two composers to arbitrate between.
         await app.nativeKey("o", ["cmd", "ctrl"]);
         await kindBody(app, "overview").waitForCondition<boolean>(exists(OVERVIEW_MIC), { timeoutMs: 10_000 });
+        // Its page has the mic before the host has placed its body with a
+        // size, and the press below lands in that body.
+        await waitForBodyPainted(app, "overview");
         // Each mic is in its own card's page, so each is read there, against
         // that page's own viewport.
         const micAt = (selector: string): string =>

@@ -6,7 +6,6 @@
  * in a four-up flow band holding two body cards, the strip's prelaunched
  * slide.
  *
- * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift
@@ -22,7 +21,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: the flow slide out", () => 
   test.skipIf(!sessionUnderTest(14))(
     "the flow slide out carries both body cards with their chrome",
     () =>
-      withFlow({ foreground: true }, "flow-out", ({ app, card, standing, crop }) =>
+      withFlow("flow-out", ({ app, card, standing, crop }) =>
         carryLeg(app, card, FLOW_BODIES, "go to slot 2", action("go-to-slot", { value: 2 }), standing, crop),
       ),
     TEST_TIMEOUT_MS,

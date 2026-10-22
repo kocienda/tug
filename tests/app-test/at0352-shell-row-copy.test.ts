@@ -24,9 +24,8 @@
  * "copied the same thing again".
  *
  * Background: `NSApp.sendAction(_:to: nil)` walks the KEY window's responder
- * chain, and a pid-mode launch has none — AppKit refuses key status to an
- * inactive app's window — so the host resolves Edit ▸ Copy from its window's
- * own first responder (`AppDelegate.sendToKeyChain`): the enabled item fires,
+ * chain, and a pid-mode launch has one — the app believes it is active and
+ * its window is really key (`TugApplication`) — so the enabled item fires,
  * the send finds the web view, and the pasteboard moves, with nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx

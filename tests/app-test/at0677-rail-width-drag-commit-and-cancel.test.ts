@@ -39,11 +39,10 @@
  * by derivation and naming it here would only raise its recorded debt. Run
  * this file by name with any change to the rail width drag.
  *
- * The cancel hides the app to take its window's pointer away, and a hide
- * works only on an app that was active, so the file launches in the
- * foreground.
+ * The cancel hides the app to take its window's pointer away; in a
+ * background launch the hide is the harness's in-process one, which resigns
+ * the window's key status as AppKit's does.
  *
- * @foreground lifecycle
  * @covers tugdeck/src/lib/resize-episode.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
@@ -229,7 +228,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "narrowing a three-member rail lands every member at the new width",
       async () => {
-        const app = await launchTugApp({ testName: "at0677-rail-width-commit", foreground: true });
+        const app = await launchTugApp({ testName: "at0677-rail-width-commit" });
         try {
           await seed(app);
           expectEveryMember(await memberWidths(app), RAIL_WIDTH, "at rest");
@@ -256,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a release with no move before it still commits the width it landed at",
       async () => {
-        const app = await launchTugApp({ testName: "at0677-rail-width-bare-release", foreground: true });
+        const app = await launchTugApp({ testName: "at0677-rail-width-bare-release" });
         try {
           await seed(app);
           // A press and a release 60px apart, with nothing between them —
@@ -287,7 +286,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a drag whose window loses the mouse releases everything it took",
       async () => {
-        const app = await launchTugApp({ testName: "at0677-rail-width-cancel", foreground: true });
+        const app = await launchTugApp({ testName: "at0677-rail-width-cancel" });
         try {
           await seed(app);
 
@@ -344,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "Escape mid-drag cancels it, and the release that follows commits nothing",
       async () => {
-        const app = await launchTugApp({ testName: "at0677-rail-width-escape", foreground: true });
+        const app = await launchTugApp({ testName: "at0677-rail-width-escape" });
         try {
           await seed(app);
 

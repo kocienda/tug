@@ -11,7 +11,6 @@
  * the card. Any other kind closes at once. Either way its body goes with
  * the card.
  *
- * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift
@@ -33,7 +32,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what the body of every other
     test(
       `${kind.componentId}: Zoom In changes its body's width, and Close closes it, asking first on a rail`,
       () =>
-        withKind({ foreground: true }, kind, "shows", async (app, card) => {
+        withKind(kind, "shows", async (app, card) => {
           const widthBefore = (await bodyOf(app, card))!.frame.width;
           const zoom = await app.performMenuItem("view.zoomIn");
           expect(zoom.found && zoom.performed, "View › Zoom In performs").toBe(true);

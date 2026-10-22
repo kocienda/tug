@@ -14,7 +14,6 @@
  * page says hello, the request is sent again, and the dialog stands in the new
  * page. Answered there, the caller exits with the chosen option's value.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/pending-ask-store.ts
  * @covers tugdeck/src/bus/request.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -94,7 +93,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 40: an ask redelivered across a
       seedTugbankForLaunch(tugbankPath);
       const app = await launchTugApp({
         testName: "body-grounding-row-40-ask-redelivered",
-        foreground: true,
         persistInTestMode: true,
         restoreInTestMode: true,
         env: { TUGBANK_PATH: tugbankPath },

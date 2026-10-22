@@ -6,7 +6,6 @@
  * made as the set-up, then a pinned rail moved back to its edge, or a
  * content card by the flow slide back.
  *
- * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift
@@ -24,7 +23,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: the way back, every other k
     test(
       `${kind.componentId}: the gesture that moves it back carries the body with its chrome`,
       () =>
-        withKind({ foreground: true }, kind, "back", async ({ app, card, standing, crop }) => {
+        withKind(kind, "back", async ({ app, card, standing, crop }) => {
           const { out, back } = kindLegs(kind);
           await setUpGesture(app, card, out.label, (a) => a.evalJS<null>(`(${out.js}, null)`));
           await carryLeg(app, card, [card], back.label, back.js, standing, crop);

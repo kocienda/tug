@@ -36,6 +36,7 @@ import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
+import { bodyOfKind } from "../_harness/card-reach";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { escapeHasTaker, focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, openKind, standUpKind } from "./_kind-bodies";
@@ -71,16 +72,6 @@ async function restAt(app: App, cardId: string, label: string): Promise<Rect> {
 }
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
-
-/**
- * How a piece launches, stated in the piece itself: every row-10 launch
- * takes the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-  /** The tier the hidden bodies are put in before the read switch (`_tiers.ts`); live when absent. */
-  tier?: Tier;
-}
 
 const A = "row10-a";
 const B = "row10-b";
@@ -212,10 +203,9 @@ async function switchQuietly(app: App, toSpaceId: string, arriving: readonly str
 }
 
 /** A card of `kind` at home and one in a second workspace, switched away → home or (that made first) home → away. */
-export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Promise<void> {
+export async function switchKind(kind: CardKind, leg: Leg, tier?: Tier): Promise<void> {
   const K = `row10-${kind.componentId}`;
-  const { tier, ...opts } = launch;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}${tier === undefined ? "" : `-${tier}`}-${kind.componentId}`, ...opts });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}${tier === undefined ? "" : `-${tier}`}-${kind.componentId}` });
   try {
     await app.seedDeckState({ state: kindDeck(kind, K, { sessions: [A] }), focusCardId: K });
     await standUpKind(app, kind, K);
@@ -253,10 +243,9 @@ export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Prom
 }
 
 /** Two Session bodies at home and a third opened by ⌘N in a second workspace, switched away → home or (that made first) home → away. */
-export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
+export async function switchSessions(leg: Leg, tier?: Tier): Promise<void> {
   const stubDir = stubDirectory();
-  const { tier, ...opts } = launch;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}${tier === undefined ? "" : `-${tier}`}`, ...opts, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}${tier === undefined ? "" : `-${tier}`}`, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: deck(), focusCardId: A });
     await spawnStub(app, A, stubDir, 2);
@@ -281,6 +270,14 @@ export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
     await expectHidden(app, B, "B after leaving home");
     // The verb reveals the Cards card and opens a rename; Escape leaves it,
     // when the rename holds the keyboard — a bare Escape with no taker beeps.
+    // The rename is waited for first: its body is made by the switch, and a
+    // key posted before that page is up reaches a view with nothing to take it.
+    const cards = await bodyOfKind(app, "cards");
+    await pollFor(
+      () => cards.evalJS<boolean>(`document.activeElement !== null && document.activeElement.matches(".cards-space-rename")`),
+      (v) => v,
+      10_000,
+    );
     if (await escapeHasTaker(app)) await app.nativeKey("Escape", []);
     await Bun.sleep(300);
     const focusedBefore = await app.getFocusedCardId();

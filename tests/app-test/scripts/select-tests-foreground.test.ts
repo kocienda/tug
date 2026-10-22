@@ -21,9 +21,9 @@ const APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
 
 /** A file that declares `@foreground activation` and launches with `foreground: true`. */
-const TAGGED = "at0213-open-quickly.test.ts";
-/** A background file whose name shares the `at0209` prefix with a foreground one. */
-const PREFIX_TWIN = "at0209-text-card-live-autosave-loop.test.ts";
+const TAGGED = "body-grounding/row-12-composer-session-panel.test.ts";
+/** A background file whose name shares the `row-12-composer-session` prefix with the foreground one. */
+const PREFIX_TWIN = "body-grounding/row-12-composer-session-send.test.ts";
 /** A file that both declares `@visible` and launches with `visible: true`. */
 const VISIBLE = "at0747-no-hole-under-cards.test.ts";
 
@@ -48,7 +48,7 @@ describe("--foreground / --core against the real corpus", () => {
     });
 
     test("--foreground matches whole names, not test-id prefixes", () => {
-        // at0209-picker-field-click-single-focus IS foreground; this one is not.
+        // row-12-composer-session-panel IS foreground; this one is not.
         const r = run(SCRIPT, ["--foreground", PREFIX_TWIN]);
         expect(r.code).toBe(0);
         expect(lines(r.out)).toEqual([]);
@@ -116,22 +116,18 @@ describe("--foreground-check detects drift in both directions", () => {
         expect(r.err).toContain("declare @foreground but neither pass a");
     });
 
-    test("an app-lifecycle verb is screen-taking behavior on its own", () => {
-        // The verb reaches `NSApp.activate` / a Finder activation inside the app
-        // whatever mode it launched in, so a file calling one takes the screen
-        // even with no `foreground` launch option anywhere in it. Reading only
-        // the launch option is what let this class through.
+    test("an app-lifecycle verb in a background launch takes nothing", () => {
+        // In pid mode the verb moves the app's believed activation in-process
+        // and activates nothing, so a file calling one with no `foreground`
+        // launch option is a background file, and the corpus stays clean.
         const path = copyPath(PREFIX_TWIN);
         const original = readFileSync(path, "utf8");
         writeFileSync(path, `${original}\n// await app.simulateAppResign();\n`);
         const r = run(script, ["--foreground-check"]);
         writeFileSync(path, original);
 
-        expect(r.code).toBe(1);
-        expect(r.err).toContain(PREFIX_TWIN);
-        // Both findings: undeclared, and a verb that cannot fire without the option.
-        expect(r.err).toContain("take the screen but carry no");
-        expect(r.err).toContain("call an app-lifecycle verb without");
+        expect(r.code).toBe(0);
+        expect(r.err).not.toContain(PREFIX_TWIN);
     });
 
     test("a visible launch option with no @visible tag is reported", () => {
@@ -206,9 +202,8 @@ describe("--foreground-check detects drift in both directions", () => {
         expect(r.err).toContain("reason outside the list");
     });
 
-    test("a lifecycle reason on a file that calls no lifecycle verb is refused", () => {
-        // at0213 launches foreground for its subject and calls no simulateApp* verb,
-        // so `lifecycle` is a reason that is not the file's.
+    test("the retired `lifecycle` reason is refused as outside the list", () => {
+        // The lifecycle verbs no longer take the screen, so `lifecycle` earns none.
         const path = copyPath(TAGGED);
         const original = readFileSync(path, "utf8");
         writeFileSync(path, original.replace(/^ \* @foreground activation\n/m, " * @foreground lifecycle\n"));
@@ -216,7 +211,7 @@ describe("--foreground-check detects drift in both directions", () => {
         writeFileSync(path, original);
 
         expect(r.code).toBe(1);
-        expect(r.err).toContain(TAGGED);
-        expect(r.err).toContain("say @foreground lifecycle but call no");
+        expect(r.err).toContain(`${TAGGED} (lifecycle)`);
+        expect(r.err).toContain("reason outside the list");
     });
 });

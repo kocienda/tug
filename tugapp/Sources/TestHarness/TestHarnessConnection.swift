@@ -165,7 +165,15 @@ final class TestHarnessConnection {
     /// `1.21.0`: adds `stallBodyReadies` — the next `count` bodies' readies
     /// are ignored, as `TUG_BODY_FORCE_STALL` ignores the first ones, so a
     /// row can fail a body made mid-run. Additive; major stays `1`.
-    static let surfaceVersion = "1.21.0"
+    ///
+    /// `1.22.0`: `windowState` adds the user's frontmost app and keyboard
+    /// input source, each as read before `run()` and as read now, so a
+    /// test can pin that a background launch moved neither; and adds
+    /// `sessionTapProbe` — pid mode only — which posts a Shift to the
+    /// session event tap and reports whether this app received it, which
+    /// is how a run proves its real key window never pulled the user's
+    /// keyboard. Additive; major stays `1`.
+    static let surfaceVersion = "1.22.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -251,10 +259,11 @@ final class TestHarnessConnection {
         case "windowState":
             // What the keyboard would find: whether the harness window is
             // key, whether the app is active, and who the first responder
-            // is. Pid mode leaves the app inactive with no key window —
-            // AppKit refuses key status to an inactive app's window — and
-            // this is how a test reads that, and the first responder the
-            // host's chain walk starts from.
+            // is. In pid mode `TugApplication` has the app believe it is
+            // active so the window is really key with no activation, and
+            // this is how a test reads that — beside the user's frontmost
+            // app and keyboard input source, at launch and now, which a
+            // background launch must leave alone.
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 let window = self.webView?.window
@@ -264,9 +273,15 @@ final class TestHarnessConnection {
                     "appKeyWindow": NSApp.keyWindow != nil,
                     "isActive": NSApp.isActive,
                     "firstResponder": responder.map { String(describing: type(of: $0)) } ?? NSNull(),
+                    "frontmostAtLaunch": TugApplication.frontmostAtLaunch ?? NSNull(),
+                    "frontmostNow": TugApplication.frontmostNow() ?? NSNull(),
+                    "inputSourceAtLaunch": TugApplication.inputSourceAtLaunch ?? NSNull(),
+                    "inputSourceNow": TugApplication.inputSourceNow() ?? NSNull(),
                 ]
                 self.respond(id: id, ok: true, payload: ["value": payload])
             }
+        case "sessionTapProbe":
+            dispatchSessionTapProbe(id: id)
         case "evalJS":
             guard let script = obj["script"] as? String else {
                 respondError(id: id, name: "ProtocolError", message: "evalJS: missing 'script'")
@@ -494,6 +509,48 @@ final class TestHarnessConnection {
     }
 
     // MARK: - Accessibility preflight ([D03])
+
+    /// Pid mode only: post a Shift down/up to the *session* event tap — the
+    /// user's keyboard, as WindowServer routes it — and report whether this
+    /// app received it. A real key window in an inactive app must not pull
+    /// the keyboard; if the probe ever sees the key, the fake-active regime
+    /// (`TugApplication`) is wrong and the native smoke says so. A Shift is
+    /// harmless wherever it lands. `trusted` is `AXIsProcessTrusted()`: an
+    /// untrusted post is dropped by the system, so a run that is not trusted
+    /// has proven nothing and the smoke reads that bit first. Refused outside
+    /// pid mode, where the session tap is the mode's own channel and the key
+    /// would arrive by design.
+    private func dispatchSessionTapProbe(id: Int) {
+        guard AppDelegate.harnessPidMode else {
+            respondError(id: id, name: "ProtocolError", message: "sessionTapProbe: pid mode only")
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            var received: [String] = []
+            let monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown, .keyUp]) { event in
+                received.append("\(event.type.rawValue):\(event.keyCode)")
+                return event
+            }
+            let source = CGEventSource(stateID: .privateState)
+            for down in [true, false] {
+                guard let event = CGEvent(keyboardEventSource: source, virtualKey: 56, keyDown: down) else { continue }
+                event.flags = down ? .maskShift : []
+                event.post(tap: .cgSessionEventTap)
+            }
+            // Long enough for WindowServer to route the pair wherever it goes
+            // and for the queue here to drain if it came this way.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                if let monitor = monitor { NSEvent.removeMonitor(monitor) }
+                let payload: [String: Any] = [
+                    "trusted": AXIsProcessTrusted(),
+                    "received": received,
+                    "frontmost": TugApplication.frontmostNow() ?? NSNull(),
+                ]
+                self.respond(id: id, ok: true, payload: ["value": payload])
+            }
+        }
+    }
 
     /// Probe the macOS Accessibility-permission bit for this process
     /// and return `{ trusted, bundlePath, bundleId }`.

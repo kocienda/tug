@@ -6,7 +6,6 @@
  * cards, one per column of a two-up; slot 0 stacks, so the mover crosses into
  * it as one move beat, the Last pass's.
  *
- * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift
@@ -43,7 +42,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: a stack move", () => {
       const mover = bodies[1];
       const app = await launchTugApp({
         testName: "body-grounding-row-14-beats-move-stack",
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

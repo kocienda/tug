@@ -19,7 +19,6 @@
  * Every other kind that is a body is closed the same way, standing focused
  * beside an unbound Session card.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
@@ -185,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 3: departure", () => {
       `${kind.componentId}: File › Close Card: the hole closes in the frame the chrome leaves, and no frame shows the bare window`,
       async () => {
         const card = `row03-${kind.componentId}`;
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true });
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}` });
         try {
           await app.seedDeckState({ state: kindDeck(kind, card, { sessions: [NEIGHBOUR] }), focusCardId: card });
           await standUpKind(app, kind, card);
@@ -208,7 +207,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 3: departure", () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

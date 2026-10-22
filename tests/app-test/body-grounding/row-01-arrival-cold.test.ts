@@ -8,7 +8,6 @@
  * is opened behind it, inside the second the spare takes to be replaced,
  * so it is made cold.
  *
- * @foreground activation
  * @family row-01-arrival
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -27,7 +26,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, arrivalCold } from "./_row-01";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 1: arrival, cold", () => {
   test.skipIf(!sessionUnderTest(1))(
     "⌘N: a card arrives cold with nothing of the canvas, grid or window showing at any frame",
-    () => arrivalCold({ foreground: true }),
+    () => arrivalCold(),
     TEST_TIMEOUT_MS,
   );
 });

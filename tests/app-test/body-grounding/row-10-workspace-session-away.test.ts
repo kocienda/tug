@@ -8,7 +8,6 @@
  * second workspace; the switch home is made as the set-up, and the switch
  * back through `activate-space` is read.
  *
- * @foreground activation
  * @family row-10-workspace
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -23,7 +22,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, switchSessions } from "./_row-10";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 10: workspace switch back", () => {
   test.skipIf(!sessionUnderTest(10))(
     "home → away: every departing body hides and every arriving body shows on its own placeholder, with no frame of a body in the wrong place",
-    () => switchSessions({ foreground: true }, "away"),
+    () => switchSessions("away"),
     TEST_TIMEOUT_MS,
   );
 });

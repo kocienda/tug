@@ -8,7 +8,6 @@
  * body's box, with `crossingReady` within a display period of the first
  * moving beat and the transcript pinned to its bottom before and after.
  *
- * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -24,7 +23,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 17: bullseye in", () => {
   test.skipIf(!sessionUnderTest(17))(
     "bullseye in carries the body to its new size with its chrome",
     () =>
-      withFlow({ foreground: true }, "bullseye-in", async ({ app, card, s, crop }) => {
+      withFlow("bullseye-in", async ({ app, card, s, crop }) => {
         await expectSquareTop(app, card, s.palette);
         await crossLeg(app, card, { label: "bullseye in", run: control("toggle-bullseye"), resizes: true }, s, crop);
       }),

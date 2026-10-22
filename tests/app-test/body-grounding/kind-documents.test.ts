@@ -23,7 +23,6 @@
  * - **Each** body paints the content pane's surface, read off the composite,
  *   and asked the deck for nothing only the shell answers.
  *
- * @foreground activation
  * @covers tugdeck/src/components/tugways/cards/text-card-registration.tsx
  * @covers tugdeck/src/components/tugways/cards/file-view-card-registration.tsx
  * @covers tugdeck/src/components/tugways/cards/diff-card.tsx
@@ -171,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
       writeFileSync(textFile, "alpha\nbeta\n");
       const picture = join(scratch, "picture.png");
       copyFileSync(PICTURE, picture);
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
+      const app = await launchTugApp({ testName: TEST_NAME });
       // Where the file's seconds go, section by section: it runs near its budget.
       const t0 = Date.now();
       const mark = (section: string): void => note(`${section} at ${Date.now() - t0} ms`);

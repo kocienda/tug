@@ -25,7 +25,6 @@
  * - **Each** body paints the content pane's surface, read off the composite,
  *   and asked the deck for nothing only the shell answers.
  *
- * @foreground activation
  * @covers tugdeck/src/components/devtools/devtools-card.tsx
  * @covers tugdeck/src/components/devtools/telemetry-inspector.tsx
  * @covers tugdeck/src/components/tugways/cards/settings-card.tsx
@@ -161,7 +160,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
       tugbankWrite(tugbankPath, EDITOR_DOMAIN, EDITOR_KEY, "json", JSON.stringify({ softTabs: true }));
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
       });
       try {

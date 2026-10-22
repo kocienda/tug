@@ -27,7 +27,6 @@
  * - **The latch, body key.** With the body holding the keyboard, Shift held
  *   lands on the body's root from its own key events, and the release clears it.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/modifier-latch.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -130,7 +129,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
       seedTugbankForLaunch(tugbankPath);
       const app = await launchTugApp({
         testName: kind.componentId === "session" ? TEST_NAME : `${TEST_NAME}-${kind.componentId}`,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
       });
       try {

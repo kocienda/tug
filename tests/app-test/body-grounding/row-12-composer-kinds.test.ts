@@ -6,7 +6,6 @@
  * other kind with a field of its own is read the same way, and the Overview
  * is the one under test.
  *
- * @foreground activation
  * @family row-12-composer
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -21,7 +20,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, overviewComposer } from "./_row-12";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 12: the Overview's composer", () => {
   test.skipIf(!kindsUnderTest(12).some((k) => k.componentId === "overview"))(
     "overview: its composer takes typing, a text paste and an image paste in its body",
-    () => overviewComposer({ foreground: true }),
+    () => overviewComposer(),
     TEST_TIMEOUT_MS,
   );
 });

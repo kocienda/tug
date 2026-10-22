@@ -5,7 +5,6 @@
  * `row-10-workspace-kinds-away` with the away card's body put in the dormant
  * tier before the switch back (`_tiers.ts`).
  *
- * @foreground activation
  * @family row-10-workspace
  * @covers tugdeck/src/body/body-dormancy.ts
  * @covers tugdeck/src/lib/card-placement.ts
@@ -22,7 +21,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 10: workspace switch back, dorm
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: home → away onto a dormant body: its departing body hides and its arriving body shows on its own placeholder`,
-      () => switchKind({ foreground: true, tier: "dormant" }, kind, "away"),
+      () => switchKind(kind, "away", "dormant"),
       TEST_TIMEOUT_MS,
     );
   }

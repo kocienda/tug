@@ -28,7 +28,6 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @foreground lifecycle
  * @covers tugdeck/src/card-state-orchestrator.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor/
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
@@ -48,10 +47,7 @@ const TUG_PROMPT_ENTRY_DEFAULT_ROUTE = "❯";
 describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
   test("saveState() after seed-and-mount preserves seeded bag.content", async () => {
     const app = await launchTugApp({
-    // Foreground: drives a real app resign / hide / become-active cycle,
-    // which only happens to an app that is actually active (pid-mode default
-    // never activates).
-    foreground: true, testName: "at0018-async-content-race" });
+    testName: "at0018-async-content-race" });
     try {
       await app.enableDeckTrace(true);
 

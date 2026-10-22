@@ -13,7 +13,6 @@
  * page of that card hears — the dot goes still. The facts the body last
  * published said streaming, so a dot read from them would run for ever.
  *
- * @foreground
  * @covers tugdeck/src/lib/bodiless-facts-store.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/code-session-store/use-session-phase.ts
@@ -105,7 +104,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card's dot follo
       tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "evictAfterMs", "int", String(EVICT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-43-bodiless-phase",
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
         persistInTestMode: true,
         restoreInTestMode: true,

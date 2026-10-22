@@ -11,7 +11,6 @@
  * Each card comes back under the last frame the host kept at its eviction,
  * over the face the shell stands in beneath it.
  *
- * @foreground
  * @family row-44-switch
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx
  * @covers tugdeck/src/lib/body-stand-in-store.ts
@@ -66,7 +65,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: a workspace switch onto evi
       tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "evictAfterMs", "int", String(EVICT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-44-switch-evicted",
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
         persistInTestMode: true,
         restoreInTestMode: true,

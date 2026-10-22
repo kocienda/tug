@@ -27,14 +27,6 @@ export const TEST_NAME = "body-grounding-row-06-menus";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-6 launch takes
- * the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 export const A = "row06-a";
 export const B = "row06-b";
 
@@ -192,9 +184,9 @@ export async function sweepMenu(app: App, card: string, part: Part, ownItems: Re
  * Launch with two bound Session bodies, A and B, A holding the keyboard,
  * and run `body`. Both cards are empty: a stub plays only when prompted.
  */
-export async function withSessions(launch: Launch, name: string, body: (app: App) => Promise<void>): Promise<void> {
+export async function withSessions(name: string, body: (app: App) => Promise<void>): Promise<void> {
   const stubDir = stubDirectory();
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: deck(), focusCardId: A });
     await spawnStub(app, A, stubDir, 6);
@@ -213,9 +205,9 @@ export async function withSessions(launch: Launch, name: string, body: (app: App
  * Launch with a body of `kind` holding the keyboard beside an unbound
  * Session card, and run `body` with the card's id.
  */
-export async function withKind(launch: Launch, kind: CardKind, name: string, body: (app: App, card: string) => Promise<void>): Promise<void> {
+export async function withKind(kind: CardKind, name: string, body: (app: App, card: string) => Promise<void>): Promise<void> {
   const card = `row06-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}` });
   try {
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: [B] }), focusCardId: card });
     await standUpKind(app, kind, card);
@@ -232,25 +224,25 @@ export async function withKind(launch: Launch, kind: CardKind, name: string, bod
 export const ownItemsOf = (kind: CardKind): RegExp | null => (kind.rail ? new RegExp(`^view\\.sidebar\\.${kind.componentId}\\.`) : null);
 
 /** Register the Session card's sweep of `part`, which `what` names in prose. */
-export function describeSessionSweep(launch: Launch, part: Part, what: string): void {
+export function describeSessionSweep(part: Part, what: string): void {
   describe.skipIf(!SHOULD_RUN)(`body-grounding row 6: ${what}`, () => {
     test.skipIf(!sessionUnderTest(6))(
       `every item of ${what} performs with a Session body first responder`,
-      () => withSessions(launch, part, (app) => sweepMenu(app, A, part)),
+      () => withSessions(part, (app) => sweepMenu(app, A, part)),
       TEST_TIMEOUT_MS,
     );
   });
 }
 
 /** Register the sweep of `part` for every kind under test but the Session card. */
-export function describeKindsSweep(launch: Launch, part: Part, what: string): void {
+export function describeKindsSweep(part: Part, what: string): void {
   describe.skipIf(!SHOULD_RUN)(`body-grounding row 6: ${what}, every other kind`, () => {
     for (const kind of kindsUnderTest(6)) {
       if (kind.componentId === "session") continue;
       test(
         `${kind.componentId}: every item of ${what} performs with its body first responder`,
         () =>
-          withKind(launch, kind, part, async (app, card) => {
+          withKind(kind, part, async (app, card) => {
             await sweepMenu(app, card, part, ownItemsOf(kind));
           }),
         TEST_TIMEOUT_MS,

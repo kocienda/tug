@@ -10,6 +10,12 @@
  * Session › Open Command Picker raises the body's completion popup, and an
  * Escape posted through the session tap closes it ([F17]).
  *
+ * The one piece of the bar that still takes the screen: the host's open
+ * panel is macOS's remote panel service, a second process that only
+ * WindowServer delivers keys to, so a key posted to this process never
+ * reaches it (read 2026-10-21: with the panel up the main window had
+ * resigned key and two Escapes left the panel standing).
+ *
  * @foreground activation
  * @family row-12-composer
  * @covers tugdeck/src/body/body-main.ts
@@ -26,7 +32,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, sessionComposer } from "./_row-12";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 12: the picker handoff and the slash popup", () => {
   test.skipIf(!sessionUnderTest(12))(
     "the host's file panel hands its path back to the body that asked, and Escape closes its slash popup",
-    () => sessionComposer({ foreground: true }, "panel"),
+    () => sessionComposer("panel", { foreground: true }),
     TEST_TIMEOUT_MS,
   );
 });

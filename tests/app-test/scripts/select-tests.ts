@@ -19,19 +19,16 @@
  * A test that takes the screen also declares that, with `@foreground` on its own docblock
  * line, followed by the reason it does from a closed list: `@foreground activation` when
  * activation is the test's subject or its events can only route through the active app
- * (key-window status, resign / become-active, WindowServer delivery through the session
- * tap), or `@foreground lifecycle` when the file calls an app-lifecycle verb that cannot
- * run in an inactive app. The `app-test` recipe reads the declaration before it launches
+ * (WindowServer delivering to another process, or moving the user's cursor). The
+ * `app-test` recipe reads the declaration before it launches
  * anything, so it can tell the developer that a run is about to seize the machine; the
  * reason is what lets a reader audit the screen-takers without opening each file, and
- * `--foreground-check` refuses a bare tag, a word outside the list, and a `lifecycle`
- * reason on a file that calls no lifecycle verb.
+ * `--foreground-check` refuses a bare tag and a word outside the list.
  *
- * There are two ways a test takes the screen, and the check knows both. The declared one is
- * the `foreground` launch option, which puts the app in the activating event mode. The other
- * is calling an app-lifecycle RPC verb: those drive `NSApp.activate` and a Finder activation
- * inside the app, whatever mode it launched in, so a background launch does not make them
- * background. Reading only the launch option missed that second class entirely.
+ * The one way a test takes the screen is the `foreground` launch option, which puts the app
+ * in the activating event mode. The app-lifecycle verbs do not: in a background launch they
+ * move the app's believed activation in-process (`HarnessLifecycle` in the app) and
+ * activate nothing, so a file calling one runs in the background like any other.
  *
  * A test that samples motion or a settle declares that with `@motion`. Those files read
  * frame timing, and a frame read under a batch of other apps launching is a reading of the
@@ -545,8 +542,8 @@ interface TestCoverage {
     /** Declared by `@foreground`: this file takes the screen for its duration. */
     foreground: boolean;
     /**
-     * The reason after `@foreground`, trimmed — `activation`, `lifecycle`, a word outside
-     * the list, or `""` for a bare tag. `null` when the file carries no tag.
+     * The reason after `@foreground`, trimmed — `activation`, a word outside the list,
+     * or `""` for a bare tag. `null` when the file carries no tag.
      */
     foregroundReason: string | null;
     /** Declared by `@visible`: this file needs a rendering viewport, and launches `visible: true`. */
@@ -557,8 +554,6 @@ interface TestCoverage {
     foregroundOption: boolean;
     /** Passes a possibly-true `visible` launch option at some launch site. */
     visibleOption: boolean;
-    /** Calls an app-lifecycle RPC verb, which takes the screen whatever the launch mode. */
-    activatingVerb: boolean;
     /** Declared by `@family`: the split this file is one piece of, or null. */
     family: string | null;
 }
@@ -614,28 +609,14 @@ function passesVisibleOption(text: string): boolean {
 }
 
 /**
- * The reasons a `@foreground` tag may carry. `activation`: the test's subject is activation,
- * or its events route only through the active app — key-window status, app resign and
- * become-active, a chord or menu command delivered through the session tap as the user's
- * keyboard would be. `lifecycle`: the file calls one of the app-lifecycle verbs below, which
- * cannot run in an inactive app. Nothing else earns the screen — not a viewport (that is the
- * visible tier), not the pasteboard — so the list is closed and a word outside it is refused.
+ * The reasons a `@foreground` tag may carry. `activation`: the test's events can only route
+ * through the really active app — keys WindowServer delivers to another process, such as the
+ * host's remote open panel, or a drag that moves the user's cursor. Nothing else earns the
+ * screen — not a chord, a menu, focus or the app's lifecycle (pid mode's real key window and
+ * in-process lifecycle carry those), not a viewport (that is the visible tier) — so the list
+ * is closed and a word outside it is refused.
  */
-const FOREGROUND_REASONS: ReadonlySet<string> = new Set(["activation", "lifecycle"]);
-
-/**
- * The app-lifecycle RPC verbs. Each one reaches `AppLifecycleHandlers` in the app, which
- * drives the real activation machinery — `NSApp.activate(ignoringOtherApps:)` to become
- * active, a Finder activation to resign — and neither is gated on the launch mode. So a
- * file calling one of these takes the screen even though it launched in the background,
- * which is exactly the unannounced seizure `@foreground` exists to prevent.
- *
- * They also cannot *work* in a background launch: the app was never active, so
- * `NSApp.deactivate()` is a silent no-op, the `didResignActive` notification never posts,
- * and the verb fails on its 1000ms timeout — after having activated Finder on the way.
- * That is why calling one demands the launch option too, and not merely the tag.
- */
-const ACTIVATING_VERB = /\bsimulateApp(?:Resign|BecomeActive|Hide|Unhide)\b/;
+const FOREGROUND_REASONS: ReadonlySet<string> = new Set(["activation"]);
 
 function readCoverage(file: string): TestCoverage {
     const text = readFileSync(join(APP_TEST_DIR, file), "utf8");
@@ -669,14 +650,13 @@ function readCoverage(file: string): TestCoverage {
         motion,
         foregroundOption: FOREGROUND_OPTION.test(text),
         visibleOption: passesVisibleOption(text),
-        activatingVerb: ACTIVATING_VERB.test(text),
         family,
     };
 }
 
-/** Whether a file takes the screen — by launch option, by lifecycle verb, or both. */
+/** Whether a file takes the screen: it passes a possibly-true `foreground` launch option. */
 function takesScreen(c: TestCoverage): boolean {
-    return c.foregroundOption || c.activatingVerb;
+    return c.foregroundOption;
 }
 
 /** A `@covers` value matches a changed path by subtree prefix or by glob. */
@@ -1132,28 +1112,23 @@ if (queuesOnly) {
 }
 
 if (foregroundCheck) {
-    // Three findings, for three different harms. A tag with no screen-taking behavior
-    // prompts about a test that never takes the screen — noise that trains dismissal.
-    // Screen-taking behavior with no tag runs unannounced, which is the harm the tag exists
-    // to prevent. And a lifecycle verb without the launch option is a test that both seizes
-    // the screen and cannot pass, because the verb needs an app that is really active.
+    // Two findings, for two different harms. A tag with no screen-taking behavior prompts
+    // about a test that never takes the screen — noise that trains dismissal. Screen-taking
+    // behavior with no tag runs unannounced, which is the harm the tag exists to prevent.
     const undeclared = coverage.filter((c) => !c.foreground && takesScreen(c));
     const overdeclared = coverage.filter((c) => c.foreground && !takesScreen(c));
-    const verbWithoutOption = coverage.filter((c) => c.activatingVerb && !c.foregroundOption);
     // The visible tier's two-way check, and its one exclusion: a file is background,
     // visible or foreground, never two of them — a visible launch that also takes the
     // screen is a foreground launch wearing the quieter tag.
     const visibleUndeclared = coverage.filter((c) => !c.visible && c.visibleOption);
     const visibleOverdeclared = coverage.filter((c) => c.visible && !c.visibleOption);
     const visibleAndForeground = coverage.filter((c) => (c.visible || c.visibleOption) && (c.foreground || takesScreen(c)));
-    // The reason check: every tag says why, from the closed list, and `lifecycle` is only
-    // true of a file that calls a lifecycle verb. A bare tag is a screen-taker nobody has
-    // justified; an unknown word is a reason the list does not accept.
+    // The reason check: every tag says why, from the closed list. A bare tag is a
+    // screen-taker nobody has justified; an unknown word is a reason the list does not accept.
     const bareTag = coverage.filter((c) => c.foreground && c.foregroundReason === "");
     const unknownReason = coverage.filter(
         (c) => c.foreground && c.foregroundReason !== "" && !FOREGROUND_REASONS.has(c.foregroundReason ?? ""),
     );
-    const lifecycleWithoutVerb = coverage.filter((c) => c.foregroundReason === "lifecycle" && !c.activatingVerb);
 
     if (undeclared.length > 0) {
         process.stderr.write(
@@ -1165,18 +1140,9 @@ if (foregroundCheck) {
     if (overdeclared.length > 0) {
         process.stderr.write(
             `[select-tests] ${overdeclared.length} test file(s) declare @foreground but neither pass a\n` +
-                `               foreground launch option nor call a lifecycle verb — they\n` +
-                `               would prompt for nothing:\n`,
+                `               foreground launch option — they would prompt for nothing:\n`,
         );
         for (const c of overdeclared) process.stderr.write(`  ${c.file}\n`);
-    }
-    if (verbWithoutOption.length > 0) {
-        process.stderr.write(
-            `[select-tests] ${verbWithoutOption.length} test file(s) call an app-lifecycle verb without\n` +
-                `               launching foreground. The verb activates Finder on its way to\n` +
-                `               timing out, so the test steals focus AND fails:\n`,
-        );
-        for (const c of verbWithoutOption) process.stderr.write(`  ${c.file}\n`);
     }
     if (visibleUndeclared.length > 0) {
         process.stderr.write(
@@ -1203,42 +1169,31 @@ if (foregroundCheck) {
     if (bareTag.length > 0) {
         process.stderr.write(
             `[select-tests] ${bareTag.length} test file(s) declare @foreground with no reason — the tag\n` +
-                `               says \`@foreground activation\` or \`@foreground lifecycle\`:\n`,
+                `               says \`@foreground activation\`:\n`,
         );
         for (const c of bareTag) process.stderr.write(`  ${c.file}\n`);
     }
     if (unknownReason.length > 0) {
         process.stderr.write(
             `[select-tests] ${unknownReason.length} test file(s) give @foreground a reason outside the list\n` +
-                `               (\`activation\` or \`lifecycle\`) — nothing else earns the screen:\n`,
+                `               (\`activation\`) — nothing else earns the screen:\n`,
         );
         for (const c of unknownReason) process.stderr.write(`  ${c.file} (${c.foregroundReason})\n`);
-    }
-    if (lifecycleWithoutVerb.length > 0) {
-        process.stderr.write(
-            `[select-tests] ${lifecycleWithoutVerb.length} test file(s) say @foreground lifecycle but call no\n` +
-                `               app-lifecycle verb — the reason is not the file's:\n`,
-        );
-        for (const c of lifecycleWithoutVerb) process.stderr.write(`  ${c.file}\n`);
     }
     if (
         undeclared.length === 0 &&
         overdeclared.length === 0 &&
-        verbWithoutOption.length === 0 &&
         visibleUndeclared.length === 0 &&
         visibleOverdeclared.length === 0 &&
         visibleAndForeground.length === 0 &&
         bareTag.length === 0 &&
-        unknownReason.length === 0 &&
-        lifecycleWithoutVerb.length === 0
+        unknownReason.length === 0
     ) {
         const n = coverage.filter((c) => c.foreground).length;
-        const a = coverage.filter((c) => c.foregroundReason === "activation").length;
-        const l = coverage.filter((c) => c.foregroundReason === "lifecycle").length;
         const v = coverage.filter((c) => c.visible).length;
         process.stderr.write(
             `[select-tests] @foreground matches behavior across ${coverage.length} test files.\n` +
-                `               ${n} take the screen (${a} activation, ${l} lifecycle); ${v} run visible but inactive; the other ${coverage.length - n - v} run in the background.\n`,
+                `               ${n} take the screen; ${v} run visible but inactive; the other ${coverage.length - n - v} run in the background.\n`,
         );
         process.exit(0);
     }

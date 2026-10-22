@@ -49,6 +49,7 @@ import { onTestRunEnd } from "./test-cleanup";
 import { RpcClient, WAIT_CEILING_MS, type RpcTransport } from "./rpc";
 import { scopeToCard } from "./scope-to-card";
 import {
+  PID_FOCUS_SETTLE_TIMEOUT_MS,
   QUIESCE_DRAIN_DEADLINE_MS,
   QUIESCE_TEARDOWN_DEADLINE_MS,
   STATE_SETTLE_MS,
@@ -61,6 +62,7 @@ import type {
   MenuItemSnapshot,
   MenuItemState,
   WindowState,
+  SessionTapProbe,
   MenuItemPerformed,
   MemoryPressureLevel,
   NativeModifier,
@@ -127,6 +129,7 @@ export type {
   AccessibilityStatus,
   MenuItemState,
   WindowState,
+  SessionTapProbe,
   MenuItemPerformed,
   LedgerSeedFileEvent,
   LedgerSeedSession,
@@ -237,8 +240,14 @@ export type {
  * `1.21.0`: adds `stallBodyReadies` — the host ignores the next `count`
  * bodies' readies, so a row can fail a body made mid-run. Additive; major
  * stays `1`.
+ *
+ * `1.22.0`: `windowState` adds the user's frontmost app and keyboard input
+ * source, as read at launch and now, so a test can pin that a background
+ * launch moved neither; adds `sessionTapProbe` (pid mode only), which posts a
+ * Shift to the session event tap and reports whether this app received it.
+ * Additive; major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.21.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.22.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -914,13 +923,25 @@ export class App {
 
   /**
    * What the keyboard would find in the app: whether the harness window is
-   * key, whether the app is active, and the first responder's class. A
-   * pid-mode launch is inactive with no key window; the first responder is
-   * where the host starts the chain walk that lets a ⌘ chord and an
-   * Edit-menu item resolve in the background.
+   * key, whether the app is active, and the first responder's class — all
+   * true of a pid-mode launch, whose app believes it is active and whose
+   * window is really key with no activation — beside the user's frontmost
+   * app and keyboard input source at launch and now, which a background
+   * launch leaves alone.
    */
   windowState(): Promise<WindowState> {
     return client.windowState(this as HarnessCaller);
+  }
+
+  /**
+   * Pid mode only: the host posts a Shift down/up to the *session* event tap
+   * — the user's keyboard — and reports what its own event monitor saw,
+   * which must be nothing: a real key window in an inactive app must not
+   * pull the user's keyboard. `trusted` false means the post was dropped
+   * and nothing was proven.
+   */
+  sessionTapProbe(): Promise<SessionTapProbe> {
+    return client.sessionTapProbe(this as HarnessCaller);
   }
 
   /**
@@ -2256,6 +2277,40 @@ export class BodyApp implements HarnessCaller {
 }
 
 /**
+ * Wait until the window's first-responder page reports `document.hasFocus()`.
+ * Only that page can: the shell's when the shell holds the keyboard, a body's
+ * when the restored deck gave a body view the keyboard. So the shell is read
+ * first, then every bound body, until one says yes or `timeoutMs` passes.
+ * Harness lifecycle timing, like the rest of the launch ([D12] note below).
+ */
+async function waitForFocusedPage(rpc: RpcClient, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const focused = async (card?: string): Promise<boolean> => {
+    try {
+      const params: Record<string, unknown> = { method: "evalJS", script: "document.hasFocus() === true" };
+      if (card !== undefined) params.card = card;
+      return (await rpc.call<boolean>(params as Parameters<RpcClient["call"]>[0])) === true;
+    } catch {
+      return false;
+    }
+  };
+  for (;;) {
+    if (await focused()) return;
+    let listed: Array<{ cardId: string | null; state: string }> = [];
+    try {
+      listed = await rpc.call<Array<{ cardId: string | null; state: string }>>({ method: "bodies" } as Parameters<RpcClient["call"]>[0]);
+    } catch {
+      listed = [];
+    }
+    for (const b of listed) {
+      if (b.cardId !== null && (b.state === "bound" || b.state === "ready") && (await focused(b.cardId))) return;
+    }
+    if (Date.now() >= deadline) throw new Error(`TimeoutError: no page read focused within ${timeoutMs}ms`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+/**
  * Spawn a Tug.app debug build, connect to its test harness socket,
  * handshake on version, return an `App` handle.
  *
@@ -2512,6 +2567,34 @@ export async function launchTugApp(
           "    tccutil reset Accessibility " + ax.bundleId,
           "and re-run the test suite.",
         ].join("\n"),
+      );
+    }
+  }
+
+  // A pid-mode launch has the app believe it is active and its window really
+  // key, and WebKit reads the window active from that on its own — within
+  // about two seconds of the window becoming key, by no event anybody
+  // posts (measured 2026-10-21). Until it does, `document.hasFocus()` is
+  // false, no caret paints and no window `focus` fires, so a key driven
+  // into that page lands in a page that does not yet believe it is in
+  // front. The launch is not settled until the first responder's page
+  // reads focused — the shell's, or a body's when the restored deck gave a
+  // body view the keyboard, since only the first responder's page can.
+  if (resolved.env.TUGAPP_NATIVE_EVENT_MODE === "pid") {
+    try {
+      await waitForFocusedPage(rpc, PID_FOCUS_SETTLE_TIMEOUT_MS);
+    } catch (err) {
+      if (hostPid > 0) {
+        try { processKillNative(hostPid, "SIGKILL"); } catch { /* already dead */ }
+      }
+      try { subprocess.kill("SIGKILL"); } catch { /* already dead */ }
+      detachSignals();
+      try { logStream?.end(); } catch { /* best-effort */ }
+      try { onExitUnlink(); } catch { /* best-effort */ }
+      throw new Error(
+        `launchTugApp: no page — the shell's or a body's — read document.hasFocus() within ${PID_FOCUS_SETTLE_TIMEOUT_MS}ms of a pid-mode launch — ` +
+        `the harness window is meant to be really key with the app believing it is active (TugApplication); ` +
+        `read \`windowState\` on a live launch to see which half is missing: ${String(err)}`,
       );
     }
   }

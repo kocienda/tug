@@ -13,7 +13,6 @@
  * so it lands with the page; what the bar holds is that no frame shows the
  * floor where a card stands, title band or box.
  *
- * @foreground
  * @family row-44-switch
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx
  * @covers tugdeck/src/lib/body-stand-in-store.ts
@@ -51,7 +50,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: the first visit to a worksp
       tugbankWrite(tugbankPath, "dev.tugapp.deck.layout", "layout", "json", JSON.stringify(LAYOUT));
       const app = await launchTugApp({
         testName: "body-grounding-row-44-switch-first-visit",
-        foreground: true,
         env: { TUGBANK_PATH: tugbankPath },
         persistInTestMode: true,
         restoreInTestMode: true,

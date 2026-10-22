@@ -16,9 +16,9 @@
  * - **Its surface** — the body paints the rail's sunken surface, read off the
  *   composite.
  *
- * @foreground activation
  * @covers tugdeck/src/components/jots/jots-card-registration.tsx
  * @covers tugdeck/src/components/jots/jots-card.tsx
+ * @covers tugdeck/src/components/tugways/tug-editor-context-menu.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -66,7 +66,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Jots", () => {
       const jotsPath = join(scratch, "jots.json");
       writeFileSync(jotsPath, `${JSON.stringify({ version: 1, jots: SEEDED }, null, 2)}\n`);
       const onDisk = (): JotsFile => JSON.parse(readFileSync(jotsPath, "utf8")) as JotsFile;
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, env: { TUG_JOTS_PATH: jotsPath } });
+      const app = await launchTugApp({ testName: TEST_NAME, env: { TUG_JOTS_PATH: jotsPath } });
       try {
         await app.seedDeckState({ state: kindDeck(cardKind("jots"), JOTS), focusCardId: JOTS });
         const body = await standUpKind(app, cardKind("jots"), JOTS);

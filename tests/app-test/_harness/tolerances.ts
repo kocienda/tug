@@ -59,6 +59,18 @@ export const STATE_SETTLE_MS = (() => {
 })();
 
 /**
+ * How long a pid-mode launch may take to read `document.hasFocus()` true in
+ * the shell. The host has the app believe it is active and its window
+ * really key; WebKit recomputes the page's active state from that on its
+ * own, within about two seconds of the window becoming key (measured
+ * 2026-10-21, with no event posted between). Five seconds is that with
+ * room for a loaded machine; a launch that never flips is a launch whose
+ * key window or active bit is missing, and `launchTugApp` fails it with
+ * `windowState` as the next read.
+ */
+export const PID_FOCUS_SETTLE_TIMEOUT_MS = 5000;
+
+/**
  * The `tug-quiesce` teardown deadline: how long the harness gives a whole
  * Tug.app teardown before it escalates to SIGKILL. Mirror of
  * `tugcore::quiesce::TEARDOWN_DEADLINE_MS` (the source of truth; its

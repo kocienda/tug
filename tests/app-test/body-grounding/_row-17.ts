@@ -88,14 +88,6 @@ export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 /** Per test, and a piece's wedge cap before it has a recorded time: one launch streaming a turn. */
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-17 launch
- * takes the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 /** The composite burst: the settle runs about 400 ms, so this covers its set-up, motion and land with room. */
 const BURST_MS = 1_500;
 const SETTLE_MS = 6_000;
@@ -359,9 +351,9 @@ export interface Stood {
  * Launch with a body of `kind` stood up — the Overview given posts enough
  * to scroll — and run `legs`; then its body asked the shell for nothing.
  */
-export async function withKind(launch: Launch, kind: CardKind, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
+export async function withKind(kind: CardKind, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const card = `r17-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}` });
   try {
     if (kind.componentId === "overview") {
       const now = Date.now();
@@ -410,10 +402,10 @@ export async function kindResizeLeg(kind: CardKind, inverse: boolean, { app, car
  * Launch with the Session body card second in a four-up flow of six,
  * streaming, and a Layout card on the left rail, and run `legs`.
  */
-export async function withFlow(launch: Launch, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
+export async function withFlow(name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const stubDir = stubDirectory();
   const card = "r17-a";
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: flowDeck(card), focusCardId: card });
     await standUpBody(app, card, stubDir);
@@ -425,10 +417,10 @@ export async function withFlow(launch: Launch, name: string, legs: (at: Stood) =
 }
 
 /** Launch with the Session body card in front of a column it shares, streaming, and run `legs`. */
-export async function withStack(launch: Launch, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
+export async function withStack(name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const stubDir = stubDirectory();
   const card = "r17-c";
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: stackDeck(card), focusCardId: card });
     await standUpBody(app, card, stubDir);

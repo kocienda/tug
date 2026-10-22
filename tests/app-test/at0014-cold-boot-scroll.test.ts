@@ -50,7 +50,6 @@
  * `simulateAppResign` round-trips inside one Tug.app process; this
  * file adds the cross-process variant they cannot exercise.
  *
- * @foreground lifecycle
  * @covers tugdeck/src/lib/region-map.ts
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/lib/tugbank-client.ts
@@ -117,8 +116,6 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
         {
           const app = await launchTugApp({
             testName: "at0014-cold-boot-scroll-A",
-            // Foreground: the test's resign leg needs a really-active app.
-            foreground: true,
             env: { TUGBANK_PATH: tugbankPath },
             skipAccessibilityPreflight: true,
             persistInTestMode: true,
@@ -195,7 +192,6 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
         {
           const app = await launchTugApp({
             testName: "at0014-cold-boot-scroll-B",
-            foreground: true,
             env: { TUGBANK_PATH: tugbankPath },
             skipAccessibilityPreflight: true,
             persistInTestMode: true,

@@ -6,7 +6,6 @@
  * card in front of a column it shares; splitting the column shares its
  * height, so the body's box must change.
  *
- * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -22,7 +21,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 17: a column split", () => {
   test.skipIf(!sessionUnderTest(17))(
     "a column split carries the body to its shorter box",
     () =>
-      withStack({ foreground: true }, "split", ({ app, card, s, crop }) =>
+      withStack("split", ({ app, card, s, crop }) =>
         crossLeg(app, card, { label: "split", run: control("set-column-mode", { slot: 0, mode: "split" }), resizes: true }, s, crop),
       ),
     TEST_TIMEOUT_MS,

@@ -5,7 +5,6 @@
  * A piece of row 6 ([B02] row 6); the sweep and its parts are `_row-06.ts`'s.
  * A rail's own rows are read, not performed.
  *
- * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift
@@ -16,4 +15,4 @@
 
 import { describeKindsSweep } from "./_row-06";
 
-describeKindsSweep({ foreground: true }, "view-sidebars-1", "View › Sidebar's Arcs, Jots and Layout rows");
+describeKindsSweep("view-sidebars-1", "View › Sidebar's Arcs, Jots and Layout rows");

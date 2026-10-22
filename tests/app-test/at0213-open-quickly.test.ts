@@ -22,7 +22,6 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/open-quickly-store.ts
  * @covers tugdeck/src/components/chrome/open-quickly-overlay.tsx
  * @covers tugdeck/src/components/tugways/tug-modal-input-dialog.tsx
@@ -176,8 +175,6 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
       // keeps cancelling it, leaving the dialog unclosable from the keyboard.
       const app = await launchTugApp({
         testName: "at0213-open-quickly-escape",
-        // ⌥⇥ and Escape are real key events against a frontmost app.
-        foreground: true,
       });
       try {
         const ui = await overlayReady(app);
@@ -300,10 +297,6 @@ describe.skipIf(!SHOULD_RUN)("at0213: Open Quickly dialog", () => {
     async () => {
       const app = await launchTugApp({
         testName: "at0213-open-quickly-dismiss",
-        // ⌘. is only delivered to an app that is actually frontmost — the
-        // background pid-mode default drops it and only the bare `Meta`
-        // keydown reaches the page. Same reason at0151 runs foreground.
-        foreground: true,
       });
       try {
         const ui = await overlayReady(app);

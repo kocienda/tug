@@ -3,20 +3,18 @@
  *
  * Every row of the bar asserts an effect in a body after a key or a menu
  * command delivered the way the user delivers them. This file pins that the
- * delivery exists: a launch with `foreground: true` puts the harness in the
- * session-tap mode, where `nativeType` activates the app, makes its window key
- * and posts to the session event tap, so one typed character goes through
- * WindowServer, AppKit's key-equivalent scan and the first responder's view
- * — the body's web view — and lands in the body's composer. And
+ * delivery exists: in the pid mode every bar file launches in, the app
+ * believes it is active and the harness window is really key, so one typed
+ * character posted to the process enters `sendEvent` as the same `NSEvent` a
+ * keystroke would, goes through AppKit's key-equivalent scan and the first
+ * responder's view — the body's web view — and lands in the body's composer.
+ * The one hop not taken is WindowServer choosing the process, which no code
+ * in the process can observe. And
  * `performMenuItem` finds the real `NSMenuItem`, validates it and sends its
  * action through `NSApp.sendAction`: View › Zoom In performed that way
  * changes the body's placed width, which the host's body snapshot reports.
  * An identifier no item carries answers `{ found: false }`.
  *
- * The pid mode the rest of the corpus runs in is never evidence for any of
- * this (`NativeEventHandlers.swift`, "Which mode is evidence for what").
- *
- * @foreground activation
  * @covers tugapp/Sources/TestHarness/NativeEventHandlers.swift
  * @covers tugapp/Sources/TestHarness/TestHarnessConnection.swift
  * @covers tests/app-test/_harness/client.ts
@@ -82,12 +80,11 @@ async function bodyOf(app: App): Promise<BodyViewSnapshot | null> {
 
 describe.skipIf(!SHOULD_RUN)("body-grounding probe: the app's own path reaches a body", () => {
   test(
-    "a character through the activated session tap lands in the body's composer, and a performed menu item acts in the body",
+    "a character posted to the process lands in the body's composer, and a performed menu item acts in the body",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
@@ -112,7 +109,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding probe: the app's own path reaches a
         expect(responder?.firstResponder, "the body's web view is the window's first responder").toBe(true);
         await app.nativeType("q");
         const typed = await pollFor(() => body.evalJS<string | null>(composerText), (t) => t !== null && t.includes("q"), SETTLE_MS);
-        note(`typed through the session tap: composer text ${JSON.stringify(typed)}; shell active element ${JSON.stringify(
+        note(`typed into the real key window: composer text ${JSON.stringify(typed)}; shell active element ${JSON.stringify(
           await app.evalJS<string | null>(`document.activeElement ? document.activeElement.tagName : null`),
         )}`);
         expect(typed, "the character lands in the body's composer").toContain("q");

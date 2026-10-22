@@ -45,14 +45,6 @@ const TEST_NAME = "body-grounding-row-12-composer";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-12 launch
- * takes the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 const A = "row12-a";
 const SETTLE_MS = 8_000;
 const TURN_MS = 120_000;
@@ -140,12 +132,12 @@ function scratchWithPng(): { scratch: string; pngPath: string } {
 }
 
 /** The Overview's composer, in its body, takes typing, a text paste and an image paste as an attachment. */
-export async function overviewComposer(launch: Launch): Promise<void> {
+export async function overviewComposer(): Promise<void> {
   const card = "row12-overview";
   const kind = cardKind("overview");
   const { pngPath } = scratchWithPng();
   const field = `(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, ...launch });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-overview` });
   try {
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row12-seed"] }), focusCardId: card });
     const o = await standUpKind(app, kind, card);
@@ -173,8 +165,13 @@ export async function overviewComposer(launch: Launch): Promise<void> {
  * so the phase is seen to leave idle in a few seconds rather than seven.
  * Part `panel`: the host's file panel hands its path back to it, and Escape
  * closes its slash popup.
+ *
+ * `launch` is the panel piece's: the host's open panel is the system's
+ * remote panel service, a second process WindowServer alone delivers keys
+ * to, so that piece takes the screen while every other piece of the bar
+ * runs in the background.
  */
-export async function sessionComposer(launch: Launch, part: "send" | "panel"): Promise<void> {
+export async function sessionComposer(part: "send" | "panel", launch: { foreground?: boolean } = {}): Promise<void> {
   const stubDir = stubDirectory();
   const { scratch, pngPath } = scratchWithPng();
   const insertPath = join(scratch, "row12-insert.txt");

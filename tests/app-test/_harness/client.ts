@@ -27,6 +27,7 @@ import type {
   MenuItemSnapshot,
   MenuItemState,
   WindowState,
+  SessionTapProbe,
   MenuItemPerformed,
   MemoryPressureLevel,
   NativeModifier,
@@ -1176,6 +1177,14 @@ export function menuItemState(
  */
 export function windowState(caller: HarnessCaller): Promise<WindowState> {
   return caller.rpcCall<WindowState>("windowState", {});
+}
+
+/**
+ * Pid mode only: post a Shift to the session event tap and report whether
+ * the app received it. See `SessionTapProbe`.
+ */
+export function sessionTapProbe(caller: HarnessCaller): Promise<SessionTapProbe> {
+  return caller.rpcCall<SessionTapProbe>("sessionTapProbe", {});
 }
 
 /**

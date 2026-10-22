@@ -41,10 +41,10 @@
  * receipt can name a real commit at all.
  *
  * Background: ⌘C is Edit ▸ Copy's key equivalent, and a pid-mode launch has
- * no key window — AppKit refuses one to an inactive app — so the host
- * resolves Copy from its window's own first responder
- * (`AppDelegate.sendToKeyChain`), and the chord reaches the pasteboard as it
- * does for a user, with nobody's screen.
+ * a real key window with the app believing it is active (`TugApplication`),
+ * so Copy resolves from the key window's first responder by AppKit's own
+ * path, and the chord reaches the pasteboard as it does for a user, with
+ * nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/commit-identity-menu.tsx
  * @covers tugdeck/src/components/tugways/session-identity-menu.tsx

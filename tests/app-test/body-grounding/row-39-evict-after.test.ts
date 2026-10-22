@@ -12,7 +12,6 @@
  * with its draft in its composer: the time trigger rides the same eviction
  * and the same arrival as pressure (row 38).
  *
- * @foreground activation
  * @covers tugdeck/src/lib/evict-after-pref.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -59,7 +58,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 39: eviction by time hidden", (
       seedTugbankForLaunch(tugbankPath);
       const app = await launchTugApp({
         testName: "body-grounding-row-39-evict-after",
-        foreground: true,
         persistInTestMode: true,
         restoreInTestMode: true,
         env: { TUGBANK_PATH: tugbankPath },

@@ -54,14 +54,6 @@ const TEST_NAME = "body-grounding-row-01-arrival";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-1 launch takes
- * the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 const SEED = "row01-seed";
 const BODY_READY_MS = 30_000;
 const PLACED_MS = 3_000;
@@ -287,8 +279,8 @@ async function arriveOpened(
 }
 
 /** A card of `kind` opened the way it opens, read from the hand-off on. */
-export async function arrivalOfKind(launch: Launch, kind: CardKind): Promise<void> {
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch });
+export async function arrivalOfKind(kind: CardKind): Promise<void> {
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}` });
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === null && b.state === "connected"), BODY_READY_MS);
@@ -303,8 +295,8 @@ export async function arrivalOfKind(launch: Launch, kind: CardKind): Promise<voi
 }
 
 /** Launch with the seed card and a spare waiting connected, and run `body`. */
-async function withSpare(launch: Launch, name: string, body: (app: App) => Promise<void>): Promise<void> {
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch });
+async function withSpare(name: string, body: (app: App) => Promise<void>): Promise<void> {
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}` });
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     // The spare is made a beat after the shell paints, and waits connected.
@@ -321,8 +313,8 @@ async function withSpare(launch: Launch, name: string, body: (app: App) => Promi
 }
 
 /** ⌘N: the first card takes the warm spare. */
-export function arrivalWarm(launch: Launch): Promise<void> {
-  return withSpare(launch, "warm", async (app) => {
+export function arrivalWarm(): Promise<void> {
+  return withSpare("warm", async (app) => {
     const warm = await arriveOpened(app, "warm", "session", () => pressNew(app, SEED));
     expect(warm.body.start, "the first card bound the spare").toBe("warm");
     // The card is unbound, so its picker is all there is to wait on: the body
@@ -337,8 +329,8 @@ export function arrivalWarm(launch: Launch): Promise<void> {
 }
 
 /** ⌘N twice: a card opened behind the one that took the spare, before it is replaced, is made cold. */
-export function arrivalCold(launch: Launch): Promise<void> {
-  return withSpare(launch, "cold", async (app) => {
+export function arrivalCold(): Promise<void> {
+  return withSpare("cold", async (app) => {
     const takerCard = await newCardByChord(app, SEED);
     const cold = await arriveOpened(app, "cold", "session", () => pressNew(app, takerCard));
     expect(cold.body.start, "the card opened behind the spare's taker was made cold").toBe("cold");

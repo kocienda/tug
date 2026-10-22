@@ -6,7 +6,6 @@
  * folded through the session tap (⌃⌘Y), read by the composite and the
  * shell's record together.
  *
- * @foreground activation
  * @family row-09-fold
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/card-fold.ts
@@ -23,14 +22,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 9: the fold", () => {
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: the fold hides the body at its commit, with no peek`,
-      () => foldKind({ foreground: true }, kind, "fold"),
+      () => foldKind(kind, "fold"),
       TEST_TIMEOUT_MS,
     );
   }
 
   test.skipIf(!sessionUnderTest(9))(
     "the fold carries the body onto its folded strip, with no peek",
-    () => foldSession({ foreground: true }, "fold"),
+    () => foldSession("fold"),
     TEST_TIMEOUT_MS,
   );
 });

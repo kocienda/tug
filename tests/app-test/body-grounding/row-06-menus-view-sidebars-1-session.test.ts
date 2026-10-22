@@ -6,7 +6,6 @@
  * A sidebar shown from View › Sidebar once left its new body holding the
  * keyboard after the shell had handed it back ([B05], row 6).
  *
- * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift
@@ -17,4 +16,4 @@
 
 import { describeSessionSweep } from "./_row-06";
 
-describeSessionSweep({ foreground: true }, "view-sidebars-1", "View › Sidebar's Arcs, Jots and Layout rows");
+describeSessionSweep("view-sidebars-1", "View › Sidebar's Arcs, Jots and Layout rows");

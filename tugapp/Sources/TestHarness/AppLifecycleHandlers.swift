@@ -11,6 +11,16 @@ import Foundation
 // real `AppDelegate`. Returns void on success, throws
 // `AppLifecycleError.timeout(...)` on miss.
 //
+// In pid mode the app is never really activated, so the primitives are the
+// wrong door: `NSApp.activate` and a Finder activation take the user's
+// screen, and `NSApp.deactivate` has nothing to undo. There each verb moves
+// the fact `TugApplication` answers `isActive` from
+// (`AppDelegate.harnessAppActive`) the way AppKit would, moves key status by
+// AppKit's own routing, and posts AppKit's notifications in AppKit's order;
+// hide and unhide are AppKit's own doors, which activate nothing on the
+// user's screen, and an unhide then comes forward in-process as AppKit's
+// `unhide:` makes an app active — see `HarnessLifecycle` below.
+//
 // ## Why notifications, not delegate-callback hooks
 //
 // `NSApp.deactivate()` etc. drive the app's regular activation
@@ -62,6 +72,96 @@ enum AppLifecycleError: Error, CustomStringConvertible {
     }
 }
 
+// MARK: - The fake's lifecycle
+
+/// Pid mode's resign, activate, hide and unhide, on the main thread.
+///
+/// AppKit's own order is kept: `will…` posted, the state moved, key status
+/// moved, `did…` posted — so the delegate, the deck's lifecycle frames, the
+/// host's readers of `isActive` and `isHidden`, and WebKit's window-active
+/// state all move together, as they do for a real app switch. Key status
+/// leaves the harness window the way it leaves any window, by AppKit's
+/// routing: a borderless off-screen window of this app is made key, so
+/// `MainWindow.resignKey` runs (the host's gesture cancel included) and the
+/// page blurs; it leaves the moment it loses key, to the harness window or to
+/// the click that makes that window key. Hide and unhide are AppKit's own
+/// doors — `hide` on an app that reads inactive, `unhideWithoutActivation` —
+/// so `isHidden` is AppKit's and so is the window bookkeeping. Nothing here
+/// activates anything or orders anything in front of the user's windows.
+enum HarnessLifecycle {
+    /// The window that held key when the app last resigned, to take it again.
+    private static weak var lastKey: NSWindow?
+
+    /// Holds key while the app is "inactive": off every screen, never shown,
+    /// and ordered out as soon as anything takes key from it.
+    private static let standIn: NSWindow = {
+        let w = StandInWindow(
+            contentRect: NSRect(x: -20_000, y: -20_000, width: 1, height: 1),
+            styleMask: [.borderless], backing: .buffered, defer: true,
+        )
+        w.isReleasedWhenClosed = false
+        w.level = MainWindow.harnessBackgroundLevel
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: w, queue: .main) { _ in
+            w.orderOut(nil)
+        }
+        return w
+    }()
+
+    private final class StandInWindow: NSWindow {
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { false }
+    }
+
+    private static func post(_ name: Notification.Name) {
+        NotificationCenter.default.post(name: name, object: NSApp)
+    }
+
+    static func resign() {
+        guard AppDelegate.harnessAppActive else { return }
+        post(NSApplication.willResignActiveNotification)
+        lastKey = NSApp.windows.first { $0.isKeyWindow && $0 !== standIn }
+        // Key moves while the app still reads active: AppKit refuses key
+        // status to an inactive app's window, the stand-in's included.
+        standIn.orderBack(nil)
+        standIn.makeKey()
+        AppDelegate.harnessAppActive = false
+        post(NSApplication.didResignActiveNotification)
+    }
+
+    /// `takeKey: false` is the activating click's form: the app comes forward
+    /// and the click itself makes the window key, as a click into a non-key
+    /// window of an active app does — which is what has AppKit ask
+    /// `acceptsFirstMouse` for it, the host's tell for an activating click.
+    static func becomeActive(takeKey: Bool = true) {
+        guard !AppDelegate.harnessAppActive else { return }
+        post(NSApplication.willBecomeActiveNotification)
+        AppDelegate.harnessAppActive = true
+        if takeKey {
+            let target = lastKey ?? NSApp.windows.first { $0 is MainWindow && $0.isVisible }
+            target?.makeKey()
+        }
+        post(NSApplication.didBecomeActiveNotification)
+    }
+
+    /// AppKit resigns an app as it hides it; the hide itself is AppKit's.
+    static func hide() {
+        guard !NSApp.isHidden else { return }
+        resign()
+        NSApp.hide(nil)
+    }
+
+    /// The windows come back where they were, and the app comes forward:
+    /// `-[NSApplication unhide:]`, which the session-tap mode calls, restores
+    /// the windows and makes the app active, so the fake does both — the
+    /// unhide by AppKit's door that activates nothing on the user's screen,
+    /// then the in-process activation that retakes key.
+    static func unhide() {
+        guard NSApp.isHidden else { return }
+        NSApp.unhideWithoutActivation()
+        becomeActive()
+    }
+}
+
 // MARK: - Handler
 
 enum AppLifecycleHandlers {
@@ -83,14 +183,14 @@ enum AppLifecycleHandlers {
                 notification: NSApplication.didResignActiveNotification,
                 eventName: "didResignActive",
                 timeoutMs: timeoutMs,
-                trigger: deactivateSelf,
+                trigger: AppDelegate.harnessPidMode ? HarnessLifecycle.resign : deactivateSelf,
             )
         case "simulateAppBecomeActive":
             try waitForLifecycle(
                 notification: NSApplication.didBecomeActiveNotification,
                 eventName: "didBecomeActive",
                 timeoutMs: timeoutMs,
-                trigger: { NSApp.activate(ignoringOtherApps: true) },
+                trigger: AppDelegate.harnessPidMode ? { HarnessLifecycle.becomeActive() } : { NSApp.activate(ignoringOtherApps: true) },
             )
             // `didBecomeActive` fires when Tug's app-level activation
             // commits, but macOS WindowServer's window-z-order update
@@ -102,20 +202,21 @@ enum AppLifecycleHandlers {
             // Finder's desktop, foregrounded by `simulateAppResign`'s
             // `deactivateSelf`. The settle gives WindowServer time
             // to make Tug's window topmost at click coordinates.
-            Thread.sleep(forTimeInterval: 0.2)
+            // Pid mode routes nothing through WindowServer, so it has no lag to wait out.
+            if !AppDelegate.harnessPidMode { Thread.sleep(forTimeInterval: 0.2) }
         case "simulateAppHide":
             try waitForLifecycle(
                 notification: NSApplication.didHideNotification,
                 eventName: "didHide",
                 timeoutMs: timeoutMs,
-                trigger: { NSApp.hide(nil) },
+                trigger: AppDelegate.harnessPidMode ? HarnessLifecycle.hide : { NSApp.hide(nil) },
             )
         case "simulateAppUnhide":
             try waitForLifecycle(
                 notification: NSApplication.didUnhideNotification,
                 eventName: "didUnhide",
                 timeoutMs: timeoutMs,
-                trigger: { NSApp.unhide(nil) },
+                trigger: AppDelegate.harnessPidMode ? HarnessLifecycle.unhide : { NSApp.unhide(nil) },
             )
         case "quitGracefully":
             // Don't park on a `willTerminate` semaphore here:

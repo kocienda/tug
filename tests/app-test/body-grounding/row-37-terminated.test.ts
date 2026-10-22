@@ -15,7 +15,6 @@
  * resident size grew most across the resume. A kill that missed it is caught
  * at once, since the body would never leave `ready`.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/session-restore.ts
  */
 
@@ -138,7 +137,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 37: the terminated body", () =>
       seedTugbankForLaunch(tugbankPath);
       const app = await launchTugApp({
         testName: "body-grounding-row-37-terminated",
-        foreground: true,
         persistInTestMode: true,
         restoreInTestMode: true,
         env: { TUGBANK_PATH: tugbankPath },

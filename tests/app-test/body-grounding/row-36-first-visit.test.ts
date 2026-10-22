@@ -11,7 +11,6 @@
  * here through the body's own tugbank key — it goes dormant and stays a body.
  * The return shows it and wakes it.
  *
- * @foreground activation
  * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-dormancy.ts
@@ -88,7 +87,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 36: a parked workspace's first 
       tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "dormantAfterMs", "int", String(DORMANT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-36-first-visit",
-        foreground: true,
         env: { TUGBANK_PATH: tugbankPath },
         skipAccessibilityPreflight: true,
         persistInTestMode: true,

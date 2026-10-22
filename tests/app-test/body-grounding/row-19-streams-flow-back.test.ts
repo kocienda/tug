@@ -6,7 +6,6 @@
  * slid to slot 2 as the set-up, then three body cards stream while it slides
  * back to slot 1.
  *
- * @foreground activation
  * @family row-19-streams
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/connection.ts
@@ -19,7 +18,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, streamFlow } from "./_row-19";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 19: the flow slide back", () => {
   test(
     "three streaming bodies keep applying batches through a flow slide back",
-    () => streamFlow({ foreground: true }, "back"),
+    () => streamFlow("back"),
     TEST_TIMEOUT_MS,
   );
 });

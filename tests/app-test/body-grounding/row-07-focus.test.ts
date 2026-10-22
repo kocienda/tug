@@ -24,7 +24,6 @@
  * keyboard to the card focused before it. The slash popup and the session
  * picker are the Session card's own surfaces.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-publisher.ts
  * @covers tugdeck/src/lib/keyboard-yield.ts
@@ -167,7 +166,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         const textDir = mkdtempSync(join(tmpdir(), "tug-row07-text-"));
         const textFile = join(textDir, "notes.txt");
         writeFileSync(textFile, "one\ntwo\nthree\n");
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
         try {
           await app.seedDeckState({
             state: withText(kindDeck(kind, card, { sessions: [B] })),
@@ -235,7 +234,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
       writeFileSync(textFile, "one\ntwo\nthree\n");
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

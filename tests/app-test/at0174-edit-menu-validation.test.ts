@@ -50,9 +50,9 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * Background: a pid-mode launch has no key window — AppKit refuses one to an
- * inactive app — so the host resolves the Edit actions from its window's own
- * first responder (`AppDelegate.sendToKeyChain`), and ⌘Z and the menu items
+ * Background: a pid-mode launch has the app believe it is active and its
+ * window really key (`TugApplication`), so the Edit actions resolve from the
+ * key window's first responder by AppKit's own path, and ⌘Z and the menu items
  * take the path they take for a user, with nobody's screen.
  *
  * @covers tugapp/Sources/AppDelegate.swift

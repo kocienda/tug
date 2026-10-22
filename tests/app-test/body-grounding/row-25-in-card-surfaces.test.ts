@@ -22,7 +22,6 @@
  * read the same way: the Overview's row menu on a post, and its composer's
  * context menu.
  *
- * @foreground activation
  * @covers tugdeck/src/components/tugways/tug-editor-context-menu.tsx
  * @covers tugdeck/src/components/tugways/chrome/session-route-indicator-badge.tsx
  */
@@ -129,7 +128,8 @@ async function readInCard(app: App, label: string, selector: string, open: () =>
   const h = box.bottom - box.top + 2 * COLUMN_REACH_PT;
   const shown = await column(app, x, y, h);
   await close();
-  await pollFor(() => body.evalJS<SurfaceReading | null>(readSurface(selector)), (r) => r === null, SETTLE_MS);
+  const closed = await pollFor(() => body.evalJS<SurfaceReading | null>(readSurface(selector)), (r) => r === null, SETTLE_MS);
+  expect(closed, `${label}: the surface closes`).toBeNull();
   await Bun.sleep(250);
   const gone = await column(app, x, y, h);
   // In points from the box's top.
@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 25: in-card surfaces draw whole
     "overview: its row menu on a post and its composer's context menu stand inside its body and are painted there",
     async () => {
       const card = "r25-overview";
-      const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: true });
+      const app = await launchTugApp({ testName: `${TEST_NAME}-overview` });
       try {
         const now = Date.now();
         app.seedLedger({
@@ -189,7 +189,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 25: in-card surfaces draw whole
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

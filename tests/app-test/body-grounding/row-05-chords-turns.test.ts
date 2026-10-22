@@ -6,7 +6,6 @@
  * session card holding the keyboard, ⌃⌘[ and ⌃⌘] page its transcript and ⌘D
  * starts and stops its dictation, leaving the other body's untouched.
  *
- * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -23,7 +22,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, turnChords } from "./_row-05";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 5: turn navigation and dictation", () => {
   test.skipIf(!sessionUnderTest(5))(
     "turn navigation and the dictation toggle act in the body that holds the keyboard",
-    () => turnChords({ foreground: true }),
+    () => turnChords(),
     TEST_TIMEOUT_MS,
   );
 });

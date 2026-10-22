@@ -6,7 +6,6 @@
  * rail moved to the other edge, which keeps its size, or a content card by
  * the flow slide out.
  *
- * @foreground activation
  * @family row-14-beats-move
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift
@@ -24,7 +23,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: the way out, every other ki
     test(
       `${kind.componentId}: the gesture that only moves it carries the body with its chrome`,
       () =>
-        withKind({ foreground: true }, kind, "out", ({ app, card, standing, crop }) => {
+        withKind(kind, "out", ({ app, card, standing, crop }) => {
           const { out } = kindLegs(kind);
           return carryLeg(app, card, [card], out.label, out.js, standing, crop);
         }),

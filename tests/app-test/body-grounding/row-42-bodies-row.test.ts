@@ -13,7 +13,6 @@
  * critical alone takes it. The Release row stands at its default, fifteen
  * minutes, and a press on another delay is what it then shows.
  *
- * @foreground activation
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugdeck/src/components/layout/layout-card.tsx
  * @covers tugdeck/src/lib/body-census.ts
@@ -41,7 +40,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 42: the Layout card's Bodies ro
   test(
     "the Bodies and Pressure rows read the deck's bodies and the host's last pressure event, a warning keeps the spare, and Release sets evictAfterMs",
     async () => {
-      const app = await launchTugApp({ testName: "body-grounding-row-42-bodies-row", foreground: true });
+      const app = await launchTugApp({ testName: "body-grounding-row-42-bodies-row" });
       try {
         const kind = cardKind("layout");
         await app.seedDeckState({ state: kindDeck(kind, L, { sessions: [A] }), focusCardId: L });

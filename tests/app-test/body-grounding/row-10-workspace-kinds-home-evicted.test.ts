@@ -5,7 +5,6 @@
  * `row-10-workspace-kinds-home` with the home card's body dormant and then
  * evicted before the switch (`_tiers.ts`).
  *
- * @foreground activation
  * @family row-10-workspace
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/card-placement.ts
@@ -22,7 +21,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 10: workspace switch home, evic
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: away → home onto an evicted card: its departing body hides and its arriving body shows on its own placeholder`,
-      () => switchKind({ foreground: true, tier: "evicted" }, kind, "home"),
+      () => switchKind(kind, "home", "evicted"),
       TEST_TIMEOUT_MS,
     );
   }

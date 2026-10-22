@@ -17,7 +17,6 @@
  * long the revealed body stood lidded before the catch-up landed, against the
  * display period — what decided that a reveal needs the lid.
  *
- * @foreground activation
  * @covers tugdeck/src/body/body-dormancy.ts
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/lib/body-visibility-store.ts
@@ -85,7 +84,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: dormancy and the catch-up",
     "a hidden body goes dormant, misses its turn's end, and catches up when shown",
     async () => {
       const stubDir = stubDirectory();
-      const app = await launchTugApp({ testName: "body-grounding-row-35-dormancy", foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: "body-grounding-row-35-dormancy", env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: A });
         const tugSessionId = randomUUID();

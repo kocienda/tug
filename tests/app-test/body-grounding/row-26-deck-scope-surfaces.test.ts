@@ -24,7 +24,6 @@
  * of Claude?" confirm in the overlay, which is cancelled — guarded on the button's words,
  * the way at0598 guards it, so nothing ever logs the machine out.
  *
- * @foreground activation
  * @covers tugdeck/src/overlay/overlay-surface-drawer.ts
  * @covers tugdeck/src/lib/surface-relay.ts
  * @covers tugdeck/src/lib/surface-mirror.ts
@@ -108,7 +107,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

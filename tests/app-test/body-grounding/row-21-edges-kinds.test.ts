@@ -6,7 +6,6 @@
  * each other kind beside an in-document Text card, its edges read at three
  * zooms with each card key in turn.
  *
- * @foreground activation
  * @family row-21-edges
  * @covers tugdeck/src/lib/card-plan.ts
  * @covers tugdeck/src/body/body-page.css
@@ -24,7 +23,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 21: every other kind's edges ar
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: its side edges are one border, no sliver beside it, at three zooms, key and not key`,
-      () => edgesOfKind({ foreground: true }, kind),
+      () => edgesOfKind(kind),
       TEST_TIMEOUT_MS,
     );
   }

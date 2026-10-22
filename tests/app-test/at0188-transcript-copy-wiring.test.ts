@@ -39,9 +39,9 @@
  * exercise a copy at all, and WebKit answers an unselectable selection by
  * writing an EMPTY pasteboard rather than by failing loudly.
  *
- * Background: a pid-mode launch has no key window — AppKit refuses one to an
- * inactive app — so the host resolves Edit ▸ Copy from its window's own
- * first responder (`AppDelegate.sendToKeyChain`), and ⌘C reaches the system
+ * Background: a pid-mode launch has the app believe it is active and its
+ * window really key (`TugApplication`), so the Edit actions resolve from the
+ * key window's first responder by AppKit's own path, and ⌘C reaches the system
  * pasteboard as it does for a user, with nobody's screen.
  *
  * @covers tugdeck/src/lib/transcript-export.ts

@@ -14,7 +14,6 @@
  * - **Its surface** — the body paints the content pane's surface, read off
  *   the composite.
  *
- * @foreground activation
  * @covers tugdeck/src/components/tugways/cards/gallery-registrations.tsx
  * @covers tugdeck/src/components/tugways/cards/gallery-push-button.tsx
  * @covers tugdeck/src/spikes/spike-registry.tsx
@@ -61,7 +60,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the maker kinds, by the
   test(
     "the gallery card mounts as a body, its sections are there, and its view toggle flips in the body",
     async () => {
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
+      const app = await launchTugApp({ testName: TEST_NAME });
       try {
         await app.seedDeckState({ state: kindDeck(cardKind("gallery-buttons"), GB), focusCardId: GB });
         const body = await standUpKind(app, cardKind("gallery-buttons"), GB);

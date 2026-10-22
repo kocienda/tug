@@ -6,7 +6,6 @@
  * session card holding the keyboard, its composer takes typing and the Edit
  * chords, ⌘K focuses it, and ⌘F, ⌘G, ⇧⌘G and Escape drive its find bar.
  *
- * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -23,7 +22,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, editChords } from "./_row-05";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 5: the Edit and find chords", () => {
   test.skipIf(!sessionUnderTest(5))(
     "typing, ⌘K, the Edit chords and the find chords act in the body that holds the keyboard",
-    () => editChords({ foreground: true }),
+    () => editChords(),
     TEST_TIMEOUT_MS,
   );
 });

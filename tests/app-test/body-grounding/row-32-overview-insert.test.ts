@@ -11,7 +11,6 @@
  * body. The insert never leaves the card's page: the shell's document holds
  * no Overview at all.
  *
- * @foreground activation
  * @covers tugdeck/src/components/overview/overview-insert-target.ts
  * @covers tugdeck/src/components/overview/overview-card-registration.tsx
  */
@@ -61,7 +60,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 32: the Overview's insert stays
   test(
     "Insert into Prompt on a post's file lands an atom in the Overview's own composer, in its body",
     async () => {
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
+      const app = await launchTugApp({ testName: TEST_NAME });
       try {
         app.seedLedger({
           overview_posts: [

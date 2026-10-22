@@ -397,7 +397,7 @@ export function TugEditorContextMenu({
   useLayoutEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   // Stable close request: imperatively hide the menu then fire `onClose`. Used by
-  // the engine's Escape ladder (the trap's `onEscapeDismiss`) and the ⌘. keydown.
+  // the engine's Escape ladder (the trap's `onEscapeDismiss`) and the Escape keydown.
   const requestClose = useCallback(() => {
     const menu = menuRef.current;
     if (menu) menu.style.display = "none";
@@ -409,9 +409,10 @@ export function TugEditorContextMenu({
   // editor focused for its whole lifecycle (items mousedown-preventDefault), so it
   // needs NO close-focus teardown writer — `onCloseAutoFocus` is unused and the
   // trap pops with `moveDomFocus: true`, harmlessly re-projecting the editor key
-  // view (which never lost focus). Registering `onEscapeDismiss` lets the engine's
-  // ladder own Escape; the local Escape keydown branch is deleted below. ⌘. stays
-  // handled in the window keydown listener.
+  // view (which never lost focus). Registering `onEscapeDismiss` keeps the menu on
+  // the engine's stack, but Escape and ⌘. are both closed and consumed in the
+  // window keydown listener below: an editor key view that captures Escape
+  // returns ahead of the ladder's dismiss rung.
   //
   // `kbf: false` keeps that contract whole. An engaging trap flips
   // `kbfEngaged()`, and the settle that follows RE-LANDS the keyboard for the
@@ -749,11 +750,20 @@ export function TugEditorContextMenu({
         return;
       }
 
-      // Escape is owned by the engine's Escape ladder ([P02]) via the trap's
-      // `onEscapeDismiss` (= `requestClose`). Do NOT handle it here — letting it
-      // propagate to the engine's document listener is what routes it to the
-      // ladder (this window listener fires first in the capture chain, so a local
-      // handler would shadow the engine).
+      // Escape — close the menu and consume the key, as ⌘. does above. The
+      // trap's `onEscapeDismiss` registration keeps the menu on the engine's
+      // stack, but the ladder's dismiss rung is reached only when no earlier
+      // rung takes the key, and this menu always stands over an editor: an
+      // editor key view that captures Escape returns ahead of the ladder, so a
+      // menu that left Escape to the engine was never closed by it. Consuming
+      // here also keeps the key from falling back to AppKit, which beeps for
+      // an Escape the page leaves unhandled.
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        requestClose();
+        return;
+      }
 
       // Enter / Space — activate the keyboard-selected item, if any.
       if (e.key === "Enter" || e.key === " ") {
@@ -855,7 +865,7 @@ export function TugEditorContextMenu({
       window.removeEventListener("mousedown", onWindowPress, true);
       window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [open, activateItem, applyTypeahead, setHighlightedItem]);
+  }, [open, activateItem, applyTypeahead, setHighlightedItem, requestClose]);
 
   if (!open) return null;
 

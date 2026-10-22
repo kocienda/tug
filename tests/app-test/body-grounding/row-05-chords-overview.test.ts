@@ -6,7 +6,6 @@
  * Edit chords, ⌃⌘[ and ⌃⌘] page its column by post, and ⌘D starts and stops
  * dictation in its composer.
  *
- * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -23,7 +22,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, overviewChords } from "./_row-05";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 5: the Overview's chords", () => {
   test.skipIf(!kindsUnderTest(5).some((k) => k.componentId === "overview"))(
     "overview: its composer's typing and Edit chords, its paging chords and ⌘D act in its body",
-    () => overviewChords({ foreground: true }),
+    () => overviewChords(),
     TEST_TIMEOUT_MS,
   );
 });

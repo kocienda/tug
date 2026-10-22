@@ -25,14 +25,13 @@
  * real OS window-key state, so the assertion needs no native event.
  *
  * Like the rest of the focus suite this drives `simulateAppResign` /
- * `simulateAppBecomeActive`, which require the app to actually be the active
- * application — so it must run with the Tug window frontmost (a real display /
- * CI session), not headless-backgrounded. The on-open assertions validate the
+ * `simulateAppBecomeActive`, which in a background launch move the app's
+ * believed activation in-process and resign and retake the window's key status,
+ * so the window blurs and refocuses with nothing taken. The on-open assertions validate the
  * per-card seed regardless; the round-trip is the survival regression.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @foreground activation
  * @covers tugdeck/src/components/tugways/chrome/session-permission-dialog.tsx
  * @covers tugdeck/src/components/tugways/chrome/session-question-dialog.tsx
  * @covers tugdeck/src/focus-transfer.ts
@@ -142,10 +141,6 @@ describe.skipIf(!SHOULD_RUN)(
       "permission dialog stays modal + seeded across app resign → become-active",
       async () => {
         const app = await launchTugApp({
-    // Foreground: drives a real app resign / hide / become-active cycle,
-    // which only happens to an app that is actually active (pid-mode default
-    // never activates).
-    foreground: true,
           testName: "at0148-dialog-survives-reactivation",
         });
         try {

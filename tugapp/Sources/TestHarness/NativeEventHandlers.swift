@@ -19,29 +19,35 @@ import WebKit
 // window made key before a key is posted, so the event reaches the window
 // through WindowServer and AppKit routes it as it does in the field. The pid
 // mode (`postToPid`) exists so a run can proceed without taking the
-// developer's screen: the app stays an accessory and inactive, and an
-// inactive app cannot hold a key window — `makeKey()` leaves `isKeyWindow`
-// false and `NSApp.keyWindow` nil (the `windowState` verb reads it; the
-// native smoke pins it). What the mode skips is the WindowServer hop and the
-// activation. What it delivers is the same `NSEvent` to the same window, and
-// the host gives that window the two things a key window would have supplied
-// (`AppDelegate.swift`): a local `keyDown` monitor offers each ⌘ chord to the
-// window's views before the main menu — the order `-[NSApplication
-// sendEvent:]` takes for a key window — and `sendToKeyChain` resolves a
-// nil-target Edit action (cut, copy, paste, delete, select-all, undo, redo)
-// from the window's own first responder when AppKit names no key window. So
-// a chord or a menu command read in pid mode takes the view-then-menu order
-// and the first-responder action path the user's takes, and a test of either
-// runs backgrounded and asserts the effect in the page that should have
-// received it.
+// developer's screen: the app stays an accessory and is never activated.
+// AppKit refuses key status to an inactive app's window, so the host has
+// the app believe it is active in this mode (`TugApplication`, `main.swift`)
+// and the harness window is really key — `isKeyWindow` is AppKit's own
+// state, `NSApp.keyWindow` names the window, and WebKit reads the page
+// active (the `windowState` verb reads all of it; the native smoke pins it,
+// beside a session-tap probe proving the user's keyboard is not pulled).
+// What the mode skips is one hop: WindowServer choosing the destination
+// process, which `postToPid` chooses instead. What it delivers is the same
+// `NSEvent` entering `-[NSApplication sendEvent:]` for a key window, which
+// no in-process code can tell from a user's — so a ⌘ chord takes the
+// view-then-menu order AppKit gives a key window, a nil-target Edit action
+// (cut, copy, paste, delete, select-all, undo, redo) resolves from the key
+// window's first responder by `targetForAction`, and a test of either runs
+// backgrounded and asserts the effect in the page that should have received
+// it. Nothing stands in for those paths; the host's former chord monitor
+// and first-responder walk are gone.
 //
-// The one evidence rule that survives: a test of WindowServer routing itself,
-// or of activation itself — resign and become-active cycles, key-window
-// status, `document.hasFocus()`, which WebKit ties to the application being
-// active — launches `foreground: true` and declares `@foreground` with its
-// reason; everything else does not. A reading of frames or paint that needs
-// only a window WebKit will render launches `visible: true` (`@visible`) and
-// still takes nothing from the user.
+// The one evidence rule that survives: a test whose events can reach nothing
+// but the really active app — keys WindowServer delivers to another process,
+// such as the host's remote open panel, or a drag that moves the user's
+// cursor — launches `foreground: true` and declares `@foreground activation`;
+// everything else does not. Key-window status, `document.hasFocus()` and the
+// app's resign / become-active / hide cycle are background tests: the window
+// is really key, and the lifecycle verbs move the app's believed activation
+// in-process (`HarnessLifecycle`). Occlusion detection is off for every web
+// view in this mode, so a reading of frames or paint renders where the window
+// sits; `visible: true` (`@visible`) differs only on a WebKit without that
+// switch, and still takes nothing from the user.
 //
 // ## Why this shape
 //
@@ -380,9 +386,13 @@ final class NativeEventHandlers {
     private var syntheticEventNumber: Int = 41_000
 
     /// Rebuild a mouse CGEvent as an NSEvent located in the window and
-    /// deliver it via `window.sendEvent` on the main thread. The CG
-    /// screen coord (Y-down, primary-screen origin) is flipped back to
-    /// AppKit screen space and converted into window coords — the same
+    /// hand it to `NSApp.sendEvent` on the main thread — the door a click
+    /// from WindowServer enters by, so local event monitors and the
+    /// application's own `sendEvent` see it as they would a click, and
+    /// AppKit routes it to the window by its number (measured 2026-10-21:
+    /// the page sees it with the app inactive, and no activation follows).
+    /// The CG screen coord (Y-down, primary-screen origin) is flipped back
+    /// to AppKit screen space and converted into window coords — the same
     /// chain `CoordMapping.viewportToScreen` runs, reversed from step 5
     /// to step 3.
     private func sendMouseEventToWindow(_ event: CGEvent, as nsType: NSEvent.EventType) {
@@ -409,7 +419,7 @@ final class NativeEventHandlers {
                 NSLog("tughost.native.sendMouseEventToWindow.failed type=%d", nsType.rawValue)
                 return
             }
-            window.sendEvent(ns)
+            NSApp.sendEvent(ns)
         }
         if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
     }
@@ -468,7 +478,17 @@ final class NativeEventHandlers {
         if activateFirst { activateSelf() }
         if !activateFirst { orderWindowFrontInactive() }
         let screenPoint = try resolveScreenPoint(viewportPoint)
-        if !activateFirst {
+        if !activateFirst && postToOwnPid {
+            // Pid mode's activating click: the app the harness resigned comes
+            // forward before the click is dispatched, as AppKit activates an
+            // app on the mouse-down that lands in its window — announced
+            // in-process (`HarnessLifecycle`), with no cursor warped and
+            // nothing activated on the user's screen. The window is left for
+            // the click to make key, so AppKit asks `acceptsFirstMouse` for it.
+            let work = { if !AppDelegate.harnessAppActive { HarnessLifecycle.becomeActive(takeKey: false) } }
+            if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
+        }
+        if !activateFirst && !postToOwnPid {
             // An activation click has to arrive the way a user's does, with the
             // cursor already at the point. A posted button event carries its
             // own position, but WindowServer routes a click into a background
@@ -485,14 +505,10 @@ final class NativeEventHandlers {
             // failure surfaces much later as an unrelated timeout on whatever
             // the test expected the click to cause. Naming it here costs one
             // window-list read and turns that into a sentence ([L31]).
-            // Session-tap mode only. In pid mode the click never travels
-            // through WindowServer at all — it is rebuilt as an NSEvent and
-            // handed straight to our own window — so no other window can be
-            // in front of anything, and a background test whose deck happens
-            // to overlap a developer's own Tug would fail on a gesture that
-            // works perfectly.
-            if !postToOwnPid,
-               let blocker = frontmostWindowOwner(at: screenPoint),
+            // Session-tap mode only (this branch): in pid mode the click never
+            // travels through WindowServer at all, so no other window can be
+            // in front of anything.
+            if let blocker = frontmostWindowOwner(at: screenPoint),
                blocker.pid != ownPid {
                 throw NativeEventError.activationClickObstructed(
                     point: screenPoint,
@@ -1180,11 +1196,17 @@ final class NativeEventHandlers {
     /// Safe to call from any queue. `NSApp.activate` is main-thread-
     /// only, so we marshal via a synchronous hop.
     ///
-    /// A no-op in pid mode: `postToPid` delivery never consults
-    /// WindowServer's z-order, and activating would steal the user's
-    /// focus — the thing the mode exists to avoid.
+    /// In pid mode nothing is activated: `postToPid` delivery never consults
+    /// WindowServer's z-order, and activating would steal the user's focus —
+    /// the thing the mode exists to avoid. An app the harness resigned is
+    /// brought forward in-process instead (`HarnessLifecycle`), so a gesture
+    /// after `simulateAppResign` finds the app active as it would here.
     private func activateSelf() {
-        if postToOwnPid { return }
+        if postToOwnPid {
+            let work = { if !AppDelegate.harnessAppActive { HarnessLifecycle.becomeActive() } }
+            if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
+            return
+        }
         if Thread.isMainThread {
             NSApp.activate(ignoringOtherApps: true)
         } else {
@@ -1203,11 +1225,11 @@ final class NativeEventHandlers {
     /// delivered. The main window, else the first visible one, is made key;
     /// a window that already is stays as it is, first responder included.
     ///
-    /// A no-op in pid mode, for `activateSelf`'s reason — and because a key
-    /// delivered there already takes the view-then-menu order the user's does
-    /// (see the header).
+    /// In pid mode it does what `activateSelf` does there: an app the harness
+    /// resigned is brought forward in-process, which makes its window key
+    /// again, and nothing is activated on the user's screen.
     private func activateForKeyboard() {
-        if postToOwnPid { return }
+        if postToOwnPid { activateSelf(); return }
         let work = {
             NSApp.activate(ignoringOtherApps: true)
             if NSApp.keyWindow == nil {

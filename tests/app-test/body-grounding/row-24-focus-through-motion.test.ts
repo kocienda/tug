@@ -16,7 +16,6 @@
  * host is read throughout: the mover's body is first responder at every
  * reading. At rest the composer holds exactly what was typed.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/keyboard-yield.ts
  * @covers tugapp/Sources/BodyBeats.swift
@@ -52,7 +51,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 24: the keyboard rides with the
       const mover = bodies[1];
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

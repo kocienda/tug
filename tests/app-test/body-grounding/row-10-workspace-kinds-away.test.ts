@@ -8,7 +8,6 @@
  * workspace; the switch home is made as the set-up, and the switch back is
  * read.
  *
- * @foreground activation
  * @family row-10-workspace
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -25,7 +24,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 10: workspace switch back, ever
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: home → away: its departing body hides and its arriving body shows on its own placeholder, with no frame of a body in the wrong place`,
-      () => switchKind({ foreground: true }, kind, "away"),
+      () => switchKind(kind, "away"),
       TEST_TIMEOUT_MS,
     );
   }

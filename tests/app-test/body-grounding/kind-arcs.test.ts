@@ -17,9 +17,9 @@
  * - **Its surface** — the body paints the rail's sunken surface, read off the
  *   composite.
  *
- * @foreground activation
  * @covers tugdeck/src/components/arcs/arcs-card-registration.tsx
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
+ * @covers tugdeck/src/components/tugways/tug-editor-context-menu.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -82,7 +82,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Arcs", () => {
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {

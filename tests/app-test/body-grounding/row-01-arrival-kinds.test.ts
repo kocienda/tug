@@ -6,7 +6,6 @@
  * `_row-01.ts`'s): a rail shown on its edge, a content card added as a
  * tab, each handed off the moment the deck holds it.
  *
- * @foreground activation
  * @family row-01-arrival
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -27,7 +26,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 1: arrival, every other kind", 
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: a card opened the user's way arrives with nothing of the canvas, grid or window showing at any frame`,
-      () => arrivalOfKind({ foreground: true }, kind),
+      () => arrivalOfKind(kind),
       TEST_TIMEOUT_MS,
     );
   }

@@ -48,7 +48,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
-import { kindBody } from "./_harness/card-reach";
+import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -318,6 +318,11 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           `document.querySelector(${JSON.stringify(OVERVIEW)}) !== null`,
           { timeoutMs: 10_000 },
         );
+        // The Overview's page has its DOM before the host has placed its
+        // body with a size, and every press below lands in that body: wait
+        // for it to stand painted and placed, or a point read from its
+        // viewport lands outside the view.
+        await waitForBodyPainted(app, "overview");
         // The ledger's pushes reach every page on its own connection, and the
         // chip resolves its session in the Overview's: the synthetic push
         // goes there too, or the session is known there only through the

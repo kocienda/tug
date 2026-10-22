@@ -6,7 +6,6 @@
  * session card holding the keyboard, ⌃⌘Y folds and unfolds it, ⌘2 and ⌘1
  * move it, and ⇧⌥⌘] and ⇧⌥⌘[ nudge it, each read in the shell's deck state.
  *
- * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -23,7 +22,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, deckChords } from "./_row-05";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 5: the deck chords from a body", () => {
   test.skipIf(!sessionUnderTest(5))(
     "fold, move to slot and nudge act on the card whose body holds the keyboard",
-    () => deckChords({ foreground: true }),
+    () => deckChords(),
     TEST_TIMEOUT_MS,
   );
 });

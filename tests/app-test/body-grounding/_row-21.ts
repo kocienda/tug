@@ -49,14 +49,6 @@ const TEST_NAME = "body-grounding-row-21-edges";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-21 launch
- * takes the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 const A = "r21-a";
 const T = "r21-t";
 const ZOOMS = [0.8, 0.9, 1.0];
@@ -172,10 +164,10 @@ function blankFile(): string {
 }
 
 /** A card of `kind` beside the Text card: its side edges are one border, no sliver beside it, at three zooms, key and not key. */
-export async function edgesOfKind(launch: Launch, kind: CardKind): Promise<void> {
+export async function edgesOfKind(kind: CardKind): Promise<void> {
   const card = `r21-${kind.componentId}`;
   const file = blankFile();
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: launch.foreground });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}` });
   try {
     await app.seedDeckState({
       state: {
@@ -238,12 +230,11 @@ export async function edgesOfKind(launch: Launch, kind: CardKind): Promise<void>
 }
 
 /** The Session card beside the Text card: its side edges read as the Text card's at three zooms, key and not key. */
-export async function edgesOfSession(launch: Launch): Promise<void> {
+export async function edgesOfSession(): Promise<void> {
   const stubDir = stubDirectory();
   const file = blankFile();
   const app = await launchTugApp({
     testName: `${TEST_NAME}-session`,
-    foreground: launch.foreground,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {

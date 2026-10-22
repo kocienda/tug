@@ -8,7 +8,6 @@
  * Overview's column, given posts enough to scroll, is pinned to its bottom
  * across it.
  *
- * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -25,7 +24,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 17: the gestures that resize ev
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: the gesture that changes its box carries the body to its new size with its chrome`,
-      () => withKind({ foreground: true }, kind, "resize", (at) => kindResizeLeg(kind, false, at)),
+      () => withKind(kind, "resize", (at) => kindResizeLeg(kind, false, at)),
       TEST_TIMEOUT_MS,
     );
   }

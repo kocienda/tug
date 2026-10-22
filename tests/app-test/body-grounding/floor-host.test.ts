@@ -11,7 +11,6 @@
  * deck root's corner plus whole 24 px cells at the deck's zoom — none extra,
  * and none of the lattice's lines inside the crop missing.
  *
- * @foreground activation
  * @covers tugdeck/src/globals.css
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -143,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding: the canvas beneath the cards is th
   test(
     "at zoom 0.8, 1.0 and 1.25 the composite's canvas colour and grid are the page's to the device pixel",
     async () => {
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
+      const app = await launchTugApp({ testName: TEST_NAME });
       try {
         await app.seedDeckState({ state: emptyDeck() });
         // card-dom: shell — the canvas and its grid are the shell page's paint.

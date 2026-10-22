@@ -22,21 +22,13 @@ const TEST_NAME = "body-grounding-row-02-drag";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
 
-/**
- * How a piece launches, stated in the piece itself: every row-2 launch takes
- * the screen, and `@foreground` is read off the file that says so.
- */
-export interface Launch {
-  foreground: boolean;
-}
-
 /** Where the title bar is read: below the top corners' radius, above the masthead's text. */
 const MASTHEAD_ROW_PX = 14;
 
 /** Launch with a body of `kind` stood up, and drag it by the surface its chrome offers. */
-export async function dragKind(launch: Launch, kind: CardKind): Promise<void> {
+export async function dragKind(kind: CardKind): Promise<void> {
   const card = `row02-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}` });
   try {
     // The card draws its own chrome and travels over bare canvas, which its
     // reading tells it apart from.

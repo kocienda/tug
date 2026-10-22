@@ -262,21 +262,63 @@ describe.skipIf(!SHOULD_RUN)("phase A native-gesture smoke", () => {
     }
   });
 
-  test("pid mode: the app stays inactive, has no key window, and its window has a first responder", async () => {
-    // The background launch never activates, and AppKit refuses key status
-    // to an inactive app's window (`makeKey()` leaves it non-key — measured
-    // 2026-10-21). So a nil-target action send has no key window to resolve
-    // against; the host walks the chain from this window's own first
-    // responder instead (`AppDelegate.sendToKeyChain`), which is what lets
-    // a ⌘ chord and an Edit-menu item reach the web view in the background.
-    // This pins the three facts that walk rests on.
+  test("pid mode: the app believes it is active and its window is really key, with the user's app and input source untouched", async () => {
+    // The background launch never activates. AppKit refuses key status to
+    // an inactive app's window, so the host's `TugApplication` has the app
+    // believe it is active in this mode and the real `makeKey()` succeeds:
+    // `isKeyWindow` is AppKit's own state, `NSApp.keyWindow` names the
+    // window, and `isActive` reads true — what a foreground app is, which
+    // is what gives chords the key window's view-then-menu order and lets
+    // a nil-target Edit action resolve. The other half of the contract is
+    // that none of it touched the user: the frontmost app and the keyboard
+    // input source read the same now as before the host's `run()`, and the
+    // frontmost app is not this one.
     const app = await launchTugApp({ testName: "smoke-native-key-window" });
     try {
       await waitForPaintSettled(app);
       const state = await app.windowState();
-      expect(state.isActive, `the app must stay inactive; saw ${JSON.stringify(state)}`).toBe(false);
-      expect(state.appKeyWindow, `an inactive app names no key window; saw ${JSON.stringify(state)}`).toBe(false);
-      expect(state.firstResponder, `the window must have a first responder to walk from; saw ${JSON.stringify(state)}`).not.toBeNull();
+      const seen = JSON.stringify(state);
+      expect(state.isActive, `the app must believe it is active; saw ${seen}`).toBe(true);
+      expect(state.isKeyWindow, `the window must really be key; saw ${seen}`).toBe(true);
+      expect(state.appKeyWindow, `NSApp.keyWindow must name the window; saw ${seen}`).toBe(true);
+      expect(state.firstResponder, `the window must have a first responder; saw ${seen}`).not.toBeNull();
+      expect(state.frontmostNow, `the user's frontmost app must not move across the launch; saw ${seen}`).toBe(state.frontmostAtLaunch);
+      expect(state.frontmostNow, `this app must never be frontmost; saw ${seen}`).not.toBe("dev.tugapp.app.apptest");
+      expect(state.inputSourceNow, `the keyboard input source must not change across the launch; saw ${seen}`).toBe(state.inputSourceAtLaunch);
+      // WebKit reads the window active from the real key window, and the
+      // host announced the activation in-process, so the page believes it
+      // is in front the way a foreground app's does: the document has
+      // focus, and the deck's own projection of the active bit agrees.
+      const page = await app.evalJS<{ hasFocus: boolean; appActive: string | null }>(
+        `({ hasFocus: document.hasFocus(), appActive: document.documentElement.getAttribute("data-app-active") })`,
+      );
+      expect(page.hasFocus, `the shell must read document.hasFocus() under the real key window; saw ${JSON.stringify(page)}`).toBe(true);
+      expect(page.appActive, `the deck's data-app-active must agree with the announced activation; saw ${JSON.stringify(page)}`).toBe("true");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("pid mode: a key on the session tap never reaches the app", async () => {
+    // A real key window in an inactive app must not pull the user's
+    // keyboard. The host posts a Shift down/up to the session event tap —
+    // the user's keyboard as WindowServer routes it — and reports what its
+    // own event monitor saw, which must be nothing (measured 2026-10-21 in a
+    // throwaway accessory app with the same override). If this ever goes
+    // red the fake-active regime is wrong and the fallback is the
+    // accessor-only override. `trusted` must read true first: the system
+    // drops a post from an untrusted process, and a dropped post proves
+    // nothing.
+    const app = await launchTugApp({ testName: "smoke-native-session-tap" });
+    try {
+      await waitForPaintSettled(app);
+      const before = await app.windowState();
+      expect(before.isKeyWindow, `the probe is only meaningful under a real key window; saw ${JSON.stringify(before)}`).toBe(true);
+      const probe = await app.sessionTapProbe();
+      const seen = JSON.stringify(probe);
+      expect(probe.trusted, `the post must be deliverable for the probe to prove anything; saw ${seen}`).toBe(true);
+      expect(probe.received, `a session-tap key must not arrive in the inactive app; saw ${seen}`).toEqual([]);
+      expect(probe.frontmost, `the user's frontmost app must not move; saw ${seen}`).toBe(before.frontmostAtLaunch);
     } finally {
       await app.close();
     }

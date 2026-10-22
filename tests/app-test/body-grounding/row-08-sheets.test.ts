@@ -20,7 +20,6 @@
  * none of the connection-scoped stores the shell boots, so its shade
  * waited on a project scan forever.
  *
- * @foreground activation
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/cards/session-history/session-history-view.tsx
@@ -122,7 +121,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 8: the Changes shade, History a
       for (let i = 0; i < SCRATCH_COUNT; i++) writeFileSync(scratchFile(i), `row 8 scratch ${i}\n`);
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

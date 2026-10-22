@@ -4,7 +4,6 @@
  *
  * A piece of row 6 ([B02] row 6); the sweep and its parts are `_row-06.ts`'s.
  *
- * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift
@@ -15,4 +14,4 @@
 
 import { describeSessionSweep } from "./_row-06";
 
-describeSessionSweep({ foreground: true }, "go", "the Go menu");
+describeSessionSweep("go", "the Go menu");

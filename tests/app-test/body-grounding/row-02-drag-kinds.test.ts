@@ -6,7 +6,6 @@
  * pressed at its grab handle, a rail at its whole title bar. A Session card
  * draws its own chrome and is one view; `at0744` reads its drag.
  *
- * @foreground activation
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -23,7 +22,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 2: drag, every other kind", () 
     if (kind.componentId === "session") continue;
     test(
       `${kind.componentId}: a body card dragged by its chrome moves as one piece under the pointer and lands as one`,
-      () => dragKind({ foreground: true }, kind),
+      () => dragKind(kind),
       TEST_TIMEOUT_MS,
     );
   }

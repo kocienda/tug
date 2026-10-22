@@ -34,6 +34,11 @@
 	     without waiting a day or a relaunch. -->
 	<key>SUScheduledCheckInterval</key>
 	<integer>7200</integer>
+	<!-- The app has its own main.swift and never runs NSApplicationMain,
+	     the one reader of this key, so the application class is chosen
+	     there: the DEBUG harness subclass TugApplication, else
+	     NSApplication. Naming the subclass here would declare a class a
+	     Release build does not carry. -->
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<!-- Dictation. Both strings are declared whether or not the recogniser on

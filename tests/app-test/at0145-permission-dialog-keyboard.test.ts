@@ -34,13 +34,12 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * Foreground for activation: the dialog's trap and its key view are read only
- * after the body page reports `document.hasFocus()`, which WebKit ties to the
- * application being active — an inactive harness window never reports it. (The
- * "(deactivated) editor" above is the trap's disabled editor, not app
- * deactivation.)
+ * The dialog's trap and its key view are read only after the body page
+ * reports `document.hasFocus()`. In pid mode the harness window is really
+ * key under an app that believes itself active, so WebKit reports it with
+ * nothing activated and the test runs in the background. (The "(deactivated)
+ * editor" above is the trap's disabled editor, not app deactivation.)
  *
- * @foreground activation
  * @covers tugdeck/src/components/tugways/chrome/session-permission-dialog.tsx
  * @covers tugdeck/src/components/tugways/focus-manager.ts
  * @covers tugdeck/src/lib/permission-mode.ts
@@ -122,9 +121,9 @@ describe.skipIf(!SHOULD_RUN)("AT0145: PermissionDialog is card-modal", () => {
   test(
     "decomposed controls in a trap; seeded Allow; scope group; scrim; Escape denies",
     async () => {
-      // Foreground: this suite gates on `document.hasFocus()`, which
-      // WebKit ties to application activation.
-      const app = await launchTugApp({ testName: "at0145-permission-dialog-keyboard", foreground: true });
+      // This suite gates on `document.hasFocus()`, which the real key
+      // window of pid mode satisfies with no activation.
+      const app = await launchTugApp({ testName: "at0145-permission-dialog-keyboard" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });

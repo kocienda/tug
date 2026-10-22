@@ -5,7 +5,6 @@
  *
  * A piece of row 12 ([B02] row 12; the reading is `_row-12.ts`'s).
  *
- * @foreground activation
  * @family row-12-composer
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -21,7 +20,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, sessionComposer } from "./_row-12";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 12: Z2, the composer, paste and the picker handoff", () => {
   test.skipIf(!sessionUnderTest(12))(
     "Z2 and the composer work in a body, and text and an image paste into it",
-    () => sessionComposer({ foreground: true }, "send"),
+    () => sessionComposer("send"),
     TEST_TIMEOUT_MS,
   );
 });

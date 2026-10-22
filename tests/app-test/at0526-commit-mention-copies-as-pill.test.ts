@@ -36,9 +36,9 @@
  * confirm — the same footing at0459 stands on, and the reason the prose can
  * cite a real commit at all.
  *
- * Background: a pid-mode launch has no key window — AppKit refuses one to an
- * inactive app — so the host resolves the Edit actions from its window's own
- * first responder (`AppDelegate.sendToKeyChain`), and the pasteboard write
+ * Background: a pid-mode launch has the app believe it is active and its
+ * window really key (`TugApplication`), so the Edit actions resolve from the
+ * key window's first responder by AppKit's own path, and the pasteboard write
  * and the reads take the path they take for a user, with nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/tug-commit-atom.tsx

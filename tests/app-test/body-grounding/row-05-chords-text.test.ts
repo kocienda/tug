@@ -7,7 +7,6 @@
  * deck chords move and fold its card, while the session bodies beside it
  * stand untouched.
  *
- * @foreground activation
  * @family row-05-chords
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -24,7 +23,7 @@ import { SHOULD_RUN, TEST_TIMEOUT_MS, textChords } from "./_row-05";
 describe.skipIf(!SHOULD_RUN)("body-grounding row 5: the Text card's chords", () => {
   test.skipIf(!sessionUnderTest(5))(
     "typing, undo and the deck chords act in the Text card's body, and no other body holds the keyboard",
-    () => textChords({ foreground: true }),
+    () => textChords(),
     TEST_TIMEOUT_MS,
   );
 });

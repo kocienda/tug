@@ -14,7 +14,6 @@
  * A Session card holding nothing closes without asking, which is the rule,
  * so the card is given a draft first.
  *
- * @foreground activation
  * @family row-06-menus
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift
@@ -50,7 +49,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
   test.skipIf(!sessionUnderTest(6))(
     "Undo and Redo, Fold, Zoom, Focus Card Right and Left, and Close show in the body",
     () =>
-      withSessions({ foreground: true }, "shows", async (app) => {
+      withSessions("shows", async (app) => {
         const a = app.body(A);
 
         // ---- Undo and Redo validated and performed against the body's editor ----

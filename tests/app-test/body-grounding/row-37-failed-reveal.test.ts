@@ -15,7 +15,6 @@
  * the body once more, and the card is back ready and shown, settled with
  * its last turn.
  *
- * @foreground activation
  * @covers tugdeck/src/components/chrome/card-host.tsx
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -138,7 +137,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 37: a cold reveal that fails", 
       tugbankWrite(tugbankPath, "dev.tugapp.body-dormancy", "evictAfterMs", "int", String(EVICT_AFTER_MS));
       const app = await launchTugApp({
         testName: "body-grounding-row-37-failed-reveal",
-        foreground: true,
         persistInTestMode: true,
         restoreInTestMode: true,
         env: { TUGBANK_PATH: tugbankPath, TUG_BODY_READY_DEADLINE_MS: String(READY_DEADLINE_MS) },

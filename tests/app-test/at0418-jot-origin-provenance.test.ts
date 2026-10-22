@@ -24,10 +24,10 @@
  * A link that lights up therefore came from the pasteboard, not from the deck.
  *
  * Background: ⌘V is an Edit-menu key equivalent, and a pid-mode launch has
- * no key window — AppKit refuses one to an inactive app — so the host
- * resolves Paste from its window's own first responder
- * (`AppDelegate.sendToKeyChain`), and the chord takes the path it takes for
- * a user, with nobody's screen. The COPY half needs no chord (the row's own
+ * a real key window with the app believing it is active (`TugApplication`),
+ * so Paste resolves from the key window's first responder by AppKit's own
+ * path, and the chord takes the path it takes for a user, with nobody's
+ * screen. The COPY half needs no chord (the row's own
  * Copy button is a click), so the chord is confined to the one step that
  * needs it.
  *

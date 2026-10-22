@@ -40,7 +40,6 @@
  * asks in the Text body, and Cancel keeps the workspace. Neither writes the
  * file.
  *
- * @foreground activation
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -184,7 +183,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
           testName: `${TEST_NAME}-${kind.componentId}`,
-          foreground: true,
           persistInTestMode: true,
           restoreInTestMode: true,
           env: { TUGBANK_PATH: tugbankPath },
@@ -254,7 +252,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
       const dir = mkdtempSync(join(tmpdir(), "tug-row11-guard-"));
       const file = join(dir, "notes.md");
       writeFileSync(file, ORIGINAL);
-      const app = await launchTugApp({ testName: `${TEST_NAME}-text-guard`, foreground: true });
+      const app = await launchTugApp({ testName: `${TEST_NAME}-text-guard` });
       try {
         await app.seedDeckState({
           state: {
@@ -328,7 +326,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
       seedTugbankForLaunch(tugbankPath);
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         // Test mode holds every card-state write back and starts every
         // boot empty; the two hatches let the bodies' saves reach the run's
         // own tugbank file, which is the disk this row reads, and let the

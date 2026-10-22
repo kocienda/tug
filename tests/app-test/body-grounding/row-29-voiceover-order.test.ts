@@ -24,7 +24,6 @@
  * The overlay page stands over every card and is read last, after the
  * cards: what it holds covers the deck ([D216]).
  *
- * @foreground activation
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugdeck/src/lib/card-placement.ts
@@ -87,7 +86,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
         const textDir = mkdtempSync(join(tmpdir(), "tug-row29-text-"));
         const textFile = join(textDir, "notes.txt");
         writeFileSync(textFile, "one\ntwo\n");
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
         try {
           const base = deck() as { cards: unknown[]; panes: unknown[] };
           await app.seedDeckState({
@@ -129,7 +128,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
       writeFileSync(textFile, "one\ntwo\n");
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

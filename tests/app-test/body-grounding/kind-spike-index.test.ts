@@ -7,7 +7,6 @@
  * fresh card, placed from the index. This is the check that the click
  * crosses the body boundary and lands as a card, not as a tab.
  *
- * @foreground activation
  * @covers tugdeck/src/spikes/spike-home.tsx
  * @covers tugdeck/src/body/body-root.tsx
  * @covers tugdeck/src/body/body-card-deck.ts
@@ -64,7 +63,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the Spikes index's rows
   test(
     "a row clicked in the index's body opens that spike in a new card in the shell",
     async () => {
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
+      const app = await launchTugApp({ testName: TEST_NAME });
       try {
         await app.seedDeckState({ state: DECK, focusCardId: HOME });
         const ready = await pollFor(() => bodySnapshot(app, HOME), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);

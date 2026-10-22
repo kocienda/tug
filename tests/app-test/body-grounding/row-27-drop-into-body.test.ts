@@ -24,6 +24,11 @@
  *   card's page, the shell's page takes no drop, and the jot's text lands in
  *   the Session body's composer.
  *
+ * One of the bar's two files that still take the screen: a drag is a real
+ * `NSDraggingSession` that moves the user's cursor, and WindowServer picks
+ * its destination by what is under that cursor on screen, so it has no
+ * in-process door — `nativeFileDrag` refuses pid mode by name.
+ *
  * @foreground activation
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugapp/Sources/BodyGeometry.swift

@@ -67,7 +67,6 @@
  * `describe.skipIf(!SHOULD_RUN)`. CI and `bun x tsc --noEmit` runs without
  * `TUGAPP_APP_TEST=1` skip every test.
  *
- * @foreground lifecycle
  * @covers tugdeck/src/components/chrome/open-quickly-overlay.tsx
  * @covers tugdeck/src/lib/overlay-shell.ts
  * @covers tugdeck/src/lib/default-workspace-store.ts
@@ -799,10 +798,6 @@ describe.skipIf(!SHOULD_RUN)(
 
         const app = await launchTugApp({
           testName: "at0306-open-quickly-esc",
-          // Foreground: the final leg is a real app resign, which only
-          // happens to an app that is actually active (pid-mode default
-          // never activates).
-          foreground: true,
         });
         const panelUp = `document.querySelector(${JSON.stringify(PANEL)}) !== null`;
         try {

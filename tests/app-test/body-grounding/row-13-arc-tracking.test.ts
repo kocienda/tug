@@ -24,7 +24,6 @@
  * shell sends it. Which stores a body attaches at all is enumerated by
  * `body/__tests__/body-stores.test.ts`.
  *
- * @foreground activation
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  * @covers tugdeck/src/lib/arc-session-index.ts
@@ -121,7 +120,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 13: arc tracking from a body", 
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: TEST_NAME,
-        foreground: true,
         env: {
           [STUB_TRANSCRIPT_DIR_ENV]: stubDir,
           TUGBANK_PATH: tugbankPath,

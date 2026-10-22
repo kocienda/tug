@@ -63,9 +63,9 @@
  * ⌘V does not reach the web layer in this harness at all. D covers the branch
  * that keystroke lands in, which is the part that was broken.
  *
- * Background: a pid-mode launch has no key window — AppKit refuses one to an
- * inactive app — so the host resolves the Edit actions from its window's own
- * first responder (`AppDelegate.sendToKeyChain`), and the copy and the
+ * Background: a pid-mode launch has the app believe it is active and its
+ * window really key (`TugApplication`), so the Edit actions resolve from the
+ * key window's first responder by AppKit's own path, and the copy and the
  * pasteboard reads take the path they take for a user, with nobody's screen.
  *
  * @covers tugdeck/src/lib/session-atom.ts

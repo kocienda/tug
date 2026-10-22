@@ -88,22 +88,22 @@ A few paths `@covers` cannot scope, because they run before any test's first ass
 
 ### Three tiers: background, `@visible`, `@foreground`
 
-App-tests run in the **background**. The app launches as an accessory, keyboard events go to its process and mouse events straight into its window, and you keep working while a run happens around you. An inactive app cannot hold a key window, so the host gives the harness window what a key window would have supplied (`tugapp/Sources/AppDelegate.swift`): a local `keyDown` monitor offers every ⌘ chord to the window's views before the main menu, and the Edit menu's nil-target actions resolve from the window's own first responder (`sendToKeyChain`). A test of a chord, a menu command, the pasteboard or responder promotion runs here, on the view-then-menu order the user's chord takes, and asserts the effect in the page that should have received it.
+App-tests run in the **background**. The app launches as an accessory, keyboard events go to its process and mouse events through `NSApp.sendEvent` into its window, and you keep working while a run happens around you. The app believes itself active and its harness window is really key — `TugApplication` in `tugapp/Sources/main.swift`, under `AppDelegate.harnessPidMode`, answers `isActive` true and returns the window from `keyWindow` once `makeKey()` has made it so — and from there AppKit's own path runs: `-[NSApplication sendEvent:]` offers every ⌘ chord to the key window's views before the main menu, a nil-target Edit action resolves through `targetForAction`'s chain walk, and WebKit reports `document.hasFocus()` and paints the caret. Nothing is activated, so your keyboard and your frontmost app stay yours; `harness-smoke/smoke-native.test.ts` pins both every run, and posts a Shift to the session tap to prove the app never hears it. A test of a chord, a menu command, the pasteboard, responder promotion or focus runs here and asserts the effect in the page that should have received it. The one hop a background run does not simulate is WindowServer choosing the destination process — `postToPid` chooses it instead of frontmost — and a posted event enters `sendEvent` as the same `NSEvent` either way, which no in-process code can distinguish.
 
-A reading of frames, paint or motion needs a window WebKit will render, and WebKit suspends `requestAnimationFrame` in a window it considers occluded. Those launch `visible: true` and declare `@visible`: the app turns the web views' occlusion detection off, and the window stays where the background launch left it, still rendering. You keep keyboard, cursor and key window; nothing is taken.
+A reading of frames, paint or motion needs a window WebKit will render, and WebKit suspends `requestAnimationFrame` in a window it considers occluded. A background launch turns the web views' occlusion detection off, so the window renders where it sits. Those that declare `@visible` launch `visible: true`, which changes the launch only on a WebKit without that switch: the window is ordered front at normal level without activating. You keep keyboard, cursor and key window; nothing is taken.
 
-A minority cannot work either way, because activation *is* their subject: app resign / become-active cycles, key-window status, `document.hasFocus()` (which WebKit ties to the application being active), the keyboard arriving through WindowServer as the user's does. Those launch with `foreground: true`, which puts the app back in the activating event mode — and they really do take the screen out from under you. Each one declares itself with `@foreground` and a reason on its own docblock line, beside `@covers`:
+A minority cannot work either way: a test whose keys must reach a second process that only WindowServer delivers to (the host's open panel, `body-grounding/row-12-composer-session-panel.test.ts`), and a real drag, which moves the user's cursor (`body-grounding/row-27-drop-into-body.test.ts`). Those launch with `foreground: true`, which puts the app back in the activating event mode — and they really do take the screen out from under you. Each one declares itself with `@foreground` and a reason on its own docblock line, beside `@covers`:
 
 ```ts
 /**
- * at0145-permission-dialog-keyboard.test.ts — …
+ * row-12-composer-session-panel.test.ts — …
  *
  * @foreground activation
- * @covers tugdeck/src/components/tugways/chrome/session-permission-dialog.tsx
+ * @covers tugdeck/src/components/tugways/insert-picked-file.ts
  */
 ```
 
-The reason is one of two words. `activation` says the test reads something only an active app shows. `lifecycle` says the test drives the app's activation itself, with `simulateAppResign` / `BecomeActive` / `Hide` / `Unhide`. A bare tag, a reason outside the list, or `lifecycle` on a file that calls no lifecycle verb fails the check below, and a file is never both `@visible` and `@foreground`.
+The reason is one word, `activation`: the test's events reach nothing but the really active app. A bare tag or a reason outside the list fails the check below, and a file is never both `@visible` and `@foreground`. The app's own lifecycle is not a reason: in a background launch `simulateAppResign` / `BecomeActive` / `Hide` / `Unhide` move the app's believed activation in-process — the window really resigns and retakes key, AppKit's notifications post in AppKit's order, and a click with `activateFirst: false` is the activating one, asked about in `acceptsFirstMouse` — and nothing on your screen moves.
 
 When a run contains any of them, `just app-test` raises the question in the Session card straight away — and then **gets on with the background tests while you decide.** The screen-takers are ordered last, so by the time the answer matters it is usually already in. Nothing that needed no permission ever waits on something that did. Declining skips them; the background run happened either way, and every skipped file shows as a `SKIP` row in the summary.
 
@@ -481,9 +481,8 @@ Step-by-step:
    - Smoke: `tests/app-test/harness-smoke/<descriptive>.test.ts`.
    - Body grounding bar row: `tests/app-test/body-grounding/row-NN-<slug>.test.ts`,
      one file per row of the bar in that directory's `README.md`, on the
-     app's own event path (`foreground: true`, `@foreground activation`),
-     which is the bar's rule rather than the corpus's: a row is green only
-     on the route the user's keyboard takes.
+     app's own event path in pid mode: a row is green on AppKit's own
+     routing with a real key window, which that `README.md` states.
 
 3. **Declare `@covers` in the header docblock.** One line per source path
    or glob the test exercises, at the end of the docblock. Without it the

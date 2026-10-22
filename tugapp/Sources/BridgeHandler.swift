@@ -196,8 +196,18 @@ final class BridgeHandler: BridgeDelegate {
             // needed (the OS hasn't told tugdeck anything that needs
             // re-asserting yet) and the WebView is already painted by
             // `revealWebView` upstream.
+            //
+            // Except in harness pid mode, where the activation is announced
+            // in-process at launch, before any control connection exists to
+            // carry it, and never again by the OS. A real activation lands
+            // after this point as its own frame, and a foreground page seeds
+            // its active bit from `document.hasFocus()` at construction; a
+            // pid-mode page is constructed before WebKit reads the real key
+            // window active, so it is told now, the first moment a control
+            // frame reaches it.
             if !delegate.frontendHasLoadedOnce {
                 delegate.frontendHasLoadedOnce = true
+                if AppDelegate.harnessPidMode { delegate.replayLifecycleState() }
                 return
             }
 

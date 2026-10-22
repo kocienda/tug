@@ -7,7 +7,6 @@
  * its neighbours ride the arrival's fused room beat, which carries size
  * terms, and the body card must move.
  *
- * @foreground activation
  * @family row-17-crossing
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -23,7 +22,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 17: a new card", () => {
   test.skipIf(!sessionUnderTest(17))(
     "a new card opened beside the body card moves it with its chrome",
     () =>
-      withFlow({ foreground: true }, "new-card", ({ app, card, s, crop }) =>
+      withFlow("new-card", ({ app, card, s, crop }) =>
         crossLeg(app, card, { label: "new card", run: control("show-card", { component: "session" }), resizes: false, moves: true }, s, crop),
       ),
     TEST_TIMEOUT_MS,
