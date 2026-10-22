@@ -181,7 +181,9 @@ import { useCardId } from "./use-card-state-preservation";
 import { getCardDeck } from "@/lib/deck-store-registry";
 import { useSpaceLayerShown } from "@/components/chrome/space-layer";
 import { TUG_ACTIONS, type TugAction } from "./action-vocabulary";
-import type { ActionHandler, ActionHandlerResult } from "./responder-chain";
+import type { ActionEvent, ActionHandler, ActionHandlerResult } from "./responder-chain";
+import { correctedText, isSpellingCorrection } from "@/lib/spelling-guesses";
+import { SPELLING_MEMORY_HANDLERS } from "./spelling-actions";
 import { useTextSurfaceContextMenu } from "./use-text-surface-context-menu";
 import { createCMSelectionAdapter } from "./tug-text-editor/selection-adapter";
 import { gutterLineSelectionHandlers } from "./gutter-line-selection";
@@ -1846,6 +1848,11 @@ export const TugTextCardEditor = React.forwardRef<
     menu: contextMenu,
   } = useTextSurfaceContextMenu({
     adapterRef: cmAdapterRef,
+    // Spelling guesses only where one can land; read live at open [L07].
+    canCorrectSpelling: useCallback(
+      () => viewRef.current !== null && !readOnlyRef.current,
+      [],
+    ),
   });
 
   useLayoutEffect(() => {
@@ -2095,7 +2102,9 @@ export const TugTextCardEditor = React.forwardRef<
         if (inner === null || readOnlyRef.current) return;
         const { from, to } = inner.state.selection.main;
         if (from === to) return;
-        const text = transform(inner.state.sliceDoc(from, to));
+        const original = inner.state.sliceDoc(from, to);
+        const text = transform(original);
+        if (text === original) return;
         inner.dispatch({
           changes: { from, to, insert: text },
           selection: { anchor: from, head: from + text.length },
@@ -2116,6 +2125,18 @@ export const TugTextCardEditor = React.forwardRef<
   const handleMakeLowercase = useCallback(
     (): ActionHandlerResult =>
       transformSelectionCase((text) => text.toLowerCase()),
+    [transformSelectionCase],
+  );
+
+  // A spelling guess from the context menu, over the word it was opened on.
+  const handleCorrectSpelling = useCallback(
+    (event: ActionEvent): ActionHandlerResult => {
+      const correction = event.value;
+      if (!isSpellingCorrection(correction)) return;
+      return transformSelectionCase(
+        (text) => correctedText(text, correction) ?? text,
+      );
+    },
     [transformSelectionCase],
   );
 
@@ -2224,6 +2245,8 @@ export const TugTextCardEditor = React.forwardRef<
     [TUG_ACTIONS.PASTE_AS_QUOTE]: handlePasteAsQuote,
     [TUG_ACTIONS.PASTE_AS_PLAIN_TEXT]: handlePasteAsPlainText,
     [TUG_ACTIONS.MAKE_UPPERCASE]: handleMakeUppercase,
+    [TUG_ACTIONS.CORRECT_SPELLING]: handleCorrectSpelling,
+    ...SPELLING_MEMORY_HANDLERS,
     [TUG_ACTIONS.MAKE_LOWERCASE]: handleMakeLowercase,
     [TUG_ACTIONS.QUOTE_LINES]: handleQuoteLines,
     [TUG_ACTIONS.UNQUOTE_LINES]: handleUnquoteLines,
@@ -2258,6 +2281,7 @@ export const TugTextCardEditor = React.forwardRef<
         action === TUG_ACTIONS.PASTE_AS_PLAIN_TEXT ||
         action === TUG_ACTIONS.MAKE_UPPERCASE ||
         action === TUG_ACTIONS.MAKE_LOWERCASE ||
+        action === TUG_ACTIONS.CORRECT_SPELLING ||
         action === TUG_ACTIONS.QUOTE_LINES ||
         action === TUG_ACTIONS.UNQUOTE_LINES ||
         action === TUG_ACTIONS.SAVE

@@ -3501,6 +3501,11 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   // dictionary. It carries the sampled text AND the point its panel
   // anchors to, neither of which a chord or a menu-bar item could supply.
   TUG_ACTIONS.LOOK_UP_IN_DICTIONARY,
+  // A guess for the misspelled word the right-click landed on: the word
+  // and its replacement are sampled at menu-open time, like Look Up's.
+  TUG_ACTIONS.CORRECT_SPELLING,
+  TUG_ACTIONS.LEARN_SPELLING,
+  TUG_ACTIONS.IGNORE_SPELLING,
   TUG_ACTIONS.DUPLICATE,
 ]);
 

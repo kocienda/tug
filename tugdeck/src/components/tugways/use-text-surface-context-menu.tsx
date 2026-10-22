@@ -78,6 +78,15 @@
  *      carries it on the item, because a menu dismissal can retire the
  *      selection before the action's handler runs.
  *
+ *   4. **The spelling ask.** On a surface that can take a correction
+ *      (`canCorrectSpelling`), a selection that is one word is put to the
+ *      system spell checker before the menu opens, and a misspelled word's
+ *      guesses lead the menu, as they do in every native text view. The
+ *      menu waits for the answer — at most `SPELLING_TIMEOUT_MS`, and only
+ *      inside the host — rather than opening and then growing a block under
+ *      the pointer. A later right-click supersedes an answer still in
+ *      flight.
+ *
  * Optional `hasSelectionOverride`: a consumer can provide a function
  * that the hook calls *instead of* sampling from the adapter. The
  * markdown view uses this to fold its "logical select-all" CSS-visual
@@ -134,6 +143,10 @@ import {
   dictionaryLookupFor,
   type DictionaryLookupRequest,
 } from "@/lib/dictionary-lookup";
+import {
+  requestSpellingGuesses,
+  spellableWord,
+} from "@/lib/spelling-guesses";
 import {
   createWholeEntityPress,
   isSecondaryPress,
@@ -197,6 +210,15 @@ export interface UseTextSurfaceContextMenuOptions {
    * every menu about an entity composes; this option only names the element.
    */
   wholeEntityTarget?: (event: MouseEvent) => HTMLElement | null;
+
+  /**
+   * Optional per-open predicate: whether this surface can take a spelling
+   * correction right now — it handles `CORRECT_SPELLING` and is writable.
+   * When it answers `true`, a one-word selection is checked before the menu
+   * opens and a misspelled word's guesses lead it. Omitted, the menu never
+   * offers spelling.
+   */
+  canCorrectSpelling?: () => boolean;
 }
 
 export interface UseTextSurfaceContextMenuResult {
@@ -261,6 +283,11 @@ interface MenuState {
    * entity it landed on.
    */
   referent: TugEditorContextMenuReferent | null;
+  /**
+   * The misspelled word the menu opened over and the checker's guesses for
+   * it, or `null` when there is no spelling block to show.
+   */
+  spelling: { word: string; guesses: readonly string[] } | null;
 }
 
 /** The element the surface attached its handler to, for scoping a DOM read. */
@@ -366,6 +393,7 @@ export function useTextSurfaceContextMenu(
     extraEntries,
     hideStandardItems,
     wholeEntityTarget,
+    canCorrectSpelling,
   } = options;
 
   // The single piece of React state the hook owns: open/closed +
@@ -392,7 +420,13 @@ export function useTextSurfaceContextMenu(
   }
   const press = pressRef.current;
 
+  // Which open is current. A spelling ask resolves after the event that
+  // made it, so each open takes a ticket and an answer whose ticket has
+  // been superseded — by a later right-click, or a close — opens nothing.
+  const openTicketRef = useRef(0);
+
   const closeMenu = useCallback(() => {
+    openTicketRef.current += 1;
     setMenuState(null);
   }, []);
 
@@ -449,14 +483,37 @@ export function useTextSurfaceContextMenu(
       if (hasSelectionOverride !== undefined) {
         hasSelection = hasSelectionOverride();
       }
-      setMenuState({
+      const hideStandard = hideStandardItems?.(event) ?? false;
+      const lookup = sampleDictionaryLookup(adapter, domSelection, event);
+      const opened: MenuState = {
         x: event.clientX,
         y: event.clientY,
         hasSelection,
         extra: extraEntries?.(event) ?? [],
-        hideStandard: hideStandardItems?.(event) ?? false,
-        lookup: sampleDictionaryLookup(adapter, domSelection, event),
+        hideStandard,
+        lookup,
         referent: referentFor(entity, domSelection),
+        spelling: null,
+      };
+      const ticket = ++openTicketRef.current;
+      // The spelling ask: only over one word, only where a correction can
+      // land, and never on an entity menu, whose every item acts on the
+      // entity rather than a word in it.
+      const word =
+        !hideStandard && lookup !== null && (canCorrectSpelling?.() ?? false)
+          ? spellableWord(lookup.text)
+          : null;
+      if (word === null) {
+        setMenuState(opened);
+        return;
+      }
+      void requestSpellingGuesses(word).then((answer) => {
+        if (openTicketRef.current !== ticket) return;
+        setMenuState(
+          answer?.misspelled === true
+            ? { ...opened, spelling: { word, guesses: answer.guesses } }
+            : opened,
+        );
       });
     },
     [
@@ -464,6 +521,7 @@ export function useTextSurfaceContextMenu(
       hasSelectionOverride,
       extraEntries,
       hideStandardItems,
+      canCorrectSpelling,
       press,
     ],
   );
@@ -484,6 +542,7 @@ export function useTextSurfaceContextMenu(
     const standard = buildTextEditingMenuItems({
       hasSelection: menuState?.hasSelection ?? false,
       lookup: menuState?.lookup ?? null,
+      spelling: menuState?.spelling ?? null,
     }) as TugEditorContextMenuEntry[];
     return extra.length > 0
       ? [...extra, { type: "separator" }, ...standard]
@@ -493,6 +552,7 @@ export function useTextSurfaceContextMenu(
     menuState?.extra,
     menuState?.hideStandard,
     menuState?.lookup,
+    menuState?.spelling,
   ]);
 
   // Only mount the menu component when there's an open state.

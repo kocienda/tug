@@ -1,6 +1,6 @@
 /**
  * text-editing-menu — single source of truth for the standard
- * look-up-in-dictionary / cut / copy / copy-as-plain-text / paste /
+ * spelling guesses / look-up-in-dictionary / cut / copy / copy-as-plain-text / paste /
  * paste-as-quote / paste-as-plain-text /
  * select-all context menu.
  *
@@ -11,6 +11,10 @@
  * menu. The disabled rules are the only thing that varies, and they
  * vary by capability:
  *
+ *   - The spelling block appears only when the caller found the word under
+ *     the menu misspelled (its `spelling` sample): one row per guess, or a
+ *     dim "No Guesses Found" when the checker has none, then Ignore Spelling
+ *     and Learn Spelling.
  *   - Look Up in Dictionary requires a selection the caller could read as
  *     text (its `lookup` payload).
  *   - Cut requires a selection AND an editable surface.
@@ -51,6 +55,7 @@ import type { CommandValidationSource } from "./command-registry";
 import { commandShortcut } from "./keymap-registry";
 import { commandValidationSource } from "@/lib/host-menu-state";
 import type { DictionaryLookupRequest } from "@/lib/dictionary-lookup";
+import type { SpellingCorrection } from "@/lib/spelling-guesses";
 
 /**
  * What `buildTextEditingMenuItems` reads to decide which items are enabled.
@@ -87,6 +92,14 @@ export interface TextEditingMenuCapabilities {
    * case the item is present and dim like every other selection verb.
    */
   lookup?: DictionaryLookupRequest | null;
+  /**
+   * The misspelled word under the menu and the checker's guesses for it,
+   * sampled when the menu opened. Omitted (or `null`) when the word is
+   * spelled correctly, the surface cannot be edited, or there is no single
+   * word selected — and then the menu has no spelling block at all, the way
+   * a native text view's has none over a correctly spelled word.
+   */
+  spelling?: { word: string; guesses: readonly string[] } | null;
 }
 
 /**
@@ -155,7 +168,48 @@ export function buildTextEditingMenuItems(
     };
   };
 
+  // The spelling block leads, above its own separator, as it does in every
+  // native text view: a misspelled word under the pointer is what the user
+  // is most likely to have right-clicked for.
+  const spelling: TextEditingMenuEntry[] = [];
+  if (caps.spelling != null) {
+    const { word, guesses } = caps.spelling;
+    if (guesses.length === 0) {
+      spelling.push({
+        action: TUG_ACTIONS.CORRECT_SPELLING,
+        label: "No Guesses Found",
+        disabled: true,
+      });
+    }
+    for (const replacement of guesses) {
+      const value: SpellingCorrection = { word, replacement };
+      spelling.push({
+        action: TUG_ACTIONS.CORRECT_SPELLING,
+        label: replacement,
+        value,
+        disabled: false,
+      });
+    }
+    // Ignore and Learn sit in their own group under the guesses, as AppKit
+    // places them: the guesses change the text, these two change the checker.
+    spelling.push({ type: "separator" });
+    spelling.push({
+      action: TUG_ACTIONS.IGNORE_SPELLING,
+      label: "Ignore Spelling",
+      value: word,
+      disabled: false,
+    });
+    spelling.push({
+      action: TUG_ACTIONS.LEARN_SPELLING,
+      label: "Learn Spelling",
+      value: word,
+      disabled: false,
+    });
+    spelling.push({ type: "separator" });
+  }
+
   return [
+    ...spelling,
     // Look Up in Dictionary leads, above its own separator, the way it does
     // in every native text view: it is the one row that reads the selection
     // without touching it, so it sits apart from the verbs that move text.

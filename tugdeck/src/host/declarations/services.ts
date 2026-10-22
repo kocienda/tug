@@ -287,6 +287,30 @@ export const lookUpInDictionaryToHost = defineToHost({
   refused: ["lexicon", { text: "lexicon" }, { text: "lexicon", x: "120", y: 340, fontFamily: "", fontSize: 14, bold: false, italic: false }],
 });
 
+/** A word to check, answered with `onSpellingGuesses` under `requestId`. */
+export const spellingGuessesToHost = defineToHost({
+  name: "spellingGuesses",
+  from: "any",
+  codec: obj({ requestId: str, word: str }),
+  samples: [{ requestId: "spell-1", word: "frsutrated" }],
+  refused: ["frsutrated", { requestId: "spell-1" }, { requestId: 1, word: "frsutrated" }],
+});
+
+/**
+ * A word the spell checker should stop flagging: `learn` adds it to the
+ * user's dictionary for good, `ignore` accepts it for as long as the app runs.
+ */
+export const rememberSpellingToHost = defineToHost({
+  name: "rememberSpelling",
+  from: "any",
+  codec: obj({ word: str, kind: literal("learn", "ignore") }),
+  samples: [
+    { word: "tugdeck", kind: "learn" },
+    { word: "frsutrated", kind: "ignore" },
+  ],
+  refused: ["tugdeck", { word: "tugdeck" }, { word: "tugdeck", kind: "forget" }],
+});
+
 export const trashPathToHost = defineToHost({
   name: "trashPath",
   from: "any",
@@ -408,6 +432,21 @@ export const clipboardReadToPage = defineToPage({
   codec: obj({ requestId: str, text: str, html: str, atoms: str }),
   samples: [{ requestId: "clip-1", text: "it's \"quoted\" and split", html: "<b>x</b>", atoms: "" }],
   refused: ["clip-1", { requestId: "clip-1", text: "x" }],
+});
+
+/**
+ * Whether the system spell checker flags the word, and its guesses in the
+ * order the checker ranks them; `[]` when it has none or the word is spelled.
+ */
+export const spellingGuessesToPage = defineToPage({
+  member: "onSpellingGuesses",
+  to: "any",
+  codec: obj({ requestId: str, misspelled: bool, guesses: arr(str) }),
+  samples: [
+    { requestId: "spell-1", misspelled: true, guesses: ["frustrated", "frustrate"] },
+    { requestId: "spell-2", misspelled: false, guesses: [] },
+  ],
+  refused: ["spell-1", { requestId: "spell-1", misspelled: true }, { requestId: "spell-1", misspelled: "yes", guesses: [] }],
 });
 
 /** What a trash or a restore came to: where the file went, or why it did not move. */

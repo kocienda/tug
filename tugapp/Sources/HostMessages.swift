@@ -610,6 +610,24 @@ struct DictionaryLookup: Decodable, Equatable {
     var italic: Bool
 }
 
+/// `spellingGuesses`: a word for the system spell checker, answered with
+/// `onSpellingGuesses` under `requestId`.
+struct SpellingGuessesRequest: Decodable, Equatable {
+    var requestId: String
+    var word: String
+}
+
+/// `rememberSpelling`: stop flagging `word` — `learn` adds it to the user's
+/// dictionary, `ignore` accepts it until the app quits.
+struct RememberSpelling: Decodable, Equatable {
+    enum Kind: String, Decodable, Equatable {
+        case learn, ignore
+    }
+
+    var word: String
+    var kind: Kind
+}
+
 /// `trashPath`: move a file to the Trash, answered with `onTrashResult`.
 struct TrashPath: Decodable, Equatable {
     var requestId: String
@@ -756,6 +774,14 @@ struct ClipboardContents: Codable, Equatable {
     var atoms: String
 }
 
+/// `onSpellingGuesses`: whether the checker flags the word, and its guesses,
+/// best first; `[]` when it has none or the word is spelled correctly.
+struct SpellingGuessesReply: Codable, Equatable {
+    var requestId: String
+    var misspelled: Bool
+    var guesses: [String]
+}
+
 /// `onTrashResult`: where a trashed or restored file went, or why it did
 /// not move. `ok` is the tag; a success names the one path its verb made.
 enum TrashResult: Codable, Equatable {
@@ -883,7 +909,7 @@ enum ToHostName: String, CaseIterable {
     // The host's services.
     case sourceTree, choosePath, getSettings, setTheme
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
-    case openPath, lookUpInDictionary, trashPath, restorePath, thumbnailPath
+    case openPath, lookUpInDictionary, spellingGuesses, rememberSpelling, trashPath, restorePath, thumbnailPath
     case exportSession, updateAction, dictation, pageZoom, hostFrames
 
     /// Whether only the shell may post it: the deck's own chrome, the
@@ -965,6 +991,8 @@ enum ToHost {
     case menuState(MenuStatePost)
     case openPath(OpenPath)
     case lookUpInDictionary(DictionaryLookup)
+    case spellingGuesses(SpellingGuessesRequest)
+    case rememberSpelling(RememberSpelling)
     case trashPath(TrashPath)
     case restorePath(RestorePath)
     case thumbnailPath(ThumbnailPath)
@@ -1018,6 +1046,8 @@ enum ToHost {
         case .clipboardWriteImage: return .clipboardWriteImage(try read(ClipboardWriteImage.self))
         case .openPath: return .openPath(try read(OpenPath.self))
         case .lookUpInDictionary: return .lookUpInDictionary(try read(DictionaryLookup.self))
+        case .spellingGuesses: return .spellingGuesses(try read(SpellingGuessesRequest.self))
+        case .rememberSpelling: return .rememberSpelling(try read(RememberSpelling.self))
         case .trashPath: return .trashPath(try read(TrashPath.self))
         case .restorePath: return .restorePath(try read(RestorePath.self))
         case .thumbnailPath: return .thumbnailPath(try read(ThumbnailPath.self))
@@ -1133,7 +1163,7 @@ enum ToPageMember: String, CaseIterable {
     // Page lifecycle.
     case onBodyBind, onBodyState, onBodyVisibility, onPlanStarted
     // The host's services.
-    case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onTrashResult, onThumbnail, onHostFrames
+    case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onSpellingGuesses, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
 }
 
@@ -1151,6 +1181,7 @@ enum ToPage {
     case pathChosen(PathChosen)
     case exportDone(ExportDone)
     case clipboardRead(ClipboardContents)
+    case spellingGuesses(SpellingGuessesReply)
     case trashResult(TrashResult)
     case thumbnail(Thumbnail)
     case hostFrames(HostFramesReply)
@@ -1175,6 +1206,7 @@ enum ToPage {
         case .pathChosen: return .onPathChosen
         case .exportDone: return .onExportDone
         case .clipboardRead: return .onClipboardRead
+        case .spellingGuesses: return .onSpellingGuesses
         case .trashResult: return .onTrashResult
         case .thumbnail: return .onThumbnail
         case .hostFrames: return .onHostFrames
@@ -1203,6 +1235,7 @@ enum ToPage {
         case .pathChosen(let chosen): return try? encoder.encode(chosen)
         case .exportDone(let done): return try? encoder.encode(done)
         case .clipboardRead(let contents): return try? encoder.encode(contents)
+        case .spellingGuesses(let reply): return try? encoder.encode(reply)
         case .trashResult(let result): return try? encoder.encode(result)
         case .thumbnail(let thumbnail): return try? encoder.encode(thumbnail)
         case .hostFrames(let reply): return try? encoder.encode(reply)
@@ -1234,6 +1267,7 @@ enum ToPage {
             case .onPathChosen: return .success(.pathChosen(try read(PathChosen.self)))
             case .onExportDone: return .success(.exportDone(try read(ExportDone.self)))
             case .onClipboardRead: return .success(.clipboardRead(try read(ClipboardContents.self)))
+            case .onSpellingGuesses: return .success(.spellingGuesses(try read(SpellingGuessesReply.self)))
             case .onTrashResult: return .success(.trashResult(try read(TrashResult.self)))
             case .onThumbnail: return .success(.thumbnail(try read(Thumbnail.self)))
             case .onHostFrames: return .success(.hostFrames(try read(HostFramesReply.self)))

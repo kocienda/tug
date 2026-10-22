@@ -272,6 +272,22 @@ export const TUG_ACTIONS = {
   //            accurate rather than read back from a chain snapshot that is
   //            not selection-granular.
   LOOK_UP_IN_DICTIONARY: "look-up-in-dictionary",
+  // CORRECT_SPELLING: payload — `value: { word: string; replacement:
+  //            string }`. Replace the misspelled word the context menu was
+  //            opened over with one of the system spell checker's guesses.
+  //            The editable surface that owns the selection handles it, and
+  //            no-ops unless the selection still holds `word` (whitespace
+  //            around it is kept). Context-menu only, for the same reason
+  //            Look Up is: the word is sampled where the sample is accurate.
+  CORRECT_SPELLING: "correct-spelling",
+  // LEARN_SPELLING / IGNORE_SPELLING: payload — `value: string`, the
+  //            misspelled word the context menu was opened over. Learn adds
+  //            it to the user's dictionary (shared with every app); Ignore
+  //            accepts it until Tug quits. The text is left as it is. Handled
+  //            by the editable surfaces that offer the spelling block, which
+  //            hand the word to the host from whichever page they are in.
+  LEARN_SPELLING: "learn-spelling",
+  IGNORE_SPELLING: "ignore-spelling",
 
   // ---- Editing motion / deletion ----
   //

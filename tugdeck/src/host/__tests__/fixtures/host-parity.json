@@ -1320,6 +1320,30 @@
       ]
     },
     {
+      "name": "rememberSpelling",
+      "from": "any",
+      "samples": [
+        {
+          "word": "tugdeck",
+          "kind": "learn"
+        },
+        {
+          "word": "frsutrated",
+          "kind": "ignore"
+        }
+      ],
+      "refused": [
+        "tugdeck",
+        {
+          "word": "tugdeck"
+        },
+        {
+          "word": "tugdeck",
+          "kind": "forget"
+        }
+      ]
+    },
+    {
       "name": "trashPath",
       "from": "any",
       "samples": [

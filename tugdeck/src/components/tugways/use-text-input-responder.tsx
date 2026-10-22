@@ -159,7 +159,9 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef } from "react";
 import { useOptionalResponder } from "./use-responder";
 import { useResponderChain } from "./responder-chain-provider";
-import type { ActionHandler, ActionHandlerResult } from "./responder-chain";
+import type { ActionEvent, ActionHandler, ActionHandlerResult } from "./responder-chain";
+import { correctedText, isSpellingCorrection } from "@/lib/spelling-guesses";
+import { SPELLING_MEMORY_HANDLERS } from "./spelling-actions";
 import { TUG_ACTIONS, type TugAction } from "./action-vocabulary";
 import { useTextSurfaceContextMenu } from "./use-text-surface-context-menu";
 import {
@@ -635,6 +637,18 @@ export function useTextInputResponder<T extends TextInputLikeElement>({
     [transformSelectionCase],
   );
 
+  // A spelling guess from the context menu, over the word it was opened on.
+  const handleCorrectSpelling = useCallback(
+    (event: ActionEvent): ActionHandlerResult => {
+      const correction = event.value;
+      if (!isSpellingCorrection(correction)) return;
+      return transformSelectionCase(
+        (text) => correctedText(text, correction) ?? text,
+      );
+    },
+    [transformSelectionCase],
+  );
+
   // ---- Editing motion / deletion ----
   //
   // Four substrate-local handlers for the gap bindings consumed from
@@ -781,6 +795,8 @@ export function useTextInputResponder<T extends TextInputLikeElement>({
     [TUG_ACTIONS.SELECT_ALL]: handleSelectAll,
     [TUG_ACTIONS.MAKE_UPPERCASE]: handleMakeUppercase,
     [TUG_ACTIONS.MAKE_LOWERCASE]: handleMakeLowercase,
+    [TUG_ACTIONS.CORRECT_SPELLING]: handleCorrectSpelling,
+    ...SPELLING_MEMORY_HANDLERS,
     // ---- Editing motion / deletion ----
     [TUG_ACTIONS.DELETE_TO_LINE_START]: handleDeleteToLineStart,
     [TUG_ACTIONS.DELETE_WORD_BACKWARD]: handleDeleteWordBackward,
@@ -811,7 +827,8 @@ export function useTextInputResponder<T extends TextInputLikeElement>({
       if (
         action !== TUG_ACTIONS.DELETE &&
         action !== TUG_ACTIONS.MAKE_UPPERCASE &&
-        action !== TUG_ACTIONS.MAKE_LOWERCASE
+        action !== TUG_ACTIONS.MAKE_LOWERCASE &&
+        action !== TUG_ACTIONS.CORRECT_SPELLING
       ) {
         return true;
       }
@@ -867,6 +884,13 @@ export function useTextInputResponder<T extends TextInputLikeElement>({
     menu: hookMenu,
   } = useTextSurfaceContextMenu({
     adapterRef,
+    // Spelling guesses only where one can land, and only where the control
+    // asks for spelling at all: a field marked `spellcheck="false"` (a
+    // filter, a path) is one whose words are not prose. Read live [L07].
+    canCorrectSpelling: useCallback(() => {
+      const el = inputRef.current;
+      return el !== null && !disabled && !el.readOnly && el.spellcheck;
+    }, [inputRef, disabled]),
   });
 
   // Native mousedown listener: stop the secondary-click selection clobber at the

@@ -1778,6 +1778,35 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         return "data:image/png;base64,\(png.base64EncodedString())"
     }
 
+    /// The one spell document every Tug check runs under, so a word Ignore
+    /// Spelling accepted stays accepted in every card until the app quits.
+    static let spellDocumentTag = NSSpellChecker.uniqueSpellDocumentTag()
+
+    /// What the system spell checker makes of `request.word`.
+    ///
+    /// The checker may flag only part of the word — one half of a hyphenated
+    /// pair, say — and its guesses are for that part. The page replaces the
+    /// whole word it sent, so each guess comes back spliced into the word in
+    /// place of the flagged part.
+    static func spellingGuesses(for request: SpellingGuessesRequest) -> SpellingGuessesReply {
+        let word = request.word
+        let checker = NSSpellChecker.shared
+        let range = checker.checkSpelling(
+            of: word, startingAt: 0, language: nil, wrap: false,
+            inSpellDocumentWithTag: spellDocumentTag, wordCount: nil
+        )
+        guard range.location != NSNotFound, range.length > 0 else {
+            return SpellingGuessesReply(requestId: request.requestId, misspelled: false, guesses: [])
+        }
+        let guesses = checker.guesses(forWordRange: range, in: word, language: nil, inSpellDocumentWithTag: spellDocumentTag) ?? []
+        let whole = word as NSString
+        return SpellingGuessesReply(
+            requestId: request.requestId,
+            misspelled: true,
+            guesses: guesses.map { whole.replacingCharacters(in: range, with: $0) }
+        )
+    }
+
     /// The font to draw a Look Up in Dictionary callout in: the nearest AppKit
     /// can get to the font the selection is drawn in on the page.
     ///
@@ -2412,6 +2441,21 @@ extension MainWindow {
             )
             let defined = NSAttributedString(string: lookup.text, attributes: [.font: font])
             replyView.showDefinition(for: defined, at: anchor)
+        case .spellingGuesses(let request):
+            // The context menu's spelling block. `NSSpellChecker` is the
+            // checker every native text view consults, with the user's
+            // learned words and language settings, so the guesses are the
+            // ones TextEdit would offer for the same word.
+            hostChannel.send(.spellingGuesses(MainWindow.spellingGuesses(for: request)), to: replyView)
+        case .rememberSpelling(let remember):
+            // Learn Spelling / Ignore Spelling. Learn writes the user's
+            // dictionary, shared with every app; Ignore lasts as long as the
+            // spell document tag every Tug check runs under.
+            guard !remember.word.isEmpty else { return }
+            switch remember.kind {
+            case .learn: NSSpellChecker.shared.learnWord(remember.word)
+            case .ignore: NSSpellChecker.shared.ignoreWord(remember.word, inSpellDocumentWithTag: MainWindow.spellDocumentTag)
+            }
         case .openPath(let open):
             // `/memory` ([#step-12a]) — hand a memory path to the OS. The web
             // layer sends a `~`-relative or absolute path plus a `kind`; we

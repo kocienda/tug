@@ -211,7 +211,9 @@ import { useResponderChain } from "./responder-chain-provider";
 import { TAB_CONSUME_ATTRIBUTE, TAB_RELEASE_ATTRIBUTE } from "./focus-manager";
 import type { FocusPolicy } from "./focus-manager";
 import { useFocusable } from "./use-focusable";
-import type { ActionHandler, ActionHandlerResult } from "./responder-chain";
+import type { ActionEvent, ActionHandler, ActionHandlerResult } from "./responder-chain";
+import { correctedText, isSpellingCorrection } from "@/lib/spelling-guesses";
+import { SPELLING_MEMORY_HANDLERS } from "./spelling-actions";
 import { TUG_ACTIONS, type TugAction } from "./action-vocabulary";
 import type {
   CompletionItem,
@@ -2193,6 +2195,12 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     // item when no store is given.
     const annotation = useAnnotationMenu({ originRef: hostRef });
 
+    // The context menu offers spelling guesses only where one can land.
+    const canCorrectSpelling = useCallback((): boolean => {
+      const live = viewRef.current;
+      return live !== null && !live.state.readOnly;
+    }, []);
+
     const {
       onContextMenu: onContextMenuOpen,
       menu: contextMenu,
@@ -2205,6 +2213,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       extraEntries: annotation.extraEntries,
       hideStandardItems: annotation.hideStandardItems,
       wholeEntityTarget: annotation.wholeEntityTarget,
+      canCorrectSpelling,
     });
 
     // Attach the contextmenu listener only when the click lands inside the
@@ -2503,7 +2512,9 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           if (live === null || live.state.readOnly) return;
           const { from, to } = live.state.selection.main;
           if (from === to) return;
-          const text = transform(live.state.sliceDoc(from, to));
+          const original = live.state.sliceDoc(from, to);
+          const text = transform(original);
+          if (text === original) return;
           live.dispatch({
             changes: { from, to, insert: text },
             selection: { anchor: from, head: from + text.length },
@@ -2518,6 +2529,20 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     const handleMakeUppercase = useCallback(
       (): ActionHandlerResult =>
         transformSelectionCase((text) => text.toUpperCase()),
+      [transformSelectionCase],
+    );
+
+    // A spelling guess from the context menu: the same one-transaction
+    // rewrite the case pair uses, over the word the menu was opened on. A
+    // selection that no longer holds that word is left alone.
+    const handleCorrectSpelling = useCallback(
+      (event: ActionEvent): ActionHandlerResult => {
+        const correction = event.value;
+        if (!isSpellingCorrection(correction)) return;
+        return transformSelectionCase(
+          (text) => correctedText(text, correction) ?? text,
+        );
+      },
       [transformSelectionCase],
     );
 
@@ -2626,6 +2651,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       [TUG_ACTIONS.PASTE_AS_PLAIN_TEXT]: handlePasteAsPlainText,
       [TUG_ACTIONS.MAKE_UPPERCASE]: handleMakeUppercase,
       [TUG_ACTIONS.MAKE_LOWERCASE]: handleMakeLowercase,
+      [TUG_ACTIONS.CORRECT_SPELLING]: handleCorrectSpelling,
+      ...SPELLING_MEMORY_HANDLERS,
       [TUG_ACTIONS.QUOTE_LINES]: handleQuoteLines,
       [TUG_ACTIONS.UNQUOTE_LINES]: handleUnquoteLines,
       [TUG_ACTIONS.SUBMIT]: handleSubmit,
@@ -2673,6 +2700,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           action === TUG_ACTIONS.DELETE ||
           action === TUG_ACTIONS.MAKE_UPPERCASE ||
           action === TUG_ACTIONS.MAKE_LOWERCASE ||
+          action === TUG_ACTIONS.CORRECT_SPELLING ||
           action === TUG_ACTIONS.QUOTE_LINES ||
           action === TUG_ACTIONS.UNQUOTE_LINES
         ) {
