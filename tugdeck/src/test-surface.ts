@@ -40,7 +40,7 @@ import type { UsageStore } from "./lib/usage-store";
 import type { IDeckManagerStore } from "./deck-manager-store";
 import type { DeckState, CardStateBag } from "./layout-tree";
 import {
-  DEFAULT_SIDEBAR_SIDE,
+  defaultSidebarSide,
   columnOffsetProperty,
 } from "./lib/layout-imposer";
 import { deckTrace, type DeckTraceEvent } from "./deck-trace";
@@ -2169,7 +2169,7 @@ function makeEmptyDeckState(): DeckState {
   return {
     cards: [],
     panes: [],
-    imposition: { sidebars: { dashes: { side: DEFAULT_SIDEBAR_SIDE } } },
+    imposition: { sidebars: { dashes: { side: defaultSidebarSide("dashes") } } },
     hasFocus: typeof document !== "undefined" ? document.hasFocus() : false,
   };
 }

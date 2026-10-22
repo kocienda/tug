@@ -10,7 +10,7 @@
 
 import type { CardStateBag, DeckState } from "./layout-tree";
 import { CARDS_CARD_ID } from "./lib/cards-card-id";
-import { DEFAULT_IMPOSITION_KIND, DEFAULT_SIDEBAR_SIDE } from "./lib/layout-imposer";
+import { DEFAULT_IMPOSITION_KIND, defaultSidebarSide } from "./lib/layout-imposer";
 
 export interface SeedDeckStateArgs {
   state: DeckState;
@@ -103,7 +103,7 @@ export function seedDeckState(deps: TestSeedDeps, args: SeedDeckStateArgs): void
     ...args.state,
     imposition: args.state.imposition ?? {
       kind: DEFAULT_IMPOSITION_KIND,
-      sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
+      sidebars: { [CARDS_CARD_ID]: { side: defaultSidebarSide(CARDS_CARD_ID) } },
     },
   });
 

@@ -1427,12 +1427,15 @@ describe("effectiveRailOrder", () => {
     ]);
   });
 
-  test("cards default to the right, so an empty map rails them there", () => {
+  test("an empty map rails each card on its default side", () => {
     const state = imposition({});
-    expect(effectiveRailOrder(state, "right", ["cards", "jots"])).toEqual([
-      "cards",
+    const all = ["overview", "jots", "dashes", "cards", "layout"];
+    expect(effectiveRailOrder(state, "left", all)).toEqual([
+      "overview",
       "jots",
+      "dashes",
     ]);
+    expect(effectiveRailOrder(state, "right", all)).toEqual(["cards", "layout"]);
   });
 
   test("the stored order wins", () => {

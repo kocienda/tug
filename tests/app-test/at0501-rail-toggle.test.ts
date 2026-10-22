@@ -98,8 +98,8 @@ describe.skipIf(!SHOULD_RUN)("at0501 — the rail toggle chords", () => {
           expect(await railCount(app, "right")).toBe(0);
 
           // Hidden → show the side and focus its frontmost member. The deck's
-          // sidebar cards default to the right edge, so the right chord is the
-          // one with something to open on a factory deck.
+          // Workspaces and Layout cards default to the right edge, so the
+          // right chord has something to open on a factory deck.
           await toggleRail(app, "right");
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(railSelector("right"))}).length > 0`,
@@ -149,7 +149,7 @@ describe.skipIf(!SHOULD_RUN)("at0501 — the rail toggle chords", () => {
           // Two members on the right, opened one card at a time through the
           // per-card rows — the door that still exists for them.
           await app.dispatchControlAction("toggle-layout");
-          await app.dispatchControlAction("toggle-jots");
+          await app.dispatchControlAction("toggle-cards");
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(railSelector("right"))}).length === 2`,
             { timeoutMs: 3_000 },
@@ -160,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("at0501 — the rail toggle chords", () => {
           );
           expect(members).toHaveLength(2);
 
-          // The keyboard is inside the side (opening Jots activated it), so
+          // The keyboard is inside the side (opening Workspaces activated it), so
           // one press takes the whole side away — both members, not one.
           await toggleRail(app, "right");
           await app.waitForCondition<boolean>(

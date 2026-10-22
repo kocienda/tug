@@ -32,7 +32,7 @@ import type { ColumnMode, ContentWidth, SidebarSide } from "@/lib/layout-imposer
 import {
   CONTENT_WIDTH_LABELS,
   CONTENT_WIDTH_PRESETS,
-  DEFAULT_SIDEBAR_SIDE,
+  defaultSidebarSide,
   IMPOSITION_KINDS,
   slotCount,
 } from "@/lib/layout-imposer";
@@ -1252,7 +1252,7 @@ function sidebarFact(
   return (
     chain.menu.sidebars[componentId] ?? {
       showing: false,
-      side: DEFAULT_SIDEBAR_SIDE,
+      side: defaultSidebarSide(componentId),
       pinned: false,
       focused: false,
     }

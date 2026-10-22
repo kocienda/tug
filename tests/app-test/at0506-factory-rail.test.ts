@@ -137,8 +137,8 @@ describe.skipIf(!SHOULD_RUN)("at0506 — the factory rail", () => {
             return out;
           })()
         `);
-        for (const id of FACTORY_LEFT) expect(widths[id]).toBe(420);
-        for (const id of FACTORY_RIGHT) expect(widths[id]).toBe(395);
+        for (const id of FACTORY_LEFT) expect(widths[id]).toBe(452);
+        for (const id of FACTORY_RIGHT) expect(widths[id]).toBe(375);
       } finally {
         await app.close();
       }

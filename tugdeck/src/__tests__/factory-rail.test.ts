@@ -28,12 +28,38 @@ import {
   FACTORY_RAIL_ORDER,
   factoryDeckImposition,
 } from "../deck-manager";
-import type { DeckImposition } from "../lib/layout-imposer";
+import { DEFAULT_ARCS_WIDTH_PX } from "../components/arcs/arcs-card-registration";
+import { DEFAULT_CARDS_WIDTH_PX } from "../components/cards/cards-card-registration";
+import { DEFAULT_JOTS_WIDTH_PX } from "../components/jots/jots-card-registration";
+import { DEFAULT_LAYOUT_WIDTH_PX } from "../components/layout/layout-card-registration";
+import { DEFAULT_OVERVIEW_WIDTH_PX } from "../lib/overview-measure";
+import { defaultSidebarSide, type DeckImposition } from "../lib/layout-imposer";
 
 /** A deck that has never placed anything — a factory-fresh imposition. */
 const FRESH: DeckImposition = { sidebars: {} };
 
 describe("factoryDeckImposition", () => {
+  test("an unplaced card's default side and width are its factory rail's", () => {
+    // A deck that never ran the factory path — a layout persisted before a
+    // card existed, a card reopened after its entry was dropped — reads each
+    // card's side and preferred width from its registration, not from here.
+    // Both must agree with the factory, or such a deck opens arranged unlike
+    // the one a new install stands up.
+    const registered: Record<string, number> = {
+      dashes: DEFAULT_ARCS_WIDTH_PX,
+      jots: DEFAULT_JOTS_WIDTH_PX,
+      overview: DEFAULT_OVERVIEW_WIDTH_PX,
+      cards: DEFAULT_CARDS_WIDTH_PX,
+      layout: DEFAULT_LAYOUT_WIDTH_PX,
+    };
+    for (const side of ["left", "right"] as const) {
+      for (const componentId of FACTORY_RAILS[side].order) {
+        expect(defaultSidebarSide(componentId)).toBe(side);
+        expect(registered[componentId]).toBe(FACTORY_RAILS[side].widthPx);
+      }
+    }
+  });
+
   test("stands each rail up in the factory order", () => {
     const imposition = factoryDeckImposition(FRESH);
 

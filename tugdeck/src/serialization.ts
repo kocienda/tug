@@ -58,7 +58,7 @@ import {
   isSidebarSide,
   DEFAULT_IMPOSITION_KIND,
   DEFAULT_CONTENT_WIDTH,
-  DEFAULT_SIDEBAR_SIDE,
+  defaultSidebarSide,
   isContentWidth,
   sweptColumnOrders,
   type DeckImposition,
@@ -405,7 +405,7 @@ function migrateV3ToV4(raw: Record<string, unknown>): Record<string, unknown> {
  * The `sidebars` map from an imposition record, keeping only entries that
  * actually name a side. Entries whose `side` is missing or unreadable are
  * dropped rather than defaulted: an unplaced sidebar card takes
- * {@link DEFAULT_SIDEBAR_SIDE} at the moment it opens, and inventing an entry
+ * {@link defaultSidebarSide} at the moment it opens, and inventing an entry
  * here would record that default as though the user had chosen it.
  */
 function parseSidebars(
@@ -907,7 +907,7 @@ function migrateV1ToDeckState(
   return {
     cards,
     panes,
-    imposition: { sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } } },
+    imposition: { sidebars: { [CARDS_CARD_ID]: { side: defaultSidebarSide(CARDS_CARD_ID) } } },
     hasFocus: true,
   };
 }
@@ -932,7 +932,7 @@ export function buildDefaultLayout(): DeckState {
     imposition: {
       kind: DEFAULT_IMPOSITION_KIND,
       contentWidth: DEFAULT_CONTENT_WIDTH,
-      sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
+      sidebars: { [CARDS_CARD_ID]: { side: defaultSidebarSide(CARDS_CARD_ID) } },
     },
     hasFocus: true,
   };

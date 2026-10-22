@@ -102,6 +102,11 @@
  */
 
 import type React from "react";
+import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
+import { CARDS_CARD_ID } from "@/lib/cards-card-id";
+import { JOTS_CARD_ID } from "@/lib/jots-card-id";
+import { LAYOUT_CARD_ID } from "@/lib/layout-card-id";
+import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 
 /** The active N-up rule. */
 export type ImpositionKind =
@@ -344,7 +349,7 @@ export interface DeckImposition {
    * Where each sidebar card stands, keyed by its registered `componentId`.
    *
    * A card absent from the map has never been placed and takes
-   * {@link DEFAULT_SIDEBAR_SIDE} when it first opens. The map is keyed by
+   * {@link defaultSidebarSide} when it first opens. The map is keyed by
    * componentId rather than by card id because a sidebar card is a singleton:
    * its side is a property of the card *type*, and survives the pane being
    * closed and reopened.
@@ -375,8 +380,28 @@ export interface DeckImposition {
   columns?: Record<number, ColumnArrangement>;
 }
 
-/** Where a sidebar card stands when nothing has ever said otherwise. */
+/** Where a sidebar card the default arrangement does not name stands when
+ *  nothing has ever said otherwise. */
 export const DEFAULT_SIDEBAR_SIDE: SidebarSide = "right";
+
+/**
+ * The default arrangement of the sidebar cards: the reading cards — Overview,
+ * Jots and Dashes — share the left rail, and the deck's own instruments —
+ * Workspaces and Layout — share the right. Their registered preferred widths
+ * follow the same split, so each rail opens at one width.
+ */
+const DEFAULT_SIDEBAR_SIDES: Readonly<Record<string, SidebarSide>> = {
+  [OVERVIEW_CARD_ID]: "left",
+  [JOTS_CARD_ID]: "left",
+  [ARCS_CARD_ID]: "left",
+  [CARDS_CARD_ID]: "right",
+  [LAYOUT_CARD_ID]: "right",
+};
+
+/** Where `componentId` stands when it has never been placed. */
+export function defaultSidebarSide(componentId: string): SidebarSide {
+  return DEFAULT_SIDEBAR_SIDES[componentId] ?? DEFAULT_SIDEBAR_SIDE;
+}
 
 /** The width content cards open at when the deck has never said otherwise. */
 export const DEFAULT_CONTENT_WIDTH: ContentWidth = "comfy";
@@ -401,7 +426,7 @@ export function sidebarSide(
   imposition: DeckImposition,
   componentId: string,
 ): SidebarSide {
-  return imposition.sidebars?.[componentId]?.side ?? DEFAULT_SIDEBAR_SIDE;
+  return imposition.sidebars?.[componentId]?.side ?? defaultSidebarSide(componentId);
 }
 
 /** Whether `componentId` stands at its pin. Absent reads as pinned — a sidebar

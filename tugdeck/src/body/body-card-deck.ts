@@ -66,7 +66,7 @@ import { ComponentStateRegistries, EngineHookRegistry } from "../engine-hooks";
 import type { ComponentStatePreservationRegistry } from "../components/tugways/component-state-preservation-registry";
 import { CardLifecycle, type CardLifecycleObserver } from "../lib/card-lifecycle";
 import type { SpaceLayerShownSource } from "../components/chrome/space-layer";
-import { DEFAULT_SIDEBAR_SIDE } from "../lib/layout-imposer";
+import { defaultSidebarSide } from "../lib/layout-imposer";
 import { applyBagFocus } from "../focus-transfer";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { arrangementSnapshot } from "../lib/body-arrangement";
@@ -268,7 +268,7 @@ export class BodyCardDeck implements CardDeck {
       cards: [{ id: this.cardId, componentId: this.componentId, title: "", closable: true }],
       panes: [pane],
       ...(this.context.firstResponderCardId === this.cardId ? { activePaneId: paneId } : {}),
-      imposition: { sidebars: { dashes: { side: DEFAULT_SIDEBAR_SIDE } } },
+      imposition: { sidebars: { dashes: { side: defaultSidebarSide("dashes") } } },
       hasFocus: typeof document !== "undefined" ? document.hasFocus() : true,
       ...(this.context.arriving ? { arriving: { [paneId]: true as const } } : {}),
     };

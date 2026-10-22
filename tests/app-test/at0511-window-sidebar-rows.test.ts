@@ -283,24 +283,24 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
           await app.dispatchControlAction("toggle-jots");
           await expectRung(app, MIXED, "Hide Jots");
 
-          // Showing: the pair lights, and the right edge — the default a
-          // sidebar takes when nobody has placed it — carries the check.
-          const litRight = await waitMenuMark(app, RIGHT, ON);
-          expect(litRight.state, `${RIGHT} checked at the default side`).toBe(ON);
-          const litLeft = await menuItem(app, LEFT);
-          expect(litLeft.enabled, `${LEFT} lights once the card shows`).toBe(true);
-          expect(litLeft.state, `${LEFT} unchecked`).toBe(OFF);
+          // Showing: the pair lights, and the left edge — the side Jots takes
+          // when nobody has placed it — carries the check.
+          const litLeft = await waitMenuMark(app, LEFT, ON);
+          expect(litLeft.state, `${LEFT} checked at the default side`).toBe(ON);
+          const litRight = await menuItem(app, RIGHT);
+          expect(litRight.enabled, `${RIGHT} lights once the card shows`).toBe(true);
+          expect(litRight.state, `${RIGHT} unchecked`).toBe(OFF);
 
-          // Moving the card moves the check — the same frame the Left row
+          // Moving the card moves the check — the same frame the Right row
           // sends, and the same store the Layout card writes.
           await app.dispatchControlAction("set-sidebar-side", {
             componentId: "jots",
-            side: "left",
+            side: "right",
           });
-          const movedLeft = await waitMenuMark(app, LEFT, ON);
-          expect(movedLeft.state, `${LEFT} checked after the move`).toBe(ON);
-          const movedRight = await waitMenuMark(app, RIGHT, OFF);
-          expect(movedRight.state, `${RIGHT} unchecked after the move`).toBe(OFF);
+          const movedRight = await waitMenuMark(app, RIGHT, ON);
+          expect(movedRight.state, `${RIGHT} checked after the move`).toBe(ON);
+          const movedLeft = await waitMenuMark(app, LEFT, OFF);
+          expect(movedLeft.state, `${LEFT} unchecked after the move`).toBe(OFF);
         } finally {
           await app.close();
         }

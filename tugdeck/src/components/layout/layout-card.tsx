@@ -194,7 +194,7 @@ import {
   DEFAULT_CONTENT_WIDTH,
   DEFAULT_IMPOSITION_KIND,
   DEFAULT_IMPOSITION_LAYOUT,
-  DEFAULT_SIDEBAR_SIDE,
+  defaultSidebarSide,
   type ContentWidth,
   type DeckImposition,
   type ImpositionKind,
@@ -492,7 +492,7 @@ function useImposition(): DeckImposition {
   return useDeckDerived(
     (deck) =>
       deck?.imposition ?? {
-        sidebars: { [CARDS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
+        sidebars: { [CARDS_CARD_ID]: { side: defaultSidebarSide(CARDS_CARD_ID) } },
       },
   );
 }

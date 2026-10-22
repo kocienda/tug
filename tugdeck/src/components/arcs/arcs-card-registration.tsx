@@ -24,10 +24,10 @@ import { ArcsContent } from "./arcs-card";
 
 export { ARCS_CARD_ID };
 
-/** The width the Arcs rail opens at before the user has sized it — the one
- *  the four cards the rail broke into share, so a rail holding several of them
- *  does not open ragged. */
-export const DEFAULT_ARCS_WIDTH_PX = 420;
+/** The width the Arcs rail opens at before the user has sized it. It stands
+ *  on the left with Overview and Jots by default, and the three open at one
+ *  width, so the rail does not open ragged. */
+export const DEFAULT_ARCS_WIDTH_PX = 452;
 
 /** The narrowest an arc's two-line lifecycle block still reads at. */
 export const MIN_ARCS_WIDTH_PX = 320;

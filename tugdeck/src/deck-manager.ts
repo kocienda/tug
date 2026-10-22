@@ -400,8 +400,9 @@ function spliceCardFromStack(
  * scale a rail divided at equal shares stands at.
  *
  * The width is the side's, not each card's preferred one: a rail stands as
- * wide as its widest pane, so one member at its own preferred width (Overview
- * prefers its 64-character measure) would widen the whole side.
+ * wide as its widest pane, so one member at a width of its own would widen
+ * the whole side. Each member's registered preferred width is set to its
+ * side's width here, so the allocator anchors where the factory stands.
  */
 export const FACTORY_RAILS: Readonly<
   Record<
@@ -415,13 +416,13 @@ export const FACTORY_RAILS: Readonly<
 > = {
   left: {
     order: [ARCS_CARD_ID, JOTS_CARD_ID, OVERVIEW_CARD_ID],
-    shares: { [ARCS_CARD_ID]: 0.47, [JOTS_CARD_ID]: 0.68, [OVERVIEW_CARD_ID]: 1.85 },
-    widthPx: 420,
+    shares: { [ARCS_CARD_ID]: 0.49, [JOTS_CARD_ID]: 0.6, [OVERVIEW_CARD_ID]: 1.91 },
+    widthPx: 452,
   },
   right: {
     order: [CARDS_CARD_ID, LAYOUT_CARD_ID],
-    shares: { [CARDS_CARD_ID]: 1.36, [LAYOUT_CARD_ID]: 0.64 },
-    widthPx: 395,
+    shares: { [CARDS_CARD_ID]: 1.04, [LAYOUT_CARD_ID]: 0.96 },
+    widthPx: 375,
   },
 };
 

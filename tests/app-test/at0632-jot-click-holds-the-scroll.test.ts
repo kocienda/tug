@@ -67,11 +67,11 @@ async function settleSidebar(app: App): Promise<void> {
   // card-dom: shell — the rail pane the host places the card's body over.
   await app.waitForCondition<boolean>(
     `(() => {
-       const pane = document.querySelector('.tug-pane[data-rail-side="right"]');
+       const pane = document.querySelector('.tug-pane[data-rail-side="left"]');
        if (pane === null) return false;
        const box = pane.getBoundingClientRect();
        const x = Math.round(box.left);
-       const settled = window.__jotsPaneX === x && box.right <= window.innerWidth;
+       const settled = window.__jotsPaneX === x && box.left >= 0;
        window.__jotsPaneX = x;
        return settled;
      })()`,

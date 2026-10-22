@@ -31,9 +31,8 @@ import { CardsContent } from "./cards-card";
 export { CARDS_CARD_ID };
 
 /** The width the Cards rail opens at before the user has sized it. It stands
- *  on the right with Layout, and that rail opens at 360; the left rail's
- *  cards open at 420. */
-export const DEFAULT_CARDS_WIDTH_PX = 360;
+ *  on the right with Layout by default, and the two open at one width. */
+export const DEFAULT_CARDS_WIDTH_PX = 375;
 
 /** The narrowest a card row's name, its disambiguating run and its slot picker
  *  still read at. */

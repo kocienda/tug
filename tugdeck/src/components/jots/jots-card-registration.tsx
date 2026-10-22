@@ -24,10 +24,11 @@ import { JotsContent } from "./jots-card";
 
 export { JOTS_CARD_ID };
 
-/** The width the Jots rail opens at before the user has sized it. Modelled on
- *  the Cards card: the two stand in one rail by default, and a card that opened
- *  wider than its neighbour would just be resized back. */
-export const DEFAULT_JOTS_WIDTH_PX = 420;
+/** The width the Jots rail opens at before the user has sized it. It stands
+ *  on the left with Overview and Dashes by default, and the three open at one
+ *  width — a card that opened wider than its rail-mate would just be resized
+ *  back. */
+export const DEFAULT_JOTS_WIDTH_PX = 452;
 
 /** The narrowest a jot's incipit and its row accessories still read at. */
 export const MIN_JOTS_WIDTH_PX = 320;
