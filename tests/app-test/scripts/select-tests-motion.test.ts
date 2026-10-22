@@ -23,7 +23,7 @@ const MOTION = "at0624-reveal-travel-on-curve.test.ts";
 /** A file in the settle number range that samples nothing, and carries no tag. */
 const IN_RANGE_PLAIN = "at0709-insert-file-image.test.ts";
 /** A screen-taker. */
-const FOREGROUND = "at0145-permission-dialog-keyboard.test.ts";
+const FOREGROUND = "body-grounding/row-12-composer-session-panel.test.ts";
 const PLAIN = "at0216-shell-exchange.test.ts";
 
 function run(script: string, args: string[]): { code: number; out: string; err: string } {

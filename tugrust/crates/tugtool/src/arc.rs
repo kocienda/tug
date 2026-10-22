@@ -1300,7 +1300,9 @@ fn verify_verdicts() -> impl FnMut(&str) -> Option<tugarc_core::surfaces::ChildV
     let call = crate::report::tool_use_id();
     let conn = call.as_ref().and_then(|_| open_ledger(default_path()).ok());
     let mut seen = match (&conn, &call) {
-        (Some(conn), Some(call)) => runs_for_call(conn, call, None).map(|r| r.len()).unwrap_or(0),
+        (Some(conn), Some(call)) => runs_for_call(conn, call, None)
+            .map(|r| r.len())
+            .unwrap_or(0),
         _ => 0,
     };
     move |_command: &str| {
@@ -1328,9 +1330,7 @@ pub(crate) fn verdict_of_runs(
         passed: (total > 0).then(|| (total - failed).max(0) as u64),
         total: (total > 0).then_some(total as u64),
         title: first.map(|f| f.name.clone()),
-        message: first
-            .map(|f| f.message.clone())
-            .filter(|m| !m.is_empty()),
+        message: first.map(|f| f.message.clone()).filter(|m| !m.is_empty()),
     })
 }
 
@@ -1413,7 +1413,9 @@ fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {
         if report.verdict == "red"
             && let Some(call) = crate::report::tool_use_id()
         {
-            println!("every red recorded under this call: tugtool test last --call {call} --failures\n");
+            println!(
+                "every red recorded under this call: tugtool test last --call {call} --failures\n"
+            );
         }
     }
 

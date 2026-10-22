@@ -1662,8 +1662,14 @@ mod tests {
             closing_line("tsc", "error", 0, 0, 2),
             "[test] tsc: exit 2 — tugtool test last names the run"
         );
-        assert_eq!(closing_line("rust", "test", 0, 748, 0), "[test] rust: 748 tests, none failed");
-        assert_eq!(closing_line("cargo", "crate", 0, 1, 0), "[test] cargo: 1 crate, none failed");
+        assert_eq!(
+            closing_line("rust", "test", 0, 748, 0),
+            "[test] rust: 748 tests, none failed"
+        );
+        assert_eq!(
+            closing_line("cargo", "crate", 0, 1, 0),
+            "[test] cargo: 1 crate, none failed"
+        );
         assert_eq!(closing_line("tsc", "error", 0, 0, 0), "[test] tsc: green");
     }
 
@@ -1675,7 +1681,10 @@ mod tests {
         let fixture = include_str!("../tests/fixtures/runner-output/cargo-build-error.txt");
         for kind in [RunKind::Nextest, RunKind::CargoTest] {
             let (follow, _, out) = follow_stderr(kind, fixture);
-            assert_eq!(out, fixture, "{kind:?}: cargo's stderr passes through whole");
+            assert_eq!(
+                out, fixture,
+                "{kind:?}: cargo's stderr passes through whole"
+            );
             assert_eq!(follow.progress.failures, 1, "{kind:?}");
             assert_eq!(follow.progress.text, "beta did not compile", "{kind:?}");
             let record = follow.tally();

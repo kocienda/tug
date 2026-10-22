@@ -344,8 +344,15 @@ fn a_declared_runner_in_a_check_is_wrapped_and_its_red_is_recorded_under_the_cal
         .output()
         .unwrap();
     let text = stdout_of(&output);
-    assert_eq!(output.status.code(), Some(1), "a red check is a red verify: {text}");
-    assert!(text.contains("PASS a\nFAIL b\n"), "the child's output passes through: {text}");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a red check is a red verify: {text}"
+    );
+    assert!(
+        text.contains("PASS a\nFAIL b\n"),
+        "the child's output passes through: {text}"
+    );
     assert!(
         text.contains("failed (exit 1): sh src/run-checks.sh"),
         "the table reads the declaration, not the wrap: {text}"

@@ -513,7 +513,11 @@ impl LedgerEntry {
         self.queue.retain(|frame| {
             serde_json::from_slice::<serde_json::Value>(&frame.payload)
                 .ok()
-                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|t| t != "request_replay"))
+                .and_then(|v| {
+                    v.get("type")
+                        .and_then(|t| t.as_str())
+                        .map(|t| t != "request_replay")
+                })
                 .unwrap_or(true)
         })
     }

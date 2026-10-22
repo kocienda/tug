@@ -1005,14 +1005,24 @@ mod fit_tests {
             watch: &mut |_| {},
         };
         let report = verify_watched(&paths, &root, "demo", None, None, hooks).unwrap();
-        assert_eq!(*seen.borrow(), vec!["false".to_string()], "every check is offered");
-        assert_eq!(report.verdict, "verified", "the wrapped command is what ran");
+        assert_eq!(
+            *seen.borrow(),
+            vec!["false".to_string()],
+            "every check is offered"
+        );
+        assert_eq!(
+            report.verdict, "verified",
+            "the wrapped command is what ran"
+        );
         let command = &report.surfaces[0].commands[0];
         assert_eq!(command.command, "false", "the report reads the declaration");
         assert_eq!(command.exit_code, Some(0));
 
         let report = verify_in(&paths, &root, "demo", None, None).unwrap();
-        assert_eq!(report.verdict, "red", "unwrapped, the check runs as declared");
+        assert_eq!(
+            report.verdict, "red",
+            "unwrapped, the check runs as declared"
+        );
     }
 
     /// A red check whose child recorded carries the child's verdict: its
@@ -1044,7 +1054,11 @@ mod fit_tests {
             watch: &mut |_| {},
         };
         let report = verify_watched(&paths, &root, "demo", None, None, hooks).unwrap();
-        assert_eq!(asked, vec!["false".to_string()], "asked once, after the check exits");
+        assert_eq!(
+            asked,
+            vec!["false".to_string()],
+            "asked once, after the check exits"
+        );
         assert_eq!(report.verdict, "red");
         let surface = &report.surfaces[0];
         let command = &surface.commands[0];
@@ -1054,15 +1068,24 @@ mod fit_tests {
         assert_eq!(surface.title.as_deref(), Some("b"));
         assert_eq!(surface.message.as_deref(), Some("expected 2, got 3"));
         assert!(
-            report.receipt.ends_with("src: `false` (exit 1) · first red b"),
+            report
+                .receipt
+                .ends_with("src: `false` (exit 1) · first red b"),
             "the receipt names the test: {}",
             report.receipt
         );
 
         let report = verify_in(&paths, &root, "demo", None, None).unwrap();
         let surface = &report.surfaces[0];
-        assert_eq!((surface.passed, surface.total, surface.title.as_deref()), (None, None, None));
-        assert!(report.receipt.ends_with("src: `false` (exit 1)"), "{}", report.receipt);
+        assert_eq!(
+            (surface.passed, surface.total, surface.title.as_deref()),
+            (None, None, None)
+        );
+        assert!(
+            report.receipt.ends_with("src: `false` (exit 1)"),
+            "{}",
+            report.receipt
+        );
     }
 
     fn verified_lines(paths: &Paths, root: &Path) -> Vec<String> {

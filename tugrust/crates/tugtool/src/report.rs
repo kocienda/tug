@@ -556,7 +556,10 @@ mod tests {
         assert_eq!(fields["unit"], "file");
         assert_eq!(fields["jobs"], 4);
         assert_eq!(fields["units"], rows);
-        assert!(fields.get("nests").is_none(), "a run that does not nest says nothing");
+        assert!(
+            fields.get("nests").is_none(),
+            "a run that does not nest says nothing"
+        );
         let nesting = report_fields(
             &RunReport {
                 text: "checking rust".into(),

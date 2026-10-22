@@ -401,20 +401,37 @@ async fn test_request_replay_queued_on_a_dead_spawn_is_dropped_at_re_arm() {
         entry.spawn_state = SpawnState::Spawning;
         assert_eq!(entry.queue.push(user_frame), QueuePush::Ok);
     }
-    sup.handle_control("request_replay", &request_replay_payload("sess-dead-spawn"), 10)
-        .await
-        .expect_handled();
+    sup.handle_control(
+        "request_replay",
+        &request_replay_payload("sess-dead-spawn"),
+        10,
+    )
+    .await
+    .expect_handled();
     // The spawn dies before the child's `session_init`; nothing drained the queue.
     entry_arc.lock().await.spawn_state = SpawnState::Errored;
 
     let mut entry = entry_arc.lock().await;
-    assert_eq!(entry.drop_queued_replays(), 1, "the dead spawn's replay goes");
+    assert_eq!(
+        entry.drop_queued_replays(),
+        1,
+        "the dead spawn's replay goes"
+    );
     let left: Vec<String> = entry
         .queue
         .iter()
-        .map(|f| serde_json::from_slice::<serde_json::Value>(&f.payload).unwrap()["type"].as_str().unwrap().to_owned())
+        .map(|f| {
+            serde_json::from_slice::<serde_json::Value>(&f.payload).unwrap()["type"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
         .collect();
-    assert_eq!(left, vec!["user_message".to_string()], "the input queued beside it stays");
+    assert_eq!(
+        left,
+        vec!["user_message".to_string()],
+        "the input queued beside it stays"
+    );
     assert_eq!(entry.drop_queued_replays(), 0);
 }
 
@@ -427,18 +444,32 @@ async fn test_reset_session_drops_a_queued_replay() {
     let tug_id = TugSessionId::new("sess-reset-replay");
     let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
     entry_arc.lock().await.spawn_state = SpawnState::Spawning;
-    sup.handle_control("request_replay", &request_replay_payload("sess-reset-replay"), 10)
-        .await
-        .expect_handled();
+    sup.handle_control(
+        "request_replay",
+        &request_replay_payload("sess-reset-replay"),
+        10,
+    )
+    .await
+    .expect_handled();
     entry_arc.lock().await.spawn_state = SpawnState::Errored;
 
-    sup.handle_control("reset_session", &reset_payload("card-reset", "sess-reset-replay"), 10)
-        .await
-        .expect_handled();
+    sup.handle_control(
+        "reset_session",
+        &reset_payload("card-reset", "sess-reset-replay"),
+        10,
+    )
+    .await
+    .expect_handled();
 
     let entry = entry_arc.lock().await;
     assert!(
-        entry.queue.iter().all(|f| serde_json::from_slice::<serde_json::Value>(&f.payload).unwrap()["type"] != "request_replay"),
+        entry
+            .queue
+            .iter()
+            .all(
+                |f| serde_json::from_slice::<serde_json::Value>(&f.payload).unwrap()["type"]
+                    != "request_replay"
+            ),
         "no replay asked of the discarded session is left queued",
     );
 }

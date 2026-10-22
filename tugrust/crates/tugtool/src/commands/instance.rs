@@ -540,7 +540,11 @@ fn run_remove(
             std::fs::remove_dir_all(&data_dir).map_err(|e| format!("rm data dir: {e}"))?;
         } else {
             let dest = retire_data_dir(&data_dir, instance_id)?;
-            println!("retired data dir: {} → {}", data_dir.display(), dest.display());
+            println!(
+                "retired data dir: {} → {}",
+                data_dir.display(),
+                dest.display()
+            );
         }
     }
 
@@ -675,7 +679,9 @@ fn discover_orphans(json: bool) -> Result<Option<Vec<Orphan>>, String> {
         // bundle being gone means a build is gone, not that the user's
         // workspaces and sessions are. A registry read that fails counts
         // as live — the safe side.
-        let live = registry::find_by_id(&id).map(|e| e.is_some()).unwrap_or(true);
+        let live = registry::find_by_id(&id)
+            .map(|e| e.is_some())
+            .unwrap_or(true);
         if !prunable(&id, live) {
             continue;
         }
@@ -855,6 +861,9 @@ mod tests {
         std::fs::create_dir_all(&data_dir).unwrap();
         let dest2 = retire_data_dir(&data_dir, "release-main").unwrap();
         assert!(dest2.starts_with(&retired));
-        assert_ne!(dest, dest2, "a second retirement never overwrites the first");
+        assert_ne!(
+            dest, dest2,
+            "a second retirement never overwrites the first"
+        );
     }
 }

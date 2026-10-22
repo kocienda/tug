@@ -3,4 +3,7 @@
 # module loads. Without this, tests that exercise SessionManager
 # persist mock session ids into the developer's real `~/.tugbank.db`
 # (see `src/__tests__/setup-tugbank.ts` for the full rationale).
-preload = ["./src/__tests__/setup-tugbank.ts"]
+#
+# The second drains queued IPC writes after every test so one test's
+# frames never land in a later test's capture (see the file).
+preload = ["./src/__tests__/setup-tugbank.ts", "./src/__tests__/setup-ipc-drain.ts"]

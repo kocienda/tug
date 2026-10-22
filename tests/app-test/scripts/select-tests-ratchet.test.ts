@@ -34,12 +34,12 @@ const SCRIPT_REL = "tests/app-test/scripts/select-tests.ts";
  * A root missing here resolves to nothing inside the throwaway repo, so every case
  * below fails on a path lint that has nothing to do with the ratchet.
  */
-const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws"];
+const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws", "tugplug"];
 
 /**
  * A throwaway repo holding a copy of the corpus, with the real source roots symlinked
  * beside it so every `@covers` path resolves. Only the corpus is copied — the roots are
- * links, so `git add` records four symlinks rather than the whole tree.
+ * links, so `git add` records one symlink per root rather than the whole tree.
  */
 function makeRepo(prefix: string): string {
     const dir = mkdtempSync(join(tmpdir(), prefix));

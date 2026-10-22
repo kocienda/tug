@@ -726,9 +726,14 @@ describe("runReplay — cancel_replay aborts in flight", () => {
 
     const { emitted } = await captureIpc(async () => {
       const p = manager.runReplay({ lastTurns: 400 });
-      // Let runReplay pass the reader await and install the abort
-      // resolver, then cancel mid-loop.
-      await new Promise((r) => setTimeout(r, 5));
+      // Wait for runReplay to pass the reader await and install the abort
+      // resolver, then cancel mid-loop. A fixed sleep raced it: on a loaded
+      // machine the cancel landed before the resolver existed, was a no-op,
+      // and the replay ran all 200 turns to a clean close.
+      const runner = (manager as any).replay;
+      while (runner.replayAbortResolve === null) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
       manager.cancelReplay();
       await p;
     });

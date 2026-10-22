@@ -48,8 +48,8 @@ describe("SessionManager — system/init re-init detector via handleClaudeLine",
       sessionsDbPath: null,
     });
   });
-  afterEach(() => {
-    void manager.shutdown();
+  afterEach(async () => {
+    await manager.shutdown();
     rmSync(projectDir, { recursive: true, force: true });
   });
 

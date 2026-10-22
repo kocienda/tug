@@ -690,10 +690,20 @@ assertion `left == right` failed
             record_run(&mut conn, &run, None).unwrap();
         }
         let base = resolve_base_root(Path::new(&root));
-        assert_eq!(median_wall_secs(&conn, &base, "rust", 10).unwrap(), Some(25.0));
-        assert_eq!(median_wall_secs(&conn, &base, "rust", 3).unwrap(), Some(30.0), "the newest three");
+        assert_eq!(
+            median_wall_secs(&conn, &base, "rust", 10).unwrap(),
+            Some(25.0)
+        );
+        assert_eq!(
+            median_wall_secs(&conn, &base, "rust", 3).unwrap(),
+            Some(30.0),
+            "the newest three"
+        );
         assert_eq!(median_wall_secs(&conn, &base, "tugdeck", 10).unwrap(), None);
-        assert_eq!(median_wall_secs(&conn, "/elsewhere", "rust", 10).unwrap(), None);
+        assert_eq!(
+            median_wall_secs(&conn, "/elsewhere", "rust", 10).unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -922,7 +932,10 @@ assertion `left == right` failed
             .unwrap();
         }
         let mut conn = open_ledger(&path).unwrap();
-        assert_eq!(count(&conn, "PRAGMA user_version"), TEST_RESULTS_SCHEMA_VERSION);
+        assert_eq!(
+            count(&conn, "PRAGMA user_version"),
+            TEST_RESULTS_SCHEMA_VERSION
+        );
         let root = dir.path().to_string_lossy().into_owned();
         record_run(
             &mut conn,

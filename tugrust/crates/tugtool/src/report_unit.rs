@@ -640,7 +640,10 @@ impl SurfaceReport {
                 self.run.report(&self.run.done_text(index))
             }
         };
-        RunReport { nests: true, ..report }
+        RunReport {
+            nests: true,
+            ..report
+        }
     }
 }
 
@@ -811,7 +814,10 @@ mod tests {
     #[test]
     fn a_loop_nests_only_while_an_item_runs() {
         let mut run = planned(&["a", "b"], &[]);
-        assert!(!run.report("planned").nests, "nothing running, nothing to nest");
+        assert!(
+            !run.report("planned").nests,
+            "nothing running, nothing to nest"
+        );
         run.start("a", None, 1_000);
         assert!(
             run.report("a started").nests,

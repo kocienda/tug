@@ -375,11 +375,19 @@ fn test_last_call_reads_every_suite_recorded_under_one_call_in_order() {
     let out = run_under(&db, &a, Some("toolu_later"), &as_refs(&rust_again));
     assert_eq!(out.status.code(), Some(0));
 
-    let out = run(&db, dir.path(), &["test", "last", "--call", "toolu_verify", "--failures"]);
+    let out = run(
+        &db,
+        dir.path(),
+        &["test", "last", "--call", "toolu_verify", "--failures"],
+    );
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(stdout(&out), "rust  (fail) tests::bad\n");
 
-    let out = run(&db, dir.path(), &["test", "last", "--call", "toolu_verify", "--json"]);
+    let out = run(
+        &db,
+        dir.path(),
+        &["test", "last", "--call", "toolu_verify", "--json"],
+    );
     let report = last_report(&stdout(&out));
     assert_eq!(report["call"], "toolu_verify");
     let suites: Vec<&str> = report["runs"]
@@ -399,5 +407,8 @@ fn test_last_call_reads_every_suite_recorded_under_one_call_in_order() {
         "the no-flag form is still the newest run of each suite"
     );
     let out = run(&db, dir.path(), &["test", "last", "--call", "toolu_none"]);
-    assert_eq!(stdout(&out), "no recorded test runs under call toolu_none\n");
+    assert_eq!(
+        stdout(&out),
+        "no recorded test runs under call toolu_none\n"
+    );
 }

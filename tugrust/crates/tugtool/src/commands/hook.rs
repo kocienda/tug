@@ -1914,10 +1914,20 @@ mod tests {
     #[test]
     fn a_background_runner_is_refused_and_named_the_timeout_to_pass() {
         let no_record = |_: Option<&str>, _: &[String]| None;
-        match bash_rewrite_with(&bash_background("cargo nextest run -p tugtool"), TUGTOOL, &no_record) {
+        match bash_rewrite_with(
+            &bash_background("cargo nextest run -p tugtool"),
+            TUGTOOL,
+            &no_record,
+        ) {
             Some(Decision::Deny(reason)) => {
-                assert!(reason.starts_with("`cargo nextest run` never runs in the background"), "{reason}");
-                assert!(reason.contains("`timeout: 600000`"), "the ceiling when nothing is recorded: {reason}");
+                assert!(
+                    reason.starts_with("`cargo nextest run` never runs in the background"),
+                    "{reason}"
+                );
+                assert!(
+                    reason.contains("`timeout: 600000`"),
+                    "the ceiling when nothing is recorded: {reason}"
+                );
                 assert!(reason.contains("server, watcher or sampler"), "{reason}");
             }
             other => panic!("expected a deny, got {other:?}"),
@@ -1926,16 +1936,27 @@ mod tests {
             assert_eq!(suites, ["rust".to_string()]);
             Some(100.0)
         };
-        match bash_rewrite_with(&bash_background("cd tugrust && cargo nextest run"), TUGTOOL, &recorded) {
+        match bash_rewrite_with(
+            &bash_background("cd tugrust && cargo nextest run"),
+            TUGTOOL,
+            &recorded,
+        ) {
             Some(Decision::Deny(reason)) => {
-                assert!(reason.contains("`timeout: 230000`"), "twice the median plus 30s: {reason}");
+                assert!(
+                    reason.contains("`timeout: 230000`"),
+                    "twice the median plus 30s: {reason}"
+                );
             }
             other => panic!("expected a deny, got {other:?}"),
         }
         // A runner the line hides is refused as a background run too, since
         // the dark-runner refusal reads it first.
         assert!(matches!(
-            bash_rewrite_with(&bash_background("x=$(bun test); echo $x"), TUGTOOL, &no_record),
+            bash_rewrite_with(
+                &bash_background("x=$(bun test); echo $x"),
+                TUGTOOL,
+                &no_record
+            ),
             Some(Decision::Deny(_))
         ));
         // A server is the exception: not refused, only given its call id.
@@ -1958,14 +1979,26 @@ mod tests {
         let refusal = |command: &str| filtered_runner_refusal(command, &runners);
         let reason = refusal("cargo build 2>&1 | grep -E '^(error|warning)' -A 6 | head -80")
             .expect("a grep on a build is refused");
-        assert!(reason.starts_with("`cargo build … | grep` guesses"), "{reason}");
+        assert!(
+            reason.starts_with("`cargo build … | grep` guesses"),
+            "{reason}"
+        );
         assert!(reason.contains("`2>&1 | tail -3`"), "{reason}");
         let reason = refusal("cd tugdeck && bun test 2>&1 | head -40").unwrap();
         assert!(reason.starts_with("`bun test … | head`"), "{reason}");
-        assert!(refusal("cargo nextest run 2>&1 | tail -5").is_none(), "tail keeps the verdict");
-        assert!(refusal("cargo nextest run || grep -r x src").is_none(), "`||` is not a pipe");
+        assert!(
+            refusal("cargo nextest run 2>&1 | tail -5").is_none(),
+            "tail keeps the verdict"
+        );
+        assert!(
+            refusal("cargo nextest run || grep -r x src").is_none(),
+            "`||` is not a pipe"
+        );
         assert!(refusal("ls | grep rs").is_none(), "no runner, no opinion");
-        assert!(refusal("cargo nextest run 2>&1 | tail -20 | grep FAIL").is_none(), "the filter is on tail");
+        assert!(
+            refusal("cargo nextest run 2>&1 | tail -20 | grep FAIL").is_none(),
+            "the filter is on tail"
+        );
         assert!(
             refusal("cargo build 2>&1 | tail -3; bun test 2>&1 | grep fail").is_some(),
             "a tailed runner earlier in the line does not hide a filtered one after it"
@@ -1996,16 +2029,26 @@ mod tests {
             }
         };
         assert_eq!(supplied_timeout_ms(100.0), 230_000);
-        assert_eq!(supplied_timeout_ms(400.0), HARNESS_MAX_TIMEOUT_MS, "clamped to the ceiling");
+        assert_eq!(
+            supplied_timeout_ms(400.0),
+            HARNESS_MAX_TIMEOUT_MS,
+            "clamped to the ceiling"
+        );
 
         let input = rewritten(&payload(None), Some(100.0));
-        assert_eq!(input["timeout"], 230_000, "none passed: the default was less");
+        assert_eq!(
+            input["timeout"], 230_000,
+            "none passed: the default was less"
+        );
         let input = rewritten(&payload(Some(600_000)), Some(100.0));
         assert_eq!(input["timeout"], 600_000, "a longer timeout is kept");
         let input = rewritten(&payload(Some(60_000)), Some(20.0));
         assert_eq!(input["timeout"], 70_000, "a shorter one is raised");
         let input = rewritten(&payload(None), Some(10.0));
-        assert!(input.get("timeout").is_none(), "50s is under the default, which stands");
+        assert!(
+            input.get("timeout").is_none(),
+            "50s is under the default, which stands"
+        );
         let input = rewritten(&payload(None), None);
         assert!(input.get("timeout").is_none(), "no record, no opinion");
         assert!(input["command"].as_str().unwrap().contains("--suite rust"));
