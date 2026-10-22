@@ -144,9 +144,9 @@ final class RailView: NSView, StackedView {
 
 /// A rail width drag's ghost: the footprint the rail will stand at when the
 /// hand lets go, drawn by the host so it stands where the hand is on the
-/// frame it is shown. A translucent fill of the accent, with the border on
-/// its deck-facing side in the held colour, or in the limit colour while the
-/// hand presses past one, in the colours the rail's page said it paints
+/// frame it is shown. A translucent fill of the theme's tint, with an edge on
+/// its deck-facing side in the tint, or in the limit colour while the hand
+/// presses past one, in the colours the rail's page said it paints
 /// (`onRailEdge`). Until the page has answered it draws nothing. Answers no
 /// point; the hand's events are the host's.
 final class RailEdgeView: NSView {
@@ -191,7 +191,7 @@ final class RailEdgeView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         fill.backgroundColor = colors.map { Self.color($0.fill) }
-        edge.backgroundColor = colors.map { Self.color(pastLimit ? $0.limit : $0.held) }
+        edge.backgroundColor = colors.map { Self.color(pastLimit ? $0.limit : $0.ghostEdge) }
         CATransaction.commit()
         place()
     }

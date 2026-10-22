@@ -23,7 +23,7 @@
  * So the ghost's width, its give past the ceiling and the members standing
  * still are read off the host's snapshot, and the spring is read in the
  * composite: a capture burst from the release finds the ghost's edge by its
- * accent line on every frame until the commit, so the
+ * edge line's colour on every frame until the commit, so the
  * frames of the spring are counted rather than guessed at, and the host's
  * snapshot after the settle says every member stands at the ceiling.
  *

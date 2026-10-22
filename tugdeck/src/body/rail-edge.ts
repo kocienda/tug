@@ -3,11 +3,11 @@
  *
  * While a hand drags a rail's width, the host draws a ghost of the rail's
  * new footprint itself (`RailView.swift`'s `RailEdgeView`): a translucent
- * fill of the accent and the border on its deck-facing side, held or past a
- * limit. It asks the page for those as the press lands
- * (`onRailEdge`), and this reads them off the page's computed styles as
- * they stand then — the theme, the rail treatment and the zoom included —
- * so the host draws what the page would have.
+ * fill of the theme's tint and an edge on its deck-facing side, in the tint
+ * or, past a limit, in the limit's colour. It asks the page for those as the
+ * press lands (`onRailEdge`), and this reads them off the page's computed
+ * styles as they stand then — the theme, the rail treatment and the zoom
+ * included — so the host draws what the page would have.
  *
  * Colours go to the host as sRGB bytes, read through a one-pixel canvas,
  * which takes any colour syntax the page's own styles resolve to. Widths go
@@ -69,10 +69,19 @@ export function readRailEdge(frame: HTMLElement, zoom: number): RailEdge | null 
   const limit = cssColorBytes(resolvedColor(frame, "var(--tugx-rail-edge-limit)"));
   const shadow = cssColorBytes(resolvedColor(frame, "var(--tugx-rail-shadow-color)"));
   const fill = cssColorBytes(resolvedColor(frame, "var(--tugx-rail-ghost-fill)"));
-  if (surface === null || rest === null || held === null || limit === null || shadow === null || fill === null) {
+  const ghostEdge = cssColorBytes(resolvedColor(frame, "var(--tugx-rail-ghost-edge)"));
+  if (
+    surface === null ||
+    rest === null ||
+    held === null ||
+    limit === null ||
+    shadow === null ||
+    fill === null ||
+    ghostEdge === null
+  ) {
     return null;
   }
   const width = parseFloat(style.getPropertyValue(`border-${facing}-width`)) || 0;
   const reach = parseFloat(getComputedStyle(frame).getPropertyValue("--tugx-rail-shadow-reach")) || 0;
-  return { surface, rest, held, limit, width: width * zoom, shadow, reach: reach * zoom, fill };
+  return { surface, rest, held, limit, width: width * zoom, shadow, reach: reach * zoom, fill, ghostEdge };
 }

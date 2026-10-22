@@ -432,27 +432,24 @@ export function framesDiffer(a: CaptureBurstFrame, b: CaptureBurstFrame, toleran
 }
 
 /**
- * One past the right end of the last line on row `y` drawn in a saturated
- * colour, or null when the row carries none: the last pixel whose chroma —
- * the spread between its highest and lowest channel — is at least
- * `minChroma`, carried on through any pixel past it still at a third of that,
- * which is the line's own paint partly covering a pixel where it ends between
- * two. The deck's surfaces are near-neutral, so a line drawn in an accent
- * stands out by chroma alone, whatever is tinted or repainted around it; a
- * line two device px wide covers at least one pixel whole wherever it lands.
+ * One past the right end of the last vertical line on row `y` whose pixels
+ * `isLine` accepts, or null when the row carries none: the last pixel it
+ * accepts whose pixels `reach` device px above and below it accepts too, so
+ * a glyph in a matching colour is not read as the line. An opaque line
+ * paints its own colour whatever lies beneath it, and a line two device px
+ * wide covers at least one pixel whole wherever it lands.
  */
-export function saturatedLineEndOnRow(frame: CaptureBurstFrame, y: number, minChroma: number): number | null {
+export function lineEndOnRow(frame: CaptureBurstFrame, y: number, isLine: (pixel: Rgb) => boolean, reach: number): number | null {
   const png = decoded(frame.path);
   const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
-  const chroma = (x: number): number => {
-    const i = (row * png.width + x) * 4;
-    return Math.max(png.rgba[i], png.rgba[i + 1], png.rgba[i + 2]) - Math.min(png.rgba[i], png.rgba[i + 1], png.rgba[i + 2]);
-  };
+  const rows = [row - reach, row, row + reach].filter((r) => r >= 0 && r < png.height);
+  const matches = (x: number): boolean =>
+    rows.every((r) => {
+      const i = (r * png.width + x) * 4;
+      return isLine({ r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] });
+    });
   for (let x = png.width - 1; x >= 0; x--) {
-    if (chroma(x) < minChroma) continue;
-    let end = x + 1;
-    while (end < png.width && chroma(end) >= minChroma / 3) end += 1;
-    return end;
+    if (matches(x)) return x + 1;
   }
   return null;
 }

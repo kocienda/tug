@@ -125,8 +125,9 @@ export const bodySurfaceToHost = defineToHost<BodySurface>({
  * draw while a hand drags the rail's width: the pane's surface; the
  * border's colour at rest, held and past a limit; the border's width; and
  * the shadow the rail casts into its gutter, its colour and its reach; and
- * the fill the drag's ghost paints the rail's new footprint in. The colours
- * are sRGB bytes; the widths are view points.
+ * the fill the drag's ghost paints the rail's new footprint in, and the
+ * colour of its deck-facing edge. The colours are sRGB bytes; the widths are
+ * view points.
  */
 export interface RailEdge {
   readonly surface: number[];
@@ -137,6 +138,7 @@ export interface RailEdge {
   readonly shadow: number[];
   readonly reach: number;
   readonly fill: number[];
+  readonly ghostEdge: number[];
 }
 
 const SAMPLE_RAIL_EDGE: RailEdge = {
@@ -147,7 +149,8 @@ const SAMPLE_RAIL_EDGE: RailEdge = {
   width: 1,
   shadow: [0, 0, 0, 102],
   reach: 10,
-  fill: [70, 130, 230, 36],
+  fill: [150, 150, 170, 41],
+  ghostEdge: [150, 150, 170, 255],
 };
 
 /**
@@ -169,12 +172,13 @@ export const railEdgeCall = definePageCall({
       shadow: rgbaBytes,
       reach: num,
       fill: rgbaBytes,
+      ghostEdge: rgbaBytes,
     }),
   ),
   samples: [{}],
   refused: [true],
   replies: [SAMPLE_RAIL_EDGE, null],
-  refusedReplies: [{ ...SAMPLE_RAIL_EDGE, held: [70, 130, 230] }, { ...SAMPLE_RAIL_EDGE, fill: undefined }, true],
+  refusedReplies: [{ ...SAMPLE_RAIL_EDGE, held: [70, 130, 230] }, { ...SAMPLE_RAIL_EDGE, fill: undefined }, { ...SAMPLE_RAIL_EDGE, ghostEdge: undefined }, true],
 });
 
 /** The shell asks for a card's body: which card, which kind, and what the body is to do with it. */

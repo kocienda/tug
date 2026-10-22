@@ -1238,7 +1238,7 @@ struct TerminationVerdict: Decodable, Equatable {
 /// limit, each as four sRGB bytes, and the border's width in view points;
 /// the shadow the rail casts off it (`rail-shadow.css`), its colour and its
 /// reach in view points; and the fill a width drag's ghost paints its
-/// footprint in.
+/// footprint in, and the colour of its deck-facing edge.
 struct RailEdgeColors: Decodable, Equatable {
     var surface: [Double]
     var rest: [Double]
@@ -1248,8 +1248,9 @@ struct RailEdgeColors: Decodable, Equatable {
     var shadow: [Double]
     var reach: Double
     var fill: [Double]
+    var ghostEdge: [Double]
 
-    private enum CodingKeys: String, CodingKey { case surface, rest, held, limit, width, shadow, reach, fill }
+    private enum CodingKeys: String, CodingKey { case surface, rest, held, limit, width, shadow, reach, fill, ghostEdge }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1266,6 +1267,7 @@ struct RailEdgeColors: Decodable, Equatable {
         limit = try bytes(.limit)
         shadow = try bytes(.shadow)
         fill = try bytes(.fill)
+        ghostEdge = try bytes(.ghostEdge)
         width = try c.decode(Double.self, forKey: .width)
         reach = try c.decode(Double.self, forKey: .reach)
         guard width >= 0, reach >= 0 else {

@@ -4,7 +4,7 @@
  * is down, and lands by the settle.
  *
  * Dragging a rail's edge moves one thing: the ghost of the rail's new
- * footprint, a translucent layer with an accent edge that the host draws
+ * footprint, a translucent layer in the theme's tint that the host draws
  * above every card and moves in step with the hand. The rail's members, the
  * shadow they cast, and the cards in the chain beside the rail all stand
  * still until the release commits the width, and the deck's own settle then
@@ -31,8 +31,9 @@
  * **The ghost moves and nothing else does.** A second drag grows the rail
  * under a capture burst, read against a still of the standing deck taken
  * before the press. On every frame with the hand down, the ghost's edge — on
- * each member's row, one past its accent edge line, the one saturated line
- * on the deck — stands within 1 device px of an edge the host reported for
+ * each member's row, one past its edge line, found by the colour the page
+ * gives it and standing as a line above and below the row — stands within
+ * 1 device px of an edge the host reported for
  * the frame on screen. Reports are stamped when the shell hears them, which
  * jitters against the host's draw, so a frame is matched to every report
  * heard in the two display periods before it, the bar the grounding readings

@@ -3,7 +3,7 @@
  * reports of the hand as the shell hears them, the facts the host was told
  * the rail stands on, and a reader that finds each member's deck-facing edge
  * and the chain's first card's leading edge by colour in a composite, the
- * ghost's edge by its accent line, and whether an edge stands where it did.
+ * ghost's edge by its line's colour, and whether an edge stands where it did.
  *
  * The host carries a rail's width drag: while the hand is down it moves one
  * thing, the ghost of the rail's new footprint, which it draws above every
@@ -21,7 +21,7 @@ import { expect } from "bun:test";
 
 import { note, type App } from "./_harness";
 import type { BodyViewSnapshot, CaptureBurstFrame } from "./_harness/client";
-import { fillOnRow, groundStartOnRow, leadingEdgeOnRow, near, saturatedLineEndOnRow, stepsOnRow, type Rgb } from "./body-grounding/_frames";
+import { fillOnRow, groundStartOnRow, leadingEdgeOnRow, lineEndOnRow, near, stepsOnRow, type Rgb } from "./body-grounding/_frames";
 import { COLOUR_TOLERANCE, still, type Rect } from "./one-view-fixture";
 import { RAIL_GUTTER_PX } from "../../tugdeck/src/lib/layout-imposer";
 
@@ -182,8 +182,10 @@ export interface RailReader {
   chainEdge(frame: CaptureBurstFrame): number | null;
   /**
    * The ghost's deck-facing edge on each member's row, device px: one past
-   * its accent edge line, the one saturated line on a near-neutral deck;
-   * null on a row no ghost crosses.
+   * its edge line: between the limits by the line's own colour, which the
+   * members' page says (`--tugx-rail-ghost-edge`), and past one by its
+   * saturation, since the limit's caution is the one saturated paint that
+   * stands right of the members; null on a row no ghost crosses.
    */
   ghostEdges(frame: CaptureBurstFrame): (number | null)[];
   /**
@@ -209,15 +211,48 @@ export interface RailReader {
  */
 const SHADOW_TAIL_TOLERANCE = 3;
 
+/** How near the ghost's edge colour a pixel must be to read as its line. */
+const GHOST_LINE_TOLERANCE = 6;
+
+/** How far above and below a row the ghost's line must also stand, device px: a vertical line, not a glyph. */
+const GHOST_LINE_REACH = 8;
+
 /**
- * The chroma the ghost's edge line reads at. The line is the rail's held or
- * limit colour, an accent; the deck's surfaces, its readout pill and the
- * ghost's tinted fill over them all read far below it.
+ * The chroma the ghost's edge reads at past a limit, where it wears the
+ * limit's caution. A saturated colour is colour-managed on its way into a
+ * capture, so it is read by its saturation rather than matched by its bytes;
+ * the deck's surfaces and the ghost's tint read far below it.
  */
-const GHOST_LINE_CHROMA = 120;
+const LIMIT_LINE_CHROMA = 120;
 
 /** How far either side of where an edge stood its step is looked for again, device px. */
 const STEP_SEARCH_PX = 3;
+
+/**
+ * The colour the ghost draws its edge in between the limits, as `card`'s
+ * page resolves `variable`: the bytes `onRailEdge` hands the host, read
+ * through the same one-pixel canvas.
+ */
+async function pageColour(app: App, card: string, variable: string): Promise<Rgb> {
+  const rgb = await app.body(card).evalJS<Rgb>(
+    `(function () {
+      var probe = document.createElement("span");
+      probe.style.display = "none";
+      probe.style.color = "var(${variable})";
+      document.querySelector(".body-chrome-frame").appendChild(probe);
+      var color = getComputedStyle(probe).color;
+      probe.remove();
+      var canvas = document.createElement("canvas");
+      canvas.width = 1; canvas.height = 1;
+      var g = canvas.getContext("2d");
+      g.fillStyle = color; g.fillRect(0, 0, 1, 1);
+      var d = g.getImageData(0, 0, 1, 1).data;
+      return { r: d[0], g: d[1], b: d[2] };
+    })()`,
+  );
+  note(`${variable} ${JSON.stringify(rgb)}`);
+  return rgb;
+}
 
 /** A member's deck-facing edge on `row`: where its shadow meets the ground, scanning out of the member from `x0`. */
 function railEdgeOn(frame: CaptureBurstFrame, row: number, ground: Rgb, from: number, to: number): number | null {
@@ -260,6 +295,9 @@ export async function railReader(app: App, members: readonly string[], chain: st
   const bottom = Math.min(Math.floor(inner.h), Math.ceil(Math.max(...panes.map((p) => p.y + p.height))));
   const crop = { x: left, y: top, width: right - left, height: bottom - top };
   const standing = await still(app, crop);
+  const ghostColour = await pageColour(app, members[0], "--tugx-rail-ghost-edge");
+  const isGhostLine = (p: Rgb): boolean =>
+    near(p, ghostColour, GHOST_LINE_TOLERANCE) || Math.max(p.r, p.g, p.b) - Math.min(p.r, p.g, p.b) >= LIMIT_LINE_CHROMA;
   const scale = standing.scale;
   const toDevice = (x: number): number => (x - crop.x) * scale;
   const rowOf = (y: number): number => (y - crop.y) * scale;
@@ -300,7 +338,7 @@ export async function railReader(app: App, members: readonly string[], chain: st
   );
 
   const scanFrom = (r: MemberRow): number => toDevice(r.restEdge - 40);
-  const ghostOn = (frame: CaptureBurstFrame, r: MemberRow): number | null => saturatedLineEndOnRow(frame, r.row, GHOST_LINE_CHROMA);
+  const ghostOn = (frame: CaptureBurstFrame, r: MemberRow): number | null => lineEndOnRow(frame, r.row, isGhostLine, GHOST_LINE_REACH);
   /**
    * How far `r`'s step stands from where it stood: the strongest step within
    * {@link STEP_SEARCH_PX} of it, which must keep at least half its strength
