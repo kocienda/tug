@@ -419,6 +419,10 @@ function chainTilesExactly(input: AllocatorInput, widths: RailWidths): boolean {
 type ComfortBranch = "comfort" | "hard";
 type Regime = `${ComfortBranch}:${"pinned" | "free"}`;
 
+/** The time the sweep has spent inside `allocateSidebarWidths`, for the guard
+ *  that holds the allocator's search to its size. */
+let allocatorMs = 0;
+
 /** Assert every invariant at one point of the space. */
 function assertInvariants(
   input: AllocatorInput,
@@ -426,7 +430,9 @@ function assertInvariants(
   where: string,
 ): { answer: RailWidths; regime: Regime } {
   const sides = sidesOf(input.rails);
+  const allocStarted = performance.now();
   const widths = allocateSidebarWidths(input);
+  allocatorMs += performance.now() - allocStarted;
 
   // 1 — totality.
   expect(widths, `${where}: a standing rail is always answered for`).not.toBeNull();
@@ -678,10 +684,18 @@ function assertInvariants(
  * ---------------------------------------------------------------------------*/
 
 describe("the allocator's solution space", () => {
-  test("every invariant holds at every point of the enumeration", () => {
-    const started = performance.now();
-    let points = 0;
-    for (const kind of IMPOSITION_KINDS) {
+  // One test per imposition kind, so no single test carries the whole sweep's
+  // wall time against bun's per-test timeout: the sweep is ~11s on a fast
+  // machine and over 70s on a CI runner. The timeout is a hang guard only —
+  // the cost guard is the ratio below — so it sits far above the largest kind
+  // (six-up: ~7s here, ~45s on a CI runner).
+  let points = 0;
+  let allocMs = 0;
+  let restMs = 0;
+  for (const kind of IMPOSITION_KINDS) {
+    test(`every invariant holds at every point of the ${kind} enumeration`, () => {
+      const started = performance.now();
+      const allocBefore = allocatorMs;
       for (const occupancy of occupanciesFor(kind)) {
         for (const fixture of RAIL_FIXTURES) {
           const base: AllocatorInput = {
@@ -735,20 +749,31 @@ describe("the allocator's solution space", () => {
           }
         }
       }
-    }
+      const kindAllocMs = allocatorMs - allocBefore;
+      allocMs += kindAllocMs;
+      restMs += performance.now() - started - kindAllocMs;
+    }, 120_000);
+  }
+
+  test("the enumeration ran the space, and the allocator's search kept its size", () => {
     // The enumeration is the assertion; this pins that it actually ran the
     // space rather than an empty loop.
     expect(points).toBeGreaterThan(50_000);
 
     // The solver runs on every settled resize, and the sweep that chooses its
-    // total is the one part of it that could get expensive. This is an
-    // order-of-magnitude guard, not a benchmark — it sits far enough above
-    // the ~13s this takes to be immune to a busy machine and still catch a
-    // search that grew a factor of ten. One allocate is 0.1ms at its worst,
-    // which is what buys the exhaustive sweep; what this guards is that the
-    // sweep stays over the rails' range and does not acquire a second one.
-    expect(performance.now() - started).toBeLessThan(45_000);
-  }, 60_000);
+    // total is the one part of it that could get expensive. One allocate is
+    // 0.1ms at its worst, which is what buys the exhaustive sweep; what this
+    // guards is that the sweep stays over the rails' range and does not
+    // acquire a second one — an order-of-magnitude guard, not a benchmark.
+    //
+    // It is a RATIO, not a limit in seconds: the allocator's time against the
+    // time the same sweep spent on everything else (the invariants and their
+    // 1px oracle scans), both measured in this process over the same run. A
+    // slow or busy machine scales both alike. The 45s limit this replaced
+    // failed on a CI runner that took 72s over an unchanged sweep that takes
+    // 11s here. The ratio sits near 0.7; a search grown tenfold reads about 7.
+    expect(allocMs / restMs).toBeLessThan(4);
+  });
 
   test("the scan finds what a 1px exhaustive search finds", () => {
     // The solver's sweep is exhaustive, so this is a check that its KEY is the
