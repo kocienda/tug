@@ -60,10 +60,17 @@ export const OVERVIEW_MEASURE_CH = 64;
  */
 export const OVERVIEW_ROW_CHROME_PX = 46;
 
-/** The width the Overview rail opens at before the user has sized it: the
- *  64-character measure, plus the chrome it is read through. */
-export const DEFAULT_OVERVIEW_WIDTH_PX =
+/** The width that reads a post at the full {@link OVERVIEW_MEASURE_CH}: the
+ *  measure, plus the chrome it is read through. */
+export const MEASURE_OVERVIEW_WIDTH_PX =
   Math.round(OVERVIEW_MEASURE_CH * OVERVIEW_BODY_CH_PX) + OVERVIEW_ROW_CHROME_PX;
+
+/** The width the Overview rail opens at before the user has sized it: the
+ *  left rail's width, shared with Jots and Dashes. It is narrower than
+ *  {@link MEASURE_OVERVIEW_WIDTH_PX}, and under the comfort floor below; the
+ *  allocator clamps comfort under the preference, so it never grows the rail
+ *  past this. A user who wants the full measure widens the rail by hand. */
+export const DEFAULT_OVERVIEW_WIDTH_PX = 420;
 
 /**
  * The narrowest the rail is COMFORTABLE at: the 52-character measure, plus

@@ -30,9 +30,10 @@ import { CardsContent } from "./cards-card";
 
 export { CARDS_CARD_ID };
 
-/** The width the Cards rail opens at before the user has sized it — the one
- *  the four cards the rail broke into share. */
-export const DEFAULT_CARDS_WIDTH_PX = 420;
+/** The width the Cards rail opens at before the user has sized it. It stands
+ *  on the right with Layout, and that rail opens at 360; the left rail's
+ *  cards open at 420. */
+export const DEFAULT_CARDS_WIDTH_PX = 360;
 
 /** The narrowest a card row's name, its disambiguating run and its slot picker
  *  still read at. */

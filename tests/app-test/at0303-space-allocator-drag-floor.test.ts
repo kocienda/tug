@@ -89,7 +89,7 @@ import { launchTugApp } from "./_harness";
 import { chromePoint } from "./card-chrome-fixture";
 import {
   COMFORT_OVERVIEW_WIDTH_PX,
-  DEFAULT_OVERVIEW_WIDTH_PX,
+  MEASURE_OVERVIEW_WIDTH_PX,
   MIN_OVERVIEW_WIDTH_PX,
 } from "../../tugdeck/src/lib/overview-measure";
 import {
@@ -116,7 +116,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seedPreferredWidth(app, PREFERRED);
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${MEASURE_OVERVIEW_WIDTH_PX} }), null)`,
           );
           await seedFixture(app, 400, PREFERRED);
           await seedTwoRails(app, 400, "three-up");

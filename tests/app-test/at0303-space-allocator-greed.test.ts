@@ -89,7 +89,7 @@ import { launchTugApp } from "./_harness";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import {
   COMFORT_OVERVIEW_WIDTH_PX,
-  DEFAULT_OVERVIEW_WIDTH_PX,
+  MEASURE_OVERVIEW_WIDTH_PX,
   MIN_OVERVIEW_WIDTH_PX,
 } from "../../tugdeck/src/lib/overview-measure";
 import {
@@ -126,7 +126,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the Overview at its ch-derived width, the Layout card at 420.
           await seedPreferredWidth(app, PREFERRED);
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${MEASURE_OVERVIEW_WIDTH_PX} }), null)`,
           );
           await seedFixture(app, 400, PREFERRED);
 
@@ -137,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)(
           // goes to the Overview and the Layout card does not move at all. ────
           const surplusPane = twoRailPaneWidth(
             canvas,
-            PREFERRED + DEFAULT_OVERVIEW_WIDTH_PX + 60,
+            PREFERRED + MEASURE_OVERVIEW_WIDTH_PX + 60,
           );
           expect(surplusPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, surplusPane);
@@ -152,7 +152,7 @@ describe.skipIf(!SHOULD_RUN)(
             0,
           );
           expect(fedOverview).toBeCloseTo(surplusTotal - PREFERRED, 0);
-          expect(fedOverview).toBeGreaterThan(DEFAULT_OVERVIEW_WIDTH_PX);
+          expect(fedOverview).toBeGreaterThan(MEASURE_OVERVIEW_WIDTH_PX);
           expect(Math.round(fedOverview)).not.toBe(Math.round(heldRail));
           for (const seam of await seams(app)) {
             expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
@@ -165,7 +165,7 @@ describe.skipIf(!SHOULD_RUN)(
           // wider of the two. ───────────────────────────────────────────────
           const deficitPane = twoRailPaneWidth(
             canvas,
-            PREFERRED + DEFAULT_OVERVIEW_WIDTH_PX - 140,
+            PREFERRED + MEASURE_OVERVIEW_WIDTH_PX - 140,
           );
           expect(deficitPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, deficitPane, "three-up");
@@ -203,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seedPreferredWidth(app, PREFERRED);
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${DEFAULT_OVERVIEW_WIDTH_PX} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${MEASURE_OVERVIEW_WIDTH_PX} }), null)`,
           );
           await seedFixture(app, 400, PREFERRED);
 

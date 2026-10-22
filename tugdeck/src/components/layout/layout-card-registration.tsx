@@ -30,11 +30,10 @@ import { LayoutContent } from "./layout-card";
 
 export { LAYOUT_CARD_ID };
 
-/** The width the Layout rail opens at before the user has sized it. The four
- *  cards the rail broke into stand in one rail by default, so they open at one
- *  width — a card that opened wider than its neighbour would just be resized
- *  back. */
-export const DEFAULT_LAYOUT_WIDTH_PX = 420;
+/** The width the Layout rail opens at before the user has sized it. It stands
+ *  on the right with Cards, and the two open at one width — a card that opened
+ *  wider than its rail-mate would just be resized back. */
+export const DEFAULT_LAYOUT_WIDTH_PX = 360;
 
 /** The narrowest the picture and its segmented rows still read at. It is the
  *  drawing that sets this floor: `--tugx-layouts-plan-mini-width-full` is
