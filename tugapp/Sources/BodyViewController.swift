@@ -311,6 +311,10 @@ final class BodyViewController {
         /// the crossing, while the page lays itself out at the landing size
         /// beneath it; nil for every other crossing, and after the land.
         var crossingCover: BodyCoverView?
+        /// The folded form's bottom band a covered fold carries from its
+        /// open place to the closing edge, as its page named it when solved;
+        /// nil for every other crossing, and after the land.
+        var crossingBand: BodyBeats.CrossingBand?
         /// The last crossing's account, for the harness: its plan, its size,
         /// and how far ahead of the first beat the body was ready.
         var lastCrossing: CrossingAccount?
@@ -1167,8 +1171,8 @@ final class BodyViewController {
     }
 
     /// `crossingSolved` (`BodyBeatsRunner`).
-    func crossingSolved(_ body: Body) {
-        beats.crossingSolved(body)
+    func crossingSolved(_ body: Body, band: CrossingSolved.Band?) {
+        beats.crossingSolved(body, band: band)
     }
 
     /// `bodySurface`: the page's background as sRGB bytes, posted when it
@@ -1661,6 +1665,7 @@ struct CrossingAccount: Equatable {
     var solveMs: Double?
     var snapshotMs: Double?
     var coverPixels: CGSize?
+    var band: BodyBeats.CrossingBand?
     var surface: [Double]?
     var restored = false
 
@@ -1679,6 +1684,9 @@ struct CrossingAccount: Equatable {
             "solveMs": solveMs.map(JSONValue.number) ?? .null,
             "snapshotMs": snapshotMs.map(JSONValue.number) ?? .null,
             "coverPixels": coverPixels.map { .object(["width": .number($0.width), "height": .number($0.height)]) } ?? .null,
+            "band": band.map {
+                .object(["restTop": .number($0.restTop), "height": .number($0.height), "reach": .number($0.reach)])
+            } ?? .null,
         ]
         if let surface { fields["surface"] = .array(surface.map(JSONValue.number)) }
         if restored { fields["restored"] = .bool(true) }

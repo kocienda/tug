@@ -11,6 +11,7 @@
 import { arr, bool, empty, literal, nullable, num, obj, opaque, optional, str, type Codec } from "../../bus/codec";
 import { defineToHost, definePageCall, defineToPage, noReply } from "../declare";
 import type { TerminationVerdict } from "../../teardown";
+import type { CrossingBand } from "../../lib/crossing-band";
 
 /** A JSON object carried as is: a body's intent, which `parseBodyIntent` reads in the body. */
 const jsonObject: Codec<Record<string, unknown>> = opaque(
@@ -97,6 +98,18 @@ export const pageFaultToHost = defineToHost({
   refused: ["fault", { kind: "error", message: "x" }, { kind: "warning", message: "x", source: "" }],
 });
 
+/** `crossingSolved`: the folded form's bottom band, when it has one. */
+export interface CrossingSolved {
+  readonly band: CrossingBand | null;
+}
+
+const crossingBandCodec: Codec<CrossingBand> = obj({
+  restFromBottom: num,
+  top: num,
+  height: num,
+  viewport: num,
+});
+
 /** The page's own surface as sRGB bytes, or null when it paints none. */
 export interface BodySurface {
   readonly surface: number[] | null;
@@ -116,13 +129,17 @@ export const crossingReadyToHost = defineToHost<BodySurface>({
  * The page is laid out at its crossing's size: the host's resize landed, its
  * resize episode ended, and a frame passed with no observer delivery and no
  * commit. The host starts the plan once every card it awaits has said so.
+ *
+ * `band` is the folded form's bottom band (`lib/crossing-band.ts`), in CSS px,
+ * when the card is folding and has one: the host carries it from its open
+ * place to the closing edge. Null otherwise.
  */
-export const crossingSolvedToHost = defineToHost({
+export const crossingSolvedToHost = defineToHost<CrossingSolved>({
   name: "crossingSolved",
   from: "body",
-  codec: empty,
-  samples: [{}],
-  refused: [true],
+  codec: obj({ band: nullable(crossingBandCodec) }),
+  samples: [{ band: null }, { band: { restFromBottom: 92, top: 74, height: 46, viewport: 136 } }],
+  refused: [true, {}, { band: { restFromBottom: 92, top: 74, height: 46 } }],
 });
 
 /**

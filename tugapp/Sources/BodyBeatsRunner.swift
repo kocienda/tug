@@ -24,6 +24,10 @@ final class BodyBeatsRunner {
     /// deadline. The shell's `SOLVE_GUARD_MS` mirrors it.
     static let solveGuardMs: Double = 250
 
+    /// The key a covered fold's band ride runs under, on the page and on the
+    /// cover's mask.
+    private static let bandKey = "crossing-band"
+
     /// A solving plan between its receipt and its start: every card it put
     /// tracks on, the cards it still awaits, when it arrived (media time),
     /// and the guard that starts it without them ([L27]: cancelled when the
@@ -258,14 +262,83 @@ final class BodyBeatsRunner {
         }
     }
 
+    /// Carry a covered fold's bottom band on `track`, from the plan's start,
+    /// beside the container's own tracks (`BodyBeats.bandRide`). The page
+    /// rides bottom-pinned and is masked to its band, so only the band and
+    /// the card's bottom edge show of it; the cover is masked to what shows
+    /// above the band. Both models are the land's — the page at its place,
+    /// the cover down to the band — so the land moves nothing, and the cover
+    /// comes off over a page that shows exactly what it did.
+    private func rideBand(
+        _ body: Body, band: BodyBeats.CrossingBand, track: BodyBeats.Track, anchor: ClockAnchor, startWallMs: Double
+    ) {
+        guard let cover = body.crossingCover, let coverLayer = cover.layer, let page = body.webView.layer,
+              let landing = body.beats?.landing else { return }
+        let ride = BodyBeats.bandRide(track, band: band, landingHeight: Double(landing.height))
+        let begin = anchor.beginTime(startWallMs: startWallMs, delayMs: track.delayMs)
+
+        // The page's layer position per point of its frame's y, read rather
+        // than assumed, as `probeMapping` reads the container's.
+        let held = body.webView.frame
+        let base = page.position
+        body.webView.frame = held.offsetBy(dx: 0, dy: 1)
+        let perPoint = page.position.y - base.y
+        body.webView.frame = held
+        guard abs(perPoint) > 0.5 else { return }
+        page.removeAnimation(forKey: Self.bandKey)
+        page.add(Self.keyframes(
+            "position", values: ride.pageOffsets.map { NSValue(point: CGPoint(x: base.x, y: base.y + perPoint * $0)) },
+            keyTimes: ride.keyTimes, timings: ride.timings, durationMs: track.durationMs,
+            begin: page.convertTime(begin, from: nil)
+        ), forKey: Self.bandKey)
+        let pageMask = CALayer()
+        pageMask.backgroundColor = CGColor(gray: 0, alpha: 1)
+        let pageSize = body.webView.bounds.size
+        pageMask.frame = body.webView.convertToLayer(CGRect(
+            x: 0, y: pageSize.height - band.reach, width: pageSize.width, height: band.reach
+        ))
+        page.mask = pageMask
+
+        let width = cover.bounds.width
+        let rects = ride.coverHeights.map { cover.convertToLayer(CGRect(x: 0, y: 0, width: width, height: max(0, $0))) }
+        let coverMask = CALayer()
+        coverMask.backgroundColor = CGColor(gray: 0, alpha: 1)
+        coverMask.anchorPoint = .zero
+        if let last = rects.last {
+            coverMask.position = last.origin
+            coverMask.bounds = CGRect(origin: .zero, size: last.size)
+        }
+        coverLayer.mask = coverMask
+        let coverBegin = coverMask.convertTime(begin, from: nil)
+        coverMask.add(Self.keyframes(
+            "position", values: rects.map { NSValue(point: $0.origin) },
+            keyTimes: ride.keyTimes, timings: ride.timings, durationMs: track.durationMs, begin: coverBegin
+        ), forKey: Self.bandKey + "-position")
+        coverMask.add(Self.keyframes(
+            "bounds", values: rects.map { NSValue(rect: CGRect(origin: .zero, size: $0.size)) },
+            keyTimes: ride.keyTimes, timings: ride.timings, durationMs: track.durationMs, begin: coverBegin
+        ), forKey: Self.bandKey + "-bounds")
+    }
+
     /// `crossingSolved`: the body is laid out at its crossing size. Its plan
     /// starts once it awaits no other card. Late — the plan started or the
     /// crossing was cancelled — it is ignored.
-    func crossingSolved(_ body: Body) {
+    ///
+    /// A covered fold's page names its folded form's bottom band, in CSS px:
+    /// it is kept in the container's points, scaled by the page's own size
+    /// against its viewport, for `startPlan` to carry.
+    func crossingSolved(_ body: Body, band: CrossingSolved.Band?) {
         guard body.crossing != nil, let planId = body.lastCrossing?.planId, let solve = solves[planId],
               solve.awaited.remove(ObjectIdentifier(body)) != nil else { return }
         body.lastCrossing?.solved = true
         body.lastCrossing?.solveMs = (CACurrentMediaTime() - solve.receivedAt) * 1000
+        if let band, let cover = body.crossingCover, band.viewport > 0 {
+            body.crossingBand = BodyBeats.CrossingBand(
+                restFromBottom: band.restFromBottom, top: band.top, height: band.height, viewport: band.viewport,
+                scale: Double(body.webView.frame.height) / band.viewport, coverHeight: Double(cover.frame.height)
+            )
+            body.lastCrossing?.band = body.crossingBand
+        }
         if solve.awaited.isEmpty { startPlan(planId, timedOut: false) }
     }
 
@@ -369,6 +442,9 @@ final class BodyBeatsRunner {
             body.crossing?.begin = anchor.beginTime(
                 startWallMs: startWallMs, delayMs: Self.firstMoveMs(carried.planned, carried.track)
             )
+            if let band = body.crossingBand {
+                rideBand(body, band: band, track: carried.track, anchor: anchor, startWallMs: startWallMs)
+            }
         }
         CATransaction.commit()
         for cardId in landed {
@@ -517,17 +593,29 @@ final class BodyBeatsRunner {
         body.webView.autoresizingMask = Self.pageResizing
         body.crossingCover?.removeFromSuperview()
         body.crossingCover = nil
+        if body.crossingBand != nil {
+            body.crossingBand = nil
+            body.webView.layer?.removeAnimation(forKey: Self.bandKey)
+            body.webView.layer?.mask = nil
+        }
         CATransaction.commit()
         controller.send(.bodyCrossing(.land), to: body)
     }
 
     private static func keyframes(_ keyPath: String, values: [Any], track: BodyBeats.Track, begin: CFTimeInterval) -> CAKeyframeAnimation {
+        keyframes(keyPath, values: values, keyTimes: track.keyTimes, timings: track.timings, durationMs: track.durationMs, begin: begin)
+    }
+
+    private static func keyframes(
+        _ keyPath: String, values: [Any], keyTimes: [Double], timings: [BodyBeats.Timing],
+        durationMs: Double, begin: CFTimeInterval
+    ) -> CAKeyframeAnimation {
         let animation = CAKeyframeAnimation(keyPath: keyPath)
         animation.values = values
-        animation.keyTimes = track.keyTimes.map { NSNumber(value: $0) }
-        animation.timingFunctions = track.timings.map(timingFunction)
+        animation.keyTimes = keyTimes.map { NSNumber(value: $0) }
+        animation.timingFunctions = timings.map(timingFunction)
         animation.calculationMode = .linear
-        animation.duration = track.durationMs / 1000
+        animation.duration = durationMs / 1000
         animation.beginTime = begin
         animation.fillMode = .backwards
         animation.isRemovedOnCompletion = true

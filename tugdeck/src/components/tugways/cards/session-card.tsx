@@ -161,6 +161,7 @@ import { useSpatialOrder } from "../use-spatial-order";
 import type { ActionEvent } from "../responder-chain";
 import { useCardDelegate, useCardLifecycle } from "@/lib/card-lifecycle";
 import { deckTrace } from "@/deck-trace";
+import { CROSSING_BAND_ATTR, clearCrossingBandRest, noteCrossingBandRest } from "@/lib/crossing-band";
 import { useSheetDelegate } from "@/lib/sheet-lifecycle";
 import { useBannerDelegate } from "@/lib/banner-lifecycle";
 import { TUG_ACTIONS } from "../action-vocabulary";
@@ -2675,6 +2676,11 @@ export function SessionCardBody({
   // layout here reports the FOLDED geometry, so a card that reads its own box
   // can only ever cache or guess ([B04], [F06]).
   //
+  // The one read it takes is Z2's distance from the page's bottom, on the way
+  // in, for the host to carry the folded strip from (`lib/crossing-band.ts`).
+  // That distance is the composer's and the strip's, below a column that
+  // absorbs the height, so it is the open form's whatever the box reads.
+  //
   // The unfold's `inert` comes off at once rather than at the end. The reclaim
   // above lands the caret back in the composer on this same commit, and a
   // composer still `inert` for a beat cannot take it — the terminal state that
@@ -2703,6 +2709,16 @@ export function SessionCardBody({
     };
 
     if (!folded) setInert(false);
+
+    // Where Z2 stands in the open form, read now, while the fold's own commit
+    // still lays the card out open: the host carries the folded strip from
+    // this place to the closing edge rather than showing it at the land
+    // (`lib/crossing-band.ts`).
+    const band = root.querySelector<HTMLElement>(`[${CROSSING_BAND_ATTR}]`);
+    if (band !== null) {
+      if (folded && !firstRun) noteCrossingBandRest(band);
+      else clearCrossingBandRest(band);
+    }
 
     // A card that mounts already folded — a restored deck, a card dropped
     // into a wall — has no crossing to wait on: it is there. Same for a
@@ -5084,6 +5100,7 @@ export function SessionCardBody({
             ref={z2StripRef}
             className="session-card-status-bar"
             data-slot="session-card-status-bar"
+            data-crossing-band=""
           >
             {/*
                 Z2 status content. Rendered only when Z2 has content: an

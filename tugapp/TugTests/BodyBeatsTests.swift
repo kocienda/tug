@@ -174,6 +174,31 @@ final class BodyBeatsTests: XCTestCase {
         check("one timing per segment", track.timings.count == track.rects.count - 1)
     }
 
+    func testAFoldsBandHoldsItsRestThenRidesTheEdge() {
+        // A fold from 600 to 150: Z2 stands at 500 in the open card, 40 tall,
+        // with a 10-point bottom edge below it in the folded one.
+        let track = BodyBeats.Track(
+            delayMs: 0, durationMs: 300, keyTimes: [0, 0.33, 0.66, 1],
+            rects: [600, 400, 200, 150].map { CGRect(x: 0, y: 0, width: 400, height: $0) },
+            opacities: nil, timings: [.linear, .linear, .linear]
+        )
+        let band = BodyBeats.CrossingBand(restTop: 500, height: 40, reach: 50)
+        let ride = BodyBeats.bandRide(track, band: band, landingHeight: 150)
+        check("one key is put at each side of the hand-over", ride.keyTimes.count == 6, "\(ride.keyTimes)")
+        check("the hand-over is where the edge reaches the band's rest", abs(ride.keyTimes[1] - 0.0825) < 1e-9, "\(ride.keyTimes)")
+        check("the key times never go back", zip(ride.keyTimes, ride.keyTimes.dropFirst()).allSatisfy { $0 <= $1 })
+        check("one timing per segment", ride.timings.count == ride.keyTimes.count - 1)
+        check("the page's bottom rides the container's", ride.pageOffsets == [450, 400, 400, 250, 50, 0], "\(ride.pageOffsets)")
+        check(
+            "the cover shows down to the edge's cap, then to the band's top",
+            ride.coverHeights == [590, 540, 500, 350, 150, 100], "\(ride.coverHeights)"
+        )
+        check(
+            "a reading that would put the band past the cover is refused",
+            BodyBeats.CrossingBand(restFromBottom: 10, top: 0, height: 40, viewport: 100, scale: 1, coverHeight: 600) == nil
+        )
+    }
+
     func testTheLayerMappingIsSolvedFromThreeFramesAndInverts() throws {
         // A flipped geometry with a centred anchor, as a layer in an unflipped
         // superlayer of height 800 would report it: nothing here assumes it.

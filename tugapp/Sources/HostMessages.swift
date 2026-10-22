@@ -422,6 +422,37 @@ struct BodyCrossing: Codable, Equatable {
     static let land = BodyCrossing(phase: .land)
 }
 
+/// `crossingSolved`: the page is laid out at its crossing's size, with the
+/// folded form's bottom band in CSS px when the card is folding and has one
+/// (`lib/crossing-band.ts`). `band` must be present, null or not.
+struct CrossingSolved: Decodable, Equatable {
+    struct Band: Codable, Equatable {
+        /// Its top's distance from the viewport's bottom in the open form.
+        var restFromBottom: Double
+        /// Its top in the folded form.
+        var top: Double
+        var height: Double
+        /// The viewport's height in the folded form.
+        var viewport: Double
+    }
+
+    var band: Band?
+
+    private enum CodingKeys: String, CodingKey { case band }
+
+    init(band: Band?) {
+        self.band = band
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.band) else {
+            throw DecodingError.keyNotFound(CodingKeys.band, .init(codingPath: [], debugDescription: "no band"))
+        }
+        band = try container.decode(Band?.self, forKey: .band)
+    }
+}
+
 /// `onWindowResize`: the window's own resize is bracketed — a live drag of
 /// its edge or a full-screen transition began, or ended.
 struct WindowResize: Codable, Equatable {
@@ -917,7 +948,7 @@ enum ToHost {
     case launchLap(LaunchLap)
     case pageFault(PageFault)
     case crossingReady(BodySurface)
-    case crossingSolved
+    case crossingSolved(CrossingSolved)
     case bodySurface(BodySurface)
     case bodyCreate(BodyCreate)
     case bodyDestroy(BodyDestroy)
@@ -968,7 +999,7 @@ enum ToHost {
         case .painted: _ = try read(EmptyPayload.self); return .painted
         case .frontendReady: _ = try read(EmptyPayload.self); return .frontendReady
         case .crossingReady: return .crossingReady(try read(BodySurface.self))
-        case .crossingSolved: _ = try read(EmptyPayload.self); return .crossingSolved
+        case .crossingSolved: return .crossingSolved(try read(CrossingSolved.self))
         case .bodySurface: return .bodySurface(try read(BodySurface.self))
         case .bodyCreate: return .bodyCreate(try read(BodyCreate.self))
         case .bodyDestroy: return .bodyDestroy(try read(BodyDestroy.self))

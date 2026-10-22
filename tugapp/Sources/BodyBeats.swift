@@ -255,4 +255,97 @@ enum BodyBeats {
             timings: timings
         )
     }
+
+    /// The band a folding whole card's bottom edge carries
+    /// (`lib/crossing-band.ts`), in the container's points: the folded form's
+    /// bottom band, which the page names, and where it stood in the open
+    /// form the card's cover shows.
+    struct CrossingBand: Equatable {
+        /// The band's top in the open form — in the cover — from the top.
+        var restTop: Double
+        /// The band's own height.
+        var height: Double
+        /// From the band's top to the page's bottom in the folded form: the
+        /// band and the card's bottom edge below it.
+        var reach: Double
+
+        /// The card's bottom edge alone, below the band: it rides the closing
+        /// edge from the first frame.
+        var cap: Double { max(0, reach - height) }
+
+        /// The band from the page's own reading, CSS px, scaled by the
+        /// page's points per CSS px; nil for a reading that cannot be
+        /// carried.
+        init?(restFromBottom: Double, top: Double, height: Double, viewport: Double, scale: Double, coverHeight: Double) {
+            guard viewport > 0, scale > 0, height >= 0, top >= 0, top <= viewport else { return nil }
+            self.restTop = coverHeight - restFromBottom * scale
+            self.height = height * scale
+            self.reach = (viewport - top) * scale
+            guard restTop > 0, restTop + reach <= coverHeight + 0.5 else { return nil }
+        }
+
+        init(restTop: Double, height: Double, reach: Double) {
+            self.restTop = restTop
+            self.height = height
+            self.reach = reach
+        }
+    }
+
+    /// The band's ride over one track: at each key, where the page stands
+    /// below its model place — its bottom on the container's, `height` less
+    /// the landing's — and how much of the cover shows above the live page.
+    struct BandRide: Equatable {
+        var keyTimes: [Double]
+        var pageOffsets: [Double]
+        var coverHeights: [Double]
+        var timings: [Timing]
+    }
+
+    /// How long the cover's step at the hand-over lasts, as a fraction of
+    /// the track: short enough to land inside one frame.
+    static let bandStep = 1e-6
+
+    /// Carry `band` over `track`, whose rects are the container's. The page
+    /// rides bottom-pinned from the first frame, so the card's bottom edge
+    /// is always its own. The band holds its open place in the cover — the
+    /// cover shows down to the cap — until the closing edge reaches it, and
+    /// from then the live band rides the edge — the cover shows down to the
+    /// band's top. The hand-over is a step at the moment the edge passes the
+    /// band's rest, when the live band stands exactly where the cover's did,
+    /// so it shows nothing; a key is put at it, on a linear segment, which a
+    /// fold's spring samples always are.
+    static func bandRide(_ track: Track, band: CrossingBand, landingHeight: Double) -> BandRide {
+        let heights = track.rects.map { Double($0.height) }
+        let riding = { (h: Double) in h - band.reach <= band.restTop }
+        let cover = { (h: Double) in riding(h) ? h - band.reach : h - band.cap }
+        var keyTimes: [Double] = []
+        var offsets: [Double] = []
+        var covers: [Double] = []
+        var timings: [Timing] = []
+        for (i, h) in heights.enumerated() {
+            if i > 0 {
+                let h0 = heights[i - 1]
+                if riding(h0) != riding(h), abs(h0 - h) > 1e-9 {
+                    // The edge passes the band's rest inside this segment.
+                    let edge = band.restTop + band.reach
+                    let f = min(1, max(0, (h0 - edge) / (h0 - h)))
+                    let t = keyTimes[keyTimes.count - 1] + (track.keyTimes[i] - track.keyTimes[i - 1]) * f
+                    let step = min(bandStep, max(0, track.keyTimes[i] - t) / 2)
+                    let before = riding(h0) ? band.restTop : band.restTop + band.height
+                    let after = riding(h) ? band.restTop : band.restTop + band.height
+                    keyTimes += [t, t + step]
+                    offsets += [edge - landingHeight, edge - landingHeight]
+                    covers += [before, after]
+                    // A split segment is linear, whatever it was.
+                    timings += [.linear, .linear, .linear]
+                } else {
+                    timings.append(i - 1 < track.timings.count ? track.timings[i - 1] : .linear)
+                }
+            }
+            keyTimes.append(track.keyTimes[i])
+            offsets.append(h - landingHeight)
+            covers.append(cover(h))
+        }
+        return BandRide(keyTimes: keyTimes, pageOffsets: offsets, coverHeights: covers, timings: timings)
+    }
 }

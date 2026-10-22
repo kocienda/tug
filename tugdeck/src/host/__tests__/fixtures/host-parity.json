@@ -715,10 +715,28 @@
       "name": "crossingSolved",
       "from": "body",
       "samples": [
-        {}
+        {
+          "band": null
+        },
+        {
+          "band": {
+            "restFromBottom": 92,
+            "top": 74,
+            "height": 46,
+            "viewport": 136
+          }
+        }
       ],
       "refused": [
-        true
+        true,
+        {},
+        {
+          "band": {
+            "restFromBottom": 92,
+            "top": 74,
+            "height": 46
+          }
+        }
       ]
     },
     {
@@ -1278,6 +1296,26 @@
           "fontSize": 14,
           "bold": false,
           "italic": false
+        }
+      ]
+    },
+    {
+      "name": "spellingGuesses",
+      "from": "any",
+      "samples": [
+        {
+          "requestId": "spell-1",
+          "word": "frsutrated"
+        }
+      ],
+      "refused": [
+        "frsutrated",
+        {
+          "requestId": "spell-1"
+        },
+        {
+          "requestId": 1,
+          "word": "frsutrated"
         }
       ]
     },
@@ -1937,6 +1975,37 @@
         {
           "requestId": "clip-1",
           "text": "x"
+        }
+      ]
+    },
+    {
+      "member": "onSpellingGuesses",
+      "to": "any",
+      "samples": [
+        {
+          "requestId": "spell-1",
+          "misspelled": true,
+          "guesses": [
+            "frustrated",
+            "frustrate"
+          ]
+        },
+        {
+          "requestId": "spell-2",
+          "misspelled": false,
+          "guesses": []
+        }
+      ],
+      "refused": [
+        "spell-1",
+        {
+          "requestId": "spell-1",
+          "misspelled": true
+        },
+        {
+          "requestId": "spell-1",
+          "misspelled": "yes",
+          "guesses": []
         }
       ]
     },
