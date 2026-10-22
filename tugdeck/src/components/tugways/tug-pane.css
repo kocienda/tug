@@ -1825,6 +1825,10 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* A picture scrolls nothing: a face laid out past the pane's rect for a
+     frame would otherwise scroll the pane's content box, whose scrollbars
+     took about 14 pt off the face's right and bottom edges (row 44). */
+  overflow: hidden;
 }
 
 .tug-pane[data-body-card] .tug-body-stand-in .tug-pane-chrome {

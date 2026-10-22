@@ -260,6 +260,23 @@ export class SessionLedgerStore extends Subscribable {
     return this.detachedRows.get(sessionId) ?? null;
   };
 
+  /**
+   * The live row tugcast holds for `cardId`'s session, the most recently
+   * used when more than one names it, or null. For a card the deck has made
+   * no page for, whose binding nothing on this page has heard: the row's
+   * `card_id` is the one link from the card to its session.
+   */
+  liveRowForCard = (cardId: string): SessionRow | null => {
+    let found: SessionRow | null = null;
+    const consider = (row: SessionRow): void => {
+      if (row.card_id !== cardId || row.state !== "live") return;
+      if (found === null || row.last_used_at > found.last_used_at) found = row;
+    };
+    for (const snapshot of this.snapshots.values()) for (const row of snapshot.rows) consider(row);
+    for (const row of this.detachedRows.values()) consider(row);
+    return found;
+  };
+
   // ── internals ───────────────────────────────────────────────────────────
 
   private requestList(projectDir: string): void {

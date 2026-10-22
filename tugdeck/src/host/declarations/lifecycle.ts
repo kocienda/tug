@@ -306,7 +306,12 @@ export const bodyBindToPage = defineToPage<BodyBind>({
 /** What the host reports of a body to the shell. */
 export interface BodyStateReport {
   readonly cardId: string;
-  readonly state: "ready" | "painted" | "landed" | "beatsCancelled" | "failed" | "terminated" | "evicted";
+  /**
+   * `covered`: the host stood an evicted card's last frame over the body
+   * made to bring it back, which shows from its hand-off. A card with no
+   * cover is told nothing and waits for `painted`.
+   */
+  readonly state: "ready" | "painted" | "landed" | "beatsCancelled" | "failed" | "terminated" | "evicted" | "covered";
   /** `ready`: bind → ready, ms. */
   readonly readyMs?: number;
   /** `ready`: whether the body began as the spare. */
@@ -329,7 +334,7 @@ export const bodyStateToPage = defineToPage<BodyStateReport>({
   to: "shell",
   codec: obj({
     cardId: str,
-    state: literal("ready", "painted", "landed", "beatsCancelled", "failed", "terminated", "evicted"),
+    state: literal("ready", "painted", "landed", "beatsCancelled", "failed", "terminated", "evicted", "covered"),
     readyMs: optional(num),
     start: optional(literal("warm", "cold")),
     planId: optional(num),
@@ -343,6 +348,7 @@ export const bodyStateToPage = defineToPage<BodyStateReport>({
     { cardId: "c1", state: "beatsCancelled", planId: 7 },
     { cardId: "c1", state: "failed", cause: "deadline" },
     { cardId: "c1", state: "evicted", cause: "pressure-critical" },
+    { cardId: "c1", state: "covered" },
   ],
   refused: ["ready", { cardId: "c1", state: "asleep" }, { cardId: "c1", state: "landed", planId: "7" }, { state: "ready" }],
 });

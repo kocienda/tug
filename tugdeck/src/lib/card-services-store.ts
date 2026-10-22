@@ -906,9 +906,11 @@ class CardServicesStore {
       return false;
     }
     this._transcriptRequested.set(services, reason);
-    sendRequestReplay(connection, services.tugSessionId, reason, {
+    const window = {
       lastTurns: this._restoreWindows.get(services) ?? DEFAULT_REPLAY_WINDOW_TURNS,
-    });
+    };
+    services.codeSessionStore.noteReplayAsked(window);
+    sendRequestReplay(connection, services.tugSessionId, reason, window);
     return true;
   };
 

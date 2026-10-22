@@ -2157,6 +2157,7 @@ export function LayoutContent(
             </TugLabel>
             <span
               className="layouts-section-reading"
+              role="status"
               aria-labelledby={BODIES_CAPTION_ID}
               data-testid="layout-card-bodies"
             >
@@ -2174,6 +2175,7 @@ export function LayoutContent(
             </TugLabel>
             <span
               className="layouts-section-reading"
+              role="status"
               aria-labelledby={PRESSURE_CAPTION_ID}
               data-testid="layout-card-pressure"
             >

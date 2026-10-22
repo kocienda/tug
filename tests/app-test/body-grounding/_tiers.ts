@@ -11,7 +11,14 @@
  * differs is only the state the hidden cards are in when it starts. A test
  * write of a tugbank value lands in the page that makes it, so the dormant
  * delay is written in each hidden body, whose clock it is, and the eviction
- * delay in the shell, whose reader tells the host.
+ * delay in the shell, whose reader tells the host. A hidden card's page may
+ * still be loading when the set-up ends — the host stages a page nobody sees
+ * behind the ones that are shown, and a shown workspace's card is not shown
+ * until its page has loaded and been placed. So the hidden cards are the
+ * parked ones — every card with a page that the shown workspace's deck does
+ * not hold — read once every page has loaded: a page still loading cannot
+ * answer a write, and one in the shown workspace is not parked however it
+ * stands at the moment it is read.
  *
  * A variant over a set-up that hides nothing would be the row run twice, so
  * a tier with no hidden body to put in it fails.
@@ -38,7 +45,17 @@ const setDelay = (key: string, ms: number): string =>
 
 /** Put every hidden body into `tier`, then give the delays back their defaults. Answers the cards it tiered. */
 export async function intoTier(app: App, tier: Tier, label: string): Promise<string[]> {
-  const hidden = (await app.bodies()).filter((b) => b.cardId !== null && !b.shown).map((b) => b.cardId!);
+  const shownDeck = new Set(await app.evalJS<string[]>("window.tugdeck.diag.getDeckState().cards.map(function (c) { return c.id; })"));
+  const settled = await pollFor(
+    async () => (await app.bodies()).filter((b) => b.cardId !== null),
+    (all) => all.every((b) => b.state === "ready"),
+    10_000,
+  );
+  expect(
+    settled.filter((b) => b.state !== "ready").map((b) => b.cardId),
+    `${label}: every card's page has loaded`,
+  ).toEqual([]);
+  const hidden = settled.filter((b) => !shownDeck.has(b.cardId!)).map((b) => b.cardId!);
   expect(hidden.length, `${label}: a body is hidden to put in the ${tier} tier`).toBeGreaterThan(0);
   const startedAt = Date.now();
   await Promise.all(hidden.map((id) => app.body(id).evalJS<null>(setDelay("dormantAfterMs", DORMANT_AFTER_MS))));
@@ -47,6 +64,13 @@ export async function intoTier(app: App, tier: Tier, label: string): Promise<str
     (all) => all.every((d) => d),
     DORMANT_AFTER_MS + 6_000,
   );
+  if (!dormant.every((d) => d)) {
+    const readings = await Promise.all(
+      hidden.map(async (id) => `${id} ${JSON.stringify(await app.body(id).evalJS<unknown>("window.__tug.bodyDormancy()").catch((e) => String(e)))}`),
+    );
+    const host = (await app.bodies()).filter((b) => b.cardId !== null && hidden.includes(b.cardId)).map((b) => [b.cardId, b.state, b.visible, b.shown]);
+    note(`${label}: not every hidden body slept — pages ${readings.join("; ")}; host ${JSON.stringify(host)}`);
+  }
   expect(dormant.every((d) => d), `${label}: every hidden body is dormant`).toBe(true);
   if (tier === "evicted") {
     await app.evalJS<null>(setDelay("evictAfterMs", EVICT_AFTER_MS));

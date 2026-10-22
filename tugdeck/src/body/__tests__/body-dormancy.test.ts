@@ -8,7 +8,15 @@
 
 import { describe, expect, test } from "bun:test";
 import { BodyVisibilityStore, type DormantClock } from "../../lib/body-visibility-store";
-import { AWAKE, caughtUp, installBodyDormancy, nextDormancy, type BodyDormancyEffects, type DormancyState } from "../body-dormancy";
+import {
+  AWAKE,
+  caughtUp,
+  installBodyDormancy,
+  nextDormancy,
+  sessionAnswersCatchUp,
+  type BodyDormancyEffects,
+  type DormancyState,
+} from "../body-dormancy";
 
 const ASLEEP: DormancyState = { asleep: true, catchingUp: false };
 const CATCHING_UP: DormancyState = { asleep: false, catchingUp: true };
@@ -132,10 +140,44 @@ describe("installBodyDormancy", () => {
     closeCatchUp();
     expect(installed.asleep).toBe(false);
     expect(log.filter((e) => e === "saveBag")).toHaveLength(1);
-    expect(log.slice(5)).toEqual(["rescope", "catchUp", "stillLoops false", "lidContent false", "withholdSurface false"]);
+    // The ask is written before the subscription is restored.
+    expect(log.slice(5)).toEqual(["catchUp", "rescope", "stillLoops false", "lidContent false", "withholdSurface false"]);
     store.apply({ shown: false, since: clock.now() });
     clock.advance(500);
     expect(log.filter((e) => e === "saveBag")).toHaveLength(2);
     installed.release();
+  });
+
+  test("a catch-up with nothing to ask wakes at once, and the subscription is restored after", () => {
+    const clock = handClock();
+    const store = new BodyVisibilityStore(clock, 500);
+    const { effects, log } = recordingEffects();
+    const installed = installBodyDormancy(
+      {
+        ...effects,
+        catchUp: (done) => {
+          log.push("catchUp");
+          done();
+          return () => {};
+        },
+      },
+      store,
+    );
+    store.apply({ shown: false, since: clock.now() });
+    clock.advance(500);
+    store.apply({ shown: true, since: clock.now() });
+    expect(installed.asleep).toBe(false);
+    expect(log.slice(5)).toEqual(["catchUp", "stillLoops false", "lidContent false", "withholdSurface false", "rescope"]);
+    installed.release();
+  });
+});
+
+describe("sessionAnswersCatchUp", () => {
+  test("a closed or failed session has nothing to answer; a live one, or one with no row, is asked", () => {
+    expect(sessionAnswersCatchUp("closed")).toBe(false);
+    expect(sessionAnswersCatchUp("failed")).toBe(false);
+    expect(sessionAnswersCatchUp("live")).toBe(true);
+    expect(sessionAnswersCatchUp(null)).toBe(true);
+    expect(sessionAnswersCatchUp(undefined)).toBe(true);
   });
 });

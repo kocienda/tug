@@ -32,7 +32,7 @@ import {
   type FeedIdValue,
 } from "@/protocol";
 import type { EditorView } from "@codemirror/view";
-import type { PermissionMode } from "@tugproto/inbound";
+import type { PermissionMode, ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
 import type { TugConnection } from "@/connection";
 import type { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import { PropertyStore } from "@/lib/property-store";
@@ -231,6 +231,28 @@ function sessionAtomVerdict(atom: AtomSegment): {
   // says so — "not on this machine" is actionable, "not answered yet" names
   // the command that answers it.
   return { verdict: answer.status === "unknown" ? "absent" : "unverified" };
+}
+
+/** How many of a card's newest turns a catch-up names. */
+const CATCH_UP_NAMED_TURNS = 16;
+
+/**
+ * What a catch-up names: the msg-ids of the newest turns the card holds,
+ * newest first, and how many turns it holds counting from the session's
+ * first. Several ids ride so a turn tugcode cannot find by its id — one that
+ * committed with no content, under an id the translator minted — does not
+ * leave the card unplaced; the count is tugcode's last resort.
+ */
+function heldTurnsOf(
+  transcript: ReadonlyArray<TurnEntry>,
+  firstLoadedTurnIndex: number,
+): ReplayAfterTurn {
+  const msgIds: string[] = [];
+  for (let i = transcript.length - 1; i >= 0 && msgIds.length < CATCH_UP_NAMED_TURNS; i--) {
+    const id = transcript[i].msgId;
+    if (id !== "") msgIds.push(id);
+  }
+  return { msgIds, heldTurns: firstLoadedTurnIndex + transcript.length };
 }
 
 export interface CodeSessionStoreOptions {
@@ -657,6 +679,23 @@ export class CodeSessionStore extends Subscribable {
   _ingestFrameForTest = (feedId: number, decoded: unknown): void => {
     if (this._disposed) return;
     this._postedSeq = this._link.testFrame(feedId, decoded);
+  };
+
+  /**
+   * Test-only. Put a `user_message` on the wire without telling the reducer,
+   * as a prompt that reaches the session from outside this card does — the
+   * arc wheel's, say. The card hears the turn only through the frames the
+   * session sends back, and a sleeping card hears none of them.
+   *
+   * @internal — reached only through the DEV-gated `window.__tug` test
+   *  surface; not part of the public L02 contract.
+   */
+  _promptElsewhereForTest = (text: string): void => {
+    if (this._disposed) return;
+    this.write(
+      FeedId.CODE_INPUT,
+      encodeCodeInputPayload({ type: "user_message", content: [{ type: "text", text }] }, this.tugSessionId),
+    );
   };
 
   /**
@@ -1191,34 +1230,54 @@ export class CodeSessionStore extends Subscribable {
     this.dispatch({ type: "begin_load_previous", target: turns });
     // The N turns immediately older than the current oldest-loaded turn.
     // `page`: this extends the loaded transcript backward; it is not a reload.
-    const frame = encodeRequestReplay(this.tugSessionId, "page", {
+    const window: ReplayWindow = {
       turnRange: [
         Math.max(0, win.firstLoadedTurnIndex - turns),
         win.firstLoadedTurnIndex,
       ],
-    });
+    };
+    this.dispatch({ type: "replay_asked", window });
+    const frame = encodeRequestReplay(this.tugSessionId, "page", window);
     this.write(frame.feedId, frame.payload);
   }
 
   /**
    * Catch up on what a dormant body missed: called on its reveal, after its
-   * session subscription is restored. It asks for the committed turns from
-   * the one before the first it lacks — one turn of overlap, which the
-   * reducer's msg-id dedupe drops, against drift between the transcript's
-   * count and tugcode's turn boundaries — to the end; a turn still in flight
-   * rides the bracket's snapshot. A card that slept mid-turn drops the cycle
-   * it holds first (`begin_catch_up`), so the bracket is entered and brings
-   * that turn back too. `catchingUp` stands until the bracket closes, or for
+   * session subscription is restored. It asks for every committed turn after
+   * the newest one it holds, naming its turns by msg-id rather than by an
+   * index: tugcode counts turns in the tip's coordinates, and a card's
+   * transcript also holds a lineage's ancestors, so a count the card
+   * reconstructs overshoots by every ancestor turn. A turn still in flight
+   * rides the bracket's snapshot. A card that slept mid-turn keeps its cycle,
+   * and the bracket supersedes it when it opens, bringing that turn back too.
+   * A card that slept inside a bracket asks for that bracket's window again,
+   * since the bracket lost its tail with the subscription; the new bracket
+   * completes it. `catchingUp` stands until the bracket closes, or for
    * `CATCH_UP_DEADLINE_MS` when no bracket comes.
    */
   catchUp(): void {
     if (this._disposed) return;
-    this.dispatch({ type: "begin_catch_up" });
-    const next = (this.state.replayWindow?.firstLoadedTurnIndex ?? 0) + this._transcript.length;
-    const frame = encodeRequestReplay(this.tugSessionId, "catch-up", {
-      turnRange: [Math.max(0, next - 1), Number.MAX_SAFE_INTEGER],
-    });
+    const open = this.state.phase === "replaying" ? this.state.replayOpenWindow : null;
+    this.dispatch({ type: "begin_catch_up", reaskWindow: open !== null });
+    // Read after the dispatch: inside a bracket the transcript's post is held
+    // until something publishes, and `begin_catch_up` does.
+    const window: ReplayWindow = open ?? {
+      afterTurn: heldTurnsOf(this._transcript, this.state.replayWindow?.firstLoadedTurnIndex ?? 0),
+    };
+    this.dispatch({ type: "replay_asked", window });
+    const frame = encodeRequestReplay(this.tugSessionId, "catch-up", window);
     this.write(frame.feedId, frame.payload);
+  }
+
+  /**
+   * Record that this session's transcript was asked for with `window` by a
+   * sender outside the store (`cardServicesStore.requestTranscript`), so a
+   * card that goes dormant inside the bracket that answers can ask for the
+   * same window again on its reveal.
+   */
+  noteReplayAsked(window: ReplayWindow): void {
+    if (this._disposed) return;
+    this.dispatch({ type: "replay_asked", window });
   }
 
   /** One of the store's own writes; an `offWire` session's input is kept off the wire. */

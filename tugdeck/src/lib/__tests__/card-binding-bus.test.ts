@@ -47,6 +47,7 @@ const recordOf = (binding: CardSessionBinding): DeckCardFacts => ({
   identity: null,
   activity: null,
   binding,
+  sessionState: null,
   parkedTitle: null,
   waivesClose: false,
 });

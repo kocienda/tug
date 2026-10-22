@@ -598,14 +598,28 @@ export class ReplayRunner {
     // belongs to the replay that builds the transcript, not to the one that
     // extends it upward.
     const backwardPage = window !== undefined && "turnRange" in window;
+    // A catch-up is the same case from the other end: a card that holds any
+    // turn holds the ancestors too, so only the tip's newer turns are news.
+    // A card that holds none is building its transcript, and takes the
+    // lineage with the tip.
+    const catchUpOverHeld =
+      window !== undefined && "afterTurn" in window && window.afterTurn.msgIds.length > 0;
+    const lineageHeld = lineage !== undefined && lineage.length > 1;
     const lineagePrefix: OutboundMessage[] =
-      lineage !== undefined && lineage.length > 1 && !backwardPage
+      lineageHeld && !backwardPage && !catchUpOverHeld
         ? await this.collectLineagePrefix(
-            lineage,
+            lineage!,
             canonicalProjectDir,
             wheelPrompts,
           )
         : [];
+    // The card counts its turns from the lineage's first; the tip counts
+    // from its own. A named turn the tip does not hold is an ancestor's, so
+    // under a lineage the count places the card at the tip's start.
+    const tipWindow: ReplayWindow | undefined =
+      window !== undefined && "afterTurn" in window && lineageHeld
+        ? { afterTurn: { ...window.afterTurn, heldTurns: 0 } }
+        : window;
     if (lineagePrefix.length > 0) {
       logReplay("lineage_prefix", {
         session_id: this.host.sessionId(),
@@ -765,7 +779,7 @@ export class ReplayRunner {
       // session). The translator emits only the requested turn range
       // and reports the window on `replay_complete`, which the buffered
       // bracket-close below forwards verbatim.
-      window,
+      window: tipWindow,
       // The same ledger the lineage prefix walked, carrying whatever it did
       // not spend. The resumed session is the lineage's last entry, so this
       // pass is the end of one continuous walk, not a second one.

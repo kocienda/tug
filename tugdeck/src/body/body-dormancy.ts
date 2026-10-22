@@ -11,8 +11,10 @@
  * draft typed before it went quiet is on disk while it sleeps, and a crash
  * then loses nothing an eviction would have kept.
  *
- * Shown again, it re-scopes its subscription and asks its session for what
- * it missed (`CodeSessionStore.catchUp`). It stays dormant — loops still,
+ * Shown again, it asks its session for what it missed
+ * (`CodeSessionStore.catchUp`) and then re-scopes its subscription; a card
+ * whose session the ledger shows closed or failed has nothing to ask, and
+ * wakes at once. It stays dormant — loops still,
  * surface withheld, `card.facts` saying so — until that catch-up's bracket
  * closes, and then wakes.
  *
@@ -76,6 +78,18 @@ export function caughtUp(state: DormancyState): { state: DormancyState; act: Dor
   return { state: AWAKE, act: "wake" };
 }
 
+/**
+ * Whether a card's session can answer a catch-up, by its ledger row's state
+ * (`deck.cards` `sessionState`). A closed or failed session has no subprocess,
+ * so nothing would answer the ask and the page would wait out the store's
+ * deadline under its lid; it has nothing new to show, and wakes at once. A
+ * session the shell holds no row for is asked: the store's deadline is the
+ * horizon for a session that does not answer.
+ */
+export function sessionAnswersCatchUp(state: "live" | "closed" | "failed" | null | undefined): boolean {
+  return state !== "closed" && state !== "failed";
+}
+
 /** What dormancy does to the page, each the page's own. */
 export interface BodyDormancyEffects {
   /** Re-apply the session subscription; it reads {@link InstalledBodyDormancy.asleep}. */
@@ -90,7 +104,8 @@ export interface BodyDormancyEffects {
   saveBag(): void;
   /**
    * Ask the card's session for what it missed, and call `done` once the
-   * answer's bracket has closed — at once for a card with no session.
+   * answer's bracket has closed — at once for a card with no session, or
+   * one whose session is closed or failed. Called before {@link rescope}.
    * Returns a release for the wait.
    */
   catchUp(done: () => void): () => void;
@@ -121,11 +136,14 @@ export function installBodyDormancy(
         effects.rescope();
         return;
       case "catch-up":
-        effects.rescope();
+        // The ask first, then the subscription: a body scoped to nothing
+        // hears no acknowledgement, and the store sets aside whatever the
+        // session says between the two until the bracket that answers opens.
         releaseWait = effects.catchUp(() => {
           releaseWait = null;
           act(caughtUp(state));
         });
+        effects.rescope();
         return;
       case "wake":
         // The loops and the surface first: waking re-arms the store's clock,

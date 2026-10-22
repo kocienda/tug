@@ -395,7 +395,7 @@ struct BodyPressure: Codable, Equatable {
 /// `onBodyState`: what the host reports of a body to the shell.
 struct BodyStateReport: Codable, Equatable {
     enum State: String, Codable, Equatable {
-        case ready, painted, landed, beatsCancelled, failed, terminated, evicted
+        case ready, painted, landed, beatsCancelled, failed, terminated, evicted, covered
     }
 
     enum Start: String, Codable, Equatable {

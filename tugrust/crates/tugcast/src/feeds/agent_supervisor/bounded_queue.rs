@@ -93,6 +93,13 @@ impl<T> BoundedQueue<T> {
         self.inner.pop_front()
     }
 
+    /// Keep only the items `keep` accepts, in order; returns how many went.
+    pub fn retain(&mut self, keep: impl FnMut(&T) -> bool) -> usize {
+        let before = self.inner.len();
+        self.inner.retain(keep);
+        before - self.inner.len()
+    }
+
     /// The queued items, oldest first, without consuming them — so a test can
     /// read what a dispatch left behind and still assert on it again.
     #[cfg(test)]

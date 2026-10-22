@@ -12,7 +12,7 @@
 
 import type { AtomSegment } from "../tug-atom-img";
 import type { ContentBlock } from "../../protocol";
-import type { PermissionMode } from "@tugproto/inbound";
+import type { PermissionMode, ReplayWindow } from "@tugproto/inbound";
 import type { InterruptReason, TextRef } from "./types";
 import type * as Wire from "@tugproto/outbound";
 
@@ -1340,9 +1340,27 @@ export interface BeginLoadPreviousEvent {
  * carries continue the transcript rather than replacing it. Cleared when the
  * bracket closes, a shadow over it lifts, or `CATCH_UP_DEADLINE_MS` passes
  * with no bracket at all.
+ *
+ * A card that went dormant with a bracket open re-asks that bracket instead:
+ * `reaskWindow` says the store re-sent the window the open bracket was asked
+ * with, so the new bracket closes as that one would have and its window is
+ * the card's; without it the store asked for what follows the turns it holds,
+ * and the window keeps its start as any catch-up's does.
  */
 export interface BeginCatchUpEvent {
   type: "begin_catch_up";
+  reaskWindow?: boolean;
+}
+
+/**
+ * Internal action: the store has asked for a replay with `window`. The
+ * reducer holds the window for the bracket that answers, so a card that goes
+ * dormant inside that bracket can ask for the same window again on its
+ * reveal (see {@link BeginCatchUpEvent}).
+ */
+export interface ReplayAskedEvent {
+  type: "replay_asked";
+  window: ReplayWindow;
 }
 
 /** Internal action: `CATCH_UP_DEADLINE_MS` passed since `begin_catch_up`. */
@@ -1558,6 +1576,7 @@ export type CodeSessionEvent =
   | BindResumeAcknowledgedEvent
   | BeginLoadPreviousEvent
   | BeginCatchUpEvent
+  | ReplayAskedEvent
   | TickCatchUpEvent
   | TranscriptEvictedEvent
   | TickSoftBudgetEvent

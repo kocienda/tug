@@ -1150,6 +1150,8 @@ impl AgentSupervisor {
                 entry.cancel.cancel();
                 entry.cancel = CancellationToken::new();
                 entry.spawn_state = SpawnState::Idle;
+                // A replay queued for the discarded session is not the fresh one's.
+                entry.drop_queued_replays();
                 // Reset makes the entry fresh, and that includes forgetting
                 // that a child ever ran on it: a `/clear` is the user taking
                 // the card, which the arc's taken-card arm has a better

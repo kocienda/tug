@@ -142,12 +142,11 @@ import { appInfoStore } from "../lib/app-info-store";
 import { relayFrontmostProjectBinding, relayWorkspaceProjectDirs } from "../lib/frontmost-project";
 import { bodyVisibilityStore } from "../lib/body-visibility-store";
 import { withholdBodySurface } from "../lib/surface-mirror";
-import { BODY_DORMANT_ATTRIBUTE, installBodyDormancy } from "./body-dormancy";
-import { CATCH_UP_DEADLINE_MS } from "../lib/code-session-store/reducer";
+import { BODY_DORMANT_ATTRIBUTE, installBodyDormancy, sessionAnswersCatchUp } from "./body-dormancy";
 import {
   DORMANT_AFTER_DOMAIN,
   DORMANT_AFTER_KEY,
-  parseDormantAfterMs,
+  parseBodyDelayMs,
   resolveDormantAfterMs,
 } from "../lib/dormant-after-pref";
 import { applyCrossingMirror } from "../lib/fold-crossing";
@@ -338,38 +337,42 @@ function applyMotion(): void {
  * Ask `cardId`'s session for what a dormant body missed, and call `done` when
  * the bracket that answers has closed: the store's `catchingUp` rises when
  * the ask is recorded and falls when the bracket closes, or at the store's
- * own deadline when none comes. A card with no session has nothing to catch
- * up on. Returns the release for the wait.
+ * own deadline when none comes, which is the one horizon. A card with no
+ * session, or whose session the ledger shows closed or failed, has nothing to
+ * catch up on. A store disposed mid-wait clears its listeners, so the wait
+ * also follows the card's services and ends when the store it asked is no
+ * longer the card's. Returns the release for the wait.
  */
 function catchUpCard(cardId: string, done: () => void): () => void {
   const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
-  if (store === null) {
+  if (store === null || !sessionAnswersCatchUp(deckCards.getSnapshot()[cardId]?.sessionState)) {
     done();
     return () => {};
   }
   let rose = false;
   let finished = false;
+  const releases: Array<() => void> = [];
+  const release = (): void => {
+    finished = true;
+    for (const r of releases.splice(0)) r();
+  };
   const finish = (): void => {
     if (finished) return;
-    finished = true;
     release();
-    clearTimeout(backstop);
     done();
   };
-  const release = store.subscribe(() => {
-    const catchingUp = store.getSnapshot().catchingUp;
-    if (catchingUp) rose = true;
-    else if (rose) finish();
-  });
-  // The store ends a catch-up nobody answered on its own deadline; this only
-  // covers a store torn down mid-wait, so the page never stays dormant.
-  const backstop = setTimeout(finish, CATCH_UP_DEADLINE_MS * 2);
+  releases.push(
+    store.subscribe(() => {
+      const catchingUp = store.getSnapshot().catchingUp;
+      if (catchingUp) rose = true;
+      else if (rose) finish();
+    }),
+    cardServicesStore.subscribe(() => {
+      if (cardServicesStore.getServices(cardId)?.codeSessionStore !== store) finish();
+    }),
+  );
   store.catchUp();
-  return () => {
-    finished = true;
-    release();
-    clearTimeout(backstop);
-  };
+  return release;
 }
 
 /** Take the shell's deck facts this page renders against. */
@@ -847,7 +850,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // How long this body may stay hidden before it goes dormant: the Layout
   // card's row, written anywhere, reaches every body's clock here.
   const readDormantAfter = () =>
-    resolveDormantAfterMs(parseDormantAfterMs(tugbankClient.get(DORMANT_AFTER_DOMAIN, DORMANT_AFTER_KEY)));
+    resolveDormantAfterMs(parseBodyDelayMs(tugbankClient.get(DORMANT_AFTER_DOMAIN, DORMANT_AFTER_KEY)));
   bodyVisibilityStore.setDormantAfterMs(readDormantAfter());
   tugbankClient.onDomainChanged((domain) => {
     if (domain === DORMANT_AFTER_DOMAIN) bodyVisibilityStore.setDormantAfterMs(readDormantAfter());

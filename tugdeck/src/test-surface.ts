@@ -87,7 +87,7 @@ import { FeedId } from "./protocol";
 import type { IngestSpikeRequest, IngestSpikeResponse } from "./lib/workers/ingest-worker";
 import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
-import { sendSpawnSession } from "./lib/session-lifecycle";
+import { sendCloseSessionKeepingBinding, sendSpawnSession } from "./lib/session-lifecycle";
 import { fireNewSpawn } from "./lib/session-restore";
 import { handOffToBody, isDeferredBody } from "./lib/body-handoff";
 import { sessionLineStore } from "./lib/session-line-store";
@@ -573,8 +573,14 @@ import {
  * descended — read where the keyboard is before a test posts an Escape, since
  * at the base mode nothing on the page claims Escape and the key falls
  * through to AppKit's no-responder beep. Additive; major stays `2`.
+ *
+ * `2.52.0`: adds {@link TugTestSurface.closeSession}, on the shell: the real
+ * `close_session` CONTROL frame for a card's session, keeping the card's
+ * binding, so a test can end a session out from under a card whose page is
+ * not listening and read what the shell says of it. Additive; major stays
+ * `2`.
  */
-export const SURFACE_VERSION = "2.51.0" as const;
+export const SURFACE_VERSION = "2.52.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -732,6 +738,9 @@ export interface SeedDeckStateArgs {
  *    STREAMING / TOOL_WORK / AWAITING_USER / COMPLETE / ERRORED /
  *    REPLAYING.
  *  - `interrupt` — `store.interrupt()`.
+ *  - `promptElsewhere` — put a `user_message` on the wire without the
+ *    card's reducer hearing of it, as a prompt from outside the card (the
+ *    arc wheel's) does; a mid-turn `send` would queue in the card instead.
  *  - `transportClose` / `transportReconnect` — drive the transport
  *    overlay without touching the real shared connection.
  *  - `transportSettled` — `store.notifyTransportSettled()`, the binding
@@ -760,6 +769,7 @@ export type SessionDriveAction =
   | { op: "send"; text: string; atoms?: AtomSegment[]; suppress?: boolean }
   | { op: "ingestFrame"; feedId: number; decoded: unknown }
   | { op: "interrupt" }
+  | { op: "promptElsewhere"; text: string }
   | { op: "transportClose" }
   | { op: "transportReconnect" }
   | { op: "transportSettled" }
@@ -1768,6 +1778,16 @@ export interface TugTestSurface {
     cardId: string,
     opts: { tugSessionId: string; projectDir: string },
   ): void;
+
+  /**
+   * Close `tugSessionId`, `cardId`'s session, on tugcast with the genuine
+   * `close_session` CONTROL frame, leaving the card's binding in place:
+   * tugcast tears the subprocess down and marks the ledger's row closed, as
+   * a session ending under a card does (SURFACE_VERSION 2.52.0).
+   *
+   * Throws if the shared connection is unavailable.
+   */
+  closeSession(cardId: string, tugSessionId: string): void;
 
   // ---- Dev lifecycle-matrix driving (SURFACE_VERSION 1.6.0) ----
 
@@ -2882,6 +2902,9 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
         case "interrupt":
           store.interrupt();
           return;
+        case "promptElsewhere":
+          store._promptElsewhereForTest(action.text);
+          return;
         case "transportClose":
           store._simulateTransportForTest("close");
           return;
@@ -3498,6 +3521,14 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // names none — so the line and its tag are provisioned exactly as the
       // picker's New provisions them.
       fireNewSpawn(cardId, opts.tugSessionId, opts.projectDir, connection, "restore-open");
+    },
+
+    closeSession(cardId: string, tugSessionId: string): void {
+      const connection = getConnection();
+      if (connection === null) {
+        throw new Error("closeSession: shared connection unavailable — the app must be connected to close a session");
+      }
+      sendCloseSessionKeepingBinding(connection, cardId, tugSessionId);
     },
 
     /**

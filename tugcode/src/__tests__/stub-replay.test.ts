@@ -420,6 +420,37 @@ describe("request_replay", () => {
     expect(captured[5]).toMatchObject({ count: 1, firstLoadedTurnIndex: 1, totalTurns: 2, hasOlder: true });
   });
 
+  test("an afterTurn is placed after the newest finished turn it names, else by its count", () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: {
+        schemaVersion: TRANSCRIPT_SCHEMA_VERSION,
+        tugcodeVersion: "stub",
+        turns: [
+          { index: 0, outputs: turn("a") },
+          { index: 1, outputs: turn("b") },
+          { index: 2, outputs: turn("c") },
+        ],
+      },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.dispatchTurn();
+    engine.dispatchTurn();
+    engine.dispatchTurn();
+    const textsOf = () =>
+      captured.filter((m) => m.type === "assistant_text").map((m) => (m as { msg_id: string }).msg_id);
+
+    captured.length = 0;
+    engine.answerReplay({ afterTurn: { msgIds: ["older-than-this-engine", "a"], heldTurns: 9 } });
+    expect(textsOf()).toEqual(["b", "c"]);
+    expect(captured.at(-1)).toMatchObject({ count: 2, firstLoadedTurnIndex: 1, totalTurns: 3 });
+
+    captured.length = 0;
+    engine.answerReplay({ afterTurn: { msgIds: ["unknown"], heldTurns: 3 } });
+    expect(textsOf()).toEqual(["c"]);
+  });
+
   test("a turn still streaming rides the bracket as its snapshot, after the finished turns", () => {
     const captured: OutboundMessage[] = [];
     const engine = new StubReplayEngine({

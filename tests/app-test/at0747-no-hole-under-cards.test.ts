@@ -18,7 +18,12 @@
  * inside it nor any pseudo-element it shows, clips or paints a background,
  * a border or a shadow, and nothing inside it has a box but the frame's content
  * holders and the card's placeholder. The shell's pane is the arrangement's
- * model, and nothing in it is seen.
+ * model, and nothing in it is seen — but for the one paint the shell makes
+ * for a card ([L09]): the face it stands in while the card's page has not
+ * painted (`body-stand-in.tsx`), accepted by its `data-body-stand-in` mark
+ * and by nothing else. The census is taken on every frame of the cards'
+ * arrival, while those faces stand, as well as at rest, and the arrival's
+ * samples must have caught a face, or they proved nothing about one.
  *
  * @visible
  * @covers tugdeck/src/lib/card-placement.ts
@@ -51,6 +56,8 @@ const SKEW_MS = 50;
 const INSET_PX = 8;
 /** How much more of a pane may read as canvas or grid in motion than at rest. */
 const FLOOR_MARGIN = 0.01;
+/** How long the census samples from before the deck is seeded: past every card's first paint. */
+const ARRIVAL_MS = 4_000;
 
 interface Sample {
   wall: number;
@@ -85,10 +92,16 @@ const READ_STAND_INS = `function () {
 
 const STAND_INS = `(${READ_STAND_INS})()`;
 
-/** The census: what any stand-in, or anything inside it, paints or holds. Empty when the stand-ins are paintless. */
+/**
+ * The census: what any stand-in, or anything inside it, paints or holds, and
+ * how many stand-in faces it passed over. Empty faults when the stand-ins are
+ * paintless but for a face, which is the shell's one paint for a card whose
+ * page has not painted, and is accepted by its mark and nothing else.
+ */
 // card-dom: shell — the census reads the shell's own document.
-const CENSUS = `(function () {
+const CENSUS_FN = `function () {
   var faults = [];
+  var faces = 0;
   var holders = ['tug-pane-chrome', 'tug-pane-content'];
   function transparent(c) { return c === 'transparent' || /rgba\\(.*,\\s*0\\)$/.test(c); }
   function paints(s, label) {
@@ -110,6 +123,10 @@ const CENSUS = `(function () {
     var id = f.getAttribute('data-pane-id');
     judge(f, id);
     f.querySelectorAll('*').forEach(function (el) {
+      if (el.closest('[data-body-stand-in]') !== null) {
+        if (el.hasAttribute('data-body-stand-in')) faces += 1;
+        return;
+      }
       var label = id + ' > ' + el.tagName.toLowerCase() + (el.className ? '.' + String(el.className).split(' ').join('.') : '');
       judge(el, label);
       var r = el.getBoundingClientRect();
@@ -117,8 +134,27 @@ const CENSUS = `(function () {
       if (!structural && r.width > 0 && r.height > 0) faults.push(label + ' has a box inside the stand-in');
     });
   });
-  return { frames: frames.length, faults: faults };
-})()`;
+  return { frames: frames.length, faults: faults, faces: faces };
+}`;
+
+const CENSUS = `(${CENSUS_FN})()`;
+
+/** Arm a census on every animation frame for `ms`, kept in `window.__censusArrival`. */
+async function armCensus(app: App, ms: number): Promise<void> {
+  // card-dom: shell — the census reads the shell's own document.
+  await app.evalJS<null>(`(function () {
+    var rec = (window.__censusArrival = []);
+    var until = performance.now() + ${ms};
+    var census = ${CENSUS_FN};
+    function step() {
+      var c = census();
+      rec.push({ at: performance.now(), frames: c.frames, faces: c.faces, faults: c.faults });
+      if (performance.now() < until) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+    return null;
+  })()`);
+}
 
 /** Arm a per-animation-frame sampler of every stand-in, and whether a settle is running, for `ms`. */
 async function armSampler(app: App, ms: number): Promise<void> {
@@ -220,9 +256,20 @@ describe.skipIf(!SHOULD_RUN)("at0747: no frame shows the canvas through a card",
     async () => {
       const app = await launchTugApp({ testName: "at0747-no-hole", visible: true });
       try {
+        // ---- The census through the cards' arrival, while their faces stand ----
+        await armCensus(app, ARRIVAL_MS);
         await app.seedDeckState({ state: deck(), focusCardId: FRONT });
         const hello = cardKind("hello");
         for (const id of CARDS) await standUpKind(app, hello, id);
+        const arrival = await app.evalJS<Array<{ at: number; frames: number; faces: number; faults: string[] }>>("window.__censusArrival");
+        const withFaces = arrival.filter((s) => s.faces > 0);
+        const arrivalFaults = [...new Set(arrival.flatMap((s) => s.faults))];
+        note(
+          `arrival census: ${arrival.length} frames sampled, ${withFaces.length} with a face standing (most ${Math.max(0, ...arrival.map((s) => s.faces))}); ` +
+            (arrivalFaults.length === 0 ? "nothing else painted" : arrivalFaults.join("; ")),
+        );
+        expect(withFaces.length, "the census sampled the arrival while a stand-in face stood").toBeGreaterThan(0);
+        expect(arrivalFaults, "through the arrival, nothing in a stand-in paints or has a box but a face").toEqual([]);
         await Bun.sleep(300);
 
         // ---- The census ----

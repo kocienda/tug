@@ -503,6 +503,21 @@ impl LedgerEntry {
 }
 
 impl LedgerEntry {
+    /// Drop every `request_replay` this entry's queue still holds, and say
+    /// how many went. A replay is queued only while a spawn is coming up; one
+    /// still queued when the entry is re-armed after that spawn died was asked
+    /// of a child that never ran, and its card has long since stopped waiting
+    /// on it. Kept, it would fire on the next spawn as a replay nobody asked
+    /// that child for. User input queued beside it is left as it is.
+    pub fn drop_queued_replays(&mut self) -> usize {
+        self.queue.retain(|frame| {
+            serde_json::from_slice::<serde_json::Value>(&frame.payload)
+                .ok()
+                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|t| t != "request_replay"))
+                .unwrap_or(true)
+        })
+    }
+
     /// Whether this session is **finished**, not merely between frames.
     ///
     /// One reading of a fact that is genuinely two: the model is not speaking

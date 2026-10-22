@@ -303,6 +303,49 @@ describe("runReplay — lineage", () => {
     ]);
   });
 
+  test("a catch-up names the card's turns, so the ancestors it holds do not push it past the tip's", async () => {
+    // A card holding the whole arc — the ancestor's two turns and the tip's
+    // first — holds three turns where the tip counts one. An index it
+    // reconstructed, `[3 − 1, end)` in the tip's coordinates, overshoots the
+    // tip's two turns and comes back empty; a named turn places it exactly.
+    const files = {
+      [PARENT_ID]: [
+        jsonlFor("start the arc", "here is the brief"),
+        jsonlFor("tighten it", "tightened"),
+      ].join("\n"),
+      [STAGE_ID]: [
+        jsonlFor("write the plan", "here is the plan"),
+        jsonlFor("now revise it", "revised"),
+      ].join("\n"),
+    };
+    const caught = await captureStdout(() =>
+      makeManager(files).runReplay(
+        { afterTurn: { msgIds: ["msg-write the plan", "msg-tighten it", "msg-start the arc"], heldTurns: 3 } },
+        LINEAGE,
+      ),
+    );
+    expect(shape(caught)).toEqual(["text:revised"]);
+
+    // The card's newest turn is the ancestor's: every tip turn is news, and
+    // the ancestor is not sent again.
+    const fromTip = await captureStdout(() =>
+      makeManager(files).runReplay({ afterTurn: { msgIds: ["msg-tighten it", "msg-start the arc"], heldTurns: 2 } }, LINEAGE),
+    );
+    expect(shape(fromTip)).toEqual(["text:here is the plan", "text:revised"]);
+
+    // A card holding nothing is building its transcript, lineage and all.
+    const fromNothing = await captureStdout(() =>
+      makeManager(files).runReplay({ afterTurn: { msgIds: [], heldTurns: 0 } }, LINEAGE),
+    );
+    expect(shape(fromNothing)).toEqual([
+      "text:here is the brief",
+      "text:tightened",
+      "stage:devise",
+      "text:here is the plan",
+      "text:revised",
+    ]);
+  });
+
   test("leaves a prompt the record does not hold as the user's own", async () => {
     // The user interjected mid-arc. Their words are in the same file as the
     // wheel's, one turn apart, and nothing about where they sit says whose

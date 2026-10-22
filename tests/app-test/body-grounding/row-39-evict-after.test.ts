@@ -12,9 +12,10 @@
  * open, and its successor is made a beat after the last of them is ready, so
  * the row waits for it to stand before the clock falls due: the spare it reads
  * afterwards is one the clock passed over, never one not yet made. Shown
- * again, the card is back ready, painted and shown with its draft in its
- * composer: the time trigger rides the same eviction and the same arrival as
- * pressure (row 38).
+ * again, the card comes back under its last frame, which the clock's eviction
+ * kept, and is ready, painted and shown with its draft in its composer: the
+ * time trigger rides the same eviction and the same arrival as pressure
+ * (row 38).
  *
  * @covers tugdeck/src/lib/evict-after-pref.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -128,6 +129,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 39: eviction by time hidden", (
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(home)} }), null)`);
         const back = await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.painted && b.visible && !b.covered, 10_000);
         const backMs = performance.now() - shownAt;
+        expect(back?.wasCovered, "the clock's eviction kept the card's last frame, and the new body stood under it").toBe(true);
         expect(back, "the card's new body is ready, painted and shown, its cover gone").toMatchObject({ state: "ready", painted: true, visible: true, covered: false });
         const draft = await pollFor(() => app.body(A).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);
         expect(draft, "the new body's composer holds the draft").toContain(DRAFT);

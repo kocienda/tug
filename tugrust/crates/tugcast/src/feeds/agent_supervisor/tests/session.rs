@@ -378,6 +378,71 @@ async fn test_request_replay_spawning_session_enqueues_at_front_of_queue() {
     assert_eq!(second_body["type"], "user_message");
 }
 
+/// A replay queued while a spawn was coming up, whose spawn then died, is
+/// not kept for the next spawn: re-arming the entry drops it, and the user
+/// input queued beside it stays.
+#[tokio::test]
+async fn test_request_replay_queued_on_a_dead_spawn_is_dropped_at_re_arm() {
+    let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+
+    let tug_id = TugSessionId::new("sess-dead-spawn");
+    let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+    let user_frame = Frame::new(
+        FeedId::CODE_INPUT,
+        serde_json::to_vec(&serde_json::json!({
+            "tug_session_id": "sess-dead-spawn",
+            "type": "user_message",
+            "text": "hi",
+        }))
+        .unwrap(),
+    );
+    {
+        let mut entry = entry_arc.lock().await;
+        entry.spawn_state = SpawnState::Spawning;
+        assert_eq!(entry.queue.push(user_frame), QueuePush::Ok);
+    }
+    sup.handle_control("request_replay", &request_replay_payload("sess-dead-spawn"), 10)
+        .await
+        .expect_handled();
+    // The spawn dies before the child's `session_init`; nothing drained the queue.
+    entry_arc.lock().await.spawn_state = SpawnState::Errored;
+
+    let mut entry = entry_arc.lock().await;
+    assert_eq!(entry.drop_queued_replays(), 1, "the dead spawn's replay goes");
+    let left: Vec<String> = entry
+        .queue
+        .iter()
+        .map(|f| serde_json::from_slice::<serde_json::Value>(&f.payload).unwrap()["type"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(left, vec!["user_message".to_string()], "the input queued beside it stays");
+    assert_eq!(entry.drop_queued_replays(), 0);
+}
+
+/// A reset re-arms the entry, and a replay queued for the session it
+/// discards does not reach the fresh one.
+#[tokio::test]
+async fn test_reset_session_drops_a_queued_replay() {
+    let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+
+    let tug_id = TugSessionId::new("sess-reset-replay");
+    let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+    entry_arc.lock().await.spawn_state = SpawnState::Spawning;
+    sup.handle_control("request_replay", &request_replay_payload("sess-reset-replay"), 10)
+        .await
+        .expect_handled();
+    entry_arc.lock().await.spawn_state = SpawnState::Errored;
+
+    sup.handle_control("reset_session", &reset_payload("card-reset", "sess-reset-replay"), 10)
+        .await
+        .expect_handled();
+
+    let entry = entry_arc.lock().await;
+    assert!(
+        entry.queue.iter().all(|f| serde_json::from_slice::<serde_json::Value>(&f.payload).unwrap()["type"] != "request_replay"),
+        "no replay asked of the discarded session is left queued",
+    );
+}
+
 /// Spawning with an empty queue: request_replay is the only
 /// resident; pop returns it; nothing else.
 #[tokio::test]

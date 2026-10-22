@@ -33,6 +33,7 @@ import type { AtomSegment } from "../tug-atom-img";
 import type { ContentBlock } from "../../protocol";
 import type { Effect } from "./effects";
 import { isNetworkStalled } from "./lifecycle-state";
+import type { ReplayWindow } from "@tugproto/inbound";
 import type {
   AddUserMessageEvent,
   ApiRetryEvent,
@@ -59,6 +60,7 @@ import type {
   SeedQueuedSendsEvent,
   NetworkPathSatisfiedEvent,
   ReplayStartedEvent,
+  BeginCatchUpEvent,
   RespondApprovalActionEvent,
   RespondQuestionActionEvent,
   SendActionEvent,
@@ -732,6 +734,27 @@ export interface CodeSessionState {
    */
   replayCatchUpActive: boolean;
   /**
+   * A bracket the card was inside when it went dormant, re-asked on its
+   * reveal: the open bracket lost its tail with the subscription, so the
+   * store asks again and the next `replay_started` — inside `replaying`,
+   * where one is otherwise a supervisor fault — opens the bracket that
+   * completes it (`opened`). `keepsWindow` is whether its close keeps the
+   * loaded window's start, as a catch-up's does, or takes the window it
+   * reports, as the read it re-asks would have. Null otherwise.
+   */
+  replayReask: { keepsWindow: boolean; opened: boolean } | null;
+  /**
+   * The window the store last asked a replay for (`replay_asked`), until the
+   * bracket that answers it opens. Internal-only.
+   */
+  replayAskedWindow: ReplayWindow | null;
+  /**
+   * The window the open bracket was asked with, from its `replay_started` to
+   * its close; null for a bracket nobody here asked for. What a card that
+   * goes dormant inside the bracket re-asks on its reveal. Internal-only.
+   */
+  replayOpenWindow: ReplayWindow | null;
+  /**
    * True while a replay bracket is open over a live turn without the
    * store having entered it. A `replay_started` that lands mid-turn is
    * a rehydration of what this card already shows: the JSONL it reads
@@ -1193,6 +1216,33 @@ const SHADOWED_FRAME_TYPES: ReadonlySet<string> = new Set(
 );
 
 /**
+ * The frames a catch-up sets aside between its ask and its bracket's opener:
+ * the turn frames, and the bracket markers but the opener. A dormant body
+ * scoped to nothing hears no acknowledgement, so it re-scopes as it asks, and
+ * tugcode may still emit the running turn's live frames before it reads the
+ * ask. Heard first, a turn's tail would be committed as that turn, and the
+ * bracket's whole copy of it then dedupes away by msg-id. Nothing set aside
+ * is lost: the bracket carries every committed turn after the card's newest,
+ * and the in-flight one in its snapshot.
+ */
+const CATCH_UP_HELD_FRAME_TYPES: ReadonlySet<string> = new Set(
+  [...BRACKET_FRAME_TYPES].filter(
+    (t) => t !== "replay_started" && t !== "replay_batch",
+  ),
+);
+
+/**
+ * Whether a catch-up has asked and its bracket has not yet opened: outside a
+ * bracket, or inside the one a re-ask is completing, before the re-ask's own
+ * opener. A shadowed bracket is open.
+ */
+export function catchUpAwaitsBracket(state: CodeSessionState): boolean {
+  if (!state.replayCatchUpActive || state.replayShadowActive) return false;
+  if (state.phase !== "replaying") return true;
+  return state.replayReask !== null && !state.replayReask.opened;
+}
+
+/**
  * The silence deadline's arming rule, as a pure function of one
  * dispatch: the phase before it, the phase after it, whether the event
  * came off the wire, and which frame type it was.
@@ -1430,6 +1480,9 @@ export function createInitialState(
     sessionCreatedAtMs: null,
     replayPrependActive: false,
     replayCatchUpActive: false,
+    replayReask: null,
+    replayAskedWindow: null,
+    replayOpenWindow: null,
     replayShadowActive: false,
     replayShadowSnapshot: false,
     replayShadowInert: false,
@@ -6116,11 +6169,38 @@ function handleReplayStarted(
   event: ReplayStartedEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   if (state.phase === "replaying") {
+    if (state.replayReask !== null && !state.replayReask.opened) {
+      // The re-ask of a bracket the card slept inside. Its committed turns
+      // stand and the new bracket's repeats of them dedupe by msg-id; only the
+      // turn it was part-way through is set down, for the bracket to bring
+      // back whole.
+      return {
+        state: {
+          ...state,
+          pendingTurn: null,
+          activeMsgId: null,
+          scratch: new Map(),
+          toolUseStartedAt: new Map(),
+          pendingApproval: null,
+          pendingQuestion: null,
+          prevPhase: null,
+          replayReask: { ...state.replayReask, opened: true },
+          replayAskedWindow: null,
+        },
+        effects: [],
+      };
+    }
     devLog.warn("code-session-store", `replay_started in unexpected phase ${state.phase}; dropping`);
     return { state, effects: [] };
   }
   const settled = state.phase === "idle" || state.phase === "errored";
-  if (!settled || event.inflight_only === true) {
+  // A catch-up over a cycle the card held through its sleep is entered, not
+  // shadowed: a shadow sets the bracket's committed turns aside, and a turn
+  // that ended while the card slept is one of them, with no snapshot to stand
+  // in for it. Entering supersedes the cycle with the bracket's own account
+  // of that turn, committed or in flight.
+  const supersedesCycle = !settled && state.replayCatchUpActive && event.inflight_only !== true;
+  if ((!settled && !supersedesCycle) || event.inflight_only === true) {
     devLog.warn(
       "code-session-store",
       settled
@@ -6171,10 +6251,27 @@ function handleReplayStarted(
       replayPreflightActive: false,
       replaySoftBudgetElapsed: false,
       replayTimeoutDwellActive: false,
+      replayReask: null,
+      replayOpenWindow: state.replayAskedWindow,
+      replayAskedWindow: null,
+      ...(supersedesCycle
+        ? {
+            interruptInFlight: false,
+            stopStalled: false,
+            streamStalled: false,
+            replayShadowActive: false,
+            replayShadowSnapshot: false,
+            replayShadowInert: false,
+            replayShadowInflight: false,
+          }
+        : {}),
     },
     effects: [
       { kind: "cancel_timer", name: "preflight" },
       { kind: "cancel_timer", name: "timeout_dwell" },
+      ...(supersedesCycle
+        ? [{ kind: "clear-inflight" as const }, { kind: "cancel_timer" as const, name: "replay_shadow" as const }]
+        : []),
       {
         kind: "schedule_timer",
         name: "soft_budget",
@@ -6263,8 +6360,9 @@ function handleReplayComplete(
   // window recorded rather than nulling it.
   const replayWindow: ReplayWindowMeta | null =
     // A catch-up's turns continue the transcript, so the window keeps its
-    // start and what lies older; only the total moves.
-    state.replayCatchUpActive
+    // start and what lies older; only the total moves. A re-asked read's
+    // bracket closes as the read would have.
+    state.replayCatchUpActive && (state.replayReask?.keepsWindow ?? true)
       ? state.replayWindow === null
         ? null
         : {
@@ -7352,40 +7450,40 @@ function isEmptyToolInput(input: unknown): boolean {
  * it missed; the store wrapper sends the request. Marks the catch-up
  * outstanding until its bracket closes, or `CATCH_UP_DEADLINE_MS`.
  *
- * A card that went dormant mid-turn holds a cycle that ran on without it:
- * the turn streamed on, and may have ended, while the page heard nothing.
- * That cycle is dropped here, and the card stands settled, so the bracket the
- * catch-up asks for is entered rather than shadowed and brings the turn back
- * whole — committed from the JSONL if it ended, or as tugcode's snapshot of
- * the turn in flight if it has not. A shadowed bracket keeps only the
- * snapshot, and a turn that ended has none. The dropped cycle is never
- * committed: the bracket carries the turn, not a guess at it.
+ * Nothing the card holds is reset here. A card that went dormant mid-turn
+ * keeps its cycle standing: the turn streamed on, and may have ended, while
+ * the page heard nothing, and it is the catch-up's bracket that supersedes the
+ * cycle when it opens (`handleReplayStarted`), bringing the turn back whole —
+ * committed from the JSONL if it ended, or as tugcode's snapshot of the turn
+ * in flight if it has not. Until then the cycle stands, so a catch-up that
+ * never answers leaves the card holding its turn rather than idle over a turn
+ * still running.
+ *
+ * A card that went dormant inside a bracket keeps `replaying`: the bracket
+ * lost its tail with the subscription, and the store re-asks it, so the next
+ * `replay_started` is taken as the bracket that completes it
+ * (`replayReask`). Its close keeps the loaded window's start when the bracket
+ * it completes was itself a catch-up, or when the store could not re-send
+ * that bracket's window and asked for what follows the turns it holds.
  */
-function handleBeginCatchUp(state: CodeSessionState): { state: CodeSessionState; effects: Effect[] } {
+function handleBeginCatchUp(
+  state: CodeSessionState,
+  event: BeginCatchUpEvent,
+): { state: CodeSessionState; effects: Effect[] } {
   const marked: Effect[] = [
     { kind: "schedule_timer", name: "catch_up", ms: CATCH_UP_DEADLINE_MS, fire: { type: "tick_catch_up" } },
   ];
-  if (state.phase === "idle" || state.phase === "errored") {
-    return { state: { ...state, replayCatchUpActive: true }, effects: marked };
+  if (state.phase === "replaying") {
+    return {
+      state: {
+        ...state,
+        replayCatchUpActive: true,
+        replayReask: { keepsWindow: state.replayCatchUpActive || event.reaskWindow !== true, opened: false },
+      },
+      effects: marked,
+    };
   }
-  return {
-    state: {
-      ...state,
-      phase: "idle",
-      pendingTurn: null,
-      activeMsgId: null,
-      scratch: new Map(),
-      toolUseStartedAt: new Map(),
-      pendingApproval: null,
-      pendingQuestion: null,
-      prevPhase: null,
-      interruptInFlight: false,
-      stopStalled: false,
-      streamStalled: false,
-      replayCatchUpActive: true,
-    },
-    effects: [...marked, { kind: "clear-inflight" }],
-  };
+  return { state: { ...state, replayCatchUpActive: true }, effects: marked };
 }
 
 /**
@@ -8210,6 +8308,11 @@ export function reduce(
   state: CodeSessionState,
   event: CodeSessionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
+  // A catch-up's ask is ahead of its bracket: what the session said before
+  // reading it is set aside ({@link CATCH_UP_HELD_FRAME_TYPES}).
+  if (CATCH_UP_HELD_FRAME_TYPES.has(event.type) && catchUpAwaitsBracket(state)) {
+    return { state, effects: [] };
+  }
   // A shadowed bracket (`replayShadowActive`): the replay's frames are set
   // aside before any handler sees them. Only the translator's vocabulary
   // is shadowed, so the user's own actions, timer ticks and transport
@@ -8398,10 +8501,10 @@ export function reduce(
       // or shadowed: the catch-up is over.
       const result = state.replayCatchUpActive
         ? {
-            state: { ...closed.state, replayCatchUpActive: false },
+            state: { ...closed.state, replayCatchUpActive: false, replayReask: null, replayOpenWindow: null },
             effects: [...closed.effects, { kind: "cancel_timer" as const, name: "catch_up" }],
           }
-        : closed;
+        : { ...closed, state: { ...closed.state, replayOpenWindow: null } };
       // The session-created anchor is invariant and rides every success
       // `replay_complete` (windowed or full). Thread it onto whatever
       // state the handler's many branches returned — retaining the prior
@@ -8438,7 +8541,9 @@ export function reduce(
       // flag flip; the request itself is sent by the store wrapper.
       return { state: { ...state, replayPrependActive: true }, effects: [] };
     case "begin_catch_up":
-      return handleBeginCatchUp(state);
+      return handleBeginCatchUp(state, event);
+    case "replay_asked":
+      return { state: { ...state, replayAskedWindow: event.window }, effects: [] };
     case "tick_catch_up":
       // Never inside an open bracket, entered or shadowed: its close ends the catch-up.
       return state.replayCatchUpActive && state.phase !== "replaying" && !state.replayShadowActive

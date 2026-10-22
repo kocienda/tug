@@ -135,7 +135,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
         // carrying the body from a third of it to most of it. Every press
         // below waits for the body to stand still where that leaves it: the
         // claim gone, and the body presented where it is placed, unmoved
-        // across reads 250 ms apart.
+        // across reads 250 ms apart. The re-division is the product's: a
+        // picker's claim stands until its card binds, on the shown workspace
+        // as on a first visit, where the claim now lands after the switch
+        // (the bodies migration's [B24], amended). A press aimed while the
+        // column re-divides lands on a body still moving, which is all the
+        // wait guards.
         let lastAt = "";
         const rested = await pollFor(
           async () => {

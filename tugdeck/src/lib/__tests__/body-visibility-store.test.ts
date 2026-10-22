@@ -10,7 +10,7 @@ import { BodyVisibilityStore, type DormantClock } from "../body-visibility-store
 import {
   DEFAULT_DORMANT_AFTER_MS,
   dormantAfterLabel,
-  parseDormantAfterMs,
+  parseBodyDelayMs,
   resolveDormantAfterMs,
 } from "../dormant-after-pref";
 
@@ -155,12 +155,12 @@ describe("BodyVisibilityStore", () => {
 
 describe("the dormant-after preference", () => {
   test("a positive whole number of ms is the delay; anything else is no preference", () => {
-    expect(parseDormantAfterMs({ kind: "i64", value: 2000 })).toBe(2000);
-    expect(parseDormantAfterMs(undefined)).toBeNull();
-    expect(parseDormantAfterMs({ kind: "i64", value: 0 })).toBeNull();
-    expect(parseDormantAfterMs({ kind: "i64", value: -5 })).toBeNull();
-    expect(parseDormantAfterMs({ kind: "f64", value: 1.5 })).toBeNull();
-    expect(parseDormantAfterMs({ kind: "string", value: "60000" })).toBeNull();
+    expect(parseBodyDelayMs({ kind: "i64", value: 2000 })).toBe(2000);
+    expect(parseBodyDelayMs(undefined)).toBeNull();
+    expect(parseBodyDelayMs({ kind: "i64", value: 0 })).toBeNull();
+    expect(parseBodyDelayMs({ kind: "i64", value: -5 })).toBeNull();
+    expect(parseBodyDelayMs({ kind: "f64", value: 1.5 })).toBeNull();
+    expect(parseBodyDelayMs({ kind: "string", value: "60000" })).toBeNull();
   });
 
   test("no preference is a minute", () => {

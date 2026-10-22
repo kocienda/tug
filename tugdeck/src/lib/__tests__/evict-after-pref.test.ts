@@ -7,14 +7,13 @@
 
 import { describe, expect, test } from "bun:test";
 import type { TaggedValue } from "../tugbank-client";
-import { DORMANT_AFTER_DOMAIN, DEFAULT_DORMANT_AFTER_MS } from "../dormant-after-pref";
+import { DORMANT_AFTER_DOMAIN, DEFAULT_DORMANT_AFTER_MS, parseBodyDelayMs } from "../dormant-after-pref";
 import {
   DEFAULT_EVICT_AFTER_MS,
   EVICT_AFTER_CHOICES,
   EVICT_AFTER_DOMAIN,
   EVICT_AFTER_KEY,
   evictAfterLabel,
-  parseEvictAfterMs,
   readEvictAfterMs,
   resolveEvictAfterMs,
 } from "../evict-after-pref";
@@ -26,12 +25,12 @@ describe("evict-after pref", () => {
   });
 
   test("a stored value is a positive whole number of ms, or nothing", () => {
-    expect(parseEvictAfterMs({ kind: "i64", value: 2000 })).toBe(2000);
-    expect(parseEvictAfterMs(undefined)).toBeNull();
-    expect(parseEvictAfterMs({ kind: "i64", value: 0 })).toBeNull();
-    expect(parseEvictAfterMs({ kind: "i64", value: -5 })).toBeNull();
-    expect(parseEvictAfterMs({ kind: "f64", value: 1.5 })).toBeNull();
-    expect(parseEvictAfterMs({ kind: "string", value: "900000" })).toBeNull();
+    expect(parseBodyDelayMs({ kind: "i64", value: 2000 })).toBe(2000);
+    expect(parseBodyDelayMs(undefined)).toBeNull();
+    expect(parseBodyDelayMs({ kind: "i64", value: 0 })).toBeNull();
+    expect(parseBodyDelayMs({ kind: "i64", value: -5 })).toBeNull();
+    expect(parseBodyDelayMs({ kind: "f64", value: 1.5 })).toBeNull();
+    expect(parseBodyDelayMs({ kind: "string", value: "900000" })).toBeNull();
   });
 
   test("nothing stored reads as fifteen minutes, past the dormant minute", () => {

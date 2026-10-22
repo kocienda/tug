@@ -1,7 +1,9 @@
 /**
  * A card whose body is dormant or evicted reads its session, not the facts
  * the body froze at: a rate sample is the session working, the ledger's
- * turn-end stamp is the turn over, and a body that speaks again takes its
+ * turn-end stamp or a row no longer live is the turn over, a working reading
+ * that hears nothing past its horizon falls idle, a card with no page is
+ * followed from its ledger row alone, and a body that speaks again takes its
  * card back. The derivation is pure over data; the store is driven here by
  * sources that hold plain values.
  *
@@ -16,8 +18,10 @@ import {
   BodilessFactsStore,
   enterBodiless,
   onActivity,
+  onHorizon,
   onLedger,
   TURN_TAIL_MS,
+  WORKING_HORIZON_MS,
   type BodilessSources,
 } from "../bodiless-facts-store";
 
@@ -66,17 +70,41 @@ describe("the derivation", () => {
 
   test("the ledger's stamp past the mark ends the turn; one at or before it does not", () => {
     const working = enterBodiless(facts({ activity: "streaming", canInterrupt: true }), 1_000, 5_000);
-    expect(onLedger(working, 1_000, 6_000)).toBe(working);
+    expect(onLedger(working, row({ last_used_at: 1_000 }), 6_000)).toBe(working);
     expect(onLedger(working, null, 6_000)).toBe(working);
-    expect(onLedger(working, 2_000, 6_000)).toEqual({ activity: "idle", working: false, mark: 2_000, endedAt: 6_000 });
+    expect(onLedger(working, row({ last_used_at: 2_000 }), 6_000)).toEqual({ activity: "idle", working: false, mark: 2_000, endedAt: 6_000 });
     const asking = enterBodiless(facts({ activity: "awaiting_approval" }), 1_000, 5_000);
-    expect(onLedger(asking, 2_000, 6_000)).toMatchObject({ activity: "idle" });
+    expect(onLedger(asking, row({ last_used_at: 2_000 }), 6_000)).toMatchObject({ activity: "idle" });
     const errored = enterBodiless(facts({ activity: "errored" }), 1_000, 5_000);
-    expect(onLedger(errored, 2_000, 6_000)).toMatchObject({ activity: "errored", mark: 2_000 });
+    expect(onLedger(errored, row({ last_used_at: 2_000 }), 6_000)).toMatchObject({ activity: "errored", mark: 2_000 });
+  });
+
+  test("a row that is no longer live ends the turn whatever its stamp; a still reading stands", () => {
+    const working = enterBodiless(facts({ activity: "streaming", canInterrupt: true }), 1_000, 5_000);
+    for (const state of ["closed", "failed"] as const) {
+      expect(onLedger(working, row({ last_used_at: 1_000, state }), 6_000), state).toEqual({
+        activity: "idle",
+        working: false,
+        mark: 1_000,
+        endedAt: 6_000,
+      });
+    }
+    const asking = enterBodiless(facts({ activity: "awaiting_approval" }), 1_000, 5_000);
+    expect(onLedger(asking, row({ last_used_at: 1_000, state: "closed" }), 6_000)).toMatchObject({ activity: "idle" });
+    const idle = enterBodiless(facts(), 1_000, 5_000);
+    expect(onLedger(idle, row({ last_used_at: 1_000, state: "closed" }), 6_000)).toBe(idle);
+  });
+
+  test("a working reading past its horizon is idle; one inside it, or not working, stands", () => {
+    const working = enterBodiless(facts({ activity: "tool_work", canInterrupt: true }), 1_000, 5_000);
+    expect(onHorizon(working, WORKING_HORIZON_MS - 1)).toBe(working);
+    expect(onHorizon(working, WORKING_HORIZON_MS)).toMatchObject({ activity: "idle", working: false, mark: 1_000 });
+    const idle = enterBodiless(facts(), 1_000, 5_000);
+    expect(onHorizon(idle, 10 * WORKING_HORIZON_MS)).toBe(idle);
   });
 
   test("a sample in the tail of a turn that just ended is that turn's, and one after is a new turn", () => {
-    const ended = onLedger(enterBodiless(facts({ activity: "streaming" }), 1_000, 5_000), 2_000, 6_000);
+    const ended = onLedger(enterBodiless(facts({ activity: "streaming" }), 1_000, 5_000), row({ last_used_at: 2_000 }), 6_000);
     expect(onActivity(ended, "text", 6_000 + TURN_TAIL_MS - 1)).toBe(ended);
     expect(onActivity(ended, "text", 6_000 + TURN_TAIL_MS)).toMatchObject({ activity: "streaming", working: true });
   });
@@ -85,6 +113,8 @@ describe("the derivation", () => {
 /** Sources holding plain values, set by the test, which wake the store when told. */
 class Deck implements BodilessSources {
   cards: string[] = [];
+  /** Cards with no page made for them. */
+  readonly pageless = new Set<string>();
   readonly cardFacts = new Map<string, CardFactsValue | null>();
   readonly evictedCards = new Set<string>();
   readonly sessions = new Map<string, string>();
@@ -92,13 +122,23 @@ class Deck implements BodilessSources {
   clock = 10_000;
   private readonly listeners = new Set<() => void>();
   readonly activity = new Map<string, Set<(channel: ActivityChannel) => void>>();
+  /** Pending `after` calls, run by {@link advance}. */
+  timers: { at: number; fire: () => void }[] = [];
 
   cardIds = (): readonly string[] => this.cards;
+  hasBody = (cardId: string): boolean => !this.pageless.has(cardId);
   facts = (cardId: string): CardFactsValue | null => this.cardFacts.get(cardId) ?? null;
   evicted = (cardId: string): boolean => this.evictedCards.has(cardId);
   sessionOf = (cardId: string): string | null => this.sessions.get(cardId) ?? null;
   row = (_cardId: string, address: string): SessionRow | null => this.rows.get(address) ?? null;
   now = (): number => this.clock;
+  after = (ms: number, fire: () => void): (() => void) => {
+    const timer = { at: this.clock + ms, fire };
+    this.timers.push(timer);
+    return () => {
+      this.timers = this.timers.filter((t) => t !== timer);
+    };
+  };
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -115,6 +155,18 @@ class Deck implements BodilessSources {
   }
   sample(session: string, channel: ActivityChannel): void {
     for (const listener of [...(this.activity.get(session) ?? [])]) listener(channel);
+  }
+  /** Move the clock on by `ms`, firing every timer due by then in order. */
+  advance(ms: number): void {
+    const until = this.clock + ms;
+    for (;;) {
+      const due = this.timers.filter((t) => t.at <= until).sort((a, b) => a.at - b.at)[0];
+      if (due === undefined) break;
+      this.timers = this.timers.filter((t) => t !== due);
+      this.clock = due.at;
+      due.fire();
+    }
+    this.clock = until;
   }
 }
 
@@ -141,12 +193,12 @@ describe("the store", () => {
     const { deck, store } = setup();
     deck.cardFacts.set("a", facts({ activity: "streaming", canInterrupt: true, dormant: true }));
     deck.changed();
-    expect(store.bodilessOf("a")).toEqual({ activity: "streaming", canInterrupt: true, turnCount: 3, lastUsedAt: 1_000 });
+    expect(store.bodilessOf("a")).toEqual({ activity: "streaming", canInterrupt: true });
 
     // The turn ends on tugcast: the ledger's push stamps it, with the new count.
     deck.rows.set("s1", row({ last_used_at: 2_000, turn_count: 4 }));
     deck.changed();
-    expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false, turnCount: 4, lastUsedAt: 2_000 });
+    expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false });
     expect(store.activityOf("a")).toBe("idle");
     expect(store.canInterrupt("a")).toBe(false);
 
@@ -213,6 +265,61 @@ describe("the store", () => {
     deck.rows.set("s1", row({ last_used_at: 1_000, turn_count: 3 }));
     deck.changed();
     expect(ticks()).toBe(before);
+  });
+
+  test("a dormant card whose session dies mid-turn is idle at once", () => {
+    const { deck, store } = setup();
+    deck.cardFacts.set("a", facts({ activity: "streaming", canInterrupt: true, dormant: true }));
+    deck.changed();
+    expect(store.canInterrupt("a")).toBe(true);
+    deck.rows.set("s1", row({ last_used_at: 1_000, state: "closed" }));
+    deck.changed();
+    expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false });
+  });
+
+  test("a card frozen working on a row already closed enters idle", () => {
+    const { deck, store } = setup();
+    deck.rows.set("s1", row({ last_used_at: 1_000, state: "failed" }));
+    deck.cardFacts.set("a", facts({ activity: "streaming", canInterrupt: true, dormant: true }));
+    deck.changed();
+    expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false });
+  });
+
+  test("a working reading that hears nothing past its horizon falls idle, once; a sample moves the horizon on", () => {
+    const { deck, store, ticks } = setup();
+    deck.cardFacts.set("a", facts({ activity: "streaming", canInterrupt: true, dormant: true }));
+    deck.changed();
+    expect(deck.timers.length, "one pending check while working").toBe(1);
+    deck.advance(WORKING_HORIZON_MS / 2);
+    deck.sample("s1", "text");
+    expect(deck.timers.length, "a sample sets no second timer").toBe(1);
+    deck.advance(WORKING_HORIZON_MS / 2);
+    expect(store.canInterrupt("a"), "a sample half-way through keeps it working past the first horizon").toBe(true);
+    const before = ticks();
+    deck.advance(WORKING_HORIZON_MS / 2);
+    expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false });
+    expect(ticks() - before).toBe(1);
+    expect(deck.timers.length, "nothing pending once idle").toBe(0);
+  });
+
+  test("a card with no page is followed from its ledger row, and let go once its new body speaks", () => {
+    const { deck, store } = setup();
+    deck.cards = ["a", "p"];
+    deck.pageless.add("p");
+    deck.sessions.set("p", "s2");
+    deck.rows.set("s2", row({ session_id: "s2", last_used_at: 1_000 }));
+    deck.changed();
+    expect(store.bodilessOf("p"), "a pageless card's session is followed").toEqual({ activity: null, canInterrupt: false });
+    deck.sample("s2", "tools");
+    expect(store.activityOf("p")).toBe("tool_work");
+    deck.rows.set("s2", row({ session_id: "s2", last_used_at: 2_000 }));
+    deck.changed();
+    expect(store.activityOf("p")).toBe("idle");
+    // Shown: the card becomes a body, and its page publishes its facts.
+    deck.pageless.delete("p");
+    deck.cardFacts.set("p", facts({ activity: "idle" }));
+    deck.changed();
+    expect(store.bodilessOf("p"), "a body that has spoken takes the card").toBeNull();
   });
 
   test("detached, it follows nothing", () => {

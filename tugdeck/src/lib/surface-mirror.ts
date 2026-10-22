@@ -90,6 +90,8 @@ export interface SurfaceHost {
 }
 
 let bodyMirror: SurfaceMirror | null = null;
+/** Whether this body's surface is withheld now: a mirror made while it is, is made withheld. */
+let bodyWithheld = false;
 
 /**
  * The page's surface host: in a body, the mirror that draws through the
@@ -103,6 +105,7 @@ export function getSurfaceHost(): SurfaceHost | null {
     const mirror = createSurfaceMirror((surface) => cardSurface.set(surface));
     surfaceActivate.handle(({ path }) => mirror.activate(path));
     surfaceDismissed.handle(() => mirror.dismiss());
+    if (bodyWithheld) mirror.withhold(true);
     bodyMirror = mirror;
   }
   return bodyMirror;
@@ -121,8 +124,13 @@ export interface SurfaceMirror extends SurfaceHost {
   withhold(on: boolean): void;
 }
 
-/** Withdraw this body's drawn surface while `on` (a body gone dormant), if it has one. */
+/**
+ * Withdraw this body's drawn surface while `on` (a body gone dormant). The
+ * state is kept whether or not the body has a mirror yet, so one first asked
+ * for while the body sleeps draws nothing until it wakes.
+ */
 export function withholdBodySurface(on: boolean): void {
+  bodyWithheld = on;
   bodyMirror?.withhold(on);
 }
 

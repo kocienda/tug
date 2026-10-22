@@ -77,16 +77,20 @@ export function BodyStandIn({ cardId, componentId }: BodyStandInProps): React.Re
 }
 
 function StandInFace({ cardId, componentId }: BodyStandInProps): React.ReactElement | null {
-  // The face stands only on the shown deck, so the deck's own snapshot is
-  // the one its pane stands in.
+  // The face stands in its own workspace's deck: the live one when that is
+  // shown, and the parked record when it is not, so a parked workspace's
+  // card already wears its face when the switch onto it lands, and its first
+  // switched frame shows the card's chrome rather than the floor.
   const deck = useDeckManager();
   const state = useSyncExternalStore(deck.subscribe, deck.getSnapshot);
   const spaces = useSyncExternalStore(deck.subscribe, deck.getSpacesSnapshot);
   useSyncExternalStore(cardTitleStore.subscribe, () => cardTitleStore.get(cardId));
-  const value = paneChromeFor(state, cardId, {
+  const ownSpaceId = deck.spaceOf(cardId) ?? spaces.activeSpaceId;
+  const own = ownSpaceId === spaces.activeSpaceId ? state : (spaces.mountedDecks.get(ownSpaceId) ?? state);
+  const value = paneChromeFor(own, cardId, {
     titleOf: (id) => cardTitleStore.get(id),
     waives: (id) => bodyFactsStore.waives(id),
-    spaces: { list: spaces.spaces, ownSpaceId: deck.spaceOf(cardId) ?? spaces.activeSpaceId },
+    spaces: { list: spaces.spaces, ownSpaceId },
   });
   // The names the chrome draws come from `deck.cards`; read through a key so
   // the face re-renders when one moved and not on every phase tick.

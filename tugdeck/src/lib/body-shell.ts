@@ -117,6 +117,7 @@ import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfac
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
 import { bodilessFactsStore } from "./bodiless-facts-store";
+import { scheduleAfterPaint } from "./after-paint";
 import { bodyStandInStore } from "./body-stand-in-store";
 import { cardPlanCancelled, cardPlanLanded, cardPlacementDiag, shownFactsOf, wantsBodyShown } from "./card-placement";
 import { mergeBandOf } from "./drop-zones";
@@ -124,7 +125,8 @@ import { CANVAS_BACKGROUND_ATTRIBUTE, paneCanvasOf, SHOWN_PANE_FRAMES } from "./
 import { getTugTiming } from "./scale-timing";
 import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
-import { cardSessionBindingStore, shareCardBinding } from "./card-session-binding-store";
+import { cardSessionBindingStore, ledgerSegmentForCard, shareCardBinding } from "./card-session-binding-store";
+import { getSessionLedgerStore, subscribeSessionLedger } from "./session-ledger-store";
 import { shareArcPresses } from "./arc-press-store";
 import { cardTitleStore } from "./card-title-store";
 import { CARDS_CARD_ID } from "./cards-card-id";
@@ -994,6 +996,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // facts it froze at.
         activity: bodilessFactsStore.activityOf,
         binding: (id) => cardSessionBindingStore.getBinding(id) ?? null,
+        sessionState: (id) => {
+          const address = cardSessionBindingStore.getBinding(id)?.tugSessionId;
+          return address === undefined ? null : (getSessionLedgerStore()?.findRow(ledgerSegmentForCard(id, address))?.state ?? null);
+        },
         parkedTitle: (id) => {
           const identity = cardIdentity(id);
           return identity.source === "parked" ? identity.title : null;
@@ -1144,6 +1150,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     // A bodiless card's phase moves with its session while its body hears
     // nothing of it.
     bodilessFactsStore.subscribe(publishDeckCards),
+    // A card's session state is its ledger row's.
+    subscribeSessionLedger(publishDeckCards),
     bodilessFactsStore.attach(),
     // A card whose page has not painted wears its chrome from the shell.
     bodyStandInStore.attach(),
@@ -1595,6 +1603,20 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         paintGate.forget(cardId);
         reviveWanted();
         return;
+      case "covered":
+        // The body asked for to bring an evicted card back stands under the
+        // card's last frame, which the host keeps until its page paints: the
+        // placer may show it from here — but not ahead of the shell's own
+        // frame. The host shows a view the moment a placement names it,
+        // while the commit that asked for the card (a workspace switch, a tab
+        // chosen) may not have composited, so a covered card shown at once
+        // stands on the bare canvas beside the other cards' stand-in faces,
+        // which come with the shell's frame. Waited two paints, as a view
+        // taken down is held, the face is on screen first and the cover
+        // comes up over it. A card the host had no cover for never hears
+        // this, and stands under its stand-in until `painted`.
+        scheduleAfterPaint(() => scheduleAfterPaint(() => bodyCardsStore.markRevived(cardId)));
+        return;
       case "failed": {
         // The host has destroyed the body. The card stays a body card —
         // every card is one, so the shell has no other place for it — and
@@ -1636,9 +1658,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
    * Ask again for every evicted card the deck now wants shown — its tab
    * chosen, its workspace shown, its pane unfolded. It comes back as an
    * arrival, never by un-evicting a view that is gone: a new body on the
-   * restore path, which reads the state the evicted page wrote as it went,
-   * and the host stands the card's last frame over it until it paints, so
-   * the placer shows it from the hand-off.
+   * restore path, which reads the state the evicted page wrote as it went.
+   * Where the host kept the card's last frame it stands it over the new
+   * body and says `covered`, and the placer shows the card from there;
+   * where it kept none the stand-in stands until the page paints.
    *
    * A card whose page was never made — handed off while it was not shown —
    * is asked for here too, with the intent it was handed, and stands behind
@@ -1648,7 +1671,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     for (const cardId of bodyCardsStore.cardIds()) {
       if (bodyCardsStore.stateOf(cardId) !== "evicted" || !wantsBodyShown(deck, cardId)) continue;
       if (releaseDeferredBody(cardId)) continue;
-      bodyCardsStore.markRevived(cardId);
       askAgain(cardId);
     }
   }
@@ -1678,6 +1700,15 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // each body card's tier from its body's state, its page's dormancy and its
   // placement, and the host's last pressure event. Readings; nothing here
   // decides anything.
+  // A parked workspace's card stands in no pane of the shown deck, which is
+  // all the placer reads; the census reads it in its own workspace's deck,
+  // so a parked card counts as hidden, dormant or evicted.
+  const placedOf = (cardId: string): { active: boolean; layerShown: boolean } | null => {
+    const shown = shownFactsOf(deck, cardId);
+    if (shown !== null) return shown;
+    const pane = ownDeckOf(deck, cardId).panes.find((p) => p.cardIds.includes(cardId));
+    return pane === undefined ? null : { active: pane.activeCardId === cardId, layerShown: false };
+  };
   let lastPressure: BodyPressure | null = null;
   const publishCensus = (): void => {
     const counts = countTiers(
@@ -1685,7 +1716,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         bodyTier({
           evicted: bodyCardsStore.stateOf(cardId) === "evicted",
           dormant: cardFacts.getFor(cardId)?.dormant === true,
-          placed: shownFactsOf(deck, cardId),
+          placed: placedOf(cardId),
         }),
       ),
     );

@@ -960,6 +960,9 @@ export type SessionDriveAction =
   | { op: "send"; text: string; atoms?: unknown[]; suppress?: boolean }
   | { op: "ingestFrame"; feedId: number; decoded: unknown }
   | { op: "interrupt" }
+  // A prompt from outside the card, on the wire with the card's reducer told
+  // nothing; a mid-turn `send` would queue in the card instead.
+  | { op: "promptElsewhere"; text: string }
   | { op: "transportClose" }
   | { op: "transportReconnect" }
   | { op: "transportSettled" }
@@ -1323,9 +1326,10 @@ export interface BodyViewSnapshot {
   /** Placed visible and ready — what the user can see. */
   visible: boolean;
   /**
-   * Whether the page is told it is shown: its container paints, a sibling
-   * behind its pane's active card included; false once the host hides it
-   * (a parked or folded body).
+   * Whether the page is told it is shown: placed visible and showable, or a
+   * sibling behind its pane's active card; false for any body the user
+   * cannot see — a parked or folded body, and one hidden before its first
+   * showing, which paints at opacity 0.
    */
   shown: boolean;
   /** The pane's stacking order the last placement gave it. */
@@ -1342,6 +1346,8 @@ export interface BodyViewSnapshot {
   painted: boolean;
   /** The card's last frame before an eviction stands over the body until it paints. */
   covered: boolean;
+  /** Whether the body was made under an evicted card's last frame, whether or not it stands yet. */
+  wasCovered: boolean;
   /** Whether the body began as the warm spare (`warm`) or was made for its card (`cold`). */
   start: "warm" | "cold";
   /** Bind → ready, once the body has reported ready; null before. */

@@ -256,12 +256,40 @@ export interface StopAllWork {
  *     `[firstLoadedTurnIndex − N, firstLoadedTurnIndex]` — the N turns
  *     immediately older than the current oldest-loaded turn, which prepend
  *     above the view.
+ *   - `{ afterTurn: { msgIds, heldTurns } }` — every committed turn after
+ *     the newest one the card holds, to the end: a dormant body catching up
+ *     on what it missed. The card names its turns by what it holds rather
+ *     than by an index, because an index is in the tip's coordinates and a
+ *     card's transcript also holds a lineage's ancestors. See
+ *     {@link ReplayAfterTurn}.
  *
  * Absent ⇒ load the whole session (the legacy, unbounded behavior).
  */
 export type ReplayWindow =
   | { lastTurns: number }
-  | { turnRange: [number, number] };
+  | { turnRange: [number, number] }
+  | { afterTurn: ReplayAfterTurn };
+
+/**
+ * The catch-up form of a replay window: the turns a card holds, named by
+ * claude's msg-ids, newest first.
+ *
+ * tugcode answers with every turn of the tip after the newest named turn it
+ * finds, in one bracket. Several ids ride, not one, so a turn whose id the
+ * translator minted (a turn that committed with no content) cannot leave the
+ * card unplaced. When none is found: with no ids the card holds nothing and
+ * the whole session replays, lineage included; with a lineage the card's
+ * turns are all its ancestors', and the tip replays from its start; with
+ * neither, the card and the tip share coordinates, and `heldTurns` — the
+ * count of turns the card holds — places it, one turn early, the overlap the
+ * reducer's msg-id dedupe drops.
+ */
+export interface ReplayAfterTurn {
+  /** The msg-ids of the newest committed turns the card holds, newest first; empty when it holds none. */
+  msgIds: string[];
+  /** How many committed turns the card holds, counting from the session's first. */
+  heldTurns: number;
+}
 
 /**
  * One session in a replay's lineage — a stage of an arc, or the

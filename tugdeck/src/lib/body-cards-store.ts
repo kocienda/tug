@@ -27,9 +27,11 @@ export class BodyCardsStore extends Subscribable {
   /** Cards that draw their own chrome whose page has put its first chrome frame on screen. */
   private readonly chrome = new Set<string>();
   /**
-   * Evicted cards asked for again because a placement wants them shown: the
-   * host stands the card's last frame over the new body until it paints, so
-   * the placer shows the card from the hand-off rather than from its paint.
+   * Evicted cards asked for again whose new body the host has stood the
+   * card's last frame over (`covered`): the cover stands until the page
+   * paints, so the placer shows the card from the hand-off rather than from
+   * its paint. A card brought back with no cover is not here, and its
+   * stand-in stands until the page paints, as for any arrival.
    */
   private readonly revived = new Set<string>();
   private ids: readonly string[] = [];
@@ -53,9 +55,9 @@ export class BodyCardsStore extends Subscribable {
     this.changed();
   }
 
-  /** `cardId`, evicted, is being asked for again to be shown ({@link revived}). */
+  /** The host stood `cardId`'s last frame over the body asked for to bring it back ({@link revived}). */
   markRevived(cardId: string): void {
-    if (this.states.get(cardId) !== "evicted" || this.revived.has(cardId)) return;
+    if (this.states.get(cardId) !== "creating" || this.revived.has(cardId)) return;
     this.revived.add(cardId);
     this.changed();
   }

@@ -20,6 +20,7 @@ import {
   placeCardsOf,
   PlacementPoster,
   samePlacement,
+  shownFactsOf,
   type BodyPlacement,
   type BodyShownFacts,
   type CardFacts,
@@ -155,6 +156,51 @@ describe("hiddenSince", () => {
     bodyCardsStore.setState("rail", "painted");
     const deck = deckOf({ arriving: true, parked: true });
     expect(hiddenSince(deck, posted, new Set(["rail"]))?.bodies[0].visible).toBe(false);
+  });
+});
+
+describe("a revived card", () => {
+  afterEach(() => bodyCardsStore._reset());
+
+  const deck = {
+    getSnapshot: () => ({ panes: [{ id: "p1", cardIds: ["b"], activeCardId: "b" }], cards: [{ id: "b", componentId: "session" }], arriving: {} }),
+    spaceOf: () => null,
+    getSpacesSnapshot: () => ({ activeSpaceId: "shown" }),
+  } as unknown as IDeckManagerStore;
+
+  /** `b`, evicted and asked for again: the shell's `askForBodyAgain` moves it to `creating`. */
+  function askedAgain(): void {
+    bodyCardsStore.mark("b");
+    bodyCardsStore.setState("b", "painted");
+    bodyCardsStore.setState("b", "evicted");
+    bodyCardsStore.setState("b", "creating");
+  }
+
+  test("with no cover waits for its paint, its stand-in standing", () => {
+    askedAgain();
+    expect(shownFactsOf(deck, "b")?.painted).toBe(false);
+    bodyCardsStore.setState("b", "painted");
+    expect(shownFactsOf(deck, "b")?.painted).toBe(true);
+  });
+
+  test("under its last frame shows from the host's covered, and stands on its own once painted", () => {
+    askedAgain();
+    bodyCardsStore.markRevived("b");
+    expect(bodyCardsStore.revivedNow("b")).toBe(true);
+    expect(shownFactsOf(deck, "b")?.painted).toBe(true);
+    bodyCardsStore.setState("b", "painted");
+    expect(bodyCardsStore.revivedNow("b")).toBe(false);
+  });
+
+  test("is not marked covered while still evicted, nor once it is past its hand-off", () => {
+    bodyCardsStore.mark("b");
+    bodyCardsStore.setState("b", "evicted");
+    bodyCardsStore.markRevived("b");
+    expect(bodyCardsStore.revivedNow("b")).toBe(false);
+    bodyCardsStore.setState("b", "creating");
+    bodyCardsStore.setState("b", "ready");
+    bodyCardsStore.markRevived("b");
+    expect(bodyCardsStore.revivedNow("b")).toBe(false);
   });
 });
 

@@ -15,6 +15,7 @@
 import type { CardIdentityFacts } from "../../card-registry";
 import type { CardSessionBinding } from "../../lib/card-session-binding-store";
 import type { CardMastheadPayload } from "../../lib/card-title-store";
+import type { SessionRow } from "../../protocol";
 import { arr, bool, literal, nullable, num, obj, opaque, rec, str, type Codec } from "../codec";
 import { defineSharedStore } from "../shared-store";
 import { cardIdentity, cardMasthead } from "./card";
@@ -134,6 +135,13 @@ export interface DeckCardFacts {
   /** The session phase key the card's body last reported (`card.facts` `activity`), or null. */
   activity: string | null;
   binding: CardSessionBinding | null;
+  /**
+   * The card's session as the shell's ledger holds it — the `state` of its
+   * seated segment's row — or null while the shell has no row. A body reads
+   * its own on its reveal: a closed or failed session has no subprocess to
+   * answer a catch-up.
+   */
+  sessionState: SessionRow["state"] | null;
   /** A parked workspace card's title from its bindings ledger (`cardIdentity`'s `parked` source), else null. */
   parkedTitle: string | null;
   /** Whether the card waives its type's close confirm now (`card.holds` `waive`). */
@@ -158,6 +166,7 @@ export const deckCards = defineSharedStore<Record<string, DeckCardFacts>>({
       identity: nullable(cardIdentity),
       activity: nullable(str),
       binding: nullable(sessionBinding),
+      sessionState: nullable(literal("live", "closed", "failed")),
       parkedTitle: nullable(str),
       waivesClose: bool,
     }),

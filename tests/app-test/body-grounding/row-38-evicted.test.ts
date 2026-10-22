@@ -8,28 +8,29 @@
  * then the first tab is chosen, so the second stands behind it as a sibling,
  * still painting. Critical pressure — the host's stand-in for the dispatch
  * source — evicts every body not placed visible, the sibling and the spare
- * with them: the sibling's page writes its card's state, the host keeps its
- * last frame, and the view goes. Choosing the second tab again asks for its
- * body, cold since critical pressure leaves no spare, and the host stands the
- * last frame over it until the new page paints.
+ * with them: the sibling's page writes its card's state, the host keeps
+ * no frame — a snapshot under critical pressure would make the sleeping page
+ * paint when memory is shortest — and the view goes. Choosing the second tab
+ * again asks for its body, cold since critical pressure leaves no spare, and
+ * with no cover the card arrives as any card does: its stand-in stands until
+ * the new page paints.
  *
  * From the tab's choosing every composited frame of the pane is read for the
  * floor (row 1's bar): no frame shows the canvas or the bare window through
- * the pane. The floor is told by its grid — full-height columns of grid paint
- * at the cell's pitch — and not by the canvas colour's share, because a
- * Session card's own restore lid and a picker's empty body are dark surfaces
- * within the composite tolerance of the canvas, which a share reads as floor.
+ * the pane. The floor is told by its grid (`gridColumns`).
  * The body is back ready and painted, its transcript
  * settled with the last turn in it and its composer holding the draft, and the
  * time from the choosing to its own first paint is the row's cold reading.
  *
+ * @family row-38
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-cards-store.ts
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugapp/Sources/BodyViewController.swift
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -39,8 +40,7 @@ import { claudeProjectDir } from "../_harness/claude-home";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from "../_harness/tugbank-helpers";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { bodyOf, composerText, focusBody, pollFor } from "./_bodies";
-import { decodePngFile } from "../_harness/png";
-import { classifyFrame, near, readPalette, type Rgb } from "./_frames";
+import { classifyFrame, FLOOR_COLUMNS, gridColumns, readPalette } from "./_frames";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -53,35 +53,6 @@ const LAST_TURN = `Turn ${TURNS}: the last reading`;
 const CARDSTATE = "dev.tugapp.deck.cardstate";
 const BURST_MS = 2_000;
 const BURST_INTERVAL_MS = 33;
-/** Within this of the canvas a pixel is the canvas itself (`_frames.ts`). */
-const TOLERANCE = 8;
-/** How far from the canvas a pixel may lie and still be grid paint (`floor-host.test.ts`). */
-const GRID_REACH = 44;
-/** A frame with this many grid columns is showing the floor: a body's chrome draws at most a rule or two. */
-const FLOOR_COLUMNS = 3;
-
-/**
- * The full-height runs of grid paint in a frame: columns whose pixels are
- * mostly neither the canvas nor far from it. The floor draws one every cell;
- * a card draws none, or a stray rule.
- */
-function gridColumns(path: string, canvas: Rgb): number {
-  const png = decodePngFile(path);
-  let runs = 0;
-  let on = false;
-  for (let x = 0; x < png.width; x++) {
-    let hits = 0;
-    for (let y = 0; y < png.height; y += 2) {
-      const i = (y * png.width + x) * 4;
-      const p = { r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] };
-      if (!near(p, canvas, TOLERANCE) && near(p, canvas, GRID_REACH)) hits += 1;
-    }
-    const line = hits / Math.ceil(png.height / 2) > 0.5;
-    if (line && !on) runs += 1;
-    on = line;
-  }
-  return runs;
-}
 
 function deck(): Record<string, unknown> {
   return {
@@ -237,13 +208,30 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: the evicted body", () => {
         const inset = 4;
         const crop = { x: rect!.x + inset, y: rect!.y + inset, width: rect!.width - 2 * inset, height: rect!.height - 2 * inset };
         await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop });
+        // Each shell frame from the choosing on: whether the chosen card's stand-in face is in its placeholder.
+        await app.evalJS<null>(`(function () {
+          var log = (window.__r38Faces = []);
+          var until = Date.now() + ${BURST_MS};
+          (function tick() {
+            var phs = document.querySelectorAll('[data-body-placeholder][data-card-id="${B}"]');
+            var state = phs.length === 0 ? -1 : 0;
+            for (var i = 0; i < phs.length; i++) {
+              var face = phs[i].querySelector("[data-body-stand-in]");
+              if (face === null) continue;
+              if (face.getBoundingClientRect().width > 0) state = 1;
+              else if (state === 0) state = 2;
+            }
+            log.push([Date.now(), state]);
+            if (Date.now() < until) requestAnimationFrame(tick);
+          })();
+          return null;
+        })()`);
         const choseWall = Date.now();
         const chose = performance.now();
         await app.body(A).click(`[data-testid="tug-tab-${B}"]`);
-        const covered = await pollFor(() => bodyOf(app, B), (b) => b !== null && (b.covered || b.painted), 3_000);
         const back = await pollFor(() => bodyOf(app, B), (b) => b?.state === "ready" && b.painted && b.visible && !b.covered, 10_000);
         const coldMs = performance.now() - chose;
-        expect(covered?.covered, "the body made to bring the card back stood under its last frame").toBe(true);
+        expect(back?.wasCovered, "critical pressure kept no last frame, so the new body stood under no cover").toBe(false);
         expect(back, "the card's new body is ready, painted and shown, its cover gone").toMatchObject({ state: "ready", painted: true, visible: true, covered: false });
         expect(back?.start, "with no spare under critical pressure the new body is made cold").toBe("cold");
         await app.body(B).waitForCondition<boolean>(SETTLED_WITH_LAST, { timeoutMs: 10_000 });
@@ -271,8 +259,18 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: the evicted body", () => {
             `cold: chosen → painted ${Math.round(coldMs)} ms, → settled with the last turn ${Math.round(settledMs)} ms; body ready ${back?.readyMs?.toFixed(0)} ms`,
         );
         const floor = read.filter((r) => r.columns >= FLOOR_COLUMNS || r.classes.bare > final.bare + 0.005);
+        const faces = await app.evalJS<Array<[number, number]>>("window.__r38Faces");
+        const runs: string[] = [];
+        for (const [wall, face] of faces) {
+          const label = ["no placeholder", "no face", "face", "face with no box"][face + 1];
+          if (runs.length === 0 || !runs[runs.length - 1].startsWith(label + " ")) runs.push(`${label} from ${Math.round(wall - choseWall)} ms`);
+        }
+        note(`the shell's frames for the chosen card: ${runs.join(", ")}`);
         if (floor.length > 0) {
           note(`frames showing the floor: ${floor.map((r) => `${Math.round(r.f.wall - choseWall)} ms (${r.columns} grid columns, bare ${pct(r.classes.bare)})`).join(", ")}`);
+          const kept = join(tmpdir(), "row-38-evicted-first-red-frame.png");
+          copyFileSync(floor[0].f.path, kept);
+          note(`kept the first red frame at ${kept}`);
         }
         expect(floor.length, "no frame after the choosing shows the floor's grid or the bare window through the pane").toBe(0);
         expect(final.surface, "the finished rect is the body's own surface").toBeGreaterThan(0.3);

@@ -243,7 +243,12 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // the budget (22 and 25 families) before the dormancy and eviction rows
     // joined them.
     "tugdeck/src/lib/body-shell.ts": 24,
-    "tugapp/Sources/BodyViewController.swift": 27,
+    // Deleted and re-added across two commits at 28 (from 27) for the rows
+    // whose subject is the host's own reading: a body never shown reports
+    // not shown, and an eviction whose snapshot never answers goes on at its
+    // deadline. Both assert what this file decides, and nothing narrower
+    // carries it.
+    "tugapp/Sources/BodyViewController.swift": 28,
 
     // The transcript. Every row kind a session can paint — user, assistant,
     // shell, refs, ghost — renders through this one host, so a test that

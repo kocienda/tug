@@ -13,6 +13,7 @@
  * page of that card hears — the dot goes still. The facts the body last
  * published said streaming, so a dot read from them would run for ever.
  *
+ * @family row-43
  * @covers tugdeck/src/lib/bodiless-facts-store.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/code-session-store/use-session-phase.ts

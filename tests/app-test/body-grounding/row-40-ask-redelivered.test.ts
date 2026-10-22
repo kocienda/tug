@@ -103,6 +103,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 40: an ask redelivered across a
         await pollFor(() => bodyOf(app, B), (b) => b?.state === "ready" && b.visible, 30_000);
         const sid = randomUUID();
         await app.spawnSessionNew(B, { tugSessionId: sid, projectDir });
+        // The shell routes the question by its own binding of the card, so
+        // ask once it has one: asked sooner, the question finds no card and
+        // the caller hears the fallback with nobody asked.
+        await app.waitForCondition<boolean>(
+          `(function () { try { return window.__tug.cardLineFacts(${JSON.stringify(B)}).tugSessionId === ${JSON.stringify(sid)}; } catch (e) { return false; } })()`,
+          { timeoutMs: 10_000 },
+        );
 
         // ---- A caller asks the second card's session, and blocks ----
         proc = startAsk(app.instanceId, sid);

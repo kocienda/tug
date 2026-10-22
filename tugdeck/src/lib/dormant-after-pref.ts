@@ -3,8 +3,10 @@
  *
  * A body the host has hidden (a parked workspace's card, a folded pane) keeps
  * its page, but after this long it stops working on behalf of nobody: it
- * drops its session subscription and parks its worker, and catches up when it
- * is shown again. A minute by default: long enough that a fold and an unfold,
+ * empties its session subscription, so tugcast sends it nothing and its
+ * ingest worker, hearing nothing, idles with its model kept — nothing parks
+ * the worker; it starves — and the page catches up when it is shown again. A
+ * minute by default: long enough that a fold and an unfold,
  * or a glance at another workspace, never pay a catch-up; short enough that a
  * workspace left parked stops costing.
  *
@@ -40,10 +42,11 @@ export const DEFAULT_DORMANT_AFTER_MS = 60_000;
 export const DORMANT_AFTER_CHOICES = [30_000, 60_000, 300_000, 900_000] as const;
 
 /**
- * The stored delay, or `null` when nothing is stored or what is stored is not
- * a positive whole number of milliseconds.
+ * A stored delay of this domain — `dormantAfterMs` or `evictAfterMs` — or
+ * `null` when nothing is stored or what is stored is not a positive whole
+ * number of milliseconds. The one parser both delays read through.
  */
-export function parseDormantAfterMs(entry: TaggedValue | undefined): number | null {
+export function parseBodyDelayMs(entry: TaggedValue | undefined): number | null {
   if (entry === undefined) return null;
   const value = entry.value;
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
@@ -63,27 +66,26 @@ export function dormantAfterLabel(ms: number): string {
 
 /** The reader's delay. [L02] */
 export function useDormantAfterMs(): number {
-  const stored = useTugbankValue<number | null>(DORMANT_AFTER_DOMAIN, DORMANT_AFTER_KEY, parseDormantAfterMs, null);
+  const stored = useTugbankValue<number | null>(DORMANT_AFTER_DOMAIN, DORMANT_AFTER_KEY, parseBodyDelayMs, null);
   return resolveDormantAfterMs(stored);
 }
 
 /**
- * Persist `ms`. Writes the local cache first so the row answers the press in
- * the same frame, then PUTs fire-and-forget; every page's tugbank client hears
- * the change, which is how each body's clock learns it.
+ * Persist `ms` through the tugbank client's own write ({@link TugbankClient.put}):
+ * the local cache first so the row answers the press in the same frame, then
+ * the PUT; every page's tugbank client hears the change, which is how each
+ * body's clock learns it.
  */
 export function writeDormantAfterMs(ms: number): void {
-  const body: TaggedValue = { kind: "i64", value: ms };
+  writeBodyDelayMs(DORMANT_AFTER_KEY, ms, "dormant-after");
+}
+
+/** Persist one of the domain's delays, `key`, as `ms`; a page with no tugbank client logs and writes nothing. */
+export function writeBodyDelayMs(key: string, ms: number, logTag: string): void {
   const client = getTugbankClient();
-  if (client !== null) {
-    client.setLocalValue(DORMANT_AFTER_DOMAIN, DORMANT_AFTER_KEY, body);
+  if (client === null) {
+    tugDevLogStore.warn(logTag, `no tugbank client to write ${key}`);
+    return;
   }
-  fetch(`/api/defaults/${DORMANT_AFTER_DOMAIN}/${encodeURIComponent(DORMANT_AFTER_KEY)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    keepalive: true,
-  }).catch((err) => {
-    tugDevLogStore.warn("dormant-after", `PUT failed for ${DORMANT_AFTER_KEY}: ${String(err)}`);
-  });
+  client.put(DORMANT_AFTER_DOMAIN, key, { kind: "i64", value: ms }, logTag);
 }

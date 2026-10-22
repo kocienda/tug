@@ -455,6 +455,52 @@ export function describeFrames(frames: readonly FrameClasses[]): string {
     .join("\n");
 }
 
+/** Within this of the canvas a pixel is the canvas itself, for {@link gridColumns}. */
+const GRID_CANVAS_TOLERANCE = 8;
+
+/**
+ * The full-height runs of grid paint in a frame: columns whose pixels are
+ * mostly neither the canvas nor far from it. The floor draws one every cell;
+ * a card draws none, or a stray rule. The floor is told by its grid rather
+ * than by the canvas colour's share, because a Session card's own restore
+ * lid and a picker's empty body are dark surfaces within the composite
+ * tolerance of the canvas, which a share reads as floor.
+ *
+ * Only runs on one pitch count: the floor's lines stand a cell apart, while
+ * a card's own dark surfaces — a picker sheet's edges over its body — make
+ * runs at whatever spacing its layout has. The answer is the longest chain
+ * of runs a steady pitch apart.
+ */
+export function gridColumns(path: string, canvas: Rgb): number {
+  const png = decodePngFile(path);
+  const starts: number[] = [];
+  let on = false;
+  for (let x = 0; x < png.width; x++) {
+    let hits = 0;
+    for (let y = 0; y < png.height; y += 2) {
+      const i = (y * png.width + x) * 4;
+      const p = { r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] };
+      if (!near(p, canvas, GRID_CANVAS_TOLERANCE) && near(p, canvas, GRID_REACH)) hits += 1;
+    }
+    const line = hits / Math.ceil(png.height / 2) > 0.5;
+    if (line && !on) starts.push(x);
+    on = line;
+  }
+  if (starts.length < 2) return starts.length;
+  let best = 1;
+  let chain = 1;
+  for (let i = 1; i < starts.length; i++) {
+    const gap = starts[i] - starts[i - 1];
+    const prev = i > 1 ? starts[i - 1] - starts[i - 2] : gap;
+    chain = i > 1 && Math.abs(gap - prev) <= 2 ? chain + 1 : 2;
+    best = Math.max(best, chain);
+  }
+  return best;
+}
+
+/** A frame with this many grid columns is showing the floor: a body's chrome draws at most a rule or two. */
+export const FLOOR_COLUMNS = 3;
+
 /**
  * Whether a frame shows an OPEN HOLE with nothing beneath it: canvas-coloured
  * paint with none of the floor's grid in it. The floor's grid is a line

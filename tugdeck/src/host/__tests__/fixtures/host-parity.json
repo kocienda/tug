@@ -1579,6 +1579,10 @@
           "cardId": "c1",
           "state": "evicted",
           "cause": "pressure-critical"
+        },
+        {
+          "cardId": "c1",
+          "state": "covered"
         }
       ],
       "refused": [

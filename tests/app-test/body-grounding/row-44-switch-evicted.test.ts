@@ -8,11 +8,15 @@
  * the Session cards'; past the reader's `evictAfterMs`, shortened here, both
  * Session bodies are evicted by the clock. Then the Session workspace is
  * shown again and read frame by frame until both new bodies have painted.
- * Each card comes back under the last frame the host kept at its eviction,
- * over the face the shell stands in beneath it.
+ * Each card comes back under the face the shell stands in for it, which
+ * already stands in the parked workspace so the first switched frame shows
+ * it, and under the last frame the host kept at its eviction where that has
+ * not aged out: the host drops a cover older than `evictAfterMs`, which the
+ * row shortens, so either may be what stands.
  *
  * @family row-44-switch
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx
+ * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-stand-in-store.ts
  * @covers tugapp/Sources/BodyViewController.swift
  */

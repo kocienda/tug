@@ -622,8 +622,9 @@ export function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShown
   const activeSpaceId = deck.getSpacesSnapshot().activeSpaceId;
   return {
     // A card shows at its first chrome frame, its content lidded in its own
-    // page until that has painted — and a revived card from its hand-off,
-    // under the cover of its last frame the host stands until then.
+    // page until that has painted — and a revived card from the host's
+    // `covered`, under the cover of its last frame the host stands until
+    // then. A revived card with no cover waits for its paint like any other.
     painted:
       bodyCardsStore.stateOf(cardId) === "painted" ||
       bodyCardsStore.chromeShown(cardId) ||

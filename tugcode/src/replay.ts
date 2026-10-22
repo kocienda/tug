@@ -68,7 +68,7 @@ import type {
   TurnTelemetry,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
-import type { ReplayWindow } from "@tugproto/inbound";
+import type { ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
 import { isRecord } from "./claude-wire.ts";
 
 /**
@@ -2774,8 +2774,9 @@ export function segmentJsonlOrigins(
  * into the concrete JSONL entry range `[startIndex, endIndex)` to emit
  * plus the metadata to report. The window is sized in turns —
  * `{ lastTurns: N }` loads the most recent N turns, `{ turnRange }` an
- * explicit range. A window covering the whole session yields
- * `hasOlder: false` (load-all).
+ * explicit range, `{ afterTurn }` every turn after the newest one the card
+ * names (see {@link turnAfterHeld}). A window covering the whole session
+ * yields `hasOlder: false` (load-all).
  *
  * Reports `firstLoadedTurnIndex` (for backward paging — the next older
  * request) and the turn-based window metadata. Turns are the only unit on
@@ -2784,7 +2785,7 @@ export function segmentJsonlOrigins(
 function resolveWindow(
   window: ReplayWindow,
   turns: ReadonlyArray<TurnInfo>,
-  entryCount: number,
+  parsedEntries: ReadonlyArray<JsonlEntry | null>,
 ): {
   startIndex: number;
   endIndex: number;
@@ -2802,6 +2803,10 @@ function resolveWindow(
     const n = Math.max(0, Math.floor(window.lastTurns));
     firstTurn = Math.max(0, totalTurns - n);
     endTurn = totalTurns;
+  } else if ("afterTurn" in window) {
+    // A catch-up: from the turn after the newest one the card holds, to the end.
+    firstTurn = turnAfterHeld(window.afterTurn, turns, parsedEntries);
+    endTurn = totalTurns;
   } else {
     // Explicit half-open turn range. Backward paging ("load previous N")
     // sends `[firstLoadedTurnIndex − N, firstLoadedTurnIndex]` — the
@@ -2810,6 +2815,7 @@ function resolveWindow(
     firstTurn = Math.max(0, Math.min(Math.floor(rawStart), totalTurns));
     endTurn = Math.max(firstTurn, Math.min(Math.floor(rawEnd), totalTurns));
   }
+  const entryCount = parsedEntries.length;
   const startIndex =
     firstTurn < totalTurns ? turns[firstTurn].startIndex : entryCount;
   const endIndex =
@@ -2821,6 +2827,43 @@ function resolveWindow(
     totalTurns,
     hasOlder: firstTurn > 0,
   };
+}
+
+/**
+ * The first turn a catch-up carries: the one after the newest turn the card
+ * names that this session holds.
+ *
+ * A turn is found by any of its assistant entries' `message.id`, which is
+ * what a committed turn's `turn_complete` carries as `msg_id` live and on
+ * replay alike. The card's ids are tried newest first. An id the translator
+ * minted for a turn with no content never appears in the JSONL, so it is
+ * passed over, and the next id places the card instead.
+ *
+ * When no named turn is here, `heldTurns` places the card, one turn early:
+ * the overlap the reducer's msg-id dedupe drops. The caller states it in this
+ * session's coordinates — zero when the card's turns are a lineage's
+ * ancestors', which this file does not hold.
+ */
+function turnAfterHeld(
+  held: ReplayAfterTurn,
+  turns: ReadonlyArray<TurnInfo>,
+  parsedEntries: ReadonlyArray<JsonlEntry | null>,
+): number {
+  const totalTurns = turns.length;
+  const turnOf = new Map<string, number>();
+  let turn = -1;
+  for (let i = 0; i < parsedEntries.length; i++) {
+    while (turn + 1 < totalTurns && turns[turn + 1].startIndex <= i) turn += 1;
+    const entry = parsedEntries[i];
+    if (turn < 0 || entry === null || entry.type !== "assistant") continue;
+    const id = entry.message?.id;
+    if (typeof id === "string" && id.length > 0) turnOf.set(id, turn);
+  }
+  for (const id of held.msgIds) {
+    const found = turnOf.get(id);
+    if (found !== undefined) return found + 1;
+  }
+  return Math.max(0, Math.min(Math.floor(held.heldTurns) - 1, totalTurns));
 }
 
 /**
@@ -3121,7 +3164,7 @@ export async function* translateJsonlSession(
       }
     | null = null;
   if (window !== undefined) {
-    const resolved = resolveWindow(window, turns!, parsedEntries.length);
+    const resolved = resolveWindow(window, turns!, parsedEntries);
     windowStartIndex = resolved.startIndex;
     windowEndIndex = resolved.endIndex;
     windowMeta = {

@@ -105,20 +105,76 @@ final class BodyContainerView: RailMemberView, StackedView {
     required init?(coder: NSCoder) { nil }
 }
 
+/// An evicted card's last frame, kept for the body that brings it back: taken
+/// at one point a pixel, a placeholder rather than a document.
+struct BodyCover {
+    let image: CGImage
+    /// The size it was taken at, points: the card's view as it went.
+    let size: CGSize
+    /// The page's surface as it went, which the cover wears where its frame
+    /// does not reach once the pane has grown.
+    let surface: CGColor?
+    /// The pane's insets within the view as it went.
+    let insets: CardInsets?
+    /// When it was taken, wall-clock ms, for its age.
+    let takenAt: Double
+    /// What it holds resident.
+    var bytes: Int { image.bytesPerRow * image.height }
+}
+
 /// The last frame of an evicted card, stood over the body made to bring it
 /// back until that body has painted: the card shows as it last stood, never
-/// the floor through a pane whose page is still loading. Draws the image and
-/// answers no point, so a press reaches the page beneath it.
+/// the floor through a pane whose page is still loading. The frame is drawn
+/// at its own size, pinned at the top-left as a crossing pins its page; a
+/// pane grown since shows the page's surface beyond it, inside the pane's
+/// rounded rect, and one shrunk clips it. Answers no point, so a press
+/// reaches the page beneath it.
 final class BodyCoverView: NSView {
-    init(image: CGImage, frame: NSRect) {
+    /// The pane's corner radius: the themes' `--tug-radius-md`.
+    static let paneRadius: CGFloat = 6
+    private let plate = CALayer()
+    private let frameLayer = CALayer()
+    private let frameSize: CGSize
+    /// Where the pane stands within the view, from the latest placement.
+    var paneInsets: CardInsets? {
+        didSet { needsLayout = true }
+    }
+    override var isFlipped: Bool { true }
+    init(cover: BodyCover, frame: NSRect) {
+        frameSize = cover.size
+        paneInsets = cover.insets
         super.init(frame: frame)
         wantsLayer = true
-        layer?.contents = image
-        layer?.contentsGravity = .resize
+        plate.backgroundColor = cover.surface
+        plate.cornerRadius = BodyCoverView.paneRadius
+        frameLayer.contents = cover.image
+        frameLayer.contentsGravity = .resize
+        layer?.addSublayer(plate)
+        layer?.addSublayer(frameLayer)
+        needsLayout = true
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frameLayer.frame = CGRect(origin: .zero, size: frameSize)
+        // The plate is needed only where the frame no longer reaches.
+        let grown = bounds.width > frameSize.width + 0.5 || bounds.height > frameSize.height + 0.5
+        plate.isHidden = !grown
+        if let i = paneInsets {
+            plate.frame = CGRect(
+                x: i.left, y: i.top,
+                width: max(0, bounds.width - i.left - i.right),
+                height: max(0, bounds.height - i.top - i.bottom)
+            )
+        } else {
+            plate.frame = bounds
+        }
+        CATransaction.commit()
+    }
 }
 
 /// Calls back when a body's position track stops: `finished` when it ran to
@@ -210,6 +266,8 @@ final class BodyViewController {
         /// The card's last frame before its eviction, over the web view until
         /// the page paints; nil for any body not brought back from one.
         var cover: BodyCoverView?
+        /// The body was made under a cover, for the harness: `cover` goes at the paint.
+        var wasCovered = false
         /// The card draws its pane's chrome in its own page: its container
         /// is the pane's rect outset by the apron, wears no surface, and
         /// answers a point by the card's hit shape. Every placed card is.
@@ -239,9 +297,13 @@ final class BodyViewController {
         /// is hidden by layer opacity, never `isHidden`, so WebKit keeps
         /// painting the frame the showing will reveal.
         var shownOnce = false
-        /// Whether the container paints — not hidden by `isHidden`; a
-        /// sibling at opacity 0 paints — and since when, wall-clock ms.
+        /// Whether the user can see the body — placed visible and showable,
+        /// or a sibling at opacity 0 behind its pane's active card — and
+        /// since when, wall-clock ms. A body not yet shown once is hidden by
+        /// opacity rather than `isHidden`, so painting is not the reading.
         var shown: (value: Bool, since: Double)?
+        /// What `shown` reads now: placed visible and showable, or a sibling.
+        var seen: Bool { visible && canShow || sibling }
         /// The `shown` its page was last told; nil until the page is bound,
         /// and again when a reload binds a new one.
         var toldShown: Bool?
@@ -272,6 +334,10 @@ final class BodyViewController {
         /// The body's page is writing its card's state on the way to an
         /// eviction, which no second eviction may start over.
         var evicting = false
+        /// The card was closed, or the body otherwise went: an eviction
+        /// still in flight finds it here and touches neither the body nor
+        /// the covers, so a closed card is removed once and holds no cover.
+        var gone = false
 
         init(cardId: String?, webView: ClickThroughWebView, container: BodyContainerView) {
             self.cardId = cardId
@@ -350,27 +416,41 @@ final class BodyViewController {
     }
     #endif
 
-    /// How short of memory the machine says it is.
-    enum PressureLevel: String {
-        case normal
-        case warning
-        case critical
-    }
+    /// How short of memory the machine says it is: the level the shell is
+    /// told, one type on both sides of the send.
+    typealias PressureLevel = BodyPressure.Level
     /// The level the host last heard, and when, wall-clock ms: from the
     /// dispatch source, or from the harness standing in for it.
     private(set) var pressure: (level: PressureLevel, at: Double) = (.normal, 0)
     private let pressureSource = DispatchSource.makeMemoryPressureSource(
         eventMask: [.normal, .warning, .critical], queue: .main
     )
-    /// The warning's next eviction, a beat after the last one's process
-    /// went: a level change cancels it.
+    /// The warning's next eviction, a beat after the last one finished —
+    /// its process gone, or the body kept: a level change cancels it.
     private var pendingWarningStep: DispatchWorkItem?
-    /// Bodies this pressure episode could not evict — shown while saving,
-    /// or a save that did not answer — which it does not ask again.
+    /// Bodies a warning step could not evict — shown while saving, or a
+    /// save that did not answer — which its next step asks only once no
+    /// other hidden body is left to ask, and which critical does not ask
+    /// again.
     private var declined: Set<ObjectIdentifier> = []
     /// The last frame of each card evicted and not yet asked for again, taken
-    /// as its process went: the cover its next body stands under.
-    private var covers: [String: CGImage] = [:]
+    /// as its process went: the cover its next body stands under. Bounded:
+    /// a cover older than `evictAfterMs` goes, and past `coverBudgetBytes`
+    /// the oldest go first. Critical pressure takes none and drops them all.
+    private var covers: [String: BodyCover] = [:]
+    /// What the covers may hold together, counted in pixel bytes — the most
+    /// they could hold resident. Twenty covers of a 640 × 480 pane at one
+    /// point a pixel are 25.3 MB of pixels (100.7 MB at the backing's two),
+    /// and moved the footprint 1.4 MB as CoreGraphics images against 26.7 MB
+    /// for the same bytes malloc'd: so twenty ordinary panes keep theirs, and
+    /// window-sized ones, 5 MB each, give way past six.
+    static let coverBudgetBytes = 32 << 20
+    #if DEBUG
+    /// `TUG_BODY_STALL_SNAPSHOTS=<n>`: the first `n` evictions' snapshots
+    /// never answer, so a row can watch the eviction go on without a cover
+    /// at the snapshot's deadline. DEBUG-only.
+    private var snapshotsToStall = Int(ProcessInfo.processInfo.environment["TUG_BODY_STALL_SNAPSHOTS"] ?? "") ?? 0
+    #endif
     /// How long a body may stay hidden before it gives up its process, ms:
     /// the reader's `evictAfterMs`, which the shell tells the host. Nil until
     /// it has, and no body is evicted by time before then.
@@ -379,6 +459,10 @@ final class BodyViewController {
     /// time for the process the last one gave up to be gone, and for the
     /// level to say whether that was enough.
     static let warningStepDelay: DispatchTimeInterval = .seconds(1)
+    /// How soon the clock asks again a hidden body whose page did not answer
+    /// its eviction's save, ms, when that is sooner than `evictAfterMs`: a
+    /// page busy for a moment is asked in a moment, not a whole delay later.
+    static let unsavedRetryMs: Double = 30_000
 
     init(window: MainWindow, hostView: BodyHostView) {
         self.window = window
@@ -657,13 +741,20 @@ final class BodyViewController {
     }
 
     /// A card brought back from an eviction stands under its last frame
-    /// until its new page paints.
+    /// until its new page paints, and the shell is told `covered`, which is
+    /// what lets it show the card from the hand-off. A card with no cover —
+    /// critical pressure, a snapshot that failed or did not answer, a cover
+    /// aged or budgeted out — is told nothing and arrives as any card does,
+    /// under the shell's stand-in until its page paints.
     private func standCover(over body: Body) {
-        guard let cardId = body.cardId, let image = covers.removeValue(forKey: cardId) else { return }
-        let cover = BodyCoverView(image: image, frame: body.container.bounds)
+        guard let cardId = body.cardId, let kept = covers.removeValue(forKey: cardId) else { return }
+        let cover = BodyCoverView(cover: kept, frame: body.container.bounds)
+        if let insets = body.insets { cover.paneInsets = insets }
         cover.autoresizingMask = [.width, .height]
         body.container.addSubview(cover, positioned: .above, relativeTo: body.webView)
         body.cover = cover
+        body.wasCovered = true
+        notifyShell(BodyStateReport(cardId: cardId, state: .covered))
     }
 
     /// Make the spare: a body loaded at `/?body=spare`, connected and waiting
@@ -805,6 +896,13 @@ final class BodyViewController {
         TugLog.info("bodies", "painted", [TugLog.field("card", cardId)])
         notifyShell(BodyStateReport(cardId: cardId, state: .painted))
         applyVisibility(body)
+        // A revived body is shown by opacity under its cover and was never
+        // `isHidden`, so `applyVisibility`'s re-take never fires for it: the
+        // card the shell names for the keyboard takes it on its paint.
+        if keyboardCardId == cardId, body.visible, body.canShow,
+           !(overlayClaim == .all && overlayView != nil), window.firstResponder !== body.webView {
+            window.makeFirstResponder(body.webView)
+        }
     }
 
     // MARK: - Placement
@@ -856,10 +954,12 @@ final class BodyViewController {
     }
 
     /// Tell a bound body's page whether it is shown, when that has changed
-    /// since it was last told. Shown is the container painting: a sibling at
-    /// opacity 0 is shown, a body hidden by `isHidden` is not.
+    /// since it was last told. Shown is what the user can see: a body placed
+    /// visible that can show, or a sibling at opacity 0, which stands for its
+    /// pane. A body hidden before its first showing paints at opacity 0 and
+    /// is not shown, so it goes dormant and is evicted like any hidden body.
     private func reportVisibility(_ body: Body) {
-        let shown = !body.container.isHidden
+        let shown = body.seen
         if body.shown?.value != shown {
             body.shown = (shown, Date().timeIntervalSince1970 * 1000)
             armEviction(body)
@@ -1176,6 +1276,7 @@ final class BodyViewController {
             body.insets = entry.insets
             send(.cardInsets(entry.insets), to: body)
         }
+        body.cover?.paneInsets = entry.insets
         // A placement that names the plan carrying the card is its
         // landing, which the shell adopted as posted: the beats run on.
         // One that names no plan, or another — a drag taking its frame
@@ -2040,11 +2141,16 @@ final class BodyViewController {
     // MARK: - Teardown
 
     /// `bodyDestroy`. With `save`, the body writes its card's state first.
+    /// The card is gone from here: an eviction in flight leaves it alone.
     func destroy(cardId: String, save: Bool) {
         covers.removeValue(forKey: cardId)
         // A card still waiting in the lane has no page to save.
         lane.removeAll { $0.cardId == cardId }
         guard let body = body(forCard: cardId) else { return }
+        body.gone = true
+        body.evicting = false
+        body.evictDue?.cancel()
+        body.evictDue = nil
         guard save else {
             remove(body)
             return
@@ -2076,6 +2182,12 @@ final class BodyViewController {
     /// gesture in the host's hand, whose shell is going. The reloaded shell's
     /// restore pass asks for every card again, and a kept body is told then
     /// where it stands (`reportKept`).
+    ///
+    /// An evicted card has no body to keep. The reloaded shell hands it off
+    /// as it hands off any card it does not show — no page asked for, the
+    /// card standing evicted until the deck wants it shown
+    /// (`releaseDeferredBody`) — so a reload does not bring the evicted
+    /// cards back at once.
     func keepAcrossShellReload() {
         if gestureLive { cancelGesture() }
         removeOverlay()
@@ -2104,6 +2216,9 @@ final class BodyViewController {
     }
 
     private func remove(_ body: Body) {
+        guard bodies.contains(where: { $0 === body }) else { return }
+        body.gone = true
+        body.evicting = false
         body.deadline?.cancel()
         body.deadline = nil
         body.evictDue?.cancel()
@@ -2114,6 +2229,10 @@ final class BodyViewController {
             if live.rail != nil { cancelGesture() } else { gesture = nil }
         }
         bodies.removeAll { $0 === body }
+        // A body that held the keyboard takes it with it; AppKit hands it to
+        // the window, so give it to whoever the shell names — another card's
+        // body, the shell, or a modal standing in the overlay.
+        let heldKeys = (window.firstResponder as? NSView)?.isDescendant(of: body.container) ?? false
         let controller = body.webView.configuration.userContentController
         HostChannel.unregister(from: controller)
         body.webView.navigationDelegate = nil
@@ -2122,6 +2241,7 @@ final class BodyViewController {
         body.container.removeFromSuperview()
         // A rail left with no member goes with its last one.
         reconcileRails()
+        if heldKeys { focusKeyboardOwner() }
         if let cardId = body.cardId {
             window.bodyDidGoAway(cardId: cardId)
         }
@@ -2146,7 +2266,7 @@ final class BodyViewController {
         let was = pressure.level
         pressure = (level, Date().timeIntervalSince1970 * 1000)
         TugLog.info("bodies", "memory pressure", [TugLog.field("level", level.rawValue)])
-        window.sendToShell(.bodyPressure(BodyPressure(level: BodyPressure.Level(rawValue: level.rawValue) ?? .normal, at: pressure.at)))
+        window.sendToShell(.bodyPressure(BodyPressure(level: level, at: pressure.at)))
         pendingWarningStep?.cancel()
         pendingWarningStep = nil
         declined = []
@@ -2162,6 +2282,9 @@ final class BodyViewController {
             pendingSpare?.cancel()
             pendingSpare = nil
             if let spare { remove(spare) }
+            // The covers are memory too: their cards come back under the
+            // shell's stand-in.
+            covers.removeAll()
             for body in bodies where evictable(body, siblings: true) {
                 evict(body, cause: "pressure-critical")
             }
@@ -2172,10 +2295,11 @@ final class BodyViewController {
     /// placement did not name visible ([B06]), not in the host's hand, not
     /// already going. A warning takes only a hidden page — one WebKit
     /// throttles — never a sibling, which paints behind its pane's active
-    /// card. A pressure episode does not ask again a body it was refused;
-    /// the clock, outside any episode, does.
+    /// card. A pressure step passes over a body it was refused while it has
+    /// another to ask; the clock, outside any episode, asks it regardless.
+    /// A closed card's body is never asked.
     private func evictable(_ body: Body, siblings: Bool, episode: Bool = true) -> Bool {
-        guard body.cardId != nil, body.state == .ready, !body.visible, !body.evicting,
+        guard body.cardId != nil, body.state == .ready, !body.visible, !body.evicting, !body.gone,
               !(episode && declined.contains(ObjectIdentifier(body))) else { return false }
         if gesture?.holds(body) == true || body === pressedOutOfBeats { return false }
         return siblings || body.shown?.value == false
@@ -2195,29 +2319,46 @@ final class BodyViewController {
     /// Only a hidden page — a sibling paints, and keeps its process until
     /// pressure says otherwise. When it falls due the body is asked as
     /// pressure asks, so one the placement named visible is never taken
-    /// ([B06]).
+    /// ([B06]); one that cannot be asked yet — in the host's hand, or
+    /// mid-eviction — is asked again a whole delay on.
     private func armEviction(_ body: Body) {
         body.evictDue?.cancel()
         body.evictDue = nil
         guard let ms = evictAfterMs, body.cardId != nil, let shown = body.shown, !shown.value else { return }
-        let remaining = max(0, ms - (Date().timeIntervalSince1970 * 1000 - shown.since))
+        scheduleEviction(body, inMs: max(0, ms - (Date().timeIntervalSince1970 * 1000 - shown.since)))
+    }
+
+    /// The time trigger's eviction for a hidden `body`, `delay` ms from now.
+    private func scheduleEviction(_ body: Body, inMs delay: Double) {
+        body.evictDue?.cancel()
+        body.evictDue = nil
+        guard let ms = evictAfterMs, !body.gone, body.cardId != nil, body.shown?.value == false else { return }
         let work = DispatchWorkItem { [weak self, weak body] in
             guard let self, let body else { return }
             body.evictDue = nil
-            guard self.evictable(body, siblings: false, episode: false) else { return }
+            guard self.evictable(body, siblings: false, episode: false) else {
+                // An eviction already going settles its own re-arm.
+                if !body.evicting { self.scheduleEviction(body, inMs: ms) }
+                return
+            }
             self.evict(body, cause: "hidden")
         }
         body.evictDue = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(remaining.rounded())), execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(delay.rounded())), execute: work)
     }
 
     /// One step of a warning: the body hidden longest gives up its process,
-    /// and a beat after it has, the next, while the warning stands.
+    /// and a beat after that eviction has finished, the next, while the
+    /// warning stands. A body that declined is asked again at a later step
+    /// once every other hidden body has been asked.
     private func evictOldestHidden() {
         guard pressure.level == .warning else { return }
-        let oldest = bodies
-            .filter { evictable($0, siblings: false) }
-            .min { ($0.shown?.since ?? 0) < ($1.shown?.since ?? 0) }
+        let byAge = { (a: Body, b: Body) in (a.shown?.since ?? 0) < (b.shown?.since ?? 0) }
+        var oldest = bodies.filter { evictable($0, siblings: false) }.min(by: byAge)
+        if oldest == nil, !declined.isEmpty {
+            declined = []
+            oldest = bodies.filter { evictable($0, siblings: false) }.min(by: byAge)
+        }
         guard let oldest else { return }
         evict(oldest, cause: "pressure-warning") { [weak self] in
             guard let self, self.pressure.level == .warning else { return }
@@ -2232,48 +2373,61 @@ final class BodyViewController {
 
     /// Give a hidden body's process up: its page writes its card's state, as
     /// `destroy(save: true)` has it, the host keeps its last frame for the
-    /// cover the card comes back under, and the view goes. The shell is told
+    /// cover the card comes back under — except under critical pressure, or
+    /// when the snapshot fails or misses its deadline — and the view goes. The shell is told
     /// `evicted` and keeps the card, which comes back as an arrival when a
     /// placement next wants it shown. A body the placement named visible
     /// while it was saving is kept, and so is one whose page did not answer
-    /// the save within `saveDeadline`: an eviction loses nothing unwritten.
-    /// `done` runs once, whichever way it went.
+    /// the save within `saveDeadline`: an eviction loses nothing unwritten,
+    /// and a kept body's clock is set again. A card closed while it goes
+    /// is left to its close. `done` runs once, when the eviction has
+    /// finished whichever way it went — the body removed, kept or closed —
+    /// so a warning's next step is timed from there.
     private func evict(_ body: Body, cause: String, then done: (() -> Void)? = nil) {
         guard let cardId = body.cardId else { return }
         body.evicting = true
+        TugLog.info("bodies", "evicting", [TugLog.field("card", cardId), TugLog.field("cause", cause)])
         var settled = false
         let settle = { [weak self, weak body] (saved: Bool) in
             guard !settled else { return }
             settled = true
-            defer { done?() }
-            guard let self, let body, self.bodies.contains(where: { $0 === body }) else { return }
-            guard saved, !body.visible else {
-                self.decline(body, cardId: cardId, why: saved ? "shown" : "unsaved")
+            guard let self, let body, !body.gone else {
+                self?.abandon(cardId: cardId)
+                done?()
                 return
             }
-            // The last frame, for the cover. A page WebKit is not painting
-            // still answers a snapshot, which it paints for the asking.
-            body.webView.takeSnapshot(with: nil) { [weak self, weak body] image, error in
-                guard let self, let body, self.bodies.contains(where: { $0 === body }) else { return }
+            guard saved, !body.visible else {
+                self.decline(body, cardId: cardId, why: saved ? "shown" : "unsaved")
+                done?()
+                return
+            }
+            // The last frame, for the cover — none under critical pressure,
+            // which would make every sleeping page paint when memory is
+            // shortest; the card comes back under the shell's stand-in.
+            let finish = { [weak self, weak body] (cover: BodyCover?) in
+                defer { done?() }
+                guard let self, let body, !body.gone else {
+                    self?.abandon(cardId: cardId)
+                    return
+                }
                 body.evicting = false
                 guard !body.visible else {
                     self.decline(body, cardId: cardId, why: "shown")
                     return
                 }
-                if let frame = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    self.covers[cardId] = frame
-                } else {
-                    TugLog.warn("bodies", "no last frame for an evicted card's cover", [
-                        TugLog.field("card", cardId),
-                        TugLog.field("error", error.map { String(describing: $0) } ?? "none"),
-                    ])
-                }
+                if let cover { self.keep(cover, for: cardId) }
                 self.remove(body)
                 TugLog.info("bodies", "evicted", [
                     TugLog.field("card", cardId),
                     TugLog.field("cause", cause),
+                    TugLog.field("cover", cover.map { "\($0.bytes)" } ?? "none"),
                 ])
                 self.notifyShell(BodyStateReport(cardId: cardId, state: .evicted, cause: cause))
+            }
+            if self.pressure.level == .critical {
+                finish(nil)
+            } else {
+                self.takeCover(of: body, cardId: cardId, then: finish)
             }
         }
         window.hostChannel.call(.saveState, in: body.webView) { result in
@@ -2282,7 +2436,93 @@ final class BodyViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + BodyViewController.saveDeadline) { settle(false) }
     }
 
-    /// This pressure episode will not ask `body` again.
+    /// The body's last frame as a cover, at one point a pixel: `done` gets
+    /// it, or nil when the snapshot failed or did not answer within
+    /// `saveDeadline` — an eviction goes on without a cover rather than
+    /// standing `evicting` for ever. `done` runs once. A page WebKit is not
+    /// painting still answers a snapshot, which it paints for the asking.
+    private func takeCover(of body: Body, cardId: String, then done: @escaping (BodyCover?) -> Void) {
+        var answered = false
+        let answer = { (cover: BodyCover?) in
+            guard !answered else { return }
+            answered = true
+            done(cover)
+        }
+        let size = body.container.bounds.size
+        let surface = body.surface
+        let insets = body.insets
+        var stalled = false
+        #if DEBUG
+        if snapshotsToStall > 0 {
+            snapshotsToStall -= 1
+            stalled = true
+            NSLog("BodyViewController: TUG_BODY_STALL_SNAPSHOTS — leaving an eviction's snapshot unanswered")
+        }
+        #endif
+        if !stalled {
+            body.webView.takeSnapshot(with: nil) { image, error in
+                guard let frame = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                    TugLog.warn("bodies", "no last frame for an evicted card's cover", [
+                        TugLog.field("card", cardId),
+                        TugLog.field("error", error.map { String(describing: $0) } ?? "none"),
+                    ])
+                    answer(nil)
+                    return
+                }
+                answer(BodyCover(
+                    image: Self.atOnePointAPixel(frame, size: size), size: size, surface: surface,
+                    insets: insets, takenAt: Date().timeIntervalSince1970 * 1000
+                ))
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + BodyViewController.saveDeadline) {
+            guard !answered else { return }
+            TugLog.warn("bodies", "an evicted card's snapshot did not answer; it goes without a cover", [
+                TugLog.field("card", cardId),
+            ])
+            answer(nil)
+        }
+    }
+
+    /// `image` drawn down to `size` points at one pixel a point, or as it is
+    /// when it is no larger.
+    private static func atOnePointAPixel(_ image: CGImage, size: CGSize) -> CGImage {
+        let width = Int(size.width.rounded()), height = Int(size.height.rounded())
+        guard width > 0, height > 0, image.width > width || image.height > height,
+              let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                  data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+              ) else { return image }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? image
+    }
+
+    /// Hold `cover` for `cardId`'s next body: the oldest covers go first
+    /// past the budget, and this one goes once it is older than
+    /// `evictAfterMs`, a card that long unasked-for being one the user has
+    /// left.
+    private func keep(_ cover: BodyCover, for cardId: String) {
+        covers[cardId] = cover
+        var held = covers.values.reduce(0) { $0 + $1.bytes }
+        while held > BodyViewController.coverBudgetBytes,
+              let oldest = covers.min(by: { $0.value.takenAt < $1.value.takenAt }) {
+            covers.removeValue(forKey: oldest.key)
+            held -= oldest.value.bytes
+            TugLog.info("bodies", "cover dropped", [TugLog.field("card", oldest.key), TugLog.field("why", "budget")])
+        }
+        guard let ms = evictAfterMs else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(ms.rounded()))) { [weak self] in
+            guard let self, self.covers[cardId]?.takenAt == cover.takenAt else { return }
+            self.covers.removeValue(forKey: cardId)
+            TugLog.info("bodies", "cover dropped", [TugLog.field("card", cardId), TugLog.field("why", "aged")])
+        }
+    }
+
+    /// The eviction is over and the body stays: a warning's next step asks
+    /// it only once no other hidden body is left, and its clock is set
+    /// again from now — sooner for a save that did not answer.
     private func decline(_ body: Body, cardId: String, why: String) {
         body.evicting = false
         declined.insert(ObjectIdentifier(body))
@@ -2290,6 +2530,15 @@ final class BodyViewController {
             TugLog.field("card", cardId),
             TugLog.field("why", why),
         ])
+        if let ms = evictAfterMs {
+            scheduleEviction(body, inMs: why == "unsaved" ? min(ms, BodyViewController.unsavedRetryMs) : ms)
+        }
+    }
+
+    /// The card went while its eviction was in flight: the close removed it,
+    /// and the eviction keeps no cover and tells the shell nothing.
+    private func abandon(cardId: String) {
+        TugLog.info("bodies", "eviction abandoned", [TugLog.field("card", cardId), TugLog.field("why", "closed")])
     }
 
     // MARK: - Failure
@@ -2426,9 +2675,10 @@ final class BodyViewController {
             entry["state"] = .string(body.state.rawValue)
             entry["frame"] = Self.json(body.frame)
             entry["visible"] = .bool(body.visible && body.canShow)
-            entry["shown"] = .bool(!body.container.isHidden)
+            entry["shown"] = .bool(body.seen)
             entry["painted"] = .bool(body.painted)
             entry["covered"] = .bool(body.cover != nil)
+            entry["wasCovered"] = .bool(body.wasCovered)
             entry["z"] = .number(Double(body.z))
             entry["firstResponder"] = .bool(window.firstResponder === body.webView)
             entry["start"] = .string(body.warm ? "warm" : "cold")

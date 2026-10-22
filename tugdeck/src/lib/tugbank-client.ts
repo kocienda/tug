@@ -195,6 +195,25 @@ export class TugbankClient {
   }
 
   /**
+   * Write one key: the local cache first, so a reader answers in the same
+   * frame ({@link setLocalValue}), then a fire-and-forget PUT to
+   * `/api/defaults/<domain>/<key>`, whose DEFAULTS frame every page's client
+   * then hears. A failed PUT is logged under `logTag` and leaves the cache as
+   * written, to be reconciled by the next frame for the domain.
+   */
+  put(domain: string, key: string, value: TaggedValue, logTag = "tugbank-client"): void {
+    this.setLocalValue(domain, key, value);
+    fetch(`/api/defaults/${domain}/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+      keepalive: true,
+    }).catch((err) => {
+      tugDevLogStore.warn(logTag, `PUT failed for ${domain}/${key}: ${String(err)}`);
+    });
+  }
+
+  /**
    * The deletion half of {@link setLocalValue}: drop one key and notify.
    *
    * A domain where absence carries meaning needs this to be expressible — a

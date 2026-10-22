@@ -67,6 +67,7 @@ export function projectDeckCards(deck: ArrangementDeck, readers: DeckCardReaders
       identity: readers.identity(id),
       activity: readers.activity(id),
       binding: readers.binding(id),
+      sessionState: readers.sessionState(id),
       parkedTitle: readers.parkedTitle(id),
       waivesClose: readers.waivesClose(id),
     };

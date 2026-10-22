@@ -628,6 +628,8 @@ impl AgentSupervisor {
                     had_claude_id = entry.claude_session_id.is_some(),
                 );
                 entry.spawn_state = SpawnState::Idle;
+                // A replay queued for the spawn that died is not this one's.
+                entry.drop_queued_replays();
                 // The retry is a spawn about to happen, and the `Idle` it
                 // parks in is a step on the way to `Spawning` — not a death.
                 // Cleared so a sweep landing in that window reads the wait it

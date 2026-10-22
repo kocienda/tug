@@ -271,3 +271,51 @@ describe("translateJsonlSession — interrupted turn at the window edge", () => 
     expect(complete?.hasOlder).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// catch-up: every turn after the newest one the card names
+// ---------------------------------------------------------------------------
+
+describe("translateJsonlSession — afterTurn window", () => {
+  test("carries every turn after the newest named turn, to the end", async () => {
+    const out = await collectSession(cleanSession(5), {
+      window: { afterTurn: { msgIds: ["msg2", "msg1"], heldTurns: 99 } },
+    });
+    expect(userTextsOf(out)).toEqual(["u3", "u4"]);
+    const complete = replayCompleteOf(out);
+    expect(complete?.firstLoadedTurnIndex).toBe(3);
+    expect(complete?.totalTurns).toBe(5);
+  });
+
+  test("passes over an id the session does not hold for the next one named", async () => {
+    // `u-7` is the shape of an id the translator mints for a turn with no
+    // content: it is never a JSONL `message.id`.
+    const out = await collectSession(cleanSession(5), {
+      window: { afterTurn: { msgIds: ["u-7", "msg3"], heldTurns: 0 } },
+    });
+    expect(userTextsOf(out)).toEqual(["u4"]);
+  });
+
+  test("a card holding the newest turn gets an empty bracket", async () => {
+    const out = await collectSession(cleanSession(3), {
+      window: { afterTurn: { msgIds: ["msg2"], heldTurns: 3 } },
+    });
+    expect(userTextsOf(out)).toEqual([]);
+    expect(replayCompleteOf(out)?.count).toBe(0);
+  });
+
+  test("with no named turn found, the count places the card one turn early", async () => {
+    const out = await collectSession(cleanSession(5), {
+      window: { afterTurn: { msgIds: ["gone"], heldTurns: 3 } },
+    });
+    expect(userTextsOf(out)).toEqual(["u2", "u3", "u4"]);
+  });
+
+  test("a card holding nothing gets the whole session", async () => {
+    const out = await collectSession(cleanSession(3), {
+      window: { afterTurn: { msgIds: [], heldTurns: 0 } },
+    });
+    expect(userTextsOf(out)).toEqual(["u0", "u1", "u2"]);
+    expect(replayCompleteOf(out)?.hasOlder).toBe(false);
+  });
+});

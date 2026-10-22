@@ -28,11 +28,9 @@
  * @module lib/evict-after-pref
  */
 
-import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import type { TaggedValue } from "@/lib/tugbank-client";
-import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
-import { DORMANT_AFTER_DOMAIN, parseDormantAfterMs } from "@/lib/dormant-after-pref";
+import { DORMANT_AFTER_DOMAIN, parseBodyDelayMs, writeBodyDelayMs } from "@/lib/dormant-after-pref";
 
 export const EVICT_AFTER_DOMAIN = DORMANT_AFTER_DOMAIN;
 export const EVICT_AFTER_KEY = "evictAfterMs";
@@ -42,14 +40,6 @@ export const DEFAULT_EVICT_AFTER_MS = 900_000;
 
 /** The everyday choices the Layout card offers, in ms. */
 export const EVICT_AFTER_CHOICES = [300_000, 900_000, 1_800_000, 3_600_000] as const;
-
-/**
- * The stored delay, or `null` when nothing is stored or what is stored is not
- * a positive whole number of milliseconds.
- */
-export function parseEvictAfterMs(entry: TaggedValue | undefined): number | null {
-  return parseDormantAfterMs(entry);
-}
 
 /** The stored delay, or the default when nothing usable is stored. */
 export function resolveEvictAfterMs(stored: number | null): number {
@@ -66,32 +56,19 @@ export function evictAfterLabel(ms: number): string {
 
 /** The delay a tugbank client holds now. */
 export function readEvictAfterMs(get: (domain: string, key: string) => TaggedValue | undefined): number {
-  return resolveEvictAfterMs(parseEvictAfterMs(get(EVICT_AFTER_DOMAIN, EVICT_AFTER_KEY)));
+  return resolveEvictAfterMs(parseBodyDelayMs(get(EVICT_AFTER_DOMAIN, EVICT_AFTER_KEY)));
 }
 
 /** The reader's delay. [L02] */
 export function useEvictAfterMs(): number {
-  const stored = useTugbankValue<number | null>(EVICT_AFTER_DOMAIN, EVICT_AFTER_KEY, parseEvictAfterMs, null);
+  const stored = useTugbankValue<number | null>(EVICT_AFTER_DOMAIN, EVICT_AFTER_KEY, parseBodyDelayMs, null);
   return resolveEvictAfterMs(stored);
 }
 
 /**
- * Persist `ms`. Writes the local cache first so the row answers the press in
- * the same frame, then PUTs fire-and-forget; the shell's tugbank client hears
- * the change and tells the host.
+ * Persist `ms` through the tugbank client's own write, as `dormantAfterMs` is
+ * written; the shell's tugbank client hears the change and tells the host.
  */
 export function writeEvictAfterMs(ms: number): void {
-  const body: TaggedValue = { kind: "i64", value: ms };
-  const client = getTugbankClient();
-  if (client !== null) {
-    client.setLocalValue(EVICT_AFTER_DOMAIN, EVICT_AFTER_KEY, body);
-  }
-  fetch(`/api/defaults/${EVICT_AFTER_DOMAIN}/${encodeURIComponent(EVICT_AFTER_KEY)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    keepalive: true,
-  }).catch((err) => {
-    tugDevLogStore.warn("evict-after", `PUT failed for ${EVICT_AFTER_KEY}: ${String(err)}`);
-  });
+  writeBodyDelayMs(EVICT_AFTER_KEY, ms, "evict-after");
 }

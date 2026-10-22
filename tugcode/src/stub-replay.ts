@@ -93,7 +93,7 @@ import type {
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
 import { errorFrame } from "./ipc.ts";
-import type { ReplayWindow } from "@tugproto/inbound";
+import type { ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
 
 /**
  * Schema version of the transcript document. Bumped when the
@@ -296,7 +296,8 @@ export class StubReplayEngine {
   private turnSent: OutboundMessage[] = [];
   /**
    * Every turn that has put its end on the wire, in order: what a replay
-   * with a `turnRange` reads back, as production reads its JSONL.
+   * with a `turnRange` or an `afterTurn` reads back, as production reads its
+   * JSONL.
    */
   private turnsDone: OutboundMessage[][] = [];
   /** Whether the turn dispatched last has put its end on the wire (true before any). */
@@ -452,21 +453,26 @@ export class StubReplayEngine {
    * bracket. Without it a stub card never finishes its first read, which a
    * real one always does.
    *
-   * A read of a `turnRange` — a dormant body catching up on what it missed —
-   * is answered from the turns this engine has finished, as production
-   * answers from its JSONL: each finished turn in the range as replay
-   * carries a committed one (its opener, each block whole, its end), then a
-   * snapshot of a turn still streaming, and the window the bracket covered.
+   * A read of a `turnRange`, or of an `afterTurn` — a dormant body catching
+   * up on what it missed — is answered from the turns this engine has
+   * finished, as production answers from its JSONL: each finished turn in the
+   * range as replay carries a committed one (its opener, each block whole,
+   * its end), then a snapshot of a turn still streaming, and the window the
+   * bracket covered. An `afterTurn` is placed as production places it: after
+   * the newest finished turn carrying a named msg-id, else one turn before
+   * the count the card holds.
    */
   answerReplay(window?: ReplayWindow): void {
     this.emit({ type: "replay_started", ipc_version: IPC_VERSION } as OutboundMessage);
-    if (window === undefined || !("turnRange" in window)) {
+    if (window === undefined || "lastTurns" in window) {
       this.emit({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION } as OutboundMessage);
       return;
     }
     const total = this.turnsDone.length;
-    const first = Math.max(0, Math.min(Math.floor(window.turnRange[0]), total));
-    const end = Math.max(first, Math.min(Math.floor(window.turnRange[1]), total));
+    const [rawFirst, rawEnd] =
+      "turnRange" in window ? window.turnRange : [this.turnAfter(window.afterTurn), total];
+    const first = Math.max(0, Math.min(Math.floor(rawFirst), total));
+    const end = Math.max(first, Math.min(Math.floor(rawEnd), total));
     for (let i = first; i < end; i++) {
       this.emit({ type: "add_user_message", content: [], ipc_version: IPC_VERSION } as unknown as OutboundMessage);
       for (const output of this.turnsDone[i]) {
@@ -483,6 +489,16 @@ export class StubReplayEngine {
       hasOlder: first > 0,
       ipc_version: IPC_VERSION,
     } as unknown as OutboundMessage);
+  }
+
+  /** The first finished turn after the newest one the card names, as production's `turnAfterHeld` finds it. */
+  private turnAfter(held: ReplayAfterTurn): number {
+    for (const id of held.msgIds) {
+      for (let i = this.turnsDone.length - 1; i >= 0; i--) {
+        if (this.turnsDone[i].some((m) => "msg_id" in m && m.msg_id === id)) return i + 1;
+      }
+    }
+    return Math.max(0, Math.floor(held.heldTurns) - 1);
   }
 
   /** Resolves when every paced turn dispatched so far has emitted its last output. */

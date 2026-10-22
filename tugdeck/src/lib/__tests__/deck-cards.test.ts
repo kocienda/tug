@@ -88,6 +88,7 @@ const READERS: DeckCardReaders = {
   identity: (id) => (id === "b" ? { title: "notes.md", path: "/p/notes.md" } : null),
   activity: (id) => (id === "a" ? "streaming" : null),
   binding: (id) => (id === "a" ? BINDING : null),
+  sessionState: (id) => (id === "a" ? "closed" : null),
   parkedTitle: (id) => (id === "c" ? "tug/odd-kiln" : null),
   waivesClose: (id) => id === "a",
 };
@@ -101,6 +102,7 @@ function entry(over: Partial<DeckCardFacts> = {}): DeckCardFacts {
     identity: null,
     activity: null,
     binding: null,
+    sessionState: null,
     parkedTitle: null,
     waivesClose: false,
     ...over,
@@ -111,7 +113,7 @@ describe("projectDeckCards", () => {
   test("carries every card of every workspace, with its kind and what the shell knows of it", () => {
     const cards = projectDeckCards(DECK, READERS);
     expect(Object.keys(cards)).toEqual(["a", "b", "c"]);
-    expect(cards.a).toEqual(entry({ activity: "streaming", binding: BINDING, waivesClose: true }));
+    expect(cards.a).toEqual(entry({ activity: "streaming", binding: BINDING, sessionState: "closed", waivesClose: true }));
     expect(cards.b).toEqual(
       entry({ componentId: "deck-cards-doc", title: "notes.md", identity: { title: "notes.md", path: "/p/notes.md" } }),
     );
