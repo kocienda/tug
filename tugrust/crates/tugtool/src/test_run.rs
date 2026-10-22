@@ -471,26 +471,112 @@ impl BunDots {
 /// Follows bun's stderr line by line: counts `(fail) ` lines, and pairs each
 /// with the `error: ` line that preceded it — the one place bun says why,
 /// since its junit `<failure>` carries no message.
+///
+/// It also reads the one red bun's junit leaves out entirely: an error
+/// thrown after a file's last test — a timer or a rejection a test left
+/// behind — which bun prints as a `# Unhandled error between tests` block,
+/// counts as `N error` in its summary, and exits 1 for, with every test
+/// passing. Without it the record of such a run says `0 failed` beside a red
+/// exit and names nothing.
 #[derive(Debug, Default)]
 pub struct BunFailures {
     last_error: Option<String>,
     /// `(full name, message)` per failure, in order. The full name is bun's
     /// describe path joined with ` > `.
     pub failed: Vec<(String, String)>,
+    /// The file bun last named in a `path:` header line.
+    file: String,
+    /// The between-tests block being read, from its heading to its closing
+    /// rule.
+    open: Option<BetweenBlock>,
+    /// Each between-tests error, in order.
+    pub between: Vec<BetweenError>,
+    /// The `N error` count bun's summary closes with.
+    pub summary_errors: u64,
+}
+
+/// The name a between-tests error is recorded under.
+pub const BETWEEN_TESTS: &str = "unhandled error between tests";
+
+/// One error bun printed between tests: the file it was printed under, its
+/// `error: ` line and the block's body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BetweenError {
+    pub file: String,
+    pub message: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Default)]
+struct BetweenBlock {
+    rules: u8,
+    lines: Vec<String>,
+    message: Option<String>,
+}
+
+/// What one line of bun's stderr was.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BunRead {
+    /// A `(fail) ` line.
+    Fail,
+    /// The closing rule of a between-tests block.
+    Between,
+    Other,
 }
 
 impl BunFailures {
-    /// Read one line (without its newline). Returns true when it was a
-    /// failure.
-    pub fn line(&mut self, raw: &str) -> bool {
+    /// Read one line (without its newline).
+    pub fn line(&mut self, raw: &str) -> BunRead {
         let line = strip_ansi(raw);
         let line = line.trim_end();
+        if let Some(block) = self.open.as_mut() {
+            if line.len() >= 8 && line.bytes().all(|b| b == b'-') {
+                block.rules += 1;
+                if block.rules >= 2 {
+                    let block = self.open.take().unwrap_or_default();
+                    self.between.push(BetweenError {
+                        file: self.file.clone(),
+                        message: block.message.unwrap_or_default(),
+                        detail: block.lines.join("\n"),
+                    });
+                    return BunRead::Between;
+                }
+            } else {
+                if block.message.is_none()
+                    && let Some(msg) = line.trim_start().strip_prefix("error: ")
+                {
+                    block.message = Some(msg.trim().to_string());
+                }
+                block.lines.push(line.to_string());
+            }
+            return BunRead::Other;
+        }
+        if line == "# Unhandled error between tests" {
+            self.open = Some(BetweenBlock::default());
+            return BunRead::Other;
+        }
+        if let Some(n) = line
+            .trim_start()
+            .strip_suffix(" errors")
+            .or_else(|| line.trim_start().strip_suffix(" error"))
+            .and_then(|n| n.parse::<u64>().ok())
+        {
+            self.summary_errors = n;
+            return BunRead::Other;
+        }
+        if let Some(path) = line.strip_suffix(':')
+            && !path.is_empty()
+            && !path.contains(' ')
+        {
+            self.file = path.to_string();
+            return BunRead::Other;
+        }
         if let Some(msg) = line.trim_start().strip_prefix("error: ") {
             self.last_error = Some(msg.trim().to_string());
-            return false;
+            return BunRead::Other;
         }
         let Some(rest) = line.strip_prefix("(fail) ") else {
-            return false;
+            return BunRead::Other;
         };
         // A timed line ends ` [0.26ms]`.
         let name = match rest.rfind(" [") {
@@ -499,12 +585,15 @@ impl BunFailures {
         };
         let message = self.last_error.take().unwrap_or_default();
         self.failed.push((name.to_string(), message));
-        true
+        BunRead::Fail
     }
 
     /// Fill in each message-less junit failure from the stderr it was printed
     /// on, matching on the test's name as the tail of bun's full path. Each
-    /// stderr failure is used once.
+    /// stderr failure is used once. Then add each between-tests error as a
+    /// red of its own, and as many unread ones as bun's `N error` count says
+    /// were printed in a shape this reader missed, so the record of a red
+    /// exit always names why.
     pub fn merge_into(&self, doc: &mut JunitRun) {
         let mut used = vec![false; self.failed.len()];
         for f in doc.failures.iter_mut().filter(|f| f.message.is_empty()) {
@@ -516,6 +605,29 @@ impl BunFailures {
                 f.message = self.failed[i].1.clone();
             }
         }
+        for e in &self.between {
+            doc.failures.push(JunitFailure {
+                file: e.file.clone(),
+                name: BETWEEN_TESTS.to_string(),
+                classname: String::new(),
+                message: e.message.clone(),
+                detail: e.detail.clone(),
+            });
+        }
+        let unread = self
+            .summary_errors
+            .saturating_sub(self.between.len() as u64);
+        for _ in 0..unread {
+            doc.failures.push(JunitFailure {
+                file: String::new(),
+                name: BETWEEN_TESTS.to_string(),
+                classname: String::new(),
+                message: "bun counted an error outside any test; its output says where".into(),
+                detail: String::new(),
+            });
+        }
+        let added = self.between.len() as i64 + unread as i64;
+        doc.failed += added;
     }
 }
 
@@ -1046,13 +1158,23 @@ impl Follow {
         let text = text.trim_end_matches(['\n', '\r']);
         match self.kind {
             RunKind::Bun => {
-                if self.bun.line(text) {
-                    self.progress.failures += 1;
-                    if let Some((name, message)) = self.bun.failed.last().cloned() {
-                        self.progress.done = self.dots.ticks() + self.progress.failures;
-                        self.progress.note_failure(&name, &message);
-                        self.progress.text = name;
+                match self.bun.line(text) {
+                    BunRead::Fail => {
+                        self.progress.failures += 1;
+                        if let Some((name, message)) = self.bun.failed.last().cloned() {
+                            self.progress.done = self.dots.ticks() + self.progress.failures;
+                            self.progress.note_failure(&name, &message);
+                            self.progress.text = name;
+                        }
                     }
+                    BunRead::Between => {
+                        if let Some(e) = self.bun.between.last().cloned() {
+                            let name = format!("{} · {BETWEEN_TESTS}", e.file);
+                            self.progress.note_failure(&name, &e.message);
+                            self.progress.text = name;
+                        }
+                    }
+                    BunRead::Other => {}
                 }
                 true
             }
@@ -1563,7 +1685,7 @@ mod tests {
     fn a_timed_fail_line_drops_its_time() {
         let mut f = BunFailures::default();
         f.line("error: nope");
-        assert!(f.line("(fail) a > b [0.26ms]"));
+        assert_eq!(f.line("(fail) a > b [0.26ms]"), BunRead::Fail);
         assert_eq!(f.failed[0], ("a > b".to_string(), "nope".to_string()));
     }
 
@@ -1587,6 +1709,66 @@ mod tests {
         follow.bun.merge_into(&mut doc);
         assert_eq!(doc.failures[0].message, "boom");
         assert_eq!(doc.failures[1].message, "expect(received).toBe(expected)");
+    }
+
+    /// bun 1.3.9's stderr under `--dots` for a file whose test left a timer
+    /// that threw during its `afterAll`: every test passed, the exit is 1,
+    /// and the junit document holds no failure at all.
+    const BUN_BETWEEN_STDERR: &str = "bun test v1.3.9 (cf6cdbbb)\n.\n\nd.test.ts:\n\n# Unhandled error between tests\n-------------------------------\n1 | import { test, expect, afterAll } from \"bun:test\";\n2 | test(\"a\", () => { setTimeout(() => { throw new Error(\"late boom\"); }, 1); expect(1).toBe(1); });\n                                                                    ^\nerror: late boom\n      at <anonymous> (/private/tmp/bunleak/d.test.ts:2:65)\n-------------------------------\n\n\n\n1 pass\n0 fail\n1 error\n1 expect() calls\nRan 1 test across 1 file. [25.00ms]\n";
+
+    #[test]
+    fn an_error_between_tests_is_a_named_red() {
+        let mut follow = Follow::new(RunKind::Bun);
+        let out = String::from_utf8(follow.feed(BUN_BETWEEN_STDERR.as_bytes())).unwrap();
+        // The block reaches the reader as bun wrote it.
+        assert!(out.contains("# Unhandled error between tests"));
+        assert!(out.contains("error: late boom"));
+        assert_eq!(follow.bun.summary_errors, 1);
+        assert_eq!(follow.bun.between.len(), 1);
+        assert_eq!(follow.bun.between[0].file, "d.test.ts");
+        assert_eq!(follow.bun.between[0].message, "late boom");
+        assert!(follow.bun.between[0].detail.contains("d.test.ts:2:65"));
+        // No test failed, so no `(fail)` line was misread as one.
+        assert!(follow.bun.failed.is_empty());
+        assert_eq!(
+            follow.progress.failed[0].name,
+            "d.test.ts · unhandled error between tests"
+        );
+
+        let mut doc = test_ledger::parse_junit(
+            r#"<testsuites><testsuite name="d.test.ts" file="d.test.ts">
+                 <testcase name="a" classname="" file="d.test.ts" />
+               </testsuite></testsuites>"#,
+        )
+        .unwrap();
+        assert_eq!(doc.failed, 0);
+        follow.bun.merge_into(&mut doc);
+        assert_eq!(doc.failed, 1);
+        assert_eq!(doc.failures[0].file, "d.test.ts");
+        assert_eq!(doc.failures[0].name, BETWEEN_TESTS);
+        assert_eq!(doc.failures[0].message, "late boom");
+    }
+
+    #[test]
+    fn a_counted_error_with_no_block_read_is_still_a_red() {
+        let mut f = BunFailures::default();
+        f.line(" 3 pass");
+        f.line(" 0 fail");
+        f.line(" 2 errors");
+        let mut doc = test_ledger::parse_junit("<testsuites></testsuites>").unwrap();
+        f.merge_into(&mut doc);
+        assert_eq!(doc.failed, 2);
+        assert!(doc.failures.iter().all(|x| x.name == BETWEEN_TESTS));
+    }
+
+    #[test]
+    fn a_green_run_adds_no_red() {
+        let mut follow = Follow::new(RunKind::Bun);
+        follow.feed(b"bun test v1.3.9\n....\n\n 4 pass\n 0 fail\n 4 expect() calls\nRan 4 tests across 2 files. [3.00ms]\n");
+        let mut doc = test_ledger::parse_junit("<testsuites></testsuites>").unwrap();
+        follow.bun.merge_into(&mut doc);
+        assert_eq!(doc.failed, 0);
+        assert!(doc.failures.is_empty());
     }
 
     /// Feed a recorded stderr through a follower line by line, keeping each
