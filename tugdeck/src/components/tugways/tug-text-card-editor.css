@@ -2,7 +2,7 @@
    - --tugx-block-bg / --tugx-block-text-color           (shared block frame; from tugx-block.css)
    - --tugx-block-code-font / --tugx-block-code-font-size / --tugx-block-code-line-height (shared code typography; the fallbacks under --tugx-textcard-font / --tugx-textcard-font-size)
    - --tugx-textcard-gutter-bg / --tugx-textcard-gutter-text (editor-local line-number gutter)
-   - --tugx-textcard-selection-bg / --tugx-textcard-caret (editor-local selection + caret paint)
+   - --tugx-textcard-selection-bg (editor-local selection paint)
    - --tugx-find-* (shared find-match paint; from transcript-find.css)
    `TugTextCardEditor` paints a CM6-backed read-write file editing surface.
    Frame and code typography come from `--tugx-block-*`; editor-specific
@@ -39,10 +39,6 @@ body {
    * to inside a chrome body — so a file reads on the same background
    * whether shown inline in a transcript or opened in a Text card. */
   --tugx-textcard-bg: var(--tug7-surface-card-primary-normal-well-rest);
-
-  /* Native caret stroke — same token the prompt editor's painted
-   * caret uses, so carets read identically across editing surfaces. */
-  --tugx-textcard-caret: var(--tug7-element-field-border-normal-plain-active);
 
   /* Content inset. */
   --tugx-textcard-content-padding: var(--tug-space-2xs) 0;
@@ -162,6 +158,17 @@ html[data-app-active="false"] .tug-text-card-editor[data-key-view-kbd]::after {
   border-radius: var(--tugx-focus-ring-radius);
   pointer-events: none;
   z-index: 300;
+}
+
+/* Hide the painted caret while a file is dragged over the editor, as the
+ * composer does (`tug-text-editor.css`): the drop caret shows where the link
+ * will land, and the text caret would be a competing mark for a position the
+ * user is no longer placing. The host carries `data-drop-active` (set by
+ * `tug-text-card-editor/file-drop.ts`), outside the CM6 root, so the rule
+ * lives here rather than in the theme.
+ * @tug-renders-on: --tugx-block-surface */
+.tug-text-card-editor[data-drop-active] .tug-text-editor-caret-layer {
+  display: none;
 }
 
 /* ---- Invisibles ---- */

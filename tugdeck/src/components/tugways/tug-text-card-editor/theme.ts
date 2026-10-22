@@ -9,11 +9,13 @@
  * All rules read CSS variables directly so ironclad ↔ sloop theme
  * switches propagate without remount.
  *
- * Caret and selection are NATIVE — unlike `tug-text-editor`, which
- * paints custom caret/selection layers because atom widgets stale
- * WebKit's caret paint cache and need blur-surviving selection divs.
- * A plain-text file editor has neither problem: the native caret is
- * recolored via `caretColor`, and native `::selection` paints ranges.
+ * The caret is PAINTED, the same `tugPaintedCaret` the prompt composer
+ * wears (`tug-text-editor/caret-layer.ts`), so a caret reads identically
+ * across editing surfaces. WebKit's native caret sizes itself to the
+ * font's ascent and descent rather than the row, and with the code faces
+ * this editor uses it stopped short at the baseline. Selection stays
+ * native: a plain-text file editor has no atom widgets to cover and no
+ * need for blur-surviving selection divs, so `::selection` paints ranges.
  *
  * Full-height: the editor root fills its host and the `.cm-scroller`
  * owns scrolling — the Text card's body is the fixed viewport and the
@@ -52,7 +54,6 @@ export const tugTextCardEditorTheme: Extension = EditorView.theme({
     position: "relative",
   },
   ".cm-content": {
-    caretColor: "var(--tugx-textcard-caret)",
     color: "var(--tugx-block-text-color)",
     padding: "var(--tugx-textcard-content-padding)",
   },

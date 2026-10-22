@@ -19,8 +19,9 @@
  *
  * What is deliberately NOT here (prompt-only concerns): atoms,
  * completion/typeahead, inline attachment payloads, submit/history
- * navigation, the custom caret/selection layers (native caret and
- * `::selection` work fine without atom widgets in the document).
+ * navigation, the custom selection layer (native `::selection` works fine
+ * without atom widgets in the document). The caret IS the composer's painted
+ * one (`tugPaintedCaret`), so carets read the same in every editing surface.
  *
  * Document ownership: CM6 is the runtime store for the text — the
  * document never enters React state. The component binds to a
@@ -188,6 +189,7 @@ import { pressCollapsesSelection } from "./press-collapses-selection";
 import type { TextSelectionAdapter } from "./text-selection-adapter";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTextCardEditorTheme } from "./tug-text-card-editor/theme";
+import { tugPaintedCaret } from "./tug-text-editor/caret-layer";
 import { emptyLineSelection } from "./tug-text-card-editor/empty-line-selection";
 import { findRevealFor } from "./tug-text-card-editor/find-reveal";
 
@@ -1116,6 +1118,9 @@ export const TugTextCardEditor = React.forwardRef<
         whitespaceCompartment.of(whitespaceFor(s)),
         activeLineCompartment.of(activeLineFor(s)),
         languageCompartment.of([]),
+        // The painted caret — the composer's, so carets read the same in
+        // every editing surface. See `tug-text-editor/caret-layer.ts`.
+        tugPaintedCaret,
         // A primary press inside a ranged selection collapses it now rather
         // than on release — otherwise the whole range stays painted for as
         // long as the button is held. See `press-collapses-selection.ts`.

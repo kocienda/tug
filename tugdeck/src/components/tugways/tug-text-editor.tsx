@@ -176,9 +176,7 @@ import { createCMSelectionAdapter } from "./tug-text-editor/selection-adapter";
 import type { TextSelectionAdapter } from "./text-selection-adapter";
 import {
   revealCaret,
-  tugCaretBlinkHold,
-  tugCaretInteractionPlugin,
-  tugCaretLayer,
+  tugPaintedCaret,
 } from "./tug-text-editor/caret-layer";
 import { tugLineNumbersGutter } from "./tug-text-editor/line-numbers-gutter";
 import { pressCollapsesSelection } from "./press-collapses-selection";
@@ -1251,7 +1249,7 @@ function buildExtensions(
     //   - `tugCaretLayer` paints a single `.tug-text-editor-caret` div at
     //     the head of a focused, collapsed selection. The native
     //     WebKit caret is suppressed by `caret-color: transparent`
-    //     on `.cm-content` (in `tugTheme`); the layer paints the
+    //     on `.cm-content` (in `tugCaretTheme`); the layer paints the
     //     visible caret with height taken from
     //     `lineBlockAt(head).height` so it stays uniform across
     //     text-only, atom-only, and mixed lines. Replaces three
@@ -1259,11 +1257,7 @@ function buildExtensions(
     //     atom-removal) that worked around WebKit's contentEditable
     //     caret-cache staleness.
     tugSelectionLayer,
-    tugCaretLayer,
-    // The blink's motion hold: taken on focus, released on blur, so the
-    // registry sees the one loop it used to miss.
-    tugCaretBlinkHold,
-    tugCaretInteractionPlugin,
+    tugPaintedCaret,
     tugTheme,
     hostFocusMirror(host),
     // The host is the text surface: a click in the blank band below short

@@ -66,6 +66,11 @@
  *                                    against the overlay
  *   `&.cm-readonly`                — readonly state surface + text
  *
+ * The caret stroke, its blink, and its drag / typing states are not here:
+ * they ride `tugCaretTheme` in `caret-layer.ts`, beside the layer that
+ * paints them, so every editor that wears the painted caret wears the same
+ * one.
+ *
  * Line metrics: `.cm-content` carries an explicit `font-size` and
  * `line-height` so the typographic baseline is prop-driven. The leading is
  * derived from the atom register (`editorLineHeightFor`) so the line box can
@@ -109,10 +114,6 @@ const TOKENS = {
   // `#888`; this is the theme's tinted placeholder token, the same one
   // `tug-input` / `tug-textarea` paint `::placeholder` with.
   placeholderFg: "var(--tug7-element-field-text-normal-placeholder-rest)",
-  // Caret stroke color — applied to the `.tug-text-editor-caret` marker
-  // painted by `caret-layer.ts`, NOT to `.cm-content`'s caret-color
-  // (that's `transparent` to suppress the native caret).
-  caret: "var(--tug7-element-field-border-normal-plain-active)",
   // Active selection bg / fg use the CSS `Highlight` / `HighlightText`
   // system colors directly (see `.cm-selectionBackground` and
   // `.cm-content ::selection` rules below). System colors give us
@@ -323,77 +324,6 @@ export const tugTheme: Extension = EditorView.theme({
   ".cm-content ::selection": {
     backgroundColor: "transparent",
     color: "var(--tug7-element-selection-text-normal-plain-rest)",
-  },
-
-  // Caret-overlay layer painted by `tug-text-editor/caret-layer.ts`. The
-  // layer is non-interactive — pointer events fall through to the
-  // editable surface so clicks land on the right offset.
-  ".tug-text-editor-caret-layer": {
-    pointerEvents: "none",
-  },
-
-  // Caret blink animation — hard on/off holds expressed as paired
-  // keyframe stops with `linear` easing, never `steps()`. Core
-  // Animation expresses a segment's easing as a cubic bezier; a step
-  // timing function is not one, and WebKit answers by declining to
-  // accelerate the animation — which puts an infinite loop on the
-  // main thread, ticking style resolution (and the whole-tree
-  // compositing walk behind it) on every otherwise-idle deck that has
-  // a focused composer. Sampled hold stops are the same cadence by
-  // construction and Core Animation runs them natively: each hold is
-  // a constant segment, and the 0.1% ramps between them span ~1ms of
-  // the cycle — a cut to the eye. Driven by the layer's own animation
-  // declaration so the keyframes exist only while the editor is
-  // focused: an unfocused editor's layer carries `animation-name:
-  // none` and owns no animation object at all. The layer element
-  // itself is stable across selection changes (CM6's `LayerView`
-  // builds its `dom` once and diffs only the child markers), so the
-  // blink's phase is reset by the drag and typing rules below, not by
-  // a layer rebuild.
-  // @tug-motion-hold ./caret-layer.ts
-  "&.cm-focused > .cm-scroller > .tug-text-editor-caret-layer": {
-    animation:
-      "tug-text-editor-caret-blink 1.2s linear var(--tug-loop-iterations, infinite)",
-  },
-
-  "@keyframes tug-text-editor-caret-blink": {
-    "0%, 49.9%": { opacity: 1 },
-    "50%, 99.9%": { opacity: 0 },
-    "100%": { opacity: 1 },
-  },
-
-  // The caret stroke itself. `caret-layer.ts` constructs each
-  // marker with width=2, height=line-block — this rule colors it.
-  ".tug-text-editor-caret": {
-    backgroundColor: TOKENS.caret,
-  },
-
-  // While the user is mid mouse-drag (mousedown without mouseup
-  // yet), suppress the caret entirely. The selection is in flux —
-  // the moment `selectionSet` fires from the next mousemove, the
-  // caret-layer would briefly paint a collapsed cursor at the
-  // mousedown anchor before the range widens. Matches WebKit's
-  // native behavior of hiding the caret during drag-selection.
-  // Toggled by `tugCaretInteractionPlugin`'s mousedown / global
-  // mouseup pair in `caret-layer.ts`.
-  //
-  // `display: none` also cancels the blink outright — the layer holds
-  // zero animation objects for the duration of the drag, and the
-  // restore on mouseup starts a fresh cycle at time 0, so the caret
-  // reads solid at the newly clicked position.
-  "&[data-tug-text-editor-dragging] .tug-text-editor-caret-layer": {
-    display: "none",
-  },
-
-  // While the user is actively typing (any keydown within the last
-  // ~500ms), freeze the blink animation and pin the caret to full
-  // opacity. Standard text-editor behavior since the 1980s — the
-  // caret stays solid during typing and resumes blinking after a
-  // pause. Toggled by `tugCaretInteractionPlugin`'s keydown +
-  // idle-timer in `caret-layer.ts`.
-  "&[data-tug-text-editor-typing].cm-focused > .cm-scroller > .tug-text-editor-caret-layer": {
-    animation: "none",
-    opacity: 1,
   },
 
   // Focus-state surface — subtle background tint shift in the default

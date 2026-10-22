@@ -168,26 +168,35 @@ function lineElementAtPos(view: EditorView, pos: number): HTMLElement | null {
 }
 
 /**
- * Production row-height source: parse the `::before` ghost's
- * computed height (in pixels). The ghost's CSS is `height: 1lh` (set
- * by `theme.ts`), so this read returns the rendered per-row height
- * regardless of how `1lh` resolves at the current font / line-height
- * props — and regardless of wrap state, since the pseudo is one row
- * tall even when its `.cm-line` spans several visual rows.
+ * The per-row height at `head`, in CSS px (the layer scales it by
+ * `view.scaleY` itself).
  *
- * Returns `view.defaultLineHeight` as a fallback when the line
- * element can't be located or the parsed value isn't finite — itself
- * the same row height (atoms no longer force a row taller than the
- * line-height); in production this only fires before CM6 has rendered
- * any line element, which for a focused-editor caret paint shouldn't
- * happen.
+ * Three rungs:
+ *
+ *   1. The `.cm-line::before` ghost's computed height. The composer's theme
+ *      pins it to `1lh`, so the read is the rendered per-row height however
+ *      `1lh` resolves at the current font / line-height — and regardless of
+ *      wrap state, since the pseudo is one row tall even when its `.cm-line`
+ *      spans several visual rows.
+ *   2. The line's computed `line-height`. An editor without the ghost (the
+ *      Text card) still carries a pixel line-height, and that IS one visual
+ *      row under wrapping too. Only `normal` escapes it.
+ *   3. `view.defaultLineHeight`, divided by `view.scaleY`. CM6 measures it
+ *      with `getBoundingClientRect`, so under a deck zoom it is viewport px,
+ *      and handing it to the layer unconverted shrank the Text card's caret
+ *      by the zoom twice (an 80% deck drew a 72%-row caret that stopped at
+ *      the baseline). Reached only before CM6 has rendered a line element,
+ *      which for a focused-editor caret paint shouldn't happen.
  */
 export function readRowHeightFromGhost(view: EditorView, head: number): number {
   const line = lineElementAtPos(view, head);
-  if (line === null) return view.defaultLineHeight;
-  const ghost = window.getComputedStyle(line, "::before");
-  const parsed = parseFloat(ghost.height);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : view.defaultLineHeight;
+  if (line !== null) {
+    const ghost = parseFloat(window.getComputedStyle(line, "::before").height);
+    if (Number.isFinite(ghost) && ghost > 0) return ghost;
+    const lineHeight = parseFloat(window.getComputedStyle(line).lineHeight);
+    if (Number.isFinite(lineHeight) && lineHeight > 0) return lineHeight;
+  }
+  return view.defaultLineHeight / view.scaleY;
 }
 
 // ---------------------------------------------------------------------------
@@ -553,3 +562,114 @@ export const tugCaretInteractionPlugin: Extension = ViewPlugin.fromClass(
     };
   },
 );
+
+// ---------------------------------------------------------------------------
+// The caret's paint
+// ---------------------------------------------------------------------------
+
+/**
+ * Caret stroke color — the field's active border token, the one every
+ * editing surface's caret wears.
+ */
+const CARET_COLOR = "var(--tug7-element-field-border-normal-plain-active)";
+
+/**
+ * The painted caret's CSS: the stroke, its blink, and the drag / typing
+ * states {@link tugCaretInteractionPlugin} toggles. Lives beside the layer
+ * rather than in any one editor's theme so every editor that paints its
+ * caret through this module paints the same one.
+ *
+ * Also suppresses WebKit's native caret (`caret-color: transparent`) — the
+ * layer is the visible caret, and a native one beside it would double up.
+ */
+export const tugCaretTheme: Extension = EditorView.theme({
+  ".cm-content": {
+    caretColor: "transparent",
+  },
+
+  // Caret-overlay layer. The layer is non-interactive — pointer events fall
+  // through to the editable surface so clicks land on the right offset.
+  ".tug-text-editor-caret-layer": {
+    pointerEvents: "none",
+  },
+
+  // Caret blink animation — hard on/off holds expressed as paired
+  // keyframe stops with `linear` easing, never `steps()`. Core
+  // Animation expresses a segment's easing as a cubic bezier; a step
+  // timing function is not one, and WebKit answers by declining to
+  // accelerate the animation — which puts an infinite loop on the
+  // main thread, ticking style resolution (and the whole-tree
+  // compositing walk behind it) on every otherwise-idle deck that has
+  // a focused composer. Sampled hold stops are the same cadence by
+  // construction and Core Animation runs them natively: each hold is
+  // a constant segment, and the 0.1% ramps between them span ~1ms of
+  // the cycle — a cut to the eye. Driven by the layer's own animation
+  // declaration so the keyframes exist only while the editor is
+  // focused: an unfocused editor's layer carries `animation-name:
+  // none` and owns no animation object at all. The layer element
+  // itself is stable across selection changes (CM6's `LayerView`
+  // builds its `dom` once and diffs only the child markers), so the
+  // blink's phase is reset by the drag and typing rules below, not by
+  // a layer rebuild.
+  // @tug-motion-hold ./caret-layer.ts
+  "&.cm-focused > .cm-scroller > .tug-text-editor-caret-layer": {
+    animation:
+      "tug-text-editor-caret-blink 1.2s linear var(--tug-loop-iterations, infinite)",
+  },
+
+  "@keyframes tug-text-editor-caret-blink": {
+    "0%, 49.9%": { opacity: 1 },
+    "50%, 99.9%": { opacity: 0 },
+    "100%": { opacity: 1 },
+  },
+
+  // The caret stroke itself. `tugCaretLayer` sizes and places each
+  // marker — this rule colors it.
+  ".tug-text-editor-caret": {
+    backgroundColor: CARET_COLOR,
+  },
+
+  // While the user is mid mouse-drag (mousedown without mouseup
+  // yet), suppress the caret entirely. The selection is in flux —
+  // the moment `selectionSet` fires from the next mousemove, the
+  // caret-layer would briefly paint a collapsed cursor at the
+  // mousedown anchor before the range widens. Matches WebKit's
+  // native behavior of hiding the caret during drag-selection.
+  // Toggled by `tugCaretInteractionPlugin`'s mousedown / global
+  // mouseup pair.
+  //
+  // `display: none` also cancels the blink outright — the layer holds
+  // zero animation objects for the duration of the drag, and the
+  // restore on mouseup starts a fresh cycle at time 0, so the caret
+  // reads solid at the newly clicked position.
+  "&[data-tug-text-editor-dragging] .tug-text-editor-caret-layer": {
+    display: "none",
+  },
+
+  // While the user is actively typing (any keydown within the last
+  // ~500ms), freeze the blink animation and pin the caret to full
+  // opacity. Standard text-editor behavior since the 1980s — the
+  // caret stays solid during typing and resumes blinking after a
+  // pause. Toggled by `tugCaretInteractionPlugin`'s keydown +
+  // idle-timer.
+  "&[data-tug-text-editor-typing].cm-focused > .cm-scroller > .tug-text-editor-caret-layer": {
+    animation: "none",
+    opacity: 1,
+  },
+});
+
+/**
+ * The whole painted caret, for an editor to wear in one line: the layer, the
+ * blink's motion hold, the drag / typing tracker, and the CSS. The prompt
+ * composer and the Text card both take it, so a caret looks the same in
+ * every CM6 editing surface — never WebKit's native caret, whose height
+ * follows the font's own ascent and descent rather than the row.
+ */
+export const tugPaintedCaret: Extension = [
+  tugCaretLayer,
+  // The blink's motion hold: taken on focus, released on blur, so the
+  // registry sees the one loop it used to miss.
+  tugCaretBlinkHold,
+  tugCaretInteractionPlugin,
+  tugCaretTheme,
+];
