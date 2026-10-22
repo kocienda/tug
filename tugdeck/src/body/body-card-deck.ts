@@ -293,6 +293,9 @@ export class BodyCardDeck implements CardDeck {
   subscribeSync = (callback: (landing: CommitLanding) => void): (() => void) =>
     this.subscribe(callback);
   flushPendingNotify = (): void => {};
+  // And nothing is deferred, so nothing is held past a motion: a body's
+  // deck runs no settle of its own.
+  holdNotifyPastMotion = (): void => {};
   getSnapshot = (): DeckState => this.deckState;
   // Nothing departs from a one-card deck, so its picture is its snapshot.
   getPicture = (): DeckState => this.deckState;

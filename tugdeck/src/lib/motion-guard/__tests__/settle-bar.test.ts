@@ -13,6 +13,7 @@ import {
   LAND_FRAMES_BAR,
   arrivedIn,
   bandShrinks,
+  emptyLandClause,
   settleBarsFor,
   settleLegOfDrive,
   settleVerdict,
@@ -85,18 +86,6 @@ describe("settle bar", () => {
     const s = clause(read(cleanRow({ motionCommits: null })).clauses, "sealed");
     expect(s.pass).toBeNull();
     expect(s.detail).toContain("commits not counted");
-  });
-
-  test("the swipe's commits are carved out by gesture, and nothing else is", () => {
-    const row = cleanRow({ motionCommits: [{ performed: 12, site: "Strip" }] });
-    const s = clause(read(row, land(17, 1), SAME, SAME, { gesture: "swipe" }).clauses, "sealed");
-    expect(s.pass).toBe(true);
-    expect(s.detail).toContain("carved out");
-    const forced = cleanRow({
-      motionCommits: [{ performed: 12, site: "Strip" }],
-      motionForcedLayouts: [{ ms: 3, site: "x" }],
-    });
-    expect(clause(read(forced, land(17, 1), SAME, SAME, { gesture: "swipe" }).clauses, "sealed").pass).toBe(false);
   });
 
   test("a long land is red unless the gesture shrinks a frame", () => {
@@ -186,5 +175,48 @@ describe("settle bar", () => {
     expect(fit === null ? null : clause(fit.clauses, "gap").pass).toBe(true);
     const split = settleVerdictOfDrive(engine, "split", {});
     expect(split === null ? null : clause(split.clauses, "gap").pass).toBe(false);
+  });
+});
+
+describe("emptyLandClause", () => {
+  const empty = {
+    frameMs: 16.9,
+    framePeriodMs: 16.7,
+    commits: [],
+    forcedLayouts: [],
+    deliveries: [],
+    episodeEnds: [],
+    scrollWrites: [],
+  };
+
+  test("a one-frame land that ran nothing is green", () => {
+    expect(emptyLandClause(empty).pass).toBe(true);
+  });
+
+  test("a frame's jitter past the period is one frame; a frame missed is red", () => {
+    expect(emptyLandClause({ ...empty, frameMs: 19 }).pass).toBe(true);
+    expect(emptyLandClause({ ...empty, frameMs: 33.4 }).pass).toBe(false);
+  });
+
+  test("an episode end or a scroll write in the land is red, by site", () => {
+    const ended = emptyLandClause({ ...empty, episodeEnds: [{ site: "episode ×1", ms: 0 }] });
+    expect(ended.pass).toBe(false);
+    expect(ended.detail).toContain("episode ×1");
+    expect(emptyLandClause({ ...empty, scrollWrites: [{ site: "pinToBottom", ms: 0.2 }] }).pass).toBe(false);
+  });
+
+  test("a commit that performed nothing is not counted", () => {
+    expect(emptyLandClause({ ...empty, commits: [{ site: "-", performed: 0 }] }).pass).toBe(true);
+    expect(emptyLandClause({ ...empty, commits: [{ site: "SessionCard", performed: 4 }] }).pass).toBe(false);
+  });
+
+  test("a page with no census is unread, never green, unless something else is red", () => {
+    expect(emptyLandClause({ ...empty, commits: null }).pass).toBeNull();
+    expect(emptyLandClause({ ...empty, commits: null, frameMs: 40 }).pass).toBe(false);
+  });
+
+  test("no land at all is red", () => {
+    expect(emptyLandClause(null).pass).toBe(false);
+    expect(emptyLandClause({ ...empty, frameMs: -1 }).pass).toBe(false);
   });
 });

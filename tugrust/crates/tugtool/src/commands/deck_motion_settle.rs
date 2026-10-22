@@ -86,7 +86,7 @@
 //! `getComputedStyle` over every element that held a 25,714-element deck's
 //! main thread 3.3 s, and prints what it cost.
 
-use crate::commands::deck_motion::{EvalDoor, eval_gated};
+use crate::commands::deck_motion::{EvalDoor, EvalOutcome, eval_gated, post_eval};
 use crate::commands::deck_motion_slide::{
     RawCommit, RawTask, RawTell, census, commit_timings, ensure_recorder, origins_label,
     print_census, script_page,
@@ -1195,6 +1195,9 @@ pub struct Reading {
     /// saying why.
     pub window_row: Option<WindowRow>,
     pub window_absent: Option<String>,
+    /// Each carried card's own land, read in its page after the drive; empty
+    /// when no body was carried or the run read no page.
+    pub body_lands: Vec<crate::commands::deck_motion_verdict::BodyLand>,
 }
 
 /// Reduce one `record` op's raw result to a reading.
@@ -1317,7 +1320,59 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         frame_phases: None,
         window_row: window_row_reading,
         window_absent,
+        body_lands: Vec::new(),
     }
+}
+
+/// The cards a drive carried: every card a `body-beat` row names, in order.
+pub fn carried_cards(raw: &Value) -> Vec<String> {
+    let beats: Vec<RawBodyBeat> = raw
+        .get("bodyBeats")
+        .filter(|v| !v.is_null())
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    let mut cards: Vec<String> = Vec::new();
+    for b in beats {
+        if !cards.contains(&b.card_id) {
+            cards.push(b.card_id);
+        }
+    }
+    cards
+}
+
+/// Read each carried card's own land in its page, through the body eval door:
+/// the page's last `body-land` row landed since the drive, with the page's
+/// clause over it. A drive whose page predates the drive's wall clock reads
+/// every row the page holds.
+fn body_lands(
+    door: EvalDoor<'_>,
+    raw: &Value,
+    since_wall_ms: Option<f64>,
+) -> Vec<crate::commands::deck_motion_verdict::BodyLand> {
+    use crate::commands::deck_motion_verdict::{BodyLand, body_land_of};
+    let code = format!(
+        "(window.__tugMotion && window.__tugMotion.bodyLand ? window.__tugMotion.bodyLand({}) : {{ unread: 'this page predates the body land record' }})",
+        since_wall_ms.unwrap_or(0.0)
+    );
+    carried_cards(raw)
+        .into_iter()
+        .map(|card| {
+            let error = |why: String| BodyLand {
+                card_id: card.clone(),
+                row: None,
+                clause: None,
+                error: Some(why),
+            };
+            match post_eval(door.port, Some(&card), &code) {
+                Ok(EvalOutcome::Ok(answer)) => match answer.get("unread").and_then(Value::as_str) {
+                    Some(why) => error(why.to_string()),
+                    None => body_land_of(&card, &answer),
+                },
+                Ok(EvalOutcome::Gated) => error("the eval door is shut".to_string()),
+                Err(e) => error(e),
+            }
+        })
+        .collect()
 }
 
 /// Post one page op. `None` when the eval door is shut.
@@ -1595,6 +1650,7 @@ pub fn run_settle(
         if drive.read && (!is_census || census_read) {
             let mut reading = reduce(drive, &raw);
             reading.streams = streams_at_drive;
+            reading.body_lands = body_lands(door, &raw, reading.t0_epoch_ms);
             if !json_output {
                 print_reading(readings.len() + 1, &reading);
             }
@@ -1921,6 +1977,9 @@ pub fn reading_extras(r: &Reading) -> String {
                 "   no verdict: the deck wrote no rows of its own — 'tugtool deck motion record on' arms them"
             );
         }
+    }
+    for b in &r.body_lands {
+        let _ = writeln!(out, "   {}", b.line());
     }
     out
 }
@@ -2580,6 +2639,40 @@ mod tests {
             read: true,
         };
         assert_eq!(reduce(&switch, &raw).land, None);
+    }
+
+    /// The carried cards are the ones the drive's `body-beat` rows name, each
+    /// once; a reading prints one land line per card beside the verdict.
+    #[test]
+    fn a_reading_names_each_carried_card_once_and_prints_its_land() {
+        let raw = json!({
+            "bodyBeats": [
+                {"cardId": "b1", "planId": 3, "beats": 1, "spanMs": 240.0, "landed": null, "lateMs": null},
+                {"cardId": "b2", "planId": 3, "beats": 1, "spanMs": 240.0, "landed": null, "lateMs": null},
+                {"cardId": "b1", "planId": 3, "landed": true, "lateMs": 0.0},
+            ],
+        });
+        assert_eq!(
+            carried_cards(&raw),
+            vec!["b1".to_string(), "b2".to_string()]
+        );
+        assert!(carried_cards(&json!({})).is_empty());
+
+        let drive = Drive {
+            gesture: "fold",
+            args: json!({"card": "b1"}),
+            read: true,
+        };
+        let mut r = reduce(&drive, &json!({"settle": [[2.0, true], [300.0, false]]}));
+        r.body_lands = vec![crate::commands::deck_motion_verdict::body_land_of(
+            "b1",
+            &json!({"row": {"frameMs": 16.8, "frameFrames": 1.0, "commits": null}}),
+        )];
+        let text = reading_extras(&r);
+        assert!(
+            text.contains("   body b1: solve=— land=16.8ms/1.00f commits=unread"),
+            "{text}"
+        );
     }
 
     /// A quiet drive arms nothing whatever the flags say, and says it is quiet.

@@ -223,6 +223,14 @@ const CARD_DECK_EVIDENCE: { [K in keyof CardDeck]-?: Evidence<CardDeck> } = {
     d.flushPendingNotify!();
     expect(c.n).toBe(1);
   },
+  holdNotifyPastMotion: (d, { deck }) => {
+    // Told on the commit's own task, so a hold voted after it changes nothing.
+    const c = counter();
+    d.subscribe(c.fn);
+    deck.applyContext(context({ folded: true }));
+    d.holdNotifyPastMotion!();
+    expect(c.n).toBe(1);
+  },
   getSnapshot: (d, { deck }) => {
     deck.applyContext(context({ folded: true, arriving: true }));
     expect(cardFoldedOf(d.getSnapshot(), CARD)).toBe(true);

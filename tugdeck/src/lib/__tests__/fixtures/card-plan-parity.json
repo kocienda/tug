@@ -5,6 +5,7 @@
     "plan": {
       "planId": 1,
       "startWallMs": 1760000000000,
+      "solves": false,
       "cards": [
         {
           "cardId": "c1",
@@ -52,6 +53,7 @@
     "plan": {
       "planId": 2,
       "startWallMs": 1760000001000,
+      "solves": false,
       "cards": [
         {
           "cardId": "ca",
@@ -138,6 +140,7 @@
     "plan": {
       "planId": 3,
       "startWallMs": 1760000002000,
+      "solves": false,
       "cards": []
     }
   },
@@ -147,6 +150,7 @@
     "plan": {
       "planId": 4,
       "startWallMs": 1760000003000,
+      "solves": true,
       "cards": [
         {
           "cardId": "cs",
@@ -224,6 +228,7 @@
     "plan": {
       "planId": 5,
       "startWallMs": 1760000004000,
+      "solves": false,
       "cards": [
         {
           "cardId": "cn",

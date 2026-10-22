@@ -38,6 +38,15 @@
  *   evaluates — in test mode and beside the lead recorder only, the same
  *   pages the commit census is in. Elsewhere `null`, for the same reason.
  *
+ * Two more lists say what the land moved rather than what it computed:
+ *
+ * - **Episode ends**: every resize episode that closed, from the one site
+ *   that closes them (`lib/resize-episode.ts`'s end hook) — each is a pin,
+ *   restore or rebase some scroller paid.
+ * - **Scroll writes**: every `scrollTop` set and `scrollTo`/`scrollBy` call,
+ *   with the stack that made it, through a setter wrapper installed beside
+ *   the read wrappers.
+ *
  * It is a BENCH RECORD. The read wrappers go on at the first arm and stay,
  * passing straight through whenever nothing is armed; the settle arms it only
  * while the cost-bearing `settle-frames` kind is enabled, so a deck nobody is
@@ -49,6 +58,7 @@
  */
 
 import { isDeliveryHeld } from "./gesture-scope";
+import { onEpisodeEnd } from "./resize-episode";
 
 /** A geometry read slower than this paid a style or layout flush. */
 export const FORCED_READ_FLOOR_MS = 1;
@@ -105,6 +115,10 @@ export interface LandInput {
   readonly forcedReads: readonly LandEvent[];
   /** `null` when no delivery wrapper was installed. */
   readonly deliveries: readonly LandEvent[] | null;
+  /** Every resize episode that closed, its site the scrollers it ended. */
+  readonly episodeEnds: readonly LandEvent[];
+  /** Every `scrollTop` set and `scrollTo`/`scrollBy` call. */
+  readonly scrollWrites: readonly LandEvent[];
 }
 
 /** The land, as the `settle-land` row carries it. */
@@ -130,6 +144,10 @@ export interface LandReading {
   readonly forcedLayouts: readonly LandEvent[];
   /** The observer deliveries in the land's span; `null` with no wrapper. */
   readonly deliveries: readonly LandEvent[] | null;
+  /** The resize episodes that closed in the land's span. */
+  readonly episodeEnds: readonly LandEvent[];
+  /** The scroll writes in the land's span. */
+  readonly scrollWrites: readonly LandEvent[];
 }
 
 /**
@@ -177,6 +195,8 @@ export function classifyLand(input: LandInput): LandReading {
     commits: input.commits === null ? null : inSpan(input.commits),
     forcedLayouts: inSpan(input.forcedReads),
     deliveries: input.deliveries === null ? null : inSpan(input.deliveries),
+    episodeEnds: inSpan(input.episodeEnds),
+    scrollWrites: inSpan(input.scrollWrites),
   };
 }
 
@@ -187,6 +207,8 @@ export interface MotionEvents {
   readonly forcedLayouts: readonly LandEvent[];
   /** `null` when no delivery wrapper was installed. */
   readonly deliveries: readonly LandEvent[] | null;
+  /** The scroll writes inside the motion. */
+  readonly scrollWrites: readonly LandEvent[];
 }
 
 /**
@@ -211,7 +233,7 @@ export function landOpensAt(ticks: readonly number[], landAt: number): number {
  * the `settle-land` row's, so no event is read by both.
  */
 export function classifyMotionEvents(
-  input: Pick<LandInput, "commits" | "forcedReads" | "deliveries">,
+  input: Pick<LandInput, "commits" | "forcedReads" | "deliveries" | "scrollWrites">,
   motionAt: number,
   landOpens: number,
 ): MotionEvents {
@@ -221,6 +243,7 @@ export function classifyMotionEvents(
     commits: input.commits === null ? null : inMotion(input.commits),
     forcedLayouts: inMotion(input.forcedReads),
     deliveries: input.deliveries === null ? null : inMotion(input.deliveries),
+    scrollWrites: inMotion(input.scrollWrites),
   };
 }
 
@@ -267,6 +290,9 @@ const READ_METHODS: readonly { readonly proto: () => object; readonly name: stri
   { proto: () => Element.prototype, name: "getClientRects" },
 ];
 
+/** The scroll methods a write is made through, beside the `scrollTop` setter. */
+const SCROLL_METHODS: readonly string[] = ["scrollTo", "scrollBy"];
+
 function stackSite(): string {
   const lines = String(new Error().stack ?? "").split("\n");
   // `Error`, this function, `record`, the wrapper; the caller is next.
@@ -295,6 +321,11 @@ class LandRecorder {
   private readsInstalled = false;
   private reads: LandEvent[] = [];
   private delivered: LandEvent[] = [];
+  private ended: LandEvent[] = [];
+  private scrolled: LandEvent[] = [];
+  private releaseEpisodeEnds: (() => void) | null = null;
+  /** When the last observer delivery began, armed or not: the solve's quiet frame reads it. */
+  private lastDeliveryAt = Number.NEGATIVE_INFINITY;
   /** Whether this page counts observer deliveries at all. */
   deliveriesCounted = false;
 
@@ -303,6 +334,9 @@ class LandRecorder {
     this.installReads();
     this.reads = [];
     this.delivered = [];
+    this.ended = [];
+    this.scrolled = [];
+    this.releaseEpisodeEnds ??= onEpisodeEnd((scrollers) => this.episodeEnded(scrollers));
     this.armed = true;
   }
 
@@ -311,6 +345,10 @@ class LandRecorder {
     this.armed = false;
     this.reads = [];
     this.delivered = [];
+    this.ended = [];
+    this.scrolled = [];
+    this.releaseEpisodeEnds?.();
+    this.releaseEpisodeEnds = null;
   }
 
   /**
@@ -333,7 +371,9 @@ class LandRecorder {
   }
 
   /** The land's inputs from everything kept since the arm. */
-  take(from: number): Pick<LandInput, "commits" | "forcedReads" | "deliveries"> {
+  take(
+    from: number,
+  ): Pick<LandInput, "commits" | "forcedReads" | "deliveries" | "episodeEnds" | "scrollWrites"> {
     const census = typeof window === "undefined" ? undefined : window.__tugCommits;
     const commits =
       census === undefined
@@ -349,7 +389,21 @@ class LandRecorder {
       commits,
       forcedReads: this.reads.slice(),
       deliveries: this.deliveriesCounted ? this.delivered.slice() : null,
+      episodeEnds: this.ended.slice(),
+      scrollWrites: this.scrolled.slice(),
     };
+  }
+
+  /**
+   * Whether no observer delivery ran and no React commit performed work since
+   * `t`, armed or not: the crossing solve's quiet frame. A page with no
+   * commit census reads its deliveries alone, and one with no delivery
+   * wrapper its commits alone.
+   */
+  quietSince(t: number): boolean {
+    if (this.deliveriesCounted && this.lastDeliveryAt >= t) return false;
+    const census = typeof window === "undefined" ? undefined : window.__tugCommits;
+    return census === undefined || !census.since(t).some((c) => c.performed > 0);
   }
 
   /** Called by a read wrapper with the read's start and its own time. */
@@ -360,8 +414,22 @@ class LandRecorder {
     this.reads.push({ t: start, ms, site });
   }
 
+  /** Called by the episode end hook with the scrollers the episode ended. */
+  episodeEnded(scrollers: number): void {
+    if (!this.armed || this.ended.length >= LAND_EVENT_CAP) return;
+    this.ended.push({ t: performance.now(), ms: 0, site: `episode ×${scrollers}` });
+  }
+
+  /** Called by a scroll write wrapper with the write's start and its own time. */
+  scrollWrite(start: number, ms: number): void {
+    if (!this.armed || this.scrolled.length >= LAND_EVENT_CAP) return;
+    const site = this.asideLabel === null ? stackSite() : `[${this.asideLabel}]`;
+    this.scrolled.push({ t: start, ms, site });
+  }
+
   /** Called by the delivery wrapper around an observer's callback. */
   deliver(cb: () => void, entries: readonly ResizeObserverEntry[]): void {
+    this.lastDeliveryAt = performance.now();
     if (!this.armed || this.delivered.length >= LAND_EVENT_CAP) {
       cb();
       return;
@@ -385,15 +453,31 @@ class LandRecorder {
     // recorder is reached through arrows that close over this one.
     const armed = (): boolean => this.armed;
     const read = (start: number, ms: number): void => this.read(start, ms);
+    const write = (start: number, ms: number): void => this.scrollWrite(start, ms);
     for (const { proto, name } of READ_GETTERS) {
       const owner = proto();
       const descriptor = Object.getOwnPropertyDescriptor(owner, name);
       const get = descriptor?.get;
       if (descriptor === undefined || get === undefined) continue;
+      // `scrollTop` is the one getter whose setter is a write the land can
+      // owe, so its setter is wrapped too; every other setter passes through.
+      const nativeSet = descriptor.set;
+      const set =
+        name === "scrollTop" && nativeSet !== undefined
+          ? function (this: unknown, value: unknown) {
+              if (!armed()) {
+                nativeSet.call(this, value);
+                return;
+              }
+              const start = performance.now();
+              nativeSet.call(this, value);
+              write(start, performance.now() - start);
+            }
+          : nativeSet;
       Object.defineProperty(owner, name, {
         configurable: true,
         enumerable: descriptor.enumerable,
-        set: descriptor.set,
+        set,
         get(this: unknown) {
           if (!armed()) return get.call(this);
           const start = performance.now();
@@ -415,6 +499,18 @@ class LandRecorder {
         return value;
       };
     }
+    for (const name of SCROLL_METHODS) {
+      const owner = Element.prototype as unknown as Record<string, unknown>;
+      const original = owner[name];
+      if (typeof original !== "function") continue;
+      owner[name] = function (this: unknown, ...args: unknown[]) {
+        if (!armed()) return original.apply(this, args);
+        const start = performance.now();
+        const value = original.apply(this, args);
+        write(start, performance.now() - start);
+        return value;
+      };
+    }
   }
 }
 
@@ -424,16 +520,20 @@ export const landRecorder = new LandRecorder();
  * Wrap `ResizeObserver` so a delivery can be timed and named.
  *
  * It has to be in place before any observer is constructed, so it runs when
- * this module evaluates — and only on a page that is already carrying the
- * commit census (test mode, or the lead recorder), where an extra branch per
- * delivery is part of being measured. Off both, the platform's own
- * constructor is left alone and the record says it did not count.
+ * this module evaluates — on a page that is already carrying the commit
+ * census (test mode, or the lead recorder), where an extra branch per
+ * delivery is part of being measured, and in every card page (`?body=`),
+ * whose crossing solve waits for a frame no delivery ran in whether or not
+ * anything is recording. Unarmed, a delivery passes straight through with
+ * one timestamp. Off all of those, the platform's own constructor is left
+ * alone and the record says it did not count.
  */
 function installDeliveryWrapper(): void {
   if (typeof window === "undefined") return;
   const measured =
     (window as { __tugTestMode?: boolean }).__tugTestMode === true ||
-    window.__tugLead !== undefined;
+    window.__tugLead !== undefined ||
+    new URLSearchParams(window.location.search).has("body");
   const Native = window.ResizeObserver;
   if (!measured || typeof Native !== "function") return;
   const Wrapped = function (

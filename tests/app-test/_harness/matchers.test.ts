@@ -560,6 +560,43 @@ const EVENT_FIXTURES: Record<
     forcedLayouts: [],
     deliveries: null,
   },
+  "body-land": {
+    kind: "body-land",
+    cardId: "c1",
+    planId: null,
+    solveMs: null,
+    snapshotMs: null,
+    foldLanded: null,
+    resizeMissed: null,
+    landWallMs: 1_700_000_000_000,
+    frameMs: 34,
+    frameFrames: 2.04,
+    gapsMs: [4, 34],
+    framePeriodMs: 16.7,
+    commits: null,
+    forcedLayouts: [],
+    deliveries: [],
+    episodeEnds: [{ t: 10, ms: 0, site: "episode ×1" }],
+    scrollWrites: [],
+    motionCommits: null,
+    motionScrollWrites: [],
+  },
+  "settle-solve": {
+    kind: "settle-solve",
+    planId: 3,
+    solveMs: 41.25,
+    timedOut: false,
+    source: "host",
+  },
+  "placement-land-drift": {
+    kind: "placement-land-drift",
+    cardId: "c1",
+    planId: 3,
+    dx: 0,
+    dy: 0,
+    dw: 0,
+    dh: -12,
+  },
   "settle-beat": {
     kind: "settle-beat",
     recipe: "move",
@@ -711,6 +748,12 @@ describe("summarizeEvent — label grammar per kind", () => {
   test("save-callback uses src= (not source=) shorthand", () => {
     expect(summarizeEvent(EVENT_FIXTURES["save-callback"])).toBe(
       "save-callback c1 src=debounced",
+    );
+  });
+
+  test("body-land names its card, its solve and what ran in its land; an uncounted list reads -", () => {
+    expect(summarizeEvent(EVENT_FIXTURES["body-land"])).toBe(
+      "body-land c1 solve=- frame=34.0ms/2.04f commits=- forced=0 deliveries=0 episodeEnds=1 scrollWrites=0",
     );
   });
 });

@@ -1036,7 +1036,7 @@ export class DeckManager implements IDeckManagerStore {
    * otherwise have deferred. Nested so a sync subscriber that provokes its
    * own commit cannot spend the outer commit's vote.
    */
-  private inFlightDeferralVote: { flush: boolean } | null = null;
+  private inFlightDeferralVote: { flush: boolean; pastMotion: boolean } | null = null;
 
   private stateVersion: number = 0;
 
@@ -1220,6 +1220,11 @@ export class DeckManager implements IDeckManagerStore {
       tellReactNow(() => this.subscribers.forEach((cb) => cb(pending.landing)));
       perfMark("tug:react-notify-end");
     }
+  };
+
+  /** {@link IDeckManagerStore.holdNotifyPastMotion}. */
+  public holdNotifyPastMotion = (): void => {
+    if (this.inFlightDeferralVote !== null) this.inFlightDeferralVote.pastMotion = true;
   };
 
   /**
@@ -2619,7 +2624,7 @@ export class DeckManager implements IDeckManagerStore {
     // projects each notification into the `menuState` push the Swift
     // host validates its menus from.
     const priorVote = this.inFlightDeferralVote;
-    const vote = { flush: false };
+    const vote = { flush: false, pastMotion: false };
     this.inFlightDeferralVote = vote;
     // The motion gate this commit arrived under, if one is closed.
     const gateBefore = gestureScope.motionGate();
@@ -2646,6 +2651,15 @@ export class DeckManager implements IDeckManagerStore {
     // pass follows it before anything paints.
     if (vote.flush || !isTugMotionEnabled()) {
       tellReactNow(() => this.subscribers.forEach((cb) => cb(landing)));
+      return;
+    }
+    // A commit whose arm launched its motion from the store's delta alone —
+    // a hand-lift's prelaunched slide — owes React nothing before the first
+    // frame, since nothing waits on its layout, and its tell is held with
+    // everything else behind the gate that arm closed, so it lands after the
+    // land rather than inside the motion.
+    if (vote.pastMotion && gestureScope.motionGate() !== null) {
+      this._scheduleGatedNotify(landing);
       return;
     }
     // A commit that arrived mid-motion and moved no settle — the arm left the

@@ -93,8 +93,9 @@ import type { IDeckManagerStore } from "../deck-manager-store";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
 import { bodyCardsStore } from "./body-cards-store";
 import { hostCapabilitiesStore } from "./body-handoff";
-import { postToHost } from "../host/channel";
+import { onHostMessage, postToHost } from "../host/channel";
 import { placeCardsToHost } from "../host/declarations/geometry";
+import { planStartedToPage } from "../host/declarations/lifecycle";
 import { cardArrivingOf, railMembersOf } from "../deck-store-selectors";
 import {
   RAIL_TRAVEL_ATTR,
@@ -113,12 +114,15 @@ import { shellWallMs, wholePoints, type CarriedFrame, type Rect } from "./card-p
 import {
   installCardPlanRunner,
   landingFrame,
+  notePlanStarted,
   planCards,
   postCardPlan,
+  SOLVE_GUARD_MS,
   viewOf,
   type CardPlan,
   type CardPlanOutput,
   type LandingCurve,
+  type PostedPlan,
   type RunPlanInput,
 } from "./card-plan";
 import { motionKeyframes } from "./imposer-motion";
@@ -131,6 +135,7 @@ import { CANVAS_BACKGROUND_ATTRIBUTE } from "./pane-frame-selectors";
 import { paneStandingOf } from "./pane-chrome-projection";
 import { overlaySurfaceBook } from "./overlay-surfaces";
 import { faceDrawOf, type FaceDraw } from "./face-draw";
+import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
 // ---------------------------------------------------------------------------
 // The rule
@@ -644,7 +649,48 @@ const SETTLING_ATTRIBUTE = "data-imposer-settling";
  * on its way, and no longer, because past it the card is standing short of
  * its pane ([L33]).
  */
-const LANDING_GUARD_MS = 250;
+export const LANDING_GUARD_MS = 250;
+
+/**
+ * How long after a landing plan's posting the shell lands its card itself:
+ * the plan's span, the host's solve guard for a plan that waits on its solve
+ * before it starts, and the landing guard.
+ */
+export function landingHorizonMs(spanMs: number, solves: boolean): number {
+  return spanMs + (solves ? SOLVE_GUARD_MS : 0) + LANDING_GUARD_MS;
+}
+
+/** How far a land's measurement moved a landed card from its plan's landing, viewport px. */
+export interface LandDrift {
+  readonly cardId: string;
+  readonly dx: number;
+  readonly dy: number;
+  readonly dw: number;
+  readonly dh: number;
+}
+
+/**
+ * Each of `landed` that `placement` measures a pixel or more from its plan's
+ * landing: the land's measurement had something left to move. A card the
+ * measurement does not place, or the plan did not land, says nothing.
+ */
+export function landDrifts(
+  placement: Placement,
+  landed: readonly string[],
+  landings: Readonly<Record<string, Rect>>,
+): LandDrift[] {
+  const measured = new Map(placement.bodies.map((b) => [b.cardId, b]));
+  const out: LandDrift[] = [];
+  for (const cardId of landed) {
+    const at = measured.get(cardId);
+    const landing = landings[cardId];
+    if (at === undefined || landing === undefined) continue;
+    const d = { dx: at.x - landing.x, dy: at.y - landing.y, dw: at.width - landing.width, dh: at.height - landing.height };
+    if (Math.max(Math.abs(d.dx), Math.abs(d.dy), Math.abs(d.dw), Math.abs(d.dh)) < 1) continue;
+    out.push({ cardId, ...d });
+  }
+  return out;
+}
 
 /**
  * The facts that decide whether `cardId`'s body shows, read from the deck
@@ -845,6 +891,8 @@ export interface InFlightPlan {
   readonly arrives: boolean;
   /** The plan is a dropped card's landing: the deck's landing mark comes off when it ends ({@link CardPlacer.noteRelease}). */
   readonly lands: boolean;
+  /** The plan solves before it starts: the card's body is laid out at its landing size by the plan, not held by the mirror. */
+  readonly solves: boolean;
 }
 
 /**
@@ -940,6 +988,9 @@ export class CardPlacer {
   private lastPlan: CardPlanReport | null = null;
   /** How many times {@link runPlan} has run, so a reader can tell its last report is new. */
   private planRuns = 0;
+  /** The plan whose landed cards the land's measurement has been checked against, and which of them it has. */
+  private driftPlan: number | null = null;
+  private readonly driftChecked = new Set<string>();
 
   constructor(private readonly deck: IDeckManagerStore) {}
 
@@ -1039,6 +1090,7 @@ export class CardPlacer {
     // A card the hand let go of elsewhere than this measurement puts it
     // lands by a plan of its own, posted ahead of the placement that names it.
     const landed = this.landReleased(placement);
+    this.checkLandDrift(landed);
     // A view this measurement takes down stands one paint more, so the host
     // never shows what lies beneath it before the commit has composited.
     const hold = heldForThePaint(this.poster.lastPosted, landed);
@@ -1053,6 +1105,28 @@ export class CardPlacer {
     if (hold !== null) this.hideNow(hold.releasing);
     this.observePlaceholders(container);
   };
+
+  /**
+   * The land's measurement owes nothing after a plan: each card the last
+   * plan landed is measured at the landing the plan carried it to. One that
+   * is not was moved by the land, which a solved plan never does, so it is
+   * recorded (`placement-land-drift`) — once per card per plan, the first
+   * measurement after its landing — and posted anyway. Read from the last
+   * plan's record, never `inFlight`, which the landing has already emptied.
+   */
+  private checkLandDrift(placement: Placement): void {
+    const plan = this.lastPlan;
+    if (plan === null || plan.planId === null) return;
+    if (this.driftPlan !== plan.planId) {
+      this.driftPlan = plan.planId;
+      this.driftChecked.clear();
+    }
+    const unchecked = plan.landed.map((l) => l.cardId).filter((cardId) => !this.driftChecked.has(cardId));
+    for (const cardId of unchecked) this.driftChecked.add(cardId);
+    for (const drift of landDrifts(placement, unchecked, plan.landings)) {
+      deckTrace.record({ kind: "placement-land-drift", planId: plan.planId, ...drift });
+    }
+  }
 
   /**
    * Post `placeCards` for `placement` when it says something new: every
@@ -1141,9 +1215,9 @@ export class CardPlacer {
    * motion ([B11]). No layout is read: the placement and the panes' boxes
    * are the last measurement's ([D211]).
    */
-  runPlan(input: RunPlanInput): void {
+  runPlan(input: RunPlanInput): PostedPlan | null {
     const last = this.poster.lastPosted;
-    if (last === null || this.container === null) return;
+    if (last === null || this.container === null) return null;
     this.planRuns += 1;
     const frames: CarriedFrame[] = [];
     const cardsInFrame = new Map<string, string[]>();
@@ -1151,6 +1225,8 @@ export class CardPlacer {
     const reasons: Record<string, string> = {};
     const arriving = new Set<string>();
     const landings = new Set<string>();
+    // Each card's pane rect at Last, viewport px: where its landing's insets are read from.
+    const paneAtLast = new Map<string, Rect>();
     input.frames.forEach((f, i) => {
       const cardIds = bodiesIn(f.frame);
       if (cardIds.length === 0) return;
@@ -1168,6 +1244,7 @@ export class CardPlacer {
       }
       const paneId = `frame-${i}`;
       const lastRect = "dx" in f.last ? { ...first, x: first.x + f.last.dx } : f.last;
+      for (const cardId of cardIds) paneAtLast.set(cardId, lastRect);
       // A card the hand let go of in this frame lands from where it was
       // released, as a one-card plan on the frame's move curve, rather
       // than riding the frame's beats from a First rect its view never
@@ -1211,6 +1288,10 @@ export class CardPlacer {
       // Each carried card's rect is its landing, named by the plan. A carried
       // arrival is shown by the host with its tracks, so it is posted visible
       // from here: the frame it rides in on is what the reader sees arrive.
+      // Its insets are the landing's too — its pane within the landing view,
+      // which the view's growth to whole points makes fractional and
+      // different from First's — so the land's measurement reads the same
+      // insets and the page is told none at the land.
       //
       // And every card's shell controls are read again here. The place seams
       // stand at their Last positions from the commit the settle plans, while
@@ -1223,7 +1304,20 @@ export class CardPlacer {
       const adopted: Placement = {
         bodies: last.bodies.map((b) => {
           const r = landings.get(b.cardId);
-          const placed = r === undefined ? b : { ...b, x: r.x, y: r.y, width: r.width, height: r.height, planId, ...(arrived.has(b.cardId) ? { visible: true } : {}) };
+          const pane = paneAtLast.get(b.cardId);
+          const placed =
+            r === undefined
+              ? b
+              : {
+                  ...b,
+                  x: r.x,
+                  y: r.y,
+                  width: r.width,
+                  height: r.height,
+                  ...(pane === undefined ? {} : { insets: insetsOf(pane, r) }),
+                  planId,
+                  ...(arrived.has(b.cardId) ? { visible: true } : {}),
+                };
           const shell = shellControlRects(placed);
           return sameRects(shell, placed.shell) ? placed : { ...placed, shell };
         }),
@@ -1241,13 +1335,16 @@ export class CardPlacer {
       cancelled: [],
       shellLanded: [],
     };
+    return planId === null ? null : { planId, solves: out.solves };
   }
 
   /**
    * Post `out`'s cards as one plan starting at `startTime` (document
    * timeline ms), record each in flight, and arm a horizon over every card
-   * in `landings`: the plan's own length plus a guard, past which the shell
-   * lands the card itself where the host never reported ([L33]). Returns the
+   * in `landings`: the plan's own length plus a guard — and, for a plan
+   * that solves, the host's solve guard, which the start can wait on —
+   * past which the shell lands the card itself where the host never
+   * reported ([L33]). Returns the
    * plan's id, or null when nothing was planned and nothing posted. Adopting
    * the landings into the placement is the caller's.
    */
@@ -1261,7 +1358,12 @@ export class CardPlacer {
     // past begins mid-curve, which is the first-frame hop `at0597` reads.
     // The stand-ins paint nothing, so the cards starting at the real now
     // and landing that much after them costs nothing the eye can see.
-    const plan: CardPlan = { planId, startWallMs: shellWallMs(Math.max(startTime, performance.now())), cards: out.cards };
+    const plan: CardPlan = {
+      planId,
+      startWallMs: shellWallMs(Math.max(startTime, performance.now())),
+      solves: out.solves,
+      cards: out.cards,
+    };
     postCardPlan(plan);
     for (const c of out.cards) {
       const spanMs = Math.max(0, ...c.beats.map((beat) => beat.delayMs + beat.durationMs));
@@ -1275,12 +1377,18 @@ export class CardPlacer {
         landed: null,
         lateMs: null,
       });
-      this.inFlight.set(c.cardId, { planId, landing: c.landing, arrives: c.arrives === true, lands: landings.has(c.cardId) });
+      this.inFlight.set(c.cardId, {
+        planId,
+        landing: c.landing,
+        arrives: c.arrives === true,
+        lands: landings.has(c.cardId),
+        solves: out.solves,
+      });
       if (!landings.has(c.cardId)) continue;
       this.clearHorizon(c.cardId);
       this.horizons.set(
         c.cardId,
-        setTimeout(() => this.shellLand(c.cardId, planId), spanMs + LANDING_GUARD_MS),
+        setTimeout(() => this.shellLand(c.cardId, planId), landingHorizonMs(spanMs, out.solves)),
       );
     }
     return planId;
@@ -1363,6 +1471,7 @@ export class CardPlacer {
     overlaySurfaceBook.release(cardId, "plan");
     if (this.lastPlan?.planId === planId) this.lastPlan.shellLanded.push(cardId);
     this.traceAnswer(cardId, planId, false, null);
+    tugDevLogStore.warn("placement", "landing guard fired", { cardId, planId, guardMs: LANDING_GUARD_MS });
     const last = this.poster.lastPosted;
     if (last === null) return;
     this.poster.offer({
@@ -1380,6 +1489,15 @@ export class CardPlacer {
     if (horizon === undefined) return;
     clearTimeout(horizon);
     this.horizons.delete(cardId);
+  }
+
+  /**
+   * Whether `cardId` rides a plan that solves, from the plan's posting to
+   * its `landed` or `beatsCancelled`: its body is laid out at its landing
+   * size by the plan, and the mirror holds nothing over it.
+   */
+  isSolving(cardId: string): boolean {
+    return this.inFlight.get(cardId)?.solves === true;
   }
 
   /** The host ran `cardId`'s beats of plan `planId` to their end. */
@@ -1465,6 +1583,7 @@ export class CardPlacer {
     this.readFlow = readFlow;
     setInstalled(this);
     installCardPlanRunner((input) => this.runPlan(input));
+    const releasePlanStarted = onHostMessage(planStartedToPage, notePlanStarted);
     this.resizes = new ResizeObserver(this.schedule);
     this.writes = watchArrangementWrites(container, this.schedule);
     container.addEventListener(IMPOSER_SETTLE_END, this.measure);
@@ -1475,6 +1594,7 @@ export class CardPlacer {
     return () => {
       container.removeEventListener(IMPOSER_SETTLE_END, this.measure);
       window.removeEventListener("resize", this.schedule);
+      releasePlanStarted();
       releaseZoom();
       releaseBodies();
       releaseTheme();
@@ -1601,6 +1721,11 @@ export function releaseCardsHeldForHost(): void {
 /** The installed placer's account, or null when none is installed. Read-only. */
 export function cardPlacementDiag(): CardPlacementDiag | null {
   return installed?.diag() ?? null;
+}
+
+/** Whether `cardId` rides a solving plan now ({@link CardPlacer.isSolving}); false with no placer installed. */
+export function cardIsSolving(cardId: string): boolean {
+  return installed?.isSolving(cardId) ?? false;
 }
 
 /** The host ran a body's planned beats to their end. */

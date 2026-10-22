@@ -274,8 +274,10 @@ async function armHandoffRecorder(app: App, stopWhen: string): Promise<void> {
       var sheetSel = ${JSON.stringify(SHEET)};
       var occ0 = document.querySelector(occSel);
       // The body's own frame, which carries the shell's fold crossing as a
-      // mirror (applyCrossingMirror): the recorder runs in A's page.
-      var frame = document.querySelector(".body-pane-frame");
+      // mirror (applyCrossingMirror): the recorder runs in A's page. A whole
+      // card draws its pane in its own page, so its frame is that page's
+      // \`.tug-pane\`; \`.body-pane-frame\` is a content-only body's.
+      var frame = document.querySelector(".tug-pane") || document.querySelector(".body-pane-frame");
       var rec = {
         identityKept: true,
         cellFramesInCrossing: 0,
@@ -323,9 +325,21 @@ async function armHandoffRecorder(app: App, stopWhen: string): Promise<void> {
 
 async function readHandoffRecord(app: App): Promise<HandoffRecord> {
   // The recorder was armed in A's body, so its record is that page's.
-  await app.body("A").waitForCondition<boolean>(`window.__at0562rec.done === true`, {
-    timeoutMs: 15000,
-  });
+  try {
+    await app.body("A").waitForCondition<boolean>(`window.__at0562rec.done === true`, {
+      timeoutMs: 15000,
+    });
+  } catch (error) {
+    // A record that never finished says why only if it is read: how far it
+    // got, the faces it wore, and what A's frame and the host say now.
+    const partial = await app.body("A").evalJS<unknown>(`window.__at0562rec`);
+    const frame = await app.body("A").evalJS<unknown>(
+      `(function(){var f=document.querySelector(".tug-pane")||document.querySelector(".body-pane-frame");return f===null?null:Array.prototype.map.call(f.attributes,function(a){return a.name+"="+a.value;}).filter(function(s){return /crossing|fold/.test(s);});})()`,
+    );
+    const host = ((await app.bodies()).find((b) => b.cardId === "A") as { crossing?: unknown } | undefined)?.crossing ?? null;
+    note("at0562 handoff record unfinished", { partial, frame, host });
+    throw error;
+  }
   return app.body("A").evalJS<HandoffRecord>(`window.__at0562rec`);
 }
 

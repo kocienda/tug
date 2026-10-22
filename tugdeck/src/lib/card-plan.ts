@@ -62,6 +62,7 @@
 
 import { postToHost } from "../host/channel";
 import { cardPlanToHost } from "../host/declarations/geometry";
+import type { PlanStarted } from "../host/declarations/lifecycle";
 import type { Placement } from "./card-placement";
 import type { BeatKind, SettleTerms } from "./pane-flip";
 
@@ -113,6 +114,11 @@ export type BeatEasing = "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-o
  */
 export function shellWallMs(t: number): number {
   return performance.timeOrigin + t;
+}
+
+/** {@link shellWallMs}'s inverse: a wall-clock ms on the document timeline. */
+export function shellTimelineMs(wallMs: number): number {
+  return wallMs - performance.timeOrigin;
 }
 
 /** A layout-px rect from `layoutRectOf`, as viewport px at page-zoom `factor`: all four components, no origin term. */
@@ -181,6 +187,12 @@ export interface CardPlan {
   readonly planId: number;
   /** `shellWallMs(T)`: the settle's t = 0 on the wall clock, ms. */
   readonly startWallMs: number;
+  /**
+   * Some card's box changes size: the host lays each such card's page out at
+   * its crossing size before the motion starts, and says when it started
+   * (`planStarted`).
+   */
+  readonly solves: boolean;
   readonly cards: readonly PlannedCard[];
 }
 
@@ -214,20 +226,48 @@ export interface RunPlanInput {
   readonly factor: number;
 }
 
-let runner: ((input: RunPlanInput) => void) | null = null;
+/**
+ * How long the host waits for a solving plan's cards before it starts the
+ * plan without them, ms. The host's `BodyViewController.solveGuardMs` is the
+ * source; the shell mirrors it to size what it arms from the plan's posting.
+ */
+export const SOLVE_GUARD_MS = 250;
+
+/** What a posted plan says of itself to the settle that asked for it. */
+export interface PostedPlan {
+  readonly planId: number;
+  /** The plan waits on the host's `planStarted` before anything moves. */
+  readonly solves: boolean;
+}
+
+let runner: ((input: RunPlanInput) => PostedPlan | null) | null = null;
 
 /** The placer installs itself here; `null` uninstalls. */
-export function installCardPlanRunner(run: ((input: RunPlanInput) => void) | null): void {
+export function installCardPlanRunner(run: ((input: RunPlanInput) => PostedPlan | null) | null): void {
   runner = run;
 }
 
 /**
  * A settle is about to move `input.frames`: the installed placer plans the
- * cards under them to move with their stand-ins and posts the plan. A no-op
- * when the host makes no card views.
+ * cards under them to move with their stand-ins and posts the plan, and
+ * says which plan it posted and whether it solves. Null when nothing was
+ * posted — no placer, because the host makes no card views, or no card to
+ * plan.
  */
-export function runCardPlan(input: RunPlanInput): void {
-  runner?.(input);
+export function runCardPlan(input: RunPlanInput): PostedPlan | null {
+  return runner?.(input) ?? null;
+}
+
+let planStartListener: ((started: PlanStarted) => void) | null = null;
+
+/** The settle installs what hears a solving plan start; `null` uninstalls. */
+export function installPlanStartListener(listen: ((started: PlanStarted) => void) | null): void {
+  planStartListener = listen;
+}
+
+/** The host started a solving plan: the placer forwards its `planStarted` here. */
+export function notePlanStarted(started: PlanStarted): void {
+  planStartListener?.(started);
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +302,8 @@ export interface CardPlanInput {
 
 export interface CardPlanOutput {
   readonly cards: PlannedCard[];
+  /** Some planned card carries a `crossing`, so the plan solves before it starts. */
+  readonly solves: boolean;
   /** Every card in a carried frame the planner did not plan, in frame order. */
   readonly refused: string[];
   /** Why each refused card was refused, for the trace. */
@@ -365,8 +407,8 @@ function walkFrame(frame: CarriedFrame, factor: number): { steps: { beat: FrameB
  * A card is planned when it was placed visible, is still shown, stands in a
  * carried frame whose beats walk to the frame's Last rect, and its posted
  * view is where the frame's First rect puts it. A card whose box changes
- * size carries `crossing` at its landing size. Every other card in a carried
- * frame is refused, with its reason.
+ * size carries `crossing` at its landing size, and makes the plan one that
+ * solves. Every other card in a carried frame is refused, with its reason.
  */
 export function planCards(input: CardPlanInput): CardPlanOutput {
   const cards: PlannedCard[] = [];
@@ -430,5 +472,5 @@ export function planCards(input: CardPlanInput): CardPlanOutput {
       });
     }
   }
-  return { cards, refused, reasons };
+  return { cards, solves: cards.some((c) => c.crossing !== undefined), refused, reasons };
 }

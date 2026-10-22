@@ -116,6 +116,15 @@ export interface CardDeck {
   flushPendingNotify?: () => void;
 
   /**
+   * Called from a SYNCHRONOUS subscriber: hold the commit being told about
+   * behind the motion gate that subscriber closed, so React is told after
+   * the motion's land rather than in its first frames. The canvas's `arm`
+   * is that caller, for a slide it launched from the store's delta alone —
+   * a prelaunch reads no layout React would produce.
+   */
+  holdNotifyPastMotion?: () => void;
+
+  /**
    * Return the current DeckState snapshot: the STANDING deck, which never
    * holds a departing pane, so a reader that lists or counts is right by
    * default. Must be an arrow property (stable identity, auto-bound this).

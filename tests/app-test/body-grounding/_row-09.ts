@@ -47,6 +47,7 @@ import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixtur
 import { focusBody, foldedOf, pollFor, responders, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
+import { armLandRecords, expectEmptyLand, noteLand } from "./_land";
 import {
   BURST_INTERVAL_MS,
   armSampler,
@@ -121,6 +122,13 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
   const before = (await rectOf(app, frameOf(card)))!;
   const boxBefore = carried ? await expectAtRest(app, card, `${label}: before`) : null;
   const runsBefore = (await planDiag(app)).runs;
+  // The land on both sides, read as a note: the card page's own and the
+  // shell's. Armed before the gesture, marked so the leg reads its own rows.
+  let landMarks: { body: number; shell: number } | null = null;
+  if (carried) {
+    await armLandRecords(app, [card]);
+    landMarks = { body: await app.body(card).markDeckTrace(), shell: await app.markDeckTrace() };
+  }
   await armSampler(app, card);
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
   expect(armed.armed, `${label}: the burst armed`).toBe(true);
@@ -154,6 +162,16 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
     );
     note(`${label}: ${plan.runs - runsBefore} plan run(s); last plan ${JSON.stringify(plan.last)}`);
     expect(plan.last?.landed.some((l) => l.cardId === card) ?? false, `${label}: the host carried the body and landed it`).toBe(true);
+    // The fold and the unfold are solved before their first frame: the land
+    // on both sides owes nothing, the land's measurement moves nothing, and a
+    // fold's folded form stood on the card before the solve laid it out.
+    const land = await noteLand(app, card, label, landMarks ?? undefined);
+    expectEmptyLand(land, label);
+    const drifts = (await app.getDeckTrace(landMarks === null ? {} : { since: landMarks.shell })).filter(
+      (e) => e.kind === "placement-land-drift" && (e as { cardId?: string }).cardId === card,
+    );
+    expect(drifts, `${label}: the land's measurement moved nothing the plan landed`).toEqual([]);
+    if (toFolded) expect(land.body?.foldLanded, `${label}: the folded form had landed when the page solved`).toBe(true);
     const v = judgeCarried(label, reading, samples, presented, gestureWall, boxBefore!, boxAfter, standing.palette, crop);
     expect(v.motion, `${label}: frames were captured while the chrome moved`).toBeGreaterThan(2);
     expect(v.lidOnWhileMoving, `${label}: the card stays posted shown in every sample where the frame moved`).toBe(0);

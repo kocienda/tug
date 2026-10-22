@@ -112,6 +112,42 @@ export const crossingReadyToHost = defineToHost<BodySurface>({
   refused: [[28, 30, 34, 255], {}, { surface: [28, 30, 34] }],
 });
 
+/**
+ * The page is laid out at its crossing's size: the host's resize landed, its
+ * resize episode ended, and a frame passed with no observer delivery and no
+ * commit. The host starts the plan once every card it awaits has said so.
+ */
+export const crossingSolvedToHost = defineToHost({
+  name: "crossingSolved",
+  from: "body",
+  codec: empty,
+  samples: [{}],
+  refused: [true],
+});
+
+/**
+ * A solving plan has started: its wall-clock start, how long the solve took
+ * from the plan's receipt, and whether the host's guard started it rather
+ * than the last card's report.
+ */
+export interface PlanStarted {
+  readonly planId: number;
+  readonly startWallMs: number;
+  readonly solveMs: number;
+  readonly timedOut: boolean;
+}
+
+export const planStartedToPage = defineToPage<PlanStarted>({
+  member: "onPlanStarted",
+  to: "shell",
+  codec: obj({ planId: num, startWallMs: num, solveMs: num, timedOut: bool }),
+  samples: [
+    { planId: 7, startWallMs: 1_760_000_000_016.5, solveMs: 41.2, timedOut: false },
+    { planId: 8, startWallMs: 1_760_000_000_266, solveMs: 250, timedOut: true },
+  ],
+  refused: [7, { planId: 7, startWallMs: 0, solveMs: 0 }, { planId: "7", startWallMs: 0, solveMs: 0, timedOut: false }],
+});
+
 export const bodySurfaceToHost = defineToHost<BodySurface>({
   name: "bodySurface",
   from: "body",

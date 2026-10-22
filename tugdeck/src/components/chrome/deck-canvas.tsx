@@ -28,6 +28,8 @@ import {
   getTugTiming,
 } from "@/lib/scale-timing";
 import { pageZoomFactor, pageZoomStore } from "@/lib/page-zoom-store";
+import { onHostMessage } from "@/host/channel";
+import { windowResizeToPage } from "@/host/declarations/geometry";
 import { ZoomReadout } from "./zoom-readout";
 import { useResponder } from "@/components/tugways/use-responder";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
@@ -226,7 +228,6 @@ import {
   slotCount,
   DEFAULT_CONTENT_WIDTH,
   impositionGapPx,
-  RESIZE_RETUNE_QUIET_MS,
   FLOW_STRIP_PROPERTY,
   clampFlowOffset,
   FLOW_WHEEL_HUMP_PX,
@@ -3227,62 +3228,55 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // size it was not at before — because the user dragged the window edge, or
   // because the OS resized it (a display change, a space move).
   //
-  // Both are the same event as far as the deck is concerned, and neither is
-  // observed WHILE it happens: the timer restarts on every observation and only
-  // its expiry asks the store to re-tune, so a drag of the window edge runs the
-  // pure-CSS path throughout and re-tunes once, when the hand stops. Observing
-  // the container rather than `window` also catches host chrome that resizes
-  // the canvas without a window resize event.
+  // The moment is the resize's own end, never a quiet window after it, and
+  // there are three:
+  //
+  // - A bracketed resize — a live drag of the window edge, or a full-screen
+  //   transition — is told by the host (`windowResize` begin and end). Every
+  //   size inside the bracket runs the pure-CSS path, and the `end` re-tunes
+  //   once, when the hand stops or the transition lands.
+  // - A View › Zoom step resizes the deck root to the window ÷ the factor, so
+  //   the canvas's layout size moves. The re-tune runs in that delivery, under
+  //   the zoom's hold, so the step's readout covers the rails it moves rather
+  //   than leaving to show them move a beat later.
+  // - Any other size change — the OS resizing the window for a display change
+  //   or a space move, host chrome resizing the canvas without a window
+  //   resize — re-tunes in the delivery that reports it. Observing the
+  //   container rather than `window` is what catches the last of these.
   //
   // `ResizeObserver` reports the current size as soon as it starts observing.
   // That one is swallowed — a deck that re-tuned as it appeared would rearrange
   // itself under the user at the worst possible moment, before they had touched
   // anything ([L03]: registration and its cleanup live in a layout effect; the
-  // timer is a ref, not React state).
-  const retuneTimerRef = useRef<number | null>(null);
+  // bracket is a ref, not React state).
+  const windowResizingRef = useRef(false);
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let seenInitial = false;
-    // A View › Zoom step resizes the deck root to the window ÷ the factor, so
-    // the canvas's layout size moves and a zoom re-tunes too. The re-tune
-    // lands RESIZE_RETUNE_QUIET_MS after the zoom's relayout, and it can move
-    // rails; held here, the step does not settle until it lands, so the
-    // readout covers the re-tune as well rather than leaving to show the
-    // rails move a beat later.
-    let releaseZoomHold: (() => void) | null = null;
-    const releaseHold = (): void => {
-      releaseZoomHold?.();
-      releaseZoomHold = null;
-    };
+    const releaseBracket = onHostMessage(windowResizeToPage, ({ phase }) => {
+      windowResizingRef.current = phase === "begin";
+      if (phase === "end") store.retuneSidebarAllocation();
+    });
     const observer = new ResizeObserver(() => {
       if (!seenInitial) {
         seenInitial = true;
         return;
       }
-      if (retuneTimerRef.current !== null) {
-        window.clearTimeout(retuneTimerRef.current);
-      }
-      // Taken only while a zoom is in flight: a hold taken while settled is a
-      // no-op, and keeping that no-op would refuse the real hold to a zoom
-      // that lands inside a plain resize's quiet window.
-      if (releaseZoomHold === null && pageZoomStore.isZooming()) {
-        releaseZoomHold = pageZoomStore.hold();
-      }
-      retuneTimerRef.current = window.setTimeout(() => {
-        retuneTimerRef.current = null;
+      if (pageZoomStore.isZooming()) {
+        const release = pageZoomStore.hold();
         store.retuneSidebarAllocation();
-        releaseHold();
-      }, RESIZE_RETUNE_QUIET_MS);
+        release();
+        return;
+      }
+      if (windowResizingRef.current) return;
+      store.retuneSidebarAllocation();
     });
     observer.observe(el);
     return () => {
       observer.disconnect();
-      if (retuneTimerRef.current !== null) {
-        window.clearTimeout(retuneTimerRef.current);
-        retuneTimerRef.current = null;
-      }
-      releaseHold();
+      releaseBracket();
+      windowResizingRef.current = false;
     };
   }, [store]);
 

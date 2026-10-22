@@ -2543,13 +2543,6 @@ function middleOf(slots: readonly number[]): number {
  * ---------------------------------------------------------------------------*/
 
 /**
- * How long the canvas must hold still before a resize counts as settled and the
- * allocator re-tunes (`deck-canvas.tsx`). Lives here so the imposer's tuning
- * surface stays in one module, beside {@link IMPOSITION_SETTLE_MS}.
- */
-export const RESIZE_RETUNE_QUIET_MS = 200;
-
-/**
  * One rail's policy: the width it wants, the two floors beneath it, and how
  * greedy it is for whatever width the deck has to share out.
  *

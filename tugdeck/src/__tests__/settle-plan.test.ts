@@ -204,7 +204,7 @@ describe("launchedBeats: a beat no frame has a term in is skipped", () => {
 });
 
 describe("planSettleSchedule: back to back, with a prepare only where one is owed", () => {
-  const plain = { arrivals: 0, widthSettles: false, opensFoldCrossing: false, durationMs: DURATION };
+  const plain = { arrivals: 0, widthSettles: false, opensFoldCrossing: false, solving: false, durationMs: DURATION };
 
   test("every beat is scheduled, in BEAT_ORDER", () => {
     const { beats } = planSettleSchedule({ ...plain, launched: ["move"] });
@@ -246,6 +246,18 @@ describe("planSettleSchedule: back to back, with a prepare only where one is owe
       expect(plan.prepareMs).toBe(ARRIVAL_PREPARE_MS);
     }
     expect(ARRIVAL_PREPARE_MS).toBeGreaterThan(FOLD_PREPARE_MS);
+  });
+
+  test("a settle whose plan solves takes no prepare: the host's start is the fact the guess stood in for", () => {
+    const solving = planSettleSchedule({ ...plain, launched: ["move"], opensFoldCrossing: true, solving: true });
+    expect(solving.prepareMs).toBe(0);
+    expect(solving.beats.find((b) => b.kind === "move")!.delayMs).toBe(0);
+    const arriving = planSettleSchedule({ ...plain, arrivals: 1, launched: ["move"], solving: true });
+    expect(arriving.prepareMs).toBe(0);
+    // The gate still closes late behind an arrival: that is the commit's, not the page's.
+    expect(arriving.lateClose).toBe(true);
+    const open = planSettleSchedule({ ...plain, launched: ["move"], opensFoldCrossing: true, solving: false });
+    expect(open.prepareMs).toBe(FOLD_PREPARE_MS);
   });
 });
 

@@ -97,8 +97,9 @@ import {
   landRecorder,
 } from "@/lib/land-frame-record";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
-import { runCardPlan } from "@/lib/card-plan";
-import { viewportRect, type FrameBeat } from "@/lib/card-plan";
+import { installPlanStartListener, runCardPlan, shellTimelineMs, SOLVE_GUARD_MS, type PostedPlan } from "@/lib/card-plan";
+import { LANDING_GUARD_MS } from "@/lib/card-placement";
+import { viewportRect, type FrameBeat, type RunPlanFrame } from "@/lib/card-plan";
 import { hostCapabilitiesStore } from "@/lib/body-handoff";
 import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
@@ -112,6 +113,7 @@ import {
   type HeldTerms,
   type InterruptedBeat,
   type SettleBeat,
+  type SettleTerms,
 } from "@/lib/pane-flip";
 import {
   classifySettleFrames,
@@ -287,6 +289,13 @@ function postDisplayPeriod(): void {
   if (conn === null) return;
   postedDisplayPeriodMs = periodMs;
   conn.setDisplayPeriod(periodMs);
+}
+
+/** Drop the beats waiting on a solve, and their horizon. */
+function dropPendingLaunch(ref: { current: { horizon: number } | null }): void {
+  if (ref.current === null) return;
+  window.clearTimeout(ref.current.horizon);
+  ref.current = null;
 }
 
 /**
@@ -540,6 +549,19 @@ export function useSettleEngine({
    * longer than any one recipe's. Takes SCALED milliseconds.
    */
   const settleSweepRef = useRef<((windowMs: number) => void) | null>(null);
+  /**
+   * The settle's beats, planned and waiting for the host to start the card
+   * plan they ride ([P01]): its plan, the settle generation it belongs to,
+   * the launch, and the horizon past which the shell launches without the
+   * host's word ([L33]). Set by the Last pass, taken by the `planStarted`
+   * listener or the horizon, and dropped by every arm and the unmount.
+   */
+  const pendingLaunchRef = useRef<{
+    planId: number;
+    generation: number;
+    launch: (startTime: number | undefined) => void;
+    horizon: number;
+  } | null>(null);
   /**
    * Releases the settle — the frame record, the motion gate, the pending
    * arrivals — once per settle, and records which clock did it. The settle's own completion is the release
@@ -1576,6 +1598,24 @@ export function useSettleEngine({
       }, windowMs);
     };
     settleSweepRef.current = scheduleSweep;
+    // The host started a solving plan: the beats waiting on it launch from
+    // its start, moved onto the document timeline — or not at all when a
+    // later settle has superseded the one that planned them.
+    installPlanStartListener((started) => {
+      const pending = pendingLaunchRef.current;
+      if (pending === null || pending.planId !== started.planId) return;
+      window.clearTimeout(pending.horizon);
+      pendingLaunchRef.current = null;
+      if (settleGenerationRef.current !== pending.generation) return;
+      deckTrace.record({
+        kind: "settle-solve",
+        planId: started.planId,
+        solveMs: started.solveMs,
+        timedOut: started.timedOut,
+        source: "host",
+      });
+      pending.launch(shellTimelineMs(started.startWallMs));
+    });
     prevColumnModesRef.current = new Map(
       deckColumnsOf(store.getSnapshot(), null).map((c) => [c.slot, c.mode]),
     );
@@ -1717,6 +1757,9 @@ export function useSettleEngine({
       // completion and released the window early (the eight-card column leg
       // read one tick and no height rows).
       settleGenerationRef.current += 1;
+      // Beats still waiting on a solve belong to the settle this arm
+      // supersedes, and are never launched.
+      dropPendingLaunch(pendingLaunchRef);
 
       // First: where every frame the imposer may move is right now. A running
       // tween's transform is included in the rect, which is the point — a
@@ -2193,6 +2236,12 @@ export function useSettleEngine({
         // And past the land: the slide's beats launch here, so this is its
         // motion's first frame ([B05]).
         closeMotionGate(holdCapMs(settleMs, getTugTiming()));
+        // The deck store's own tell too, which keeps out of that door: the
+        // slide is planned from the store's delta and reads nothing React
+        // would lay out, so the commit this arm is being told about waits
+        // behind the gate it just closed and lands after the land, never
+        // inside the motion.
+        store.holdNotifyPastMotion?.();
         // The strip's new place, written now on every reader so every pane's
         // `left` is at its destination in the frame the tween's inverse holds
         // it at its origin. The layer's own effect writes the same value after
@@ -2361,6 +2410,8 @@ export function useSettleEngine({
          the teardown means to reach what they hold now, not at arm time. */
       unsubscribe();
       settleSweepRef.current = null;
+      installPlanStartListener(null);
+      dropPendingLaunch(pendingLaunchRef);
       settleReleaseRef.current = null;
       if (settleTimerRef.current !== null) {
         window.clearTimeout(settleTimerRef.current);
@@ -3508,18 +3559,28 @@ export function useSettleEngine({
       );
       // The prepare beat, each beat's delay, and the total the sweep and the
       // hold are sized against. `planSettleSchedule` says why a fold, an
-      // arrival and a settling width each hold the beats off.
+      // arrival and a settling width each hold the beats off — and why a
+      // settle whose card plan solves does not. Whether it solves is read
+      // before the plan, from whether a frame carrying a card's body changes
+      // size; a guess the planner then proves wrong is safe both ways: a
+      // plan that does not solve launches at once with no prepare, and one
+      // that does waits on its start with the prepare inside its beats.
+      const solving =
+        hostCapabilitiesStore.get().bodyViews &&
+        choreography.some(
+          (c) =>
+            c.beats.some((b) => b.terms.width !== undefined || b.terms.height !== undefined) &&
+            c.frame.querySelector("[data-body-placeholder]") !== null,
+        );
       const { lateClose, beats: schedule, totalMs } =
         planSettleSchedule({
           launched,
           arrivals: arrivals.length,
           widthSettles,
           opensFoldCrossing,
+          solving,
           durationMs: duration,
         });
-      if (totalMs > crossing.durationMs) {
-        settleSweepRef.current?.(holdCapMs(totalMs, getTugTiming()));
-      }
       // The cards in the frames these beats carry are planned here, in the
       // pass that plans the motion and before its first frame paints: each
       // rides its frame's beats on the host, on the curves and delays the
@@ -3528,32 +3589,59 @@ export function useSettleEngine({
       // `lib/card-plan.ts` ([B11]). A card whose box changes size is carried
       // as a crossing; nothing is hidden for the motion.
       const startTime = settleStartTime();
+      let posted: PostedPlan | null = null;
       if (startTime !== undefined) {
         const factor = pageZoomFactor();
         const timing = getTugTiming();
         const delayOf = new Map(schedule.map((b) => [b.kind, b.delayMs]));
-        runCardPlan({
+        const choreographed = choreography.map((c) => {
+          const first = firstRects.get(c.paneId);
+          return {
+            frame: c.frame,
+            first: first === undefined ? null : viewportRectOf(first, factor),
+            last: viewportRectOf(lastRectOf(c.frame), factor),
+            beats: c.beats.map((b) => {
+              const curve = beatCurve(b.kind);
+              return {
+                kind: b.kind,
+                terms: b.terms,
+                delayMs: (delayOf.get(b.kind) ?? 0) * timing,
+                durationMs: curve.durationMs * timing,
+                progress: curve.progress,
+              };
+            }),
+          };
+        });
+        // The choreography's whole span, in the plan's own ms: where a
+        // stack's retiring member lands.
+        const spanMs = Math.max(0, ...choreographed.flatMap((f) => f.beats.map((b) => b.delayMs + b.durationMs)));
+        // A covered member's walk from its First rect to its Last: the flip
+        // delta and, where measured, the size it takes.
+        const coverTerms = (paneId: string, frame: HTMLElement): SettleTerms => {
+          const firstLayout = firstRects.get(paneId);
+          const lastLayout = lastRectOf(frame);
+          if (firstLayout === undefined) return { dx: 0, dy: 0 };
+          return {
+            dx: firstLayout.x - lastLayout.x,
+            dy: firstLayout.y - lastLayout.y,
+            width: [firstLayout.width, lastLayout.width],
+            height: [firstLayout.height, lastLayout.height],
+          };
+        };
+        const coveredFrame = (paneId: string, frame: HTMLElement, beats: readonly FrameBeat[]): RunPlanFrame => {
+          const firstLayout = firstRects.get(paneId);
+          return {
+            frame,
+            first: firstLayout === undefined ? null : viewportRectOf(firstLayout, factor),
+            last: viewportRectOf(lastRectOf(frame), factor),
+            beats,
+          };
+        };
+        posted = runCardPlan({
           startTime,
           factor,
           frames: [
-            ...choreography.map((c) => {
-              const first = firstRects.get(c.paneId);
-              return {
-                frame: c.frame,
-                first: first === undefined ? null : viewportRectOf(first, factor),
-                last: viewportRectOf(lastRectOf(c.frame), factor),
-                beats: c.beats.map((b) => {
-                  const curve = beatCurve(b.kind);
-                  return {
-                    kind: b.kind,
-                    terms: b.terms,
-                    delayMs: (delayOf.get(b.kind) ?? 0) * timing,
-                    durationMs: curve.durationMs * timing,
-                    progress: curve.progress,
-                  };
-                }),
-              };
-            }),
+            ...choreographed,
             // The arriving frames, so the bodies in them ride the arrive
             // beat in with their chrome: the band card's rise, or a rail's
             // slide off its edge, from the offsets the beat's own keyframes
@@ -3589,40 +3677,34 @@ export function useSettleEngine({
             // left where the stack had it, the view would stand over the
             // whole run, in front and taking the pointer, for as long as the
             // settle runs. A zero-length beat from the stacked rect its body
-            // was posted at to its tile lands it before the first frame; a
-            // retiring member on a stack is held at its old tile instead,
-            // which is where its body already stands, so it is not here.
-            ...covered
-              .filter(({ paneId }) => !holdPlan.held.has(paneId))
-              .map(({ paneId, frame }) => {
-                const firstLayout = firstRects.get(paneId);
-                const lastLayout = lastRectOf(frame);
-                return {
-                  frame,
-                  first: firstLayout === undefined ? null : viewportRectOf(firstLayout, factor),
-                  last: viewportRectOf(lastLayout, factor),
-                  beats: [
-                    {
-                      kind: "move" as const,
-                      terms: {
-                        dx: firstLayout === undefined ? 0 : firstLayout.x - lastLayout.x,
-                        dy: firstLayout === undefined ? 0 : firstLayout.y - lastLayout.y,
-                        ...(firstLayout === undefined
-                          ? {}
-                          : {
-                              width: [firstLayout.width, lastLayout.width] as [number, number],
-                              height: [firstLayout.height, lastLayout.height] as [number, number],
-                            }),
-                      },
-                      delayMs: 0,
-                      durationMs: 0,
-                      progress: [0, 1],
-                    },
-                  ],
-                };
-              }),
+            // was posted at to its tile lands it before the first frame, and the
+            // host solves its page at the tile before the motion starts.
+            //
+            // A stack's retiring member is held at its old tile for the
+            // chain's whole span, which is where its body already stands,
+            // and lands at the full run at the span's end, under the survivor
+            // that has grown over it. Planned so, it is carried as a crossing:
+            // the host lays its page out at the full run in the solve, behind
+            // a cover of its face at the tile, and the cover comes off at its
+            // land, so the placer's land measurement has nothing to move.
+            ...covered.map(({ paneId, frame }) =>
+              holdPlan.held.has(paneId)
+                ? coveredFrame(paneId, frame, [
+                    { kind: "move", terms: { dx: 0, dy: 0 }, delayMs: 0, durationMs: spanMs, progress: [0, 1] },
+                    { kind: "move", terms: coverTerms(paneId, frame), delayMs: spanMs, durationMs: 0, progress: [0, 1] },
+                  ])
+                : coveredFrame(paneId, frame, [
+                    { kind: "move", terms: coverTerms(paneId, frame), delayMs: 0, durationMs: 0, progress: [0, 1] },
+                  ]),
+            ),
           ],
         });
+      }
+      // A plan that solves can wait up to the host's guard before anything
+      // moves, so every timer armed from here is sized for the wait.
+      const waitMs = posted?.solves === true ? SOLVE_GUARD_MS : 0;
+      if (totalMs > crossing.durationMs || waitMs > 0) {
+        settleSweepRef.current?.(holdCapMs(totalMs + waitMs, getTugTiming()));
       }
       // The land, pre-paid ([B04]): each settled interior pays its pin, its
       // restore, its extent rebase and its re-window now, inside the set-up
@@ -3634,559 +3716,590 @@ export function useSettleEngine({
       // set-up commit's layout effect, so that commit is in, and nothing
       // after it may tell React before the land. The cap is the hold's, a
       // wedge guard behind the release that normally opens it.
-      const gateCapMs = holdCapMs(totalMs, getTugTiming());
+      const gateCapMs = holdCapMs(totalMs + waitMs, getTugTiming());
       if (lateClose) closeMotionGateAfterPaint(gateCapMs);
       else closeMotionGate(gateCapMs);
-      // Every launched beat's effect is created in THIS frame, each held off
-      // by the sum of the durations of the launched beats before it, and the
-      // chain that used to sequence them is gone. That chain cost a frame at
-      // every hand-off: the next beat's effect was created in a microtask
-      // after the previous one had already committed and cancelled, so it was
-      // play-pending for the frame that followed and the frame wore the
-      // finished pose through it. `at0566` measured the hole at both seams —
-      // `shrink=64..237ms` then `move=254..653ms`, and `move=23..414ms` then
-      // `grow=433..664ms` — and the off-curve probe read it as a single tick
-      // at an offset near the first beat's end.
-      //
-      // What closes that hole is the CREATION, not a fill. A delayed beat
-      // fills `none` — `runBeat` says why, and it is not a detail — so it
-      // applies nothing through its delay and its opening pose is held by
-      // the inline start pose its Beat writes when it is planned, for every
-      // beat at once, exactly as it always was. What a beat no longer arrives
-      // at its boundary needing is a COMPOSITOR: its animation was created frames
-      // earlier and its start time resolved long before its active phase
-      // begins, so its first active frame paints its own keyframe 0 with
-      // nothing pending. That window, once per seam, was the whole hole.
-      //
-      // What remains of the chain is a NOTIFIER: each beat still lands itself
-      // off its own `Promise.allSettled`, and the settle's one completion
-      // waits on all of them.
-      const beatMarkers: Animation[] = [];
-      // A beat's own clock starts when its ACTIVE PHASE does, not when its
-      // effect is created. The retarget reads velocity off the beat that is
-      // UP, and with a delayed launch that is a function of elapsed time
-      // rather than of which promise resolved — so `settleBeatRef` and the
-      // container's `data-imposer-beat` are advanced at the moment the beat's
-      // active phase begins.
-      //
-      // On the ANIMATION clock rather than on a timer, and the difference is
-      // measurable: a `setTimeout` sized to the delay fires whenever the task
-      // queue gets to it, which under a settle's own load is tens of ms late,
-      // and `data-imposer-beat` would then name the previous beat for frames
-      // in which this one is already painting — `at0566` reads the beat
-      // windows off that attribute and measured the lag as a resident's top
-      // edge travelling 37px "during the shrink". An empty effect of exactly
-      // the delay's length shares the document timeline with the beat it
-      // announces, so it resolves on the beat's own first active frame and
-      // never after it.
-      //
-      // `stale` runs instead of `begin` when a later arm has superseded this
-      // settle by the time the beat would have begun: the beat never runs,
-      // and whatever it launched that nothing else owns is the caller's to
-      // take back.
-      const whenBeatBegins = (
-        delayMs: number,
-        begin: () => void,
-        stale?: () => void,
-      ): void => {
-        if (delayMs <= 0) {
-          begin();
-          return;
-        }
-        const marker = timelineMark(el, delayMs, startTime);
-        beatMarkers.push(marker);
-        void marker.finished.then(
-          () => {
-            if (settleGenerationRef.current !== generation) {
-              stale?.();
-              return;
-            }
+      // The beats launch from the start the plan settles on. A plan that
+      // solves lays its cards' pages out at their landing sizes before
+      // anything moves, and the host says when it starts (`planStarted`):
+      // the stand-ins are paintless ([D216]), so their beats wait for it
+      // and show nothing for the wait. Every other settle launches now.
+      const launchChoreography = (startTime: number | undefined): void => {
+        // Every launched beat's effect is created in THIS frame, each held off
+        // by the sum of the durations of the launched beats before it, and the
+        // chain that used to sequence them is gone. That chain cost a frame at
+        // every hand-off: the next beat's effect was created in a microtask
+        // after the previous one had already committed and cancelled, so it was
+        // play-pending for the frame that followed and the frame wore the
+        // finished pose through it. `at0566` measured the hole at both seams —
+        // `shrink=64..237ms` then `move=254..653ms`, and `move=23..414ms` then
+        // `grow=433..664ms` — and the off-curve probe read it as a single tick
+        // at an offset near the first beat's end.
+        //
+        // What closes that hole is the CREATION, not a fill. A delayed beat
+        // fills `none` — `runBeat` says why, and it is not a detail — so it
+        // applies nothing through its delay and its opening pose is held by
+        // the inline start pose its Beat writes when it is planned, for every
+        // beat at once, exactly as it always was. What a beat no longer arrives
+        // at its boundary needing is a COMPOSITOR: its animation was created frames
+        // earlier and its start time resolved long before its active phase
+        // begins, so its first active frame paints its own keyframe 0 with
+        // nothing pending. That window, once per seam, was the whole hole.
+        //
+        // What remains of the chain is a NOTIFIER: each beat still lands itself
+        // off its own `Promise.allSettled`, and the settle's one completion
+        // waits on all of them.
+        const beatMarkers: Animation[] = [];
+        // A beat's own clock starts when its ACTIVE PHASE does, not when its
+        // effect is created. The retarget reads velocity off the beat that is
+        // UP, and with a delayed launch that is a function of elapsed time
+        // rather than of which promise resolved — so `settleBeatRef` and the
+        // container's `data-imposer-beat` are advanced at the moment the beat's
+        // active phase begins.
+        //
+        // On the ANIMATION clock rather than on a timer, and the difference is
+        // measurable: a `setTimeout` sized to the delay fires whenever the task
+        // queue gets to it, which under a settle's own load is tens of ms late,
+        // and `data-imposer-beat` would then name the previous beat for frames
+        // in which this one is already painting — `at0566` reads the beat
+        // windows off that attribute and measured the lag as a resident's top
+        // edge travelling 37px "during the shrink". An empty effect of exactly
+        // the delay's length shares the document timeline with the beat it
+        // announces, so it resolves on the beat's own first active frame and
+        // never after it.
+        //
+        // `stale` runs instead of `begin` when a later arm has superseded this
+        // settle by the time the beat would have begun: the beat never runs,
+        // and whatever it launched that nothing else owns is the caller's to
+        // take back.
+        const whenBeatBegins = (
+          delayMs: number,
+          begin: () => void,
+          stale?: () => void,
+        ): void => {
+          if (delayMs <= 0) {
             begin();
-          },
-          () => {
-            /* cancelled with the settle; the beat it announced never ran */
-          },
-        );
-      };
-      // Every beat of the settle is planned here, and lands its frames once.
-      // Its own completion lands them while this settle is still the deck's —
-      // a beat cancelled or outlived by a later settle leaves them to that
-      // one — and `arm` lands them when it finds the beat over before it
-      // measures, having already moved the generation on by then. A departure
-      // lands whatever the generation says: its targets are in no record a
-      // later settle reads.
-      const planSettleBeat = (
-        options: Omit<BeatOptions, "onLand" | "record">,
-        landFrames: () => void,
-        unconditional = false,
-      ): { beat: Beat; land: () => void } => {
-        let landedByArm = false;
-        const beat = planBeat({
-          ...options,
-          startTime,
-          record: recordBeat,
-          onLand: () => {
-            if (
-              unconditional ||
-              landedByArm ||
-              settleGenerationRef.current === generation
-            ) {
-              landFrames();
-            }
-          },
-        });
-        return {
-          beat,
-          land: () => {
-            landedByArm = true;
-            beat.land();
-          },
-        };
-      };
-      const runBeat = (kind: BeatKind, delayMs: number): Promise<void> => {
-        // A backwards fill is for the FIRST beat and nothing else, and the
-        // distinction is what keeps the delayed shape honest.
-        //
-        // What `backwards` buys is the play-pending window: `el.animate()`
-        // returns an animation whose start time is unresolved until the
-        // compositor has the effect, and under `none` an unresolved local time
-        // applies nothing — the frame paints at its committed destination for
-        // that window. Only a beat launched at delay 0 has such a window; a
-        // delayed beat's animation is long since started by the time its
-        // active phase begins, so its first active frame paints its own
-        // keyframe 0 with nothing pending.
-        //
-        // And `backwards` on a DELAYED beat costs something real: the effect
-        // is in effect for the whole delay, so a grow beat's `height` is
-        // animating — in WebKit's sense — through the move beat that precedes
-        // it, and the move stops being transform-only. That is the three-beat
-        // settle's central promise ([P08]: at any instant exactly one kind of
-        // thing is moving), and `at0566` read the loss of it as a 2.8px drift
-        // between a frame and the transcript inside it during the move. So a
-        // delayed beat does not fill backwards, and its opening pose is held
-        // the way it always was, by the inline hold the beat writes as its
-        // start pose (`heldPose`) when it is planned. It fills forwards, which
-        // applies nothing during the delay and holds its end pose across the
-        // hop to its landing, for `settleOpts.fill`'s reason.
-        const beatFill: FillMode = delayMs > 0 ? "forwards" : settleOpts.fill;
-        const launches = present(kind);
-        // The outer two are not planned beats, so they are launched from what
-        // the passes above collected rather than from `present`.
-        if (kind === "depart" || kind === "arrive") {
-          // A RAIL returns by the edge it stands on, and that is the one
-          // entrance in the deck that is a slide rather than a fade: a left
-          // rail is a panel pinned to the left edge, so it comes back in
-          // moving right, and the right rail is its mirror. A card in the band
-          // has no edge of its own and keeps the fade — it is not travelling
-          // from anywhere, it is beginning to be here ([D135]). The way OUT is
-          // the mirror of it, and it is here too now ([B10]): a rail's parked
-          // frames slide off the edge they came in by, on this beat. A rail's
-          // shadow is its own page's, so it rides the rail's frames.
-          const canvasRect = lastRectOf(el);
-          // **One travel per side** — the exit's rule, for the exit's reason.
-          const railTravelBySide = new Map<SidebarSide, number>();
-          const travelFor = (el2: HTMLElement, side: SidebarSide): number => {
-            const known = railTravelBySide.get(side);
-            if (known !== undefined) return known;
-            const px = railTravelPx(lastRectOf(el2), side, canvasRect);
-            railTravelBySide.set(side, px);
-            return px;
-          };
-          const slideIn = (px: number) => ({
-            // Opaque for the whole crossing, against the `opacity: 0` hold the
-            // Last pass wrote: the card is travelling in from outside the
-            // window rather than materializing, so there is nothing for a fade
-            // to say. `land` takes the hold off when the slide arrives.
-            opacity: [1, 1],
-            transform: [`translateX(${px}px)`, "translateX(0px)"],
-          });
-          // The beat's layers, each on its own keyframes and slot: a
-          // departing target or an arrival's frame. A band target fades where
-          // it stands and keeps its inline hold; a rail target slides off its
-          // edge from the same held translate, so the hold and keyframe 0
-          // agree and nothing jumps when the beat begins.
-          const targets: BeatTarget[] =
-            kind === "depart"
-              ? departures.map(({ el: target, dx, dy, travelPx }) => ({
-                  el: target,
-                  keyframes:
-                    travelPx === undefined
-                      ? { opacity: [1, 0] }
-                      : {
-                          transform: [
-                            `translate(${dx}px, ${dy}px)`,
-                            `translate(${dx + travelPx}px, ${dy}px)`,
-                          ],
-                        },
-                  key: "imposer-depart",
-                }))
-              : arrivals.map(({ frame }) => {
-                  const attr = frame.getAttribute("data-rail-side");
-                  const side = isSidebarSide(attr) ? attr : undefined;
-                  return {
-                    el: frame,
-                    keyframes:
-                      side === undefined
-                        ? {
-                            opacity: [0, 1],
-                            transform: [
-                              `translateY(${PANE_ENTER_RISE_PX}px)`,
-                              "translateY(0px)",
-                            ],
-                          }
-                        : slideIn(travelFor(frame, side)),
-                    key: "imposer-enter",
-                  };
-                });
-          if (targets.length === 0) return Promise.resolve();
-          // What the beat leaves behind when it lands. A departing target is
-          // landed by its kind (`landDepartingTarget`): a closing frame held
-          // at `opacity: 0` until the store unmounts it, a parked frame or a
-          // strip handed back and hidden again. An arrival's opacity hold
-          // comes off for the move and grow beats' reason: `fill: none` means
-          // the effect's end value is the underlying inline style, and a frame
-          // left wearing the hold would snap back to invisible.
-          //
-          // Only the targets THIS beat launched. A show inside the beat cuts
-          // a target and drops it from the registry ([B04]), and a hide after
-          // that registers a new one under the same key; this beat lands once
-          // all of its effects settle, which can be after that, and landing
-          // the newer target would hand back its holds mid-departure.
-          const launchedTargets = new Map<string, DepartingTarget>();
-          const landFades = (): void => {
-            if (kind === "depart") {
-              // Through the ref rather than through this closure's array: the
-              // ref is the owner, and a hand-back that bypassed it would leave
-              // an entry naming holds that are already gone.
-              for (const { paneId } of departures) {
-                const entry = departingTargetsRef.current.get(paneId);
-                if (entry === undefined || entry !== launchedTargets.get(paneId)) continue;
-                landDepartingTarget(entry);
-                departingTargetsRef.current.delete(paneId);
+            return;
+          }
+          const marker = timelineMark(el, delayMs, startTime);
+          beatMarkers.push(marker);
+          void marker.finished.then(
+            () => {
+              if (settleGenerationRef.current !== generation) {
+                stale?.();
+                return;
               }
-              // A beat that lands after its settle was superseded, with no
-              // settle in flight, is the last word on these departures: the
-              // store is told now. While a settle IS in flight, its own finish
-              // lands them ([P06]).
-              if (settleReleasedRef.current) landSettledDeparturesRef.current();
-              return;
+              begin();
+            },
+            () => {
+              /* cancelled with the settle; the beat it announced never ran */
+            },
+          );
+        };
+        // Every beat of the settle is planned here, and lands its frames once.
+        // Its own completion lands them while this settle is still the deck's —
+        // a beat cancelled or outlived by a later settle leaves them to that
+        // one — and `arm` lands them when it finds the beat over before it
+        // measures, having already moved the generation on by then. A departure
+        // lands whatever the generation says: its targets are in no record a
+        // later settle reads.
+        const planSettleBeat = (
+          options: Omit<BeatOptions, "onLand" | "record">,
+          landFrames: () => void,
+          unconditional = false,
+        ): { beat: Beat; land: () => void } => {
+          let landedByArm = false;
+          const beat = planBeat({
+            ...options,
+            startTime,
+            record: recordBeat,
+            onLand: () => {
+              if (
+                unconditional ||
+                landedByArm ||
+                settleGenerationRef.current === generation
+              ) {
+                landFrames();
+              }
+            },
+          });
+          return {
+            beat,
+            land: () => {
+              landedByArm = true;
+              beat.land();
+            },
+          };
+        };
+        const runBeat = (kind: BeatKind, delayMs: number): Promise<void> => {
+          // A backwards fill is for the FIRST beat and nothing else, and the
+          // distinction is what keeps the delayed shape honest.
+          //
+          // What `backwards` buys is the play-pending window: `el.animate()`
+          // returns an animation whose start time is unresolved until the
+          // compositor has the effect, and under `none` an unresolved local time
+          // applies nothing — the frame paints at its committed destination for
+          // that window. Only a beat launched at delay 0 has such a window; a
+          // delayed beat's animation is long since started by the time its
+          // active phase begins, so its first active frame paints its own
+          // keyframe 0 with nothing pending.
+          //
+          // And `backwards` on a DELAYED beat costs something real: the effect
+          // is in effect for the whole delay, so a grow beat's `height` is
+          // animating — in WebKit's sense — through the move beat that precedes
+          // it, and the move stops being transform-only. That is the three-beat
+          // settle's central promise ([P08]: at any instant exactly one kind of
+          // thing is moving), and `at0566` read the loss of it as a 2.8px drift
+          // between a frame and the transcript inside it during the move. So a
+          // delayed beat does not fill backwards, and its opening pose is held
+          // the way it always was, by the inline hold the beat writes as its
+          // start pose (`heldPose`) when it is planned. It fills forwards, which
+          // applies nothing during the delay and holds its end pose across the
+          // hop to its landing, for `settleOpts.fill`'s reason.
+          const beatFill: FillMode = delayMs > 0 ? "forwards" : settleOpts.fill;
+          const launches = present(kind);
+          // The outer two are not planned beats, so they are launched from what
+          // the passes above collected rather than from `present`.
+          if (kind === "depart" || kind === "arrive") {
+            // A RAIL returns by the edge it stands on, and that is the one
+            // entrance in the deck that is a slide rather than a fade: a left
+            // rail is a panel pinned to the left edge, so it comes back in
+            // moving right, and the right rail is its mirror. A card in the band
+            // has no edge of its own and keeps the fade — it is not travelling
+            // from anywhere, it is beginning to be here ([D135]). The way OUT is
+            // the mirror of it, and it is here too now ([B10]): a rail's parked
+            // frames slide off the edge they came in by, on this beat. A rail's
+            // shadow is its own page's, so it rides the rail's frames.
+            const canvasRect = lastRectOf(el);
+            // **One travel per side** — the exit's rule, for the exit's reason.
+            const railTravelBySide = new Map<SidebarSide, number>();
+            const travelFor = (el2: HTMLElement, side: SidebarSide): number => {
+              const known = railTravelBySide.get(side);
+              if (known !== undefined) return known;
+              const px = railTravelPx(lastRectOf(el2), side, canvasRect);
+              railTravelBySide.set(side, px);
+              return px;
+            };
+            const slideIn = (px: number) => ({
+              // Opaque for the whole crossing, against the `opacity: 0` hold the
+              // Last pass wrote: the card is travelling in from outside the
+              // window rather than materializing, so there is nothing for a fade
+              // to say. `land` takes the hold off when the slide arrives.
+              opacity: [1, 1],
+              transform: [`translateX(${px}px)`, "translateX(0px)"],
+            });
+            // The beat's layers, each on its own keyframes and slot: a
+            // departing target or an arrival's frame. A band target fades where
+            // it stands and keeps its inline hold; a rail target slides off its
+            // edge from the same held translate, so the hold and keyframe 0
+            // agree and nothing jumps when the beat begins.
+            const targets: BeatTarget[] =
+              kind === "depart"
+                ? departures.map(({ el: target, dx, dy, travelPx }) => ({
+                    el: target,
+                    keyframes:
+                      travelPx === undefined
+                        ? { opacity: [1, 0] }
+                        : {
+                            transform: [
+                              `translate(${dx}px, ${dy}px)`,
+                              `translate(${dx + travelPx}px, ${dy}px)`,
+                            ],
+                          },
+                    key: "imposer-depart",
+                  }))
+                : arrivals.map(({ frame }) => {
+                    const attr = frame.getAttribute("data-rail-side");
+                    const side = isSidebarSide(attr) ? attr : undefined;
+                    return {
+                      el: frame,
+                      keyframes:
+                        side === undefined
+                          ? {
+                              opacity: [0, 1],
+                              transform: [
+                                `translateY(${PANE_ENTER_RISE_PX}px)`,
+                                "translateY(0px)",
+                              ],
+                            }
+                          : slideIn(travelFor(frame, side)),
+                      key: "imposer-enter",
+                    };
+                  });
+            if (targets.length === 0) return Promise.resolve();
+            // What the beat leaves behind when it lands. A departing target is
+            // landed by its kind (`landDepartingTarget`): a closing frame held
+            // at `opacity: 0` until the store unmounts it, a parked frame or a
+            // strip handed back and hidden again. An arrival's opacity hold
+            // comes off for the move and grow beats' reason: `fill: none` means
+            // the effect's end value is the underlying inline style, and a frame
+            // left wearing the hold would snap back to invisible.
+            //
+            // Only the targets THIS beat launched. A show inside the beat cuts
+            // a target and drops it from the registry ([B04]), and a hide after
+            // that registers a new one under the same key; this beat lands once
+            // all of its effects settle, which can be after that, and landing
+            // the newer target would hand back its holds mid-departure.
+            const launchedTargets = new Map<string, DepartingTarget>();
+            const landFades = (): void => {
+              if (kind === "depart") {
+                // Through the ref rather than through this closure's array: the
+                // ref is the owner, and a hand-back that bypassed it would leave
+                // an entry naming holds that are already gone.
+                for (const { paneId } of departures) {
+                  const entry = departingTargetsRef.current.get(paneId);
+                  if (entry === undefined || entry !== launchedTargets.get(paneId)) continue;
+                  landDepartingTarget(entry);
+                  departingTargetsRef.current.delete(paneId);
+                }
+                // A beat that lands after its settle was superseded, with no
+                // settle in flight, is the last word on these departures: the
+                // store is told now. While a settle IS in flight, its own finish
+                // lands them ([P06]).
+                if (settleReleasedRef.current) landSettledDeparturesRef.current();
+                return;
+              }
+              for (const { frame } of arrivals) {
+                frame.style.removeProperty("opacity");
+              }
+            };
+            // A fade is `divide-join`: carried by opacity rather than by travel,
+            // so its window is that recipe's and its easing is the plain one the
+            // recipe states — there is no position to spring.
+            //
+            // A departure lands unconditionally on the generation, and it is the
+            // only beat that does. Every other frame here is still on screen and
+            // still registered in `settleTweensRef`, so a retarget's `arm`
+            // cancels its tween, runs its restorers, and a later Last pass owns
+            // it. A departing target is in neither: it is out of the shown
+            // frames, so `arm` never measures it and no later pass will ever
+            // collect it again. Left un-landed, its holds would stand for the
+            // life of the canvas, one per close interrupted mid-fade.
+            const { beat, land } = planSettleBeat(
+              {
+                recipe: kind,
+                targets,
+                durationMs: fadeCurve.durationMs,
+                delayMs,
+                fill: beatFill,
+                composite: settleOpts.composite,
+                slotCancelMode: settleOpts.slotCancelMode,
+                easing: "ease-out",
+              },
+              landFades,
+              kind === "depart",
+            );
+            const fades = beat.anims;
+            if (kind === "depart") {
+              // The beat is running, so each of these targets now has a landing
+              // coming that is unconditional on the generation. That is what
+              // lets a retarget's `arm` leave them alone and take only the ones
+              // nothing will ever collect.
+              for (const [i, { paneId }] of departures.entries()) {
+                const entry = departingTargetsRef.current.get(paneId);
+                if (entry === undefined) continue;
+                entry.launched = true;
+                launchedTargets.set(paneId, entry);
+                // Kept so a show that lands inside this beat can cut it where
+                // it stands rather than wait for it ([B04]).
+                const anim = fades[i];
+                if (anim !== undefined) entry.anims = [anim];
+              }
             }
-            for (const { frame } of arrivals) {
-              frame.style.removeProperty("opacity");
+            whenBeatBegins(delayMs, () => {
+              el.setAttribute("data-imposer-beat", kind);
+              settleBeatRef.current = {
+                kind,
+                launchedAt: performance.now(),
+                initialVelocity: beatLaunchVelocity(kind, launch),
+                anims: fades,
+                land,
+              };
+              // An arriving frame stops being pending HERE — on the arrive
+              // beat's own first active frame — rather than at the moment its
+              // fade was constructed ([B03]). The doc on `pendingArrivalsRef`
+              // says what the old placement cost. A retarget before this point
+              // cancels the marker with the settle, so `begin` never runs, the
+              // id stays in the set, and the replacement arm leaves the frame
+              // alone: no First rect, hold kept, no restore.
+              //
+              // And it becomes a `settleTweensRef` entry in the same breath,
+              // carrying the fade that is now running and the restorers the
+              // pending map was holding ([B10]). The two records hand the frame
+              // to each other rather than both describing it: while the beat is
+              // still to come the pending map owns it, and from its first
+              // active frame the tween record does — which is exactly when
+              // there is a tween to record.
+              if (kind === "arrive") {
+                for (const [i, { paneId, frame, restores }] of arrivals.entries()) {
+                  pendingArrivalsRef.current.delete(paneId);
+                  const anim = fades[i];
+                  settleTweensRef.current.set(paneId, {
+                    el: frame,
+                    anims: anim === undefined ? [] : [anim],
+                    restores,
+                  });
+                }
+              }
+            }, () => {
+              // Superseded before the beat began, so no record owns these
+              // fades: the frame was never handed to `settleTweensRef`, and
+              // the pending map has either let it go (a workspace switch swept
+              // it, hold handed back) or carried it into the settle that
+              // superseded this one, which launches a fade of its own. Left to
+              // run, the fade lands anyway, and TugAnimator commits its end
+              // value — an inline `opacity: 1` nothing will ever take off, or
+              // written over the replacement's hold. Cancelled raw, so nothing
+              // is committed. The frames' fades only: the rail strips' slides
+              // are on their own `settleTweensRef` entries, which the
+              // superseding arm has already answered for.
+              if (kind !== "arrive") return;
+              for (const anim of fades.slice(0, arrivals.length)) {
+                anim.raw.cancel();
+              }
+            });
+            // The settle's completion waits on the beat; the beat has landed
+            // itself by the time this resolves.
+            return Promise.allSettled(fades.map((anim) => anim.finished)).then(
+              () => undefined,
+            );
+          }
+          if (launches.length === 0) return Promise.resolve();
+          const curve = beatCurve(kind);
+          const launchedBeats: Array<[Choreographed, SettleBeat]> = [];
+          for (const c of launches) {
+            const beat = c.beats[c.next];
+            c.next += 1;
+            launchedBeats.push([c, beat]);
+          }
+          // The hold this beat replaced comes off when the beat LANDS, not at
+          // the settle's completion. The beat fills forwards, so TugAnimator's
+          // finish commits the beat's end pose over the hold and cancels the
+          // effect; but a beat the arm lands early, before that finish, still
+          // has the hold underneath, and a frame left wearing it would snap
+          // back to it for the length of the next beat. Either way the landing
+          // is what takes the hold off.
+          //
+          // How it comes off differs by property, and that is the whole of the
+          // care here. A TRANSFORM is the imposer's own and nothing underlies
+          // it, so it is removed. An AXIS is not: React renders the frame's
+          // committed size into the same inline property the hold was written
+          // over, so removing it takes React's number away too and drops the
+          // frame to whatever its content makes of it — for a folded card, its
+          // OPEN floor, held there for every beat between its own and the
+          // settle's completion. So an axis is HANDED BACK (`handBack`) rather
+          // than removed: the beat ended at the committed size, which is
+          // exactly the value React rendered, so the write leaves the frame
+          // where the beat put it and the frame keeps a height for the rest of
+          // the settle.
+          //
+          // Run once, by the beat's landing, which has two callers: the
+          // completion, a promise hop after the tweens end, and `arm`, which
+          // lands the beat itself when a commit finds the tweens already over —
+          // the record on `settleBeatRef` says why that door exists.
+          const landFrames = (): void => {
+            for (const [c, beat] of launchedBeats) {
+              if (taken(c.frame)) continue;
+              // Stated as a rule over what the beat ANIMATED rather than as a
+              // list of kinds: a beat ends at the value it animated to, which
+              // is identity for a transform and the committed size for an
+              // axis, so every property this beat carried can be settled here
+              // and leave the frame exactly where the beat put it. The fused
+              // `room` beat carries all three at once, which a per-kind list
+              // could only have covered by naming it in both branches.
+              if (
+                beat.terms.dx !== 0 ||
+                beat.terms.dy !== 0 ||
+                (beat.terms.sx ?? 1) !== 1
+              ) {
+                c.frame.style.removeProperty("transform");
+              }
+              if (beat.terms.width !== undefined) {
+                c.handBack.width?.();
+              }
+              if (beat.terms.height !== undefined) {
+                c.handBack.height?.();
+              }
             }
           };
-          // A fade is `divide-join`: carried by opacity rather than by travel,
-          // so its window is that recipe's and its easing is the plain one the
-          // recipe states — there is no position to spring.
-          //
-          // A departure lands unconditionally on the generation, and it is the
-          // only beat that does. Every other frame here is still on screen and
-          // still registered in `settleTweensRef`, so a retarget's `arm`
-          // cancels its tween, runs its restorers, and a later Last pass owns
-          // it. A departing target is in neither: it is out of the shown
-          // frames, so `arm` never measures it and no later pass will ever
-          // collect it again. Left un-landed, its holds would stand for the
-          // life of the canvas, one per close interrupted mid-fade.
+          // An axis a beat resizes is the transform/opacity rule's standing
+          // breach, and the beat says so by name: the shrink and the grow, and
+          // the fused `room` beat that carries both.
+          const declares = (["height", "width"] as const).filter((axis) =>
+            launchedBeats.some(([, beat]) => beat.terms[axis] !== undefined),
+          );
           const { beat, land } = planSettleBeat(
             {
               recipe: kind,
-              targets,
-              durationMs: fadeCurve.durationMs,
+              // Each frame's start pose is what this beat holds still — the
+              // constant transform a resize beat wears while the move has not
+              // yet run, the First size of an axis whose grow is still to come.
+              targets: launchedBeats.map(([c, settleBeat]) => ({
+                el: c.frame,
+                keyframes: springSettleKeyframes(settleBeat.terms, curve.progress),
+                pose: heldPose(settleBeat.held),
+              })),
+              durationMs: curve.durationMs,
               delayMs,
               fill: beatFill,
               composite: settleOpts.composite,
               slotCancelMode: settleOpts.slotCancelMode,
-              easing: "ease-out",
+              // A keyword easing, because the curve rides in the keyframe
+              // offsets — `lib/pane-flip.ts` says why a sampled `linear()`
+              // cannot be used here.
+              easing: "linear",
+              // One slot PER BEAT, and the reason is the whole of this
+              // change: a named slot cancels whatever is already in it with
+              // `snap-to-end`, so a single `imposer-flip` key meant the move
+              // beat's creation finished the shrink beat outright. Under the
+              // old chain that was invisible — the shrink was already over
+              // when the move was created — and it is exactly what made the
+              // chain load-bearing. With every beat created in one frame the
+              // shared key snapped each beat to its end as the next was made,
+              // and `at0566` read it as a shrink that travelled nothing at
+              // all. The beats of one settle are a sequence, not rivals for
+              // one slot, and a retarget still cancels them through
+              // `settleTweensRef`, which holds every one of them.
+              key: `imposer-flip-${kind}`,
+              declares,
             },
-            landFades,
-            kind === "depart",
+            landFrames,
           );
-          const fades = beat.anims;
-          if (kind === "depart") {
-            // The beat is running, so each of these targets now has a landing
-            // coming that is unconditional on the generation. That is what
-            // lets a retarget's `arm` leave them alone and take only the ones
-            // nothing will ever collect.
-            for (const [i, { paneId }] of departures.entries()) {
-              const entry = departingTargetsRef.current.get(paneId);
-              if (entry === undefined) continue;
-              entry.launched = true;
-              launchedTargets.set(paneId, entry);
-              // Kept so a show that lands inside this beat can cut it where
-              // it stands rather than wait for it ([B04]).
-              const anim = fades[i];
-              if (anim !== undefined) entry.anims = [anim];
-            }
+          for (const [i, [c]] of launchedBeats.entries()) {
+            const anim = beat.anims[i];
+            if (anim !== undefined) c.anims.push(anim);
           }
+          // The beat the settle is on, for the arm that may interrupt it: it
+          // reads the velocity off this recipe at the time since this launch,
+          // and lands the beat itself if the launch is already over.
           whenBeatBegins(delayMs, () => {
             el.setAttribute("data-imposer-beat", kind);
             settleBeatRef.current = {
               kind,
               launchedAt: performance.now(),
               initialVelocity: beatLaunchVelocity(kind, launch),
-              anims: fades,
+              anims: beat.anims,
               land,
             };
-            // An arriving frame stops being pending HERE — on the arrive
-            // beat's own first active frame — rather than at the moment its
-            // fade was constructed ([B03]). The doc on `pendingArrivalsRef`
-            // says what the old placement cost. A retarget before this point
-            // cancels the marker with the settle, so `begin` never runs, the
-            // id stays in the set, and the replacement arm leaves the frame
-            // alone: no First rect, hold kept, no restore.
-            //
-            // And it becomes a `settleTweensRef` entry in the same breath,
-            // carrying the fade that is now running and the restorers the
-            // pending map was holding ([B10]). The two records hand the frame
-            // to each other rather than both describing it: while the beat is
-            // still to come the pending map owns it, and from its first
-            // active frame the tween record does — which is exactly when
-            // there is a tween to record.
-            if (kind === "arrive") {
-              for (const [i, { paneId, frame, restores }] of arrivals.entries()) {
-                pendingArrivalsRef.current.delete(paneId);
-                const anim = fades[i];
-                settleTweensRef.current.set(paneId, {
-                  el: frame,
-                  anims: anim === undefined ? [] : [anim],
-                  restores,
-                });
-              }
-            }
-          }, () => {
-            // Superseded before the beat began, so no record owns these
-            // fades: the frame was never handed to `settleTweensRef`, and
-            // the pending map has either let it go (a workspace switch swept
-            // it, hold handed back) or carried it into the settle that
-            // superseded this one, which launches a fade of its own. Left to
-            // run, the fade lands anyway, and TugAnimator commits its end
-            // value — an inline `opacity: 1` nothing will ever take off, or
-            // written over the replacement's hold. Cancelled raw, so nothing
-            // is committed. The frames' fades only: the rail strips' slides
-            // are on their own `settleTweensRef` entries, which the
-            // superseding arm has already answered for.
-            if (kind !== "arrive") return;
-            for (const anim of fades.slice(0, arrivals.length)) {
-              anim.raw.cancel();
-            }
           });
-          // The settle's completion waits on the beat; the beat has landed
-          // itself by the time this resolves.
-          return Promise.allSettled(fades.map((anim) => anim.finished)).then(
+          // `allSettled` because `finished` rejects under hold-at-current — the
+          // retarget's cancel — and the generation check in the landing is
+          // what tells that apart from a beat that landed. TugAnimator resolves
+          // `finished` after committing, so a landing always runs on the far
+          // side of the residue it takes back.
+          return Promise.allSettled(beat.anims.map((anim) => anim.finished)).then(
             () => undefined,
           );
-        }
-        if (launches.length === 0) return Promise.resolve();
-        const curve = beatCurve(kind);
-        const launchedBeats: Array<[Choreographed, SettleBeat]> = [];
-        for (const c of launches) {
-          const beat = c.beats[c.next];
-          c.next += 1;
-          launchedBeats.push([c, beat]);
-        }
-        // The hold this beat replaced comes off when the beat LANDS, not at
-        // the settle's completion. The beat fills forwards, so TugAnimator's
-        // finish commits the beat's end pose over the hold and cancels the
-        // effect; but a beat the arm lands early, before that finish, still
-        // has the hold underneath, and a frame left wearing it would snap
-        // back to it for the length of the next beat. Either way the landing
-        // is what takes the hold off.
-        //
-        // How it comes off differs by property, and that is the whole of the
-        // care here. A TRANSFORM is the imposer's own and nothing underlies
-        // it, so it is removed. An AXIS is not: React renders the frame's
-        // committed size into the same inline property the hold was written
-        // over, so removing it takes React's number away too and drops the
-        // frame to whatever its content makes of it — for a folded card, its
-        // OPEN floor, held there for every beat between its own and the
-        // settle's completion. So an axis is HANDED BACK (`handBack`) rather
-        // than removed: the beat ended at the committed size, which is
-        // exactly the value React rendered, so the write leaves the frame
-        // where the beat put it and the frame keeps a height for the rest of
-        // the settle.
-        //
-        // Run once, by the beat's landing, which has two callers: the
-        // completion, a promise hop after the tweens end, and `arm`, which
-        // lands the beat itself when a commit finds the tweens already over —
-        // the record on `settleBeatRef` says why that door exists.
-        const landFrames = (): void => {
-          for (const [c, beat] of launchedBeats) {
-            if (taken(c.frame)) continue;
-            // Stated as a rule over what the beat ANIMATED rather than as a
-            // list of kinds: a beat ends at the value it animated to, which
-            // is identity for a transform and the committed size for an
-            // axis, so every property this beat carried can be settled here
-            // and leave the frame exactly where the beat put it. The fused
-            // `room` beat carries all three at once, which a per-kind list
-            // could only have covered by naming it in both branches.
-            if (
-              beat.terms.dx !== 0 ||
-              beat.terms.dy !== 0 ||
-              (beat.terms.sx ?? 1) !== 1
-            ) {
-              c.frame.style.removeProperty("transform");
-            }
-            if (beat.terms.width !== undefined) {
-              c.handBack.width?.();
-            }
-            if (beat.terms.height !== undefined) {
-              c.handBack.height?.();
-            }
-          }
         };
-        // An axis a beat resizes is the transform/opacity rule's standing
-        // breach, and the beat says so by name: the shrink and the grow, and
-        // the fused `room` beat that carries both.
-        const declares = (["height", "width"] as const).filter((axis) =>
-          launchedBeats.some(([, beat]) => beat.terms[axis] !== undefined),
-        );
-        const { beat, land } = planSettleBeat(
-          {
-            recipe: kind,
-            // Each frame's start pose is what this beat holds still — the
-            // constant transform a resize beat wears while the move has not
-            // yet run, the First size of an axis whose grow is still to come.
-            targets: launchedBeats.map(([c, settleBeat]) => ({
-              el: c.frame,
-              keyframes: springSettleKeyframes(settleBeat.terms, curve.progress),
-              pose: heldPose(settleBeat.held),
-            })),
-            durationMs: curve.durationMs,
-            delayMs,
-            fill: beatFill,
-            composite: settleOpts.composite,
-            slotCancelMode: settleOpts.slotCancelMode,
-            // A keyword easing, because the curve rides in the keyframe
-            // offsets — `lib/pane-flip.ts` says why a sampled `linear()`
-            // cannot be used here.
-            easing: "linear",
-            // One slot PER BEAT, and the reason is the whole of this
-            // change: a named slot cancels whatever is already in it with
-            // `snap-to-end`, so a single `imposer-flip` key meant the move
-            // beat's creation finished the shrink beat outright. Under the
-            // old chain that was invisible — the shrink was already over
-            // when the move was created — and it is exactly what made the
-            // chain load-bearing. With every beat created in one frame the
-            // shared key snapped each beat to its end as the next was made,
-            // and `at0566` read it as a shrink that travelled nothing at
-            // all. The beats of one settle are a sequence, not rivals for
-            // one slot, and a retarget still cancels them through
-            // `settleTweensRef`, which holds every one of them.
-            key: `imposer-flip-${kind}`,
-            declares,
-          },
-          landFrames,
-        );
-        for (const [i, [c]] of launchedBeats.entries()) {
-          const anim = beat.anims[i];
-          if (anim !== undefined) c.anims.push(anim);
+        // One launch point, one generation check — the plan's move of the
+        // per-beat guard. A retarget that lands after this frame is the cancel
+        // paths' to take back: `arm` cancels every animation registered on the
+        // frames and re-plans them, which is exactly what it already did for a
+        // beat that was in flight, and now does for beats that are merely
+        // delayed.
+        const beatRuns: Array<Promise<void>> = [];
+        if (settleGenerationRef.current === generation) {
+          for (const beat of schedule) beatRuns.push(runBeat(beat.kind, beat.delayMs));
         }
-        // The beat the settle is on, for the arm that may interrupt it: it
-        // reads the velocity off this recipe at the time since this launch,
-        // and lands the beat itself if the launch is already over.
-        whenBeatBegins(delayMs, () => {
-          el.setAttribute("data-imposer-beat", kind);
-          settleBeatRef.current = {
-            kind,
-            launchedAt: performance.now(),
-            initialVelocity: beatLaunchVelocity(kind, launch),
-            anims: beat.anims,
-            land,
-          };
-        });
-        // `allSettled` because `finished` rejects under hold-at-current — the
-        // retarget's cancel — and the generation check in the landing is
-        // what tells that apart from a beat that landed. TugAnimator resolves
-        // `finished` after committing, so a landing always runs on the far
-        // side of the residue it takes back.
-        return Promise.allSettled(beat.anims.map((anim) => anim.finished)).then(
-          () => undefined,
-        );
-      };
-      // One launch point, one generation check — the plan's move of the
-      // per-beat guard. A retarget that lands after this frame is the cancel
-      // paths' to take back: `arm` cancels every animation registered on the
-      // frames and re-plans them, which is exactly what it already did for a
-      // beat that was in flight, and now does for beats that are merely
-      // delayed.
-      const beatRuns: Array<Promise<void>> = [];
-      if (settleGenerationRef.current === generation) {
-        for (const beat of schedule) beatRuns.push(runBeat(beat.kind, beat.delayMs));
-      }
-      void Promise.all(beatRuns)
-        .then(() => {
-          for (const marker of beatMarkers) marker.cancel();
-          if (settleGenerationRef.current !== generation) return;
-          // The settle's one completion, after the final beat's last tween,
-          // in this order ([B04]): every frame's inline residue handed back
-          // and its transform taken off; then every frame's fold crossing
-          // ended — guarded by id, so an interrupted settle does not close
-          // the one that replaced it — so the card can land what CSS cannot
-          // write ([B05]); then every frame's resize episode ended, after the
-          // restorers so the final anchor is read against the geometry the
-          // frame actually keeps; and then, through `settled`, the stores'
-          // hold released, so the one publish and the one pin land on
-          // settled geometry.
-          for (const c of choreography) {
-            if (taken(c.frame)) continue;
-            for (const restore of c.restores) restore();
-            clearFlip(c.paneId, c.frame, c.anims);
-          }
-          // The arrivals take the same three, in the same order, because the
-          // arrive beat replaced the effect that used to do this in its own
-          // completion handler. An arriving frame has no fold crossing — it was
-          // not on screen to open one — so it joins at the restore and the
-          // episode, not in the crossing loop between them.
-          for (const { paneId, frame, restores } of arrivals) {
-            if (taken(frame)) continue;
-            for (const restore of restores) restore();
-            clearFlip(paneId, frame, settleTweensRef.current.get(paneId)?.anims ?? []);
-          }
-          // The covered members' holds and marks come off here and nowhere
-          // earlier: the survivor has covered a retiring member, or retreated
-          // off a revealed one, only when the chain is done ([B03]).
-          for (const c of covered) {
-            if (taken(c.frame)) continue;
-            for (const restore of c.restores) restore();
-            clearFlip(c.paneId, c.frame, c.anims);
-            crossings.end(c.frame, { fold: null, still: c.stillCrossingId });
-          }
-          for (const c of choreography) {
-            if (taken(c.frame)) continue;
-            // A settled crossing's mark comes off here, in the land's own
-            // task, like every other: its interior already stands where it
-            // lands, and the held height lives on the card root alone, under
-            // a property that does not inherit (`lib/fold-crossing.ts`), so
-            // taking it off restyles one element rather than the card. The
-            // `overflow` and `position` the mark flips back cost about a
-            // millisecond between them at the same size.
-            crossings.end(c.frame, { fold: c.crossingId, still: c.stillCrossingId });
-          }
-          for (const c of choreography) {
-            if (!c.reflowsAtLand) {
-              endEpisode(c.paneId);
-              continue;
+        void Promise.all(beatRuns)
+          .then(() => {
+            for (const marker of beatMarkers) marker.cancel();
+            if (settleGenerationRef.current !== generation) return;
+            // The settle's one completion, after the final beat's last tween,
+            // in this order ([B04]): every frame's inline residue handed back
+            // and its transform taken off; then every frame's fold crossing
+            // ended — guarded by id, so an interrupted settle does not close
+            // the one that replaced it — so the card can land what CSS cannot
+            // write ([B05]); then every frame's resize episode ended, after the
+            // restorers so the final anchor is read against the geometry the
+            // frame actually keeps; and then, through `settled`, the stores'
+            // hold released, so the one publish and the one pin land on
+            // settled geometry.
+            for (const c of choreography) {
+              if (taken(c.frame)) continue;
+              for (const restore of c.restores) restore();
+              clearFlip(c.paneId, c.frame, c.anims);
             }
-            // A width shrink re-flows its interior only now, as its hold
-            // comes off, and a scroller's anchor (CodeMirror's line, the
-            // generic element anchor) can only land a re-flow its episode
-            // is still open for. The re-wrap is laid out in the next frame,
-            // CodeMirror measures it in the frame after, and its observers
-            // may be held until the gate opens — so the episode ends two
-            // frames past the gate's release. Its own handle, never its pane
-            // id: a settle armed in between owns the pane's next episode.
-            const handle = settleEpisodesRef.current.get(c.paneId);
-            if (handle === undefined) continue;
-            settleEpisodesRef.current.delete(c.paneId);
-            afterGesture(() =>
-              requestAnimationFrame(() => requestAnimationFrame(() => handle.end())),
-            );
-          }
-          for (const { paneId } of arrivals) endEpisode(paneId);
-          for (const { paneId } of covered) endEpisode(paneId);
-          settleBeatRef.current = null;
-          settled();
-        });
+            // The arrivals take the same three, in the same order, because the
+            // arrive beat replaced the effect that used to do this in its own
+            // completion handler. An arriving frame has no fold crossing — it was
+            // not on screen to open one — so it joins at the restore and the
+            // episode, not in the crossing loop between them.
+            for (const { paneId, frame, restores } of arrivals) {
+              if (taken(frame)) continue;
+              for (const restore of restores) restore();
+              clearFlip(paneId, frame, settleTweensRef.current.get(paneId)?.anims ?? []);
+            }
+            // The covered members' holds and marks come off here and nowhere
+            // earlier: the survivor has covered a retiring member, or retreated
+            // off a revealed one, only when the chain is done ([B03]).
+            for (const c of covered) {
+              if (taken(c.frame)) continue;
+              for (const restore of c.restores) restore();
+              clearFlip(c.paneId, c.frame, c.anims);
+              crossings.end(c.frame, { fold: null, still: c.stillCrossingId });
+            }
+            for (const c of choreography) {
+              if (taken(c.frame)) continue;
+              // A settled crossing's mark comes off here, in the land's own
+              // task, like every other: its interior already stands where it
+              // lands, and the held height lives on the card root alone, under
+              // a property that does not inherit (`lib/fold-crossing.ts`), so
+              // taking it off restyles one element rather than the card. The
+              // `overflow` and `position` the mark flips back cost about a
+              // millisecond between them at the same size.
+              crossings.end(c.frame, { fold: c.crossingId, still: c.stillCrossingId });
+            }
+            for (const c of choreography) {
+              if (!c.reflowsAtLand) {
+                endEpisode(c.paneId);
+                continue;
+              }
+              // A width shrink re-flows its interior only now, as its hold
+              // comes off, and a scroller's anchor (CodeMirror's line, the
+              // generic element anchor) can only land a re-flow its episode
+              // is still open for. The re-wrap is laid out in the next frame,
+              // CodeMirror measures it in the frame after, and its observers
+              // may be held until the gate opens — so the episode ends two
+              // frames past the gate's release. Its own handle, never its pane
+              // id: a settle armed in between owns the pane's next episode.
+              const handle = settleEpisodesRef.current.get(c.paneId);
+              if (handle === undefined) continue;
+              settleEpisodesRef.current.delete(c.paneId);
+              afterGesture(() =>
+                requestAnimationFrame(() => requestAnimationFrame(() => handle.end())),
+              );
+            }
+            for (const { paneId } of arrivals) endEpisode(paneId);
+            for (const { paneId } of covered) endEpisode(paneId);
+            settleBeatRef.current = null;
+            settled();
+          });
+      };
+      if (posted?.solves === true) {
+        // The horizon: no `planStarted` by the host's guard and the landing
+        // guard behind it, and the shell launches from now, loudly.
+        const { planId } = posted;
+        const postedAt = performance.now();
+        dropPendingLaunch(pendingLaunchRef);
+        const horizon = window.setTimeout(() => {
+          if (pendingLaunchRef.current?.planId !== planId) return;
+          pendingLaunchRef.current = null;
+          if (settleGenerationRef.current !== generation) return;
+          deckTrace.record({
+            kind: "settle-solve",
+            planId,
+            solveMs: performance.now() - postedAt,
+            timedOut: true,
+            source: "shell",
+          });
+          tugDevLogStore.warn("settle", "no planStarted by the solve's horizon; the beats launch now", { planId });
+          launchChoreography(settleStartTime());
+        }, SOLVE_GUARD_MS + LANDING_GUARD_MS);
+        pendingLaunchRef.current = { planId, generation, launch: launchChoreography, horizon };
+      } else {
+        launchChoreography(startTime);
+      }
     } else {
       // No chain to ride, so nothing is coming to release these: the survivor
       // never moved, and a hold with no release would be a frame left standing

@@ -67,6 +67,9 @@ struct CardPlan: Decodable, Equatable {
     var planId: Int
     /// The settle's t = 0 on the wall clock, ms since 1970.
     var startWallMs: Double
+    /// Some card's box changes size: the host lays each such page out at
+    /// its crossing size before the plan starts, and says `planStarted`.
+    var solves: Bool
     var cards: [PlannedCard]
 }
 

@@ -410,8 +410,32 @@ struct BodyCrossing: Codable, Equatable {
     var width: Double?
     var height: Double?
     var durationMs: Double?
+    /// The page is to lay itself out at the crossing size before the motion
+    /// starts and say `crossingSolved`; nil for a page kept at its size to
+    /// the land.
+    var solve: Bool?
 
     static let land = BodyCrossing(phase: .land)
+}
+
+/// `onWindowResize`: the window's own resize is bracketed — a live drag of
+/// its edge or a full-screen transition began, or ended.
+struct WindowResize: Codable, Equatable {
+    enum Phase: String, Codable, Equatable {
+        case begin, end
+    }
+
+    var phase: Phase
+}
+
+/// `onPlanStarted`: a solving plan has started — its wall-clock start, ms
+/// since 1970, how long its solve took from the plan's receipt, and whether
+/// the guard started it rather than the last card's report.
+struct PlanStarted: Codable, Equatable {
+    var planId: Int
+    var startWallMs: Double
+    var solveMs: Double
+    var timedOut: Bool
 }
 
 /// What the host knows of the window when it binds a body.
@@ -831,7 +855,7 @@ enum ToHostName: String, CaseIterable {
     case overlayCreate, overlayClaim
     // Page lifecycle.
     case bodyHello, painted, frontendReady, frontendLaunchStalled, launchLap, pageFault
-    case crossingReady, bodySurface, bodyCreate, bodyDestroy, bodyEvictAfter, bodyFocus, hmrUpdate
+    case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyEvictAfter, bodyFocus, hmrUpdate
     // The host's services.
     case sourceTree, choosePath, getSettings, setTheme
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
@@ -900,6 +924,7 @@ enum ToHost {
     case launchLap(LaunchLap)
     case pageFault(PageFault)
     case crossingReady(BodySurface)
+    case crossingSolved
     case bodySurface(BodySurface)
     case bodyCreate(BodyCreate)
     case bodyDestroy(BodyDestroy)
@@ -950,6 +975,7 @@ enum ToHost {
         case .painted: _ = try read(EmptyPayload.self); return .painted
         case .frontendReady: _ = try read(EmptyPayload.self); return .frontendReady
         case .crossingReady: return .crossingReady(try read(BodySurface.self))
+        case .crossingSolved: _ = try read(EmptyPayload.self); return .crossingSolved
         case .bodySurface: return .bodySurface(try read(BodySurface.self))
         case .bodyCreate: return .bodyCreate(try read(BodyCreate.self))
         case .bodyDestroy: return .bodyDestroy(try read(BodyDestroy.self))
@@ -1079,9 +1105,9 @@ enum JSONValue: Codable, Equatable {
 /// Every host→page message, as the `window.__tugBridge` member that receives it.
 enum ToPageMember: String, CaseIterable {
     // Placement and gestures.
-    case onCardGesture, onCardInsets, onBodyCrossing
+    case onCardGesture, onCardInsets, onBodyCrossing, onWindowResize
     // Page lifecycle.
-    case onBodyBind, onBodyState, onBodyPressure, onBodyVisibility
+    case onBodyBind, onBodyState, onBodyPressure, onBodyVisibility, onPlanStarted
     // The host's services.
     case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
@@ -1092,10 +1118,12 @@ enum ToPage {
     case cardGesture(CardGestureReport)
     case cardInsets(CardInsets)
     case bodyCrossing(BodyCrossing)
+    case windowResize(WindowResize)
     case bodyBind(BodyBind)
     case bodyState(BodyStateReport)
     case bodyPressure(BodyPressure)
     case bodyVisibility(BodyVisibility)
+    case planStarted(PlanStarted)
     case settingsLoaded(SettingsLoaded)
     case pathChosen(PathChosen)
     case exportDone(ExportDone)
@@ -1115,10 +1143,12 @@ enum ToPage {
         case .cardGesture: return .onCardGesture
         case .cardInsets: return .onCardInsets
         case .bodyCrossing: return .onBodyCrossing
+        case .windowResize: return .onWindowResize
         case .bodyBind: return .onBodyBind
         case .bodyState: return .onBodyState
         case .bodyPressure: return .onBodyPressure
         case .bodyVisibility: return .onBodyVisibility
+        case .planStarted: return .onPlanStarted
         case .settingsLoaded: return .onSettingsLoaded
         case .pathChosen: return .onPathChosen
         case .exportDone: return .onExportDone
@@ -1142,10 +1172,12 @@ enum ToPage {
         case .cardGesture(let report): return try? encoder.encode(report)
         case .cardInsets(let insets): return try? encoder.encode(insets)
         case .bodyCrossing(let crossing): return try? encoder.encode(crossing)
+        case .windowResize(let resize): return try? encoder.encode(resize)
         case .bodyBind(let bind): return try? encoder.encode(bind)
         case .bodyState(let report): return try? encoder.encode(report)
         case .bodyPressure(let pressure): return try? encoder.encode(pressure)
         case .bodyVisibility(let visibility): return try? encoder.encode(visibility)
+        case .planStarted(let started): return try? encoder.encode(started)
         case .settingsLoaded(let settings): return try? encoder.encode(settings)
         case .pathChosen(let chosen): return try? encoder.encode(chosen)
         case .exportDone(let done): return try? encoder.encode(done)
@@ -1172,10 +1204,12 @@ enum ToPage {
             case .onCardGesture: return .success(.cardGesture(try read(CardGestureReport.self)))
             case .onCardInsets: return .success(.cardInsets(try read(CardInsets.self)))
             case .onBodyCrossing: return .success(.bodyCrossing(try read(BodyCrossing.self)))
+            case .onWindowResize: return .success(.windowResize(try read(WindowResize.self)))
             case .onBodyBind: return .success(.bodyBind(try read(BodyBind.self)))
             case .onBodyState: return .success(.bodyState(try read(BodyStateReport.self)))
             case .onBodyPressure: return .success(.bodyPressure(try read(BodyPressure.self)))
             case .onBodyVisibility: return .success(.bodyVisibility(try read(BodyVisibility.self)))
+            case .onPlanStarted: return .success(.planStarted(try read(PlanStarted.self)))
             case .onSettingsLoaded: return .success(.settingsLoaded(try read(SettingsLoaded.self)))
             case .onPathChosen: return .success(.pathChosen(try read(PathChosen.self)))
             case .onExportDone: return .success(.exportDone(try read(ExportDone.self)))

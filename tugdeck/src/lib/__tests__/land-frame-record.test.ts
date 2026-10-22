@@ -23,6 +23,8 @@ function input(overrides: Partial<LandInput>): LandInput {
     commits: [],
     forcedReads: [],
     deliveries: [],
+    episodeEnds: [],
+    scrollWrites: [],
     ...overrides,
   };
 }
@@ -66,6 +68,33 @@ describe("classifyLand", () => {
     expect(r.commits?.map((c) => c.site)).toEqual(["TugPaneImpl"]);
     expect(r.forcedLayouts.map((e) => e.site)).toEqual(["_placeRunHeight"]);
     expect(r.deliveries?.map((e) => e.site)).toEqual(["div.tug-list-view ×1"]);
+  });
+
+  test("episode ends and scroll writes inside the span are the land's, and only those", () => {
+    const r = classifyLand(
+      input({
+        ticks: [100, 116.7, 133.3, 150],
+        landAt: 120,
+        episodeEnds: [
+          { t: 105, ms: 0, site: "episode ×1 before" },
+          { t: 120.5, ms: 0, site: "episode ×2" },
+          { t: 160, ms: 0, site: "episode ×1 after" },
+        ],
+        scrollWrites: [
+          { t: 99, ms: 0.2, site: "before" },
+          { t: 130, ms: 0.4, site: "pinToBottom" },
+          { t: 151, ms: 0.1, site: "after" },
+        ],
+      }),
+    );
+    expect(r.episodeEnds.map((e) => e.site)).toEqual(["episode ×2"]);
+    expect(r.scrollWrites.map((e) => e.site)).toEqual(["pinToBottom"]);
+  });
+
+  test("a land that ended nothing and wrote no scroll reads empty lists", () => {
+    const r = classifyLand(input({ ticks: [100, 116.7, 133.3, 150], landAt: 120 }));
+    expect(r.episodeEnds).toEqual([]);
+    expect(r.scrollWrites).toEqual([]);
   });
 
   test("a page that cannot count says null, not zero", () => {
@@ -158,6 +187,7 @@ describe("classifyMotionEvents", () => {
           { t: 150, ms: 6, site: "pinToBottom" },
         ],
         deliveries: [{ t: 200, ms: 2, site: "div.tug-list-view ×1" }],
+        scrollWrites: [],
       },
       100,
       200,
@@ -180,6 +210,7 @@ describe("classifyMotionEvents", () => {
           { t: 151, ms: 2, site: "endSettleMarks" },
         ],
         deliveries: [],
+        scrollWrites: [],
       },
       100,
       landOpensAt(ticks, 152),
@@ -188,8 +219,27 @@ describe("classifyMotionEvents", () => {
   });
 
   test("a page that cannot count says null, not zero", () => {
-    const r = classifyMotionEvents({ commits: null, forcedReads: [], deliveries: null }, 0, 100);
+    const r = classifyMotionEvents({ commits: null, forcedReads: [], deliveries: null, scrollWrites: [] }, 0, 100);
     expect(r.commits).toBeNull();
     expect(r.deliveries).toBeNull();
+  });
+
+  test("scroll writes between the solve and the land are the motion's", () => {
+    const ticks = [100, 116.7, 133.3, 150];
+    const r = classifyMotionEvents(
+      {
+        commits: [],
+        forcedReads: [],
+        deliveries: [],
+        scrollWrites: [
+          { t: 95, ms: 0.1, site: "the solve's restore" },
+          { t: 125, ms: 0.3, site: "re-landed anchor" },
+          { t: 152, ms: 0.1, site: "the land's" },
+        ],
+      },
+      100,
+      landOpensAt(ticks, 151),
+    );
+    expect(r.scrollWrites.map((e) => e.site)).toEqual(["re-landed anchor"]);
   });
 });

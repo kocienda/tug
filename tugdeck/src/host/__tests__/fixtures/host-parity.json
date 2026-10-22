@@ -263,6 +263,7 @@
         {
           "planId": 1,
           "startWallMs": 1760000000000.5,
+          "solves": true,
           "cards": [
             {
               "cardId": "c1",
@@ -350,20 +351,24 @@
         {
           "planId": "x",
           "startWallMs": 0,
+          "solves": false,
           "cards": []
         },
         {
           "startWallMs": 0,
+          "solves": false,
           "cards": []
         },
         {
           "planId": 1,
           "startWallMs": 0,
+          "solves": false,
           "bodies": []
         },
         {
           "planId": 1,
           "startWallMs": 0,
+          "solves": false,
           "cards": [
             {
               "cardId": "c1",
@@ -375,6 +380,11 @@
               }
             }
           ]
+        },
+        {
+          "planId": 1,
+          "startWallMs": 0,
+          "cards": []
         }
       ]
     },
@@ -555,6 +565,16 @@
             34
           ]
         }
+      ]
+    },
+    {
+      "name": "crossingSolved",
+      "from": "body",
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
       ]
     },
     {
@@ -1454,6 +1474,13 @@
           "durationMs": 240
         },
         {
+          "phase": "begin",
+          "solve": true,
+          "width": 480,
+          "height": 320,
+          "durationMs": 240
+        },
+        {
           "phase": "land"
         }
       ],
@@ -1465,7 +1492,30 @@
         {
           "phase": "begin",
           "width": "wide"
+        },
+        {
+          "phase": "begin",
+          "solve": "yes"
         }
+      ]
+    },
+    {
+      "member": "onWindowResize",
+      "to": "shell",
+      "samples": [
+        {
+          "phase": "begin"
+        },
+        {
+          "phase": "end"
+        }
+      ],
+      "refused": [
+        "end",
+        {
+          "phase": "pause"
+        },
+        {}
       ]
     },
     {
@@ -1622,6 +1672,38 @@
         },
         {
           "shown": false
+        }
+      ]
+    },
+    {
+      "member": "onPlanStarted",
+      "to": "shell",
+      "samples": [
+        {
+          "planId": 7,
+          "startWallMs": 1760000000016.5,
+          "solveMs": 41.2,
+          "timedOut": false
+        },
+        {
+          "planId": 8,
+          "startWallMs": 1760000000266,
+          "solveMs": 250,
+          "timedOut": true
+        }
+      ],
+      "refused": [
+        7,
+        {
+          "planId": 7,
+          "startWallMs": 0,
+          "solveMs": 0
+        },
+        {
+          "planId": "7",
+          "startWallMs": 0,
+          "solveMs": 0,
+          "timedOut": false
         }
       ]
     },

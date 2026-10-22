@@ -556,12 +556,79 @@ fn run_record(
             format!("the deck did not come back recording within {RECORD_RELOAD_WAIT_S} s")
         })?;
     }
+    // Each card is its own page with its own trace and its own sessionStorage,
+    // so the shell's switch reaches none of them: throw it in every body page
+    // the shell lists, beside the shell's.
+    let cards = record_bodies(&value);
+    let pages = record_body_pages(door.port, &cards, &code, reload && state == Some("on"));
+    if let Some(object) = value.as_object_mut() {
+        object.insert("bodyPages".to_string(), serde_json::Value::Array(pages));
+    }
     if json_output {
         print_ok("deck motion record", &value);
     } else {
         println!("{}", record_summary(&value));
     }
     Ok(0)
+}
+
+/// The body cards the shell's switch reading lists.
+fn record_bodies(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("bodies")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Throw the switch in each body page, and with `reload` reload any page still
+/// waiting on a load and wait for it to come back recording. One entry per
+/// card: the page's reading with its `cardId`, or the error that stopped it.
+fn record_body_pages(
+    port: u16,
+    cards: &[String],
+    code: &str,
+    reload: bool,
+) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for card in cards {
+        let mut entry = match post_eval(port, Some(card), code) {
+            Ok(EvalOutcome::Ok(v)) if reload && !record_next_load(&v).is_empty() => {
+                let _ = post_eval(
+                    port,
+                    Some(card),
+                    "(setTimeout(function () { window.location.reload(); }, 50), null)",
+                );
+                let mut back = None;
+                for _ in 0..RECORD_RELOAD_WAIT_S {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if let Ok(EvalOutcome::Ok(r)) =
+                        post_eval(port, Some(card), "window.__tugMotion.record()")
+                        && r.get("recording").and_then(|x| x.as_bool()) == Some(true)
+                        && record_next_load(&r).is_empty()
+                    {
+                        back = Some(r);
+                        break;
+                    }
+                }
+                back.unwrap_or_else(|| {
+                    serde_json::json!({"error": format!("the page did not come back recording within {RECORD_RELOAD_WAIT_S} s")})
+                })
+            }
+            Ok(EvalOutcome::Ok(v)) => v,
+            Ok(EvalOutcome::Gated) => serde_json::json!({"error": "the eval door is shut"}),
+            Err(e) => serde_json::json!({"error": e}),
+        };
+        if let Some(object) = entry.as_object_mut() {
+            object.insert("cardId".to_string(), card.clone().into());
+        }
+        out.push(entry);
+    }
+    out
 }
 
 /// What the switch says waits on the next load.
@@ -607,10 +674,49 @@ pub fn record_summary(value: &serde_json::Value) -> String {
             next.join(" and ")
         )
     };
+    let pages = record_pages_line(value);
     format!(
-        "motion recording on: {} kind(s) ({}); {census}; {lead}{next}",
+        "motion recording on: {} kind(s) ({}); {census}; {lead}{next}{pages}",
         kinds.len(),
         kinds.join(", ")
+    )
+}
+
+/// The body pages the switch reached, as a clause of the summary: how many
+/// record, and which did not, by card. Empty when the shell listed none.
+fn record_pages_line(value: &serde_json::Value) -> String {
+    let Some(pages) = value.get("bodyPages").and_then(|v| v.as_array()) else {
+        return String::new();
+    };
+    if pages.is_empty() {
+        return String::new();
+    }
+    let card = |p: &serde_json::Value| {
+        p.get("cardId")
+            .and_then(|c| c.as_str())
+            .unwrap_or("?")
+            .to_string()
+    };
+    let recording = pages
+        .iter()
+        .filter(|p| p.get("recording").and_then(|r| r.as_bool()) == Some(true))
+        .count();
+    let missed: Vec<String> = pages
+        .iter()
+        .filter(|p| p.get("recording").and_then(|r| r.as_bool()) != Some(true))
+        .map(|p| match p.get("error").and_then(|e| e.as_str()) {
+            Some(e) => format!("{} ({e})", card(p)),
+            None => card(p),
+        })
+        .collect();
+    let missed = if missed.is_empty() {
+        String::new()
+    } else {
+        format!(", not {}", missed.join(", "))
+    };
+    format!(
+        "; {recording} of {} body page(s) recording{missed}",
+        pages.len()
     )
 }
 
@@ -1725,6 +1831,31 @@ mod tests {
             "{line}"
         );
         assert!(!line.contains("next load"), "{line}");
+    }
+
+    #[test]
+    fn record_summary_names_the_body_pages_it_reached_and_the_ones_it_did_not() {
+        let value = serde_json::json!({
+            "recording": true, "kinds": ["body-land"], "census": true,
+            "leadRecorder": true, "nextLoad": [], "bodies": ["b1", "b2"],
+            "bodyPages": [
+                {"cardId": "b1", "recording": true},
+                {"cardId": "b2", "error": "no body page for b2"},
+            ],
+        });
+        assert_eq!(
+            record_bodies(&value),
+            vec!["b1".to_string(), "b2".to_string()]
+        );
+        let line = record_summary(&value);
+        assert!(
+            line.ends_with("; 1 of 2 body page(s) recording, not b2 (no body page for b2)"),
+            "{line}"
+        );
+        // A shell with no bodies adds nothing to the line.
+        let none =
+            serde_json::json!({"recording": true, "kinds": [], "nextLoad": [], "bodyPages": []});
+        assert!(!record_summary(&none).contains("body page"));
     }
 
     #[test]

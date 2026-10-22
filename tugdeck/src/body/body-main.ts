@@ -117,6 +117,7 @@ import {
   bodyHelloToHost,
   bodySurfaceToHost,
   crossingReadyToHost,
+  crossingSolvedToHost,
   frontendReadyToHost,
   bodyBindToPage,
   bodyVisibilityToPage,
@@ -129,6 +130,11 @@ import {
 import { bodyCrossingToPage } from "../host/declarations/geometry";
 import { UsageStore } from "../lib/usage-store";
 import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-episode";
+import { landRecorder } from "../lib/land-frame-record";
+import { CARD_FOLD_ATTR } from "../lib/folded-body";
+import { runCrossingSolve } from "./crossing-solve";
+import { deckTrace } from "../deck-trace";
+import { createBodyLand } from "./body-land";
 import { loadMakerTooling, registerCardKinds } from "../card-kinds";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { exposePerfMonitor, startPerfMonitor } from "../lib/perf-monitor";
@@ -888,21 +894,82 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // in-document card, and only then tell the host it may set the final
   // size — the host's resize would race the pin otherwise. The host calls
   // this in the task it runs the plan in, so the pin costs one hop to this
-  // page and one back, inside a display period. The land ends the episode,
-  // which is the restore.
+  // page and one back, inside a display period.
+  //
+  // A `begin` that asks for the solve is the page's whole set-up: after the
+  // host's resize lands it ends the episode — the restore, at the new size —
+  // waits for a quiet frame, and says `crossingSolved` (`crossing-solve.ts`),
+  // so the land has nothing left to end. One without it is a page the host
+  // keeps at its size to the land, which ends the episode there. Either way
+  // the page's land record reads what the land cost (`body-land.ts`) —
+  // stamped before any episode ends, so an end there is the land's.
   //
   // The acknowledgement carries the page's own surface as sRGB bytes: the
   // host paints the container in it for the crossing, so where a shrinking
   // box is still larger than the page at its final size the strip the page
   // does not reach is the body's surface, never the floor beneath.
   let crossing: ResizeEpisodeHandle | null = null;
+  let cancelSolve: (() => void) | null = null;
+  const bodyLand = createBodyLand({
+    cardId: () => page.cardId ?? "",
+    enabled: () => deckTrace.isKindEnabled("body-land"),
+    now: () => performance.now(),
+    wallNow: () => Date.now(),
+    raf: (cb) => requestAnimationFrame(cb),
+    cancelRaf: (id) => cancelAnimationFrame(id),
+    recorder: landRecorder,
+    record: (row) => deckTrace.record({ kind: "body-land", ...row }),
+  });
   onHostMessage(bodyCrossingToPage, (next) => {
+    if (next.phase === "land") bodyLand.land();
+    cancelSolve?.();
+    cancelSolve = null;
     crossing?.end();
     crossing = null;
     if (next.phase !== "begin") return;
     const root = document.getElementById("deck-container") ?? document.body;
-    crossing = beginResizeEpisode(root, next.durationMs ?? 0);
+    bodyLand.begin();
+    const episode = beginResizeEpisode(root, next.durationMs ?? 0);
+    crossing = episode;
     postToHost(crossingReadyToHost, { surface: pageSurfaceRgba() });
+    if (next.solve !== true) return;
+    cancelSolve = runCrossingSolve({
+      now: () => performance.now(),
+      raf: (cb) => requestAnimationFrame(cb),
+      cancelRaf: (id) => cancelAnimationFrame(id),
+      setTimer: (cb, ms) => window.setTimeout(cb, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+      onResize: (cb) => {
+        window.addEventListener("resize", cb, { once: true });
+        return () => window.removeEventListener("resize", cb);
+      },
+      endEpisode: () => {
+        episode.end();
+        if (crossing === episode) crossing = null;
+      },
+      quietSince: (t) => landRecorder.quietSince(t),
+      solved: ({ resizeMissed }) => {
+        cancelSolve = null;
+        bodyLand.markSolved({ foldLanded: foldLandedNow(), resizeMissed });
+        postToHost(crossingSolvedToHost, {});
+      },
+    });
   });
   postToHost(bodyHelloToHost, {});
 })();
+
+/**
+ * Whether this page's card stands in its folded form now: `true` once the
+ * fold has landed on the card host, `false` while it is folding and has not,
+ * `null` when the card is not folded at all.
+ *
+ * Landed is the generic form's `data-card-fold="settled"` on the host
+ * (`folded-body.ts`), or, for a card that owns its folded form, its own
+ * root's `data-fold="settled"` (the Session card's, in `session-card.tsx`).
+ */
+function foldLandedNow(): boolean | null {
+  const host = document.querySelector<HTMLElement>("[data-card-host]");
+  const frame = host?.closest<HTMLElement>("[data-folded]") ?? null;
+  if (host == null || frame?.getAttribute("data-folded") !== "true") return null;
+  return host.getAttribute(CARD_FOLD_ATTR) === "settled" || host.querySelector('[data-fold="settled"]') !== null;
+}

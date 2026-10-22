@@ -16,6 +16,9 @@ import {
   heldForThePaint,
   hiddenSince,
   inReadingOrder,
+  LANDING_GUARD_MS,
+  landDrifts,
+  landingHorizonMs,
   meetsAFace,
   namePlans,
   placeCardsOf,
@@ -30,6 +33,7 @@ import {
   type Placement,
 } from "../card-placement";
 import { CARD_APRON_PX } from "../chrome-placement";
+import { SOLVE_GUARD_MS } from "../card-plan";
 import { firstFamily, rgbaOf, rgbaOfBytes, svgPaintOf, withinView, type FaceDraw } from "../face-draw";
 
 const SHOWN: BodyShownFacts = {
@@ -250,7 +254,7 @@ describe("a revived card", () => {
 });
 
 describe("namePlans", () => {
-  const inFlight = new Map<string, InFlightPlan>([["a", { planId: 3, landing: { x: 300, y: 40, width: 300, height: 200 }, arrives: false, lands: true }]]);
+  const inFlight = new Map<string, InFlightPlan>([["a", { planId: 3, landing: { x: 300, y: 40, width: 300, height: 200 }, arrives: false, lands: true, solves: false }]]);
 
   test("a card measured at the rect its plan lands it at names the plan", () => {
     const named = namePlans({ bodies: [view("a", 300, 40), view("b", 0, 40)] }, inFlight);
@@ -267,6 +271,32 @@ describe("namePlans", () => {
     const at = { bodies: [view("a", 300, 40)] };
     expect(samePlacement(at, namePlans(at, inFlight))).toBe(false);
     expect(samePlacement(namePlans(at, inFlight), namePlans(at, inFlight))).toBe(true);
+  });
+});
+
+describe("landDrifts", () => {
+  const landings = { a: { x: 300, y: 40, width: 300, height: 200 }, b: { x: 0, y: 40, width: 300, height: 200 } };
+
+  test("a landed card measured at its plan's landing has nothing left to move", () => {
+    expect(landDrifts({ bodies: [view("a", 300, 40), view("b", 0.4, 40)] }, ["a", "b"], landings)).toEqual([]);
+  });
+
+  test("one measured a pixel or more away is a drift, named with its delta", () => {
+    const placement = { bodies: [view("a", 300, 40, { height: 188 }), view("b", 0, 40)] };
+    expect(landDrifts(placement, ["a", "b"], landings)).toEqual([{ cardId: "a", dx: 0, dy: 0, dw: 0, dh: -12 }]);
+  });
+
+  test("a card the plan did not land, or the measurement does not place, says nothing", () => {
+    const placement = { bodies: [view("a", 900, 40)] };
+    expect(landDrifts(placement, ["b"], landings)).toEqual([]);
+    expect(landDrifts(placement, ["c"], landings)).toEqual([]);
+  });
+});
+
+describe("landingHorizonMs", () => {
+  test("a solving plan's horizon waits out the host's solve guard as well as the landing guard", () => {
+    expect(landingHorizonMs(300, false)).toBe(300 + LANDING_GUARD_MS);
+    expect(landingHorizonMs(300, true)).toBe(300 + SOLVE_GUARD_MS + LANDING_GUARD_MS);
   });
 });
 

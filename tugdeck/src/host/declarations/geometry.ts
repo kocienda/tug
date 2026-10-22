@@ -52,6 +52,7 @@ const railLimits: Codec<RailWidthLimits> = obj({ min: num, max: num });
 const cardPlanCodec: Codec<CardPlan> = obj({
   planId: num,
   startWallMs: num,
+  solves: bool,
   cards: arr(
     obj({
       cardId: str,
@@ -248,6 +249,7 @@ export const cardPlanToHost = defineToHost<CardPlan>({
     {
       planId: 1,
       startWallMs: 1760000000000.5,
+      solves: true,
       cards: [
         {
           cardId: "c1",
@@ -285,10 +287,11 @@ export const cardPlanToHost = defineToHost<CardPlan>({
     },
   ],
   refused: [
-    { planId: "x", startWallMs: 0, cards: [] },
-    { startWallMs: 0, cards: [] },
-    { planId: 1, startWallMs: 0, bodies: [] },
-    { planId: 1, startWallMs: 0, cards: [{ cardId: "c1", landing: SAMPLE_RECT }] },
+    { planId: "x", startWallMs: 0, solves: false, cards: [] },
+    { startWallMs: 0, solves: false, cards: [] },
+    { planId: 1, startWallMs: 0, solves: false, bodies: [] },
+    { planId: 1, startWallMs: 0, solves: false, cards: [{ cardId: "c1", landing: SAMPLE_RECT }] },
+    { planId: 1, startWallMs: 0, cards: [] },
   ],
 });
 
@@ -347,13 +350,17 @@ export const cardInsetsToPage = defineToPage<CardInsets>({
 
 /**
  * A crossing's beats begin over the body — the size its box is carried to
- * and the plan's span — or have landed.
+ * and the plan's span — or have landed. A `begin` with `solve` asks the page
+ * to lay itself out at the crossing size before the motion starts and say
+ * `crossingSolved`; one without it is a page the host keeps at its size to
+ * the land.
  */
 export interface BodyCrossing {
   readonly phase: "begin" | "land";
   readonly width?: number;
   readonly height?: number;
   readonly durationMs?: number;
+  readonly solve?: boolean;
 }
 
 export const bodyCrossingToPage = defineToPage<BodyCrossing>({
@@ -364,7 +371,30 @@ export const bodyCrossingToPage = defineToPage<BodyCrossing>({
     width: optional(num),
     height: optional(num),
     durationMs: optional(num),
+    solve: optional(bool),
   }),
-  samples: [{ phase: "begin", width: 480, height: 320, durationMs: 240 }, { phase: "land" }],
-  refused: ["land", { phase: "pause" }, { phase: "begin", width: "wide" }],
+  samples: [
+    { phase: "begin", width: 480, height: 320, durationMs: 240 },
+    { phase: "begin", solve: true, width: 480, height: 320, durationMs: 240 },
+    { phase: "land" },
+  ],
+  refused: ["land", { phase: "pause" }, { phase: "begin", width: "wide" }, { phase: "begin", solve: "yes" }],
+});
+
+/**
+ * The window's own resize is bracketed: a live drag of its edge or a
+ * full-screen transition began, or ended. The canvas re-tunes the rail
+ * allocation once, at the `end`, rather than on every size the bracket
+ * passes through.
+ */
+export interface WindowResize {
+  readonly phase: "begin" | "end";
+}
+
+export const windowResizeToPage = defineToPage<WindowResize>({
+  member: "onWindowResize",
+  to: "shell",
+  codec: obj({ phase: literal("begin", "end") }),
+  samples: [{ phase: "begin" }, { phase: "end" }],
+  refused: ["end", { phase: "pause" }, {}],
 });

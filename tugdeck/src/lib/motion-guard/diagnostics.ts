@@ -66,9 +66,15 @@ import {
 } from "./offscreen";
 import { motionBreaker } from "./breaker";
 import { adoptRecordFlagAtLoad, recordSwitch, type RecordReading } from "./record-switch";
-import { settleVerdictOfDrive, type SettleEngineRows, type SettleVerdict } from "./settle-bar";
+import {
+  emptyLandClause,
+  settleVerdictOfDrive,
+  type SettleClause,
+  type SettleEngineRows,
+  type SettleVerdict,
+} from "./settle-bar";
 import { SHOWN_PANE_FRAMES } from "@/lib/pane-frame-selectors";
-import { deckTrace } from "@/deck-trace";
+import { deckTrace, type DeckTraceEvent } from "@/deck-trace";
 import type { SettleGapRow } from "@/lib/settle-gap-sampler";
 import {
   burst,
@@ -204,6 +210,9 @@ export interface SettleGapReading {
   rows: Array<SettleGapRow & { at: number }>;
 }
 
+/** A card page's `body-land` row, as its trace holds it. */
+export type BodyLandEvent = Extract<DeckTraceEvent, { kind: "body-land" }>;
+
 export interface TugMotionDiagnostics {
   /** Every long-running animation, with its target, properties and violations. */
   list(options?: { within?: string }): AnimationCensus;
@@ -292,6 +301,14 @@ export interface TugMotionDiagnostics {
    * the arrived exemption.
    */
   settleBand(): string;
+  /**
+   * This page's last `body-land` row whose land came at or after `sinceWallMs`
+   * on `Date`'s clock, with the empty-land clause over it — the bar computed
+   * where the row lives, so the settle verb reading a card page prints the
+   * page's verdict rather than keeping a copy of the bar. `null` when no
+   * crossing landed in this page since then.
+   */
+  bodyLand(sinceWallMs?: number): { row: BodyLandEvent; clause: SettleClause } | null;
   /** The late frames every settle has recorded, oldest first ([B07]). */
   gaps(): SettleGapReading;
   /**
@@ -687,6 +704,14 @@ export const tugMotion: TugMotionDiagnostics = {
 
   settleVerdict(engine, gesture, args) {
     return settleVerdictOfDrive(engine, gesture, args);
+  },
+
+  bodyLand(sinceWallMs) {
+    const rows = deckTrace
+      .dump()
+      .filter((e): e is BodyLandEvent => e.kind === "body-land" && e.landWallMs >= (sinceWallMs ?? 0));
+    const row = rows[rows.length - 1];
+    return row === undefined ? null : { row, clause: emptyLandClause(row) };
   },
 
   settleBand() {

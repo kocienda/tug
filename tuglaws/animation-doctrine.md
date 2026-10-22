@@ -352,6 +352,12 @@ From `arm` to the first beat's launch the deck's script forces one layout, the c
 
 **The one layout still has a price, and the price is style.** Once the readers were gone, a fold's set-up was 81–93 samples of forced style at the read phase's first `getBoundingClientRect`, a whole-document resolve the commit's own writes left. About forty of those samples were the arrangement's column properties inherited from the canvas, and they are now written on their readers alone ([D204], `components/chrome/place-properties.ts`); the rest, 50–54 samples, is still paid. A write in the commit that dirties an ancestor's inherited property is a write the whole deck pays for at this one read.
 
+### The set-up solves the end state {#fully-solved}
+
+**The set-up solves every surface's end state, the motion is one set of moves, and the land owes nothing.** Set-up-and-go put every cost before the first frame; this is the same rule carried to the land. Before the first moving frame each carried surface is at its end size, laid out and painted, a card page in its own web view as much as a frame in the shell, so the motion is a set of compositor moves over finished pictures and the land hands ownership back and changes nothing: no page resized, no episode ended, no scroll written, no pin paid, no placement re-posted, no held tell replayed. A fix-up that runs at the land is a motion not yet solved, and it is deleted when its motion is solved rather than bypassed. [The inventory](#inventory) names each motion and the fix-up it still carries.
+
+**The land is read on both sides.** The shell's `settle-land` row reads the shell's land; a card page's own `body-land` row (`body/body-land.ts`) reads the land in the card's process, where the restore and the re-measure are paid, and names every commit, forced layout, delivery, resize-episode end and scroll write in it by site. The bar is one display period with a millisecond's slack and nothing in either list (`emptyLandClause` in `lib/motion-guard/settle-bar.ts`), the one copy the app-tests assert and `tugtool deck motion settle` prints beside each carried card. The set-up's length is a reading with a soft limit of 100 ms, never a reason to move work back into the motion or the land.
+
 ### The departing frame's contract {#ghost-contract}
 
 **A departure is the real frame, kept mounted for the one settle that carries it out, and it is held to three rules so that a card leaving cannot leak back into the running app.** The rules were first written against a *clone* of the live card and then against a blank tile planted in its place; both are retired, and the rules are what survived them, because each is about the mark a departure leaves rather than about what the mark is made of.
@@ -373,15 +379,45 @@ The rest of the class is read from the platform rather than measured, and it has
 
 ### The accepted snaps {#accepted-snaps}
 
-The settle's promise is that a layout change travels rather than jumps, and `tests/app-test/at0450-imposer-cut-census.test.ts` held it to that by watching every frame for the length of a gesture: it reported any pane that changed places, or arrived, with nothing animating it. The census was retired on 2026-09-18, with the promise broken for exactly one gesture — a drop-zone commit cutting four frames by 164px — so the promise below now stands unpinned. Four movements are deliberately outside that promise. They are recorded here so a reader meets them as decisions rather than finding them as bugs, and they are absent from the census for the same reason.
+The settle's promise is that a layout change travels rather than jumps, and `tests/app-test/at0450-imposer-cut-census.test.ts` held it to that by watching every frame for the length of a gesture: it reported any pane that changed places, or arrived, with nothing animating it. The census was retired on 2026-09-18, with the promise broken for exactly one gesture — a drop-zone commit cutting four frames by 164px — so the promise below now stands unpinned. Two movements are deliberately outside that promise. They are recorded here so a reader meets them as decisions rather than finding them as bugs, and they are absent from the census for the same reason.
 
 - **A theme swap, and a chrome-tier change.** Both move geometry from outside the store — token-derived chrome heights and radii resolve on the next paint — so no arrangement change arms a settle. Animating them would mean tweening on a signal the deck does not receive.
-- **The settled-resize retune.** Rails re-solve 200ms after the hand stops (`RESIZE_RETUNE_QUIET_MS`), and that motion *is* animated; what is accepted is the delay before it, which reads as a second movement after the gesture ended. Re-solving continuously during the drag would put the allocator on the resize's clock, which is the cost the quiet window exists to avoid.
-- **The content pop at settle release.** React tells held by the motion gate for the settle window run when it opens (#residency), so a card whose content changed mid-settle repaints at the end of the motion rather than during it. This is the gate working as designed; the alternative is the superadditive commit-in-window cost it was built to pay off.
 
 Anything else the census reports is a defect. An entry there is not a tolerance — a gesture that stops cutting has its allowance taken to zero in the same change, or the test goes quiet about the regression it exists to catch.
 
 ---
+
+## The inventory {#inventory}
+
+Every motion the deck performs, by the name the work speaks in, with the fix-up its land carries today and the end state that solves it. Fold and unfold are two entries because their fix-ups differ, likewise split and unsplit. A row reads `yes` under Solved once its motion's land reads empty by [the bar](#fully-solved) and its fix-up is gone from the tree.
+
+| Id | Motion | Trigger | Fix-up carried today | Fully-solved end state | Solved |
+|---|---|---|---|---|---|
+| C1 | Card fold | ⌃⌘Y, View menu | page relayout at the land, `inert` at crossing end, compaction cover, Z2 row occupant | page is at folded size and painted before frame one; the container reveals a snapshot of the start and swaps at the land | yes |
+| C2 | Card unfold | same | list reveal re-applies scroll, "unfold's first frames" relayout | end size and scroll target solved in the set-up | yes |
+| C3 | Move card to slot | ⌘1–6, slot picker, badge | flash ring parked until the land | the flash is a beat in the choreography | no |
+| C4 | Move card up, down, top, bottom | ⌃⌘↑↓, ⇧ | the land chain | one move | no |
+| C5 | Card open, arrive | ⌘N, show-card, picker | arrival-reveal rule for a card hidden while its sheet settles | arrive waits on `painted`; no late reveal | no |
+| C6 | Card close, depart | close button | real card cuts out, stand-in fades | host fades the real card on the survivors' timeline | no |
+| C7 | Card drag and grip resize | mouse on title or grip | drop lands as a one-card plan; `returnToLanding` if unmoved | already solved; the drop is the set-up | no |
+| C8 | Card activate | click, chords | none | a cut; stays one | no |
+| C9 | Tab drag ghost | tab drag | none | fine as is | no |
+| S1 | Split column | ⌃⌘/ | retiring member held to completion; height term a real tween | both members at final size and painted before frame one | yes |
+| S2 | Unsplit, stack column | same | same | same | yes |
+| S3 | Column seam drag | mouse on sash | commits on release | already solved | no |
+| S4 | Equalize heights, bullseye, content width | ⌃⌘B, settings | `scaleX` under 20 % distortion else real width; land chain | solved width; no scale stand-in | no |
+| R1 | Rail width drag | mouse on rail edge | pages resized at release, then a 500 ms wait on `railLand` | per `briefs/rail-drag-ghost-brief.md`: nothing moves until release, then a settle | no |
+| R2 | Rail limit spring-back | over-drag release | `finishSpring` re-applies placement | one spring to a known rest | no |
+| R3 | Show, hide sidebars; show left, right rail | ⌃⌘S, ⌃⌘←→ | host card not planned on hide | host carries the hide on the same timeline | no |
+| R4 | Resize sidebars to fit | ⇧⌥⌘S, View menu | both axes as violations; retune constant alive | both axes solved; retune deleted | yes |
+| D1 | Flow slide, go to slot | ⌃⌘1–6, wheel, swipe, click | a hand-lift's prelaunched slide let its React commit in one paint into the motion, and the sealed bar carved the swipe out | the prelaunch holds the deck store's tell behind its motion gate, so the commit lands after the land; a click, key or quiet wheel is a measured settle whose commit is its set-up | yes |
+| D2 | Workspace switch | activate-space | epoch detector; departing-face flash | one host transaction, per `briefs/switch-hand-over-brief.md` | no |
+| D3 | Zoom | ⌘= ⌘- ⌘0 | placement re-posted | a cut; stays one | no |
+| D4 | Theme switch | menu | none | a snap; stays one | no |
+| D5 | Shell reveal, reload | launch, reload | none | fine | no |
+| B1 | Scroller pin across a crossing | any size crossing | restore at the land | the end offset is solved and written once | no |
+| B2 | Scroll into view | reveal range | up to three verify-and-replace writes | one write from a solved position | no |
+| B3 | Sheets, banners | open, close | none | fine; a sheet exit already rides the settle clock | no |
 
 ## The falsification method — bench a primitive before shipping it {#falsification}
 

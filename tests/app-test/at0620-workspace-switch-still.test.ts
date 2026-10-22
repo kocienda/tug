@@ -1080,8 +1080,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- Condition 3: resized while hidden. ------------------------
           // The band the parked deck's offsets were written against is gone.
-          // `RESIZE_RETUNE_QUIET_MS` is 200; the wait is well past it, so the
-          // re-tune has landed and settled before the gesture.
+          // The canvas re-tunes in the delivery that reports the new size, so
+          // the wait sees the re-tune land and settle before the gesture.
           const shrink = await app.evalJS<Record<string, unknown>>(
             resizeScript(900),
           );

@@ -8,9 +8,9 @@
  * the settle's start on the clock both sides read — and the host runs each
  * body's container as Core Animation on it (`lib/card-plan.ts`,
  * `BodyViewController.runPlan`). Both of the settle's planning sites are
- * driven: the flow strip's prelaunched slide (Go to slot, out and back, in
- * a four-up flow band holding two body cards) and the Last pass's move
- * beat (a cross-column stack move in a two-up).
+ * driven: the flow strip's slide (Go to slot, out and back, in a four-up
+ * flow band holding two body cards) and the Last pass's move beat (a
+ * cross-column stack move in a two-up).
  *
  * On each gesture (`_motion.ts`'s `carryLeg`): the placer planned every body
  * card the gesture moved; on every composited frame where the chrome moves
@@ -22,6 +22,11 @@
  * least 95 % of its ticks across the span it moved; the host says the body
  * landed; and at rest the container — presented and placed — stands on the
  * placeholder to the pixel.
+ *
+ * The flow legs ({@link flowLeg}) read the land too: the shell's is one
+ * frame, and neither body page committed anything across the slide. A slide
+ * carries no crossing, so the pages write no `body-land` row and the card
+ * side is each page's commit census over the gesture (`_land.ts`).
  *
  * A gesture that also changes a body's size is a crossing and is not this
  * row's: ⌘N's neighbours ride a fused beat carrying their sizes, and the
@@ -36,12 +41,15 @@
  * that reads the way back makes the way out as its set-up.
  */
 
-import { launchTugApp, type App } from "../_harness";
+import { expect } from "bun:test";
+
+import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
-import { standUp, type Rect, type Standing } from "./_motion";
+import { armLandRecords, bodyClock, expectEmptyLand, readBodyCommits, readBodyLand, readSettleLand } from "./_land";
+import { carryLeg, standUp, type Rect, type Standing } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-14-beats-move";
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -118,4 +126,34 @@ export async function withFlow(name: string, legs: (at: Stood) => Promise<void>)
   } finally {
     await app.close();
   }
+}
+
+/**
+ * A flow slide carrying both bodies, judged by `carryLeg`, and its land: the
+ * shell's one frame, no `body-land` row, and no commit in either body page
+ * from the gesture to the settle's end.
+ */
+export async function flowLeg(app: App, card: string, label: string, js: string, standing: Standing, crop: Rect): Promise<void> {
+  await armLandRecords(app, FLOW_BODIES);
+  const clocks = new Map<string, number>();
+  const bodyMarks = new Map<string, number>();
+  for (const id of FLOW_BODIES) {
+    clocks.set(id, await bodyClock(app, id));
+    bodyMarks.set(id, await app.body(id).markDeckTrace());
+  }
+  const shellMark = await app.markDeckTrace();
+  await carryLeg(app, card, FLOW_BODIES, label, js, standing, crop, async () => {
+    // Read before `carryLeg` focuses the body again, which is a commit of
+    // the page's own that the slide did not cause.
+    const shell = await pollFor(() => readSettleLand(app, shellMark), (row) => row !== null, 2_000);
+    note(`${label}: settle-land ${JSON.stringify(shell)}`);
+    for (const id of FLOW_BODIES) {
+      const commits = await readBodyCommits(app, id, clocks.get(id) ?? 0);
+      note(`${label}: ${id} page commits across the slide ${JSON.stringify(commits)}`);
+      expect(commits, `${label}: ${id}'s page has a commit census`).not.toBeNull();
+      expect(commits ?? [], `${label}: ${id}'s page committed nothing across the slide`).toEqual([]);
+      const body = await readBodyLand(app, id, bodyMarks.get(id));
+      expectEmptyLand({ body, shell }, `${label} ${id}`, { crossing: false });
+    }
+  });
 }

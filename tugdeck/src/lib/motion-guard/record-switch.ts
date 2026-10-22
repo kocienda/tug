@@ -2,8 +2,9 @@
  * The record switch — the deck's motion instruments, on and off by hand.
  *
  * Every per-frame record the settle and the switch write (`settle-frames`,
- * `settle-land`, `settle-beat`, `space-switch-frames`) sits behind the deck
- * trace, and nothing in the product turns the trace on: the instruments are
+ * `settle-land`, `settle-beat`, `space-switch-frames`, and a card page's own
+ * `body-land`) sits behind the deck trace, and nothing in the product turns
+ * the trace on: the instruments are
  * off by default, by the user's ruling, and the release deck records nothing
  * until a hand asks it to. This is that hand's switch, reached from the shell
  * as `tugtool deck motion record on|off` and from the Session card as
@@ -34,6 +35,7 @@ export const RECORDED_KINDS: readonly DeckTraceEvent["kind"][] = [
   "settle-land",
   "settle-beat",
   "space-switch-frames",
+  "body-land",
 ];
 
 /** What the switch armed, and what waits on a reload. */
@@ -52,6 +54,12 @@ export interface RecordReading {
   flagged: boolean;
   /** What is not in this page and comes with the next load, while recording. */
   nextLoad: string[];
+  /**
+   * The cards whose body pages stand in this page's deck — the shell's body
+   * placeholders, so a hand switching the shell knows which card pages to
+   * switch beside it. Empty in a body page.
+   */
+  bodies: string[];
 }
 
 interface CensusSwitch {
@@ -73,6 +81,16 @@ function census(): CensusSwitch | undefined {
   return typeof window === "undefined"
     ? undefined
     : (window.__tugCommits as CensusSwitch | undefined);
+}
+
+/** The cards whose body placeholders stand in this page; reads no layout. */
+function bodyCards(): string[] {
+  if (typeof document === "undefined") return [];
+  const ids = new Set<string>();
+  for (const el of document.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
+    if (el.dataset.cardId !== undefined) ids.add(el.dataset.cardId);
+  }
+  return [...ids];
 }
 
 function leadInstalled(): boolean {
@@ -116,6 +134,7 @@ export function recordSwitch(on?: boolean): RecordReading {
     leadRecorder: leadInstalled(),
     flagged: storage()?.getItem(MOTION_RECORD_FLAG) === "1",
     nextLoad,
+    bodies: bodyCards(),
   };
 }
 

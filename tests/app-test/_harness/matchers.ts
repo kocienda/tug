@@ -303,6 +303,49 @@ export type DeckTraceEventShape = {
       deliveries: readonly { t: number; ms: number; site: string }[] | null;
     }
   | {
+      /** A solving plan started, and who started the chrome. */
+      kind: "settle-solve";
+      planId: number;
+      solveMs: number;
+      timedOut: boolean;
+      source: "host" | "shell";
+    }
+  | {
+      /** The land's measurement moved a card a plan had landed. */
+      kind: "placement-land-drift";
+      cardId: string;
+      planId: number;
+      dx: number;
+      dy: number;
+      dw: number;
+      dh: number;
+    }
+  | {
+      /** A card page's own land, in that page's trace: the frame the
+       *  crossing's end cost there, what ran in it, and what ran between the
+       *  page's solve and the land. */
+      kind: "body-land";
+      cardId: string;
+      planId: number | null;
+      solveMs: number | null;
+      snapshotMs: number | null;
+      foldLanded: boolean | null;
+      resizeMissed: boolean | null;
+      landWallMs: number;
+      frameMs: number;
+      frameFrames: number;
+      gapsMs: readonly number[];
+      framePeriodMs: number;
+      /** `null` when the page had no commit census. */
+      commits: readonly { t: number; performed: number; site: string }[] | null;
+      forcedLayouts: readonly { t: number; ms: number; site: string }[];
+      deliveries: readonly { t: number; ms: number; site: string }[] | null;
+      episodeEnds: readonly { t: number; ms: number; site: string }[];
+      scrollWrites: readonly { t: number; ms: number; site: string }[];
+      motionCommits: readonly { t: number; performed: number; site: string }[] | null;
+      motionScrollWrites: readonly { t: number; ms: number; site: string }[];
+    }
+  | {
       /** One beat's own row, written by the beat at its landing. */
       kind: "settle-beat";
       recipe: string;
@@ -429,6 +472,9 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "body-beat",
   "settle-frames",
   "settle-land",
+  "body-land",
+  "settle-solve",
+  "placement-land-drift",
   "settle-beat",
   "settle-motion-violation",
   "opening-bid-mismatch",
@@ -715,6 +761,18 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
         `${e.frameFrames.toFixed(2)}f commits=${e.commits === null ? "-" : e.commits.length} ` +
         `forced=${e.forcedLayouts.length} deliveries=${e.deliveries === null ? "-" : e.deliveries.length}`
       );
+    case "body-land":
+      return (
+        `body-land ${e.cardId} solve=${e.solveMs === null ? "-" : `${e.solveMs.toFixed(1)}ms`} ` +
+        `frame=${e.frameMs.toFixed(1)}ms/${e.frameFrames.toFixed(2)}f ` +
+        `commits=${e.commits === null ? "-" : e.commits.length} forced=${e.forcedLayouts.length} ` +
+        `deliveries=${e.deliveries === null ? "-" : e.deliveries.length} ` +
+        `episodeEnds=${e.episodeEnds.length} scrollWrites=${e.scrollWrites.length}`
+      );
+    case "settle-solve":
+      return `settle-solve plan=${e.planId} solve=${e.solveMs.toFixed(1)}ms source=${e.source}${e.timedOut ? " timedOut" : ""}`;
+    case "placement-land-drift":
+      return `placement-land-drift ${e.cardId} plan=${e.planId} d=(${e.dx.toFixed(1)}, ${e.dy.toFixed(1)}, ${e.dw.toFixed(1)}, ${e.dh.toFixed(1)})`;
     case "settle-beat":
       return (
         `settle-beat ${e.recipe} targets=${e.targets} dur=${e.durationMs}ms ` +

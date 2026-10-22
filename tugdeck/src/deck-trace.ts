@@ -83,6 +83,7 @@ import { getCardDeck } from "./lib/deck-store-registry";
 import type { BeatKind } from "./lib/pane-flip";
 import type { BeatRow } from "./components/tugways/tug-animator";
 import type { LandReading, MotionEvents } from "./lib/land-frame-record";
+import type { BodyLandRow } from "./body/body-land";
 import type { SettleGapRow } from "./lib/settle-gap-sampler";
 import { isFocusDestination } from "./deck-store-selectors";
 
@@ -758,6 +759,29 @@ export type DeckTraceEvent = {
       lateMs: number | null;
     }
   | {
+      // A solving plan started: how long its solve took from the plan's
+      // receipt, whether the solve ran out its guard, and who started the
+      // chrome — `host` on its `planStarted`, `shell` at the settle's own
+      // horizon when none came. One per solving plan.
+      kind: "settle-solve";
+      planId: number;
+      solveMs: number;
+      timedOut: boolean;
+      source: "host" | "shell";
+    }
+  | {
+      // The land's measurement put a card a plan landed elsewhere than the
+      // plan's own landing: the land had something left to move, which a
+      // solved plan never has. The delta is measured − landing, viewport px.
+      kind: "placement-land-drift";
+      cardId: string;
+      planId: number;
+      dx: number;
+      dy: number;
+      dw: number;
+      dh: number;
+    }
+  | {
       // The settle's own frame-gap record ([B10], [P09], Spec S03). Written
       // once per settle, at release, beside `settle-release` — never when no
       // settle ran, because the sampler that feeds it is armed by the settle
@@ -837,6 +861,16 @@ export type DeckTraceEvent = {
       // it: the tail is part of the same bench record.
       kind: "settle-land";
     } & LandReading)
+  | ({
+      // A card page's own land: the frame its crossing's end cost in the
+      // card's process, and what ran in it — commits, forced layouts,
+      // deliveries, resize-episode ends and scroll writes, each by site —
+      // with what ran between the page's solve and the land beside it
+      // (`body/body-land.ts`). One row per crossing, in the body page's own
+      // trace, written two ticks after `bodyCrossing land`. Cost-bearing: the
+      // page pumps frame callbacks across the crossing only while it is armed.
+      kind: "body-land";
+    } & BodyLandRow)
   | ({
       // One beat's own row, written by the beat at its landing — the recipe
       // it ran, how many layers it moved, how long after planning its clock
@@ -1068,8 +1102,11 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "settle-release" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-gate" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "body-beat" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-solve" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "placement-land-drift" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-frames" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-land" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "body-land" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-beat" }>, StampedFields>
   | Omit<
       Extract<DeckTraceEvent, { kind: "settle-motion-violation" }>,
@@ -1305,6 +1342,8 @@ const ALWAYS_RECORDED_KINDS: ReadonlySet<DeckTraceEvent["kind"]> = new Set([
   "opening-bid-mismatch",
   "focus-claim-hidden",
   "settle-gap",
+  "settle-solve",
+  "placement-land-drift",
 ]);
 
 function appendEvent(

@@ -21,10 +21,17 @@
  * unfold takes both off at once, because the open form is the one the card
  * comes back to.
  *
+ * A fold no crossing carries lands at the flip, and that is now the common
+ * case for a card in its own page: a fold the host's card plan solves is
+ * never marked on the page's frame, because the page lays itself out at its
+ * folded size before the motion and there is no moving edge inside it. The
+ * form lands first, so the solve lays out the folded form.
+ *
  * The flag is read off the frame's `data-folded` through a `MutationObserver`,
  * the thing itself rather than a store subscription: the attribute is what the
  * imposer compares across the commit to mark the crossing, so by the time the
- * observer's microtask runs, the mark is either on the frame or is not coming.
+ * observer's microtask runs, the mark is either on the frame or is not coming
+ * — which is why no frame is waited for to learn which.
  *
  * A card that owns its folded form — the Session card ([B08]) — declares
  * `ownsFoldedForm` and is never given this one.
@@ -86,30 +93,18 @@ export function holdFoldedBody(frame: HTMLElement, host: HTMLElement): () => voi
     folded = next;
     cancelWait?.();
     cancelWait = null;
-    if (!next || firstRead || !isTugMotionEnabled()) {
+    if (!next || firstRead || !isTugMotionEnabled() || !frame.hasAttribute(FOLD_CROSSING_ATTR)) {
       land(next);
       return;
     }
-    // The crossing's end is the imposer's to announce. The one fold it does
-    // not carry — a cut landing, a frame the pointer owns — is never marked,
-    // and one animation frame is enough to know: the imposer marks in the
-    // commit's layout pass, before paint.
+    // The crossing's end is the imposer's to announce.
     const onEnd = (): void => {
       cancelWait?.();
       cancelWait = null;
       land(true);
     };
-    let probe: number | null = window.requestAnimationFrame(() => {
-      probe = null;
-      if (frame.hasAttribute(FOLD_CROSSING_ATTR)) return;
-      onEnd();
-    });
     frame.addEventListener(FOLD_CROSSING_END, onEnd);
-    cancelWait = () => {
-      frame.removeEventListener(FOLD_CROSSING_END, onEnd);
-      if (probe !== null) window.cancelAnimationFrame(probe);
-      probe = null;
-    };
+    cancelWait = () => frame.removeEventListener(FOLD_CROSSING_END, onEnd);
   };
 
   read();

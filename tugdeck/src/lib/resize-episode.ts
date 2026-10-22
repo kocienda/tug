@@ -319,6 +319,24 @@ let nextEpisodeId = 1;
 const openEpisodes = new WeakMap<HTMLElement, Episode>();
 
 /**
+ * Who hears an episode close. The end event does not bubble, so nothing above
+ * a scroller hears it; this is the one place an end can be counted. The land
+ * record subscribes while armed.
+ */
+const episodeEndListeners = new Set<(scrollers: number) => void>();
+
+/**
+ * Hear every episode that closes, with the number of scrollers it dispatched
+ * the end to. The returned function releases the subscription ([L27]).
+ */
+export function onEpisodeEnd(fn: (scrollers: number) => void): () => void {
+  episodeEndListeners.add(fn);
+  return () => {
+    episodeEndListeners.delete(fn);
+  };
+}
+
+/**
  * Every scroller inside `frame` that participates in preservation.
  *
  * `[data-tug-scroll-key]` is the existing region-preservation seam and reaches
@@ -556,4 +574,5 @@ function closeEpisode(episode: Episode): void {
     openEpisodes.delete(episode.frame);
     episode.frame.removeAttribute(RESIZE_EPISODE_ATTR);
   }
+  for (const fn of episodeEndListeners) fn(episode.scrollers.length);
 }

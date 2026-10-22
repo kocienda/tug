@@ -13,9 +13,13 @@
  * reconcile. Emissions that arrive while a reconcile is deferred schedule
  * nothing further.
  *
- * The content pop at the release is the snap the animation doctrine accepts
- * (`tuglaws/animation-doctrine.md`, accepted snaps). Under reduced motion the
- * gate never closes, and the flush is the plain rAF coalescer it always was.
+ * A block in a card's own page never meets that gate: the page's gate is
+ * never held, so it streams through the shell's settles and nothing pops at
+ * their release. The deferral is for a card rendered in the shell's page, and
+ * the pop it leaves at the release is no longer a snap the animation doctrine
+ * accepts (`tuglaws/animation-doctrine.md`, the set-up solves the end state).
+ * Under reduced motion the gate never closes, and the flush is the plain rAF
+ * coalescer it always was.
  *
  * A deferred reconcile cannot be taken back out of the gate's queue, so
  * `dispose` leaves it there as a no-op: a block unmounted mid-motion

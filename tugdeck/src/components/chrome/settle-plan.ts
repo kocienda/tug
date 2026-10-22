@@ -397,6 +397,13 @@ export interface ScheduleInputs {
   readonly widthSettles: boolean;
   /** This settle OPENED a fold crossing, rather than adopting one mid-travel. */
   readonly opensFoldCrossing: boolean;
+  /**
+   * The settle's card plan solves: the host lays each crossing card's page
+   * out at its landing size before anything moves, and the beats wait for
+   * its start. The prepare beat's guess at when the page is ready is then
+   * the solve's fact, and is zero.
+   */
+  readonly solving: boolean;
   /** The settle's nominal duration (ms), unscaled by the deck's timing. */
   readonly durationMs: number;
 }
@@ -447,11 +454,13 @@ export function planSettleSchedule(inputs: ScheduleInputs): SettleSchedule {
   // a frame whose WIDTH settles at its final size: its interior re-flows at
   // the new width in the set-up, and its observers answer in the same frames.
   const lateClose = inputs.arrivals > 0 || inputs.widthSettles;
-  const prepareMs = lateClose
-    ? ARRIVAL_PREPARE_MS
-    : inputs.opensFoldCrossing
-      ? FOLD_PREPARE_MS
-      : 0;
+  const prepareMs = inputs.solving
+    ? 0
+    : lateClose
+      ? ARRIVAL_PREPARE_MS
+      : inputs.opensFoldCrossing
+        ? FOLD_PREPARE_MS
+        : 0;
   const beats: ScheduledBeat[] = [];
   let delayMs = prepareMs;
   for (const kind of BEAT_ORDER) {

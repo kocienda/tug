@@ -92,28 +92,6 @@ export function settleLegOfDrive(gesture: string, args?: { readonly open?: unkno
 }
 
 /**
- * The sealed clause's carve-outs, keyed on the gesture rather than on the
- * reading, so an exception is a named fact a leg reads rather than a site a
- * red happened to name.
- *
- * `swipe` — the hand-lift prelaunch: a swipe's settle launches from the hand
- * while the strip is still moving, so its gate closes in the arm and its own
- * React commit goes through the deferred notify, which tells React now and
- * bypasses the gate on purpose ([B06] of set-up-and-go-motion). Its commits
- * are noted, not counted; forced layouts and deliveries still are.
- */
-export const SEALED_CARVE_OUTS = {
-  swipe: {
-    commits: true,
-    reason:
-      "the swipe's prelaunch commits under the gate by design ([B06] of set-up-and-go-motion)",
-  },
-} as const;
-
-/** The gestures that carry a carve-out from the sealed clause. */
-export type SealedGesture = keyof typeof SEALED_CARVE_OUTS;
-
-/**
  * The site the sealed clause carves out of its forced layouts: the bench
  * probe's own rect read. While beats run, the frame owes the layout its
  * running animations dirty, and a sync read in the frame's rAF pays it early.
@@ -148,7 +126,7 @@ export interface SettleBarLand {
   readonly frameFrames: number;
 }
 
-export type SettleClauseName = "gap" | "off-curve" | "sealed" | "land";
+export type SettleClauseName = "gap" | "off-curve" | "sealed" | "land" | "empty-land";
 
 /** One clause of the bar and how it read. */
 export interface SettleClause {
@@ -242,11 +220,10 @@ export function offCurveClause(frames: SettleBarFrames, exempt: readonly string[
 }
 
 /** Nothing committed, forced layout or delivered between the first frame and the land. */
-export function sealedClause(frames: SettleBarFrames, gesture?: SealedGesture): SettleClause {
+export function sealedClause(frames: SettleBarFrames): SettleClause {
   if ((frames.motionAtMs ?? -1) < 0) {
     return { name: "sealed", pass: false, detail: "the motion gate never closed behind the beats" };
   }
-  const carved = gesture !== undefined && SEALED_CARVE_OUTS[gesture].commits;
   // A commit that performed no fiber rendered nothing — React's own empty
   // flush — and is kept in the row but not counted.
   const commits =
@@ -256,20 +233,14 @@ export function sealedClause(frames: SettleBarFrames, gesture?: SealedGesture): 
   const forced = (frames.motionForcedLayouts ?? []).filter((e) => e.site !== BENCH_PROBE_SITE);
   const deliveries = frames.motionDeliveries ?? null;
   const red =
-    (!carved && commits !== null && commits.length > 0) ||
+    (commits !== null && commits.length > 0) ||
     forced.length > 0 ||
     (deliveries !== null && deliveries.length > 0);
-  // A carve-out excuses the commits, not the census: a page that could not
-  // count them still could not count them.
   const unread = commits === null || deliveries === null;
-  const commitsDetail = carved
-    ? `${commits === null ? "uncounted" : commits.length} carved out — ${SEALED_CARVE_OUTS[gesture as SealedGesture].reason}` +
-      (commits !== null && commits.length > 0 ? ` — ${settleSites(commits)}` : "")
-    : settleSites(commits);
   return {
     name: "sealed",
     pass: red ? false : unread ? null : true,
-    detail: `commits ${commitsDetail}; forced layouts ${settleSites(forced)}; deliveries ${settleSites(deliveries)}`,
+    detail: `commits ${settleSites(commits)}; forced layouts ${settleSites(forced)}; deliveries ${settleSites(deliveries)}`,
   };
 }
 
@@ -286,6 +257,73 @@ export function landClause(land: SettleBarLand | null | undefined, shrinks: bool
   return { name: "land", pass: shrinks || land.frameFrames <= landFrames, detail };
 }
 
+/**
+ * The fields of a land the empty-land bar reads: a card page's `body-land`
+ * row, or the shell's `settle-land` row, which carries no episode or scroll
+ * lists from a page that predates them.
+ */
+export interface EmptyLandRow {
+  readonly frameMs: number;
+  readonly framePeriodMs: number;
+  readonly commits?: readonly SettleBarEvent[] | null;
+  readonly forcedLayouts?: readonly SettleBarEvent[];
+  readonly deliveries?: readonly SettleBarEvent[] | null;
+  readonly episodeEnds?: readonly SettleBarEvent[];
+  readonly scrollWrites?: readonly SettleBarEvent[];
+}
+
+/**
+ * Whether a land's frame was one frame: no gap over {@link LAND_FRAMES_BAR}
+ * display periods, the settle's own land bar. The land's ticks are read in
+ * their frame callbacks, which jitter around the period, so a land with
+ * nothing in it reads a millisecond or two over one period as often as
+ * under; a land that cost a frame reads two.
+ */
+export function landIsOneFrame(frameMs: number, framePeriodMs: number): boolean {
+  return frameMs > 0 && frameMs <= framePeriodMs * LAND_FRAMES_BAR;
+}
+
+/**
+ * A land that owes nothing: one frame ({@link landIsOneFrame}), and nothing
+ * committed, forced, delivered, ended or scrolled in it. The fully-solved
+ * bar: a land that hands ownership back and changes nothing. A list the page
+ * could not count reads `null`, which is never a count of none, so a page
+ * with no census is unread unless something else is red.
+ */
+export function emptyLandClause(land: EmptyLandRow | null | undefined): SettleClause {
+  if (land === null || land === undefined) {
+    return { name: "empty-land", pass: false, detail: "no land was recorded" };
+  }
+  const commits =
+    land.commits === null || land.commits === undefined
+      ? null
+      : land.commits.filter((c) => (c.performed ?? 0) > 0);
+  const deliveries = land.deliveries ?? null;
+  const forced = land.forcedLayouts ?? [];
+  const ended = land.episodeEnds ?? [];
+  const scrolled = land.scrollWrites ?? [];
+  const oneFrame = landIsOneFrame(land.frameMs, land.framePeriodMs);
+  const red =
+    !oneFrame ||
+    (commits !== null && commits.length > 0) ||
+    forced.length > 0 ||
+    (deliveries !== null && deliveries.length > 0) ||
+    ended.length > 0 ||
+    scrolled.length > 0;
+  const unread = commits === null || deliveries === null;
+  const frame =
+    land.frameMs <= 0
+      ? "no frame followed the land"
+      : `${land.frameMs.toFixed(1)} ms against ${(land.framePeriodMs * LAND_FRAMES_BAR).toFixed(1)}`;
+  return {
+    name: "empty-land",
+    pass: red ? false : unread ? null : true,
+    detail:
+      `${frame}; commits ${settleSites(commits)}; forced layouts ${settleSites(forced)}; ` +
+      `deliveries ${settleSites(deliveries)}; episode ends ${settleSites(ended)}; scroll writes ${settleSites(scrolled)}`,
+  };
+}
+
 /** What one settle hands the bar. */
 export interface SettleBarInput {
   readonly frames: SettleBarFrames;
@@ -299,7 +337,6 @@ export interface SettleBarOptions {
   readonly bars?: SettleBars;
   /** Panes the off-curve clause does not judge; `arrivedIn` by default. */
   readonly exempt?: readonly string[];
-  readonly gesture?: SealedGesture;
 }
 
 /** Every clause of the bar over one settle. */
@@ -310,7 +347,7 @@ export function settleVerdict(input: SettleBarInput, options: SettleBarOptions =
     clauses: [
       gapClause(input.frames, bars.gapFrames),
       offCurveClause(input.frames, exempt),
-      sealedClause(input.frames, options.gesture),
+      sealedClause(input.frames),
       landClause(input.land, bandShrinks(input.before, input.after), bars.landFrames),
     ],
     leadMs: typeof input.frames.firstPaintDelayMs === "number" ? input.frames.firstPaintDelayMs : null,

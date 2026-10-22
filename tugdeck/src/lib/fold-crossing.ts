@@ -860,10 +860,11 @@ export function contentBoxWidth(frame: HTMLElement): number | null {
  * The end is an event, because the crossing's clock is the imposer's spring
  * and a timer would be a second copy of it. The one case the event cannot
  * cover is a settle that carried no crossing for this frame — motion off, a
- * fold with nothing to tween — where no end is coming at all; ONE frame
- * answers that, and it is not a clock: the imposer marks in the same commit's
- * layout pass, which runs before paint, so a frame that is unmarked on the
- * next one was never crossing.
+ * fold with nothing to tween, or one the host's card plan solved, which is
+ * never marked — where no end is coming at all, and `whenEnded` runs at
+ * once. That needs no frame to learn: the imposer marks in the commit's
+ * layout pass, so by the time a caller's effect asks, a frame with no mark
+ * is not crossing.
  *
  * Returns a cancel, which is what a caller torn down mid-crossing runs.
  */
@@ -871,18 +872,13 @@ export function afterFoldCrossing(
   frame: HTMLElement,
   whenEnded: () => void,
 ): () => void {
+  if (!frame.hasAttribute(FOLD_CROSSING_ATTR)) {
+    whenEnded();
+    return () => {};
+  }
   const onEnd = (): void => {
     whenEnded();
   };
   frame.addEventListener(FOLD_CROSSING_END, onEnd, { once: true });
-  let probe: number | null = window.requestAnimationFrame(() => {
-    probe = null;
-    if (frame.hasAttribute(FOLD_CROSSING_ATTR)) return;
-    frame.removeEventListener(FOLD_CROSSING_END, onEnd);
-    whenEnded();
-  });
-  return () => {
-    frame.removeEventListener(FOLD_CROSSING_END, onEnd);
-    if (probe !== null) window.cancelAnimationFrame(probe);
-  };
+  return () => frame.removeEventListener(FOLD_CROSSING_END, onEnd);
 }

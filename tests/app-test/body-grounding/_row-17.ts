@@ -65,6 +65,7 @@ import { focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } 
 import { classifyFrame, describeFrames } from "./_frames";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
+import { armLandRecords, expectEmptyLand, noteLand } from "./_land";
 import {
   BURST_INTERVAL_MS,
   armSampler,
@@ -164,6 +165,9 @@ function flowDeck(card: string): Record<string, unknown> {
   };
 }
 
+/** The card sharing slot 0's column with the body card in {@link withStack}'s deck, behind it. */
+export const STACK_PARTNER = "r17-s1";
+
 /**
  * Four session cards in a four-up flow, the body card and a second card
  * sharing slot 0's column, the body card in front: splitting the column
@@ -171,7 +175,7 @@ function flowDeck(card: string): Record<string, unknown> {
  * at its bottom, the sitters giving up height to it.
  */
 function stackDeck(card: string): Record<string, unknown> {
-  const ids = [card, "r17-s1", "r17-s2", "r17-s3"];
+  const ids = [card, STACK_PARTNER, "r17-s2", "r17-s3"];
   const slots = [0, 0, 1, 2];
   return {
     cards: ids.map((id) => ({ id, componentId: "session", title: id, closable: true })),
@@ -244,6 +248,13 @@ export interface Leg {
   resizes: boolean;
   /** Whether the gesture must move the body card at all: carried as a slide when its box keeps its size. */
   moves?: boolean;
+  /**
+   * The carried cards whose land is solved, the body card among them when
+   * named: each card page's land and the shell's must owe nothing, and the
+   * placer's land measurement must move none of them. A leg that names none
+   * notes the land and asserts nothing of it.
+   */
+  solved?: readonly string[];
 }
 
 /**
@@ -259,6 +270,14 @@ export async function crossLeg(app: App, card: string, leg: Leg, s: Standing, cr
   expect(scrollBefore, `${label}: the transcript scrolls`).not.toBeNull();
   expect(scrollBefore!.max - scrollBefore!.top, `${label}: the transcript stands at its bottom before`).toBeLessThanOrEqual(PINNED_PX);
   const runsBefore = (await planDiag(app)).runs;
+  // The land on both sides: the card page's own and the shell's, for the
+  // body card and every card the leg names solved. Armed before the gesture,
+  // marked so the leg reads its own rows.
+  const landed = [...new Set([card, ...(leg.solved ?? [])])];
+  await armLandRecords(app, landed);
+  const bodyMarks = new Map<string, number>();
+  for (const id of landed) bodyMarks.set(id, await app.body(id).markDeckTrace());
+  const shellMark = await app.markDeckTrace();
   await armSampler(app, card);
   await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop });
   const gestureWall = Date.now();
@@ -292,6 +311,21 @@ export async function crossLeg(app: App, card: string, leg: Leg, s: Standing, cr
     return;
   }
 
+  const land = await noteLand(app, card, label, { body: bodyMarks.get(card), shell: shellMark });
+  for (const id of leg.solved ?? []) {
+    const reading = id === card ? land : await noteLand(app, id, `${label} ${id}`, { body: bodyMarks.get(id), shell: shellMark });
+    expectEmptyLand(reading, `${label} ${id}`);
+    const said = await pollFor(() => planDiag(app), (p) => p.last?.landed.some((l) => l.cardId === id) ?? false, 3_000);
+    expect(said.last?.planId, `${label}: ${id} rode the leg's plan`).toBe(plan.last?.planId ?? -1);
+    expect(said.last?.landed.some((l) => l.cardId === id), `${label}: the host said ${id} landed`).toBe(true);
+  }
+  if ((leg.solved ?? []).length > 0) {
+    const solved = new Set(leg.solved);
+    const drifts = (await app.getDeckTrace({ since: shellMark })).filter(
+      (e) => e.kind === "placement-land-drift" && solved.has((e as { cardId?: string }).cardId ?? ""),
+    );
+    expect(drifts, `${label}: the land's measurement moved nothing the plan landed`).toEqual([]);
+  }
   expect(plan.last?.planned.includes(card), `${label}: the host carried the body`).toBe(true);
   expect(plan.last?.landed.some((l) => l.cardId === card), `${label}: the host said the body landed`).toBe(true);
   expect(plan.last?.cancelled ?? [], `${label}: no carried body was cancelled`).toEqual([]);

@@ -42,6 +42,8 @@ final class BodyBeatsTests: XCTestCase {
         check("and names the one it refused", stale.refused == ["cs"])
 
         let crossing = try XCTUnwrap(cases["size-change"]).plan.cards[0]
+        check("a size change solves", try XCTUnwrap(cases["size-change"]).plan.solves)
+        check("a slide does not", !slide.solves)
         check("a size change carries its crossing size", crossing.crossing == PlannedCard.Size(width: 320, height: 420), "\(String(describing: crossing.crossing))")
         check("a moving card is not an arrival", crossing.arrives == nil)
 
@@ -53,7 +55,7 @@ final class BodyBeatsTests: XCTestCase {
 
     func testAPlanDecodesFromThePagesJSON() throws {
         let json = Data(#"""
-            {"planId":7,"startWallMs":1760000000000.5,"cards":[{"cardId":"c",
+            {"planId":7,"startWallMs":1760000000000.5,"solves":false,"cards":[{"cardId":"c",
              "landing":{"x":1,"y":2,"width":3,"height":4},
              "beats":[{"kind":"arrive","delayMs":0,"durationMs":120,
                        "from":{"x":1,"y":2,"width":3,"height":4},"to":{"x":1,"y":2,"width":3,"height":4},
@@ -67,6 +69,23 @@ final class BodyBeatsTests: XCTestCase {
         check("the fade's easing", plan.cards[0].beats[0].easing == "ease-out")
         let malformed = ToHost.decode(name: "cardPlan", data: Data(#"{"planId":"x"}"#.utf8))
         check("a malformed plan is refused", { if case .failure = malformed { return true } else { return false } }())
+    }
+
+    func testASolvingPlanDecodesAndOneWithoutTheFlagIsRefused() throws {
+        let json = Data(#"""
+            {"planId":8,"startWallMs":1760000000000,"solves":true,"cards":[{"cardId":"c",
+             "landing":{"x":0,"y":0,"width":320,"height":420},"crossing":{"width":320,"height":420},
+             "beats":[{"kind":"shrink","delayMs":0,"durationMs":240,
+                       "from":{"x":0,"y":0,"width":620,"height":420},"to":{"x":0,"y":0,"width":320,"height":420},
+                       "progress":[0,1]}]}]}
+            """#.utf8)
+        guard case .success(.cardPlan(let plan)) = ToHost.decode(name: "cardPlan", data: json) else {
+            return XCTFail("the solving plan does not decode")
+        }
+        check("it solves", plan.solves)
+        check("its card carries the crossing", plan.cards[0].crossing == PlannedCard.Size(width: 320, height: 420))
+        let unflagged = ToHost.decode(name: "cardPlan", data: Data(#"{"planId":8,"startWallMs":0,"cards":[]}"#.utf8))
+        check("a plan that does not say whether it solves is refused", { if case .failure = unflagged { return true } else { return false } }())
     }
 
     func testBeginTimeMovesTheStartOntoTheMediaClock() {
@@ -124,6 +143,35 @@ final class BodyBeatsTests: XCTestCase {
         check("and holds it until the move begins", track.rects[2] == b.cgRect && abs(track.keyTimes[2] - 0.75) < 1e-9)
         check("the fade rides its keyword, the gap and the samples are linear", track.timings == [.easing("ease-in"), .linear, .linear, .linear], "\(track.timings)")
         check("an opacity track when any beat fades, held by a beat that does not", track.opacities == [1, 0.5, 0.5, 0.5, 0.5], "\(String(describing: track.opacities))")
+    }
+
+    func testAZeroLengthBeatIsATrackOfNoDuration() throws {
+        // A split's revealed member: from the stacked rect to its tile before
+        // the first frame. A track of no duration is the shape a solving plan
+        // places at its landing rather than declines.
+        let stacked = PlanRect(x: 0, y: 0, width: 400, height: 800)
+        let tile = PlanRect(x: 0, y: 400, width: 400, height: 400)
+        let beats = [BodyBeat(kind: "move", delayMs: 0, durationMs: 0, from: stacked, to: tile, opacity: nil, progress: [0, 1], easing: nil)]
+        let track = try XCTUnwrap(BodyBeats.planTrack(beats))
+        check("the track has no duration", track.durationMs == 0, "\(track.durationMs)")
+        check("and ends at the tile", track.rects.last == tile.cgRect)
+    }
+
+    func testAHoldThenALandStandsAtFirstForTheWholeSpan() throws {
+        // A stack's retiring member: held at its tile for the settle's span,
+        // landing at the full run at the span's end.
+        let tile = PlanRect(x: 0, y: 400, width: 400, height: 400)
+        let run = PlanRect(x: 0, y: 0, width: 400, height: 800)
+        let beats = [
+            BodyBeat(kind: "move", delayMs: 0, durationMs: 420, from: tile, to: tile, opacity: nil, progress: [0, 1], easing: nil),
+            BodyBeat(kind: "move", delayMs: 420, durationMs: 0, from: tile, to: run, opacity: nil, progress: [0, 1], easing: nil),
+        ]
+        let track = try XCTUnwrap(BodyBeats.planTrack(beats))
+        check("the track spans the hold", track.durationMs == 420, "\(track.durationMs)")
+        check("it stands at the tile until the span's end", track.rects.dropLast().allSatisfy { $0 == tile.cgRect }, "\(track.rects)")
+        check("and lands at the full run there", track.rects.last == run.cgRect && track.keyTimes.last == 1)
+        check("the key times never go back", zip(track.keyTimes, track.keyTimes.dropFirst()).allSatisfy { $0 <= $1 }, "\(track.keyTimes)")
+        check("one timing per segment", track.timings.count == track.rects.count - 1)
     }
 
     func testTheLayerMappingIsSolvedFromThreeFramesAndInverts() throws {

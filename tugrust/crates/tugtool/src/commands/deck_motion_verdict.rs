@@ -13,6 +13,11 @@
 //! record on`). With it on, `settle` and `slide` print the verdict beside their
 //! own outside reading, so "sometimes drops frames" on the user's deck becomes
 //! a named clause with a verdict, taken by typing one verb.
+//!
+//! A carried card's own land is read the same way, in the card's page: the
+//! page computes the empty-land clause over its `body-land` row
+//! (`window.__tugMotion.bodyLand`), and [`body_land_of`] only parses and
+//! prints it beside the shell's verdict.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -107,6 +112,83 @@ pub fn verdict_of(engine: Option<&Value>) -> Option<Verdict> {
     )
 }
 
+/// One carried card's own land, as its page recorded and judged it.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct BodyLand {
+    pub card_id: String,
+    /// The page's `body-land` row; `None` when it recorded none for the drive.
+    pub row: Option<Value>,
+    /// The page's empty-land clause over the row.
+    pub clause: Option<Clause>,
+    /// Why the page could not be read, when it could not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl BodyLand {
+    /// The card's line: what the land cost, what ran in it and in the motion,
+    /// and the page's clause. A list the page could not count prints
+    /// `unread`, never zero.
+    pub fn line(&self) -> String {
+        if let Some(error) = &self.error {
+            return format!("body {}: land unread — {error}", self.card_id);
+        }
+        let Some(row) = &self.row else {
+            return format!(
+                "body {}: no body-land row — the page recorded no crossing for this drive",
+                self.card_id
+            );
+        };
+        let num = |key: &str| row.get(key).and_then(Value::as_f64);
+        let count = |key: &str| match row.get(key) {
+            Some(Value::Array(a)) => a.len().to_string(),
+            _ => "unread".to_string(),
+        };
+        let ms = |v: Option<f64>| v.map_or_else(|| "—".to_string(), |v| format!("{v:.1}ms"));
+        let frames = num("frameFrames").map_or_else(|| "—".to_string(), |f| format!("{f:.2}f"));
+        let clause = match &self.clause {
+            Some(c) => {
+                let mark = match c.pass {
+                    Some(true) => "ok",
+                    Some(false) => "RED",
+                    None => "not counted",
+                };
+                format!(" — {} {mark} ({})", c.name, c.detail)
+            }
+            None => String::new(),
+        };
+        format!(
+            "body {}: solve={} land={}/{frames} commits={} forced={} deliveries={} episodeEnds={} scrollWrites={} motion: commits={} scrollWrites={}{clause}",
+            self.card_id,
+            ms(num("solveMs")),
+            ms(num("frameMs")),
+            count("commits"),
+            count("forcedLayouts"),
+            count("deliveries"),
+            count("episodeEnds"),
+            count("scrollWrites"),
+            count("motionCommits"),
+            count("motionScrollWrites"),
+        )
+    }
+}
+
+/// Parse a page's `bodyLand(since)` answer — `{row, clause}` or `null` —
+/// for `card_id`.
+pub fn body_land_of(card_id: &str, answer: &Value) -> BodyLand {
+    let row = answer.get("row").filter(|v| !v.is_null()).cloned();
+    let clause = answer
+        .get("clause")
+        .filter(|v| !v.is_null())
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    BodyLand {
+        card_id: card_id.to_string(),
+        row,
+        clause,
+        error: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +268,52 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn a_body_land_prints_its_row_and_the_pages_clause() {
+        let b = body_land_of(
+            "c1",
+            &json!({
+                "row": {
+                    "cardId": "c1", "solveMs": null, "frameMs": 34.2, "frameFrames": 2.05,
+                    "commits": [{"site": "SessionCard", "performed": 3}], "forcedLayouts": [],
+                    "deliveries": [], "episodeEnds": [{"site": "episode ×1"}], "scrollWrites": [],
+                    "motionCommits": [], "motionScrollWrites": [],
+                },
+                "clause": {"name": "empty-land", "pass": false, "detail": "34.2 ms against 25.1"},
+            }),
+        );
+        let line = b.line();
+        assert!(
+            line.starts_with("body c1: solve=— land=34.2ms/2.05f commits=1 forced=0 deliveries=0 episodeEnds=1 scrollWrites=0 motion: commits=0 scrollWrites=0"),
+            "{line}"
+        );
+        assert!(
+            line.ends_with("empty-land RED (34.2 ms against 25.1)"),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn a_page_with_no_census_prints_unread_and_fails_no_check() {
+        let b = body_land_of(
+            "c1",
+            &json!({
+                "row": {
+                    "frameMs": 16.8, "frameFrames": 1.0, "commits": null, "forcedLayouts": [],
+                    "deliveries": [], "episodeEnds": [], "scrollWrites": [], "motionCommits": null,
+                    "motionScrollWrites": [],
+                },
+                "clause": {"name": "empty-land", "pass": null, "detail": "commits not counted"},
+            }),
+        );
+        assert!(b.line().contains("commits=unread"), "{}", b.line());
+        assert!(b.line().contains("empty-land not counted"), "{}", b.line());
+        assert_ne!(b.clause.as_ref().and_then(|c| c.pass), Some(false));
+        // No row at all says so rather than printing zeros.
+        let none = body_land_of("c2", &Value::Null);
+        assert!(none.line().contains("no body-land row"), "{}", none.line());
     }
 
     #[test]

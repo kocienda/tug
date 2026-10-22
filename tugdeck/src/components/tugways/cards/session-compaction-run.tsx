@@ -433,7 +433,8 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     // does the same wait on its way OUT and the two are one handoff: a copy
     // here that drifted from that one is a cover that never arrives beside a
     // row that never leaves. It answers the settle that carried no crossing
-    // for this frame too, which is the case the event alone cannot.
+    // for this frame too — a fold the host's card plan solved is never marked
+    // — at once, which is the case the event alone cannot.
     return afterFoldCrossing(frame, raiseCover);
   }, [running, folded, raiseCover, closeSheet, cardRootRef]);
 

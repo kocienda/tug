@@ -598,8 +598,9 @@ function useCompactionFace(
     // at the end event and mounts in a later commit, so a `behind` on the
     // event's own frame gave the instruments one frame under no cover, which
     // is [F04]'s flash on a different clock. The crossing's end is still the
-    // gate (it is when the cover is raised; with no crossing the probe fires on
-    // the next frame), and the animations are read off the live element then.
+    // gate (it is when the cover is raised; with no crossing — motion off, or a
+    // fold the host's card plan solved — it answers at once), and the
+    // animations are read off the live element then.
     let cancelled = false;
     let settleFrame: number | null = null;
     const stopWaiting = afterFoldCrossing(paneFrameEl, () => {

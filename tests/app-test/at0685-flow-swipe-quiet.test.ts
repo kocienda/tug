@@ -284,12 +284,12 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
           "the card ends on the next slot's stop",
         ).toBeLessThanOrEqual(PIXEL_TOL);
 
-        // The motion is sealed, read with the swipe's carve-out: the
-        // prelaunch's own commit is noted, and nothing else may land between
-        // the first frame and the land.
+        // The motion is sealed: the prelaunch's own commit is held past the
+        // land with everything else, so nothing lands between the first
+        // frame and the land.
         const rows = await settleFrameRows(app, mark);
         expect(rows.length, "the swipe's settle wrote its record").toBeGreaterThan(0);
-        expectMotionSealed("swipe", rows[rows.length - 1], "swipe");
+        expectMotionSealed("swipe", rows[rows.length - 1]);
       } finally {
         await app.close();
       }

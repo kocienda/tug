@@ -15,7 +15,19 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { BodyPlacement } from "../card-placement";
-import { planCards, viewOf, viewportRect, wholePoints, type CardPlan, type CardPlanInput, type CarriedFrame, type FrameBeat, type Rect } from "../card-plan";
+import {
+  installCardPlanRunner,
+  planCards,
+  runCardPlan,
+  viewOf,
+  viewportRect,
+  wholePoints,
+  type CardPlan,
+  type CardPlanInput,
+  type CarriedFrame,
+  type FrameBeat,
+  type Rect,
+} from "../card-plan";
 import { CARD_APRON_PX } from "../chrome-placement";
 
 const GOLDEN_PATH = join(import.meta.dir, "fixtures", "card-plan-parity.json");
@@ -237,6 +249,62 @@ describe("planCards", () => {
     expect(c.crossing).toEqual({ width: 320, height: 420 });
   });
 
+  test("a plan solves exactly when one of its planned cards carries a crossing", () => {
+    expect(planCards(sizeChange()).solves).toBe(true);
+    expect(planCards(flowSlide()).solves).toBe(false);
+    expect(planCards(stackMove()).solves).toBe(false);
+    expect(planCards(arrival()).solves).toBe(false);
+    // A refused card's crossing is no card's: nothing planned, nothing solves.
+    expect(planCards(stalePlacement()).solves).toBe(false);
+  });
+
+  test("a split's revealed member, a zero-length beat from the stacked rect to its tile, is a crossing", () => {
+    const run = { x: 40, y: 40, width: 500, height: 620 };
+    const tile = { x: 40, y: 360, width: 500, height: 300 };
+    const beat: FrameBeat = {
+      kind: "move",
+      terms: { dx: run.x - tile.x, dy: run.y - tile.y, width: [run.width, tile.width], height: [run.height, tile.height] },
+      delayMs: 0,
+      durationMs: 0,
+      progress: [0, 1],
+    };
+    const out = planCards(input([{ paneId: "r", first: run, last: tile, beats: [beat] }], { r: ["cr"] }));
+    expect(out.refused).toEqual([]);
+    const [c] = out.cards;
+    expect(c.beats).toHaveLength(1);
+    expect(c.beats[0].durationMs).toBe(0);
+    expect(c.beats[0].from).toEqual(view(run));
+    expect(c.landing).toEqual(view(tile));
+    expect(c.crossing).toEqual({ width: view(tile).width, height: view(tile).height });
+    expect(out.solves).toBe(true);
+  });
+
+  test("a stack's retiring member, held at its tile and landing at the full run at the span's end, is a crossing", () => {
+    const tile = { x: 40, y: 360, width: 500, height: 300 };
+    const run = { x: 40, y: 40, width: 500, height: 620 };
+    const spanMs = 420;
+    const beats: FrameBeat[] = [
+      { kind: "move", terms: { dx: 0, dy: 0 }, delayMs: 0, durationMs: spanMs, progress: [0, 1] },
+      {
+        kind: "move",
+        terms: { dx: tile.x - run.x, dy: tile.y - run.y, width: [tile.width, run.width], height: [tile.height, run.height] },
+        delayMs: spanMs,
+        durationMs: 0,
+        progress: [0, 1],
+      },
+    ];
+    const out = planCards(input([{ paneId: "h", first: tile, last: run, beats }], { h: ["ch"] }));
+    expect(out.refused).toEqual([]);
+    const [c] = out.cards;
+    expect(c.beats[0].from).toEqual(view(tile));
+    expect(c.beats[0].to).toEqual(view(tile));
+    expect(c.beats[1].delayMs).toBe(spanMs);
+    expect(c.beats[1].to).toEqual(view(run));
+    expect(c.landing).toEqual(view(run));
+    expect(c.crossing).toEqual({ width: view(run).width, height: view(run).height });
+    expect(out.solves).toBe(true);
+  });
+
   test("a frame whose walk misses its Last rect by more than half a pixel refuses its cards", () => {
     const first = { x: 40, y: 40, width: 500, height: 300 };
     const off = input([{ paneId: "p", first, last: { ...first, width: 480 }, beats: [moveBeat(0, 0)] }], { p: ["c"] });
@@ -255,7 +323,20 @@ describe("planCards", () => {
     expect(out.refused).toEqual(["a", "b"]);
     expect(out.reasons.a).toBe("the frame carries no beat");
     const empty = planCards(input([{ paneId: "p", first, last: first, beats: [moveBeat(0, 0)] }], {}));
-    expect(empty).toEqual({ cards: [], refused: [], reasons: {} });
+    expect(empty).toEqual({ cards: [], solves: false, refused: [], reasons: {} });
+  });
+});
+
+describe("runCardPlan", () => {
+  test("says what the installed runner posted, and null with none installed", () => {
+    const input = { frames: [], startTime: 0, factor: 1 };
+    installCardPlanRunner(null);
+    expect(runCardPlan(input)).toBeNull();
+    installCardPlanRunner(() => ({ planId: 4, solves: true }));
+    expect(runCardPlan(input)).toEqual({ planId: 4, solves: true });
+    installCardPlanRunner(() => null);
+    expect(runCardPlan(input)).toBeNull();
+    installCardPlanRunner(null);
   });
 });
 
@@ -269,7 +350,7 @@ describe("card-plan-parity.json", () => {
       ["arrival", arrival()],
     ].map(([name, i], index) => {
       const out = planCards(i as CardPlanInput);
-      return { name: name as string, refused: out.refused, plan: { planId: index + 1, startWallMs: 1_760_000_000_000 + index * 1000, cards: out.cards } };
+      return { name: name as string, refused: out.refused, plan: { planId: index + 1, startWallMs: 1_760_000_000_000 + index * 1000, solves: out.solves, cards: out.cards } };
     });
     const serialized = `${JSON.stringify(cases, null, 2)}\n`;
     if (process.env.CARD_PLAN_GOLDEN_UPDATE === "1") writeFileSync(GOLDEN_PATH, serialized);

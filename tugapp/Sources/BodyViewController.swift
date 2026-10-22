@@ -430,8 +430,13 @@ final class BodyViewController {
         /// its first moving beat begins (media time), until the beats land or are
         /// cancelled; nil when the plan does not resize the body. The page
         /// keeps its old size until the body has pinned its scrollers and
-        /// posted `crossingReady`.
-        var crossing: (size: CGSize, begin: CFTimeInterval)?
+        /// posted `crossingReady` — and to the land when `keepsPage`, a whole
+        /// card that shrinks with no cover standing over it.
+        var crossing: (size: CGSize, begin: CFTimeInterval, keepsPage: Bool)?
+        /// A whole card that shrinks wears its last frame over its page for
+        /// the crossing, while the page lays itself out at the landing size
+        /// beneath it; nil for every other crossing, and after the land.
+        var crossingCover: BodyCoverView?
         /// The last crossing's account, for the harness: its plan, its size,
         /// and how far ahead of the first beat the body was ready.
         var lastCrossing: CrossingAccount?
@@ -2158,6 +2163,39 @@ final class BodyViewController {
     /// removing three keys.
     private static let beatKeys = ["beats-position", "beats-bounds", "beats-opacity"]
 
+    /// How long a solving plan waits for its cards to say `crossingSolved`
+    /// before it starts without them, ms — and a crossing cover's snapshot
+    /// deadline. The shell's `SOLVE_GUARD_MS` mirrors it.
+    static let solveGuardMs: Double = 250
+
+    /// A solving plan between its receipt and its start: every card it put
+    /// tracks on, the cards it still awaits, when it arrived (media time),
+    /// and the guard that starts it without them ([L27]: cancelled when the
+    /// plan starts).
+    private final class PlanSolve {
+        let planId: Int
+        let receivedAt: CFTimeInterval
+        var carried: [Carried] = []
+        var awaited: Set<ObjectIdentifier> = []
+        var guardItem: DispatchWorkItem?
+        init(planId: Int, receivedAt: CFTimeInterval) {
+            self.planId = planId
+            self.receivedAt = receivedAt
+        }
+    }
+
+    /// One card a solving plan put tracks on, with what re-adding them takes.
+    private struct Carried {
+        weak var body: Body?
+        let layer: CALayer
+        let planned: PlannedCard
+        let track: BodyBeats.Track
+        let mapping: LayerMapping
+    }
+
+    /// Every solving plan not yet started, by its id.
+    private var solves: [Int: PlanSolve] = [:]
+
     /// `cardPlan`: carry each named card through its beats as Core
     /// Animation, on the chrome's clock. One anchor pair of the wall and
     /// media clocks is read for the whole plan, so every body's start is the
@@ -2169,8 +2207,28 @@ final class BodyViewController {
     /// holds the first beat's opening rect from now until it begins
     /// (`fillMode = .backwards`), and the container's model is the landing,
     /// so when the track ends nothing moves.
+    ///
+    /// A plan that `solves` lays each crossing card's page out at its
+    /// landing size before the motion: the card is told `begin` with
+    /// `solve`, and the plan starts once every such card has said
+    /// `crossingSolved`, or at `solveGuardMs`. A whole card that shrinks is
+    /// told only once its last frame stands over it as a cover, so the
+    /// page's resize is never seen. Its tracks are added here all the same,
+    /// with a provisional begin at the guard's horizon, so `.backwards`
+    /// holds every container at First and `body.beats` claims it from the
+    /// receipt — the placement naming the plan, `reconcileRails` and the
+    /// press path all see it as the plan's — and `startPlan` re-adds them
+    /// with the real begin. The provisional track is the guard: a solve
+    /// that never answers starts at its horizon.
     func runPlan(_ plan: CardPlan) {
         let anchor = ClockAnchor(wallMs: Date().timeIntervalSince1970 * 1000, mediaTime: CACurrentMediaTime())
+        let solve = plan.solves ? PlanSolve(planId: plan.planId, receivedAt: anchor.mediaTime) : nil
+        // A solving plan's provisional begin is two display periods past the
+        // guard, so the guard's own start, a period ahead of now, always
+        // replaces the tracks before they have begun.
+        let startWallMs = solve == nil
+            ? plan.startWallMs
+            : anchor.wallMs + Self.solveGuardMs + 2 * displayPeriodSec * 1000
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for planned in plan.cards {
@@ -2191,7 +2249,18 @@ final class BodyViewController {
             }
             guard body.visible, body.canShow,
                   let layer = body.container.layer,
-                  let track = BodyBeats.planTrack(planned.beats), track.durationMs > 0 else {
+                  let track = BodyBeats.planTrack(planned.beats) else {
+                decline(body, planId: plan.planId, landing: planned.landing.cgRect)
+                continue
+            }
+            // A track of no duration — a split's revealed member, landing at
+            // its tile before the first frame — has nothing to run. In a
+            // solving plan its page is solved all the same: its container
+            // stands at its landing at once, behind the survivor that z-order
+            // keeps in front, and its crossing ends when the plan starts, its
+            // track's end being its start. Anywhere else it is declined.
+            let instant = track.durationMs <= 0
+            guard !instant || (solve != nil && planned.crossing != nil) else {
                 decline(body, planId: plan.planId, landing: planned.landing.cgRect)
                 continue
             }
@@ -2204,64 +2273,246 @@ final class BodyViewController {
                 continue
             }
             body.mapping = mapping
-            let begin = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: track.delayMs)
-            let lateMs = max(0, anchor.mediaTime - begin) * 1000
-            let localBegin = layer.convertTime(begin, from: nil)
-            let position = Self.keyframes(
-                "position", values: track.rects.map { NSValue(point: mapping.position(of: $0)) },
-                track: track, begin: localBegin
-            )
             let planId = plan.planId
-            position.delegate = BeatTrackDelegate { [weak self, weak body] (finished: Bool) in
-                guard let self, let body, finished, let beats = body.beats, beats.planId == planId,
-                      let cardId = body.cardId else { return }
-                body.beats = nil
-                self.endCrossing(body)
-                self.notifyShell(BodyStateReport(cardId: cardId, state: .landed, planId: planId, lateMs: beats.lateMs))
-                // A card a settle carried into or out of a rail joins its
-                // rail's view, or leaves it, now that nothing animates on it.
-                self.reconcileRails()
-            }
-            layer.add(position, forKey: Self.beatKeys[0])
-            layer.add(Self.keyframes(
-                "bounds", values: track.rects.map { NSValue(rect: mapping.bounds(of: $0)) },
-                track: track, begin: localBegin
-            ), forKey: Self.beatKeys[1])
-            if let opacities = track.opacities {
-                layer.add(Self.keyframes(
-                    "opacity", values: opacities.map { NSNumber(value: $0) }, track: track, begin: localBegin
-                ), forKey: Self.beatKeys[2])
-            }
+            let lateMs = instant ? 0 : addTracks(
+                body, layer: layer, planned: planned, track: track, mapping: mapping,
+                anchor: anchor, startWallMs: startWallMs, planId: planId
+            )
+            solve?.carried.append(Carried(body: body, layer: layer, planned: planned, track: track, mapping: mapping))
             body.beats = (planId, landing, lateMs)
             body.frame = landing
-            // A reading of the window armed now samples this container under
-            // its card id, over the beats that move it.
-            let moving = planned.beats.filter { $0.from != $0.to }.map { beat in
-                let from = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: beat.delayMs)
-                return (from: from, to: from + beat.durationMs / 1000)
-            }
-            for meter in window.armedFrameMeters {
-                meter.track(layer, named: planned.cardId, active: moving)
-            }
             if let crossing {
-                // The lead is measured to the first beat that moves the box:
-                // a prepare beat ahead of it holds First, and the page at its
-                // final size is clipped there exactly as before the plan.
-                let firstMove = planned.beats.first { $0.from != $0.to }?.delayMs ?? track.delayMs
-                let moveBegin = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: firstMove)
-                body.crossing = (crossing, moveBegin)
+                let moveBegin = anchor.beginTime(startWallMs: startWallMs, delayMs: Self.firstMoveMs(planned, track))
+                // A whole card's page is the card, chrome and all, and it
+                // wears no surface behind it: given its smaller landing size
+                // bare, the card would stand at its landing for the whole
+                // motion over the canvas the container still spans. So a
+                // whole card that shrinks takes its new size only under its
+                // cover, and with none it keeps its page to the land.
+                //
+                // A card that stands at First for the whole motion and lands
+                // only at its end — a stack's retiring member, held at its
+                // tile while the survivor grows over it — shows its First face
+                // throughout, whatever its size does, so it takes its new size
+                // under a cover too.
+                let page = body.webView.frame.size
+                let shrinksWhole = body.whole
+                    && (crossing.width < page.width - 0.5 || crossing.height < page.height - 0.5)
+                let holdsFirst = !instant && Self.firstMoveMs(planned, track) >= track.delayMs + track.durationMs
+                let covers = shrinksWhole || holdsFirst
+                body.crossing = (crossing, moveBegin, covers && solve == nil)
                 body.lastCrossing = CrossingAccount(planId: planId, size: crossing)
                 // Tell the body now, in this task, so it pins its scrollers
                 // and acknowledges inside a display period: one hop to its
                 // page and one back, never a round trip through tugcast.
                 let spanMs = planned.beats.map { $0.delayMs + $0.durationMs }.max() ?? 0
-                send(.bodyCrossing(BodyCrossing(
-                    phase: .begin, width: crossing.width, height: crossing.height, durationMs: spanMs
-                )), to: body)
+                let begin = BodyCrossing(phase: .begin, width: crossing.width, height: crossing.height, durationMs: spanMs)
+                if let solve {
+                    solve.awaited.insert(ObjectIdentifier(body))
+                    if covers {
+                        coverForCrossing(body, planId: planId, begin: begin)
+                    } else {
+                        var solving = begin
+                        solving.solve = true
+                        send(.bodyCrossing(solving), to: body)
+                    }
+                } else {
+                    send(.bodyCrossing(begin), to: body)
+                }
             }
         }
         CATransaction.commit()
         refreshRegion()
+        if let solve {
+            solves[solve.planId] = solve
+            if solve.awaited.isEmpty {
+                // Every card was declined or carried no crossing: nothing to wait for.
+                startPlan(solve.planId, timedOut: false)
+            } else {
+                let planId = solve.planId
+                let item = DispatchWorkItem { [weak self] in self?.startPlan(planId, timedOut: true) }
+                solve.guardItem = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(Self.solveGuardMs)), execute: item)
+            }
+        }
+    }
+
+    /// Stand a whole card's last frame over its page, then tell it its
+    /// solving crossing: in the snapshot's completion, so the page's
+    /// `crossingReady`, and the resize it permits, can never come before the
+    /// cover stands. The frame is the page's First size — the web view's,
+    /// which `probeMapping` held, never the container's, already the landing
+    /// — at the screen's backing scale, and the cover does not clip: the
+    /// container's own clip, which its bounds track drives, shrinks it. A
+    /// snapshot that fails or misses `solveGuardMs` stands no cover: the card
+    /// is told `begin` without `solve`, is not awaited, and keeps its page to
+    /// the land.
+    private func coverForCrossing(_ body: Body, planId: Int, begin: BodyCrossing) {
+        guard let cardId = body.cardId else { return }
+        let size = body.webView.frame.size
+        let asked = CACurrentMediaTime()
+        snapshotFrame(
+            of: body, cardId: cardId, size: size, scale: window.backingScaleFactor,
+            deadline: .milliseconds(Int(Self.solveGuardMs)), purpose: "a crossing's cover"
+        ) { [weak self, weak body] image in
+            guard let self, let body, !body.gone else { return }
+            // Cancelled or carried on by a newer plan while the snapshot ran:
+            // there is no crossing of this plan's left to cover.
+            guard body.crossing != nil, body.lastCrossing?.planId == planId else { return }
+            guard let image else {
+                body.crossing?.keepsPage = true
+                self.send(.bodyCrossing(begin), to: body)
+                self.dropFromSolve(body, planId: planId)
+                return
+            }
+            body.lastCrossing?.snapshotMs = (CACurrentMediaTime() - asked) * 1000
+            body.lastCrossing?.coverPixels = CGSize(width: image.width, height: image.height)
+            let cover = BodyCoverView(
+                cover: BodyCover(
+                    image: image, size: size, surface: body.surface, insets: body.insets,
+                    takenAt: Date().timeIntervalSince1970 * 1000
+                ),
+                frame: CGRect(origin: .zero, size: size)
+            )
+            cover.autoresizingMask = []
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            body.container.addSubview(cover, positioned: .above, relativeTo: body.webView)
+            CATransaction.commit()
+            body.crossingCover = cover
+            var solving = begin
+            solving.solve = true
+            self.send(.bodyCrossing(solving), to: body)
+        }
+    }
+
+    /// `crossingSolved`: the body is laid out at its crossing size. Its plan
+    /// starts once it awaits no other card. Late — the plan started or the
+    /// crossing was cancelled — it is ignored.
+    func crossingSolved(_ body: Body) {
+        guard body.crossing != nil, let planId = body.lastCrossing?.planId, let solve = solves[planId],
+              solve.awaited.remove(ObjectIdentifier(body)) != nil else { return }
+        body.lastCrossing?.solved = true
+        body.lastCrossing?.solveMs = (CACurrentMediaTime() - solve.receivedAt) * 1000
+        if solve.awaited.isEmpty { startPlan(planId, timedOut: false) }
+    }
+
+    /// The plan no longer waits on `body`: its crossing was cancelled, or its
+    /// cover could not be taken.
+    private func dropFromSolve(_ body: Body, planId: Int) {
+        guard let solve = solves[planId], solve.awaited.remove(ObjectIdentifier(body)) != nil else { return }
+        if solve.awaited.isEmpty { startPlan(planId, timedOut: false) }
+    }
+
+    /// Add `planned`'s tracks to `body`'s container under the beat keys —
+    /// replacing any there, whose delegate is then told `finished: false` and
+    /// does nothing — beginning at `startWallMs` through `anchor`, and arm
+    /// the window's frame meters on the beats that move it. Returns how late
+    /// the start reached the host, ms.
+    private func addTracks(
+        _ body: Body, layer: CALayer, planned: PlannedCard, track: BodyBeats.Track, mapping: LayerMapping,
+        anchor: ClockAnchor, startWallMs: Double, planId: Int
+    ) -> Double {
+        let begin = anchor.beginTime(startWallMs: startWallMs, delayMs: track.delayMs)
+        let lateMs = max(0, anchor.mediaTime - begin) * 1000
+        let localBegin = layer.convertTime(begin, from: nil)
+        let position = Self.keyframes(
+            "position", values: track.rects.map { NSValue(point: mapping.position(of: $0)) },
+            track: track, begin: localBegin
+        )
+        position.delegate = BeatTrackDelegate { [weak self, weak body] (finished: Bool) in
+            guard let self, let body, finished, let beats = body.beats, beats.planId == planId,
+                  let cardId = body.cardId else { return }
+            body.beats = nil
+            self.endCrossing(body)
+            self.notifyShell(BodyStateReport(cardId: cardId, state: .landed, planId: planId, lateMs: beats.lateMs))
+            // A card a settle carried into or out of a rail joins its
+            // rail's view, or leaves it, now that nothing animates on it.
+            self.reconcileRails()
+        }
+        layer.add(position, forKey: Self.beatKeys[0])
+        layer.add(Self.keyframes(
+            "bounds", values: track.rects.map { NSValue(rect: mapping.bounds(of: $0)) },
+            track: track, begin: localBegin
+        ), forKey: Self.beatKeys[1])
+        if let opacities = track.opacities {
+            layer.add(Self.keyframes(
+                "opacity", values: opacities.map { NSNumber(value: $0) }, track: track, begin: localBegin
+            ), forKey: Self.beatKeys[2])
+        }
+        // A reading of the window armed now samples this container under
+        // its card id, over the beats that move it; tracks added again drop
+        // the spans of the ones they replace, none of which had begun.
+        let moving = planned.beats.filter { $0.from != $0.to }.map { beat in
+            let from = anchor.beginTime(startWallMs: startWallMs, delayMs: beat.delayMs)
+            return (from: from, to: from + beat.durationMs / 1000)
+        }
+        for meter in window.armedFrameMeters {
+            meter.cut(named: planned.cardId, at: anchor.mediaTime)
+            meter.track(layer, named: planned.cardId, active: moving)
+        }
+        return lateMs
+    }
+
+    /// The delay of the first beat that moves the box: a prepare beat ahead
+    /// of it holds First, and the page at its final size is clipped there
+    /// exactly as before the plan. A crossing's lead is measured to it.
+    private static func firstMoveMs(_ planned: PlannedCard, _ track: BodyBeats.Track) -> Double {
+        planned.beats.first { $0.from != $0.to }?.delayMs ?? track.delayMs
+    }
+
+    /// The solve is over — every card answered or dropped out, or the guard
+    /// ran out — and the plan starts: one display period from now, so the
+    /// shell hears `planStarted` before the start rather than after it, and
+    /// every card the plan still carries has its tracks added again on that
+    /// begin, in one transaction, replacing the provisional ones.
+    ///
+    /// A card with a track of no duration lands here instead: its container
+    /// already stands at its landing, so its crossing ends in the same
+    /// transaction — the cover off, the page following its container — and
+    /// the shell is told it landed.
+    private func startPlan(_ planId: Int, timedOut: Bool) {
+        guard let solve = solves.removeValue(forKey: planId) else { return }
+        solve.guardItem?.cancel()
+        let anchor = ClockAnchor(wallMs: Date().timeIntervalSince1970 * 1000, mediaTime: CACurrentMediaTime())
+        let solveMs = (anchor.mediaTime - solve.receivedAt) * 1000
+        let startWallMs = anchor.wallMs + displayPeriodSec * 1000
+        var landed: [String] = []
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for carried in solve.carried {
+            // A card a newer plan or a placement took since is not this plan's.
+            guard let body = carried.body, let beats = body.beats, beats.planId == planId else { continue }
+            if carried.track.durationMs <= 0 {
+                body.beats = nil
+                endCrossing(body)
+                if let cardId = body.cardId { landed.append(cardId) }
+                continue
+            }
+            let lateMs = addTracks(
+                body, layer: carried.layer, planned: carried.planned, track: carried.track,
+                mapping: carried.mapping, anchor: anchor, startWallMs: startWallMs, planId: planId
+            )
+            body.beats = (planId, beats.landing, lateMs)
+            body.crossing?.begin = anchor.beginTime(
+                startWallMs: startWallMs, delayMs: Self.firstMoveMs(carried.planned, carried.track)
+            )
+        }
+        CATransaction.commit()
+        for cardId in landed {
+            notifyShell(BodyStateReport(cardId: cardId, state: .landed, planId: planId, lateMs: 0))
+        }
+        if !landed.isEmpty { reconcileRails() }
+        if timedOut {
+            TugLog.warn("bodies", "a plan's solve ran out its guard; it starts without every card", [
+                TugLog.field("plan", "\(planId)"),
+                TugLog.field("awaited", "\(solve.awaited.count)"),
+                TugLog.field("guard_ms", "\(Int(Self.solveGuardMs))"),
+            ])
+        }
+        window.sendToShell(.planStarted(PlanStarted(
+            planId: planId, startWallMs: startWallMs, solveMs: solveMs, timedOut: timedOut
+        )))
     }
 
     /// Take a body's beats off, and tell the shell when a plan was carrying it.
@@ -2270,6 +2521,7 @@ final class BodyViewController {
         body.beats = nil
         for key in Self.beatKeys { body.container.layer?.removeAnimation(forKey: key) }
         endCrossing(body)
+        dropFromSolve(body, planId: beats.planId)
         if let cardId = body.cardId {
             // A reading of the window stops judging the beats the body lost.
             for meter in window.armedFrameMeters {
@@ -2333,10 +2585,12 @@ final class BodyViewController {
 
     /// `crossingReady`: the body has pinned its scrollers for the crossing
     /// its plan began. Its page takes the landing size now, once, top-left
-    /// pinned in the flipped container, while the container's own track is
-    /// still at First or in its prepare beat; the container clips it to the
-    /// rect the track has reached. Late or stale — the beats already landed
-    /// or were cancelled — it is ignored, the page already restored.
+    /// pinned in the flipped container, growing or shrinking, while the
+    /// container's own track holds First; the container clips it to the
+    /// rect the track has reached, and a whole card that shrinks does so
+    /// under its cover. One that keeps its page — no cover could be taken —
+    /// is resized at the land. Late or stale — the beats already landed or
+    /// were cancelled — it is ignored, the page already restored.
     ///
     /// `surface` is the page's own background as sRGB bytes. The container
     /// wears it already (`setSurface`), and the crossing re-reads it: a box
@@ -2347,18 +2601,7 @@ final class BodyViewController {
         guard let crossing = body.crossing else { return }
         let leadMs = (crossing.begin - CACurrentMediaTime()) * 1000
         body.lastCrossing?.readyLeadMs = leadMs
-        // A whole card's page is the card, chrome and all, and it wears no
-        // surface behind it: given its smaller landing size now, the card
-        // would stand at its landing for the whole motion over the canvas the
-        // container still spans. So a whole card that shrinks keeps its page
-        // and the container clips it as it travels; the page takes the
-        // landing size at the land. One that grows takes it now, as any
-        // body does, and the container reveals it.
-        let page = body.webView.frame.size
-        if body.whole, crossing.size.width < page.width - 0.5 || crossing.size.height < page.height - 0.5 {
-            body.lastCrossing?.heldToLand = true
-            return
-        }
+        if crossing.keepsPage { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let surface, !body.whole {
@@ -2371,14 +2614,26 @@ final class BodyViewController {
         CATransaction.commit()
     }
 
-    /// The crossing is over: the page follows its container again, at the
-    /// container's own bounds, and the body restores what it pinned.
+    /// The crossing is over: the cover comes off and the page follows its
+    /// container again. A solved page is the landing size already, so the
+    /// land resizes nothing; only a page that never took its crossing size —
+    /// one kept to the land, or one that never said ready — is given the
+    /// container's bounds here.
     private func endCrossing(_ body: Body) {
-        guard body.crossing != nil else { return }
+        guard let crossing = body.crossing else { return }
         body.crossing = nil
         body.lastCrossing?.restored = true
-        body.webView.frame = body.container.bounds
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let bounds = body.container.bounds
+        let page = body.webView.frame.size
+        if crossing.keepsPage || abs(page.width - bounds.width) > 0.5 || abs(page.height - bounds.height) > 0.5 {
+            body.webView.frame = bounds
+        }
         body.webView.autoresizingMask = Self.pageResizing
+        body.crossingCover?.removeFromSuperview()
+        body.crossingCover = nil
+        CATransaction.commit()
         send(.bodyCrossing(.land), to: body)
     }
 
@@ -2793,12 +3048,6 @@ final class BodyViewController {
     /// standing `evicting` for ever. `done` runs once. A page WebKit is not
     /// painting still answers a snapshot, which it paints for the asking.
     private func takeCover(of body: Body, cardId: String, then done: @escaping (BodyCover?) -> Void) {
-        var answered = false
-        let answer = { (cover: BodyCover?) in
-            guard !answered else { return }
-            answered = true
-            done(cover)
-        }
         let size = body.container.bounds.size
         let surface = body.surface
         let insets = body.insets
@@ -2810,35 +3059,57 @@ final class BodyViewController {
             NSLog("BodyViewController: TUG_BODY_STALL_SNAPSHOTS — leaving an eviction's snapshot unanswered")
         }
         #endif
+        snapshotFrame(
+            of: body, cardId: cardId, size: size, scale: 1, deadline: BodyViewController.saveDeadline,
+            purpose: "an evicted card's cover", stalled: stalled
+        ) { frame in
+            done(frame.map {
+                BodyCover(image: $0, size: size, surface: surface, insets: insets, takenAt: Date().timeIntervalSince1970 * 1000)
+            })
+        }
+    }
+
+    /// The body's frame as it stands, drawn at `size` points and `scale`
+    /// pixels a point: `done` gets it, or nil when the snapshot failed or did
+    /// not answer within `deadline`, and runs once. `purpose` names it in the
+    /// log. A page WebKit is not painting still answers a snapshot, which it
+    /// paints for the asking; `stalled` leaves it unasked, for the harness.
+    private func snapshotFrame(
+        of body: Body, cardId: String, size: CGSize, scale: CGFloat, deadline: DispatchTimeInterval,
+        purpose: String, stalled: Bool = false, then done: @escaping (CGImage?) -> Void
+    ) {
+        var answered = false
+        let answer = { (frame: CGImage?) in
+            guard !answered else { return }
+            answered = true
+            done(frame)
+        }
         if !stalled {
             body.webView.takeSnapshot(with: nil) { image, error in
                 guard let frame = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-                    TugLog.warn("bodies", "no last frame for an evicted card's cover", [
+                    TugLog.warn("bodies", "no frame for \(purpose)", [
                         TugLog.field("card", cardId),
                         TugLog.field("error", error.map { String(describing: $0) } ?? "none"),
                     ])
                     answer(nil)
                     return
                 }
-                answer(BodyCover(
-                    image: Self.atOnePointAPixel(frame, size: size), size: size, surface: surface,
-                    insets: insets, takenAt: Date().timeIntervalSince1970 * 1000
-                ))
+                answer(Self.drawn(frame, size: size, scale: scale))
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + BodyViewController.saveDeadline) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + deadline) {
             guard !answered else { return }
-            TugLog.warn("bodies", "an evicted card's snapshot did not answer; it goes without a cover", [
+            TugLog.warn("bodies", "the snapshot for \(purpose) did not answer; it goes without one", [
                 TugLog.field("card", cardId),
             ])
             answer(nil)
         }
     }
 
-    /// `image` drawn down to `size` points at one pixel a point, or as it is
-    /// when it is no larger.
-    private static func atOnePointAPixel(_ image: CGImage, size: CGSize) -> CGImage {
-        let width = Int(size.width.rounded()), height = Int(size.height.rounded())
+    /// `image` drawn down to `size` points at `scale` pixels a point, or as
+    /// it is when it is no larger.
+    private static func drawn(_ image: CGImage, size: CGSize, scale: CGFloat) -> CGImage {
+        let width = Int((size.width * scale).rounded()), height = Int((size.height * scale).rounded())
         guard width > 0, height > 0, image.width > width || image.height > height,
               let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
@@ -3097,14 +3368,19 @@ final class BodyViewController {
 }
 
 /// A body's last crossing, as the harness reads it: its plan and size, how
-/// far ahead of the first moving beat the body was ready, whether a whole
-/// card that shrinks kept its page to the land, the surface it wore, and
-/// whether the page was given back its container's bounds.
+/// far ahead of the first moving beat the body was ready, whether it said
+/// `crossingSolved` before its plan started and how long after the plan's
+/// receipt, how long a whole card's cover took to snapshot and its size in
+/// pixels, the surface it wore, and whether the page follows its container
+/// again.
 struct CrossingAccount: Equatable {
     var planId: Int
     var size: CGSize
     var readyLeadMs: Double?
-    var heldToLand = false
+    var solved = false
+    var solveMs: Double?
+    var snapshotMs: Double?
+    var coverPixels: CGSize?
     var surface: [Double]?
     var restored = false
 
@@ -3119,8 +3395,11 @@ struct CrossingAccount: Equatable {
             "width": .number(size.width),
             "height": .number(size.height),
             "readyLeadMs": readyLeadMs.map(JSONValue.number) ?? .null,
+            "solved": .bool(solved),
+            "solveMs": solveMs.map(JSONValue.number) ?? .null,
+            "snapshotMs": snapshotMs.map(JSONValue.number) ?? .null,
+            "coverPixels": coverPixels.map { .object(["width": .number($0.width), "height": .number($0.height)]) } ?? .null,
         ]
-        if heldToLand { fields["heldToLand"] = .bool(true) }
         if let surface { fields["surface"] = .array(surface.map(JSONValue.number)) }
         if restored { fields["restored"] = .bool(true) }
         return .object(fields)

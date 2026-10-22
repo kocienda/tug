@@ -91,7 +91,6 @@ import {
   DEFAULT_SETTLE_BARS,
   GAP_FRAMES_BAR as SETTLE_GAP_FRAMES_BAR,
   LAND_FRAMES_BAR as SETTLE_LAND_FRAMES_BAR,
-  SEALED_CARVE_OUTS,
   arrivedIn as arrivedInBand,
   bandShrinks,
   gapClause,
@@ -99,7 +98,6 @@ import {
   offCurveClause,
   sealedClause,
   settleSites,
-  type SealedGesture,
   type SettleBars,
 } from "../../tugdeck/src/lib/motion-guard/settle-bar";
 import {
@@ -2493,23 +2491,13 @@ export async function settleLandRows(
  * The motion is sealed: nothing commits, forces layout or delivers an
  * observer callback between the first frame and the land ([B05]). Every
  * event names its site, so a red clause says where the leak is.
- *
- * `gesture` applies that gesture's carve-out, if it has one
- * ({@link SEALED_CARVE_OUTS}); every other gesture reads all three clauses.
  */
-export function expectMotionSealed(
-  leg: string,
-  row: SettleFramesRow,
-  gesture?: SealedGesture,
-): void {
+export function expectMotionSealed(leg: string, row: SettleFramesRow): void {
   // The clause is `settle-bar.ts`'s — the bench probe's own rect read carved
-  // out of the forced layouts by site, a commit that performed no fiber not
-  // counted, and the gesture's carve-out applied. A census the page did not
-  // have reads `null`, which fails here: a harness deck always has them.
-  const sealed = sealedClause(row, gesture);
-  if (gesture !== undefined && SEALED_CARVE_OUTS[gesture].commits) {
-    note(`${leg}: sealed — ${sealed.detail}`);
-  }
+  // out of the forced layouts by site, and a commit that performed no fiber
+  // not counted. A census the page did not have reads `null`, which fails
+  // here: a harness deck always has them.
+  const sealed = sealedClause(row);
   expect(
     sealed.pass,
     `${leg}: nothing committed, forced layout or delivered an observer ` +
@@ -2517,9 +2505,6 @@ export function expectMotionSealed(
       `all three — ${sealed.detail}`,
   ).toBe(true);
 }
-
-/** The sealed clause's carve-outs, keyed on the gesture (`settle-bar.ts`). */
-export { SEALED_CARVE_OUTS, type SealedGesture };
 
 /**
  * The land is one frame, and what ran in it is in the report either way.

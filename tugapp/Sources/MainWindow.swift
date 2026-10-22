@@ -751,6 +751,24 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             }
         }
 
+        // The window's own resize is bracketed for the shell: a live drag of
+        // its edge and a full-screen transition each begin and end, and the
+        // canvas re-tunes the rail allocation once, at the end, rather than
+        // at every size between.
+        let brackets: [(NSNotification.Name, WindowResize.Phase)] = [
+            (NSWindow.willStartLiveResizeNotification, .begin),
+            (NSWindow.willEnterFullScreenNotification, .begin),
+            (NSWindow.willExitFullScreenNotification, .begin),
+            (NSWindow.didEndLiveResizeNotification, .end),
+            (NSWindow.didEnterFullScreenNotification, .end),
+            (NSWindow.didExitFullScreenNotification, .end),
+        ]
+        for (name, phase) in brackets {
+            NotificationCenter.default.addObserver(forName: name, object: self, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.sendToShell(.windowResize(WindowResize(phase: phase))) }
+            }
+        }
+
         // Restore the window frame saved by AppKit under
         // `NSWindow Frame MainWindow` in NSUserDefaults, then apply
         // a fit-to-screen pass.
@@ -2806,6 +2824,10 @@ extension MainWindow {
             // A body has pinned its scrollers for its crossing: its page
             // may take its final size. The shell never posts this.
             if let fromBody { bodies.crossingReady(fromBody, surface: ready.surface) }
+        case .crossingSolved:
+            // A body is laid out at its crossing size: its plan may start
+            // once every card it awaits has said so. The shell never posts this.
+            if let fromBody { bodies.crossingSolved(fromBody) }
         case .bodySurface(let surface):
             // A body's page background, for its container to wear behind
             // the web view. The shell never posts this.
