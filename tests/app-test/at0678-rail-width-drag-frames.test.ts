@@ -33,18 +33,61 @@
  * A member the settle mistook for an arrival — measured by nobody before the
  * commit, then found unmarked after it — is held invisible and faded back
  * up, which reads as the rail vanishing at the release. An end-state check
- * cannot see that; only a per-frame sample can.
+ * cannot see that; only a per-frame sample can. The host carries the views,
+ * so the same reading is taken where they are: each member's page samples
+ * its own frame's width on every frame, and the host's snapshot is polled
+ * for the members' frames, from the release until the deck is quiet.
+ *
+ * **The members move together, under the hand.** The host moves every
+ * member's view and the cards beside the rail in one transaction, and the
+ * second reading's drag is read for that too, in the composite: a capture
+ * burst over its grow leg finds each member's deck-facing edge, and the
+ * chain's first card's leading edge, by colour against the ground beside
+ * them. On every frame with the hand down each member's edge stands where
+ * the host drew it within the last two display frames (the pipeline's
+ * latency, and no more), the chain card stands where the ported travel puts
+ * it at those widths, and the members stand no further apart than the hand
+ * moved in that window. They may stand that far apart: each member's page
+ * repaints its view at a new size on its own clock, so on a frame one can
+ * show the step before its siblings, though the host moves their views in
+ * one transaction. The edge is read where the rail's shadow meets the
+ * ground, which every member draws alike, rather than at its first dark
+ * pixel, which the pressed member's held edge line covers. A stand-in's
+ * rect is not evidence of any of this: it is the shell's model, moved on the
+ * shell's clock after the host has already drawn the views. The burst's frames are
+ * kept under `/tmp` for a reader judging the Overview's grow strip.
+ *
+ * The host's half of the gesture lives in `BodyViewController.swift`, which
+ * fans out past the selection budget, so it is named by none of the lines
+ * below; the rail view and the ported arithmetic are. Run this file by name
+ * with any change to the host's rail gesture.
  *
  * @visible
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
  * @covers tugdeck/src/lib/rail-width.ts
+ * @covers tugdeck/src/lib/host-card-gesture.ts
+ * @covers tugdeck/src/lib/card-placement.ts
+ * @covers tugapp/Sources/RailView.swift
+ * @covers tugapp/Sources/CardGeometry.swift
  */
 
 import { describe, expect, test } from "bun:test";
+import { copyFileSync, mkdirSync } from "node:fs";
+import { basename, join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { chromePoint } from "./card-chrome-fixture";
 import { PIXEL_TOL } from "./_harness/tolerances";
+import { armBurst, readBurst } from "./one-view-fixture";
+import {
+  CARD_APRON_PX,
+  armReportRecord,
+  chainEdgeAt,
+  expectedEdgeAt,
+  railReader,
+  readRailFacts,
+  takeReportRecord,
+} from "./rail-width-fixture";
 import { MIN_OVERVIEW_WIDTH_PX } from "../../tugdeck/src/lib/overview-measure";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -67,6 +110,16 @@ const MIN_FRAMES = 20;
 const AFTER_LAND_MS = 900;
 
 const MEMBERS = ["overview", "jots", "layout"] as const;
+/** Each member's card, top to bottom. */
+const MEMBER_CARDS = ["G", "J", "L"] as const;
+/** The chain's first card: the one beside the rail. */
+const CHAIN_FIRST = "A";
+/** How far a composite edge may stand from the host's reported edge, device px. */
+const EDGE_TOL_DEVICE = 2;
+/** How far the members' edges may stand from one another, device px. */
+const COLUMN_TOL_DEVICE = 1;
+/** How often the host's snapshot is read after the release. */
+const POLL_MS = 50;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -276,6 +329,56 @@ async function takeRelease(app: App): Promise<ReleaseSample> {
   );
 }
 
+/** Arm a sampler in each member's own page: its frame's width on every animation frame, on the epoch's clock. */
+async function armPageWidths(app: App): Promise<void> {
+  for (const card of MEMBER_CARDS) {
+    await app.body(card).evalJS<null>(
+      `(function () {
+        var rec = (window.__at0678page = { samples: [], running: true });
+        var tick = function () {
+          if (!rec.running) return;
+          var frame = document.querySelector(".body-chrome-frame");
+          rec.samples.push({ wall: Date.now(), width: frame.getBoundingClientRect().width });
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        return null;
+      })()`,
+    );
+  }
+}
+
+/** Stop the page samplers, and answer each member's widths from `since` on. */
+async function takePageWidths(app: App, since: number): Promise<Record<string, number[]>> {
+  const out: Record<string, number[]> = {};
+  for (const card of MEMBER_CARDS) {
+    const samples = await app.body(card).evalJS<{ wall: number; width: number }[]>(
+      `(function () { var rec = window.__at0678page; rec.running = false; return rec.samples; })()`,
+    );
+    out[card] = samples.filter((s) => s.wall >= since).map((s) => s.width);
+  }
+  return out;
+}
+
+/** Read the host's snapshot every {@link POLL_MS} for `ms`: each member's presented frame widths, and whether the hand held any. */
+async function pollHost(app: App, ms: number): Promise<{ widths: Record<string, number[]>; inHand: number }> {
+  const widths: Record<string, number[]> = Object.fromEntries(MEMBER_CARDS.map((c) => [c, []]));
+  let inHand = 0;
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    for (const b of await app.bodies()) {
+      if (b.cardId === null || !(MEMBER_CARDS as readonly string[]).includes(b.cardId) || !b.visible) continue;
+      widths[b.cardId].push(b.presentedFrame.width);
+      if (b.inHand) inHand += 1;
+    }
+    await wait(POLL_MS);
+  }
+  return { widths, inHand };
+}
+
+const spanOf = (xs: readonly number[]): string =>
+  xs.length === 0 ? "none" : `${Math.min(...xs).toFixed(1)}–${Math.max(...xs).toFixed(1)}`;
+
 async function seedRail(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -359,7 +462,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "every member stays opaque and at the released width on every frame after the release",
+      "the members move together under the hand, and stay opaque and at the released width on every frame after the release",
       async () => {
         const app = await launchTugApp({
           testName: "at0678-rail-width-drag-release",
@@ -367,16 +470,38 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await seedRail(app);
-          await armRelease(app);
+          const facts = await readRailFacts(app);
+          const travel = facts.travel[CHAIN_FIRST];
+          expect(travel, `${CHAIN_FIRST} stands on a rail travel`).toBeDefined();
+          const reader = await railReader(app, MEMBER_CARDS, CHAIN_FIRST, GROW_PX + 40);
+          const dragged = reader.members[MEMBER_CARDS.indexOf("J")];
+          const restShown = RAIL_WIDTH;
+          const chainRest = { edge: reader.chain!.restLeft, shown: restShown };
 
+          await armRelease(app);
+          await armReportRecord(app);
+          await armPageWidths(app);
+          await armBurst(app, reader.crop);
           const from = await grip(app);
           await app.nativeDrag(from, { x: from.x + GROW_PX, y: from.y }, {
             interpolationSteps: STEPS,
             interpolationDelayMs: STEP_MS,
           });
-          await wait(AFTER_LAND_MS);
+          const host = await pollHost(app, AFTER_LAND_MS);
           const sample = await takeRelease(app);
+          const reading = await readBurst(app);
+          const reports = await takeReportRecord(app);
 
+          const moves = reports.filter((r) => r.phase === "move");
+          expect(moves.length, "the host reported the hand's moves").toBeGreaterThan(10);
+          expect(moves.every((r) => r.rail !== null), "every report of the rail's hand carries the host's aim").toBe(true);
+          const downAt = moves[0].wall;
+          const releasedAt = reports.find((r) => r.phase === "end")?.wall;
+          expect(releasedAt, "the host reported the release").toBeDefined();
+          const upAt = releasedAt!;
+          const pages = await takePageWidths(app, upAt);
+
+          // ---- The release moves nothing ----
           const expected = RAIL_WIDTH + GROW_PX;
           note(
             `after release: ${sample.frames} frames; min opacity ${sample.minOpacity}; ` +
@@ -398,6 +523,96 @@ describe.skipIf(!SHOULD_RUN)(
               `${member} held ${expected}px on every frame (read ${w.min.toFixed(1)}–${w.max.toFixed(1)})`,
             ).toBeLessThanOrEqual(PIXEL_TOL);
           }
+          // Where the views are: each member's page drew its frame at the
+          // released width on every frame from the release on, and the host
+          // never moved a member's view, nor held one, once the hand let go.
+          for (const card of MEMBER_CARDS) {
+            const page = pages[card];
+            note(`${card} after release: page ${page.length} frames ${spanOf(page)}; host ${spanOf(host.widths[card])}`);
+            expect(page.length, `${card}'s page drew frames after the release`).toBeGreaterThanOrEqual(MIN_FRAMES);
+            expect(
+              Math.max(...page.map((w) => Math.abs(w - expected))),
+              `${card}'s page stood at ${expected}px on every frame after the release (read ${spanOf(page)})`,
+            ).toBeLessThanOrEqual(PIXEL_TOL);
+            expect(host.widths[card].length, `${card}'s view was read after the release`).toBeGreaterThan(0);
+            expect(
+              Math.max(...host.widths[card].map((w) => Math.abs(w - (expected + 2 * CARD_APRON_PX)))),
+              `${card}'s view stood at the released width on every reading (read ${spanOf(host.widths[card])})`,
+            ).toBeLessThanOrEqual(1);
+          }
+          expect(host.inHand, "the hand held no member after the release").toBe(0);
+
+          // ---- The members move together, under the hand ----
+          const last = moves[moves.length - 1];
+          note(
+            `${moves.length} move reports over ${(last.wall - downAt).toFixed(0)} ms; ` +
+              `last shown ${last.rail?.shown}, edge ${last.rect.x + last.rect.width}; rest edge ${dragged.restEdge}`,
+          );
+          expect(
+            Math.abs((last.rail?.shown ?? 0) - (RAIL_WIDTH + GROW_PX)),
+            "the host drew the rail at the hand's width by the last move",
+          ).toBeLessThanOrEqual(PIXEL_TOL);
+
+          // Kept beside the run, for a reader judging the Overview's grow
+          // strip against a stretch.
+          const kept = join("/tmp", `at0678-burst-${Date.now()}`);
+          mkdirSync(kept, { recursive: true });
+          for (const f of reading.frames) copyFileSync(f.path, join(kept, basename(f.path)));
+          note(`burst frames kept at ${kept} (${reading.frames.length})`);
+
+          const toDevice = reader.toDevice;
+          // Two display frames of pipeline latency, and no more ([B05]).
+          // A report heard up to a frame after the composite may already be on it.
+          const period = (await app.bodies()).find((b) => b.cardId === "J")?.displayPeriodMs ?? 1000 / 60;
+          const latencyMs = 2 * period;
+          let judged = 0;
+          let together = 0;
+          const unread: string[] = [];
+          const apart: string[] = [];
+          const offHand: string[] = [];
+          const offChain: string[] = [];
+          for (const f of reading.frames) {
+            if (f.wall < downAt || f.wall >= upAt) continue;
+            const at = `+${(f.wall - downAt).toFixed(0)}ms`;
+            const edges = reader.memberEdges(f);
+            const chain = reader.chainEdge(f);
+            if (edges.some((e) => e === null) || chain === null) {
+              unread.push(`${at} members ${JSON.stringify(edges)} chain ${chain}`);
+              continue;
+            }
+            judged += 1;
+            const es = edges as number[];
+            const spread = Math.max(...es) - Math.min(...es);
+            const hand = expectedEdgeAt(f.wall, reports, dragged.restEdge, latencyMs, period);
+            const lo = toDevice(hand.lo) - EDGE_TOL_DEVICE;
+            const hi = toDevice(hand.hi) + EDGE_TOL_DEVICE;
+            // Each member's page repaints its view at a new size on its own
+            // clock, so on a frame one may show the step before its
+            // siblings ([B03]); none may stand further from another than
+            // the hand moved inside the latency window.
+            if (spread <= COLUMN_TOL_DEVICE) together += 1;
+            else if (spread > toDevice(hand.hi) - toDevice(hand.lo) + COLUMN_TOL_DEVICE) apart.push(`${at} ${JSON.stringify(es)}`);
+            es.forEach((e, i) => {
+              if (e < lo || e > hi) offHand.push(`${at} ${MEMBER_CARDS[i]} ${e} not in ${lo.toFixed(1)}..${hi.toFixed(1)}`);
+            });
+            const cards = expectedEdgeAt(f.wall, reports, chainRest.edge, latencyMs, period, (r) => chainEdgeAt(r, chainRest, travel!, facts));
+            const clo = toDevice(cards.lo) - EDGE_TOL_DEVICE;
+            const chi = toDevice(cards.hi) + EDGE_TOL_DEVICE;
+            if (chain < clo || chain > chi) offChain.push(`${at} ${chain} not in ${clo.toFixed(1)}..${chi.toFixed(1)}`);
+          }
+          note(
+            `${judged} frames judged with the hand down over a ${latencyMs.toFixed(1)} ms window; ${together} in one column; ` +
+              `unread ${unread.length}; apart ${apart.length}; ` +
+              `off the hand ${offHand.length}; chain off ${offChain.length}`,
+          );
+          for (const [what, list] of [["unread", unread], ["apart", apart], ["off the hand", offHand], ["chain off", offChain]] as const) {
+            if (list.length > 0) note(`${what}:\n${list.join("\n")}`);
+          }
+          expect(judged, "frames were judged with the hand down").toBeGreaterThanOrEqual(10);
+          expect(unread.length, "every frame with the hand down is read by colour").toBe(0);
+          expect(apart.length, "on no frame do the members stand further apart than the hand moved in two display frames").toBe(0);
+          expect(offHand.length, "on every frame each edge stands where the host drew it within two display frames").toBe(0);
+          expect(offChain.length, "on every frame the chain stands where its travel puts it").toBe(0);
         } finally {
           await app.close();
         }

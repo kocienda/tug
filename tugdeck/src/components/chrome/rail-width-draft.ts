@@ -8,6 +8,18 @@
  * `pointercancel`, Escape — commits nothing and puts the deck back where the
  * record says it stands.
  *
+ * **The host carries the views; this previews the shell at the host's aim.**
+ * Every card's view is the host's, so the host moves the rail's members and
+ * the content cards beside it from the pointer, and reports with each step
+ * the aim it drew them at (`lib/host-card-gesture.ts`): the width the
+ * release commits, the width the edge is drawn at, and the limit it presses
+ * past. Each `change` and the `commit` hand that aim in, and everything here
+ * is drawn at it — so the shell computes no width and no snap of its own,
+ * and the stand-ins stand under the views. While the drag holds, the placer
+ * posts the cards the host is moving as they stood at the press
+ * (`holdCardsForHost`); the hold is released before the commit, so the
+ * commit's placement names every card where it now stands.
+ *
  * **Two layers, one writer each.** The pane whose edge was grabbed translates
  * pointer input into four calls — `begin`, `change`, `commit`, `cancel` — and
  * does nothing else: it writes no arrangement property, finds no canvas, and
@@ -73,13 +85,14 @@
  * **The rollback belongs to whoever wrote the draft** ([L32]). Every inline
  * style this writes is saved first and given back on cancel; every
  * acquisition it makes — the members' marks, the
- * scroll-preservation episodes, the snap guides — is released by one
+ * scroll-preservation episodes, the placer's hold — is released by one
  * idempotent path that runs on commit, cancel and unmount alike ([L27]).
  *
  * The bounds are the rail's own, read from the deck (`railWidthLimits`): its
- * tightest member's floor and the allocator's slim ceiling. The edge snaps to
- * other panes' edges with Option held, as every pane edge does. [D01, D03,
- * D04]
+ * tightest member's floor and the allocator's slim ceiling, which the host
+ * reads from the placement. The edge snaps to other panes' edges with Option
+ * held, as every pane edge does, in the host's arithmetic, and the guides it
+ * snapped to ride its report into the overlay. [D01, D03, D04]
  *
  * @module components/chrome/rail-width-draft
  */
@@ -95,26 +108,22 @@ import {
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { railMembersOf } from "@/deck-store-selectors";
 import type { RailEdgeDriver } from "@/lib/host-card-gesture";
-import { computeResizeSnap } from "@/snap";
 import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { pageZoomFactor } from "@/lib/page-zoom-store";
+import { sidebarWidthProperty, type SidebarSide } from "@/lib/layout-imposer";
+import { holdCardsForHost, releaseCardsHeldForHost } from "@/lib/card-placement";
 import {
-  impositionGapPx,
-  sidebarWidthProperty,
-  type SidebarSide,
-} from "@/lib/layout-imposer";
-import {
+  LIMIT_SPRING_EASING,
+  LIMIT_SPRING_MS,
   RAIL_REFLOW_ATTR,
   RAIL_REFLOW_PAUSE_MS,
   RAIL_TRAVEL_ATTR,
-  aimRailWidth,
-  clampRailWidth,
   parseRailTravel,
   railTravelShift,
   type RailTravel,
   type RailTravelBand,
   type RailWidthAim,
-  type RailWidthLimits,
+  type ReadFlowTerms,
 } from "@/lib/rail-width";
 import {
   GESTURE_EPISODE_WINDOW_MS,
@@ -129,14 +138,6 @@ import {
   SPACE_LAYER_CLASS,
   SPACE_SHOWN_ATTRIBUTE,
 } from "@/components/chrome/space-layer";
-import {
-  clearGuideElements,
-  measureGuideEdgeOffsets,
-  snapshotCardRects,
-  syncGuideElements,
-  type GuideEdgeOffsets,
-  type GuideElements,
-} from "@/components/chrome/snap-guides";
 
 /** What the pane hands over at pointer-down. */
 export interface RailWidthGestureBegin {
@@ -156,12 +157,14 @@ export interface RailWidthGestureBegin {
  * threshold; then exactly one of `commit` (the release of a press that
  * travelled) or `cancel` (a release that never travelled, a lost capture, a
  * `pointercancel`, Escape, a pane torn down mid-drag). A `cancel` with no draft
- * open is a no-op, so an emitter may call it on every path out.
+ * open is a no-op, so an emitter may call it on every path out. `change` and
+ * `commit` carry the aim the host drew the rail at, which is what the preview
+ * draws and the commit commits.
  */
 export interface RailWidthGesture {
   begin(start: RailWidthGestureBegin): void;
-  change(clientX: number, clientY: number, altKey: boolean): void;
-  commit(clientX: number, altKey: boolean): void;
+  change(clientX: number, clientY: number, altKey: boolean, aim: RailWidthAim): void;
+  commit(clientX: number, altKey: boolean, aim: RailWidthAim): void;
   cancel(): void;
 }
 
@@ -176,9 +179,7 @@ export function useRailWidthGesture(): RailWidthGesture | null {
   return useContext(RailWidthGestureContext);
 }
 
-/** The shown deck's flow strip, as the canvas last arranged it — the two terms
- *  a flow card's `left` clamps its offset by — or `null` off flow. */
-export type ReadFlowTerms = () => RailTravelBand["flow"];
+export type { ReadFlowTerms } from "@/lib/rail-width";
 
 /** Every element of the shown deck, and none under a hidden layer. */
 const SHOWN = `:not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
@@ -194,10 +195,6 @@ const READOUT_CLASS = "tug-rail-readout";
  *  1. Stated here only: the readout carries it as `--tugx-rail-readout-fade`,
  *  which the stylesheet's transition reads and scales by `--tug-timing`. */
 const READOUT_FADE_MS = 400;
-/** How long a release past a limit takes to spring back to it. */
-const LIMIT_SPRING_MS = 220;
-/** The spring's curve: a cubic ease-out, `1 - (1 - t)³`. */
-const LIMIT_SPRING_EASING = "cubic-bezier(0.33, 1, 0.68, 1)";
 /** How far past the spring's scaled duration its commit waits before landing
  *  anyway, for a window whose frames have stopped. */
 const LIMIT_SPRING_DEADLINE_SLACK_MS = 100;
@@ -261,17 +258,11 @@ function heldCard(cardId: string, frame: HTMLElement): Held {
 interface Draft {
   readonly side: SidebarSide;
   readonly container: HTMLElement;
-  readonly limits: RailWidthLimits;
   readonly zoom: number;
   readonly growSign: 1 | -1;
-  readonly startClientX: number;
   readonly startWidth: number;
-  readonly pinnedEdge: number;
   readonly canvasBounds: DOMRect;
-  readonly guideEdgeOffsets: GuideEdgeOffsets;
   readonly band: RailTravelBand;
-  /** The rail's own frames: never snap targets, since they move with it. */
-  readonly memberIds: ReadonlySet<string>;
   readonly members: readonly HTMLElement[];
   readonly pinned: readonly Pinned[];
   readonly carried: readonly Carried[];
@@ -279,11 +270,11 @@ interface Draft {
   /** Where the arrangement's width property lives for the shown deck. */
   readonly propertyTargets: readonly HTMLElement[];
   readonly episodes: readonly ResizeEpisodeHandle[];
-  readonly guides: GuideElements;
   latched: boolean;
   latestX: number;
   latestY: number;
-  latestAlt: boolean;
+  /** The aim the host last reported: what the preview draws and the release commits. */
+  aim: RailWidthAim;
   rafId: number | null;
   /** The rest that reflows the held members, re-armed by every move. */
   pauseTimer: ReturnType<typeof setTimeout> | null;
@@ -341,12 +332,6 @@ class RailWidthDraft implements RailWidthGesture {
     const zoom = pageZoomFactor();
     const canvasBounds = container.getBoundingClientRect();
     const frameRect = frame.getBoundingClientRect();
-    // The deck edge the rail holds is the one thing this drag may not move,
-    // so it is measured once and held for the gesture.
-    const pinnedEdge =
-      side === "left"
-        ? (frameRect.left - canvasBounds.left) / zoom
-        : (frameRect.right - canvasBounds.left) / zoom;
     const members = [
       ...container.querySelectorAll<HTMLElement>(
         `${SHOWN_PANE_FRAMES}[data-rail-side="${side}"]`,
@@ -389,30 +374,22 @@ class RailWidthDraft implements RailWidthGesture {
       if (cardId !== undefined) held.push(heldCard(cardId, el));
     }
 
+    // The width the RAIL stands at — its widest member's — measured, since
+    // the grabbed member's stored width may be narrower than the rail.
+    const startWidth = frameRect.width / zoom;
     this.draft = {
       side,
       container,
-      limits,
       zoom,
       // A left rail's deck edge faces right: rightward motion grows it. A
       // right rail's faces left: leftward motion grows it.
       growSign: side === "left" ? 1 : -1,
-      startClientX: clientX,
-      // The width the RAIL stands at — its widest member's — measured, since
-      // the grabbed member's stored width may be narrower than the rail.
-      startWidth: frameRect.width / zoom,
-      pinnedEdge,
+      startWidth,
       canvasBounds,
-      guideEdgeOffsets: measureGuideEdgeOffsets(frame, zoom),
       // Signed: a rail widened until the rails cover the canvas leaves a band
       // of no width, and that rail must still narrow back. The travel terms
       // clamp a band below zero exactly as the `left` expressions do.
       band: { band: this.store.getBandSpan(), flow: this.readFlow() },
-      memberIds: new Set(
-        members
-          .map((el) => el.getAttribute("data-pane-id"))
-          .filter((id): id is string => id !== null),
-      ),
       members,
       pinned: [
         ...members.map((el) => pin(el, true)),
@@ -429,14 +406,13 @@ class RailWidthDraft implements RailWidthGesture {
         ),
       ],
       episodes,
-      guides: { current: [] },
       latched: false,
       latestX: clientX,
       latestY: clientY,
-      latestAlt: false,
+      aim: { width: startWidth, shown: startWidth, limit: null },
       rafId: null,
       pauseTimer: null,
-      shown: frameRect.width / zoom,
+      shown: startWidth,
       limit: null,
       spring: null,
       readout: null,
@@ -445,12 +421,12 @@ class RailWidthDraft implements RailWidthGesture {
     for (const el of members) el.setAttribute(HELD_ATTR, "");
   }
 
-  change(clientX: number, clientY: number, altKey: boolean): void {
+  change(clientX: number, clientY: number, _altKey: boolean, aim: RailWidthAim): void {
     const draft = this.draft;
     if (draft === null || draft.spring !== null) return;
     draft.latestX = clientX;
     draft.latestY = clientY;
-    draft.latestAlt = altKey;
+    draft.aim = aim;
     this.latch(draft);
     // [L13]: a gesture frame loop is what rAF is for; the pointer may report
     // several times a frame, and the preview is written once per frame.
@@ -458,7 +434,7 @@ class RailWidthDraft implements RailWidthGesture {
       draft.rafId = requestAnimationFrame(() => {
         draft.rafId = null;
         if (this.draft !== draft) return;
-        this.preview(draft, this.aimOf(draft));
+        this.preview(draft, draft.aim);
       });
     }
     // The held members reflow once the hand has rested; every move puts
@@ -468,22 +444,21 @@ class RailWidthDraft implements RailWidthGesture {
       draft.pauseTimer = setTimeout(() => {
         draft.pauseTimer = null;
         if (this.draft !== draft) return;
-        this.hold(draft, this.aimOf(draft).shown);
+        this.hold(draft, draft.aim.shown);
       }, RAIL_REFLOW_PAUSE_MS);
     }
   }
 
-  commit(clientX: number, altKey: boolean): void {
+  commit(clientX: number, _altKey: boolean, aim: RailWidthAim): void {
     const draft = this.draft;
     if (draft === null || draft.spring !== null) return;
     draft.latestX = clientX;
-    draft.latestAlt = altKey;
+    draft.aim = aim;
     // The emitter calls `commit` only for a press that travelled, and it
     // judges that from the release's own position — so a release can arrive
     // with no move before it, when the event merger folded every move into
     // it. That is still a drag, and it latches here.
     this.latch(draft);
-    const aim = this.aimOf(draft);
     this.fadeReadout(draft, aim);
     if (draft.rafId !== null) {
       cancelAnimationFrame(draft.rafId);
@@ -496,9 +471,11 @@ class RailWidthDraft implements RailWidthGesture {
     // Released past a limit: the edge springs back to it through the same
     // preview, and the commit lands when it arrives — so the release still
     // has nothing left to move. Under reduced motion, or a timing scale of
-    // zero, there is no spring: the edge lands on the limit at once.
+    // zero, there is no spring: the edge lands on the limit at once. The host
+    // springs the views over the same span, from the `springMs` the body
+    // page posted at the press.
     if (
-      draft.limit !== null &&
+      aim.limit !== null &&
       Math.abs(draft.shown - aim.width) > 0.5 &&
       isTugMotionEnabled() &&
       getTugTiming() > 0
@@ -519,6 +496,9 @@ class RailWidthDraft implements RailWidthGesture {
       return;
     }
     this.fadeReadout(draft, null);
+    // The host has put every view back where the press found it: the
+    // placement after the restore says so of every card.
+    releaseCardsHeldForHost();
     this.restore(draft);
     this.release(draft);
   }
@@ -550,6 +530,9 @@ class RailWidthDraft implements RailWidthGesture {
       // Off before the commit, so the settle's arm measures the members where
       // they now stand rather than skipping them (see the module docblock).
       for (const el of draft.members) el.removeAttribute("data-pointer-owned");
+      // And the host's hold, so the commit's placement names every card
+      // where it now stands, and is posted though the preview read the same.
+      releaseCardsHeldForHost();
       this.store.setRailWidth(draft.side, width);
     } finally {
       this.release(draft);
@@ -615,6 +598,10 @@ class RailWidthDraft implements RailWidthGesture {
     // The content that cannot follow the hand is held where it stands,
     // anchored to the edge the rail does not move.
     for (const h of draft.held) h.latch(draft.side);
+    // The host is moving every card of the rail's panes and of the panes
+    // beside it, inactive siblings included: the placer posts them as they
+    // stood at the press until the release.
+    holdCardsForHost(cardsMovedBy(draft));
     // The readout rides beside the pointer for as long as the hand drags.
     const readout = document.createElement("div");
     readout.className = READOUT_CLASS;
@@ -656,11 +643,11 @@ class RailWidthDraft implements RailWidthGesture {
       clearTimeout(draft.pauseTimer);
       draft.pauseTimer = null;
     }
-    clearGuideElements(draft.guides);
     for (const el of draft.members) {
       el.removeAttribute(HELD_ATTR);
       el.removeAttribute(LIMIT_ATTR);
     }
+    releaseCardsHeldForHost();
     if (draft.readout !== null) this.fadeReadout(draft, null);
     if (draft.latched) {
       for (const el of draft.members) el.removeAttribute("data-pointer-owned");
@@ -729,47 +716,23 @@ class RailWidthDraft implements RailWidthGesture {
     );
     this.leaving.set(readout, timer);
   }
+}
 
-  /**
-   * Where the hand is taking the rail: the width the release commits, inside
-   * the rail's limits, and the width the edge is drawn at, which gives past a
-   * limit — snapped, with Option held and between the limits, so the exposed
-   * edge lands one imposition gap off another pane's edge. Snap targets are
-   * re-measured every frame, since the cards move as the rail does.
-   */
-  private aimOf(draft: Draft): RailWidthAim {
-    const travel = (draft.latestX - draft.startClientX) / draft.zoom;
-    const aim = aimRailWidth(
-      draft.startWidth + draft.growSign * travel,
-      draft.limits,
-    );
-    const width = aim.width;
-    if (!draft.latestAlt || aim.limit !== null) {
-      clearGuideElements(draft.guides);
-      return aim;
-    }
-    const exposedEdge = draft.pinnedEdge + draft.growSign * width;
-    const snap = computeResizeSnap(
-      draft.side === "left" ? { right: exposedEdge } : { left: exposedEdge },
-      snapshotCardRects(draft.canvasBounds, undefined, draft.zoom)
-        .filter(({ id }) => !draft.memberIds.has(id))
-        .map(({ rect }) => rect),
-      -impositionGapPx(),
-    );
-    syncGuideElements(
-      draft.guides,
-      snap.guides,
-      draft.container,
-      draft.guideEdgeOffsets,
-    );
-    const snapped = draft.side === "left" ? snap.right : snap.left;
-    if (snapped === undefined) return aim;
-    const landed = clampRailWidth(
-      draft.growSign * (snapped - draft.pinnedEdge),
-      draft.limits,
-    );
-    return { width: landed, shown: landed, limit: null };
+/** Every card whose view the host moves in `draft`'s drag: each card of a
+ *  member's pane and of each carried element's pane, siblings included. */
+function cardsMovedBy(draft: Draft): Set<string> {
+  const panes = new Set<Element>(draft.members);
+  for (const c of draft.carried) {
+    const pane = c.el.closest(".tug-pane");
+    if (pane !== null) panes.add(pane);
   }
+  const ids = new Set<string>();
+  for (const pane of panes) {
+    for (const el of pane.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
+      if (el.dataset.cardId !== undefined) ids.add(el.dataset.cardId);
+    }
+  }
+  return ids;
 }
 
 /** How far a carried element stands from its own place when the rail has
@@ -836,13 +799,13 @@ export function railEdgeDriverFor(
       draft.begin({ side, frame, clientX, clientY });
       frame.setAttribute("data-gesture", "resize");
     },
-    change: (clientX, clientY, altKey) => {
-      if (!gone()) draft.change(clientX, clientY, altKey);
+    change: (clientX, clientY, altKey, aim) => {
+      if (!gone()) draft.change(clientX, clientY, altKey, aim);
     },
-    commit: (clientX, altKey) => {
+    commit: (clientX, altKey, aim) => {
       if (gone()) return;
       end();
-      draft.commit(clientX, altKey);
+      draft.commit(clientX, altKey, aim);
     },
     cancel: () => {
       end();

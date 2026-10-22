@@ -37,6 +37,8 @@ import { cardGestureToHost } from "../host/declarations/geometry";
 import type { ResizeEdge } from "../lib/pane-chrome-projection";
 import { GESTURE_EPISODE_WINDOW_MS, beginResizeEpisode } from "../lib/resize-episode";
 import { deckRootElement } from "../lib/page-zoom-store";
+import { LIMIT_SPRING_MS } from "../lib/rail-width";
+import { getTugTiming, isTugMotionEnabled } from "../lib/scale-timing";
 
 /** A card's tab label and icon, from its `deck.cards` record; a card the record has not reached yet has neither. */
 function namedCard(cards: Record<string, DeckCardFacts>, cardId: string): { componentId: string; title: string; icon: string | null } {
@@ -126,12 +128,14 @@ export function chromeModelOf(
 
 /**
  * Ask the host to carry this card through a drag (`kind: "move"`) or a resize
- * from `edge`, or, for a rail's edge (`kind: "rail"`), to track the pointer
- * for the rail's width draft, which the shell runs over every member.
+ * from `edge`, or, for a rail's edge (`kind: "rail"`), to carry the rail's
+ * width drag over every member, with the span a release past a limit springs
+ * back over at this page's timing (`springMs`; 0 under reduced motion).
  */
 function beginHostGesture(event: React.PointerEvent, kind: "move" | "resize" | "rail", edge?: ResizeEdge): void {
   if (event.button !== 0) return;
   if (kind === "move") markCarried(event);
+  const spring = kind === "rail" ? { springMs: isTugMotionEnabled() && getTugTiming() > 0 ? LIMIT_SPRING_MS * getTugTiming() : 0 } : {};
   postToHost(cardGestureToHost, {
     phase: "begin",
     kind,
@@ -140,6 +144,7 @@ function beginHostGesture(event: React.PointerEvent, kind: "move" | "resize" | "
     y: event.clientY,
     meta: event.metaKey,
     alt: event.altKey,
+    ...spring,
   });
 }
 

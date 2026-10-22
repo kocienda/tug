@@ -91,7 +91,17 @@ import { bodyCardsStore } from "./body-cards-store";
 import { hostCapabilitiesStore } from "./body-handoff";
 import { postToHost } from "../host/channel";
 import { placeCardsToHost } from "../host/declarations/geometry";
-import { cardArrivingOf } from "../deck-store-selectors";
+import { cardArrivingOf, railMembersOf } from "../deck-store-selectors";
+import {
+  RAIL_REFLOW_ATTR,
+  RAIL_TRAVEL_ATTR,
+  parseRailTravel,
+  type RailTravel,
+  type RailTravelBand,
+  type RailWidthLimits,
+  type ReadFlowTerms,
+} from "./rail-width";
+import type { SidebarSide } from "./layout-imposer";
 import { subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { pageZoomStore } from "./page-zoom-store";
 import { deferToSetUp, isSetUpPending } from "./set-up-apply";
@@ -226,6 +236,28 @@ export interface CardPlacementEntry {
   readonly maxHeight?: number;
   /** The plan whose landing this view is ({@link BodyPlacement.planId}). */
   readonly planId?: number;
+  /** The card's pane is a pinned rail member: which side, its order there, and how its content follows a width drag. */
+  readonly rail?: RailMembership;
+  /**
+   * An imposed content card's travel under a rail width change
+   * (`RAIL_TRAVEL_ATTR`), so the host can move it with the rail; absent for
+   * a rail member and for a free pane.
+   */
+  readonly railTravel?: RailTravel;
+}
+
+/** A pinned rail member's place on its side, and how its content follows a width drag. */
+export interface RailMembership {
+  readonly side: SidebarSide;
+  /** The member's order on the side, top to bottom, from `railMembersOf`. */
+  readonly index: number;
+  readonly reflow: "live" | "pause";
+}
+
+/** Each standing rail's width bounds, layout px; a side with no rail is absent. */
+export interface RailLimitsBySide {
+  readonly left?: RailWidthLimits;
+  readonly right?: RailWidthLimits;
 }
 
 /**
@@ -244,10 +276,18 @@ export interface PlaceCards {
    *  imposer's rhythm. */
   readonly gap: number;
   readonly cards: readonly CardPlacementEntry[];
+  /** Each standing rail's width bounds, layout px ({@link RailLimitsBySide}). */
+  readonly rails: RailLimitsBySide;
+  /** The band and the flow strip as this measurement read them: what a carried card's travel is a function of. */
+  readonly band: RailTravelBand;
+  /** The cards the host is holding while a rail width draft's hold stands
+   *  ({@link holdCardsForHost}); absent otherwise. Their entries are the last
+   *  ones posted before the hold, and the host skips every body this names. */
+  readonly held?: readonly string[];
 }
 
 /** What a card's stand-in frame says of it, read at a measurement: the part of its entry no hide changes. */
-type CardFrameFacts = Pick<CardPlacementEntry, "grips" | "free" | "min" | "maxHeight">;
+type CardFrameFacts = Pick<CardPlacementEntry, "grips" | "free" | "min" | "maxHeight" | "rail" | "railTravel">;
 
 /** The stand-in facts of every card in a placement, and the canvas, as one measurement read them. */
 export interface CardFacts {
@@ -255,18 +295,33 @@ export interface CardFacts {
   readonly zoom: number;
   readonly gap: number;
   readonly byCard: ReadonlyMap<string, CardFrameFacts>;
+  readonly rails: RailLimitsBySide;
+  readonly band: RailTravelBand;
 }
 
 /**
  * The facts the stand-in frames of `placement`'s cards carry (`data-grips`,
- * `data-free`, `data-min-*`, written by `TugPane`), and the canvas's rect.
- * `ceilingOf` answers a pane's {@link CardPlacementEntry.maxHeight}, by pane id.
+ * `data-free`, `data-min-*`, the rail attributes, written by `TugPane`), the
+ * canvas's rect, and the rails' bounds and the band from the deck.
+ * `ceilingOf` answers a pane's {@link CardPlacementEntry.maxHeight}, by pane
+ * id; `readFlow` the flow strip's terms as the canvas last arranged them.
  */
 export function readCardFacts(
   placement: Placement,
   root: ParentNode,
-  ceilingOf: (paneId: string) => number | null = () => null,
+  ceilingOf: (paneId: string) => number | null,
+  deck: IDeckManagerStore,
+  readFlow: ReadFlowTerms,
 ): CardFacts {
+  const state = deck.getSnapshot();
+  const memberIndex = new Map<string, { side: SidebarSide; index: number }>();
+  const rails: { left?: RailWidthLimits; right?: RailWidthLimits } = {};
+  for (const side of ["left", "right"] as const) {
+    const members = railMembersOf(state, side);
+    members.forEach((m, index) => memberIndex.set(m.paneId, { side, index }));
+    const limits = members.length > 0 ? deck.railWidthLimits(side) : null;
+    if (limits !== null) rails[side] = { min: limits.min, max: limits.max };
+  }
   const byCard = new Map<string, CardFrameFacts>();
   for (const b of placement.bodies) {
     const frame = root
@@ -274,6 +329,14 @@ export function readCardFacts(
       ?.closest<HTMLElement>(".tug-pane");
     const paneId = frame?.dataset.paneId;
     const ceiling = paneId === undefined ? null : ceilingOf(paneId);
+    // A member is a pane the deck seats on a side and whose frame says so; a
+    // released rail has rail chrome and no side, and is a free pane.
+    const member = paneId === undefined ? undefined : memberIndex.get(paneId);
+    const rail: RailMembership | undefined =
+      member !== undefined && frame?.dataset.railSide === member.side
+        ? { ...member, reflow: frame.getAttribute(RAIL_REFLOW_ATTR) === "pause" ? "pause" : "live" }
+        : undefined;
+    const railTravel = rail === undefined ? parseRailTravel(frame?.getAttribute(RAIL_TRAVEL_ATTR) ?? null) : null;
     byCard.set(b.cardId, {
       grips: (frame?.dataset.grips ?? "").split(" ").filter((g) => g.length > 0),
       free: frame?.hasAttribute("data-free") ?? false,
@@ -282,6 +345,8 @@ export function readCardFacts(
         height: Number(frame?.dataset.minHeight ?? 0) || 0,
       },
       ...(ceiling !== null ? { maxHeight: ceiling } : {}),
+      ...(rail !== undefined ? { rail } : {}),
+      ...(railTravel !== null ? { railTravel } : {}),
     });
   }
   const canvasEl = document.querySelector<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
@@ -291,6 +356,8 @@ export function readCardFacts(
     zoom: pageZoomStore.getFactor(),
     gap: impositionGapPx(),
     byCard,
+    rails,
+    band: { band: deck.getBandSpan(), flow: readFlow() },
   };
 }
 
@@ -306,6 +373,8 @@ export function placeCardsOf(placement: Placement, facts: CardFacts): PlaceCards
     canvas: facts.canvas,
     zoom: facts.zoom,
     gap: facts.gap,
+    rails: facts.rails,
+    band: facts.band,
     cards: placement.bodies.map((b) => {
       const f = facts.byCard.get(b.cardId) ?? none;
       return {
@@ -322,6 +391,8 @@ export function placeCardsOf(placement: Placement, facts: CardFacts): PlaceCards
         min: f.min,
         ...(f.maxHeight !== undefined ? { maxHeight: f.maxHeight } : {}),
         ...(b.planId !== undefined ? { planId: b.planId } : {}),
+        ...(f.rail !== undefined ? { rail: f.rail } : {}),
+        ...(f.railTravel !== undefined ? { railTravel: f.railTravel } : {}),
       };
     }),
   };
@@ -431,6 +502,79 @@ export class PlacementPoster {
    */
   adopt(placement: Placement): void {
     this.last = placement;
+  }
+
+  /** Forget what was posted, so the next offer is news whatever it says. */
+  forget(): void {
+    this.last = null;
+  }
+}
+
+/**
+ * The `placeCards` the placer has posted, and the cards the host holds.
+ *
+ * While the host carries a rail's width drag it moves the members' and the
+ * carried cards' views itself, and the shell's draft moves their stand-ins
+ * to match. Those stand-ins are measured like any other, so a placement in
+ * the drag would carry the preview's rects; the host would ignore them, but
+ * every frame would post. So while a hold stands each held card's entry is
+ * the last one posted before it, the message names the held cards, and a
+ * placement that differs only in what the hand is moving is no news. The
+ * release forgets what was posted, since the landing it is followed by reads
+ * exactly what the preview last showed and must be posted all the same.
+ */
+export class PlaceCardsGate {
+  private lastJson: string | null = null;
+  private last: PlaceCards | null = null;
+  private held: ReadonlySet<string> = new Set();
+
+  /** What to post for `cards`, or null when it says nothing new. */
+  offer(cards: PlaceCards): PlaceCards | null {
+    if (cards.cards.length === 0 && this.lastJson === null) return null;
+    const out = this.held.size === 0 ? cards : this.withHeld(cards);
+    const json = JSON.stringify(out);
+    if (json === this.lastJson) return null;
+    this.lastJson = json;
+    this.last = out;
+    return out;
+  }
+
+  /** The host holds `cardIds` from now until {@link release}. */
+  hold(cardIds: Iterable<string>): void {
+    this.held = new Set(cardIds);
+  }
+
+  /** The last `placeCards` posted, or null before one and after a release. */
+  get posted(): PlaceCards | null {
+    return this.last;
+  }
+
+  /** Whether a hold stands. */
+  get holding(): boolean {
+    return this.held.size > 0;
+  }
+
+  /** The hold is over: the next offer posts every card where it stands. */
+  release(): void {
+    this.held = new Set();
+    this.forget();
+  }
+
+  /** Forget what was posted. */
+  forget(): void {
+    this.lastJson = null;
+    this.last = null;
+  }
+
+  private withHeld(cards: PlaceCards): PlaceCards {
+    const before = new Map((this.last?.cards ?? []).map((c) => [c.cardId, c]));
+    const held: string[] = [];
+    const entries = cards.cards.map((c) => {
+      if (!this.held.has(c.cardId)) return c;
+      held.push(c.cardId);
+      return before.get(c.cardId) ?? c;
+    });
+    return held.length === 0 ? cards : { ...cards, cards: entries, held };
   }
 }
 
@@ -687,11 +831,13 @@ export function watchArrangementWrites(container: HTMLElement, wake: () => void)
  */
 export class CardPlacer {
   private readonly poster = new PlacementPoster((p) => this.postCards(p));
-  /** The last `placeCards` posted, as its JSON, so a re-post that says nothing new is not sent. */
-  private lastCards: string | null = null;
+  /** The last `placeCards` posted, so a re-post that says nothing new is not sent, and the cards the host holds. */
+  private readonly cards = new PlaceCardsGate();
   /** What the last measurement read of the stand-ins, which every `placeCards` is composed with. */
   private facts: CardFacts | null = null;
   private container: HTMLElement | null = null;
+  /** The flow strip's terms as the canvas arranged them, which a carried card's travel reads. */
+  private readFlow: ReadFlowTerms = () => null;
   /** Every pane's box and order, read in the last measurement. */
   private paneBoxes = new Map<HTMLElement, PaneBox>();
   private cancelScheduled: CancelAfterPaint | null = null;
@@ -806,8 +952,12 @@ export class CardPlacer {
     this.paneBoxes = this.readPaneBoxes(container);
     const state = this.deck.getSnapshot();
     const run = this.deck.getColumnRunHeight();
-    this.facts = readCardFacts(placement, container, (paneId) =>
-      run !== null && paneStandingOf(state, paneId).keepSlot?.heightHeld === true ? run : null,
+    this.facts = readCardFacts(
+      placement,
+      container,
+      (paneId) => (run !== null && paneStandingOf(state, paneId).keepSlot?.heightHeld === true ? run : null),
+      this.deck,
+      this.readFlow,
     );
     // A card the hand let go of elsewhere than this measurement puts it
     // lands by a plan of its own, posted ahead of the placement that names it.
@@ -835,12 +985,29 @@ export class CardPlacer {
    */
   private postCards(placement: Placement): void {
     if (this.facts === null) return;
-    const cards = placeCardsOf(placement, this.facts);
-    if (cards.cards.length === 0 && this.lastCards === null) return;
-    const json = JSON.stringify(cards);
-    if (json === this.lastCards) return;
-    this.lastCards = json;
-    postToHost(placeCardsToHost, cards);
+    const cards = this.cards.offer(placeCardsOf(placement, this.facts));
+    if (cards !== null) postToHost(placeCardsToHost, cards);
+  }
+
+  /**
+   * The host is carrying `cardIds` (a rail width drag's members and the
+   * cards it carries): until {@link releaseHostHold}, each placement names
+   * them with the entries last posted before the hold ({@link PlaceCardsGate}).
+   */
+  holdForHost(cardIds: Iterable<string>): void {
+    this.cards.hold(cardIds);
+  }
+
+  /**
+   * The hold is over. What was posted is forgotten, both here and by the
+   * poster, and a measurement is scheduled, so the landing is posted even
+   * when it reads exactly what the drag's preview last showed.
+   */
+  releaseHostHold(): void {
+    if (!this.cards.holding) return;
+    this.cards.release();
+    this.poster.forget();
+    this.schedule();
   }
 
   /**
@@ -1212,11 +1379,13 @@ export class CardPlacer {
   /**
    * Start the standing wakes under `container` — the settle's land, a window
    * resize, a zoom change, a body's state, a placeholder's size — and return
-   * the uninstall. A no-op when the host makes no bodies.
+   * the uninstall. A no-op when the host makes no bodies. `readFlow` answers
+   * the flow strip's terms, which every placement carries in its band.
    */
-  install(container: HTMLElement): () => void {
+  install(container: HTMLElement, readFlow: ReadFlowTerms): () => void {
     if (!hostCapabilitiesStore.get().bodyViews) return () => {};
     this.container = container;
+    this.readFlow = readFlow;
     setInstalled(this);
     installCardPlanRunner((input) => this.runPlan(input));
     this.resizes = new ResizeObserver(this.schedule);
@@ -1243,7 +1412,7 @@ export class CardPlacer {
       this.cancelHidePost = null;
       this.hiding.clear();
       this.container = null;
-      this.lastCards = null;
+      this.cards.release();
       this.facts = null;
       this.paneBoxes.clear();
       // Every landing mark comes off with the placer: nothing is left to take it off.
@@ -1282,6 +1451,7 @@ export class CardPlacer {
   diag(): CardPlacementDiag {
     return {
       lastPosted: this.poster.lastPosted,
+      lastCards: this.cards.posted,
       lastSkip: this.lastSkip,
       measures: this.measures,
       lastPlan: this.lastPlan,
@@ -1294,6 +1464,8 @@ export class CardPlacer {
 /** The placer's own account of itself, for `tugdeck.diag`. */
 export interface CardPlacementDiag {
   readonly lastPosted: Placement | null;
+  /** The last `placeCards` message posted: the rail facts, the band and each card's travel as the host was told them. */
+  readonly lastCards: PlaceCards | null;
   readonly lastSkip: string | null;
   readonly measures: number;
   /** The last beat plan the placer ran, or null before one. */
@@ -1337,6 +1509,16 @@ function setInstalled(placer: CardPlacer): void {
 /** The hand let go of `cardId` with its pane at `paneRect` (viewport px): the installed placer lands it by plan ({@link CardPlacer.noteRelease}). */
 export function landCard(cardId: string, paneRect: Rect): void {
   installed?.noteRelease(cardId, paneRect);
+}
+
+/** The host is carrying `cardIds` until {@link releaseCardsHeldForHost} ({@link CardPlacer.holdForHost}). */
+export function holdCardsForHost(cardIds: Iterable<string>): void {
+  installed?.holdForHost(cardIds);
+}
+
+/** The host's hold is over: the next placement names every card where it stands ({@link CardPlacer.releaseHostHold}). */
+export function releaseCardsHeldForHost(): void {
+  installed?.releaseHostHold();
 }
 
 /** The installed placer's account, or null when none is installed. Read-only. */

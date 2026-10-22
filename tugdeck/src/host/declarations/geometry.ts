@@ -12,11 +12,12 @@
  * @module host/declarations/geometry
  */
 
-import { INVALID, arr, bool, literal, nullable, num, obj, opaque, optional, str, type Codec } from "../../bus/codec";
+import { INVALID, arr, bool, literal, nullable, num, obj, oneOf, opaque, optional, str, type Codec } from "../../bus/codec";
 import type { ResizeEdge } from "../../bus/declarations/pane";
 import type { CardPlan } from "../../lib/card-plan";
 import type { CardInsets, PlaceCards } from "../../lib/card-placement";
 import type { CardGestureReport } from "../../lib/host-card-gesture";
+import type { RailTravel, RailWidthLimits } from "../../lib/rail-width";
 import { defineToHost, defineToPage } from "../declare";
 
 const rect = obj({ x: num, y: num, width: num, height: num });
@@ -40,6 +41,13 @@ const pair: Codec<readonly [number, number]> = {
 };
 
 const cardInsets: Codec<CardInsets> = obj({ top: num, right: num, bottom: num, left: num });
+
+const railTravelCodec: Codec<RailTravel> = oneOf(
+  obj({ kind: literal("fit"), fraction: num, slotWidth: num }),
+  obj({ kind: literal("flow") }),
+);
+
+const railLimits: Codec<RailWidthLimits> = obj({ min: num, max: num });
 
 const cardPlanCodec: Codec<CardPlan> = obj({
   planId: num,
@@ -89,8 +97,13 @@ const placeCardsCodec: Codec<PlaceCards> = obj({
       min: obj({ width: num, height: num }),
       maxHeight: optional(num),
       planId: optional(num),
+      rail: optional(obj({ side: literal("left", "right"), index: num, reflow: literal("live", "pause") })),
+      railTravel: optional(railTravelCodec),
     }),
   ),
+  rails: obj({ left: optional(railLimits), right: optional(railLimits) }),
+  band: obj({ band: num, flow: nullable(obj({ offset: num, strip: num })) }),
+  held: optional(arr(str)),
 });
 
 /** A card's page has taken a title-bar or grip press for the host to carry (`body-chrome.ts`). */
@@ -104,6 +117,9 @@ export interface CardGestureBegin {
   readonly y: number;
   readonly meta: boolean;
   readonly alt: boolean;
+  /** A rail's edge: how long a release past a limit springs back, ms, at the
+   *  page's timing scale; 0 under reduced motion or a scale of zero. */
+  readonly springMs?: number;
 }
 
 const cardGestureBeginCodec: Codec<CardGestureBegin> = obj({
@@ -114,6 +130,7 @@ const cardGestureBeginCodec: Codec<CardGestureBegin> = obj({
   y: num,
   meta: bool,
   alt: bool,
+  springMs: optional(num),
 });
 
 const SAMPLE_RECT = { x: 121, y: 96, width: 398, height: 483 };
@@ -140,6 +157,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           grips: ["e", "s", "se"],
           free: true,
           min: { width: 240, height: 160 },
+          rail: { side: "left", index: 0, reflow: "pause" },
         },
         {
           cardId: "c3",
@@ -154,6 +172,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           min: { width: 400, height: 145 },
           maxHeight: 820,
           planId: 12,
+          railTravel: { kind: "fit", fraction: 0.5, slotWidth: 400 },
         },
         {
           cardId: "c2",
@@ -167,10 +186,14 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           grips: [],
           free: false,
           min: { width: 0, height: 0 },
+          railTravel: { kind: "flow" },
         },
       ],
+      rails: { left: { min: 320, max: 675 } },
+      band: { band: 980, flow: null },
+      held: ["c1"],
     },
-    { apron: 10, canvas: null, zoom: 1.25, gap: 5, cards: [] },
+    { apron: 10, canvas: null, zoom: 1.25, gap: 5, cards: [], rails: {}, band: { band: 0, flow: null } },
   ],
   refused: [
     [{ cardId: "c1" }],
@@ -204,7 +227,7 @@ export const cardGestureToHost = defineToHost<CardGestureBegin>({
   samples: [
     { phase: "begin", kind: "move", x: 140, y: 12, meta: false, alt: false },
     { phase: "begin", kind: "resize", edge: "e", x: 518, y: 300, meta: false, alt: true },
-    { phase: "begin", kind: "rail", edge: "e", x: 300, y: 400, meta: false, alt: false },
+    { phase: "begin", kind: "rail", edge: "e", x: 300, y: 400, meta: false, alt: false, springMs: 220 },
   ],
   refused: [
     null,
@@ -283,6 +306,7 @@ const gestureReportCodec: Codec<CardGestureReport> = obj({
   alt: bool,
   edge: optional(edge),
   snap: optional(obj({ x: nullable(num), y: nullable(num) })),
+  rail: optional(obj({ width: num, shown: num, limit: nullable(literal("floor", "ceiling")) })),
 });
 
 const gestureReport: CardGestureReport = {
@@ -306,6 +330,8 @@ export const cardGestureToPage = defineToPage<CardGestureReport>({
     gestureReport,
     { ...gestureReport, kind: "resize", phase: "end", edge: "se", snap: { x: 40, y: null } },
     { ...gestureReport, phase: "cancel", moved: false },
+    { ...gestureReport, kind: "rail", edge: "e", rail: { width: 360, shown: 360, limit: null } },
+    { ...gestureReport, kind: "rail", phase: "end", edge: "w", rail: { width: 675, shown: 701.5, limit: "ceiling" } },
   ],
   refused: ["move", { ...gestureReport, phase: "begin" }, { ...gestureReport, start: undefined }],
 });

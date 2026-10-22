@@ -12,9 +12,15 @@
  * motion a release makes — and commits the limit. Either way the readout
  * fades once the hand lets go and is gone shortly after.
  *
- * The spring is read by an in-page sampler: every animation frame records the
- * rail's rendered width and whether the button is down, so the frames between
- * the release and the landing are counted rather than guessed at.
+ * The readout, the held marks and the limit marks are the shell's own state,
+ * and are read in the shell. Where the rail stands is not: the host carries
+ * every member's view, and the shell's stand-ins are only its preview, moved
+ * on its own clock. So the give past the ceiling and a release that moves
+ * nothing are read off the host's snapshot of the views, and the spring is
+ * read in the composite: a capture burst from the release finds the dragged
+ * member's deck-facing edge by colour on every frame, so the frames between
+ * the release and the landing are counted rather than guessed at, and the
+ * host's snapshot after the land says every member stands at the ceiling.
  *
  * **The window renders** (`visible`): a covered app-test window otherwise gets
  * no animation frames, and the preview, the readout and the spring are all
@@ -23,6 +29,8 @@
  * @visible
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
  * @covers tugdeck/src/lib/rail-width.ts
+ * @covers tugdeck/src/lib/host-card-gesture.ts
+ * @covers tugapp/Sources/CardGeometry.swift
  */
 
 import { describe, expect, test } from "bun:test";
@@ -30,6 +38,8 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
 import { chromePoint } from "./card-chrome-fixture";
 import { PIXEL_TOL } from "./_harness/tolerances";
+import { armBurst, readBurst } from "./one-view-fixture";
+import { CARD_APRON_PX, armReportRecord, railReader, readRailFacts, takeReportRecord } from "./rail-width-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -53,6 +63,10 @@ const AFTER_LAND_MS = 900;
 const FRAMES_MS = 250;
 /** The readout's fade, and the draft's removal after it, with room. */
 const READOUT_GONE_MS = 800;
+/** How far a composite edge may stand from where it should, device px. */
+const EDGE_TOL_DEVICE = 2;
+/** How often the host's snapshot is read after a release. */
+const POLL_MS = 30;
 
 const MEMBERS = ["jots", "layout"] as const;
 
@@ -127,35 +141,38 @@ async function seed(app: App): Promise<void> {
   await wait(AFTER_LAND_MS);
 }
 
-/** Record, every animation frame, the rail's rendered width and whether the
- *  button is down. */
-async function armSampler(app: App): Promise<void> {
-  await app.evalJS<null>(
-    `(function () {
-      var rec = { samples: [], down: false, running: true };
-      window.__at0680 = rec;
-      window.addEventListener("pointerdown", function () { rec.down = true; }, true);
-      window.addEventListener("pointerup", function () { rec.down = false; }, true);
-      var tick = function () {
-        if (!rec.running) return;
-        var el = document.querySelector('.tug-pane[data-pane-id="pJots"]');
-        rec.samples.push({ down: rec.down, width: el.getBoundingClientRect().width });
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-      return null;
-    })()`,
-  );
+/** The pane width the host shows a member's view at now, points: its presented frame less the apron. */
+async function hostWidth(app: App, card: string): Promise<number> {
+  const view = (await app.bodies()).find((b) => b.cardId === card && b.visible);
+  expect(view, `the host holds ${card}'s view`).toBeDefined();
+  return view!.presentedFrame.width - 2 * CARD_APRON_PX;
 }
 
-function takeSamples(app: App): Promise<{ down: boolean; width: number }[]> {
-  return app.evalJS<{ down: boolean; width: number }[]>(
-    `(function () {
-      var rec = window.__at0680;
-      rec.running = false;
-      return rec.samples;
-    })()`,
-  );
+/** The host's shown width of `card` every {@link POLL_MS} for `ms`. */
+async function pollHostWidths(app: App, card: string, ms: number): Promise<number[]> {
+  const out: number[] = [];
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    out.push(await hostWidth(app, card));
+    await wait(POLL_MS);
+  }
+  return out;
+}
+
+/** Every member's view, placed and shown, at `width` plus the apron, and out of the hand. */
+async function expectHostAt(app: App, width: number, phase: string): Promise<void> {
+  const views = await app.bodies();
+  for (const card of ["J", "L"]) {
+    const view = views.find((b) => b.cardId === card && b.visible);
+    expect(view, `${phase}: the host holds ${card}'s view`).toBeDefined();
+    expect(view!.inHand, `${phase}: ${card} is out of the hand`).toBe(false);
+    for (const [what, rect] of [["placed", view!.frame], ["shown", view!.presentedFrame]] as const) {
+      expect(
+        Math.abs(rect.width - (width + 2 * CARD_APRON_PX)),
+        `${phase}: ${card}'s view ${what} at ${width} (read ${rect.width - 2 * CARD_APRON_PX})`,
+      ).toBeLessThanOrEqual(1);
+    }
+  }
 }
 
 interface Mid {
@@ -163,7 +180,6 @@ interface Mid {
   readoutLimit: string | null;
   held: number;
   limit: (string | null)[];
-  width: number;
 }
 
 /** The drag as it stands mid-gesture. */
@@ -183,7 +199,6 @@ function readMid(app: App): Promise<Mid> {
         readoutLimit: r === null ? null : r.getAttribute("data-limit"),
         held: held,
         limit: limit,
-        width: document.querySelector('.tug-pane[data-pane-id="pJots"]').getBoundingClientRect().width,
       };
     })()`,
   );
@@ -243,14 +258,13 @@ describe.skipIf(!SHOULD_RUN)(
           expect(mid.readoutLimit, "the readout is at no limit").toBeNull();
           expect(mid.limit.every((l) => l === null), "no member is at a limit").toBe(true);
 
-          await armSampler(app);
+          expect(
+            Math.abs((await hostWidth(app, "J")) - target),
+            "the host shows the rail at the hand's width",
+          ).toBeLessThanOrEqual(PIXEL_TOL);
           await app.nativeMouseUp(to);
-          await wait(FRAMES_MS);
-          const samples = await takeSamples(app);
-          const after = samples.filter((s) => !s.down);
-          const between = after.filter(
-            (s) => Math.abs(s.width - target) > PIXEL_TOL,
-          );
+          const after = await pollHostWidths(app, "J", FRAMES_MS);
+          const between = after.filter((w) => Math.abs(w - target) > PIXEL_TOL);
           expect(
             between.length,
             `the release moves nothing: ${JSON.stringify(between.slice(0, 5))}`,
@@ -264,6 +278,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await count(app, ".tug-rail-readout"), "the readout is gone").toBe(0);
           expect(await count(app, "[data-rail-held]"), "nothing is still held").toBe(0);
           expect(Math.abs((await storedWidth(app, "pLayout")) - target)).toBeLessThanOrEqual(PIXEL_TOL);
+          await expectHostAt(app, target, "after the land");
         } finally {
           await app.close();
         }
@@ -281,6 +296,12 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seed(app);
           const ceiling = CONTENT_WIDTH_SLIM_PX;
+          const { zoom } = await readRailFacts(app);
+          // Calibrated on the standing deck, with room for the give.
+          const reader = await railReader(app, ["J", "L"], null, ceiling - RAIL_WIDTH + RAIL_LIMIT_GIVE_PX + 20);
+          const jots = reader.members[0];
+          const paneLeft = jots.restEdge - RAIL_WIDTH * zoom;
+          await armReportRecord(app);
           const from = await grip(app);
           const to = { x: from.x + (ceiling - RAIL_WIDTH) + PAST_CEILING_PX, y: from.y };
           await app.nativeDragWithoutRelease(from, to, {
@@ -299,39 +320,48 @@ describe.skipIf(!SHOULD_RUN)(
           expect(mid.limit, "every member is marked at the ceiling").toEqual(
             MEMBERS.map(() => "ceiling"),
           );
-          expect(mid.width, "the edge gives past the ceiling").toBeGreaterThan(ceiling + 10);
-          expect(mid.width, "and never by the whole give").toBeLessThan(
-            ceiling + RAIL_LIMIT_GIVE_PX,
-          );
+          // The give is the host's: it draws the views past the ceiling.
+          const given = await hostWidth(app, "J");
+          note(`the host shows the rail at ${given.toFixed(1)} past a ${ceiling} ceiling`);
+          expect(given, "the edge gives past the ceiling").toBeGreaterThan(ceiling + 10);
+          expect(given, "and never by the whole give").toBeLessThan(ceiling + RAIL_LIMIT_GIVE_PX);
 
-          await armSampler(app);
+          // The spring, in the composite: the dragged member's edge by
+          // colour on every frame from the release.
+          await armBurst(app, reader.crop);
           await app.nativeMouseUp(to);
+          const reading = await readBurst(app);
+          const releasedAt = (await takeReportRecord(app)).find((r) => r.phase === "end")?.wall;
+          expect(releasedAt, "the host reported the release").toBeDefined();
+          const releaseEdge = reader.toDevice(paneLeft + given * zoom);
+          const ceilingEdge = reader.toDevice(paneLeft + ceiling * zoom);
+          const after = reading.frames
+            .filter((f) => f.wall >= releasedAt!)
+            .map((f) => ({ t: f.wall - releasedAt!, edge: reader.memberEdges(f)[0] }));
+          note(
+            `after release (release edge ${releaseEdge.toFixed(1)}, ceiling edge ${ceilingEdge.toFixed(1)} device px): ` +
+              after.map((a) => `+${a.t.toFixed(0)}ms ${a.edge}`).join(", "),
+          );
+          expect(after.length, "the burst caught frames after the release").toBeGreaterThanOrEqual(5);
+          expect(after.every((a) => a.edge !== null), "every frame after the release is read by colour").toBe(true);
+          const edges = after.map((a) => a.edge!);
+          const spring = edges.filter((e) => e > ceilingEdge + EDGE_TOL_DEVICE && e < releaseEdge - EDGE_TOL_DEVICE);
+          expect(spring.length, "the edge springs back over several frames").toBeGreaterThanOrEqual(3);
+          for (let i = 1; i < edges.length; i++) {
+            expect(
+              edges[i],
+              "the spring only ever moves toward the ceiling",
+            ).toBeLessThanOrEqual(edges[i - 1] + 1);
+          }
+          expect(
+            Math.abs(edges[edges.length - 1] - ceilingEdge),
+            "the rail lands on the ceiling",
+          ).toBeLessThanOrEqual(EDGE_TOL_DEVICE);
           await app.waitForCondition<boolean>(
             `document.querySelector("[data-pointer-owned]") === null`,
             { timeoutMs: 3_000 },
           );
-          await wait(FRAMES_MS);
-          const samples = await takeSamples(app);
-          const after = samples.filter((s) => !s.down);
-          const spring = after.filter(
-            (s) => s.width > ceiling + PIXEL_TOL && s.width < mid.width - PIXEL_TOL,
-          );
-          note(
-            `after release: ${after.length} frames; spring frames: ${spring
-              .map((s) => s.width.toFixed(1))
-              .join(", ")}`,
-          );
-          expect(spring.length, "the edge springs back over several frames").toBeGreaterThanOrEqual(3);
-          for (let i = 1; i < after.length; i++) {
-            expect(
-              after[i].width,
-              "the spring only ever moves toward the ceiling",
-            ).toBeLessThanOrEqual(after[i - 1].width + PIXEL_TOL);
-          }
-          expect(
-            Math.abs(after[after.length - 1].width - ceiling),
-            "the rail lands on the ceiling",
-          ).toBeLessThanOrEqual(PIXEL_TOL);
+          await expectHostAt(app, ceiling, "after the spring");
 
           await wait(READOUT_GONE_MS);
           expect(await count(app, ".tug-rail-readout"), "the readout is gone").toBe(0);

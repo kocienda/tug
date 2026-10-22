@@ -28,11 +28,13 @@
  *   so its resize drives the seam's own drag (`driveColumnSeam`), as a press
  *   on that edge in the shell hands the seam the pointer: each report moves
  *   the seam and the release commits the column's division;
- * - a rail's edge drag (`kind: "rail"`) is the rail's width draft: the host
- *   moves no view, and each report drives the driver the draft's owner
- *   hands this module for the rail's pane (`railEdgeDriverFor` in
- *   `rail-width-draft.ts`), which moves every member of the side and commits
- *   one width at the release;
+ * - a rail's edge drag (`kind: "rail"`) is carried by the host: it moves
+ *   every member's view and every content card beside the rail from the
+ *   pointer, and each report carries the aim it drew them at (`rail`). The
+ *   report drives the driver the rail width draft's owner hands this module
+ *   for the rail's pane (`railEdgeDriverFor` in `rail-width-draft.ts`),
+ *   which previews the stand-ins at exactly that aim and commits its width
+ *   at the release, so the shell computes no width of its own;
  * - `cancel` takes the indication back and commits nothing.
  *
  * Rects and points arrive in the shell's viewport points and are taken into
@@ -72,6 +74,7 @@ import { createDragAutoscroll, type DragAutoscroll } from "./drag-autoscroll";
 import type { ColumnSeamGesture } from "../components/chrome/column-seam-drag";
 import { overlaySurfaceBook } from "./overlay-surfaces";
 import { indicate } from "./drag-indication";
+import type { RailWidthAim } from "./rail-width";
 
 /** One step of a gesture the host tracks, as it reports it (`onCardGesture`, decoded by its codec). */
 export interface CardGestureReport {
@@ -91,6 +94,8 @@ export interface CardGestureReport {
   edge?: ResizeEdge;
   /** The guides the host snapped this step to, viewport points; absent when it snapped to none. */
   snap?: { x: number | null; y: number | null };
+  /** A rail's edge: the aim the host drew the rail at this step, layout px; present on every report of a `rail` gesture. */
+  rail?: RailWidthAim;
 }
 
 /** Where the canvas stands in the viewport, and the page zoom its layout is at. */
@@ -100,12 +105,13 @@ export interface CanvasFrame {
   zoom: number;
 }
 
-/** The four calls of a rail width drag, addressed by viewport points. */
+/** The four calls of a rail width drag, addressed by viewport points, each
+ *  move and the release with the aim the host drew the rail at. */
 export interface RailEdgeDriver {
   /** The press, at the point it landed. */
   begin(clientX: number, clientY: number): void;
-  change(clientX: number, clientY: number, altKey: boolean): void;
-  commit(clientX: number, altKey: boolean): void;
+  change(clientX: number, clientY: number, altKey: boolean, aim: RailWidthAim): void;
+  commit(clientX: number, altKey: boolean, aim: RailWidthAim): void;
   /** A no-op when no drag is open. */
   cancel(): void;
 }
@@ -402,6 +408,17 @@ export function createHostCardGesture(
   let rail: { cardId: string; driver: RailEdgeDriver } | null = null;
   const stepRail = (r: CardGestureReport): void => {
     if (rail !== null && rail.cardId !== r.cardId) return;
+    // A rail report without its aim is from a host that does not carry the
+    // rail: there is nothing to preview at, and the drag is left alone.
+    if (r.rail === undefined) {
+      if (r.phase === "move" && r.moved) console.warn("host card gesture: a rail report without its aim", r.cardId);
+      if (r.phase !== "move") {
+        rail?.driver.cancel();
+        rail = null;
+      }
+      return;
+    }
+    const aim = r.rail;
     if (r.phase === "move") {
       if (!r.moved) return;
       if (rail === null) {
@@ -411,7 +428,7 @@ export function createHostCardGesture(
         driver.begin(r.start.x, r.start.y);
         rail = { cardId: r.cardId, driver };
       }
-      rail.driver.change(r.pointer.x, r.pointer.y, r.alt);
+      rail.driver.change(r.pointer.x, r.pointer.y, r.alt, aim);
       return;
     }
     let held = rail;
@@ -427,7 +444,7 @@ export function createHostCardGesture(
       }
     }
     if (held === null) return;
-    if (r.phase === "end" && r.moved) held.driver.commit(r.pointer.x, r.alt);
+    if (r.phase === "end" && r.moved) held.driver.commit(r.pointer.x, r.alt, aim);
     else held.driver.cancel();
   };
 

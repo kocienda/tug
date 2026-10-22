@@ -50,6 +50,14 @@ export function clampRailWidth(width: number, limits: RailWidthLimits): number {
 /** The most a rail edge gives past a limit, however far the hand goes. */
 export const RAIL_LIMIT_GIVE_PX = 48;
 
+/** How long a release past a limit takes to spring back to it, at a timing
+ *  of 1. The host springs the views and the shell's draft its stand-ins over
+ *  the same span, which the body page posts at the press. */
+export const LIMIT_SPRING_MS = 220;
+
+/** The spring's curve: a cubic ease-out, `1 - (1 - t)³`. */
+export const LIMIT_SPRING_EASING = "cubic-bezier(0.33, 1, 0.68, 1)";
+
 /** Where the hand has taken a rail, as the drag shows it. */
 export interface RailWidthAim {
   /** The width the release commits: inside the limits, always. */
@@ -161,6 +169,10 @@ export interface RailTravelBand {
   /** The flow strip's stored offset and full length, or `null` off flow. */
   readonly flow: { readonly offset: number; readonly strip: number } | null;
 }
+
+/** The shown deck's flow strip, as the canvas last arranged it — the two terms
+ *  a flow card's `left` clamps its offset by — or `null` off flow. */
+export type ReadFlowTerms = () => RailTravelBand["flow"];
 
 /**
  * How far an imposed element moves, in px, when the rail on `side` grows by

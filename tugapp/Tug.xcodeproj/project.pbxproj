@@ -81,6 +81,9 @@
 		AA0000010000000000000065 /* HostMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000059 /* HostMessages.swift */; };
 		AA0000010000000000000066 /* HostChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005A /* HostChannel.swift */; };
 		AA0000010000000000000067 /* HostChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005B /* HostChannelTests.swift */; };
+		AA0000010000000000000069 /* RailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005D /* RailView.swift */; };
+		AA000001000000000000006A /* RailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005D /* RailView.swift */; };
+		AA000001000000000000006B /* RailGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005E /* RailGeometryTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -147,6 +150,8 @@
 		AA0000020000000000000059 /* HostMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostMessages.swift; sourceTree = "<group>"; };
 		AA000002000000000000005A /* HostChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostChannel.swift; sourceTree = "<group>"; };
 		AA000002000000000000005B /* HostChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostChannelTests.swift; sourceTree = "<group>"; };
+		AA000002000000000000005D /* RailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailView.swift; sourceTree = "<group>"; };
+		AA000002000000000000005E /* RailGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RailGeometryTests.swift; sourceTree = "<group>"; };
 		AA0000030000000000000001 /* Tug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tug.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000030000000000000002 /* TugTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TugTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -195,6 +200,7 @@
 				AA000002000000000000004E /* HostFrameMeter.swift */,
 				AA000002000000000000004D /* FrameMeterStats.swift */,
 				AA0000020000000000000051 /* BodyViewController.swift */,
+				AA000002000000000000005D /* RailView.swift */,
 				AA0000020000000000000052 /* BodyGeometry.swift */,
 				AA0000020000000000000057 /* CardGeometry.swift */,
 				AA0000020000000000000055 /* BodyBeats.swift */,
@@ -255,6 +261,7 @@
 				AA0000020000000000000050 /* FrameMeterStatsTests.swift */,
 				AA0000020000000000000054 /* BodyGeometryTests.swift */,
 				AA0000020000000000000058 /* CardGeometryTests.swift */,
+				AA000002000000000000005E /* RailGeometryTests.swift */,
 				AA0000020000000000000056 /* BodyBeatsTests.swift */,
 				AA000002000000000000005B /* HostChannelTests.swift */,
 				AA000002000000000000004B /* MenuBarBuilderTests.swift */,
@@ -373,6 +380,7 @@
 				AA0000010000000000000056 /* HostFrameMeter.swift in Sources */,
 				AA0000010000000000000054 /* FrameMeterStats.swift in Sources */,
 				AA0000010000000000000059 /* BodyViewController.swift in Sources */,
+				AA0000010000000000000069 /* RailView.swift in Sources */,
 				AA000001000000000000005A /* BodyGeometry.swift in Sources */,
 				AA0000010000000000000061 /* CardGeometry.swift in Sources */,
 				AA000001000000000000005E /* BodyBeats.swift in Sources */,
@@ -425,6 +433,7 @@
 				AA0000010000000000000058 /* FrameMeterStatsTests.swift in Sources */,
 				AA000001000000000000005D /* BodyGeometryTests.swift in Sources */,
 				AA0000010000000000000063 /* CardGeometryTests.swift in Sources */,
+				AA000001000000000000006B /* RailGeometryTests.swift in Sources */,
 				AA0000010000000000000060 /* BodyBeatsTests.swift in Sources */,
 				AA0000010000000000000067 /* HostChannelTests.swift in Sources */,
 				AA0000010000000000000052 /* MenuBarBuilderTests.swift in Sources */,
@@ -437,6 +446,7 @@
 				AA0000010000000000000055 /* FrameMeterStats.swift in Sources */,
 				AA000001000000000000005B /* BodyGeometry.swift in Sources */,
 				AA0000010000000000000062 /* CardGeometry.swift in Sources */,
+				AA000001000000000000006A /* RailView.swift in Sources */,
 				AA000001000000000000005F /* BodyBeats.swift in Sources */,
 				AA0000010000000000000065 /* HostMessages.swift in Sources */,
 				AA0000010000000000000051 /* MenuBarBuilder.swift in Sources */,

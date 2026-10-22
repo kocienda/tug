@@ -1347,6 +1347,20 @@ export interface BodyViewSnapshot {
   /** The window's display period, ms: what a reading counts frames in. */
   displayPeriodMs: number;
   url: string | null;
+  /**
+   * The card's rail membership as the last placement named it — its side,
+   * its order there and its reflow policy — and the frame of the host's rail
+   * view its container stands in (null when it stands in none); null for a
+   * card no rail holds.
+   */
+  rail: {
+    side: "left" | "right";
+    index: number;
+    reflow: "live" | "pause";
+    railFrame: { x: number; y: number; width: number; height: number } | null;
+  } | null;
+  /** Whether the host's gesture holds this card in its hand now. */
+  inHand: boolean;
 }
 
 /** Every body view the host holds, the spare included. */

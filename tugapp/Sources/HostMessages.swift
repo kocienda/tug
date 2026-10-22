@@ -105,8 +105,78 @@ struct CardPlacementEntry: Decodable, Equatable {
     /// there: a placement naming a running plan leaves its beats alone, and
     /// one naming none takes the card from them.
     var planId: Int?
+    /// The card's pane is a pinned rail member: its side, its order there,
+    /// and how its content follows a width drag.
+    var rail: RailMembership?
+    /// An imposed content card's travel under a rail width change; absent
+    /// for a rail member and for a free pane.
+    var railTravel: RailTravel?
 
     var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
+}
+
+/// Which edge of the deck a rail is pinned to.
+enum RailSide: String, Codable, Equatable {
+    case left, right
+}
+
+/// How a rail member's content follows a width drag: at every step, or once
+/// the hand rests.
+enum RailReflow: String, Decodable, Equatable {
+    case live, pause
+}
+
+/// A pinned rail member's place on its side.
+struct RailMembership: Decodable, Equatable {
+    var side: RailSide
+    /// The member's order on the side, top to bottom.
+    var index: Int
+    var reflow: RailReflow
+}
+
+/// What an imposed card's horizontal place depends on besides the rail
+/// (`rail-width.ts`'s `RailTravel`): a fit card's travel fraction of the
+/// band's slack over its slot width, or a flow card on the strip.
+enum RailTravel: Decodable, Equatable {
+    case fit(fraction: Double, slotWidth: Double)
+    case flow
+
+    private enum CodingKeys: String, CodingKey { case kind, fraction, slotWidth }
+    private enum Kind: String, Decodable { case fit, flow }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        switch try c.decode(Kind.self, forKey: .kind) {
+        case .fit:
+            self = .fit(fraction: try c.decode(Double.self, forKey: .fraction), slotWidth: try c.decode(Double.self, forKey: .slotWidth))
+        case .flow:
+            self = .flow
+        }
+    }
+}
+
+/// The widths a rail may stand at, layout px.
+struct RailWidthLimits: Decodable, Equatable {
+    var min: Double
+    var max: Double
+}
+
+/// Each standing rail's bounds; a side with no rail is absent.
+struct RailLimitsBySide: Decodable, Equatable {
+    var left: RailWidthLimits?
+    var right: RailWidthLimits?
+}
+
+/// The band and the flow strip as a measurement read them: what a carried
+/// card's travel is a function of.
+struct RailTravelBand: Decodable, Equatable {
+    struct Flow: Decodable, Equatable {
+        var offset: Double
+        var strip: Double
+    }
+
+    var band: Double
+    var flow: Flow?
 }
 
 /// The `placeCards` message body: every card, in the deck's reading order,
@@ -121,6 +191,13 @@ struct PlaceCards: Decodable, Equatable {
     /// imposer's rhythm.
     var gap: Double
     var cards: [CardPlacementEntry]
+    /// Each standing rail's width bounds, layout px.
+    var rails: RailLimitsBySide
+    /// The band and the flow strip, layout px.
+    var band: RailTravelBand
+    /// The cards the host is holding while the shell's rail width draft
+    /// holds them; the host leaves every body this names where it stands.
+    var held: [String]?
 }
 
 /// What a card's gesture is: a drag, a resize, or a rail's edge.
@@ -143,6 +220,9 @@ struct CardGestureBegin: Decodable, Equatable {
     var y: Double
     var meta: Bool
     var alt: Bool
+    /// A rail's edge: how long a release past a limit springs back, ms, at
+    /// the page's timing scale; 0 or absent for none.
+    var springMs: Double?
 }
 
 /// `crossingReady` and `bodySurface`: the page's own surface as sRGB bytes,
@@ -240,6 +320,42 @@ struct CardGestureReport: Codable, Equatable {
     var alt: Bool
     var edge: ResizeEdge?
     var snap: Snap?
+    /// A rail's edge: the aim the host drew the rail at, layout px.
+    var rail: RailAimReport?
+}
+
+/// Where the host has drawn a rail in its width drag: the width a release
+/// commits, the width the edge stands at, and the limit it presses past.
+struct RailAimReport: Codable, Equatable {
+    var width: Double
+    var shown: Double
+    var limit: String?
+
+    private enum CodingKeys: String, CodingKey { case width, shown, limit }
+
+    init(width: Double, shown: Double, limit: String?) {
+        self.width = width
+        self.shown = shown
+        self.limit = limit
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        width = try c.decode(Double.self, forKey: .width)
+        shown = try c.decode(Double.self, forKey: .shown)
+        limit = try c.decodeIfPresent(String.self, forKey: .limit)
+        if let limit, limit != "floor", limit != "ceiling" {
+            throw DecodingError.dataCorruptedError(forKey: .limit, in: c, debugDescription: "not a limit")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        // The limit as a string or a null: the page's codec reads it so.
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(width, forKey: .width)
+        try c.encode(shown, forKey: .shown)
+        try c.encode(limit, forKey: .limit)
+    }
 }
 
 /// `onBodyCrossing`: a crossing's beats begin over the body, or have landed.

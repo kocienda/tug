@@ -22,20 +22,23 @@
 import { useLayoutEffect, useMemo, type RefObject } from "react";
 import { useDeckManager } from "@/deck-manager-context";
 import { CardPlacer } from "@/lib/card-placement";
+import type { ReadFlowTerms } from "@/lib/rail-width";
 
 export interface CardPlacementBeaconProps {
   /** The canvas container: what is measured, and what carries the settle's mark. */
   containerRef: RefObject<HTMLDivElement | null>;
+  /** The flow strip's terms as the canvas last arranged them; every placement carries them in its band. Stable. */
+  readFlow: ReadFlowTerms;
 }
 
-export function CardPlacementBeacon({ containerRef }: CardPlacementBeaconProps): null {
+export function CardPlacementBeacon({ containerRef, readFlow }: CardPlacementBeaconProps): null {
   const store = useDeckManager();
   const placer = useMemo(() => new CardPlacer(store), [store]);
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (container === null) return;
-    return placer.install(container);
-  }, [placer, containerRef]);
+    return placer.install(container, readFlow);
+  }, [placer, containerRef, readFlow]);
   useLayoutEffect(() => {
     placer.afterCommit();
   });

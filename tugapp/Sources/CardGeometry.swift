@@ -489,6 +489,166 @@ struct CardGestureTracker {
     }
 }
 
+// MARK: - Rail width
+
+/// Where the hand has taken a rail (`rail-width.ts`'s `RailWidthAim`), layout
+/// px: the width a release commits, inside the limits; the width the edge is
+/// drawn at, which gives past a limit; and the limit it presses past.
+struct RailAim: Equatable {
+    enum Limit: String { case floor, ceiling }
+    var width: CGFloat
+    var shown: CGFloat
+    var limit: Limit?
+}
+
+extension CardGeometry {
+    /// `RAIL_LIMIT_GIVE_PX`: the most a rail edge gives past a limit,
+    /// however far the hand goes.
+    static let railLimitGive: CGFloat = 48
+
+    /// `clampRailWidth`: `width` held inside `limits`.
+    static func clampRailWidth(_ width: CGFloat, limits: RailWidthLimits) -> CGFloat {
+        min(CGFloat(limits.max), max(CGFloat(limits.min), width))
+    }
+
+    /// `aimRailWidth`: the width the hand asks for, read against the rail's
+    /// limits. Between them the edge follows the hand exactly; past one it
+    /// follows with diminishing returns, `give·d/(d+give)` for an overshoot
+    /// `d`, and what the release commits is the limit itself.
+    static func aimRailWidth(asked: CGFloat, limits: RailWidthLimits) -> RailAim {
+        let lo = CGFloat(limits.min), hi = CGFloat(limits.max)
+        func give(_ d: CGFloat) -> CGFloat { (railLimitGive * d) / (d + railLimitGive) }
+        if asked > hi { return RailAim(width: hi, shown: hi + give(asked - hi), limit: .ceiling) }
+        if asked < lo { return RailAim(width: lo, shown: lo - give(lo - asked), limit: .floor) }
+        return RailAim(width: asked, shown: asked, limit: nil)
+    }
+
+    /// `railTravelShift`: how far an imposed card moves, layout px, when the
+    /// rail on `side` grows by `growth` (negative when it narrows) — the
+    /// difference between the `left` its expression resolves to at the two
+    /// widths. A left rail's growth moves everything after it; the band's
+    /// narrowing moves only what stands a fraction across its slack (fit) or
+    /// what the flow offset's clamp lets back in (flow).
+    static func railTravelShift(_ travel: RailTravel, side: RailSide, start: RailTravelBand, growth: CGFloat) -> CGFloat {
+        let insetShift: CGFloat = side == .left ? growth : 0
+        let startBand = CGFloat(start.band)
+        let band = startBand - growth
+        switch travel {
+        case let .fit(fraction, slotWidth):
+            func slack(_ b: CGFloat) -> CGFloat { max(0, b - CGFloat(slotWidth)) }
+            return insetShift + CGFloat(fraction) * (slack(band) - slack(startBand))
+        case .flow:
+            guard let flow = start.flow else { return insetShift }
+            func clamped(_ b: CGFloat) -> CGFloat { min(CGFloat(flow.offset), max(0, CGFloat(flow.strip) - b)) }
+            return insetShift - (clamped(band) - clamped(startBand))
+        }
+    }
+
+    /// A pane as a rail drag's snap reads it.
+    struct RailSnapCandidate {
+        var rect: CGRect
+        var visible: Bool
+        var sibling: Bool
+        var rail: RailMembership?
+        var travel: RailTravel?
+    }
+
+    /// A rail drag's snap targets on `side`: the visible panes the drag does
+    /// not move. A member of the rail moves with it, and a card carried by its
+    /// travel stands one gap off the exposed edge at every width, so its press
+    /// rect would pull the edge back toward where the press found it.
+    static func railSnapTargets(side: RailSide, _ panes: [RailSnapCandidate]) -> [CGRect] {
+        panes.filter { $0.visible && !$0.sibling && $0.rail?.side != side && $0.travel == nil }.map(\.rect)
+    }
+}
+
+/// One rail width drag the host carries, from the press to the release: the
+/// aim the pointer asks for, by the arithmetic the shell's draft used to run
+/// (`rail-width-draft.ts`), so the views are drawn at it and the shell
+/// previews its stand-ins at the same answer.
+///
+/// Points are the shell's viewport points; widths, limits and the snap run
+/// in the canvas's layout px, as the shell's own do.
+struct RailWidthTracker {
+    let side: RailSide
+    /// The rail's width at the press, layout px.
+    let startWidth: CGFloat
+    /// The rail's outer edge, viewport points: the one thing the drag may not move.
+    let pinnedEdge: CGFloat
+    let startPointer: CGPoint
+    let limits: RailWidthLimits
+    let canvas: CGRect
+    let zoom: CGFloat
+    /// The deck's card gap, layout px: what an Option-snap leaves between
+    /// the exposed edge and another pane's.
+    let gap: CGFloat
+    /// The snap targets, viewport points: the visible panes the drag does not
+    /// move. A member moves with the rail and a carried card by its travel,
+    /// so neither stands where the press found it.
+    let others: [CGRect]
+    private(set) var moved = false
+
+    init(
+        side: RailSide, startWidth: CGFloat, pinnedEdge: CGFloat, startPointer: CGPoint, limits: RailWidthLimits,
+        canvas: CGRect, zoom: CGFloat = 1, gap: CGFloat, others: [CGRect]
+    ) {
+        self.side = side
+        self.startWidth = startWidth
+        self.pinnedEdge = pinnedEdge
+        self.startPointer = startPointer
+        self.limits = limits
+        self.canvas = canvas
+        self.zoom = zoom > 0 ? zoom : 1
+        self.gap = gap
+        self.others = others
+    }
+
+    /// A left rail's deck edge faces right, so rightward travel grows it; a
+    /// right rail's faces left.
+    var growSign: CGFloat { side == .left ? 1 : -1 }
+
+    /// Where a step stands: the aim, whether the press has become a drag,
+    /// and the guide the exposed edge snapped to, viewport points.
+    struct Step: Equatable {
+        var aim: RailAim
+        var moved: Bool
+        var snapX: CGFloat?
+    }
+
+    /// The aim at the press, before anything moves.
+    var startAim: RailAim { RailAim(width: startWidth, shown: startWidth, limit: nil) }
+
+    /// The aim at `pointer`. Below the move threshold the rail stays where it
+    /// was pressed; with `alt` and between the limits, the exposed edge snaps
+    /// one gap off another pane's edge, and never past a limit.
+    mutating func step(pointer: CGPoint, alt: Bool) -> Step {
+        if !moved {
+            if hypot(pointer.x - startPointer.x, pointer.y - startPointer.y) < CardGeometry.moveThreshold {
+                return Step(aim: startAim, moved: false)
+            }
+            moved = true
+        }
+        let travel = (pointer.x - startPointer.x) / zoom
+        let aim = CardGeometry.aimRailWidth(asked: startWidth + growSign * travel, limits: limits)
+        guard alt, aim.limit == nil else { return Step(aim: aim, moved: true) }
+        let pinned = (pinnedEdge - canvas.minX) / zoom
+        let exposed = pinned + growSign * aim.width
+        let targets = others.map {
+            CGRect(x: ($0.minX - canvas.minX) / zoom, y: ($0.minY - canvas.minY) / zoom, width: $0.width / zoom, height: $0.height / zoom)
+        }
+        let edges = CardGeometry.computeResizeSnap(
+            side == .left ? ResizeEdges(right: exposed) : ResizeEdges(left: exposed),
+            others: targets, borderWidth: -gap
+        ).edges
+        guard let snapped = side == .left ? edges.right : edges.left else { return Step(aim: aim, moved: true) }
+        let width = CardGeometry.clampRailWidth(growSign * (snapped - pinned), limits: limits)
+        return Step(
+            aim: RailAim(width: width, shown: width, limit: nil), moved: true,
+            snapX: canvas.minX + (pinned + growSign * width) * zoom
+        )
+    }
+}
+
 /// Which card a point is.
 ///
 /// The cards stand over the shell's web view, and a point a card's hit shape

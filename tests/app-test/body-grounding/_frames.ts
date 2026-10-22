@@ -269,6 +269,43 @@ export function leadingEdgeOnRow(
 }
 
 /**
+ * The first x (device px) on row `y`, scanning rightward from `x0`, where the
+ * ground begins: the first pixel of a window of `span` pixels at least
+ * `minGround` of which lie within `tolerance` of `ground`, or null when the
+ * row carries none before `x1`. What finds a card's trailing edge from inside
+ * it, where {@link leadingEdgeOnRow} finds its leading edge from outside: the
+ * window admits the floor's 1 px grid lines, so a line crossing the ground
+ * moves the reading by a pixel at most rather than by the line's spacing.
+ */
+export function groundStartOnRow(
+  frame: CaptureBurstFrame,
+  y: number,
+  ground: Rgb,
+  tolerance: number,
+  x0: number,
+  x1: number,
+  span = 8,
+  minGround = 6,
+): number | null {
+  const png = decoded(frame.path);
+  const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
+  const lo = Math.max(0, Math.round(x0));
+  const hi = Math.min(png.width, Math.round(x1));
+  const isGround = (x: number): number => {
+    const i = (row * png.width + x) * 4;
+    return near({ r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] }, ground, tolerance) ? 1 : 0;
+  };
+  if (hi - lo < span) return null;
+  let count = 0;
+  for (let x = lo; x < lo + span; x++) count += isGround(x);
+  for (let x = lo; x + span <= hi; x++) {
+    if (count >= minGround && isGround(x) === 1) return x;
+    if (x + span < hi) count += isGround(x + span) - isGround(x);
+  }
+  return null;
+}
+
+/**
  * The x (device px) on row `y` where a run of at least `minRun` pixels within
  * `tolerance` of `colour` begins, of all such runs on the row the one that
  * begins nearest `nearX`; null when the row carries none. Where two surfaces

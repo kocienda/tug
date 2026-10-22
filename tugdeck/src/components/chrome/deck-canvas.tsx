@@ -5153,7 +5153,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         * at mount — and every pane's own effects have run by the time this
         * one does.
         */}
-      <CardPlacementBeacon containerRef={containerRef} />
+      <CardPlacementBeacon containerRef={containerRef} readFlow={readFlowTerms} />
       {/*
         * CanvasOverlayRoot: single deck-level container for popup-class
         * overlays (completion menus, popovers, etc.). Mounted as a

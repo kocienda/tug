@@ -20,9 +20,27 @@
  * **The window renders** (`visible`): a covered app-test window otherwise gets
  * no animation frames, and the preview is written in one.
  *
+ * **The host carries the views; the page holds its content.** The host
+ * resizes every member's web view from the pointer, chrome included, so a
+ * `pause` member's frame follows the hand with the others; its page holds
+ * the *content* at its rest width, driven at the aim the host reports. Its
+ * very first moved frame can still lay the content out once at the start
+ * width plus the move threshold before that hold arrives, and the reading
+ * notes the widest such deviation over the first moving samples rather than
+ * asserting it away. After the release the host's own snapshot says every
+ * member's view stands at the committed width and none is still in the hand:
+ * the frames read here are the pages', and the views they stand in are the
+ * host's.
+ *
+ * The host's half of the gesture lives in `BodyViewController.swift`, which
+ * fans out past the selection budget, so it is named by none of the lines
+ * below. Run this file by name with any change to the host's rail gesture.
+ *
  * @visible
  * @covers tugdeck/src/components/chrome/rail-width-draft.ts
  * @covers tugdeck/src/components/overview/overview-card-registration.tsx
+ * @covers tugdeck/src/lib/host-card-gesture.ts
+ * @covers tugapp/Sources/RailView.swift
  */
 
 import { describe, expect, test } from "bun:test";
@@ -30,6 +48,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
 import { chromePoint } from "./card-chrome-fixture";
 import { PIXEL_TOL } from "./_harness/tolerances";
+import { CARD_APRON_PX } from "./rail-width-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -283,6 +302,15 @@ describe.skipIf(!SHOULD_RUN)(
           note(
             `samples: ${samples.length}; moving ${moving.length}; rested ${rested.length}; inset ${inset.toFixed(1)}`,
           );
+          // The first moving frames: the host resized the view at its first
+          // moved step, and the page's hold arrives one report later, so its
+          // content may lay out once at a near-identical width (Risk R05).
+          const firstMoving = samples.filter((s) => s.down && s.sinceMove < MOVING_MS).slice(0, 5);
+          const firstDeviation = Math.max(0, ...firstMoving.map((s) => Math.abs(s.m.overview.body - bodyAtRest)));
+          note(
+            `first ${firstMoving.length} moving samples: the Overview's body deviates from its rest ${bodyAtRest.toFixed(1)} ` +
+              `by at most ${firstDeviation.toFixed(1)} px (frames ${firstMoving.map((s) => s.m.overview.frame.toFixed(1)).join(", ")})`,
+          );
           expect(moving.length, "frames were sampled mid-drag").toBeGreaterThanOrEqual(5);
           expect(rested.length, "frames were sampled in the rest").toBeGreaterThanOrEqual(3);
 
@@ -325,6 +353,19 @@ describe.skipIf(!SHOULD_RUN)(
             Math.abs(last.m.overview.frame - last.m.overview.body - inset),
             "released: the Overview's body fills its frame",
           ).toBeLessThanOrEqual(PIXEL_TOL);
+
+          // And the views those pages stand in are the host's: each at the
+          // committed width plus the apron either side, none in the hand.
+          const views = await app.bodies();
+          for (const member of MEMBERS) {
+            const view = views.find((b) => b.cardId === CARD_OF[member] && b.visible);
+            expect(view, `the host holds ${member}'s view`).toBeDefined();
+            expect(view!.inHand, `${member}'s view is out of the hand`).toBe(false);
+            expect(
+              Math.abs(view!.frame.width - (RAIL_WIDTH + GROW_PX + 2 * CARD_APRON_PX)),
+              `${member}'s view stands at the committed width (read ${view!.frame.width})`,
+            ).toBeLessThanOrEqual(1);
+          }
         } finally {
           await app.close();
         }

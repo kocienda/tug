@@ -21,31 +21,6 @@ final class BodyHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// Put the containers in their `order`, in place, and only when the
-    /// order has changed. `sortSubviews` moves nothing out of the hierarchy,
-    /// so a body web view that is the window's first responder stays it —
-    /// `addSubview(_:positioned:relativeTo:)` on a view already present
-    /// removes it first, and a removal resigns the first responder inside it
-    /// to the window. And a sort that changes nothing is skipped outright:
-    /// re-ordering layer-backed subviews re-parents their layers, which ends
-    /// any animation running on them, and every placement used to pay that
-    /// whether or not a pane had moved in front of another.
-    func sortContainers() {
-        let current = subviews.compactMap { $0 as? BodyContainerView }
-        let sorted = current.sorted { a, b in
-            a.order != b.order ? a.order < b.order : a.serial < b.serial
-        }
-        if current.elementsEqual(sorted, by: ===) { return }
-        sortSubviews({ a, b, _ in
-            let za = (a as? BodyContainerView)?.order ?? 0
-            let zb = (b as? BodyContainerView)?.order ?? 0
-            if za != zb { return za < zb ? .orderedAscending : .orderedDescending }
-            let ia = (a as? BodyContainerView)?.serial ?? 0
-            let ib = (b as? BodyContainerView)?.serial ?? 0
-            return ia < ib ? .orderedAscending : ia > ib ? .orderedDescending : .orderedSame
-        }, context: nil)
-    }
-
     /// The container a point in this view's coordinates — the viewport's —
     /// belongs to, by the cards' hit shapes front to back, or nil when no
     /// card claims it.
@@ -61,9 +36,14 @@ final class BodyHostView: NSView {
     /// the frames': the band past a pane's edge is that card's only where it
     /// offers a grip, and a press on a card's grip is never taken by the
     /// bare apron of the card beside it.
+    ///
+    /// A container in a rail view is asked in the rail view's coordinates,
+    /// which are the viewport's too (`RailView`), but converted all the same.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let containerAt, let container = containerAt(convert(point, from: superview)) else { return nil }
-        return container.hitTest(convert(point, from: superview))
+        let local = convert(point, from: superview)
+        guard let containerAt, let container = containerAt(local) else { return nil }
+        guard let parent = container.superview, parent !== self else { return container.hitTest(local) }
+        return container.hitTest(parent.convert(local, from: self))
     }
 }
 
@@ -85,12 +65,13 @@ final class DeckContainerView: NSView {
 }
 
 /// A body's container: layer-backed and clipped to its bounds, carrying its
-/// stacking order and its creation serial for `BodyHostView.sortContainers`.
+/// stacking order and its creation serial for `sortStacked`. A rail member's
+/// container stands in its rail's `RailView`; every other in the host view.
 ///
 /// Flipped, so the web view's top-left is its origin: while a crossing
 /// animates the container's bounds, the page stays pinned at the top and
 /// the container clips its bottom edge, never its masthead edge.
-final class BodyContainerView: NSView {
+final class BodyContainerView: NSView, StackedView {
     var order = 0
     let serial: Int
     override var isFlipped: Bool { true }
@@ -834,6 +815,10 @@ final class BodyViewController {
         var min: CGSize
         /// The resize ceiling, when the arrangement holds one (a slot's run).
         var maxHeight: CGFloat?
+        /// The card's pane is a pinned rail member: its side, order and reflow.
+        var rail: RailMembership?
+        /// An imposed content card's travel under a rail width change.
+        var railTravel: RailTravel?
     }
 
     /// The cards the last `placeCards` named, by card id. Read by the
@@ -846,13 +831,31 @@ final class BodyViewController {
     /// The deck's card gap the last `placeCards` named, layout px.
     private var cardGap: CGFloat = 0
     private(set) var cardApron: CGFloat = CardGeometry.apron
+    /// Each standing rail's width bounds, layout px, as the last `placeCards` named them.
+    private(set) var railLimits = RailLimitsBySide()
+    /// The band and the flow strip, layout px, as the last `placeCards` named them.
+    private(set) var railBand = RailTravelBand(band: 0, flow: nil)
+    /// One view per shown rail, holding its members' containers.
+    private var rails: [RailSide: RailView] = [:]
+    /// The last `placeCards`, which a rail's spring re-applies when it ends:
+    /// the landing placement may have come while the spring held the views.
+    private var lastPlacement: PlaceCards?
+    /// The cards the last placement says the shell's rail draft holds: the
+    /// host's, until the shell's release, though the hand has let go.
+    private var placementHeld: Set<String> = []
 
-    /// The gesture the host is tracking now, one at a time.
+    /// The gesture the host is tracking now, one at a time. Every kind
+    /// carries its views: a move or a resize the card in hand's, and a
+    /// rail's edge (`rail`) every member of the rail and every content card
+    /// beside it, drawn at the aim the host reports with each step, which
+    /// the shell's rail draft previews its stand-ins at.
     private struct Gesture {
         let body: Body
         let cardId: String
         let kind: CardGestureKind
         let edge: ResizeEdge?
+        /// A move's or a resize's arithmetic; for a rail's edge it answers
+        /// only the press point, and `rail` carries the steps.
         var tracker: CardGestureTracker
         /// The container's frame at the press, which every step moves by the
         /// pane rect's own travel.
@@ -861,12 +864,45 @@ final class BodyViewController {
         var alt: Bool
         var last: CardGestureTracker.Step
         var pointer: CGPoint
-        /// Whether the host moves the card's view. A rail's edge drag
-        /// (`rail`) is the shell's draft: the host reports the pointer, and
-        /// the shell's placements move every member of the rail.
-        var carriesView: Bool { kind != .rail }
+        /// A rail's edge in hand; nil for a move or a resize.
+        var rail: RailHand?
+        /// Every body the gesture holds: the card in hand, or every card of
+        /// the rail's panes and of the panes beside it, siblings included. A
+        /// placement and a plan leave them where the hand has them.
+        let held: [Body]
+
+        func holds(_ body: Body) -> Bool { held.contains { $0 === body } }
     }
     private var gesture: Gesture?
+
+    /// A rail width drag in the host's hand: the members it widens and the
+    /// content cards it carries by their travel, each from its frame at the
+    /// press, and the spring a release past a limit runs.
+    private struct RailHand {
+        var tracker: RailWidthTracker
+        let view: RailView
+        /// The pane rect of the member pressed, viewport points.
+        let startRect: CGRect
+        let members: [(body: Body, start: CGRect)]
+        let carried: [(body: Body, start: CGRect, travel: RailTravel)]
+        let band: RailTravelBand
+        /// How long a release past a limit springs back, ms; 0 for none.
+        let springMs: Double
+        var springing = false
+        var last: RailWidthTracker.Step
+    }
+
+    /// The spring's curve, `rail-width.ts`'s `LIMIT_SPRING_EASING`.
+    private static let railSpringEasing = CAMediaTimingFunction(controlPoints: 0.33, 1, 0.68, 1)
+    /// The spring running now, so a completion that outlived its spring does nothing.
+    private var springSerial = 0
+
+    /// Whether a placement or a plan leaves `body` alone: the gesture holds
+    /// it, or the shell's rail draft does and the shell has not yet released.
+    private func isHeld(_ body: Body) -> Bool {
+        if gesture?.holds(body) == true { return true }
+        return body.cardId.map(placementHeld.contains) ?? false
+    }
 
     /// Whether the host is tracking a card's drag or resize.
     var gestureLive: Bool { gesture != nil }
@@ -925,11 +961,15 @@ final class BodyViewController {
     /// carries; the view is the pane outset by `apron`, grown to whole
     /// points. A body the placement does not name is hidden.
     func placeCards(_ placement: PlaceCards) {
+        lastPlacement = placement
+        placementHeld = Set(placement.held ?? [])
         cardApron = CGFloat(placement.apron)
         // A canvas the shell does not show leaves the last one standing.
         if let canvas = placement.canvas { cardCanvas = canvas.cgRect }
         if placement.zoom > 0 { cardZoom = CGFloat(placement.zoom) }
         if placement.gap >= 0 { cardGap = CGFloat(placement.gap) }
+        railLimits = placement.rails
+        railBand = placement.band
         var placements: [String: CardPlacement] = [:]
         // Each named card with where the placement lists it: the deck's
         // reading order, which is the window's VoiceOver order.
@@ -944,7 +984,9 @@ final class BodyViewController {
                 grips: Set(entry.grips),
                 free: entry.free,
                 min: CGSize(width: entry.min.width, height: entry.min.height),
-                maxHeight: entry.maxHeight.map { CGFloat($0) }
+                maxHeight: entry.maxHeight.map { CGFloat($0) },
+                rail: entry.rail,
+                railTravel: entry.railTravel
             )
         }
         cardPlacements = placements
@@ -953,7 +995,7 @@ final class BodyViewController {
         for body in bodies {
             // A card in the host's hand is the host's until its gesture ends:
             // the placement that lands it is the shell's commit, after.
-            if let gesture, gesture.carriesView, gesture.body === body { continue }
+            if isHeld(body) { continue }
             // And so is one a press took from its beats, until the press
             // becomes a gesture or comes up.
             if body === pressedOutOfBeats { continue }
@@ -989,10 +1031,69 @@ final class BodyViewController {
             body.deckIndex = deckIndex
             applyVisibility(body)
         }
-        // The containers in the panes' order, back to front, moved in place.
-        hostView.sortContainers()
+        // Each rail's members into its rail view, and the containers in the
+        // panes' order, back to front, moved in place.
+        reconcileRails()
         CATransaction.commit()
         refreshRegion()
+    }
+
+    /// Stand every rail member's container in its rail's view and every other
+    /// container in the host view, place each rail view at the union of its
+    /// members, and sort. A body whose beats are running, one in the hand,
+    /// and one a press took from its beats are left where they are, since a
+    /// reparent ends their layer's animation: the landing reconciles them.
+    /// A rail view whose member's beats run stands still, since the mapping
+    /// its beats were solved against reads the rail view's bounds origin.
+    private func reconcileRails() {
+        for body in bodies {
+            if body.beats != nil || body === pressedOutOfBeats || isHeld(body) { continue }
+            let side = body.cardId.flatMap { cardPlacements[$0]?.rail?.side }
+            let target: NSView = side.map(railView(for:)) ?? hostView
+            if body.container.superview !== target { reparent(body, into: target) }
+        }
+        for (side, view) in rails where view.members.isEmpty {
+            view.removeFromSuperview()
+            rails[side] = nil
+        }
+        for view in rails.values {
+            let members = bodies.filter { $0.container.superview === view }
+            if members.contains(where: { $0.beats != nil }) { continue }
+            let shown = members.filter { $0.visible && $0.canShow }
+            view.place(RailView.union(of: (shown.isEmpty ? members : shown).map(\.container.frame)))
+        }
+        sortStacking()
+    }
+
+    /// The rail view for `side`, made in the host view when there is none.
+    private func railView(for side: RailSide) -> RailView {
+        if let view = rails[side] { return view }
+        let view = RailView(side: side)
+        hostView.addSubview(view)
+        rails[side] = view
+        return view
+    }
+
+    /// Move `body`'s container into `parent`, at the same viewport frame,
+    /// with the first responder inside it kept: a removal resigns it to the
+    /// window, so it is given back.
+    private func reparent(_ body: Body, into parent: NSView) {
+        let responder = window.firstResponder as? NSView
+        let held = responder.map { $0.isDescendant(of: body.container) } ?? false
+        let frame = body.container.frame
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        parent.addSubview(body.container)
+        body.container.frame = frame
+        CATransaction.commit()
+        if held, let responder, window.firstResponder !== responder { window.makeFirstResponder(responder) }
+    }
+
+    /// The host view's containers and rail views in the panes' order, and
+    /// each rail's members in theirs, moved in place.
+    private func sortStacking() {
+        sortStacked(in: hostView)
+        for view in rails.values { sortStacked(in: view) }
     }
 
     /// `cardGesture` `begin`: a card's page has taken a title-bar or grip
@@ -1004,6 +1105,16 @@ final class BodyViewController {
         let kind = begin.kind
         let edge = begin.edge
         if kind != .move && edge == nil { return }
+        // A rail's edge is carried over the rail the placement seats the
+        // card on, within the bounds it names for that rail.
+        let seat = cardPlacements[cardId]?.rail
+        let limits = seat.flatMap { $0.side == .left ? railLimits.left : railLimits.right }
+        if kind == .rail, limits == nil {
+            TugLog.warn("bodies", "a rail's edge pressed on a card the placement seats on no rail; ignoring", [
+                TugLog.field("card", cardId),
+            ])
+            return
+        }
         // The press brings its card forward at once, as the shell's
         // activation of it will: until that placement arrives, a card pressed
         // from under a neighbour would travel under it. A Cmd-press moves a
@@ -1013,14 +1124,13 @@ final class BodyViewController {
         // A card a settle is carrying is taken where the user sees it: its
         // beats stop, its container holds the presented frame, and the hand
         // moves it from there rather than from the landing it was bound for.
-        var containerStart = body.container.frame
-        if body.beats != nil {
-            containerStart = presentedRect(body)
-            cancelBeats(body)
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            body.container.frame = containerStart
-            CATransaction.commit()
+        let containerStart = standOutOfBeats(body)
+        // A card lifted out of a rail by its title bar or a grip travels
+        // above the rail, as a card of the host view: reparented now that
+        // nothing animates on its layer, and stacked where `raise` put it.
+        if kind != .rail, body.container.superview is RailView {
+            reparent(body, into: hostView)
+            sortStacking()
         }
         let startRect = body.whole
             ? containerStart.insetBy(dx: cardApron, dy: cardApron)
@@ -1046,10 +1156,18 @@ final class BodyViewController {
             gap: cardGap,
             others: others
         )
+        var hand: RailHand?
+        var held = [body]
+        if kind == .rail, let seat, let limits {
+            let built = railHand(side: seat.side, limits: limits, startRect: startRect, pointer: pointer, springMs: begin.springMs ?? 0)
+            hand = built.hand
+            held = built.held
+        }
         let pressed = Gesture(
             body: body, cardId: cardId, kind: kind, edge: edge, tracker: tracker,
             containerStart: containerStart, meta: begin.meta, alt: begin.alt,
-            last: CardGestureTracker.Step(rect: startRect, moved: false), pointer: pointer
+            last: CardGestureTracker.Step(rect: startRect, moved: false), pointer: pointer,
+            rail: hand, held: held
         )
         guard leftButtonDown else {
             report(pressed, phase: .end)
@@ -1062,6 +1180,59 @@ final class BodyViewController {
         gesture = pressed
     }
 
+    /// Take `body` from any beats running on it, its container standing
+    /// where the user sees it; answers that frame.
+    private func standOutOfBeats(_ body: Body) -> CGRect {
+        guard body.beats != nil else { return body.container.frame }
+        let shown = presentedRect(body)
+        cancelBeats(body)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        body.container.frame = shown
+        CATransaction.commit()
+        return shown
+    }
+
+    /// The hand for a rail's edge pressed on `side` with the pressed member's
+    /// pane at `startRect`, and every body it holds. The members are every
+    /// card the placement seats on the side, the carried cards every one
+    /// with a travel; both are held with their inactive siblings, which are
+    /// not moved. The snap targets are the visible panes neither moves.
+    private func railHand(
+        side: RailSide, limits: RailWidthLimits, startRect: CGRect, pointer: CGPoint, springMs: Double
+    ) -> (hand: RailHand, held: [Body]) {
+        var held: [Body] = []
+        var members: [(body: Body, start: CGRect, index: Int)] = []
+        var carried: [(body: Body, start: CGRect, travel: RailTravel)] = []
+        for other in bodies {
+            guard let id = other.cardId, let placement = cardPlacements[id] else { continue }
+            let moves = placement.visible && !placement.sibling
+            if let seat = placement.rail, seat.side == side {
+                held.append(other)
+                if moves { members.append((other, standOutOfBeats(other), seat.index)) }
+            } else if placement.rail == nil, let travel = placement.railTravel {
+                held.append(other)
+                if moves { carried.append((other, standOutOfBeats(other), travel)) }
+            }
+        }
+        let others = CardGeometry.railSnapTargets(side: side, cardPlacements.values.map {
+            .init(rect: $0.rect, visible: $0.visible, sibling: $0.sibling, rail: $0.rail, travel: $0.railTravel)
+        })
+        let tracker = RailWidthTracker(
+            side: side, startWidth: startRect.width / cardZoom,
+            pinnedEdge: side == .left ? startRect.minX : startRect.maxX,
+            startPointer: pointer, limits: limits, canvas: cardCanvas ?? hostView.bounds,
+            zoom: cardZoom, gap: cardGap, others: others
+        )
+        let hand = RailHand(
+            tracker: tracker, view: railView(for: side), startRect: startRect,
+            members: members.sorted { $0.index < $1.index }.map { ($0.body, $0.start) },
+            carried: carried, band: railBand, springMs: springMs,
+            last: RailWidthTracker.Step(aim: tracker.startAim, moved: false)
+        )
+        return (hand, held)
+    }
+
     /// Stack `body`'s container in front of every other, ahead of the
     /// placement that will say so: the next `placeCards` restores the
     /// shell's order, which by then has this card in front.
@@ -1072,35 +1243,58 @@ final class BodyViewController {
         // this is the card's order until the gesture's commit places it.
         body.z = top + 1
         body.container.order = body.z
-        hostView.sortContainers()
+        sortStacking()
     }
 
     /// A mouse event while a gesture is live: a drag steps it, an up ends it.
     func track(_ event: NSEvent) {
-        guard var live = gesture else { return }
+        // A rail springing back is the hand's no longer: the mouse it let go
+        // of is done, and a new press's drag is not this gesture's to step.
+        guard var live = gesture, live.rail?.springing != true else { return }
         switch event.type {
         case .leftMouseDragged:
             live.pointer = hostView.convert(event.locationInWindow, from: nil)
             live.meta = event.modifierFlags.contains(.command)
             live.alt = event.modifierFlags.contains(.option)
-            live.last = live.tracker.step(pointer: live.pointer, alt: live.alt)
-            gesture = live
-            if live.carriesView { move(live) }
+            if var hand = live.rail {
+                hand.last = hand.tracker.step(pointer: live.pointer, alt: live.alt)
+                live.rail = hand
+                gesture = live
+                if hand.last.moved { moveRail(hand, shown: hand.last.aim.shown) }
+            } else {
+                live.last = live.tracker.step(pointer: live.pointer, alt: live.alt)
+                gesture = live
+                move(live)
+            }
             report(live, phase: .move)
         case .leftMouseUp:
             // The release is where the hand let go, which a quick drag's
             // merged moves may never have reported: step to it first, so a
             // press and a release apart with nothing between them is a drag.
             live.pointer = hostView.convert(event.locationInWindow, from: nil)
-            live.last = live.tracker.step(pointer: live.pointer, alt: live.alt)
-            if live.carriesView { move(live) }
-            gesture = nil
+            var springs = false
+            if var hand = live.rail {
+                hand.last = hand.tracker.step(pointer: live.pointer, alt: live.alt)
+                if hand.last.moved { moveRail(hand, shown: hand.last.aim.shown) }
+                // Released past a limit, the views spring back to it, and the
+                // hand keeps them until they arrive.
+                let aim = hand.last.aim
+                springs = hand.last.moved && aim.limit != nil && hand.springMs > 0 && abs(aim.shown - aim.width) > 0.5
+                hand.springing = springs
+                live.rail = hand
+            } else {
+                live.last = live.tracker.step(pointer: live.pointer, alt: live.alt)
+                move(live)
+            }
+            gesture = springs ? live : nil
             report(live, phase: .end)
+            if springs, let hand = live.rail { springRail(hand) }
             if pressedOutOfBeats === live.body {
                 pressedOutOfBeats = nil
                 // A hold that went nowhere commits nothing, so no placement
                 // will come to land the card: it lands itself.
-                if !live.last.moved { returnToLanding(live.body) }
+                // A rail's travel is its own tracker's, not the press's.
+                if !(live.rail?.last.moved ?? live.last.moved) { returnToLanding(live.body) }
             }
         default:
             break
@@ -1111,13 +1305,23 @@ final class BodyViewController {
     /// the mouse. The card goes back where the press found it.
     func cancelGesture() {
         guard let live = gesture else { return }
-        gesture = nil
-        if live.carriesView {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            live.body.container.frame = live.containerStart
-            CATransaction.commit()
+        // The hand already let go of a springing rail, and the shell has
+        // taken the release: the views land on the limit, and nothing is said.
+        if live.rail?.springing == true {
+            finishSpring()
+            return
         }
+        gesture = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let hand = live.rail {
+            for m in hand.members { m.body.container.frame = m.start }
+            for c in hand.carried { c.body.container.frame = c.start }
+            hand.view.place(RailView.union(of: hand.members.map(\.start)))
+        } else {
+            live.body.container.frame = live.containerStart
+        }
+        CATransaction.commit()
         report(live, phase: .cancel)
         if pressedOutOfBeats === live.body {
             pressedOutOfBeats = nil
@@ -1144,8 +1348,21 @@ final class BodyViewController {
 
     /// Tell the shell where the gesture stands (`onCardGesture`).
     private func report(_ live: Gesture, phase: CardGestureReport.Phase) {
-        let r = live.last.rect
-        let snapped = live.last.snapX != nil || live.last.snapY != nil
+        var r = live.last.rect
+        var moved = live.last.moved
+        var snapX = live.last.snapX
+        var snapY = live.last.snapY
+        var aim: RailAimReport?
+        // A rail's edge: the pressed member's pane at the width drawn, and the aim.
+        if let hand = live.rail {
+            r = railFrame(hand.startRect, hand, shown: hand.last.aim.shown)
+            moved = hand.last.moved
+            snapX = hand.last.snapX
+            snapY = nil
+            let a = hand.last.aim
+            aim = RailAimReport(width: Double(a.width), shown: Double(a.shown), limit: a.limit?.rawValue)
+        }
+        let snapped = snapX != nil || snapY != nil
         let report = CardGestureReport(
             cardId: live.cardId,
             kind: live.kind,
@@ -1153,13 +1370,93 @@ final class BodyViewController {
             rect: PlanRect(x: r.minX, y: r.minY, width: r.width, height: r.height),
             pointer: .init(x: live.pointer.x, y: live.pointer.y),
             start: .init(x: live.tracker.startPointer.x, y: live.tracker.startPointer.y),
-            moved: live.last.moved,
+            moved: moved,
             meta: live.meta,
             alt: live.alt,
             edge: live.edge,
-            snap: snapped ? .init(x: live.last.snapX.map(Double.init), y: live.last.snapY.map(Double.init)) : nil
+            snap: snapped ? .init(x: snapX.map(Double.init), y: snapY.map(Double.init)) : nil,
+            rail: aim
         )
         window.sendToShell(.cardGesture(report))
+    }
+
+    /// A member's frame, `start` at the press, with the rail drawn at
+    /// `shown`: widened at the deck-facing edge by the rail's growth.
+    private func railFrame(_ start: CGRect, _ hand: RailHand, shown: CGFloat) -> CGRect {
+        let points = (shown - hand.tracker.startWidth) * hand.tracker.zoom
+        var r = start
+        r.size.width += points
+        if hand.tracker.side == .right { r.origin.x -= points }
+        return r
+    }
+
+    /// Every frame the rail's hand stands its views at with the rail drawn at
+    /// `shown`: each member widened, each carried card moved by its travel.
+    private func railFrames(_ hand: RailHand, shown: CGFloat) -> (members: [CGRect], carried: [CGRect]) {
+        let growth = shown - hand.tracker.startWidth
+        let members = hand.members.map { railFrame($0.start, hand, shown: shown) }
+        let carried = hand.carried.map {
+            $0.start.offsetBy(
+                dx: CardGeometry.railTravelShift($0.travel, side: hand.tracker.side, start: hand.band, growth: growth) * hand.tracker.zoom,
+                dy: 0
+            )
+        }
+        return (members, carried)
+    }
+
+    /// Stand the rail at `shown`, in one transaction with nothing animating:
+    /// every member's view follows its container, `pause` members included,
+    /// whose pages hold their own content.
+    private func moveRail(_ hand: RailHand, shown: CGFloat) {
+        let frames = railFrames(hand, shown: shown)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (m, frame) in zip(hand.members, frames.members) { m.body.container.frame = frame }
+        for (c, frame) in zip(hand.carried, frames.carried) { c.body.container.frame = frame }
+        hand.view.place(RailView.union(of: frames.members))
+        CATransaction.commit()
+    }
+
+    /// A release past a limit: every member and carried view springs from
+    /// where the hand left it to where the limit stands it, over the span the
+    /// body page posted at the press, on the shell's spring curve. The rail
+    /// view stands at the limit's union at once, since it clips nothing and
+    /// never animates. The hand keeps the views until the spring arrives.
+    private func springRail(_ hand: RailHand) {
+        let landing = railFrames(hand, shown: hand.last.aim.width)
+        springSerial += 1
+        let serial = springSerial
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        hand.view.place(RailView.union(of: landing.members))
+        CATransaction.commit()
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = hand.springMs / 1000
+            context.timingFunction = Self.railSpringEasing
+            for (m, frame) in zip(hand.members, landing.members) { m.body.container.animator().frame = frame }
+            for (c, frame) in zip(hand.carried, landing.carried) { c.body.container.animator().frame = frame }
+        }, completionHandler: { [weak self] in
+            self?.finishSpring(serial: serial)
+        })
+    }
+
+    /// The spring is over, naturally or cut short: every view stands at its
+    /// limit frame, the hand lets go, and the last placement is applied, since
+    /// the landing placement may have come while the hand held the views.
+    /// `serial` names the spring a completion is for; nil finishes the one
+    /// running now.
+    private func finishSpring(serial: Int? = nil) {
+        guard let live = gesture, let hand = live.rail, hand.springing else { return }
+        if let serial, serial != springSerial { return }
+        let landing = railFrames(hand, shown: hand.last.aim.width)
+        // A zero-length group replaces any frame animation still running.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            for (m, frame) in zip(hand.members, landing.members) { m.body.container.animator().frame = frame }
+            for (c, frame) in zip(hand.carried, landing.carried) { c.body.container.animator().frame = frame }
+        }
+        gesture = nil
+        if let placement = lastPlacement { placeCards(placement) }
     }
 
     // MARK: - Beats
@@ -1187,7 +1484,7 @@ final class BodyViewController {
         for planned in plan.cards {
             guard let body = body(forCard: planned.cardId) else { continue }
             // A card in the host's hand is the hand's until the gesture ends.
-            if let gesture, gesture.carriesView, gesture.body === body { continue }
+            if isHeld(body) { continue }
             // An arrival rides its frame's arrive beat in: the shell posts it
             // visible from the plan, so it is shown here, in this
             // transaction, at its landing. Its tracks
@@ -1229,6 +1526,9 @@ final class BodyViewController {
                 body.beats = nil
                 self.endCrossing(body)
                 self.notifyShell(BodyStateReport(cardId: cardId, state: .landed, planId: planId, lateMs: beats.lateMs))
+                // A card a settle carried into or out of a rail joins its
+                // rail's view, or leaves it, now that nothing animates on it.
+                self.reconcileRails()
             }
             layer.add(position, forKey: Self.beatKeys[0])
             layer.add(Self.keyframes(
@@ -1563,8 +1863,11 @@ final class BodyViewController {
         body.deadline = nil
         body.evictDue?.cancel()
         body.evictDue = nil
-        // A card going away mid-gesture takes its gesture with it.
-        if gesture?.body === body { gesture = nil }
+        // A card going away mid-gesture takes its gesture with it: a rail's
+        // drag puts its views back, or lands a spring the shell has taken.
+        if let live = gesture, live.holds(body) {
+            if live.rail != nil { cancelGesture() } else { gesture = nil }
+        }
         bodies.removeAll { $0 === body }
         let controller = body.webView.configuration.userContentController
         HostChannel.unregister(from: controller)
@@ -1572,6 +1875,8 @@ final class BodyViewController {
         body.webView.uiDelegate = nil
         body.webView.stopLoading()
         body.container.removeFromSuperview()
+        // A rail left with no member goes with its last one.
+        reconcileRails()
         if let cardId = body.cardId {
             window.bodyDidGoAway(cardId: cardId)
         }
@@ -1622,7 +1927,7 @@ final class BodyViewController {
     private func evictable(_ body: Body, siblings: Bool, episode: Bool = true) -> Bool {
         guard body.cardId != nil, body.state == .ready, !body.visible, !body.evicting,
               !(episode && declined.contains(ObjectIdentifier(body))) else { return false }
-        if gesture?.body === body || body === pressedOutOfBeats { return false }
+        if gesture?.holds(body) == true || body === pressedOutOfBeats { return false }
         return siblings || body.shown?.value == false
     }
 
@@ -1855,6 +2160,19 @@ final class BodyViewController {
             ])
             entry["displayPeriodMs"] = .number(displayPeriodSec * 1000)
             entry["url"] = body.webView.url.map { .string($0.absoluteString) } ?? .null
+            // Its rail membership as the last placement named it, and the
+            // frame of the rail view its container stands in (null outside one).
+            if let rail = body.cardId.flatMap({ cardPlacements[$0]?.rail }) {
+                entry["rail"] = .object([
+                    "side": .string(rail.side.rawValue),
+                    "index": .number(Double(rail.index)),
+                    "reflow": .string(rail.reflow.rawValue),
+                    "railFrame": (body.container.superview as? RailView).map { Self.json($0.frame) } ?? .null,
+                ])
+            } else {
+                entry["rail"] = .null
+            }
+            entry["inHand"] = .bool(gesture?.holds(body) ?? false)
             return .object(entry)
         }
     }

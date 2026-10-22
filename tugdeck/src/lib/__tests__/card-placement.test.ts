@@ -70,6 +70,8 @@ describe("placeCardsOf", () => {
     zoom: 1.25,
     gap: 15,
     byCard: new Map([["a", { grips: ["e", "s"], free: true, min: { width: 240, height: 160 }, maxHeight: 820 }]]),
+    rails: {},
+    band: { band: 900, flow: null },
   };
 
   test("carries each card's pane, its view and insets, the shell's controls over it, and its stand-in's facts", () => {

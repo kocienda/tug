@@ -52,6 +52,11 @@
               "min": {
                 "width": 240,
                 "height": 160
+              },
+              "rail": {
+                "side": "left",
+                "index": 0,
+                "reflow": "pause"
               }
             },
             {
@@ -85,7 +90,12 @@
                 "height": 145
               },
               "maxHeight": 820,
-              "planId": 12
+              "planId": 12,
+              "railTravel": {
+                "kind": "fit",
+                "fraction": 0.5,
+                "slotWidth": 400
+              }
             },
             {
               "cardId": "c2",
@@ -114,8 +124,24 @@
               "min": {
                 "width": 0,
                 "height": 0
+              },
+              "railTravel": {
+                "kind": "flow"
               }
             }
+          ],
+          "rails": {
+            "left": {
+              "min": 320,
+              "max": 675
+            }
+          },
+          "band": {
+            "band": 980,
+            "flow": null
+          },
+          "held": [
+            "c1"
           ]
         },
         {
@@ -123,7 +149,12 @@
           "canvas": null,
           "zoom": 1.25,
           "gap": 5,
-          "cards": []
+          "cards": [],
+          "rails": {},
+          "band": {
+            "band": 0,
+            "flow": null
+          }
         }
       ],
       "refused": [
@@ -204,7 +235,8 @@
           "x": 300,
           "y": 400,
           "meta": false,
-          "alt": false
+          "alt": false,
+          "springMs": 220
         }
       ],
       "refused": [
@@ -1282,6 +1314,62 @@
           "moved": false,
           "meta": false,
           "alt": false
+        },
+        {
+          "cardId": "c1",
+          "kind": "rail",
+          "phase": "move",
+          "rect": {
+            "x": 40,
+            "y": 60,
+            "width": 480,
+            "height": 320
+          },
+          "pointer": {
+            "x": 200,
+            "y": 80
+          },
+          "start": {
+            "x": 180,
+            "y": 70
+          },
+          "moved": true,
+          "meta": false,
+          "alt": false,
+          "edge": "e",
+          "rail": {
+            "width": 360,
+            "shown": 360,
+            "limit": null
+          }
+        },
+        {
+          "cardId": "c1",
+          "kind": "rail",
+          "phase": "end",
+          "rect": {
+            "x": 40,
+            "y": 60,
+            "width": 480,
+            "height": 320
+          },
+          "pointer": {
+            "x": 200,
+            "y": 80
+          },
+          "start": {
+            "x": 180,
+            "y": 70
+          },
+          "moved": true,
+          "meta": false,
+          "alt": false,
+          "edge": "w",
+          "rail": {
+            "width": 675,
+            "shown": 701.5,
+            "limit": "ceiling"
+          }
         }
       ],
       "refused": [
