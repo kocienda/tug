@@ -518,6 +518,12 @@ export function createDeckView(cardDeck: BodyCardDeck, replicas: ArrangementRepl
     const deck = replicas.deck.getSnapshot();
     const spaces = replicas.spaces.getSnapshot();
     if (deck === null) return;
+    // A workspace switch arrives as two frames, one per replica. Until both
+    // name the same workspace, the pair is torn: the new live deck beside the
+    // old list, whose parked decks still hold the arriving workspace's cards.
+    // The Cards card drew those cards under both workspaces, and React, handed
+    // the same row key twice, left two cells in the DOM it no longer tracked.
+    if (deck.spaceId !== spaces.activeSpaceId) return;
     const prev = arrangement;
     if (prev !== null && prev.spaces === spaces && prev.deck === deck.deck && prev.bandWidth === deck.bandWidth &&
       prev.columnRunHeight === deck.columnRunHeight && prev.railRunHeight === deck.railRunHeight) {

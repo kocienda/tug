@@ -91,6 +91,7 @@ export function projectDeckCards(deck: ArrangementDeck, readers: DeckCardReaders
 /** `arrangement.deck`: the live deck and its band. */
 export function projectArrangementDeck(deck: ArrangementDeck): ArrangementDeckValue {
   return {
+    spaceId: deck.getSpacesSnapshot().activeSpaceId,
     deck: deck.getSnapshot(),
     bandWidth: deck.getBandWidth(),
     columnRunHeight: deck.getColumnRunHeight(),

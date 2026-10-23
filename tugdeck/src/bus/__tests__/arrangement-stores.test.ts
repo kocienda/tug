@@ -59,7 +59,7 @@ describe("the arrangement stores", () => {
       waivesClose: false,
     };
     deckCards.on(shell.bus).set({ a });
-    arrangementDeck.on(shell.bus).set({ deck: DECK, bandWidth: 1600, columnRunHeight: null, railRunHeight: null });
+    arrangementDeck.on(shell.bus).set({ spaceId: "s1", deck: DECK, bandWidth: 1600, columnRunHeight: null, railRunHeight: null });
     const session = bus.body("s1", "session");
     const lister = bus.body("l1", LISTER);
     await bus.flush();

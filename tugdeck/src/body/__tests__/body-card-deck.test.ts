@@ -148,7 +148,7 @@ function arrangement(bandWidth: number, spaceName = "Main"): { value: Arrangemen
     hasFocus: true,
   };
   return {
-    value: { deck, bandWidth, columnRunHeight: 900, railRunHeight: 880 },
+    value: { spaceId: "s1", deck, bandWidth, columnRunHeight: 900, railRunHeight: 880 },
     spaces: {
       activeSpaceId: "s1",
       spaces: [{ id: "s1", name: spaceName }],
@@ -760,6 +760,38 @@ describe("an arrangement card", () => {
     const v = createDeckView(b, r);
     expect(b.getSnapshot().panes.map((p) => p.id)).toEqual([bodyPaneId(CARD)]);
     expect(v.getBandWidth()).toBe(null);
+  });
+
+  test("a workspace switch is taken whole: neither replica's frame lands until the other names the same workspace", async () => {
+    const { deck: b } = await bodyPage("cards");
+    const r = arrangementReplicas();
+    const v = createDeckView(b, r);
+    const leaving = r.deck.getSnapshot()!.deck;
+    const away: DeckState = {
+      cards: [{ id: "away", componentId: "session", title: "", closable: true }],
+      panes: [paneState("p-away", ["away"])],
+      imposition: { sidebars: {} },
+      hasFocus: true,
+    };
+    const listed = arrangement(1600).spaces;
+    listed.spaces.push({ id: "s2", name: "Away" });
+    listed.mountedSpaceIds.push("s2");
+    listed.decks.s2 = away;
+    r.spaces.set(listed);
+    const settled = b.getSnapshot();
+    // The shell sets `arrangement.deck` first: s2's deck, live, while the
+    // workspaces still name s1 active and hold s2 parked. Taken, s2's card
+    // would list under s1 as its live deck and under s2 as its parked one.
+    r.deck.set({ spaceId: "s2", deck: away, bandWidth: 1600, columnRunHeight: 900, railRunHeight: 880 });
+    expect(b.getSnapshot()).toBe(settled);
+    expect(v.getSpacesSnapshot().activeSpaceId).toBe("s1");
+    expect(v.getSpaceDeck("s1")).toBe(settled);
+    // The workspaces' frame completes the switch, and both halves land.
+    r.spaces.set({ ...listed, activeSpaceId: "s2", decks: { s1: leaving } });
+    expect(v.getSpacesSnapshot().activeSpaceId).toBe("s2");
+    expect(b.getSnapshot().cards.map((c) => c.id)).toEqual(["away"]);
+    expect(v.getSpaceDeck("s1")).toBe(leaving);
+    expect(v.getSpaceDeck("s2")).toBe(b.getSnapshot());
   });
 
   test("raising another card names it to the shell; activating itself is its own card's", async () => {

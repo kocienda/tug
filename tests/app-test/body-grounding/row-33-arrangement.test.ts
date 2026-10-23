@@ -84,13 +84,19 @@ async function shownCards(app: App): Promise<BodyApp> {
   expect(id, "the workspace on screen shows a Cards body").toBeDefined();
   // A popover raised in the page closes when the page's layout moves under
   // it, so the page is read once it stands: its frame and its view's size
-  // the same across reads 100 ms apart.
+  // the same across reads 100 ms apart. Compared as numbers in a fixed order:
+  // the host serializes a frame from a dictionary whose key order is not
+  // stable, so two reads of one frame stringify differently about half the
+  // time, and a stringified compare never saw the body stand.
   let before = "";
   const rest = await settleFor(
     async () => {
       await Bun.sleep(100);
       const b = (await app.bodies()).find((x) => x.cardId === id);
-      const now = b === undefined ? "" : JSON.stringify([b.frame, b.pageSize]);
+      const now =
+        b === undefined
+          ? ""
+          : [b.frame.x, b.frame.y, b.frame.width, b.frame.height, b.pageSize.width, b.pageSize.height].join(",");
       const still = now !== "" && now === before;
       before = now;
       return still;

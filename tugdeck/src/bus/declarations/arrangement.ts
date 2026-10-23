@@ -55,6 +55,15 @@ const deckState = opaque(
 
 /** The live deck and its band, as an arrangement card reads them. */
 export interface ArrangementDeckValue {
+  /**
+   * The workspace `deck` is the live deck of. The shell publishes this store
+   * and `arrangement.spaces` with two sets, so a page hears a workspace switch
+   * as two frames; a page holds either half until the other names the same
+   * workspace active (`createDeckView`), since a new live deck read beside the
+   * old workspaces lists the arriving workspace twice: once as the live deck
+   * of the one it is leaving, and once as its own parked record.
+   */
+  spaceId: string;
   deck: DeckState;
   bandWidth: number | null;
   columnRunHeight: number | null;
@@ -66,7 +75,13 @@ export const arrangementDeck = defineSharedStore<ArrangementDeckValue | null>({
   owner: "shell",
   scope: { kinds: isArrangementKind },
   codec: nullable(
-    obj({ deck: deckState, bandWidth: nullable(num), columnRunHeight: nullable(num), railRunHeight: nullable(num) }),
+    obj({
+      spaceId: str,
+      deck: deckState,
+      bandWidth: nullable(num),
+      columnRunHeight: nullable(num),
+      railRunHeight: nullable(num),
+    }),
   ),
   initial: null,
 });
