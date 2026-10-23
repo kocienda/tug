@@ -184,7 +184,11 @@ export async function readSwitch(
 export async function readGesture(
   app: App,
   gesture: () => Promise<unknown>,
-  cardIds: readonly string[],
+  /**
+   * The cards the gesture shows — or, for a gesture that makes its cards
+   * (New Workspace), a read of them taken once the gesture has run.
+   */
+  arriving: readonly string[] | (() => Promise<readonly string[]>),
   label: string,
   /**
    * What each pane's title band must show: the card's `title`, which the
@@ -192,12 +196,18 @@ export async function readGesture(
    * for a card that has never had a page, whose title its page computes.
    */
   band: "title" | "chrome" = "title",
+  /**
+   * How long the burst reads, from its arming — long enough for every page
+   * to paint inside it — and how far apart its frames are: a gesture showing
+   * many cards judges each frame once per card, so it reads fewer frames.
+   */
+  { burstMs = BURST_MS, intervalMs = BURST_INTERVAL_MS }: { burstMs?: number; intervalMs?: number } = {},
 ): Promise<string[]> {
   const width = await app.evalJS<number>("window.innerWidth");
   const height = await app.evalJS<number>("window.innerHeight");
-  await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop: { x: 0, y: 0, width, height } });
+  await app.captureBurst({ op: "arm", durationMs: burstMs, intervalMs, crop: { x: 0, y: 0, width, height } });
   // The host's layers, tick by tick, over the same window: what it put on screen for each card.
-  await app.bodyLayers({ op: "arm", windowMs: BURST_MS });
+  await app.bodyLayers({ op: "arm", windowMs: burstMs });
   await Bun.sleep(STANDING_MS);
   // The host's hand-overs before the switch, so the switch's own is the first after.
   const handOversBefore = (await app.handOvers()).handOvers;
@@ -206,6 +216,8 @@ export async function readGesture(
   await gesture();
   // Whether the placer measured the gesture's commit or deferred it to a set-up.
   const skipAtSwitch = await app.evalJS<string | null>("window.tugdeck.diag.getBodyPlacement()?.lastSkip ?? null");
+  const cardIds = typeof arriving === "function" ? await arriving() : arriving;
+  if (cardIds.length === 0) return ["the gesture showed no card"];
   for (const id of cardIds) {
     const b = await settleFor(() => bodyOf(app, id), (s) => s?.state === "ready" && s.painted === true && s.visible && !s.covered, 10_000);
     note(`${label} ${id}: painted and shown ${Date.now() - choseWall} ms after the switch, start ${b?.start ?? "?"}`);
@@ -220,13 +232,13 @@ export async function readGesture(
   const reading = await settleFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
     (r) => r.done,
-    BURST_MS + 5_000,
+    burstMs + 5_000,
   );
   if (!reading.done) return ["the burst did not finish"];
   const layers = (await settleFor(
     () => app.bodyLayers({ op: "read" }) as Promise<BodyLayersReading>,
     (r) => r.done,
-    BURST_MS + 5_000,
+    burstMs + 5_000,
   )) as BodyLayersReading;
   if (!layers.done) return ["the host's layer rows did not finish"];
   const account = await app.handOvers();

@@ -66,6 +66,13 @@ html[data-body-page][data-chrome-frame] #deck-container {
   z-index: 2147483000;
 }
 
+/* The lid's wave (`content-lid-wave.tsx`) shows from the frame the page
+   tells the host it has painted, two display frames past its first chrome
+   frame: a lid that lifts sooner never draws it. */
+.body-chrome-frame:not([data-lid-wave]) .tug-content-lid-wave {
+  visibility: hidden;
+}
+
 .body-canvas,
 .body-pane-frame,
 .body-pane-root {

@@ -1560,10 +1560,20 @@ export class DeckManager implements IDeckManagerStore {
    * Add a workspace, put the user in it, and stand its doors up ([P05]).
    *
    * Creating and activating are one gesture because the user asked for a place
-   * to work, not for a row in a list. And the new deck gets its factory rail
-   * immediately rather than through {@link factoryRailPending} — that latch
-   * waits for a first card, and a workspace whose Workspaces card is not
-   * standing has no door back except ⌃⌘W and the Window menu.
+   * to work, not for a row in a list. And the new deck is inserted with its
+   * factory rail already standing rather than through
+   * {@link factoryRailPending} — that latch waits for a first card, and a
+   * workspace whose Workspaces card is not standing has no door back except
+   * ⌃⌘W and the Window menu.
+   *
+   * The rail is in the record before the activation, not committed after it,
+   * so the gesture is one cut onto the finished arrangement. Activating an
+   * empty deck and standing the rail behind it was two pictures: the cut
+   * landed on a layer with no panes, so the departing cards' views met no
+   * face and were held over bare canvas, and the rail then arrived as a
+   * second commit. Built whole, the cut lands five panes under the four-up
+   * slim imposition with a stand-in face for each, and the departing views
+   * hand over to those faces in one host transaction, as a switch's do.
    *
    * `name` is the caller's when it has one (the Workspaces card's rename-on-
    * create), and otherwise {@link nextSpaceName}'s.
@@ -1580,19 +1590,27 @@ export class DeckManager implements IDeckManagerStore {
     // The new workspace wears the theme of the one being left, so creating
     // one never changes what is on screen.
     const theme = this.spacesStore.activeTheme();
+    const rail = this.factoryRailSeats();
+    const base = buildDefaultLayout();
+    const front = rail.length > 0 ? rail[rail.length - 1] : undefined;
     this.spacesStore.insert({
       id,
       name: chosen,
-      deck: buildDefaultLayout(),
+      deck: {
+        ...base,
+        cards: rail.map((seat) => seat.card),
+        panes: rail.map((seat) => seat.pane),
+        ...(front !== undefined ? { activePaneId: front.pane.id } : {}),
+        imposition: factoryDeckImposition(base.imposition),
+      },
+      ...(front !== undefined ? { focusedCardId: front.card.id } : {}),
       ...(theme !== undefined ? { theme } : {}),
     });
-    this.activateSpace(id);
     // The latch would otherwise stand a SECOND rail the first time a card
-    // opened here: it is armed at boot by an empty boot deck and this deck is
-    // empty too, so it is still waiting when we hand it a rail it did not ask
-    // for. Disarm before standing ours.
+    // opened here: it is armed at boot by an empty boot deck, and is still
+    // waiting when this deck arrives with a rail it did not ask for.
     this.factoryRailPending = false;
-    this._createFactoryRail();
+    this.activateSpace(id);
     return id;
   };
 
@@ -4291,13 +4309,12 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Stand every card of {@link FACTORY_RAIL_ORDER} on the rails, in a single
-   * state commit.
-   *
-   * One commit rather than a call to {@link _createSidebarPane} per card: one
-   * commit per card would be a notify, a save and a first-responder flip
-   * apiece, and the deck would be seen mid-rail on the way to a picture
-   * nobody arranged.
+   * A fresh card and pane for every card of {@link FACTORY_RAIL_ORDER}, in
+   * the order they are appended; the last is the frontmost. Pure over the
+   * registry and the canvas height — nothing is committed — so a new
+   * workspace's record can carry its rail into the activation
+   * ({@link createSpace}) and the boot latch can stand the same rail beside a
+   * first card ({@link _createFactoryRail}).
    *
    * The panes are appended in **reverse** of {@link FACTORY_RAIL_ORDER}, so
    * Cards lands last. `state.panes` is the deck's z-order and
@@ -4311,7 +4328,7 @@ export class DeckManager implements IDeckManagerStore {
    * {@link FACTORY_RAILS} — never a reopen or preferred width, either of which
    * would stand one member wider than the rest and widen its whole side.
    */
-  private _createFactoryRail(): void {
+  private factoryRailSeats(): { card: CardState; pane: TugPaneState }[] {
     const seats: { card: CardState; pane: TugPaneState }[] = [];
     const canvasHeight = this.container.clientHeight || 600;
 
@@ -4350,7 +4367,20 @@ export class DeckManager implements IDeckManagerStore {
         },
       });
     }
+    return seats;
+  }
 
+  /**
+   * Stand every card of {@link FACTORY_RAIL_ORDER} on the rails, in a single
+   * state commit.
+   *
+   * One commit rather than a call to {@link _createSidebarPane} per card: one
+   * commit per card would be a notify, a save and a first-responder flip
+   * apiece, and the deck would be seen mid-rail on the way to a picture
+   * nobody arranged.
+   */
+  private _createFactoryRail(): void {
+    const seats = this.factoryRailSeats();
     if (seats.length === 0) return;
     // Last appended is frontmost, which is the head of FACTORY_RAIL_ORDER.
     const front = seats[seats.length - 1]!;

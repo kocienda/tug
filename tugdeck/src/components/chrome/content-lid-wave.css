@@ -1,0 +1,18 @@
+/* @tug-pairings: none — sets no colour; the wave's bars take the
+   indicator's own fill. */
+
+/**
+ * The lid's wave (`content-lid-wave.tsx`): centred over the pane, above the
+ * content lid, answering no point. The page gates it on its frame's
+ * `data-lid-wave` (`body/body-page.css`); the stand-in shows it at once.
+ */
+.tug-content-lid-wave {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  /* Above the content lid, which stands at 2147483000. */
+  z-index: 2147483001;
+}

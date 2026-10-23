@@ -412,6 +412,7 @@ Every motion the deck performs, by the name the work speaks in, with the fix-up 
 | R4 | Resize sidebars to fit | ⇧⌥⌘S, View menu | both axes as violations; retune constant alive | both axes solved; retune deleted | yes |
 | D1 | Flow slide, go to slot | ⌃⌘1–6, wheel, swipe, click | a hand-lift's prelaunched slide let its React commit in one paint into the motion, and the sealed bar carved the swipe out | the prelaunch holds the deck store's tell behind its motion gate, so the commit lands after the land; a click, key or quiet wheel is a measured settle whose commit is its set-up | yes |
 | D2 | Workspace switch | activate-space | epoch detector; departing-face flash | one host transaction, per `briefs/switch-hand-over-brief.md` | no |
+| D2a | Workspace create | New Workspace: Workspaces card `+`, Window menu | D2's, since a create is an activation of a deck inserted whole, its rail standing | one cut onto loading faces, per `briefs/workspace-create-flash-brief.md`: one activation commit, no rail commit after it, every departing view handed over to the rail's faces in D2's host transaction, and each lid wearing the progress wave until its content paints; judged by `body-grounding/row-44-switch-create.test.ts` | no |
 | D3 | Zoom | ⌘= ⌘- ⌘0 | placement re-posted | a cut; stays one | no |
 | D4 | Theme switch | menu | none | a snap; stays one | no |
 | D5 | Shell reveal, reload | launch, reload | none | fine | no |
