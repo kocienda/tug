@@ -10,8 +10,10 @@
  * - every file parses as YAML;
  * - every `run:` line of the form `just <recipe>` names a recipe
  *   `just --summary` lists;
- * - every job in `ci.yml` carries `timeout-minutes: 5` — the fast lane's
- *   budget, a red to investigate rather than a number to raise;
+ * - every step in `ci.yml` that runs a `just` recipe carries
+ *   `timeout-minutes: 5` — the budget on the verdict, a red to investigate
+ *   rather than a number to raise — and every job there carries a
+ *   `timeout-minutes` of its own, the cap on a cold build step;
  * - every `oven-sh/setup-bun` step carries `bun-version-file: .bun-version`
  *   and none carries `bun-version:`.
  *
@@ -25,8 +27,8 @@ import { basename, join } from "node:path";
 const ROOT = join(import.meta.dir, "..");
 const WORKFLOWS = join(ROOT, ".github", "workflows");
 
-/** The fast lane's budget, in minutes, on every job of `ci.yml`. */
-export const FAST_LANE_BUDGET_MINUTES = 5;
+/** The budget, in minutes, on every `just` step of `ci.yml`. */
+export const VERDICT_BUDGET_MINUTES = 5;
 export const BUN_VERSION_FILE = ".bun-version";
 
 export interface WorkflowFile {
@@ -36,8 +38,10 @@ export interface WorkflowFile {
 }
 
 interface Step {
+  name?: unknown;
   uses?: unknown;
   run?: unknown;
+  "timeout-minutes"?: unknown;
   with?: Record<string, unknown>;
 }
 
@@ -86,15 +90,25 @@ export function lintWorkflows(files: WorkflowFile[], recipes: Iterable<string>):
     for (const [jobName, jobValue] of Object.entries(jobs as Record<string, unknown>)) {
       if (typeof jobValue !== "object" || jobValue === null) continue;
       const job = jobValue as Job;
-      if (name === "ci.yml" && job["timeout-minutes"] !== FAST_LANE_BUDGET_MINUTES) {
+      if (name === "ci.yml" && typeof job["timeout-minutes"] !== "number") {
         failures.push(
-          `${name}: job \`${jobName}\` must carry \`timeout-minutes: ${FAST_LANE_BUDGET_MINUTES}\` — the fast lane's budget; a job over it is a red to investigate, not a number to raise`,
+          `${name}: job \`${jobName}\` must carry a \`timeout-minutes\` — the cap on its cold build step`,
         );
       }
       if (!Array.isArray(job.steps)) continue;
       for (const [index, stepValue] of job.steps.entries()) {
         if (typeof stepValue !== "object" || stepValue === null) continue;
         const step = stepValue as Step;
+        if (
+          name === "ci.yml" &&
+          typeof step.run === "string" &&
+          justCalls(step.run).length > 0 &&
+          step["timeout-minutes"] !== VERDICT_BUDGET_MINUTES
+        ) {
+          failures.push(
+            `${name}: job \`${jobName}\` step ${index + 1} (${typeof step.name === "string" ? step.name : step.run.trim()}) must carry \`timeout-minutes: ${VERDICT_BUDGET_MINUTES}\` — the budget on the verdict; a step over it is a red to investigate, not a number to raise`,
+          );
+        }
         if (typeof step.uses !== "string" || !step.uses.startsWith("oven-sh/setup-bun")) continue;
         const at = `${name}: job \`${jobName}\` step ${index + 1} (${step.uses})`;
         const with_ = step.with ?? {};

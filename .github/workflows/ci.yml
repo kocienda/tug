@@ -1,11 +1,17 @@
 name: CI
 
-# The fast lane: what `just ci` runs but the Swift tests, split into three jobs
-# so each lands under a five-minute budget. A job over budget is a red to
-# investigate, not a number to raise. The slow suites — the Rust set that
-# spawns git or the real tugcast, and `tugdeck/full-lane/` — and the Swift
-# tests run in `full-lane.yml`, which the nightly and the release wait on; the
-# WASM rebuild runs in `wasm.yml` when `tugdeck/crates/` changes.
+# What `just ci` runs but the Swift tests, split into four jobs.
+# The budget is on the verdict, not the build: every step that runs a `just`
+# recipe carries `timeout-minutes: 5`, and a step over it is a red to
+# investigate, not a number to raise. Each Rust-using job first builds what its
+# verdict needs in a step of its own and saves the cargo cache right after it,
+# so a cold cache (a new key, a `Cargo.lock` change) costs one slow build step
+# and seeds the cache, rather than a killed job that can never save one. The
+# job's own `timeout-minutes` is only the cap on that cold build. The slow
+# suites — the Rust set that spawns git or the real tugcast, and
+# `tugdeck/full-lane/` — and the Swift tests run in `full-lane.yml`, which the
+# nightly and the release wait on; the WASM rebuild runs in `wasm.yml` when
+# `tugdeck/crates/` changes.
 
 on:
   push:
@@ -21,9 +27,9 @@ env:
 # workflows build on, and on nothing else.
 jobs:
   # The Rust workspace minus the slow set, under nextest.
-  rust-fast:
+  rust-tests:
     runs-on: macos-26
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -34,10 +40,10 @@ jobs:
         run: rustup toolchain install
         working-directory: tugrust
 
-      # Restore here, save at the end with `if: always()`. A plain
-      # `actions/cache` saves only when the job succeeds, so while a job is
-      # red its cache is never written and every run compiles the whole
-      # workspace cold.
+      # Saved right after the build step, never at the end of the job: a save
+      # that runs while a cancelled step's rustc is still writing fails, and a
+      # save of a half-built target becomes an exact key hit that is never
+      # written again.
       - name: Restore cargo cache
         id: cargo-cache
         uses: actions/cache/restore@v4
@@ -46,8 +52,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             tugrust/target
-          key: ${{ runner.os }}-cargo-rust-fast-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-rust-fast-
+          key: ${{ runner.os }}-cargo-rust-tests-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-rust-tests-
 
       # nextest, not `cargo test`: the shell feed tests set `$SHELL` and seed a
       # process-global PATH cache, which only holds when each test owns its own
@@ -55,14 +61,24 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
+      # tugcast's build script runs `bun install` and compiles tugcode, so the
+      # Rust tests need bun too.
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       - name: Install just
         uses: taiki-e/install-action@just
 
-      - name: Rust fast lane
-        run: just test-rust
+      # Every test binary `just test-rust` runs.
+      - name: Build
+        id: build
+        run: cargo nextest run --workspace --no-run
+        working-directory: tugrust
 
       - name: Save cargo cache
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: steps.build.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -71,15 +87,18 @@ jobs:
             tugrust/target
           key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
-  # The TypeScript checks and suites, the standalone plugin suite, and the
-  # app-test covers check. Rust is installed here because `test-ts` and
-  # `test-standalone` build tugtool with cargo: the app-test selector tests
-  # drive the real `tugtool apptest reach` verb, and the standalone suite
-  # drives the real hook script and arc verbs. The app-test corpus is not
-  # here: it needs a built Tug.app.
-  ts-fast:
+      - name: Rust tests
+        timeout-minutes: 5
+        run: just test-rust
+
+  # The TypeScript suites, the standalone plugin suite, and the app-test covers
+  # check. Rust is installed here because `test-ts` and `test-standalone` build
+  # tugtool with cargo: the app-test selector tests drive the real `tugtool
+  # apptest reach` verb, and the standalone suite drives the real hook script
+  # and arc verbs. The app-test corpus is not here: it needs a built Tug.app.
+  ts-tests:
     runs-on: macos-26
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -87,7 +106,7 @@ jobs:
         run: rustup toolchain install
         working-directory: tugrust
 
-      # Restore here, save at the end with `if: always()`, as in `rust-fast`.
+      # Saved right after the build step, as in `rust-tests`.
       - name: Restore cargo cache
         id: cargo-cache
         uses: actions/cache/restore@v4
@@ -96,8 +115,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             tugrust/target
-          key: ${{ runner.os }}-cargo-ts-fast-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-ts-fast-
+          key: ${{ runner.os }}-cargo-ts-tests-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-ts-tests-
 
       # The one bun: `.bun-version` is the pin every workflow reads, so the
       # tests run on the bun the checkout runs on rather than a floating patch.
@@ -115,20 +134,15 @@ jobs:
           bun install --frozen-lockfile --cwd tugcode
           bun install --frozen-lockfile --cwd tests/app-test
 
-      - name: TypeScript lint
-        run: just lint-ts
-
-      - name: TypeScript tests
-        run: just test-ts
-
-      - name: Standalone test
-        run: just test-standalone
-
-      - name: App-test covers check
-        run: just app-test-covers-check
+      # The tugtool `test-ts` and `test-standalone` build for themselves, so
+      # theirs is a no-op inside the budget.
+      - name: Build
+        id: build
+        run: cargo build -p tugtool
+        working-directory: tugrust
 
       - name: Save cargo cache
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: steps.build.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -137,10 +151,48 @@ jobs:
             tugrust/target
           key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
+      - name: TypeScript tests
+        timeout-minutes: 5
+        run: just test-ts
+
+      - name: Standalone test
+        timeout-minutes: 5
+        run: just test-standalone
+
+      - name: App-test covers check
+        timeout-minutes: 5
+        run: just app-test-covers-check
+
+  # tsc and oxlint over tugdeck, tugcode and tests/app-test. Its own job: the
+  # three typechecks alone take about two and a half minutes on the runner.
+  ts-lint:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile --cwd tugdeck
+          bun install --frozen-lockfile --cwd tugcode
+          bun install --frozen-lockfile --cwd tests/app-test
+
+      - name: TypeScript lint
+        timeout-minutes: 5
+        run: just lint-ts
+
   # The repository's own lints, shellcheck, the deck's audits, clippy and fmt.
   lint:
     runs-on: macos-26
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -148,7 +200,7 @@ jobs:
         run: rustup toolchain install
         working-directory: tugrust
 
-      # Restore here, save at the end with `if: always()`, as in `rust-fast`.
+      # Saved right after the build step, as in `rust-tests`.
       - name: Restore cargo cache
         id: cargo-cache
         uses: actions/cache/restore@v4
@@ -179,14 +231,15 @@ jobs:
           bun install --frozen-lockfile --cwd tugcode
           bun install --frozen-lockfile --cwd tests/app-test
 
-      - name: Audit lints
-        run: just lint-audit
-
-      - name: Rust lints
-        run: just lint-rust
+      # The clippy artifacts `just lint-rust` reads. A clippy finding fails
+      # here too, which is a red either way.
+      - name: Build
+        id: build
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: tugrust
 
       - name: Save cargo cache
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: steps.build.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -194,3 +247,11 @@ jobs:
             ~/.cargo/git
             tugrust/target
           key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+      - name: Audit lints
+        timeout-minutes: 5
+        run: just lint-audit
+
+      - name: Rust lints
+        timeout-minutes: 5
+        run: just lint-rust

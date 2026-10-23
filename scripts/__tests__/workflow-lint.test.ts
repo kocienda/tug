@@ -9,18 +9,21 @@ const RECIPES = ["test-rust", "lint-audit", "wasm-check", "ci-full"];
 
 /** A `ci.yml` with one job of the given body. */
 function ci(job: string): { path: string; text: string } {
-  return { path: ".github/workflows/ci.yml", text: `name: CI\non:\n  push:\n    branches: [main]\njobs:\n  rust-fast:\n${job}` };
+  return { path: ".github/workflows/ci.yml", text: `name: CI\non:\n  push:\n    branches: [main]\njobs:\n  rust-tests:\n${job}` };
 }
 
 const GOOD_JOB = `    runs-on: macos-26
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - name: Rust fast lane
+      - name: Build
+        run: cargo nextest run --workspace --no-run
+      - name: Rust tests
+        timeout-minutes: 5
         run: just test-rust
 `;
 
@@ -42,15 +45,22 @@ describe("workflow-lint", () => {
     expect(failures[0]).toContain("just no-such-recipe");
   });
 
-  test("refuses a ci.yml job without timeout-minutes: 5", () => {
-    expect(lintWorkflows([ci(GOOD_JOB.replace("    timeout-minutes: 5\n", ""))], RECIPES)).toHaveLength(1);
-    const over = lintWorkflows([ci(GOOD_JOB.replace("timeout-minutes: 5", "timeout-minutes: 10"))], RECIPES);
+  test("refuses a ci.yml job without a timeout-minutes cap", () => {
+    const failures = lintWorkflows([ci(GOOD_JOB.replace("    timeout-minutes: 30\n", ""))], RECIPES);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain("job `rust-tests` must carry a `timeout-minutes`");
+  });
+
+  test("refuses a ci.yml `just` step without timeout-minutes: 5", () => {
+    expect(lintWorkflows([ci(GOOD_JOB.replace("        timeout-minutes: 5\n", ""))], RECIPES)).toHaveLength(1);
+    const over = lintWorkflows([ci(GOOD_JOB.replace("        timeout-minutes: 5", "        timeout-minutes: 10"))], RECIPES);
     expect(over).toHaveLength(1);
-    expect(over[0]).toContain("timeout-minutes: 5");
+    expect(over[0]).toContain("step 4 (Rust tests) must carry `timeout-minutes: 5`");
   });
 
   test("the budget rule is ci.yml's alone", () => {
-    const other = { path: ".github/workflows/full-lane.yml", text: ci(GOOD_JOB.replace("timeout-minutes: 5", "timeout-minutes: 60")).text };
+    const job = GOOD_JOB.replace("    timeout-minutes: 30\n", "").replace("        timeout-minutes: 5\n", "");
+    const other = { path: ".github/workflows/full-lane.yml", text: ci(job).text };
     expect(lintWorkflows([other], RECIPES)).toEqual([]);
   });
 
