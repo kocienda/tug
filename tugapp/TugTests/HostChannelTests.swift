@@ -172,7 +172,7 @@ final class HostChannelTests: XCTestCase {
             return try XCTUnwrap(try JSONSerialization.jsonObject(with: json) as? [String: Any])
         }
         check("no source tree", try object(.settingsLoaded(SettingsLoaded(makerMode: false, sourceTree: nil)))["sourceTree"] is NSNull)
-        check("a dismissed picker", try object(.pathChosen(PathChosen(id: "p1", path: nil)))["path"] is NSNull)
+        check("a dismissed picker", try object(.pathChosen(PathChosen(id: "p1", paths: [])))["path"] is NSNull)
         check("no thumbnail", try object(.thumbnail(Thumbnail(requestId: "t1", dataUrl: nil)))["dataUrl"] is NSNull)
         let layer = HostFrameReading.Layer(samples: [], active: [], activeTicks: 0, advancedRatio: nil, worstStillMs: 0)
         let reading = HostFrameReading(

@@ -97,7 +97,7 @@ import {
   processAttachmentFiles,
 } from "./tug-text-editor/drop-extension";
 import {
-  insertPickedFile,
+  insertPickedFiles,
   withInsertFilePath,
 } from "./insert-picked-file";
 import type { InlineCommandMatcher } from "@/lib/inline-command-ghost";
@@ -1094,12 +1094,12 @@ export interface TugPromptEntryDelegate {
    */
   openCommandPicker(): void;
   /**
-   * Insert a picked file at the caret as a `file` atom — the chip an `@`
-   * mention mints, with the basename as its label and the absolute path as
-   * its value — and focus the editor. Additive: an in-progress draft
-   * survives it.
+   * Insert picked files at the caret, in order — each a `file` atom (the
+   * chip an `@` mention mints, with the basename as its label and the
+   * absolute path as its value) or, for an image, an attachment — and focus
+   * the editor. Additive: an in-progress draft survives it.
    */
-  insertFilePath(path: string): void;
+  insertFilePaths(paths: readonly string[]): void;
   /**
    * The underlying editor element (CM6's `cm-content` div). Exposed for
    * callers that need to reach the live editor DOM (measurement, focus
@@ -1386,15 +1386,15 @@ export const TugPromptEntry = React.forwardRef<
     onFiles: onDropFiles,
   });
 
-  // Session ▸ Insert File… (⌘I). The host picked the path; what it becomes
+  // Session ▸ Insert File… (⌘I). The host picked the paths; what each becomes
   // — an image attachment exactly as a drop makes one, or a `file` atom for
-  // anything else — is `insertPickedFile`'s to decide.
-  const insertFilePath = useCallback(
-    (path: string): void => {
+  // anything else — is `insertPickedFiles`'s to decide.
+  const insertFilePaths = useCallback(
+    (paths: readonly string[]): void => {
       const editor = textEditorRef.current;
       const view = editor?.view();
       if (view === null || view === undefined) return;
-      insertPickedFile(view, path, attachmentBytesStore, publishAttachmentError);
+      insertPickedFiles(view, paths, attachmentBytesStore, publishAttachmentError);
       editor?.focus();
     },
     [attachmentBytesStore, publishAttachmentError],
@@ -3322,10 +3322,10 @@ export const TugPromptEntry = React.forwardRef<
       // the command inserts at a caret, so the composer holding focus is
       // the only responder that can answer it. That is also the item's
       // gate — an unhandled chain walk is what dims the menu item when
-      // focus sits in the transcript. The chord arrives with no path, and
-      // `withInsertFilePath` runs the host's panel for one.
+      // focus sits in the transcript. The chord arrives with no paths, and
+      // `withInsertFilePath` runs the host's panel for them.
       [TUG_ACTIONS.INSERT_FILE]: (event: ActionEvent) => {
-        withInsertFilePath(event.value, insertFilePath);
+        withInsertFilePath(event.value, insertFilePaths);
       },
       [TUG_ACTIONS.REMOVE_ATTACHMENT]: (event: ActionEvent) => {
         // The preview's ✕ / Delete controls dispatch the atom id of the
@@ -3796,8 +3796,8 @@ export const TugPromptEntry = React.forwardRef<
       insertCommandChip(name: string) {
         seedCommandChip(name);
       },
-      insertFilePath(path: string) {
-        insertFilePath(path);
+      insertFilePaths(paths: readonly string[]) {
+        insertFilePaths(paths);
       },
       getEditorElement() {
         const view = textEditorRef.current?.view();
@@ -3808,7 +3808,7 @@ export const TugPromptEntry = React.forwardRef<
         view?.dispatch({ effects: regenerateAtomsEffect.of(null) });
       },
     }),
-    [openCommandPicker, seedCommandChip, insertFilePath],
+    [openCommandPicker, seedCommandChip, insertFilePaths],
   );
 
   // Compose rootRef + responderRef onto the same DOM element.

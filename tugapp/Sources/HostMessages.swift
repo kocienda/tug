@@ -747,28 +747,33 @@ struct SettingsLoaded: Codable, Equatable {
     }
 }
 
-/// `onPathChosen`: the path a picker chose, or nil when it was dismissed.
+/// `onPathChosen`: the paths a picker chose, in its order, and the first of
+/// them as `path` — nil and empty when it was dismissed.
 struct PathChosen: Codable, Equatable {
     var id: String
     var path: String?
+    var paths: [String]
 
-    private enum CodingKeys: String, CodingKey { case id, path }
+    private enum CodingKeys: String, CodingKey { case id, path, paths }
 
-    init(id: String, path: String?) {
+    init(id: String, paths: [String]) {
         self.id = id
-        self.path = path
+        self.path = paths.first
+        self.paths = paths
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         path = try container.decodeValueOrNull(String.self, forKey: .path)
+        paths = try container.decode([String].self, forKey: .paths)
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(path, forKey: .path)
+        try container.encode(paths, forKey: .paths)
     }
 }
 

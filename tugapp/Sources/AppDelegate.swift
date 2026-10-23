@@ -1421,22 +1421,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("interrupt-session")
     }
 
-    /// Session ▸ Insert File… — choose a file and mention it in the focused
-    /// prompt entry. Unlike Open File…, no content types are declared: a
-    /// prompt may name any file, and the panel is picking a path to talk
-    /// about rather than a document this app has to render. The frame is
-    /// dispatched first-responder in tugdeck, so the composer that holds
-    /// focus is the one that receives the path.
+    /// Session ▸ Insert File… — choose files and mention them in the focused
+    /// prompt entry, in the panel's order. Unlike Open File…, no content
+    /// types are declared: a prompt may name any file, and the panel is
+    /// picking paths to talk about rather than documents this app has to
+    /// render. The frame is dispatched first-responder in tugdeck, so the
+    /// composer that holds focus is the one that receives the paths.
     @objc func insertFile(_ sender: Any?) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a file to insert"
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose files to insert"
         panel.prompt = "Insert"
         panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            self?.sendControl("insert-file", params: ["path": url.path])
+            let paths = panel.urls.map(\.path)
+            guard response == .OK, !paths.isEmpty else { return }
+            self?.sendControl("insert-file", params: ["paths": paths])
         }
     }
 

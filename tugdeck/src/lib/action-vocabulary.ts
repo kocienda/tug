@@ -554,9 +554,11 @@ export const TUG_ACTIONS = {
   // OPEN_COMMAND_PICKER: payload — none. ⌘/ dispatches it key-card-scoped; the
   //                 session card's card-content responder forwards to the
   //                 prompt entry's `openCommandPicker` ([P06]).
-  // INSERT_FILE:    payload — `value: { path }` (an absolute path). The host's
-  //                 Session ▸ Insert File… item runs an NSOpenPanel and sends
-  //                 the chosen path; ⌘I reaches the same item. Routed
+  // INSERT_FILE:    payload — `value: { paths }` (absolute paths, in the
+  //                 panel's order; a lone `{ path }` is read as one). The
+  //                 host's Session ▸ Insert File… item runs a multiple-
+  //                 selection NSOpenPanel and sends the chosen paths; ⇧⌘I
+  //                 arrives with none and asks the panel itself. Routed
   //                 first-responder and answered in two places: the prompt
   //                 entry itself, which inserts a `file` atom (basename
   //                 label, absolute value) at its caret — the shape an `@`

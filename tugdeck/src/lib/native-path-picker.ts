@@ -6,8 +6,10 @@
  * The Tug.app host exposes a `choosePath` `WKScriptMessageHandler`. We post
  * `{ id, kind, initialPath }`; the host opens an open-panel (directories or
  * files per `kind`) and calls back
- * `window.__tugBridge.onPathChosen(id, path | null)` (`null` on cancel). Each
- * call carries a unique id so concurrent pickers don't cross wires.
+ * `window.__tugBridge.onPathChosen({ id, path, paths })` — the first path
+ * chosen (`null` on cancel) and every path chosen (empty on cancel; more than
+ * one only for `insert`, whose panel allows a multiple selection). Each call
+ * carries a unique id so concurrent pickers don't cross wires.
  *
  * Graceful degradation: outside the host (dev browser, or before the app is
  * rebuilt with the handler) {@link isPathPickerAvailable} is `false` and
@@ -24,12 +26,12 @@ import { choosePathToHost, pathChosenToPage } from "../host/declarations/service
  * `save` runs an NSSavePanel choosing a NEW file path (Move To… /
  * Save As… — the web layer performs the actual write). `file` is
  * restricted to text types; `insert` is Session ▸ Insert File…'s panel,
- * which takes any file.
+ * which takes any files, several at once.
  */
 export type PathPickerKind = "directory" | "file" | "save" | "insert";
 
 /** Resolvers awaiting a native callback, keyed by request id. */
-const pending = new Map<string, (path: string | null) => void>();
+const pending = new Map<string, (paths: string[]) => void>();
 
 /** Monotonic request-id counter (no Date/random — resume-safe and unique enough). */
 let nextId = 0;
@@ -40,11 +42,11 @@ let receiving = false;
 function ensureBridge(): void {
   if (receiving) return;
   receiving = true;
-  onHostMessage(pathChosenToPage, ({ id, path }) => {
+  onHostMessage(pathChosenToPage, ({ id, paths }) => {
     const resolve = pending.get(id);
     if (resolve !== undefined) {
       pending.delete(id);
-      resolve(path);
+      resolve(paths);
     }
   });
 }
@@ -65,10 +67,25 @@ export function pickPath(
   initialPath?: string,
   suggestedName?: string,
 ): Promise<string | null> {
-  if (!hostAvailable(choosePathToHost)) return Promise.resolve(null);
+  return pickPaths(kind, initialPath, suggestedName).then(
+    (paths) => paths[0] ?? null,
+  );
+}
+
+/**
+ * Open the host's picker for `kind`, resolving every path chosen in the
+ * panel's order — empty on cancel or when the picker is unavailable. Only
+ * `insert` lets the panel choose more than one.
+ */
+export function pickPaths(
+  kind: PathPickerKind,
+  initialPath?: string,
+  suggestedName?: string,
+): Promise<string[]> {
+  if (!hostAvailable(choosePathToHost)) return Promise.resolve([]);
   ensureBridge();
   const id = `path-${(nextId += 1)}`;
-  return new Promise<string | null>((resolve) => {
+  return new Promise<string[]>((resolve) => {
     pending.set(id, resolve);
     postToHost(choosePathToHost, {
       id,

@@ -406,12 +406,18 @@ export const settingsLoadedToPage = defineToPage({
 export const pathChosenToPage = defineToPage({
   member: "onPathChosen",
   to: "any",
-  codec: obj({ id: str, path: nullable(str) }),
+  codec: obj({ id: str, path: nullable(str), paths: arr(str) }),
   samples: [
-    { id: "tug-path-1", path: "/Users/me/notes.md" },
-    { id: "tug-path-2", path: null },
+    { id: "tug-path-1", path: "/Users/me/notes.md", paths: ["/Users/me/notes.md"] },
+    { id: "tug-path-2", path: null, paths: [] },
+    { id: "tug-path-3", path: "/Users/me/a.png", paths: ["/Users/me/a.png", "/Users/me/b.png"] },
   ],
-  refused: ["tug-path-1", { path: "/Users/me/notes.md" }, { id: "tug-path-1", path: 7 }],
+  refused: [
+    "tug-path-1",
+    { path: "/Users/me/notes.md", paths: ["/Users/me/notes.md"] },
+    { id: "tug-path-1", path: 7, paths: [] },
+    { id: "tug-path-1", path: "/Users/me/notes.md" },
+  ],
 });
 
 export const exportDoneToPage = defineToPage({

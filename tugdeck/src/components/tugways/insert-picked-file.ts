@@ -1,9 +1,10 @@
 /**
- * insert-picked-file.ts — what a path picked by Session ▸ Insert File…
- * becomes in the prompt.
+ * insert-picked-file.ts — what the paths picked by Session ▸ Insert File…
+ * become in the prompt.
  *
- * The host's open panel hands over a path, never a `File`. What it becomes
- * follows the file, the same way a drop does:
+ * The host's open panel hands over paths, never `File`s — as many as the
+ * user selected, inserted in the panel's order. What each becomes follows
+ * the file, the same way a drop does:
  *
  *  - **An image** lands exactly as dropping it would — an `image-N`
  *    attachment through {@link processAttachmentFiles}, downsample, upload
@@ -28,7 +29,7 @@ import type { EditorView } from "@codemirror/view";
 
 import type { AtomBytesStore } from "@/lib/atom-bytes-store";
 import { bytesUrl } from "@/lib/file-kinds";
-import { pickPath } from "@/lib/native-path-picker";
+import { pickPaths } from "@/lib/native-path-picker";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import type { AtomSegment } from "@/lib/tug-text-types";
 import { addAtomsEffect } from "./tug-text-editor/atom-decoration";
@@ -39,41 +40,66 @@ import {
 import { padForInsert } from "./tug-text-editor/smart-insert";
 
 /**
- * The path an `INSERT_FILE` action carries, or the host's file panel when it
- * carries none; `insert` runs with whichever path arrives, and not at all on
+ * The paths an `INSERT_FILE` action carries, or the host's file panel when it
+ * carries none; `insert` runs with whichever paths arrive, and not at all on
  * a cancel.
  *
  * The action comes two ways. The Session menu item runs its own panel and
- * dispatches the path it chose. The ⇧⌘I chord does not reach that item: the
+ * dispatches the paths it chose. The ⇧⌘I chord does not reach that item: the
  * web view sees a key equivalent before AppKit's menu scan does, and the
  * deck's key funnel matches the chord and dispatches the command itself,
- * with no path. That dispatch has to ask for one rather than return — left
+ * with no paths. That dispatch has to ask for them rather than return — left
  * to return, the keystroke was consumed and nothing happened.
  */
 export function withInsertFilePath(
   value: unknown,
-  insert: (path: string) => void,
+  insert: (paths: string[]) => void,
 ): void {
-  const path = (value as { path?: unknown } | undefined)?.path;
-  if (typeof path === "string" && path !== "") {
-    insert(path);
+  const carried = value as { path?: unknown; paths?: unknown } | undefined;
+  const paths = Array.isArray(carried?.paths)
+    ? carried.paths.filter(
+        (p): p is string => typeof p === "string" && p !== "",
+      )
+    : typeof carried?.path === "string" && carried.path !== ""
+      ? [carried.path]
+      : [];
+  if (paths.length > 0) {
+    insert(paths);
     return;
   }
-  void pickPath("insert").then((picked) => {
-    if (picked !== null && picked !== "") insert(picked);
+  void pickPaths("insert").then((picked) => {
+    const chosen = picked.filter((p) => p !== "");
+    if (chosen.length > 0) insert(chosen);
   });
 }
 
 /**
- * Insert the file at `path` at `view`'s caret. Returns at once; an image's
- * insertion lands when its bytes have been read and decoded.
+ * Insert each file in `paths` at `view`'s caret, in order. Returns at once;
+ * the insertions land one after another, each image when its bytes have
+ * been read and decoded, so a later file never lands ahead of an earlier
+ * image still decoding.
  */
-export function insertPickedFile(
+export function insertPickedFiles(
+  view: EditorView,
+  paths: readonly string[],
+  bytesStore: AtomBytesStore,
+  onError: (message: string) => void,
+): void {
+  void (async () => {
+    for (const path of paths) {
+      if (!view.dom.isConnected) return;
+      await insertPickedFile(view, path, bytesStore, onError);
+    }
+  })();
+}
+
+/** Insert the file at `path` at `view`'s caret; settles once it has landed. */
+async function insertPickedFile(
   view: EditorView,
   path: string,
   bytesStore: AtomBytesStore,
   onError: (message: string) => void,
-): void {
+): Promise<void> {
   const basename = path.split("/").pop();
   const name = basename === undefined || basename === "" ? path : basename;
   const imageMime = imageMimeForPath(path);
@@ -81,29 +107,27 @@ export function insertPickedFile(
     insertFileAtom(view, path, name);
     return;
   }
-  void (async () => {
-    let file: File | null = null;
-    try {
-      const res = await fetch(bytesUrl(path));
-      if (res.ok) {
-        file = new File([await res.blob()], name, { type: imageMime });
-      }
-    } catch {
-      // Falls through to the file atom below.
+  let file: File | null = null;
+  try {
+    const res = await fetch(bytesUrl(path));
+    if (res.ok) {
+      file = new File([await res.blob()], name, { type: imageMime });
     }
-    if (!view.dom.isConnected) return;
-    if (file === null) {
-      insertFileAtom(view, path, name);
-      return;
-    }
-    await processAttachmentFiles(
-      view,
-      [file],
-      view.state.selection.main.head,
-      bytesStore,
-      onError,
-    );
-  })();
+  } catch {
+    // Falls through to the file atom below.
+  }
+  if (!view.dom.isConnected) return;
+  if (file === null) {
+    insertFileAtom(view, path, name);
+    return;
+  }
+  await processAttachmentFiles(
+    view,
+    [file],
+    view.state.selection.main.head,
+    bytesStore,
+    onError,
+  );
 }
 
 /** A `file` atom naming `path`, plus a separating space, at the caret. */

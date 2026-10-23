@@ -58,9 +58,9 @@ final class BridgeHandler: BridgeDelegate {
         }
     }
 
-    func bridgeChoosePath(kind: String, initialPath: String?, suggestedName: String?, completion: @escaping (String?) -> Void) {
+    func bridgeChoosePath(kind: String, initialPath: String?, suggestedName: String?, completion: @escaping ([String]) -> Void) {
         guard let window else {
-            completion(nil)
+            completion([])
             return
         }
         // `save` kind: an NSSavePanel choosing a NEW file path (the File
@@ -94,10 +94,10 @@ final class BridgeHandler: BridgeDelegate {
             }
             panel.beginSheetModal(for: window) { response in
                 guard response == .OK, let url = panel.url else {
-                    completion(nil)
+                    completion([])
                     return
                 }
-                completion(url.path)
+                completion([url.path])
             }
             return
         }
@@ -105,20 +105,21 @@ final class BridgeHandler: BridgeDelegate {
         // chord, which the deck catches before AppKit's menu scan and so
         // reaches here instead of `insertFile(_:)`. Any file at all — a
         // prompt may name anything, and an image becomes an attachment — so
-        // no content types, unlike the text-only `file` kind below.
+        // no content types, unlike the text-only `file` kind below. Several
+        // files at once, the way a drop takes several.
         if kind == "insert" {
             let panel = NSOpenPanel()
             panel.canChooseFiles = true
             panel.canChooseDirectories = false
-            panel.allowsMultipleSelection = false
-            panel.message = "Choose a file to insert"
+            panel.allowsMultipleSelection = true
+            panel.message = "Choose files to insert"
             panel.prompt = "Insert"
             panel.beginSheetModal(for: window) { response in
-                guard response == .OK, let url = panel.url else {
-                    completion(nil)
+                guard response == .OK else {
+                    completion([])
                     return
                 }
-                completion(url.path)
+                completion(panel.urls.map(\.path))
             }
             return
         }
@@ -148,10 +149,10 @@ final class BridgeHandler: BridgeDelegate {
         }
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else {
-                completion(nil)
+                completion([])
                 return
             }
-            completion(url.path)
+            completion([url.path])
         }
     }
 

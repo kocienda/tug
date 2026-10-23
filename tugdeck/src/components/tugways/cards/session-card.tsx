@@ -4479,7 +4479,7 @@ export function SessionCardBody({
       [TUG_ACTIONS.OPEN_COMMAND_PICKER]: (_event: ActionEvent) => {
         entryDelegateRef.current?.openCommandPicker();
       },
-      // ⌘I / Session ▸ Insert File… — the host picked the path, this is the
+      // ⌘I / Session ▸ Insert File… — the host picked the paths, this is the
       // insertion. The composer answers this action itself when it holds the
       // caret; registering it here too is what makes the command reachable
       // from anywhere in the card, since the composer is a SIBLING of the
@@ -4488,10 +4488,10 @@ export function SessionCardBody({
       // can plainly perform must not dim because focus is one seat over. The
       // delegate focuses the editor before inserting, so the path always
       // lands where the user will type next. The ⇧⌘I chord arrives with no
-      // path, and `withInsertFilePath` runs the host's panel for one.
+      // paths, and `withInsertFilePath` runs the host's panel for them.
       [TUG_ACTIONS.INSERT_FILE]: (event: ActionEvent) => {
-        withInsertFilePath(event.value, (path) =>
-          entryDelegateRef.current?.insertFilePath(path),
+        withInsertFilePath(event.value, (paths) =>
+          entryDelegateRef.current?.insertFilePaths(paths),
         );
       },
       // Swift Session-menu "Show/Hide Changes" and the ⌃⌘C deck twin — toggle

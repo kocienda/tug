@@ -14,8 +14,8 @@
  * ## Shape
  *
  * One bound Session card. The `insert-file` control — the frame the host's
- * NSOpenPanel sends — is dispatched twice through the real control door, and
- * then the chord is pressed:
+ * NSOpenPanel sends — is dispatched three times through the real control
+ * door, and then the chord is pressed:
  *
  *   **An image becomes an image atom.** A real PNG on disk lands as a
  *   `data-atom-type="image"` chip labelled `image-1`, and no `file` atom
@@ -24,18 +24,25 @@
  *   **Anything else stays a file atom.** A `.txt` path lands as a
  *   `data-atom-type="file"` chip whose value is the absolute path.
  *
- *   **The chord asks for a path.** In the shipping app the web view sees
+ *   **Several files land in the panel's order.** The panel allows a
+ *   multiple selection, and the frame carries `paths`. An image then a text
+ *   file lands image-then-file, though the image's bytes are read back
+ *   asynchronously and the file atom is synchronous.
+ *
+ *   **The chord asks for paths.** In the shipping app the web view sees
  *   ⇧⌘I before AppKit's menu scan does, so the deck's key funnel catches it
  *   and dispatches Insert File with no path — which used to return, so the
  *   keystroke was eaten and nothing happened. A ⇧⌘I keydown is fired into
  *   the page (the harness's native keystroke reaches the menu first, which
  *   is not the path a user's press takes), the host's `choosePath` panel is
- *   stubbed to answer with the PNG, and a second image atom has to land.
+ *   stubbed to answer with the PNG chosen twice, and two more image atoms
+ *   have to land.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/insert-picked-file.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor/drop-extension.ts
+ * @covers tugdeck/src/lib/native-path-picker.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -88,8 +95,10 @@ describe.skipIf(!SHOULD_RUN)(
         const fixtureDir = mkdtempSync(join(tmpdir(), "at0709-insert-file-"));
         const pngPath = join(fixtureDir, "picked.png");
         const txtPath = join(fixtureDir, "notes.txt");
+        const laterPath = join(fixtureDir, "later.txt");
         writeFileSync(pngPath, PNG_1X1);
         writeFileSync(txtPath, "notes\n");
+        writeFileSync(laterPath, "later\n");
 
         try {
           const app = await launchTugApp({
@@ -151,7 +160,26 @@ describe.skipIf(!SHOULD_RUN)(
             "axis file: a non-image path is a file atom carrying its absolute path",
           ).toBe(txtPath);
 
-          // ── The chord asks the host's panel for a path ──────────────
+          // ── Several files land in the panel's order ─────────────────
+          // card-dom: shell — the menu's route, as above.
+          await app.evalJS<void>(
+            `(window.__tug.dispatchControlAction("insert-file", { paths: ${JSON.stringify([pngPath, laterPath])} }), null)`,
+          );
+          await app.body("A").waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT} img[data-atom-type]`)}).length === 4`,
+            { timeoutMs: 15_000 },
+          );
+          const order = await app.body("A").evalJS<Array<string | null>>(
+            `Array.prototype.map.call(document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT} img[data-atom-type]`)}), function(img){
+              return img.getAttribute("data-atom-type") === "file" ? img.getAttribute("data-atom-value") : img.getAttribute("data-atom-type");
+            })`,
+          );
+          expect(
+            order,
+            "axis several: a multiple selection lands every file, in the panel's order",
+          ).toEqual(["image", txtPath, "image", laterPath]);
+
+          // ── The chord asks the host's panel for paths ───────────────
           // The keydown goes to the composer, in A's body, and the panel is
           // asked for — and answers — in the page that posts `choosePath`, so
           // the stub is installed there too.
@@ -162,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)(
               var answer = function(posted){
                 var m = typeof posted === "string" ? JSON.parse(posted) : posted;
                 window.__at0709Asked = m;
-                setTimeout(function(){ window.__tugBridge.onPathChosen({ id: m.id, path: ${JSON.stringify(pngPath)} }); }, 0);
+                setTimeout(function(){ window.__tugBridge.onPathChosen({ id: m.id, path: ${JSON.stringify(pngPath)}, paths: ${JSON.stringify([pngPath, pngPath])} }); }, 0);
               };
               Object.defineProperty(h, "postMessage", { value: answer, configurable: true, writable: true });
               var target = document.activeElement || document.body;
@@ -173,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)(
             })()`,
           );
           await app.body("A").waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(atomOfType("image"))}).length === 2`,
+            `document.querySelectorAll(${JSON.stringify(atomOfType("image"))}).length === 4`,
             { timeoutMs: 15_000 },
           );
           expect(

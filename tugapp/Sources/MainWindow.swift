@@ -61,7 +61,9 @@ func applyWebKitFeatureOverrides(to preferences: WKPreferences) {
 /// Protocol for bridge callbacks from WebKit to AppDelegate
 protocol BridgeDelegate: AnyObject {
     func bridgeChooseSourceTree(completion: @escaping (String?) -> Void)
-    func bridgeChoosePath(kind: String, initialPath: String?, suggestedName: String?, completion: @escaping (String?) -> Void)
+    /// Answers every path chosen, in the panel's order; empty on a cancel.
+    /// Only the `insert` kind lets the panel choose more than one.
+    func bridgeChoosePath(kind: String, initialPath: String?, suggestedName: String?, completion: @escaping ([String]) -> Void)
     func bridgeGetSettings(completion: @escaping (Bool, String?) -> Void)
     func bridgeFrontendReady()
     func bridgeSetTheme(color: String)
@@ -2398,13 +2400,13 @@ extension MainWindow {
             // TugFileChooser "Browse…" picker. The web layer sends a request
             // id, an optional starting path, and a `kind` (directory, file,
             // save, insert); we open the panel and call back
-            // window.__tugBridge.onPathChosen({id, path|null}). The id lets
-            // concurrent pickers resolve independently.
+            // window.__tugBridge.onPathChosen({id, path|null, paths}). The id
+            // lets concurrent pickers resolve independently.
             bridgeDelegate?.bridgeChoosePath(
                 kind: request.kind.rawValue, initialPath: request.initialPath, suggestedName: request.suggestedName
-            ) { [weak self] path in
+            ) { [weak self] paths in
                 guard let self = self else { return }
-                self.hostChannel.send(.pathChosen(PathChosen(id: request.id, path: path)), to: replyView)
+                self.hostChannel.send(.pathChosen(PathChosen(id: request.id, paths: paths)), to: replyView)
             }
         case .getSettings:
             bridgeDelegate?.bridgeGetSettings { [weak self] makerMode, sourceTree in
