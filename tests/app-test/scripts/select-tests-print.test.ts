@@ -47,8 +47,12 @@ const ROOT = join(LEDGER_DIR, "repo");
 const APP_TEST_DIR = join(ROOT, "tests", "app-test");
 const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
 
-/** A run in the copy takes about four seconds where one in the checkout takes a fraction of one, and a case runs it twice. */
-setDefaultTimeout(30_000);
+/**
+ * A run in the copy takes about four seconds where one in the checkout takes a fraction of one, and a case runs it twice
+ * — and a CI runner is five to six times slower again, which put the slowest case near 27 s against the 30 s this was.
+ * A hang guard, not a speed bar.
+ */
+setDefaultTimeout(120_000);
 
 beforeAll(() => {
     mkdirSync(join(ROOT, "tests"), { recursive: true });

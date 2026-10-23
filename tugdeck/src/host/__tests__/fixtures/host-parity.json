@@ -1955,21 +1955,41 @@
       "samples": [
         {
           "id": "tug-path-1",
-          "path": "/Users/me/notes.md"
+          "path": "/Users/me/notes.md",
+          "paths": [
+            "/Users/me/notes.md"
+          ]
         },
         {
           "id": "tug-path-2",
-          "path": null
+          "path": null,
+          "paths": []
+        },
+        {
+          "id": "tug-path-3",
+          "path": "/Users/me/a.png",
+          "paths": [
+            "/Users/me/a.png",
+            "/Users/me/b.png"
+          ]
         }
       ],
       "refused": [
         "tug-path-1",
         {
-          "path": "/Users/me/notes.md"
+          "path": "/Users/me/notes.md",
+          "paths": [
+            "/Users/me/notes.md"
+          ]
         },
         {
           "id": "tug-path-1",
-          "path": 7
+          "path": 7,
+          "paths": []
+        },
+        {
+          "id": "tug-path-1",
+          "path": "/Users/me/notes.md"
         }
       ]
     },

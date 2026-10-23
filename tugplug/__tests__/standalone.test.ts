@@ -11,7 +11,7 @@
  * `just test-standalone` builds tugtool first; run bare, the test says what to
  * build rather than passing vacuously.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +23,14 @@ const TUGTOOL_BUILT = join(ROOT, "tugrust/target/debug/tugtool");
 
 /** What a machine with only the OS on it offers. */
 const BARE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+/**
+ * Every hook and test here spawns real processes — git, the hook script,
+ * tugtool — and the setup alone that takes a few hundred milliseconds here
+ * took 3.6s and then 5.2s on a CI runner, past bun's 5s default. The timeout
+ * is a hang guard, not a speed bar, so it sits far above either.
+ */
+setDefaultTimeout(60_000);
 
 let lab = "";
 let bundle = "";

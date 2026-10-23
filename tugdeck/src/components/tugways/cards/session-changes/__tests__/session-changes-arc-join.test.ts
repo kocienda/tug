@@ -10,7 +10,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   reportedBlockers,
-  discardPreflightLine,
   deriveResolveFace,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
@@ -58,27 +57,6 @@ describe("reportedBlockers", () => {
 
   it("has nothing to report for a join nothing blocks", () => {
     expect(reportedBlockers([])).toEqual([]);
-  });
-});
-
-describe("discardPreflightLine", () => {
-  it("names both halves of what the confirm destroys", () => {
-    expect(discardPreflightLine(2, 3)).toBe("Discards 2 rounds · 3 files");
-  });
-
-  it("uses the singular where the singular is true", () => {
-    expect(discardPreflightLine(1, 1)).toBe("Discards 1 round · 1 file");
-  });
-
-  it("omits the half that is zero", () => {
-    expect(discardPreflightLine(4, 0)).toBe("Discards 4 rounds");
-    expect(discardPreflightLine(0, 2)).toBe("Discards 2 files");
-  });
-
-  it("does not invent a stake for an arc with no work", () => {
-    expect(discardPreflightLine(0, 0)).toBe(
-      "Discards nothing — this arc has no work",
-    );
   });
 });
 

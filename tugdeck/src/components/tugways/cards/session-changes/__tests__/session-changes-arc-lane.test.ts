@@ -23,7 +23,6 @@ import {
   arcBranchRef,
   arcRowOpensItself,
   orderArcLane,
-  discardConfirmMessage,
 } from "../session-changes-arc-lane";
 import { compareArcEntries } from "@/lib/arc-order";
 
@@ -226,78 +225,6 @@ describe("canDiscardFromHere", () => {
   test("a card with no session id cannot claim another session's arc", () => {
     const theirs = arc({ bound_session: "some-other-session" });
     expect(canDiscardFromHere(theirs, undefined, null)).toBe(false);
-  });
-});
-
-describe("discardConfirmMessage", () => {
-  const base: ArcChangesetEntry = {
-    ...ARCS[0]!,
-    display_name: "sporty-snail",
-    base: "main",
-    rounds: 0,
-    files: [],
-    worktree_dirty: false,
-    documents: undefined,
-  };
-
-  test("names the arc and what teardown deletes, always", () => {
-    expect(discardConfirmMessage(base)).toBe(
-      "Discard sporty-snail: deletes the branch and worktree.",
-    );
-  });
-
-  test("an arc with no work carries no discards clause", () => {
-    // Saying "discards 0 rounds" would invent a stake that is not there.
-    expect(discardConfirmMessage(base)).not.toContain("Discards");
-  });
-
-  test("rounds and files are counted into one discards clause", () => {
-    const worked: ArcChangesetEntry = {
-      ...base,
-      rounds: 2,
-      files: [ARCS[0]!.files[0]!].filter(Boolean),
-    };
-    const message = discardConfirmMessage(worked);
-    expect(message).toContain("Discards 2 rounds · 1 file");
-  });
-
-  test("a dirty worktree names the hand-back and its destination", () => {
-    // `arc discard` writes the worktree's uncommitted files back into the
-    // base checkout rather than destroying them. A reader who was not told
-    // that has not consented to it.
-    const dirty: ArcChangesetEntry = { ...base, worktree_dirty: true };
-    expect(discardConfirmMessage(dirty)).toContain(
-      "Uncommitted files in the worktree are handed back to main.",
-    );
-  });
-
-  test("a clean worktree says nothing about a hand-back", () => {
-    expect(discardConfirmMessage(base)).not.toContain("handed back");
-  });
-
-  test("an arc with documents says they stay", () => {
-    // A discard keeps the arc's documents precisely so it can never destroy
-    // decisions the user may want back; the message says where they are.
-    const planned: ArcChangesetEntry = {
-      ...base,
-      documents: { plan: "/repo/.tug/arcs/sporty-snail/plan.md" },
-    };
-    expect(discardConfirmMessage(planned)).toContain(
-      "Its documents stay at .tug/arcs/sporty-snail/.",
-    );
-  });
-
-  test("the round subjects are not in the message", () => {
-    // They live on the row, which renders them when expanded. The popover's
-    // message is one flat string that would size itself off the longest
-    // subject, and duplicating the row's own list is what this pass deleted.
-    const subjects = ["tugarc(x): a very long round subject indeed"];
-    const withSubjects: ArcChangesetEntry = {
-      ...base,
-      rounds: 1,
-      round_subjects: subjects,
-    };
-    expect(discardConfirmMessage(withSubjects)).not.toContain(subjects[0]!);
   });
 });
 

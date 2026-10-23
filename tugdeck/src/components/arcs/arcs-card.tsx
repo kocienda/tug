@@ -1268,10 +1268,7 @@ function ArcsBody(): React.ReactElement {
   const confirm =
     pendingConfirm === null
       ? null
-      : discardConfirm(
-          pendingConfirm.row.entry.display_name,
-          pendingConfirm.kind === "delete",
-        );
+      : discardConfirm(pendingConfirm.kind === "delete");
 
   // The opening key view lands on a real row, never on emptiness: an empty list
   // is not a focus stop, and `useSeedKeyView` re-arms while the key is null, so

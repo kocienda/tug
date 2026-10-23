@@ -250,23 +250,6 @@ export function reportedBlockers(
     .filter(({ blocker, index }) => index > 0 || blocker.remedy !== undefined);
 }
 
-/**
- * What a discard would destroy, as one clause. Pure, so the sentence the
- * confirm is measured against is testable without a surface. The lane's
- * `discardConfirmMessage` composes it into the popover's fact sheet.
- */
-export function discardPreflightLine(rounds: number, files: number): string {
-  const parts: string[] = [];
-  if (rounds > 0) parts.push(`${rounds} round${rounds === 1 ? "" : "s"}`);
-  // The entry's `files` is the arc's range diff, not worktree dirt, so the
-  // line says `file` — the receipt (Spec S02) counts the same way.
-  if (files > 0) parts.push(`${files} file${files === 1 ? "" : "s"}`);
-  // An arc with neither is the light confirm: there is nothing to warn about,
-  // and saying "discards 0 rounds" would invent a stake that is not there.
-  if (parts.length === 0) return "Discards nothing — this arc has no work";
-  return `Discards ${parts.join(" · ")}`;
-}
-
 export const QUESTION_DECLINED_TO_CHOOSE =
   "The user declined to choose. Stop and report what you found, without guessing past this conflict.";
 

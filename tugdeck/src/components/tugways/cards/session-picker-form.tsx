@@ -834,11 +834,7 @@ export function SessionProjectPickerForm({
         <TugConfirmPopover
           open={pendingRemoveDir !== null}
           anchorEl={pendingRemoveAnchorEl}
-          message={
-            pendingRemoveDir !== null
-              ? `Remove ${pendingRemoveDir} from recent projects?`
-              : "Remove from recent projects?"
-          }
+          message="Remove from recent projects?"
           confirmLabel="Remove"
           confirmRole="danger"
           side="left"

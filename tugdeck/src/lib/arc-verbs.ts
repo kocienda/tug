@@ -362,22 +362,12 @@ export function arcVerbs(input: ArcVerbInput): ArcVerbSet {
 /**
  * What Discard's confirm says, and the word on its button.
  *
- * A fact sheet, never "are you sure": a branched arc's discard ends its branch
- * and worktree and hands uncommitted work back to the base checkout; a
- * branchless arc's discard is the documents' delete ([B07]), and the clause
- * that earns its confirm is that `.tug/` is untracked, so nothing restores it.
+ * One short question. The popover is anchored to the arc's own row, so it
+ * names neither the arc nor the mechanics of teardown; a branchless arc's
+ * discard is the documents' delete ([B07]).
  */
-export function discardConfirm(
-  arc: string,
-  branchless: boolean,
-): { message: string; confirmLabel: string } {
+export function discardConfirm(branchless: boolean): { message: string; confirmLabel: string } {
   return branchless
-    ? {
-        message: `Delete the documents for ${arc}? They are untracked — git will not give them back.`,
-        confirmLabel: "Delete",
-      }
-    : {
-        message: `Discard ${arc}? Its branch and worktree go; uncommitted work returns to the base checkout.`,
-        confirmLabel: "Discard",
-      };
+    ? { message: "Delete this arc's documents?", confirmLabel: "Delete" }
+    : { message: "Discard this arc?", confirmLabel: "Discard" };
 }

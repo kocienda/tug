@@ -112,7 +112,6 @@ import { useChangesetJoinLand, useChangesetJoinResolve } from "@/lib/changeset-j
 import { ARC_UNBOUND_LABEL, arcFrontedLabel } from "./changes-section-labels";
 import {
   SessionChangesArcJoin,
-  discardPreflightLine,
   type ArcJoinActions,
 } from "./session-changes-arc-join";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
@@ -321,41 +320,6 @@ export function canDiscardFromHere(
   // is the session named on arc B. The predicate answers by fact, not by
   // fronting.
   return ownTugSessionId !== undefined && bound === ownTugSessionId;
-}
-
-/**
- * The discard confirm's message: a fact sheet, never "are you sure".
- *
- * Every clause names something the reader cannot see by looking at the row.
- * The hand-back sentence is the one that must never be dropped — `arc discard`
- * deliberately writes the worktree's uncommitted files back into the base
- * checkout rather than destroying them, and a person who has not been told that
- * has not agreed to it. The plan sentence is the same kind of fact:
- * `restore_plan_to_base` runs before teardown, unconditionally, so discarding a
- * arc never destroys the authored plan document.
- *
- * The round subjects are deliberately absent: the row already lists them in
- * `session-changes-arc-subjects` when expanded, and `TugConfirmPopover`'s
- * message is one flat string that would size itself off the longest subject.
- *
- * Pure, so the sentence is testable without mounting the lane.
- */
-export function discardConfirmMessage(entry: ArcChangesetEntry): string {
-  const clauses = [
-    `Discard ${entry.display_name}: deletes the branch and worktree.`,
-  ];
-  if (entry.rounds > 0 || entry.files.length > 0) {
-    clauses.push(`${discardPreflightLine(entry.rounds, entry.files.length)}.`);
-  }
-  if (entry.worktree_dirty) {
-    clauses.push(
-      `Uncommitted files in the worktree are handed back to ${entry.base}.`,
-    );
-  }
-  if (entry.documents !== undefined) {
-    clauses.push(`Its documents stay at .tug/arcs/${entry.display_name}/.`);
-  }
-  return clauses.join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -990,11 +954,7 @@ export function SessionChangesArcLane({
         open={pendingDiscard !== null}
         anchorEl={pendingDiscard?.anchor ?? null}
         message={
-          pendingDiscard === null
-            ? ""
-            : pendingDiscard.kind === "discard"
-              ? discardConfirmMessage(pendingDiscard.entry)
-              : discardConfirm(pendingDiscard.entry.display_name, true).message
+          pendingDiscard === null ? "" : discardConfirm(pendingDiscard.kind === "delete").message
         }
         confirmLabel={pendingDiscard?.kind === "delete" ? "Delete" : "Discard"}
         confirmRole="danger"

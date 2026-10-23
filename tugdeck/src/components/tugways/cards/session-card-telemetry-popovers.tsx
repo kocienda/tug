@@ -1959,7 +1959,7 @@ export function useArcPopoverVerbs({
     }
   };
 
-  const sentence = discardConfirm(fact.name, fact.branch === null);
+  const sentence = discardConfirm(fact.branch === null);
   const confirm = (
     <TugConfirmPopover
       open={armed}
