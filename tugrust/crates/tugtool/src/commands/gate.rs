@@ -458,6 +458,8 @@ mod tests {
     #[test]
     fn waiter_wakes_on_holder_exit_eof() {
         let (listener, port) = bind_ephemeral();
+        let released = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let holder_released = std::sync::Arc::clone(&released);
         let handle = std::thread::spawn(move || {
             // Accept one connection, hold it briefly, then drop
             // listener + connection (simulates holder exit).
@@ -465,14 +467,14 @@ mod tests {
             let _ =
                 stream.write_all(b"{\"gate\":\"t\",\"label\":\"\",\"pid\":1,\"since\":\"now\"}\n");
             std::thread::sleep(Duration::from_millis(150));
+            holder_released.store(true, std::sync::atomic::Ordering::SeqCst);
             // stream + listener drop here → waiter sees EOF.
         });
-        let start = std::time::Instant::now();
         wait_for_release(port);
+        // The waiter blocked until the holder dropped, not an immediate
+        // return: the flag set just before the drop is already set.
+        assert!(released.load(std::sync::atomic::Ordering::SeqCst));
         handle.join().expect("holder thread");
-        // The waiter must have blocked until the holder dropped —
-        // i.e. roughly the hold duration, not an immediate return.
-        assert!(start.elapsed() >= Duration::from_millis(100));
     }
 
     fn probe_name(p: &HolderProbe) -> &'static str {

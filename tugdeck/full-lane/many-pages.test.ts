@@ -20,7 +20,7 @@ import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import { createPageBus, type PageBus } from "@/bus/page-bus";
 import { connectionTransport } from "@/bus/transport";
 import { cardContext, cardFacts } from "@/bus/declarations/card";
-import { BUILD_TIMEOUT_MS, PageClient, startRealTugcast, type RealTugcast } from "../testing/real-tugcast";
+import { PageClient, startRealTugcast, type RealTugcast } from "@/lib/ingest/testing/real-tugcast";
 
 /** `CLOSE_BAD_HANDSHAKE` in `tugcast-core/src/protocol.rs`. */
 const CLOSE_BAD_HANDSHAKE = 4003;
@@ -38,7 +38,7 @@ let clients: PageClient[] = [];
 
 beforeAll(async () => {
   tugcast = await startRealTugcast();
-}, BUILD_TIMEOUT_MS);
+});
 
 afterAll(async () => {
   await tugcast?.stop();

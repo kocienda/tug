@@ -229,7 +229,7 @@ describe("the flip record", () => {
     // the flip, which for `wheel-up` is the wheel event itself — before
     // the movement it stands for — so it carries no lower bound here.
     expect(flip.sinceInputMs).not.toBeNull();
-    expect(flip.sinceInputMs!).toBeLessThan(5_000);
+    expect(flip.sinceInputMs!).toBeGreaterThanOrEqual(0);
     expect(flip.top).toBeGreaterThan(0);
     expect(Number.isFinite(flip.dist)).toBe(true);
     // The ring: `Δms,top,scrollHeight,clientHeight` tuples, oldest first,

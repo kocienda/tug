@@ -42,6 +42,16 @@ export const LONG_RECIPES = [
   "tugmark-fuzz",
   "test-swift",
   "test-standalone",
+  "test-fast",
+  "test-slow",
+  "test-rust-slow",
+  "test-ts-slow",
+  "lint",
+  "lint-audit",
+  "lint-ts",
+  "lint-rust",
+  "ci",
+  "ci-full",
 ];
 
 /** Listed recipes that report nothing, each with the reason it may. */

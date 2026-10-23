@@ -19,10 +19,12 @@
  *      call them. [D09]
  *
  *   2. `setBaseAndExtent(` appears in `selection-guard.ts` (drag-clip +
- *      `restoreCardDomSelection`) and `text-selection-adapter.ts`
- *      (word-at-point click). Any other production callsite is an
- *      independent programmatic selection path that bypasses
- *      selection-guard — a design regression.
+ *      `restoreCardDomSelection`), `text-selection-adapter.ts`
+ *      (word-at-point click), `selection-extension.ts` (shift extent) and
+ *      `atom-decoration.ts` (re-seating WebKit's caret on the selection it
+ *      already reports). Any other production callsite is an independent
+ *      programmatic selection path that bypasses selection-guard — a
+ *      design regression.
  *
  *   3. `setSelectionRange(` appears in `card-host.tsx`
  *      (`applyFormControlSnapshot`), `use-text-input-responder.tsx`
@@ -130,16 +132,20 @@ describe("selection-persistence grep contracts (Step 15)", () => {
     expect(hits.length).toBe(0);
   });
 
-  it("setBaseAndExtent( appears only in selection-guard.ts, text-selection-adapter.ts, and selection-extension.ts", () => {
+  it("setBaseAndExtent( appears only in selection-guard.ts, text-selection-adapter.ts, selection-extension.ts, and atom-decoration.ts", () => {
     // selection-guard: drag-clip focus pin + `restoreCardDomSelection`
     //   paint path + `updatePaint` native-selection sync.
     // text-selection-adapter: word-at-point click place-caret.
     // selection-extension: shift-click / shift-drag extent placement, the
     //   one path that must express base-before-extent ordering directly.
+    // atom-decoration: `regenCaretResync` collapses the DOM selection onto
+    //   the very anchor and focus it reports, after an atom regeneration,
+    //   so WebKit's caret is re-seated; it moves no selection.
     const allowlist = new Set<string>([
       "components/tugways/selection-guard.ts",
       "components/tugways/text-selection-adapter.ts",
       "components/tugways/selection-extension.ts",
+      "components/tugways/tug-text-editor/atom-decoration.ts",
     ]);
     const hits = scanFor("setBaseAndExtent(", allowlist);
     if (hits.length > 0) {

@@ -21,5 +21,5 @@
     "types": ["bun-types"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "full-lane/**/*.ts"]
 }

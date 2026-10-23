@@ -1529,6 +1529,7 @@ mod tests {
         h.wait(100).await;
         let frames = h.frames();
         for pair in frames.windows(2) {
+            // shape-lint: paused-clock — tokio's virtual clock, not the machine's
             assert!(pair[1].0 - pair[0].0 >= Duration::from_millis(50));
         }
         assert!(frames.len() <= 4, "{} frames in 200 ms", frames.len());
@@ -1630,6 +1631,7 @@ mod tests {
         assert_eq!(b.len(), 3, "B takes every tick");
         let a = h.batches_for(A);
         assert_eq!(a.len(), 2, "A takes the first and one merged emission");
+        // shape-lint: paused-clock — tokio's virtual clock, not the machine's
         assert!(a[1].0 - a[0].0 >= Duration::from_millis(50));
         let (first, merged) = (only_message(&a[0].1), only_message(&a[1].1));
         assert_eq!(merged.seq, only_message(&b[2].1).seq);

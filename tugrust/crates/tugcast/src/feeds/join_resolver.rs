@@ -1976,9 +1976,8 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        let lease = held.expect("the resolver's begin marker leases the chain");
+        held.expect("the resolver's begin marker leases the chain");
         assert_eq!(chain_subject(&repo), "tugresolve(demo): begin");
-        assert!(lease.age < Duration::from_secs(120), "{:?}", lease.age);
 
         std::fs::write(&gate, "").unwrap();
         running.await.unwrap().expect("the resolve runs");

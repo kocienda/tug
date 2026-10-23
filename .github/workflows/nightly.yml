@@ -32,7 +32,13 @@ env:
   SIGNED: ${{ github.event_name != 'workflow_dispatch' && 'true' || inputs.signed }}
 
 jobs:
+  # The full lane runs first, and a red keeps the build unpublished: the
+  # nightly never ships a tree the slow suites refuse.
+  full-lane:
+    uses: ./.github/workflows/full-lane.yml
+
   build-nightly:
+    needs: full-lane
     # macos-26, not macos-15: the dictation host engine compiles against
     # SpeechAnalyzer / SpeechTranscriber, which exist only in the macOS 26
     # SDK. A macos-15 runner tops out at the 15.5 SDK, where those types
@@ -65,7 +71,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.x
+          bun-version-file: .bun-version
 
       - name: Install just
         uses: taiki-e/install-action@just
@@ -183,8 +189,9 @@ jobs:
           tugrust/scripts/build-app.sh "${ARGS[@]}"
 
       # The TugTests bundle: host-less XCTest over the app's Foundation-only
-      # sources. ci.yml has no macOS runner, so this is where a Swift red shows
-      # up — and, being before the publish, a red keeps the build unpublished.
+      # sources, run again here against the tree the DMG was just built from:
+      # the full lane ran them on the same commit before this job started, and
+      # being before the publish, a red here keeps the build unpublished.
       - name: Swift unit tests
         run: just test-swift
 

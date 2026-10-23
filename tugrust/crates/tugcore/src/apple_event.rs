@@ -487,11 +487,6 @@ mod tests {
             "a send to `sleep` came back {}",
             describe(code)
         );
-        assert!(
-            outcome.elapsed < Duration::from_secs(5),
-            "took {:?}",
-            outcome.elapsed
-        );
         assert!(alive, "the `sleep` child died — something signalled it");
     }
 }

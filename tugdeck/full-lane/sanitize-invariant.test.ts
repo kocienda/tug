@@ -27,14 +27,14 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { initSync } from "../../../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
+import { initSync } from "../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 
-import { DEFAULT_BLOCK_TRANSFORMERS } from "../block-transformers";
-import { getDOMPurify, SANITIZE_CONFIG } from "../dompurify-instance";
-import { parseMarkdownToSanitizedBlocks } from "../parse-markdown-to-sanitized-blocks";
-import { type Attr, violations, violationsIn } from "./sanitize-invariant-check";
+import { DEFAULT_BLOCK_TRANSFORMERS } from "@/lib/markdown/block-transformers";
+import { getDOMPurify, SANITIZE_CONFIG } from "@/lib/markdown/dompurify-instance";
+import { parseMarkdownToSanitizedBlocks } from "@/lib/markdown/parse-markdown-to-sanitized-blocks";
+import { type Attr, violations, violationsIn } from "@/lib/markdown/__tests__/sanitize-invariant-check";
 
-const TUGDECK = join(import.meta.dir, "../../../..");
+const TUGDECK = join(import.meta.dir, "..");
 const read = (rel: string): string => readFileSync(join(TUGDECK, rel), "utf8");
 
 const GOLDEN = JSON.parse(read("crates/tugmark/corpus/golden.json")) as {
@@ -183,7 +183,7 @@ describe("the fuzz", () => {
       if (failures.length >= 20) break;
     }
     expect(failures).toEqual([]);
-  }, 120_000);
+  });
 });
 
 // ---------------------------------------------------------------------------

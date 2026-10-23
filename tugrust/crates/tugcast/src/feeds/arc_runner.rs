@@ -8424,6 +8424,7 @@ Some context.
 
         // Nothing the stage was asked for has moved — only the harness's own
         // turn, which is exactly the reading the clock must accept.
+        let before_wake = Instant::now();
         woke(&entry).await;
         sweep(&ctx, &state).await;
 
@@ -8435,9 +8436,7 @@ Some context.
         let map = state.lock().await;
         let after = &map[&demo_key(root)];
         assert!(
-            after
-                .last_motion_at
-                .is_some_and(|at| at.elapsed() < Duration::from_secs(1)),
+            after.last_motion_at.is_some_and(|at| at >= before_wake),
             "and the stamp moved to the wake rather than staying five seconds stale",
         );
     }

@@ -22,9 +22,9 @@
 import { describe, expect, it } from "bun:test";
 import path from "path";
 
-import type { ChunkRecord } from "../../scripts/release-chunk-graph";
+import type { ChunkRecord } from "../scripts/release-chunk-graph";
 
-const DECK_ROOT = path.resolve(import.meta.dir, "../..");
+const DECK_ROOT = path.resolve(import.meta.dir, "..");
 
 // The project's own modules only: `node_modules` carries icons named
 // `gallery-*` that the shipped deck draws.

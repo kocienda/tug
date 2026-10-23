@@ -15,7 +15,7 @@
  * invisible to `testFiles()`, which only scans the corpus root, `harness-smoke/` and `body-grounding/`.
  */
 
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -46,13 +46,6 @@ const FIXTURES = Array.from({ length: MAX_SELECTED + 5 }, (_, i) => `at9900-prin
 const ROOT = join(LEDGER_DIR, "repo");
 const APP_TEST_DIR = join(ROOT, "tests", "app-test");
 const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
-
-/**
- * A run in the copy takes about four seconds where one in the checkout takes a fraction of one, and a case runs it twice
- * — and a CI runner is five to six times slower again, which put the slowest case near 27 s against the 30 s this was.
- * A hang guard, not a speed bar.
- */
-setDefaultTimeout(120_000);
 
 beforeAll(() => {
     mkdirSync(join(ROOT, "tests"), { recursive: true });

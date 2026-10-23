@@ -231,6 +231,18 @@ pub struct Surface {
     /// level deep: a borrowed surface may not itself borrow.
     #[serde(default)]
     pub checked_by: Vec<String>,
+
+    /// Shell commands `tugtool arc commit` runs from the worktree root over the
+    /// round's paths this surface claims, before anything is staged. `{paths}`
+    /// expands to those paths, shell-quoted. A non-zero exit refuses the commit.
+    #[serde(default)]
+    pub commit_check: Vec<String>,
+
+    /// Glob patterns (matched against the path's file name, `*.ts` style) a
+    /// claimed path must match for `commit_check` to run; `{paths}` carries only
+    /// the matching ones. Empty means every claimed path counts.
+    #[serde(default)]
+    pub commit_check_only: Vec<String>,
 }
 
 /// The `[tugtool.report]` table: the commands this project runs that the
@@ -572,6 +584,8 @@ pub enum ConfigRefusal {
     LenderBorrows { surface: String, lender: String },
     /// A `checked_by` naming its own surface.
     SelfBorrow(String),
+    /// A `commit_check_only` filter on a surface with no `commit_check` to filter.
+    FilterWithoutCommitCheck(String),
     /// A config still carrying the retired `[tugtool.run]` table.
     RetiredRunTable,
     /// A runner with an empty `match`.
@@ -654,6 +668,11 @@ impl std::fmt::Display for ConfigRefusal {
             Self::SelfBorrow(name) => {
                 write!(f, "surface {name:?} declares itself in its own checked_by")
             }
+            Self::FilterWithoutCommitCheck(name) => write!(
+                f,
+                "surface {name:?} declares commit_check_only with no commit_check — the \
+                 filter has nothing to run"
+            ),
             Self::RetiredRunTable => f.write_str(
                 "[tugtool.run] is retired — the runner table is [[tugtool.report.runner]] now, \
                  and its rows are not read until it is renamed",
@@ -812,6 +831,14 @@ impl ArcConfig {
                     }
                     Some(_) => {}
                 }
+            }
+        }
+
+        for surface in &self.surfaces {
+            if !surface.commit_check_only.is_empty() && surface.commit_check.is_empty() {
+                return Err(ConfigRefusal::FilterWithoutCommitCheck(
+                    surface.name.clone(),
+                ));
             }
         }
 
@@ -1031,6 +1058,11 @@ mod tests {
                 "a surface borrowing itself",
                 "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"a\"]\n",
                 &["\"a\""],
+            ),
+            (
+                "a commit_check_only with no commit_check",
+                "[[tugtool.arc.surface]]\nname = \"a\"\npaths = [\"x/\"]\ncommit_check_only = [\"*.ts\"]\n",
+                &["\"a\"", "commit_check_only", "no commit_check"],
             ),
         ];
 

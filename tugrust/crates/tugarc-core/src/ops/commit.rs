@@ -3,7 +3,9 @@
 
 use serde::Serialize;
 use std::path::Path;
+use std::process::Command;
 use tugcore::instance::Paths;
+use tugtool_core::config::{Config, Surface};
 
 use super::documents::ledger_file;
 use super::git::{LockAttempt, git_output, git_stdout, git_write, retry_past_index_lock};
@@ -11,10 +13,11 @@ use super::identity::{
     arc_base, arc_record_exists, branch_exists, branch_name, ensure_arc_id, reconcile_branches,
     worktree_path,
 };
-use super::listing::has_uncommitted;
+use super::listing::{dirty_tracked_paths, has_uncommitted, untracked_paths};
 use super::show::sessions_db_file;
 use crate::error::ArcError;
 use crate::log::{ArcRoundMeta, MarkStage, append_arc_log, append_mark_declaration, is_yield_note};
+use crate::surfaces::{claiming_surface, expand};
 
 /// Outcome of [`commit_in`].
 #[derive(Debug, Clone, Serialize)]
@@ -132,6 +135,16 @@ pub fn commit_in(
     // backfills its creation id here ([P02]).
     let _ = ensure_arc_id(repo_root, name);
 
+    // The surfaces' commit checks run over the round's paths before anything
+    // is staged, so a refusal leaves the worktree exactly as it found it. A
+    // `yield:` round is committed unchecked: a stage yields mid-step precisely
+    // when its work is unfinished, and refusing that commit over a half-written
+    // type would strand the hand-off the wheel compacts on.
+    let subject = message.lines().next().unwrap_or("").trim();
+    if !is_yield_note(subject) {
+        run_commit_checks(&worktree)?;
+    }
+
     // `--message` is the conventional-commit subject; a longer `summary`
     // (if any) enriches the body. Byte-safe: no slicing on a char boundary.
     let summary = round_meta
@@ -195,7 +208,6 @@ pub fn commit_in(
     // a stage that yields on a clean tree still owes the wheel the line it
     // compacts on and the next session the task it resumes from.
     // The subject line alone: an arc-log note is one line.
-    let subject = message.lines().next().unwrap_or("").trim();
     if is_yield_note(subject) {
         append_arc_log(paths, repo_root, name, "arc-note", subject)
             .map_err(|e| ArcError::arc_log(paths, repo_root, e))?;
@@ -205,6 +217,128 @@ pub fn commit_in(
         committed: has_changes,
         commit_hash,
     })
+}
+
+/// How many trailing lines of a failed commit check's output the refusal carries.
+const COMMIT_CHECK_TAIL_LINES: usize = 60;
+
+/// Run every surface's `commit_check` over the round's paths it claims.
+///
+/// The round's paths are the worktree's dirty tracked and untracked files that
+/// still exist (a deletion has nothing to check). Each is resolved to the
+/// surface claiming it; a surface with a `commit_check` runs each command
+/// through `sh -c` from the worktree root with `{paths}` expanded to the claimed
+/// paths, narrowed by `commit_check_only` when it declares one. The first
+/// non-zero exit refuses the commit, naming the command, the surface, the
+/// status and the tail of the output.
+///
+/// A worktree with no `.tugtool/config.toml`, a config that does not load, no
+/// surfaces, or no `commit_check` runs nothing: the commit path never refuses
+/// over a config it would not otherwise read. A malformed config is `verify`'s
+/// to refuse. Unclaimed paths are not a refusal here either — a round often
+/// touches a file nobody has declared yet, and `verify` is where that is named.
+pub(crate) fn run_commit_checks(worktree: &Path) -> Result<(), ArcError> {
+    let mut touched: Vec<String> = Vec::new();
+    for path in dirty_tracked_paths(worktree)
+        .into_iter()
+        .chain(untracked_paths(worktree))
+    {
+        if !touched.contains(&path) && worktree.join(&path).exists() {
+            touched.push(path);
+        }
+    }
+    if touched.is_empty() {
+        return Ok(());
+    }
+
+    let Ok(config) = Config::load_from_project(worktree) else {
+        return Ok(());
+    };
+    let surfaces = &config.tugtool.arc.surfaces;
+
+    for surface in surfaces.iter().filter(|s| !s.commit_check.is_empty()) {
+        let claimed: Vec<String> = touched
+            .iter()
+            .filter(|path| claiming_surface(surfaces, path).is_some_and(|s| s.name == surface.name))
+            .filter(|path| commit_check_applies(surface, path))
+            .cloned()
+            .collect();
+        if claimed.is_empty() {
+            continue;
+        }
+        for command in &surface.commit_check {
+            let expanded = expand(command, "HEAD", "HEAD", &claimed);
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg(&expanded)
+                .current_dir(worktree)
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .output()
+                .map_err(|e| {
+                    ArcError::Refused(format!(
+                        "commit check `{command}` (surface {}) could not run: {e}; the round is not committed",
+                        surface.name
+                    ))
+                })?;
+            if output.status.success() {
+                continue;
+            }
+            let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
+            combined.push_str(&String::from_utf8_lossy(&output.stderr));
+            let lines: Vec<&str> = combined.lines().collect();
+            let start = lines.len().saturating_sub(COMMIT_CHECK_TAIL_LINES);
+            let tail = lines[start..].join("\n");
+            let status = output
+                .status
+                .code()
+                .map_or_else(|| "by signal".to_string(), |c| c.to_string());
+            return Err(ArcError::Refused(format!(
+                "commit check `{command}` (surface {}) exited {status}; the round is not committed\n{tail}",
+                surface.name
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Whether a claimed path is one this surface's `commit_check` runs over: every
+/// path when `commit_check_only` is empty, else one whose file name matches a
+/// pattern.
+fn commit_check_applies(surface: &Surface, path: &str) -> bool {
+    if surface.commit_check_only.is_empty() {
+        return true;
+    }
+    let file_name = path.rsplit('/').next().unwrap_or(path);
+    surface
+        .commit_check_only
+        .iter()
+        .any(|pattern| file_name_glob_matches(pattern, file_name))
+}
+
+/// A file-name glob with `*` as its one wildcard, matching any run of
+/// characters: `*.ts` matches `a.ts` and `.ts`, not `a.tsx`.
+fn file_name_glob_matches(pattern: &str, name: &str) -> bool {
+    if !pattern.contains('*') {
+        return pattern == name;
+    }
+    let mut parts = pattern.split('*');
+    let first = parts.next().unwrap_or("");
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    let parts: Vec<&str> = parts.collect();
+    let (last, middle) = parts
+        .split_last()
+        .expect("a pattern with `*` has a tail part");
+    for part in middle {
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+    rest.ends_with(last)
 }
 
 /// The committing session's identity for the commit trailers: the human
@@ -455,6 +589,181 @@ mod tests {
         // left — the same outcome a clean worktree has always produced.
         assert!(!outcome.committed);
         assert!(outcome.commit_hash.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // commit_check: a surface's declared check runs over the round's paths it
+    // claims, before anything is staged.
+    // -----------------------------------------------------------------------
+
+    /// An arc over a base whose `.tugtool/config.toml` is `config`, so the
+    /// worktree carries it too.
+    fn arc_with_config(temp: &TempDir, name: &str, config: &str) -> (std::path::PathBuf, Paths) {
+        let (repo, paths) = repo_beside_state(temp);
+        fs::create_dir_all(repo.join(".tugtool")).unwrap();
+        fs::write(repo.join(".tugtool/config.toml"), config).unwrap();
+        commit_all(&repo, "declare the surfaces");
+        create_in(&paths, &repo, name, None, false, None).unwrap();
+        (repo, paths)
+    }
+
+    fn touch(worktree: &Path, path: &str) {
+        let full = worktree.join(path);
+        fs::create_dir_all(full.parent().unwrap()).unwrap();
+        fs::write(full, "work\n").unwrap();
+    }
+
+    fn src_surface(commit_check: &str, only: &str) -> String {
+        format!(
+            "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = []\ncommit_check = [{commit_check}]\n{only}"
+        )
+    }
+
+    const REFUSING: &str = "\"sh -c 'echo type error; exit 1'\"";
+
+    #[test]
+    fn commit_check_refuses_the_round_and_commits_nothing() {
+        let temp = TempDir::new().unwrap();
+        let (repo, paths) = arc_with_config(&temp, "checked", &src_surface(REFUSING, ""));
+        let worktree = worktree_path(&repo, "checked");
+        let before = head_sha(&worktree);
+        touch(&worktree, "src/a.ts");
+
+        let err = commit_in(
+            &paths,
+            &repo,
+            "checked",
+            "tugarc(checked): a round",
+            None,
+            None,
+        )
+        .expect_err("a failing check refuses the round")
+        .to_string();
+        assert!(
+            err.contains("type error"),
+            "the check's output is in the refusal: {err}"
+        );
+        assert!(err.contains("surface src"), "the surface is named: {err}");
+        assert!(err.contains("exited 1"), "the status is named: {err}");
+        assert_eq!(head_sha(&worktree), before, "nothing was committed");
+        assert!(
+            porcelain_of(&worktree).contains("?? src/"),
+            "the dirt is still untracked"
+        );
+    }
+
+    #[test]
+    fn commit_check_receives_the_claimed_paths_and_the_round_lands() {
+        let temp = TempDir::new().unwrap();
+        let scratch = TempDir::new().unwrap();
+        let seen = scratch.path().join("seen");
+        let command = format!("\"printf '%s\\\\n' {{paths}} > {}\"", seen.display());
+        let (repo, paths) = arc_with_config(&temp, "seen", &src_surface(&command, ""));
+        let worktree = worktree_path(&repo, "seen");
+        let before = head_sha(&worktree);
+        touch(&worktree, "src/a.ts");
+        touch(&worktree, "docs/unclaimed.md");
+
+        let outcome = commit_in(&paths, &repo, "seen", "tugarc(seen): a round", None, None)
+            .expect("a green check lets the round land");
+        assert!(outcome.committed);
+        assert_ne!(head_sha(&worktree), before);
+        assert_eq!(
+            fs::read_to_string(&seen).unwrap(),
+            "src/a.ts\n",
+            "only the surface's own claimed path is handed to the check"
+        );
+    }
+
+    #[test]
+    fn a_yield_round_is_committed_unchecked() {
+        let temp = TempDir::new().unwrap();
+        let (repo, paths) = arc_with_config(&temp, "yielding", &src_surface(REFUSING, ""));
+        let worktree = worktree_path(&repo, "yielding");
+        touch(&worktree, "src/a.ts");
+
+        let outcome = commit_in(
+            &paths,
+            &repo,
+            "yielding",
+            "yield: half the type; files: src/a.ts; next: the other half",
+            None,
+            None,
+        )
+        .expect("a yield is the hand-off the wheel compacts on, and it lands as it is");
+        assert!(outcome.committed);
+    }
+
+    #[test]
+    fn commit_check_only_skips_a_round_with_no_matching_file() {
+        let temp = TempDir::new().unwrap();
+        let config = src_surface("\"exit 1\"", "commit_check_only = [\"*.ts\", \"*.tsx\"]\n");
+        let (repo, paths) = arc_with_config(&temp, "rust-only", &config);
+        let worktree = worktree_path(&repo, "rust-only");
+        touch(&worktree, "src/a.rs");
+
+        let outcome = commit_in(
+            &paths,
+            &repo,
+            "rust-only",
+            "tugarc(rust-only): a round",
+            None,
+            None,
+        )
+        .expect("a round outside the filter runs no check");
+        assert!(outcome.committed);
+
+        touch(&worktree, "src/b.tsx");
+        let err = commit_in(
+            &paths,
+            &repo,
+            "rust-only",
+            "tugarc(rust-only): b",
+            None,
+            None,
+        )
+        .expect_err("a matching file runs the check, which refuses");
+        assert!(err.to_string().contains("surface src"), "{err}");
+    }
+
+    #[test]
+    fn a_worktree_with_no_config_commits_as_before() {
+        let temp = TempDir::new().unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "plain", None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "plain");
+        assert!(!worktree.join(".tugtool/config.toml").exists());
+        touch(&worktree, "src/a.ts");
+
+        let outcome = commit_in(&paths, &repo, "plain", "tugarc(plain): a round", None, None)
+            .expect("no config, no check");
+        assert!(outcome.committed);
+    }
+
+    #[test]
+    fn a_filter_with_no_commit_check_is_refused_by_validate() {
+        let temp = TempDir::new().unwrap();
+        fs::create_dir_all(temp.path().join(".tugtool")).unwrap();
+        fs::write(
+            temp.path().join(".tugtool/config.toml"),
+            "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncommit_check_only = [\"*.ts\"]\n",
+        )
+        .unwrap();
+        let refusal =
+            Config::load_from_project(temp.path()).expect_err("a filter with nothing to run");
+        assert!(refusal.to_string().contains("\"src\""), "{refusal}");
+    }
+
+    #[test]
+    fn the_file_name_glob_is_star_only() {
+        assert!(file_name_glob_matches("*.ts", "a.ts"));
+        assert!(file_name_glob_matches("*.ts", ".ts"));
+        assert!(!file_name_glob_matches("*.ts", "a.tsx"));
+        assert!(file_name_glob_matches("*.test.*", "a.test.ts"));
+        assert!(!file_name_glob_matches("*.test.*", "a.ts"));
+        assert!(file_name_glob_matches("exact.rs", "exact.rs"));
+        assert!(!file_name_glob_matches("exact.rs", "inexact.rs"));
+        assert!(file_name_glob_matches("*", "anything"));
     }
 
     #[test]

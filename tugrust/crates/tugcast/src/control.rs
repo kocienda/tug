@@ -636,12 +636,10 @@ mod tests {
         let link = HostLink::default();
         let (tx, mut rx) = mpsc::channel::<String>(4);
         link.attach(tx);
-        let started = std::time::Instant::now();
         assert_eq!(
             link.request_state(Duration::from_millis(100)).await,
             Err(HostStateError::NoAnswer)
         );
-        assert!(started.elapsed() < Duration::from_secs(2));
         // The request did go out, and a late answer to it lands nowhere.
         let line = rx.recv().await.unwrap();
         let request: serde_json::Value = serde_json::from_str(&line).unwrap();

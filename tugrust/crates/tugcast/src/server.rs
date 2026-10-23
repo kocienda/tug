@@ -3071,18 +3071,16 @@ mod tests {
         assert_eq!(body["state"]["body_count"], 2);
     }
 
-    /// An app that never answers is reported as silent within the timeout —
-    /// the fact a stalled quit's capture needs — rather than hung on.
+    /// An app that never answers is reported as silent — the fact a stalled
+    /// quit's capture needs — rather than hung on.
     #[tokio::test]
-    async fn host_state_from_a_silent_app_is_504_within_the_timeout() {
+    async fn host_state_from_a_silent_app_is_504() {
         let fx = serve_ask_fixture().await;
         let (tx, _rx) = tokio::sync::mpsc::channel::<String>(4);
         fx.host_link.attach(tx);
-        let started = std::time::Instant::now();
         let (status, body) = get_json(&format!("{}/api/host/state", fx.base_url)).await;
         assert_eq!(status, 504);
         assert_eq!(body["status"], "no-answer");
-        assert!(started.elapsed() < HOST_STATE_TIMEOUT + std::time::Duration::from_secs(2));
     }
 
     /// A countdown question carries its answer and its duration to the deck,

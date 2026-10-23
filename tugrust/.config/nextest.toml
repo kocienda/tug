@@ -1,3 +1,10 @@
+# The one Rust hang guard: a test still running after three 60 s periods is
+# terminated and recorded as a failure, with a 10 s grace to unwind. Far
+# above any real test on any machine; a slow test never fails, a hung one
+# ends named rather than holding the run until the CI job's own timeout.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 3, grace-period = "10s" }
+
 # Per-test slow-timeout overrides.
 #
 # Nextest's default slow threshold is 60s, with SLOW warnings repeating at

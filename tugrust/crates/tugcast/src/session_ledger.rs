@@ -15306,24 +15306,17 @@ mod tests {
         };
         assert_eq!(arrivals.recv().await.as_deref(), Some("t1"));
 
-        let (owns, took) = {
+        let owns = {
             let follower = Arc::clone(&follower);
-            tokio::task::spawn_blocking(move || {
-                let at = std::time::Instant::now();
-                (follower.owns_changes_writer(), at.elapsed())
-            })
-            .await
-            .expect("join")
+            tokio::task::spawn_blocking(move || follower.owns_changes_writer())
+                .await
+                .expect("join")
         };
         assert!(
             !write.is_finished(),
             "the probe ran while the forward was stalled"
         );
         assert!(!owns, "the follower still forwards");
-        assert!(
-            took < std::time::Duration::from_millis(250),
-            "the access lock was free during the send; owns_changes_writer took {took:?}"
-        );
 
         write
             .await

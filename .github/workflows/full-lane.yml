@@ -1,0 +1,95 @@
+name: Full Lane
+
+# `just ci-full`: the fast lane, the WASM rebuild, and the slow suites — the
+# Rust set that spawns git or the real tugcast, and `tugdeck/full-lane/`. One
+# reusable job, so the nightly and the release both wait on the same copy of
+# it, and `workflow_dispatch` runs it by hand.
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  full-lane:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      # `just ci` runs `test-swift`, so the SDK is pinned as the nightly and
+      # the release pin it: the macOS 26 Speech APIs are not in the 15.5 SDK.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # No channel here: `rustup toolchain install` with no argument installs
+      # what each directory's `rust-toolchain.toml` pins, components included.
+      - name: Install Rust
+        run: rustup toolchain install
+        working-directory: tugrust
+
+      - name: Install the WASM toolchain
+        run: rustup toolchain install
+        working-directory: tugdeck/crates
+
+      # Restore here, save at the end with `if: always()`, so a red run still
+      # leaves a cache for the next one.
+      - name: Restore cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tugrust/target
+          key: ${{ runner.os }}-cargo-full-lane-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-full-lane-
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.0
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      # `just lint-audit` runs `shellcheck`, which the macOS image does not
+      # carry.
+      - name: Install shellcheck
+        run: brew install shellcheck
+
+      # tugcast refuses to boot without tmux, and the slow suites spawn the
+      # real binary: the integration tests under `crates/tugcast/tests/` and
+      # tugdeck's many-pages suite. The macOS image has none.
+      - name: Install tmux
+        run: brew install tmux
+
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile --cwd tugdeck
+          bun install --frozen-lockfile --cwd tugcode
+          bun install --frozen-lockfile --cwd tests/app-test
+
+      - name: Full lane
+        run: just ci-full
+
+      - name: Save cargo cache
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tugrust/target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}

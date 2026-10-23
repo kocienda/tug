@@ -107,11 +107,51 @@ unit  = "test"
 
 [[tugtool.report.runner]]
 match = "just test-swift"
-unit  = "phase"
+unit  = "test"
 
 [[tugtool.report.runner]]
 match = "just test-standalone"
-unit  = "phase"
+unit  = "test"
+
+[[tugtool.report.runner]]
+match = "just test-fast"
+unit  = "test"
+
+[[tugtool.report.runner]]
+match = "just test-slow"
+unit  = "test"
+
+[[tugtool.report.runner]]
+match = "just test-rust-slow"
+unit  = "test"
+
+[[tugtool.report.runner]]
+match = "just test-ts-slow"
+unit  = "test"
+
+[[tugtool.report.runner]]
+match = "just ci"
+unit  = "test"
+
+[[tugtool.report.runner]]
+match = "just ci-full"
+unit  = "test"
+
+[[tugtool.report.runner]]
+match = "just lint"
+unit  = "check"
+
+[[tugtool.report.runner]]
+match = "just lint-audit"
+unit  = "check"
+
+[[tugtool.report.runner]]
+match = "just lint-ts"
+unit  = "check"
+
+[[tugtool.report.runner]]
+match = "just lint-rust"
+unit  = "check"
 
 [[tugtool.report.runner]]
 match = "just golden"
@@ -128,6 +168,13 @@ unit  = "phase"
 # you it has fallen behind the tree; declare a surface for it.
 #
 # Schema and placeholder contract: Surface in tugtool-core/src/config.rs.
+#
+# `commit_check` is what `tugtool arc commit` runs over a round's claimed paths
+# before anything is staged, narrowed to the file names `commit_check_only`
+# matches; a red one refuses the round. The TypeScript surfaces declare their
+# package's tsc and oxlint, so a type error or a lint warning is caught at the
+# commit instead of two CI rounds later, and a Rust-only or CSS-only round runs
+# nothing. A yield round is never checked.
 
 [[tugtool.arc.surface]]
 name  = "rust"
@@ -143,18 +190,23 @@ check = [
 [[tugtool.arc.surface]]
 name  = "deck"
 paths = ["tugdeck/"]
-# Bare `bun test` runs every suite in ONE process, which is the only thing that
-# sees a process-wide `mock.module` leak — the defect that put five red tests on
-# main, because every checkpoint named files and no single run held both the
-# mocking suite and its victim. About 5½ minutes (336 s measured 2026-10-03 and
-# 2026-10-05) — the audit's one-process leak check, never a step's checkpoint; a
-# step runs the files it touched.
+# `just test-ts` runs tugdeck's whole `src/` suite in ONE process, which is the
+# only thing that sees a process-wide `mock.module` leak — the defect that put
+# five red tests on main, because every checkpoint named files and no single
+# run held both the mocking suite and its victim — and runs it under the bun
+# hang guard. About two minutes — the audit's one-process leak check, never a
+# step's checkpoint; a step runs the files it touched.
 check = [
   "cd tugdeck && bunx tsc --noEmit",
   "cd tugdeck && bunx vite build",
-  "cd tugdeck && bun test",
+  "just test-ts",
   "just app-test-changed {paths}",
 ]
+commit_check = [
+  "cd tugdeck && bunx tsc --noEmit",
+  "tugdeck/node_modules/.bin/oxlint -c tugdeck/.oxlintrc.json --deny-warnings {paths}",
+]
+commit_check_only = ["*.ts", "*.tsx"]
 
 # Shadows `deck` by longest prefix: a change under tugdeck/crates/ runs the
 # wasm build, not the vite one.
@@ -167,13 +219,25 @@ check = ["just wasm"]
 name  = "code"
 paths = ["tugcode/"]
 check = ["cd tugcode && bunx tsc --noEmit"]
+commit_check = [
+  "cd tugcode && bunx tsc --noEmit",
+  "tugdeck/node_modules/.bin/oxlint -c tugdeck/.oxlintrc.json --deny-warnings {paths}",
+]
+commit_check_only = ["*.ts", "*.tsx"]
 
 # One tracked file with no build of its own, checked by both consumers that
-# import it.
+# import it. `checked_by` is not borrowed for commit checks, so the two
+# consumers' tsc commands are declared here as its own.
 [[tugtool.arc.surface]]
 name       = "proto"
 paths      = ["tugproto/"]
 checked_by = ["deck", "code"]
+commit_check = [
+  "cd tugdeck && bunx tsc --noEmit",
+  "cd tugcode && bunx tsc --noEmit",
+  "tugdeck/node_modules/.bin/oxlint -c tugdeck/.oxlintrc.json --deny-warnings {paths}",
+]
+commit_check_only = ["*.ts", "*.tsx"]
 
 [[tugtool.arc.surface]]
 name  = "app"
@@ -184,6 +248,11 @@ check = ["just test-swift", "just build-app", "just app-test-changed {paths}"]
 name  = "app-tests"
 paths = ["tests/app-test/"]
 check = ["cd tests/app-test && bunx tsc --noEmit", "just app-test-changed {paths}"]
+commit_check = [
+  "cd tests/app-test && bunx tsc --noEmit",
+  "tugdeck/node_modules/.bin/oxlint -c tugdeck/.oxlintrc.json --deny-warnings {paths}",
+]
+commit_check_only = ["*.ts", "*.tsx"]
 
 [[tugtool.arc.surface]]
 name  = "prose"
@@ -191,7 +260,7 @@ name  = "prose"
 # `version.sh` and embedded in the appcast. Nothing builds it, and the one
 # thing that could go wrong with it — saying something the release does not
 # do — is not a thing a command can check.
-paths = ["tuglaws/", "briefs/", "release-notes/", "CLAUDE.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
+paths = ["tuglaws/", "briefs/", "release-notes/", "CLAUDE.md", "DEVELOPING.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
 check = []
 
 [[tugtool.arc.surface]]
@@ -207,5 +276,5 @@ name  = "project"
 # scripts and rehearsal tools nothing builds. The longer `tests/app-test/`
 # above still claims its own, so a directory that comes or goes here never
 # leaves a path unclaimed.
-paths = ["Justfile", "scripts/", ".github/", ".gitattributes", ".gitignore", ".shellcheckrc", ".tugtool/", ".claude/", "capabilities/", "diag/", "products/", "resources/", "tests/"]
+paths = ["Justfile", "scripts/", ".github/", ".bun-version", ".gitattributes", ".gitignore", ".shellcheckrc", ".tugtool/", ".claude/", "capabilities/", "diag/", "products/", "resources/", "tests/"]
 check = []

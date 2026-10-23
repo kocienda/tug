@@ -54,12 +54,9 @@ Tug ships no git ([D171]): git is GPLv2-only and Tug takes on no GPL obligations
 
 ## Testing
 
-Run Rust tests with:
-```bash
-cd tugrust && cargo nextest run
-```
+`just ci` is the fast lane and the push-time gate: lint, the Rust workspace minus the suites that spawn git or a real tugcast (`just test-rust`), the TypeScript suites, Swift and the standalone suite. `just ci-full` adds those integration suites (`just test-rust-slow`, and `just test-ts-slow` over `tugdeck/full-lane/`) and the WASM rebuild, and is what runs nightly and before a release. Every step records to the test ledger, the lint checks included.
 
-Run it in the foreground, read its last three lines, and let `tugtool test last --failures` name the reds; the rule, the `timeout` that replaces backgrounding, and the ban on piping a runner into `grep` or `head` are in `tugplug/tool-calls.md` under *Tail the screen, never the record*.
+Run either in the foreground, read its last three lines, and let `tugtool test last --failures` name the reds; the rule, the `timeout` that replaces backgrounding, and the ban on piping a runner into `grep` or `head` are in `tugplug/tool-calls.md` under *Tail the screen, never the record*. No test file sets its own timeout: bun runs under the Justfile's `BUN_HANG_GUARD_MS` and nextest under its `slow-timeout`, and `just test-shape-lint` refuses a test that measures the machine it runs on.
 
 ### App-tests: run a selection, never a sweep
 

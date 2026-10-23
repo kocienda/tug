@@ -102,7 +102,7 @@ pub fn claims(declared: &str, touched: &str) -> bool {
 ///
 /// Ties cannot occur: two surfaces declaring the same path are refused at
 /// load, so among the claiming declarations exactly one is longest.
-fn claiming_surface<'a>(surfaces: &'a [Surface], touched: &str) -> Option<&'a Surface> {
+pub(crate) fn claiming_surface<'a>(surfaces: &'a [Surface], touched: &str) -> Option<&'a Surface> {
     surfaces
         .iter()
         .filter_map(|surface| {
@@ -133,7 +133,7 @@ pub fn shell_quote(path: &str) -> String {
 /// command, the borrower's rather than the lender's, because a borrowed
 /// command runs as the borrower's own and the paths it is about are the
 /// borrower's.
-fn expand(command: &str, base: &str, head: &str, paths: &[String]) -> String {
+pub(crate) fn expand(command: &str, base: &str, head: &str, paths: &[String]) -> String {
     if !command.contains('{') {
         return command.to_string();
     }
@@ -685,6 +685,8 @@ mod tests {
             paths: paths.iter().map(|p| p.to_string()).collect(),
             check: check.iter().map(|c| c.to_string()).collect(),
             checked_by: checked_by.iter().map(|c| c.to_string()).collect(),
+            commit_check: Vec::new(),
+            commit_check_only: Vec::new(),
         }
     }
 

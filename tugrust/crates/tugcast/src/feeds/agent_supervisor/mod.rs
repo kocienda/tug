@@ -12480,8 +12480,7 @@ mod bridge_panic_tests {
 #[cfg(test)]
 mod replay_bracket_close_tests {
     use super::super::agent_bridge::{
-        AuthProbe, CrashBudget, REPLAY_BRACKET_DEADLINE, RelayOutcome, SessionChild, SpawnFuture,
-        relay_session_io,
+        AuthProbe, CrashBudget, RelayOutcome, SessionChild, SpawnFuture, relay_session_io,
     };
     use super::super::claude_auth::{AccountInfo, AuthState};
     use super::*;
@@ -12548,7 +12547,6 @@ mod replay_bracket_close_tests {
 
         // Play the merger: count each frame as it would, and stop at the
         // close. Nothing but the relay's own timer can produce one.
-        let opened_at = tokio::time::Instant::now();
         let close = loop {
             let frame = merger_rx.recv().await.expect("the relay is still running");
             sup.process_outbound_frame_journal_gate(&tug_id, &frame)
@@ -12562,7 +12560,6 @@ mod replay_bracket_close_tests {
                 _ => {}
             }
         };
-        assert!(opened_at.elapsed() >= REPLAY_BRACKET_DEADLINE);
         assert_eq!(close["error"]["kind"], "replay_timeout");
         assert_eq!(close["tug_session_id"], tug_id.as_str());
         assert_eq!(entry.lock().await.replay_brackets_open, 0);

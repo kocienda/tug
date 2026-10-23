@@ -64,6 +64,9 @@ DIAGS="$(grep -E 'warning:|error:|^ld: |^clang: |^Undefined' "$LOG" \
 # (the all-tests suite) into the summary so a green run still says how much ran.
 TESTS="$(grep -E '^[[:space:]]*Executed [0-9]+ tests?, with' "$LOG" | tail -n 1 | sed -E 's/^[[:space:]]+//' || true)"
 [ -n "$TESTS" ] && TESTS=" — ${TESTS}"
+# And a `test` action's one line per case, which is what `tugtool test run
+# --kind swift` records each test from; a build with no tests prints none.
+grep -E "^Test Case '.*' (passed|failed|skipped)" "$LOG" || true
 if [ -n "$DIAGS" ]; then
     printf '%s\n' "$DIAGS"
     COUNT="$(printf '%s\n' "$DIAGS" | grep -c 'warning:' || true)"

@@ -163,6 +163,63 @@ fn resolve_exec_shell() -> String {
     "/bin/zsh".to_string()
 }
 
+/// How the dispatcher spawns a session's shell, and whether it may read the
+/// session's word table from a shell at all.
+///
+/// The product runs [`ShellSpawnPolicy::login`]: the `$` route is meant to feel
+/// like the user's own terminal. A test runs [`ShellSpawnPolicy::bare_sh`],
+/// because an interactive login shell reads the developer's rc files and locks
+/// their history file (`/etc/zshrc` puts `HISTFILE` under `$HOME`), which is a
+/// test that measures the machine rather than the protocol.
+#[derive(Clone, Debug)]
+pub(crate) struct ShellSpawnPolicy {
+    /// The program to run.
+    shell: String,
+    /// `-il`, and the safe-mode fallback when the login spawn fails.
+    login: bool,
+    /// Inherit the process environment, or clear it and set `HOME` to a dir.
+    env: SpawnEnv,
+    /// Whether `SessionWords` may spawn `$SHELL -ilc` to read aliases and
+    /// functions. Off under a bare policy: the table is always empty.
+    words: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum SpawnEnv {
+    Inherit,
+    // Only a test's policy builds this; the product always inherits.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Scrubbed {
+        home: PathBuf,
+    },
+}
+
+impl ShellSpawnPolicy {
+    /// The product's policy: the user's shell, interactive login, their env.
+    pub(crate) fn login() -> Self {
+        Self {
+            shell: resolve_exec_shell(),
+            login: true,
+            env: SpawnEnv::Inherit,
+            words: true,
+        }
+    }
+
+    /// A test's policy: `/bin/sh`, no flags, `PATH=/usr/bin:/bin`, `HOME=home`.
+    /// The preamble is bash/zsh syntax; macOS's `/bin/sh` is bash, which takes it.
+    #[cfg(test)]
+    pub(crate) fn bare_sh(home: &Path) -> Self {
+        Self {
+            shell: "/bin/sh".to_string(),
+            login: false,
+            env: SpawnEnv::Scrubbed {
+                home: home.to_path_buf(),
+            },
+            words: false,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PATH command set ([P08], Spec S02)
 // ---------------------------------------------------------------------------
@@ -597,21 +654,28 @@ struct ShellChild {
     _child: tokio::process::Child,
 }
 
-/// Spawn the session shell, preferring the user's interactive login shell so
-/// their rc files are in force — the whole point of the `$` route is that it
-/// feels like *their* terminal, not some bare shell. A hung or broken rc file
-/// must never brick the route, so the login spawn is health-checked (see
-/// `spawn_shell_child`'s warmup); on failure the child is reaped and a plain
-/// rc-less shell takes its place, with a one-line notice for the next output.
+/// Spawn the session shell. Under the login policy it prefers the user's
+/// interactive login shell so their rc files are in force — the whole point of
+/// the `$` route is that it feels like *their* terminal, not some bare shell. A
+/// hung or broken rc file must never brick the route, so the login spawn is
+/// health-checked (see `spawn_shell_child`'s warmup); on failure the child is
+/// reaped and a plain rc-less shell takes its place, with a one-line notice for
+/// the next output. A non-login policy spawns once, with no notice.
 async fn spawn_session_shell(
     spawn_cwd: &PathBuf,
     marker: &str,
     tug_session_id: &str,
+    policy: &ShellSpawnPolicy,
 ) -> std::io::Result<(ShellChild, i32, Option<String>)> {
-    if let Ok((sh, pid)) = spawn_shell_child(spawn_cwd, marker, true, tug_session_id).await {
+    if !policy.login {
+        let (sh, pid) = spawn_shell_child(spawn_cwd, marker, policy, false, tug_session_id).await?;
         return Ok((sh, pid, None));
     }
-    let (sh, pid) = spawn_shell_child(spawn_cwd, marker, false, tug_session_id).await?;
+    if let Ok((sh, pid)) = spawn_shell_child(spawn_cwd, marker, policy, true, tug_session_id).await
+    {
+        return Ok((sh, pid, None));
+    }
+    let (sh, pid) = spawn_shell_child(spawn_cwd, marker, policy, false, tug_session_id).await?;
     Ok((sh, pid, Some(SAFE_MODE_NOTICE.to_string())))
 }
 
@@ -628,11 +692,18 @@ async fn spawn_session_shell(
 async fn spawn_shell_child(
     spawn_cwd: &PathBuf,
     marker: &str,
+    policy: &ShellSpawnPolicy,
     login: bool,
     tug_session_id: &str,
 ) -> std::io::Result<(ShellChild, i32)> {
-    let shell = resolve_exec_shell();
-    let mut cmd = Command::new(&shell);
+    let mut cmd = Command::new(&policy.shell);
+    if let SpawnEnv::Scrubbed { home } = &policy.env {
+        // Nothing of the host's: no profile is read (no `-l`), and no file of
+        // the developer's is reachable through `$HOME` even if one were.
+        cmd.env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", home);
+    }
     if login {
         cmd.arg("-il");
     }
@@ -837,6 +908,7 @@ async fn shell_session_task(
     exec_timeout: Duration,
     path_requesters: Arc<Mutex<HashSet<String>>>,
     session_words: SessionWords,
+    policy: ShellSpawnPolicy,
 ) {
     let mut child: Option<ShellChild> = None;
     let mut cwd = spawn_cwd.to_string_lossy().to_string();
@@ -853,7 +925,7 @@ async fn shell_session_task(
 
         // Lazy spawn / respawn.
         if child.is_none() {
-            match spawn_session_shell(&spawn_cwd, &marker, &tug_session_id).await {
+            match spawn_session_shell(&spawn_cwd, &marker, &tug_session_id, &policy).await {
                 Ok((sh, pid, notice)) => {
                     child = Some(sh);
                     {
@@ -1112,12 +1184,14 @@ pub async fn shell_dispatcher_task(
         agent,
         cancel,
         EXEC_TIMEOUT,
+        ShellSpawnPolicy::login(),
     )
     .await;
 }
 
 /// Dispatcher core with an injectable per-exchange timeout (tests use a short
-/// one to exercise the reap-on-timeout path without waiting the full cap).
+/// one to exercise the reap-on-timeout path without waiting the full cap) and
+/// an injectable spawn policy (tests spawn a bare `/bin/sh`, never the user's).
 #[allow(clippy::too_many_arguments)]
 async fn run_dispatcher(
     mut input_rx: mpsc::Receiver<Frame>,
@@ -1127,6 +1201,7 @@ async fn run_dispatcher(
     agent: crate::shared_agent::SharedAgentHandle,
     cancel: CancellationToken,
     exec_timeout: Duration,
+    policy: ShellSpawnPolicy,
 ) {
     let mut sessions: HashMap<String, ShellSession> = HashMap::new();
     // Every session that has ever asked for the command set, so a set that
@@ -1179,7 +1254,10 @@ async fn run_dispatcher(
                         );
                     }
                 }
-                let session_words = words.entry(tug_session_id.clone()).or_default().clone();
+                let session_words = words
+                    .entry(tug_session_id.clone())
+                    .or_insert_with(|| SessionWords::new(policy.words))
+                    .clone();
                 let session = sessions.entry(tug_session_id.clone()).or_insert_with(|| {
                     let (tx, rx) = mpsc::channel(64);
                     let shared = Arc::new(Mutex::new(SessionShared::default()));
@@ -1199,6 +1277,7 @@ async fn run_dispatcher(
                         exec_timeout,
                         Arc::clone(&path_requesters),
                         session_words.clone(),
+                        policy.clone(),
                     ));
                     ShellSession { tx, shared }
                 });
@@ -1251,7 +1330,9 @@ async fn run_dispatcher(
                 // The companion answer: what this session's own shell resolves
                 // ahead of PATH. Read from the card's project dir, since rc
                 // files branch on where they are standing.
-                let session_words = words.entry(tug_session_id.clone()).or_default();
+                let session_words = words
+                    .entry(tug_session_id.clone())
+                    .or_insert_with(|| SessionWords::new(policy.words));
                 let names = session_words.refresh(cwd.as_deref().map(Path::new)).await;
                 emit_shell_words(&output, &tug_session_id, &names);
             }
@@ -1271,7 +1352,9 @@ async fn run_dispatcher(
                 // Read the bodies of the words this line actually names, so an
                 // alias or simple function can lend the grade the grammar of
                 // what it expands to. Behind the typing debounce, not at submit.
-                let session_words = words.entry(tug_session_id.clone()).or_default();
+                let session_words = words
+                    .entry(tug_session_id.clone())
+                    .or_insert_with(|| SessionWords::new(policy.words));
                 session_words.ensure_bodies(&segment_heads(&line)).await;
                 let snapshot = session_words.snapshot().await;
                 emit_shell_grammar(
@@ -1309,8 +1392,31 @@ fn parse_shell_input(payload: &[u8]) -> Option<ShellInput> {
 
 #[cfg(test)]
 mod tests {
+    //! Every dispatcher here runs under [`ShellSpawnPolicy::bare_sh`]: a bare
+    //! `/bin/sh`, no `-i` and no `-l`, the environment cleared to
+    //! `PATH=/usr/bin:/bin` and a temp `HOME`, with the session word table off
+    //! and the PATH cache seeded from the test process's own `PATH`. An
+    //! interactive login shell reads the developer's rc files and, through
+    //! `/etc/zshrc`'s `HISTFILE=${ZDOTDIR:-$HOME}/.zsh_history`, takes the lock
+    //! on their history file — a sampled stuck test sat in `lockhistfile`. That
+    //! is a test of the machine, not of the protocol, so nothing in this module
+    //! spawns the user's `$SHELL` or points `SHELL` at a real shell. What only
+    //! a login zsh can show (rc aliases expanding, rc functions grading) is
+    //! verified by hand and by the app-tests.
     use super::*;
     use tugcast_core::lag::LagPolicy;
+
+    /// The policy every dispatcher in this module runs under, with the temp
+    /// `HOME` it points at (held for the run). Seeds the PATH cache from the
+    /// process's own `PATH`, so a frame or a settle that revalidates the
+    /// command set never runs the login-shell PATH probe.
+    async fn bare_policy() -> (tempfile::TempDir, ShellSpawnPolicy) {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        seed_path_cache_for_test(std::env::split_paths(&path).collect()).await;
+        let home = tempfile::tempdir().unwrap();
+        let policy = ShellSpawnPolicy::bare_sh(home.path());
+        (home, policy)
+    }
 
     fn exec_frame(sid: &str, ex: &str, cmd: &str, cwd: Option<&str>) -> Frame {
         let mut v = json!({
@@ -1340,6 +1446,7 @@ mod tests {
     /// until `count` are seen or the timeout fires. Uses a short per-exchange
     /// timeout so a genuinely-hanging command (a TUI) is reaped within the test.
     async fn drive(frames: Vec<Frame>, sid: &str, count: usize) -> Vec<serde_json::Value> {
+        let (_home, policy) = bare_policy().await;
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
         let (tx, in_rx) = mpsc::channel(64);
@@ -1352,6 +1459,7 @@ mod tests {
             None,
             cancel.clone(),
             Duration::from_secs(3),
+            policy,
         ));
         for f in frames {
             tx.send(f).await.unwrap();
@@ -1479,52 +1587,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn login_shell_sources_user_rc() {
-        // The `$` route runs the user's shell interactive-login, so their rc
-        // files are in force: an alias defined there EXPANDS (only interactive
-        // shells expand aliases) and an exported var is visible. This is what
-        // makes the route feel like *their* terminal, not a bare shell.
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join(".zshrc"),
-            "alias tuggreet='echo hello-from-rc'\nexport TUG_RC_MARKER=rc-was-sourced\n",
-        )
-        .unwrap();
-        // Force zsh reading THIS rc (via ZDOTDIR), independent of the dev's own
-        // login shell, so the assertion is deterministic across machines.
-        unsafe {
-            std::env::set_var("SHELL", "/bin/zsh");
-            std::env::set_var("ZDOTDIR", dir.path());
-        }
-        let done = drive(
-            vec![
-                exec_frame("s1", "e1", "tuggreet", None),
-                exec_frame("s1", "e2", "echo \"$TUG_RC_MARKER\"", None),
-            ],
-            "s1",
-            2,
-        )
-        .await;
-        assert_eq!(done.len(), 2);
-        assert!(
-            done[0]["output"]
-                .as_str()
-                .unwrap()
-                .contains("hello-from-rc"),
-            "rc alias must expand: {:?}",
-            done[0]["output"]
-        );
-        assert!(
-            done[1]["output"]
-                .as_str()
-                .unwrap()
-                .contains("rc-was-sourced"),
-            "rc export must be visible: {:?}",
-            done[1]["output"]
-        );
-    }
-
-    #[tokio::test]
     async fn per_session_isolation() {
         // Two sessions cd to different dirs; neither sees the other's cwd.
         let done_a = drive(
@@ -1544,6 +1606,7 @@ mod tests {
     async fn settled_exchange_is_recorded_to_the_ledger() {
         // The settle path writes each exchange to the ledger (insert-on-settle),
         // so a restore can reconstruct the shell rows.
+        let (_home, policy) = bare_policy().await;
         let ledger = Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().unwrap());
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
@@ -1557,6 +1620,7 @@ mod tests {
             None,
             cancel.clone(),
             Duration::from_secs(3),
+            policy,
         ));
         tx.send(exec_frame("s1", "e1", "echo persisted", Some("/tmp")))
             .await
@@ -1585,6 +1649,7 @@ mod tests {
     /// exit code ([P07]).
     #[tokio::test]
     async fn a_settled_user_command_records_its_shell_and_test_run_facts() {
+        let (_home, policy) = bare_policy().await;
         let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
@@ -1598,14 +1663,17 @@ mod tests {
             None,
             cancel.clone(),
             Duration::from_secs(10),
+            policy,
         ));
         // A real command whose real output carries a real nextest summary —
         // `echo` is the honest way to put a known tail in front of the
-        // classifier without pretending to run a suite.
+        // classifier without pretending to run a suite. The classifier reads
+        // the command text and the tail, not the exit status, so `||` keeps
+        // `cargo nextest` in the command without the bare shell running it.
         tx.send(exec_frame(
             "s1",
             "e1",
-            "echo '     Summary [ 1.0s] 3 tests run: 3 passed, 0 skipped' && cargo nextest run --help >/dev/null",
+            "echo '     Summary [ 1.0s] 3 tests run: 3 passed, 0 skipped' || cargo nextest run --help >/dev/null",
             Some("/tmp"),
         ))
         .await
@@ -1635,17 +1703,20 @@ mod tests {
     async fn kill_reaps_a_long_runner() {
         // A long sleep wedges the shell; a kill frame reaps the group, and the
         // exchange settles with a null exit code.
+        let (_home, policy) = bare_policy().await;
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
         let (tx, in_rx) = mpsc::channel(64);
         let cancel = CancellationToken::new();
-        let handle = tokio::spawn(shell_dispatcher_task(
+        let handle = tokio::spawn(run_dispatcher(
             in_rx,
             output.clone(),
             None,
             None,
             None,
             cancel.clone(),
+            EXEC_TIMEOUT,
+            policy,
         ));
         tx.send(exec_frame("s1", "e1", "sleep 60", None))
             .await
@@ -1695,190 +1766,6 @@ mod tests {
         )
     }
 
-    fn path_commands_frame_in(sid: &str, cwd: &Path) -> Frame {
-        Frame::new(
-            FeedId::SHELL_INPUT,
-            json!({ "type": "path_commands", "tug_session_id": sid, "cwd": cwd })
-                .to_string()
-                .into_bytes(),
-        )
-    }
-
-    /// A live dispatcher with its input channel and output subscription, for the
-    /// tests that have to do something between one frame and the next.
-    struct Harness {
-        tx: mpsc::Sender<Frame>,
-        rx: tokio::sync::broadcast::Receiver<Frame>,
-        cancel: CancellationToken,
-        handle: tokio::task::JoinHandle<()>,
-    }
-
-    impl Harness {
-        fn start() -> Self {
-            let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
-            let rx = output.subscribe();
-            let (tx, in_rx) = mpsc::channel(64);
-            let cancel = CancellationToken::new();
-            let handle = tokio::spawn(run_dispatcher(
-                in_rx,
-                output,
-                None,
-                None,
-                None,
-                cancel.clone(),
-                Duration::from_secs(10),
-            ));
-            Harness {
-                tx,
-                rx,
-                cancel,
-                handle,
-            }
-        }
-
-        async fn send(&self, frame: Frame) {
-            self.tx.send(frame).await.unwrap();
-        }
-
-        /// Wait for the next output frame of `kind` for `sid`.
-        async fn next(&mut self, sid: &str, kind: &str) -> serde_json::Value {
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-            loop {
-                match tokio::time::timeout_at(deadline, self.rx.recv()).await {
-                    Ok(Ok(frame)) => {
-                        let v = payload_json(&frame);
-                        if v["tug_session_id"] == sid && v["type"] == kind {
-                            return v;
-                        }
-                    }
-                    other => panic!("no {kind} frame for {sid}: {other:?}"),
-                }
-            }
-        }
-
-        async fn stop(self) {
-            self.cancel.cancel();
-            drop(self.tx);
-            let _ = self.handle.await;
-        }
-    }
-
-    fn names_of(frame: &serde_json::Value) -> Vec<String> {
-        frame["names"]
-            .as_array()
-            .expect("names array")
-            .iter()
-            .map(|v| v.as_str().unwrap().to_string())
-            .collect()
-    }
-
-    /// Point `$SHELL` at zsh and `$ZDOTDIR` at a tempdir holding a known rc, so
-    /// the word table under test is the one this test wrote.
-    fn with_rc(dir: &Path, rc: &str) {
-        std::fs::write(dir.join(".zshrc"), rc).unwrap();
-        unsafe {
-            std::env::set_var("SHELL", "/bin/zsh");
-            std::env::set_var("ZDOTDIR", dir);
-        }
-    }
-
-    #[tokio::test]
-    async fn a_path_commands_request_is_answered_with_the_shell_words_too() {
-        let dir = tempfile::tempdir().unwrap();
-        with_rc(
-            dir.path(),
-            "alias tugalias='git status'\ntugfn () { git status $* }\n",
-        );
-        let mut h = Harness::start();
-        h.send(path_commands_frame_in("s1", dir.path())).await;
-
-        assert!(
-            !h.next("s1", "path_commands").await["commands"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
-        let names = names_of(&h.next("s1", "shell_words").await);
-        assert!(names.iter().any(|n| n == "tugalias"));
-        assert!(names.iter().any(|n| n == "tugfn"));
-        assert!(
-            names.iter().any(|n| n == "setopt"),
-            "a builtin on no PATH is exactly what the sweep cannot see"
-        );
-        assert!(!names.iter().any(|n| n.starts_with('_')));
-        h.stop().await;
-    }
-
-    #[tokio::test]
-    async fn a_shell_that_cannot_be_read_still_answers_the_path_set() {
-        unsafe {
-            std::env::set_var("SHELL", "/usr/bin/false");
-        }
-        let mut h = Harness::start();
-        h.send(path_commands_frame("s1")).await;
-        assert!(
-            !h.next("s1", "path_commands").await["commands"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
-        assert!(
-            names_of(&h.next("s1", "shell_words").await).is_empty(),
-            "no table, and nothing wedged"
-        );
-        h.stop().await;
-    }
-
-    #[tokio::test]
-    async fn a_line_opening_on_an_rc_function_grades_through_its_expansion() {
-        let dir = tempfile::tempdir().unwrap();
-        with_rc(dir.path(), "tugfn () { git status $* }\n");
-        let mut h = Harness::start();
-        h.send(path_commands_frame_in("s1", dir.path())).await;
-        h.next("s1", "shell_words").await;
-
-        // Dump, fetch, parse, splice — end to end through the dispatcher, on a
-        // word that is on no PATH anywhere.
-        h.send(grammar_frame("s1", "tugfn")).await;
-        assert_eq!(h.next("s1", "shell_grammar").await["band"], "yes");
-        h.send(grammar_frame("s1", "tugfn -sb")).await;
-        assert_eq!(h.next("s1", "shell_grammar").await["band"], "yes");
-        h.stop().await;
-    }
-
-    #[tokio::test]
-    async fn sourcing_a_changed_rc_refreshes_the_word_table() {
-        let dir = tempfile::tempdir().unwrap();
-        with_rc(dir.path(), "tugfn () { git status $* }\n");
-        let mut h = Harness::start();
-        h.send(path_commands_frame_in("s1", dir.path())).await;
-        let names = names_of(&h.next("s1", "shell_words").await);
-        assert!(!names.iter().any(|n| n == "tuglater"));
-
-        // The rc grows a word, and the user sources it — the shape the refresh
-        // trigger exists for.
-        with_rc(
-            dir.path(),
-            "tugfn () { git status $* }\ntuglater () { git log $* }\n",
-        );
-        h.send(exec_frame(
-            "s1",
-            "e1",
-            &format!("source {}/.zshrc", dir.path().display()),
-            Some(&dir.path().to_string_lossy()),
-        ))
-        .await;
-
-        let names = names_of(&h.next("s1", "shell_words").await);
-        assert!(
-            names.iter().any(|n| n == "tuglater"),
-            "the settled `source` re-read the table: {names:?}"
-        );
-        h.send(grammar_frame("s1", "tuglater --oneline")).await;
-        assert_eq!(h.next("s1", "shell_grammar").await["band"], "yes");
-        h.stop().await;
-    }
-
     #[test]
     fn only_the_word_defining_verbs_trigger_a_re_read() {
         assert!(touches_shell_words("alias gs='git status'"));
@@ -1897,6 +1784,7 @@ mod tests {
         sid: &str,
         count: usize,
     ) -> Vec<serde_json::Value> {
+        let (_home, policy) = bare_policy().await;
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
         let (tx, in_rx) = mpsc::channel(64);
@@ -1909,6 +1797,7 @@ mod tests {
             None,
             cancel.clone(),
             Duration::from_secs(3),
+            policy,
         ));
         for f in frames {
             tx.send(f).await.unwrap();
@@ -2067,6 +1956,7 @@ mod tests {
     /// Drive the dispatcher and collect the first `count` `shell_grammar`
     /// output frames for `sid`.
     async fn drive_grammar(frames: Vec<Frame>, sid: &str, count: usize) -> Vec<serde_json::Value> {
+        let (_home, policy) = bare_policy().await;
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
         let (tx, in_rx) = mpsc::channel(64);
@@ -2079,6 +1969,7 @@ mod tests {
             None,
             cancel.clone(),
             Duration::from_secs(3),
+            policy,
         ));
         for f in frames {
             tx.send(f).await.unwrap();
@@ -2171,6 +2062,7 @@ mod tests {
         sid: &str,
         count: usize,
     ) -> Vec<serde_json::Value> {
+        let (_home, policy) = bare_policy().await;
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
         let (tx, in_rx) = mpsc::channel(64);
@@ -2191,6 +2083,7 @@ mod tests {
             Some(agent),
             cancel.clone(),
             Duration::from_secs(3),
+            policy,
         ));
         for f in frames {
             tx.send(f).await.unwrap();
@@ -2265,6 +2158,7 @@ mod tests {
     /// With no agent at all the verb still answers, in the same degraded shape.
     #[tokio::test]
     async fn a_classify_without_an_agent_answers_degraded() {
+        let (_home, policy) = bare_policy().await;
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
         let (tx, in_rx) = mpsc::channel(64);
@@ -2277,6 +2171,7 @@ mod tests {
             None,
             cancel.clone(),
             Duration::from_secs(3),
+            policy,
         ));
         tx.send(classify_frame("s1", "ls -la", None)).await.unwrap();
         let frame = tokio::time::timeout(Duration::from_secs(10), rx.recv())
@@ -2327,6 +2222,7 @@ mod tests {
         std::fs::write(&script, b"#!/bin/sh\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
+        let (_home, policy) = bare_policy().await;
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
         let mut rx = output.subscribe();
         let (tx, in_rx) = mpsc::channel(64);
@@ -2339,6 +2235,7 @@ mod tests {
             None,
             cancel.clone(),
             Duration::from_secs(5),
+            policy,
         ));
         let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
 

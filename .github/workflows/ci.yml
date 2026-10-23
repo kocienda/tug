@@ -1,5 +1,12 @@
 name: CI
 
+# The fast lane: what `just ci` runs but the Swift tests, split into three jobs
+# so each lands under a five-minute budget. A job over budget is a red to
+# investigate, not a number to raise. The slow suites — the Rust set that
+# spawns git or the real tugcast, and `tugdeck/full-lane/` — and the Swift
+# tests run in `full-lane.yml`, which the nightly and the release wait on; the
+# WASM rebuild runs in `wasm.yml` when `tugdeck/crates/` changes.
+
 on:
   push:
     branches: [main]
@@ -13,8 +20,10 @@ env:
 # Tug is a macOS app, so CI runs on the macOS runner the release and nightly
 # workflows build on, and on nothing else.
 jobs:
-  build:
+  # The Rust workspace minus the slow set, under nextest.
+  rust-fast:
     runs-on: macos-26
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
 
@@ -25,108 +34,10 @@ jobs:
         run: rustup toolchain install
         working-directory: tugrust
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            tugrust/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.x"
-
-      - name: Cache tugdeck node_modules
-        uses: actions/cache@v4
-        with:
-          path: tugdeck/node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('tugdeck/bun.lock') }}
-
-      - name: Install tugdeck dependencies
-        run: bun install --frozen-lockfile
-        working-directory: tugdeck
-
-      - name: Build
-        run: cargo build --all-targets
-        working-directory: tugrust
-
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
-
-      # tugcast refuses to boot without tmux, and the integration tests under
-      # `crates/tugcast/tests/` spawn the real binary. The macOS image has none.
-      - name: Install tmux
-        run: brew install tmux
-
-      # nextest, not `cargo test`: the shell feed tests set `$SHELL`/`$ZDOTDIR`
-      # and seed a process-global PATH cache, which only holds when each test
-      # owns its own process. It is also what `just test` runs.
-      - name: Run tests
-        run: cargo nextest run --workspace --all-targets --no-fail-fast
-        working-directory: tugrust
-
-  format:
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        run: rustup toolchain install
-        working-directory: tugrust
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-        working-directory: tugrust
-
-  clippy:
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        run: rustup toolchain install
-        working-directory: tugrust
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.x"
-
-      - name: Cache tugdeck node_modules
-        uses: actions/cache@v4
-        with:
-          path: tugdeck/node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('tugdeck/bun.lock') }}
-
-      - name: Install tugdeck dependencies
-        run: bun install --frozen-lockfile
-        working-directory: tugdeck
-
-      - name: Run clippy
-        run: cargo clippy --all-targets -- -D warnings
-        working-directory: tugrust
-
-  # The TypeScript side runs the recipes the checkout already defines.
-  # `just lint` carries clippy and `cargo fmt` as well as the typechecks and
-  # oxlint, and `test-standalone` builds tugtool with cargo, so this job
-  # installs Rust the way the build job does. The app-test corpus is not here:
-  # it needs a built Tug.app.
-  typescript:
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        run: rustup toolchain install
-        working-directory: tugrust
-
       # Restore here, save at the end with `if: always()`. A plain
-      # `actions/cache` saves only when the job succeeds, so while this job
-      # was red its cache was never written and every run compiled the whole
-      # workspace cold — clippy, the WASM release builds, tugtool and tugcast.
+      # `actions/cache` saves only when the job succeeds, so while a job is
+      # red its cache is never written and every run compiles the whole
+      # workspace cold.
       - name: Restore cargo cache
         id: cargo-cache
         uses: actions/cache/restore@v4
@@ -135,33 +46,68 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             tugrust/target
-          key: ${{ runner.os }}-cargo-ts-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-rust-fast-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-rust-fast-
 
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.x"
+      # nextest, not `cargo test`: the shell feed tests set `$SHELL` and seed a
+      # process-global PATH cache, which only holds when each test owns its own
+      # process. It is also what `just test-rust` runs.
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
 
       - name: Install just
         uses: taiki-e/install-action@just
 
-      # `just lint` runs `shellcheck`, which the macOS image does not carry.
-      - name: Install shellcheck
-        run: brew install shellcheck
+      - name: Rust fast lane
+        run: just test-rust
 
-      # `just lint` runs `wasm-check`, which rebuilds every WASM package and
-      # fails if it differs from the committed one. The bytes depend on the
-      # compiler (pinned in `tugdeck/crates/rust-toolchain.toml`, with the
-      # wasm32 target) and on wasm-pack, which picks the wasm-opt it runs, so
-      # wasm-pack is pinned to the version the packages were built with.
-      - name: Install the WASM toolchain
-        run: rustup toolchain install
-        working-directory: tugdeck/crates
-
-      - name: Install wasm-pack
-        uses: taiki-e/install-action@v2
+      - name: Save cargo cache
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
-          tool: wasm-pack@0.15.0
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tugrust/target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+  # The TypeScript checks and suites, the standalone plugin suite, and the
+  # app-test covers check. Rust is installed here because `test-ts` and
+  # `test-standalone` build tugtool with cargo: the app-test selector tests
+  # drive the real `tugtool apptest reach` verb, and the standalone suite
+  # drives the real hook script and arc verbs. The app-test corpus is not
+  # here: it needs a built Tug.app.
+  ts-fast:
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        run: rustup toolchain install
+        working-directory: tugrust
+
+      # Restore here, save at the end with `if: always()`, as in `rust-fast`.
+      - name: Restore cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tugrust/target
+          key: ${{ runner.os }}-cargo-ts-fast-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-ts-fast-
+
+      # The one bun: `.bun-version` is the pin every workflow reads, so the
+      # tests run on the bun the checkout runs on rather than a floating patch.
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install just
+        uses: taiki-e/install-action@just
 
       - name: Install dependencies
         run: |
@@ -169,14 +115,8 @@ jobs:
           bun install --frozen-lockfile --cwd tugcode
           bun install --frozen-lockfile --cwd tests/app-test
 
-      - name: Lint
-        run: just lint
-
-      # tugcast refuses to boot without tmux, and `tugdeck`'s many-pages
-      # suite (`src/lib/ingest/testing/real-tugcast.ts`) spawns the real
-      # binary. The macOS image has none.
-      - name: Install tmux
-        run: brew install tmux
+      - name: TypeScript lint
+        run: just lint-ts
 
       - name: TypeScript tests
         run: just test-ts
@@ -186,6 +126,64 @@ jobs:
 
       - name: App-test covers check
         run: just app-test-covers-check
+
+      - name: Save cargo cache
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tugrust/target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+  # The repository's own lints, shellcheck, the deck's audits, clippy and fmt.
+  lint:
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        run: rustup toolchain install
+        working-directory: tugrust
+
+      # Restore here, save at the end with `if: always()`, as in `rust-fast`.
+      - name: Restore cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tugrust/target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-lint-
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      # `just lint-audit` runs `shellcheck`, which the macOS image does not
+      # carry.
+      - name: Install shellcheck
+        run: brew install shellcheck
+
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile --cwd tugdeck
+          bun install --frozen-lockfile --cwd tugcode
+          bun install --frozen-lockfile --cwd tests/app-test
+
+      - name: Audit lints
+        run: just lint-audit
+
+      - name: Rust lints
+        run: just lint-rust
 
       - name: Save cargo cache
         if: always() && steps.cargo-cache.outputs.cache-hit != 'true'

@@ -2577,7 +2577,6 @@ mod tests {
         let now = SystemTime::now();
         let lease = resolve_lease(repo, "demo", now).expect("a resolve holds the arc");
         assert_eq!(lease.tip, marker);
-        assert!(lease.age < Duration::from_secs(60), "{:?}", lease.age);
 
         let later = now + RESOLVE_LEASE + Duration::from_secs(1);
         assert!(

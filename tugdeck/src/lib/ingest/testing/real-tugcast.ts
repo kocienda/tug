@@ -29,9 +29,6 @@ const REPO_ROOT = join(import.meta.dir, "../../../../..");
 const TUGRUST = join(REPO_ROOT, "tugrust");
 const TUGCAST_BIN = join(TUGRUST, "target/debug/tugcast");
 
-/** How long a cold `cargo build -p tugcast` may take; a suite's `beforeAll` carries it too. */
-export const BUILD_TIMEOUT_MS = 10 * 60_000;
-
 /** How long a spawned tugcast may take to answer HTTP. */
 const STARTUP_TIMEOUT_MS = 30_000;
 

@@ -1,5 +1,14 @@
 # Tug development commands
 
+# The one bun hang guard: far above any real run on any machine (the slowest
+# fast-lane test reads ~27 s on CI). A hung test ends with a named red; a slow
+# one never fails. No test file sets its own; `test-shape-lint` holds that.
+BUN_HANG_GUARD_MS := "120000"
+
+# The Rust slow set: the suites that spawn git or the real tugcast.
+# `test-rust` runs everything else; `test-rust-slow` runs exactly this.
+RUST_SLOW_FILTER := "package(tugarc-core) | (package(tugcast) & kind(test)) | (package(tugcast) & test(/^feeds::(arc_runner|operator|attribution|git)::/))"
+
 default:
     @just --list
 
@@ -53,22 +62,40 @@ dev-watch: build
 fetch-fonts *ARGS:
     cd tugdeck && bun run scripts/fetch-fonts.ts {{ARGS}}
 
-# Run all tests (Rust + TypeScript)
-test: test-rust test-ts test-swift test-standalone
+# The push-time gate: the fast lane.
+ci: lint test-fast
+
+# The fast lane plus the integration suites and the WASM rebuild; nightly,
+# release, and before a release by hand.
+ci-full: ci wasm-check test-slow
+
+# The fast lane's tests: every suite that spawns neither git nor a real tugcast.
+test-fast: test-rust test-ts test-swift test-standalone
+
+# The full lane's tests: the Rust slow set and `tugdeck/full-lane/`.
+test-slow: test-rust-slow test-ts-slow
+
+# `just test` is the fast lane.
+test: test-fast
 
 # Drive the shipped plugin the way a user's machine would: the real hook
 # script and the real `tugtool arc` verbs, from a scratch project with no
 # tuglaws/, no CLAUDE.md, no .tugtool/, an empty PATH, and a fresh HOME —
 # only a bundle-shaped directory holding tugtool and the plugin.
 test-standalone:
-    @bash tugrust/scripts/report-phase.sh test-standalone 0 "build tugtool" --of "build tugtool" "tugplug tests" --needle "just test"
-    cd tugrust && cargo build -p tugtool
-    @bash tugrust/scripts/report-phase.sh test-standalone 1 "tugplug tests"
-    cd tugplug && bun test --timeout 60000 __tests__/
-    @bash tugrust/scripts/report-phase.sh test-standalone 2
+    #!/usr/bin/env bash
+    (cd tugrust && cargo build -p tugtool) || exit 1
+    TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
+    cd tugplug || exit 1
+    if [ -z "$TUGTOOL_BIN" ]; then
+        echo "[test] not recorded: no tugtool that knows test run" >&2
+        exec bun test --timeout {{BUN_HANG_GUARD_MS}} __tests__/
+    fi
+    exec "$TUGTOOL_BIN" test run --suite standalone --kind bun --label standalone --needle "just test" -- bun test --timeout {{BUN_HANG_GUARD_MS}} __tests__/
 
-# Run Rust tests. `--no-fail-fast`: one pass names every failure, so a red
-# gate is one round of fixing rather than one round per broken test.
+# Run the Rust fast lane: the workspace minus `RUST_SLOW_FILTER`, which
+# `test-rust-slow` runs. `--no-fail-fast`: one pass names every failure, so a
+# red gate is one round of fixing rather than one round per broken test.
 #
 # The run goes through `tugtool test run`, which copies the output through
 # unchanged, keeps the exit status, and records the run's junit document so
@@ -77,15 +104,27 @@ test-standalone:
 # that predates the verb — the bare command runs, unrecorded.
 test-rust:
     #!/usr/bin/env bash
-    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
-    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
-    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" test run --help >/dev/null 2>&1 || TUGTOOL_BIN=""
+    TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
+    filter='not ({{RUST_SLOW_FILTER}})'
     cd tugrust || exit 1
     if [ -z "$TUGTOOL_BIN" ]; then
         echo "[test] not recorded: no tugtool that knows test run" >&2
-        exec cargo nextest run --workspace --no-fail-fast
+        exec cargo nextest run --workspace --no-fail-fast -E "$filter"
     fi
-    exec "$TUGTOOL_BIN" test run --suite rust --kind nextest --junit target/nextest/default/junit.xml --label rust --needle "just test" --needle "cargo nextest" -- cargo nextest run --workspace --no-fail-fast
+    exec "$TUGTOOL_BIN" test run --suite rust --kind nextest --junit target/nextest/default/junit.xml --label rust --needle "just test" --needle "cargo nextest" -- cargo nextest run --workspace --no-fail-fast -E "$filter"
+
+# Run the Rust slow set: exactly `RUST_SLOW_FILTER`, the suites that spawn
+# git or the real tugcast. Recorded under its own suite.
+test-rust-slow:
+    #!/usr/bin/env bash
+    TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
+    filter='{{RUST_SLOW_FILTER}}'
+    cd tugrust || exit 1
+    if [ -z "$TUGTOOL_BIN" ]; then
+        echo "[test] not recorded: no tugtool that knows test run" >&2
+        exec cargo nextest run --workspace --no-fail-fast -E "$filter"
+    fi
+    exec "$TUGTOOL_BIN" test run --suite rust-slow --kind nextest --junit target/nextest/default/junit.xml --label rust-slow --needle "just test" --needle "cargo nextest" -- cargo nextest run --workspace --no-fail-fast -E "$filter"
 
 # Run TypeScript tests (tugdeck frontend + tugcode bridge + app-test pure logic)
 #
@@ -111,25 +150,10 @@ test-ts:
     # The app-test selection tests drive the real `tugtool apptest reach`
     # verb from `tugrust/target/debug/`, so the binary is built here rather
     # than assumed — a CI cache that happens to hold one is not a dependency.
-    # The many-pages suite spawns a real `tugcast` from the same directory;
-    # it builds one itself, and building it here keeps a cold compile out of
-    # a bun hook.
-    # tugcast is built ALONE, exactly as `real-tugcast.ts` builds it: `-p
-    # tugtool -p tugcast` unifies features across both crates, so its tugcast
-    # is not the artifact `cargo build -p tugcast` looks for, and the hook
-    # recompiled tugcast and its deps inside the suite (97 s on CI).
-    (cd tugrust && cargo build -p tugtool && cargo build -p tugcast) || exit 1
-    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
-    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
-    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" test run --help >/dev/null 2>&1 || TUGTOOL_BIN=""
+    (cd tugrust && cargo build -p tugtool) || exit 1
+    TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
     [ -n "$TUGTOOL_BIN" ] || echo "[test] not recorded: no tugtool that knows test run" >&2
-    # Every suite runs under a 60 s per-test timeout in place of bun's 5 s
-    # default. A timeout here is a hang guard, never a speed bar: a CI runner is
-    # five to six times slower than a developer machine, and the 5 s default
-    # failed tests and hooks that spawn processes (the selector, git, the hook
-    # script) on it while they took under a second here. A test that
-    # sets its own timeout keeps it.
-    BUN_TIMEOUT=60000
+    # Every suite runs under the one hang guard, `BUN_HANG_GUARD_MS`.
     status=0
     suite() {
         local dir="$1" name="$2"
@@ -140,12 +164,32 @@ test-ts:
             (cd "$dir" && "$@") || status=1
         fi
     }
-    suite tugdeck tugdeck bun test --timeout "$BUN_TIMEOUT"
-    suite tugdeck tugdeck-scripts bun test --timeout "$BUN_TIMEOUT" ./scripts/__tests__
-    suite tugcode tugcode bun test --timeout "$BUN_TIMEOUT"
-    suite tugproto tugproto bun test --timeout "$BUN_TIMEOUT"
-    suite tests/app-test app-test-logic bun test --timeout "$BUN_TIMEOUT" scripts/ _harness/
+    suite tugdeck tugdeck bun test --timeout {{BUN_HANG_GUARD_MS}}
+    suite tugdeck tugdeck-scripts bun test --timeout {{BUN_HANG_GUARD_MS}} ./scripts/__tests__
+    suite tugcode tugcode bun test --timeout {{BUN_HANG_GUARD_MS}}
+    suite tugproto tugproto bun test --timeout {{BUN_HANG_GUARD_MS}}
+    suite tests/app-test app-test-logic bun test --timeout {{BUN_HANG_GUARD_MS}} scripts/ _harness/
     exit "$status"
+
+# Run the TypeScript full lane: `tugdeck/full-lane/`, outside `bunfig.toml`'s
+# `root = "src"`, so a bare `bun test` never discovers it. Its files spawn a
+# real tugcast or a streamer, or run a sweep or a fuzz.
+test-ts-slow:
+    #!/usr/bin/env bash
+    # The many-pages suite spawns a real `tugcast` from `tugrust/target/debug/`;
+    # it builds one itself, and building it here keeps a cold compile out of
+    # a bun hook. tugcast is built ALONE, exactly as `real-tugcast.ts` builds
+    # it: `-p tugtool -p tugcast` unifies features across both crates, so its
+    # tugcast is not the artifact `cargo build -p tugcast` looks for, and the
+    # hook recompiled tugcast and its deps inside the suite (97 s on CI).
+    (cd tugrust && cargo build -p tugtool && cargo build -p tugcast) || exit 1
+    TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
+    cd tugdeck || exit 1
+    if [ -z "$TUGTOOL_BIN" ]; then
+        echo "[test] not recorded: no tugtool that knows test run" >&2
+        exec bun test --timeout {{BUN_HANG_GUARD_MS}} ./full-lane
+    fi
+    exec "$TUGTOOL_BIN" test run --suite tugdeck-full-lane --kind bun --label "bun test · tugdeck-full-lane" --needle "just test" --needle "bun test" -- bun test --timeout {{BUN_HANG_GUARD_MS}} ./full-lane
 
 # Run the Swift unit tests.
 #
@@ -157,13 +201,18 @@ test-ts:
 # imports nothing past Foundation can: a test that needs AppKit, a window or
 # a menu is an app-test and lives in tests/app-test/.
 test-swift:
-    @bash tugrust/scripts/report-phase.sh test-swift 0 "xcodebuild TugTests" --of "xcodebuild TugTests" --needle "just test"
-    bash tugrust/scripts/xcodebuild-quiet.sh "TugTests" \
-        -project tugapp/Tug.xcodeproj -scheme Tug -configuration Debug \
-        -destination 'platform=macOS,arch=arm64' \
-        -derivedDataPath "$(bash tugrust/scripts/derived-data-path.sh debug)-tests" \
-        test -only-testing:TugTests
-    @bash tugrust/scripts/report-phase.sh test-swift 1
+    #!/usr/bin/env bash
+    TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
+    run=(bash tugrust/scripts/xcodebuild-quiet.sh "TugTests"
+        -project tugapp/Tug.xcodeproj -scheme Tug -configuration Debug
+        -destination 'platform=macOS,arch=arm64'
+        -derivedDataPath "$(bash tugrust/scripts/derived-data-path.sh debug)-tests"
+        test -only-testing:TugTests)
+    if [ -z "$TUGTOOL_BIN" ]; then
+        echo "[test] not recorded: no tugtool that knows test run" >&2
+        exec "${run[@]}"
+    fi
+    exec "$TUGTOOL_BIN" test run --suite swift --kind swift --label swift --needle "just test" -- "${run[@]}"
 
 # Regenerate every checked-in golden fixture from the code that produces it.
 #
@@ -175,11 +224,11 @@ test-swift:
 # its line here — an unlisted golden is one nothing here can rebuild.
 golden:
     @bash tugrust/scripts/report-phase.sh golden 0 "imposer solutions" --of "imposer solutions" "card plan" "host parity" "session digest" "tugmark golden"
-    cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test src/lib/__tests__/layout-imposer-solutions.test.ts
+    cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test --timeout {{BUN_HANG_GUARD_MS}} ./full-lane/layout-imposer-solutions.test.ts
     @bash tugrust/scripts/report-phase.sh golden 1 "card plan"
-    cd tugdeck && CARD_PLAN_GOLDEN_UPDATE=1 bun test src/lib/__tests__/card-plan.test.ts
+    cd tugdeck && CARD_PLAN_GOLDEN_UPDATE=1 bun test --timeout {{BUN_HANG_GUARD_MS}} src/lib/__tests__/card-plan.test.ts
     @bash tugrust/scripts/report-phase.sh golden 2 "host parity"
-    cd tugdeck && HOST_PARITY_UPDATE=1 bun test src/host/__tests__/host-parity.test.ts
+    cd tugdeck && HOST_PARITY_UPDATE=1 bun test --timeout {{BUN_HANG_GUARD_MS}} src/host/__tests__/host-parity.test.ts
     @bash tugrust/scripts/report-phase.sh golden 3 "session digest"
     cd tugrust && TUG_DIGEST_GOLDEN_UPDATE=1 cargo nextest run -p tugcast session_digest
     @bash tugrust/scripts/report-phase.sh golden 4 "tugmark golden"
@@ -191,7 +240,7 @@ golden:
 # pipeline to it. A changed golden is a changed rendering: review its diff.
 tugmark-golden:
     cd tugrust && TUGMARK_GOLDEN_WRITE=1 cargo nextest run -p tugcast --test tugmark_drift
-    cd tugdeck && bun test src/lib/markdown/__tests__/tugmark-drift.test.ts
+    cd tugdeck && bun test --timeout {{BUN_HANG_GUARD_MS}} src/lib/markdown/__tests__/tugmark-drift.test.ts
 
 # Fuzz both sanitizers at a fresh seed (`just tugmark-fuzz 1234` repeats one).
 # tugcast's renderer and sanitizer run 200,000 cases reparsed by html5ever; the
@@ -215,7 +264,7 @@ tugmark-fuzz seed="" batches="20":
     for i in $(seq 0 $(( {{batches}} - 1 ))); do
         bash "$report" tugmark-fuzz $(( i + 1 )) "bun batch $(( i + 1 ))"
         TUGMARK_FUZZ_SEED=$(( seed + i )) TUGMARK_FUZZ_CASES=1000 \
-            bun test src/lib/markdown/__tests__/sanitize-invariant.test.ts -t "holds the invariant over"
+            bun test --timeout {{BUN_HANG_GUARD_MS}} ./full-lane/sanitize-invariant.test.ts -t "holds the invariant over"
     done
     bash "$report" tugmark-fuzz $(( {{batches}} + 1 ))
 
@@ -412,20 +461,38 @@ fmt:
 # `@tug-optical-nudge:` comment saying what it corrects, which is what makes
 # the remaining ones countable. The runtime half is `at0625-type-baseline`,
 # because no stylesheet scan can see a rendered baseline.
-lint: tugplug-lint recipe-lint shellcheck wasm-check app-test-foreground-check
-    cd tugdeck && bun run audit:visibility
-    cd tugdeck && bun run audit:motion
-    cd tugdeck && bun run check
-    cd tugdeck && bun run lint
-    cd tugcode && bun run check
-    cd tugcode && bun run lint
-    cd tests/app-test && bun run check
-    cd tests/app-test && bun run lint
-    cd tugdeck && bun run audit:type-alignment
-    cd tugdeck && bun run audit:tokens lint
-    cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
-    cd tugrust && cargo fmt --all -- --check
-    bun scripts/third-party-notices.ts --check
+#
+# The checks themselves are in scripts/lint-checks.sh, in three groups: the
+# audits, the TypeScript type checks and lints, and Rust's clippy and fmt.
+# Each group runs under `tugtool test run --kind lines --unit check`, one
+# item per check, so `tugtool test last --failures` names a red check.
+# `wasm-check` is a release rebuild of every WASM crate, so it rides
+# `ci-full`, not `lint`.
+lint: lint-audit lint-ts lint-rust
+
+# The audit checks: the repository's own lints, shellcheck and the deck's audits.
+lint-audit:
+    just lint-group audit
+
+# The TypeScript checks: tsc and oxlint over tugdeck, tugcode and tests/app-test.
+lint-ts:
+    just lint-group ts
+
+# The Rust checks: clippy and fmt over the workspace.
+lint-rust:
+    just lint-group rust
+
+# One group of scripts/lint-checks.sh, recorded as suite `lint-<group>`.
+[private]
+lint-group group:
+    #!/usr/bin/env bash
+    TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
+    export BUN_HANG_GUARD_MS={{BUN_HANG_GUARD_MS}}
+    if [ -z "$TUGTOOL_BIN" ]; then
+        echo "[test] not recorded: no tugtool that knows test run" >&2
+        exec bash scripts/lint-checks.sh {{group}}
+    fi
+    exec "$TUGTOOL_BIN" test run --suite "lint-{{group}}" --kind lines --unit check --item '^(?P<status>PASS|FAIL): (?P<name>\S+)' --label "lint-{{group}}" --needle "just lint" -- bash scripts/lint-checks.sh {{group}}
 
 # shellcheck over the runner and build scripts. The few codes the house style
 # disables are in .shellcheckrc, each with its reason.
@@ -436,7 +503,7 @@ shellcheck:
         echo "shellcheck is not installed: brew install shellcheck" >&2
         exit 1
     fi
-    shellcheck tests/app-test/scripts/*.sh tugrust/scripts/*.sh
+    shellcheck tests/app-test/scripts/*.sh tugrust/scripts/*.sh scripts/*.sh
 
 # The plugin ships inside Tug.app to projects that are not this one. Refuse
 # every shape under tugplug/ that leans on this checkout or this machine —
@@ -453,7 +520,16 @@ tugplug-lint:
 # the script; the test drives the check over a fixture Justfile.
 recipe-lint:
     bun scripts/recipe-lint.ts
-    bun test scripts/__tests__/recipe-lint.test.ts
+    bun test --timeout {{BUN_HANG_GUARD_MS}} scripts/__tests__/recipe-lint.test.ts
+
+# No test measures the machine it runs on: no elapsed time compared to a
+# bound, no per-file or per-test timeout, no login or interactive shell, no
+# shell spawned with the inherited environment, and no `bun test` here without
+# the hang guard. The rules, and the one exemption comment, are in the script;
+# the test drives them over fixtures. Decision: briefs/test-lanes-reform-brief.md.
+test-shape-lint:
+    bun scripts/test-shape-lint.ts
+    bun test --timeout {{BUN_HANG_GUARD_MS}} scripts/__tests__/test-shape-lint.test.ts
 
 # Regenerate the "Libraries shipped inside Tug.app" half of
 # THIRD_PARTY_NOTICES.md from the lockfiles. `just lint` runs the same script
@@ -472,9 +548,6 @@ notices:
 # live at the top of the script.
 clippy-repair *ARGS:
     bun scripts/clippy-repair.ts {{ARGS}}
-
-# Full pre-merge gate (lint + test).
-ci: lint test
 
 # Build every WASM crate under tugdeck/crates/ via scripts/build-wasm.sh.
 # The script auto-discovers crates by globbing tugdeck/crates/*/Cargo.toml

@@ -294,7 +294,7 @@ describe("the allocator census", () => {
     expect(declined).toBeGreaterThan(500);
     expect(clean).toBeGreaterThan(500);
     expect(unreachable).toBeGreaterThan(0);
-  }, 120_000);
+  });
 
   test("fit tiles the chain whenever some legal total can, and spends no comfort a comfortable total would not", () => {
     let tiled = 0;
@@ -332,5 +332,5 @@ describe("the allocator census", () => {
     }
     expect(tiled).toBeGreaterThan(500);
     expect(untileable).toBeGreaterThan(0);
-  }, 120_000);
+  });
 });

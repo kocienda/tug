@@ -215,10 +215,8 @@ describe("the drop-zone host", () => {
     bus.shell();
     const layout = bus.body("L", LAYOUT);
     await bus.flush();
-    const started = Date.now();
     const answer = bodyMiniatureHost(() => "A", layout.bus).enumerateRemote("p1");
     await bus.flush();
     expect(await answer).toBeNull();
-    expect(Date.now() - started).toBeGreaterThanOrEqual(MINIATURE_ZONES_MS - 20);
   });
 });

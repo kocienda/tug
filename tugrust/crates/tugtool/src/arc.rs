@@ -2947,8 +2947,19 @@ mod tests {
         expect("cd tugrust && cargo nextest run", "rust", "nextest");
         expect("cd tugdeck && bunx tsc --noEmit", "tsc", "tsc");
         expect("cd tugdeck && bunx vite build", "vite", "vite");
-        expect("cd tugdeck && bun test", "tugdeck", "bun");
         expect("cd tugcode && bunx tsc --noEmit", "tsc", "tsc");
+        // The deck surface runs its bun suites through `just test-ts`, which
+        // reports itself; a bare `bun test` typed by hand still wraps as the
+        // hook would.
+        assert!(
+            seen.contains_key("just test-ts"),
+            "the deck runs its suites through the recipe"
+        );
+        let bun = wrap("cd tugdeck && bun test");
+        assert!(
+            bun.contains("--suite tugdeck --kind bun ") && bun.ends_with("-- bun test"),
+            "cd tugdeck && bun test → {bun}"
+        );
     }
 
     /// A git failure's code names a lock another process holds, so a caller

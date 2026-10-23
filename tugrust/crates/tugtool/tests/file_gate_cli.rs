@@ -140,10 +140,15 @@ fn the_hook_renders_the_steer_with_its_example_intact() {
     })
     .to_string();
 
+    // A cleared environment with a temp `HOME`: the hook sees the PATH it is
+    // given and nothing of the developer's.
+    let home = tempfile::tempdir().expect("temp");
     let mut child = Command::new("bash")
         .arg(&hook)
         .current_dir(dir.path())
+        .env_clear()
         .env("PATH", path)
+        .env("HOME", home.path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()

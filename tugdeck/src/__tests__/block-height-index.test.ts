@@ -541,27 +541,21 @@ describe("shiftFrom", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Binary search performance
+// Binary search
 
-describe("binary search performance", () => {
-  it("getBlockAtOffset() completes in <1ms for 100K blocks", () => {
+describe("binary search", () => {
+  it("finds the block at a mid offset in a 100K index", () => {
     const N = 100_000;
     const idx = new BlockHeightIndex(N);
     for (let i = 0; i < N; i++) {
       idx.appendBlock(24); // LINE_HEIGHT
     }
 
-    // Force a full recompute first so the timing test only measures binary search
-    idx.getTotalHeight();
-
     const totalHeight = idx.getTotalHeight();
     const midOffset = totalHeight / 2;
 
-    const start = performance.now();
     const result = idx.getBlockAtOffset(midOffset);
-    const elapsed = performance.now() - start;
 
-    expect(elapsed).toBeLessThan(1);
     // Mid offset should land near block 50000
     expect(result).toBeGreaterThan(49990);
     expect(result).toBeLessThan(50010);

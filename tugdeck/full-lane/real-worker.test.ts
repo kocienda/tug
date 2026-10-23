@@ -26,9 +26,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { WorkerIngestChannel } from "../ingest-channel";
-import type { SessionBatch, SessionPatch } from "../session-patch";
-import { startFakeTugcast, type FakeTugcast } from "../testing/fake-tugcast";
+import { WorkerIngestChannel } from "@/lib/ingest/ingest-channel";
+import type { SessionBatch, SessionPatch } from "@/lib/ingest/session-patch";
+import { startFakeTugcast, type FakeTugcast } from "@/lib/ingest/testing/fake-tugcast";
 import { FeedId, decodeFrame, encodeFrame } from "@/protocol";
 import { INGEST_WORKER_FAILED_REASON, TugConnection, ingestTaskCounter, type DisconnectState } from "@/connection";
 import { deckTrace } from "@/deck-trace";
@@ -40,7 +40,9 @@ import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 
-const ENTRY = new URL("../../workers/ingest-worker.ts", import.meta.url).href;
+const ENTRY = new URL("../src/lib/workers/ingest-worker.ts", import.meta.url).href;
+/** The same Worker with each batch stamped by how many it runs ahead of the page's acknowledgement. */
+const COUNTING_ENTRY = new URL("../src/lib/ingest/testing/counting-ingest-worker.ts", import.meta.url).href;
 
 let fake: FakeTugcast | null = null;
 let channel: WorkerIngestChannel | null = null;
@@ -654,26 +656,25 @@ describe("the Worker under a page that misbehaves", () => {
     expect(failures).toEqual([]);
   });
 
-  test("a page slower than the period gets fewer, fuller batches, and no frame waits behind a queue", async () => {
+  test("a page slower than the period gets fewer, fuller batches, and the Worker never posts ahead of its acknowledgement", async () => {
     // The producer runs in its own process: on this thread a slow page would
     // slow it too, and no queue could form.
     const streamer = Bun.spawn(
-      [process.execPath, new URL("../testing/streaming-tugcast.ts", import.meta.url).pathname, "--interval-ms", "2", "--duration-ms", "1500"],
+      [process.execPath, new URL("../src/lib/ingest/testing/streaming-tugcast.ts", import.meta.url).pathname, "--interval-ms", "2", "--duration-ms", "1500"],
       { stdout: "pipe" },
     );
     try {
       const first = await streamer.stdout.getReader().read();
       const port = Number(new TextDecoder().decode(first.value).trim());
-      channel = new WorkerIngestChannel(() => new Worker(ENTRY, { type: "module" }));
+      channel = new WorkerIngestChannel(() => new Worker(COUNTING_ENTRY, { type: "module" }));
       const PAGE_MS = 40;
-      const lags: number[] = [];
+      let maxAhead = 0;
       let frames = 0;
       channel.setBatchListener((batch) => {
-        const now = performance.timeOrigin + performance.now();
+        maxAhead = Math.max(maxAhead, (batch as { aheadAtPost?: number }).aheadAtPost ?? 0);
         for (const p of batch.entries) {
           if (p.kind !== "frame") continue;
           frames += 1;
-          lags.push(now - Number(new TextDecoder().decode(p.payload.bytes)));
         }
         if (batch.entries.some((p) => p.kind === "frame")) {
           // The page's own work, longer than the period.
@@ -688,13 +689,13 @@ describe("the Worker under a page that misbehaves", () => {
       await Bun.sleep(2_000);
 
       // Unbounded, the Worker posts a batch a period whatever the page does,
-      // and the last frames wait seconds behind the queue (3 s, measured, for
-      // a 40 ms page over 2 s of frames). Bounded on the page's
-      // acknowledgement, no frame waits much longer than one page's work.
+      // and a queue of them forms between the threads. Bounded on the page's
+      // acknowledgement, every batch is posted with none ahead of it: the
+      // stamp `count-ahead.ts` puts on each batch never exceeds 1.
       expect(frames).toBeGreaterThan(300);
-      expect(Math.max(...lags)).toBeLessThan(PAGE_MS * 4);
+      expect(maxAhead).toBe(1);
     } finally {
       streamer.kill();
     }
-  }, 10_000);
+  });
 });

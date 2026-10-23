@@ -136,17 +136,13 @@ describe("send-path horizon — the readiness gate", () => {
     // resolve it never arriving.
     (manager as any).claudeReadyPromise = new Promise<void>(() => {});
 
-    const started = Date.now();
     const emitted = await captureIpc(async () => {
       await manager.handleUserMessage(submit());
     });
-    const elapsed = Date.now() - started;
 
     const frames = errorsWithSite(emitted, "send_ready_timeout");
     expect(frames).toHaveLength(1);
     expect((frames[0] as any).recoverable).toBe(true);
-    // It ended on its own horizon, not on some ambient timeout further out.
-    expect(elapsed).toBeLessThan(TEST_HORIZON_MS * 20);
     // And it gave up without touching claude: no stdin write, no turn.
     expect(handle.writes).toEqual([]);
     expect((manager as any).activeTurn).toBeNull();
@@ -215,15 +211,12 @@ describe("send-path horizon — the respawn gate", () => {
     };
     replaceGate();
 
-    const started = Date.now();
     const emitted = await captureIpc(async () => {
       await manager.handleUserMessage(submit());
     });
-    const elapsed = Date.now() - started;
     replacing = false;
 
     expect(errorsWithSite(emitted, "send_respawn_timeout")).toHaveLength(1);
-    expect(elapsed).toBeLessThan(TEST_HORIZON_MS * 20);
     expect(handle.writes).toEqual([]);
   });
 

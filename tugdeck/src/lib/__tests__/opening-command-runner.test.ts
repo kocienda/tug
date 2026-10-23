@@ -139,5 +139,5 @@ describe("runOpeningCommand", () => {
     await new Promise((r) => setTimeout(r, CATALOG_WAIT_MS + 50));
     expect(sent.map((s) => s.values)).toEqual([["arc"]]);
     dispose();
-  }, CATALOG_WAIT_MS + 2000);
+  });
 });

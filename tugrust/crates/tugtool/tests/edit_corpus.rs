@@ -82,7 +82,14 @@ fn run_program(name: &str, program: &str) {
     let before = tree(oracle_dir.path());
 
     let command = std::fs::read_to_string(fixture.join("cmd.sh")).expect("cmd.sh");
+    // The oracle is a plain `sh -c`, but it runs under a cleared environment
+    // with a temp `HOME`: no file of the developer's is reachable from it. The
+    // process's `PATH` stays, since a fixture's command may name any tool.
+    let home = tempfile::tempdir().expect("temp");
     let oracle = Command::new("sh")
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", home.path())
         .arg("-c")
         .arg(&command)
         .current_dir(oracle_dir.path())

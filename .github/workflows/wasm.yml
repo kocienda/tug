@@ -1,0 +1,44 @@
+name: WASM
+
+# Rebuild every WASM package and fail if it differs from the committed one.
+# Its own workflow because a `paths:` filter is workflow-level on GitHub: the
+# rebuild is minutes of toolchain install for a result that cannot change
+# unless `tugdeck/crates/` did. The bytes depend on the compiler (pinned in
+# `tugdeck/crates/rust-toolchain.toml`, with the wasm32 target) and on
+# wasm-pack, which picks the wasm-opt it runs, so wasm-pack is pinned to the
+# version the packages were built with.
+
+on:
+  push:
+    branches: [main]
+    paths: ['tugdeck/crates/**']
+  pull_request:
+    branches: [main]
+    paths: ['tugdeck/crates/**']
+
+jobs:
+  wasm:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the WASM toolchain
+        run: rustup toolchain install
+        working-directory: tugdeck/crates
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.0
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: WASM check
+        run: just wasm-check
