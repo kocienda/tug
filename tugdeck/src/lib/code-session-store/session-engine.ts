@@ -771,6 +771,11 @@ export class SessionEngine {
         // reducer transitions into / out of the `replaying` phase on these
         // and populates `lastReplayResult` on completion.
         return frame;
+      case "request_replay_dropped":
+        // tugcode dropped a named ask that reached it while a replay ran; the
+        // reducer lets the ask go as it does tugcast's CONTROL notice of a
+        // queue drop.
+        return { type: "request_replay_dropped", askId: frame.ask_id };
       case "add_user_message":
         return this.addUserMessageEvent(frame);
       case "wake_started":

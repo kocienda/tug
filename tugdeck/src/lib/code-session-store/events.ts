@@ -961,8 +961,10 @@ export interface SessionNotOwnedEvent {
  * `{ type: "request_replay_dropped", ask_id, tug_session_id }`: tugcast
  * dropped, unanswered, a `request_replay` this card named `askId` from the
  * session's queue — a reset discarding the session, or a retry over a spawn
- * that died. The ask will never be answered, so a catch-up waiting on it ends
- * at once rather than at its deadline.
+ * that died — and from tugcode's CODE_OUTPUT frame of the same `type`, for an
+ * ask that reached it while a replay ran (`replay_in_flight`). The ask will
+ * never be answered, so a catch-up waiting on it ends at once rather than at
+ * its deadline.
  */
 export interface RequestReplayDroppedEvent {
   type: "request_replay_dropped";

@@ -1561,6 +1561,22 @@ export class CardPlacer {
     this.landedSolving.delete(cardId);
   }
 
+  /**
+   * `cardId` is being destroyed: a plan it rode has nothing left to answer
+   * for it, and its landed solve has no mark left to come off. Its flight
+   * goes as the uninstall lets every flight go, so a `landed` that arrives
+   * after finds none to mark solving.
+   */
+  forgetCard(cardId: string): void {
+    this.landedSolving.delete(cardId);
+    const flight = this.inFlight.get(cardId);
+    if (flight === undefined) return;
+    this.inFlight.delete(cardId);
+    this.clearHorizon(cardId);
+    if (flight.lands) this.deck.noteCardDidLand(cardId);
+    overlaySurfaceBook.release(cardId, "plan");
+  }
+
   /** The host ran `cardId`'s beats of plan `planId` to their end. */
   landed(cardId: string, planId: number, lateMs: number | null): void {
     this.traceAnswer(cardId, planId, true, lateMs);
@@ -1801,6 +1817,11 @@ export function cardIsSolving(cardId: string): boolean {
 /** The shell's crossing mark over `cardId`'s pane is gone, as a reader of it saw. */
 export function cardCrossingReleased(cardId: string): void {
   installed?.crossingReleased(cardId);
+}
+
+/** `cardId` is being destroyed: the placer lets go of what it kept of it ({@link CardPlacer.forgetCard}). */
+export function cardPlacementForget(cardId: string): void {
+  installed?.forgetCard(cardId);
 }
 
 /** The host ran a body's planned beats to their end. */

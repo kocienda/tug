@@ -121,6 +121,7 @@ import { scheduleAfterPaint } from "./after-paint";
 import { bodyStandInStore } from "./body-stand-in-store";
 import {
   cardCrossingReleased,
+  cardPlacementForget,
   cardIsSolving,
   cardPlanCancelled,
   cardPlanLanded,
@@ -161,6 +162,7 @@ import {
   devtoolsLogEntries,
   focusEnter,
   focusExit,
+  GUARD_WORD_WRITE_MS,
   settingsReveal,
   surfaceActivate,
   surfaceDismissed,
@@ -661,9 +663,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       get: (cardId) => cardGuardAsks.getFor(cardId),
       set: (cardId, asks) => cardGuardAsks.setFor(cardId, asks),
       persist: (cardId, asks) => {
-        if (window.__tugTestMode === true && window.__tugPersistInTestMode !== true) return Promise.resolve();
+        if (window.__tugTestMode === true && window.__tugPersistInTestMode !== true) return Promise.resolve(true);
         return putGuardWord(cardId, asks);
       },
+      deadline: () => new Promise((resolve) => setTimeout(resolve, GUARD_WORD_WRITE_MS)),
+      late: (cardId) => tugDevLogStore.warn("body", "a kept guard word's write settled after its card stopped waiting", { cardId }),
     },
     (() => {
       const client = getTugbankClient();
@@ -676,7 +680,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   /**
    * The evicted cards whose kept word is still being written, which are not
    * revived until it is durable: a page brought back reads the word, and a
-   * quit between the eviction and the write would lose the card's ask.
+   * quit between the eviction and the write would lose the card's ask. The
+   * wait is bounded (`GUARD_WORD_WRITE_MS`): a stalled write leaves the word
+   * in the store only, which the page brought back is sent all the same.
    */
   const wordsWriting = new Set<string>();
   /** The modal hold the shell holds for each body card whose run said so, with its release. */
@@ -870,6 +876,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         forgetBodyIntent(cardId);
         bodyCardsStore.drop(cardId);
         bodyChordCaptureStore.clear(cardId);
+        cardPlacementForget(cardId);
       }),
     ];
     perCard.set(cardId, () => {
@@ -1688,7 +1695,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // does, a reveal racing the eviction, asks now.
         // A page that said its guard would ask leaves that word behind: the
         // card's close asks until its next page answers for itself. The card
-        // is revived once the word is durable.
+        // is revived once the word is durable, or once a stalled write has
+        // been waited on long enough.
         wordsWriting.add(cardId);
         void keptWords.evicted(cardId, cardHolds.getFor(cardId)).then(() => {
           wordsWriting.delete(cardId);

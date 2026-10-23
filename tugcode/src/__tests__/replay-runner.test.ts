@@ -132,6 +132,36 @@ describe("ReplayRunner", () => {
     expect(runner.replayActive).toBe(false);
   });
 
+  test("a named request dropped in flight says so by its ask; an unnamed one says nothing", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const host = fakeHost({
+      readJsonl: async () => {
+        await held;
+        return { kind: "missing", message: "no such file" };
+      },
+    });
+    const runner = new ReplayRunner(host, { sessionsDbPath: null });
+
+    const emitted = await captureIpc(async () => {
+      const first = runner.runReplay();
+      await runner.runReplay(undefined, undefined, undefined, "ask-9");
+      await runner.runReplay();
+      release();
+      await first;
+    });
+
+    // The drop is written at the entry, ahead of whatever the running bracket
+    // has still to write.
+    expect(emitted.map((m) => [m.type, (m as { ask_id?: string }).ask_id])).toEqual([
+      ["request_replay_dropped", "ask-9"],
+      ["replay_started", undefined],
+      ["replay_complete", undefined],
+    ]);
+  });
+
   test("an open turn is snapshotted inside the bracket with its emit gate held, and released after", async () => {
     const turn = new ActiveTurn(0, []);
     const host = fakeHost({

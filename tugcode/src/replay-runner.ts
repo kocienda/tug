@@ -420,6 +420,11 @@ export class ReplayRunner {
         session_id: this.host.sessionId(),
         reason: "replay_in_flight",
       });
+      // A card waiting on this ask by name is told, so its catch-up ends now
+      // rather than at its deadline.
+      if (askId !== undefined) {
+        writeLine({ type: "request_replay_dropped", ask_id: askId, ipc_version: IPC_VERSION });
+      }
       return;
     }
     // Step R0d cold-boot order calls runReplay before claude has been

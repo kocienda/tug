@@ -348,7 +348,10 @@ function applyMotion(): void {
  * the ask is recorded and falls when the bracket closes, or at the store's
  * own deadline when none comes, which is the one horizon. A card with no
  * session, or whose session the ledger shows closed or failed, has nothing to
- * catch up on. A store disposed mid-wait clears its listeners, so the wait
+ * catch up on. The store may refuse the ask — on a wire that is not open, or
+ * inside the catch-up's own bracket — so once its engine has answered, a
+ * catch-up that is not standing ends the wait, and one standing already is
+ * waited out. A store disposed mid-wait clears its listeners, so the wait
  * also follows the card's services and ends when the store it asked is no
  * longer the card's. Returns the release for the wait.
  */
@@ -383,6 +386,10 @@ function catchUpCard(cardId: string, done: () => void): () => void {
     }),
   );
   store.catchUp();
+  void store.whenSettled().then(() => {
+    if (store.getSnapshot().catchingUp) rose = true;
+    else finish();
+  });
   return release;
 }
 

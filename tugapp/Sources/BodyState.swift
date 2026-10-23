@@ -55,6 +55,11 @@ struct BodyState: Equatable {
     /// How many evictions the body has begun: an eviction in flight finishes
     /// only while the body is still evicting under the count it began with.
     private(set) var eviction = 0
+    /// Its page reloaded itself over one that was ready and had painted, and
+    /// has not painted yet: the card was on show and is again at the new
+    /// page's paint, so a placement that shows it reads it as seen through
+    /// the gap rather than telling the page it is hidden for one round.
+    private(set) var rebound = false
 
     /// The phase as the harness reads it: an evicting body is still a ready
     /// page until its eviction finishes.
@@ -63,6 +68,10 @@ struct BodyState: Equatable {
     /// The page is alive and bound to its card: it can be told things and
     /// asked to save.
     var isLive: Bool { phase == .ready || phase == .evicting }
+
+    /// The page's script is up and can answer a crossing's solve: a bound
+    /// page as well as a live one, since it said hello before it was bound.
+    var canSolve: Bool { phase == .bound || isLive }
 
     /// Make `move`, or refuse it and change nothing. Returns whether it was made.
     @discardableResult
@@ -87,6 +96,7 @@ struct BodyState: Equatable {
         // cover over it comes down at that paint, not before.
         case (.bind, .connected), (.bind, .bound), (.bind, .ready), (.bind, .evicting):
             next.phase = .bound
+            next.rebound = (phase == .ready || phase == .evicting) && painted || rebound
             next.painted = false
             next.shownOnce = false
         case (.ready, .bound):
@@ -94,6 +104,7 @@ struct BodyState: Equatable {
         case (.paint, .bound), (.paint, .ready), (.paint, .evicting):
             guard !painted else { return nil }
             next.painted = true
+            next.rebound = false
         case (.show, _):
             guard phase != .gone, phase != .failed else { return nil }
             next.shownOnce = true
@@ -114,11 +125,14 @@ struct BodyState: Equatable {
             next.phase = .loading
             next.painted = false
             next.shownOnce = false
+            next.rebound = false
         case (.fail, _):
             guard phase != .gone, phase != .failed else { return nil }
             next.phase = .failed
+            next.rebound = false
         case (.close, _):
             next.phase = .gone
+            next.rebound = false
         default:
             return nil
         }

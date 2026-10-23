@@ -321,6 +321,12 @@ describe("replay, lineage and rewind", () => {
     expect(failPath("replay_relocation", { ...reloc, to_dir: 1 })).toBe("$.to_dir");
   });
 
+  test("request_replay_dropped", () => {
+    const frame = { type: "request_replay_dropped", ask_id: "ask-1", ipc_version: 2 };
+    expect(failPath("request_replay_dropped", frame)).toBeNull();
+    expect(failPath("request_replay_dropped", { ...frame, ask_id: undefined })).toBe("$.ask_id");
+  });
+
   test("replay_started and replay_complete, including tugcast's synthetic close", () => {
     expect(failPath("replay_started", { type: "replay_started" })).toBeNull();
     const complete = {

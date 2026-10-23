@@ -56,6 +56,7 @@ import {
   createInitialState,
   deriveActiveTurnSnapshot,
   mintAskId,
+  NO_CATCH_UP,
   type CodeSessionState,
 } from "./code-session-store/reducer";
 import {
@@ -1982,6 +1983,9 @@ export class CodeSessionStore extends Subscribable {
     }
     this.clearListeners();
     this.state.queuedSends = [];
+    // A dead store owes no answer and waits on none: its asks and the ones it
+    // let go go with it.
+    this.state.catchUp = NO_CATCH_UP;
     // Release any retained attachment bytes; the bytes-store is per-
     // card and has no consumers past dispose.
     this.atomBytesStore.clear();

@@ -302,7 +302,9 @@ final class BodyViewController {
         /// opacity rather than `isHidden`, so painting is not the reading.
         var shown: (value: Bool, since: Double)?
         /// What `shown` reads now: placed visible and showable, or a sibling.
-        var seen: Bool { visible && canShow || sibling }
+        /// A page that reloaded itself while on show reads as seen until its
+        /// new paint shows it, so it is told `shown` once, at its bind.
+        var seen: Bool { visible && (canShow || life.rebound) || sibling }
         /// The `shown` its page was last told; nil until the page is bound,
         /// and again when a reload binds a new one.
         var toldShown: Bool?

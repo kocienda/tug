@@ -128,14 +128,25 @@ run time, which a replay may since have rewritten. A written contention
 finding — green alone, red only in batches, with the sizes — is an ending;
 a sentence in a step commit is not.
 
+Every run is named by its tree as well as its sha: the arc worktree it ran
+on (`.tug/worktrees/<arc>`, branch `tugarc/<arc>`) or `main`'s checkout,
+and `dirty=0` or `dirty=1`. "Clean `main`" is written only for a run whose
+root is `main`'s checkout at `dirty=0`. Unless an entry says otherwise, the
+runs below were on the `body-lifecycle-fourth-fixups` worktree.
+
 - **`row-17-crossing-split`, `row-28-deck-facts`, `row-10-workspace-kinds-away`.**
-  Red alone on 2026-10-22 at `50beb0243` and `c0417b7aa` (arc shas of the
-  second lifecycle fixups and the fully-solved-animations arc) and green
-  alone from `97a58cd2a` / `f1e12a702` on; no single commit names the fix —
-  the files their failures read moved in `1336e24b7` and `721d2ab84`. Run
-  alone 3/3 green each on 2026-10-23 at `56ba8fecd`, `dirty=0`.
+  Red alone on 2026-10-22 on the `body-lifecycle-second-fixups` worktree at
+  `50beb0243` and the `fully-solved-animations` worktree at `c0417b7aa`;
+  `row-10-workspace-kinds-away` never ran at `50beb0243`, and its reds are
+  the `c0417b7aa` ones. Green alone from `97a58cd2a` (second-fixups) and
+  `f1e12a702` (third-fixups) on, except one red of `row-17-crossing-split`
+  in a batch of 9 at `97a58cd2a`; no single commit names the fix — the
+  files their failures read moved in `1336e24b7` and `721d2ab84`. Run alone
+  3/3 green each on 2026-10-23 at `56ba8fecd`, `dirty=0` (runs 8962–8970),
+  an arc commit on the fourth-fixups worktree, not `main`.
 - **`at0024-prompt-state-roundtrip`.** Red alone 3/4 at `d6dd50244`
-  (2026-10-22), green alone 3/3 at `f1e12a702`, and on 2026-10-23 red alone
+  (2026-10-22, `switch-hand-over` worktree), green alone 3/3 at `f1e12a702`
+  (third-fixups), and on 2026-10-23 red alone
   again: 1 pass in 4 at `56ba8fecd` and 3 in 7 at `2afb42f43`, always the
   `gallery-prompt-entry × appReload` leg's selection axis reading 0,0 with
   the text intact. A probe copy with a selection timeline showed the
@@ -162,28 +173,34 @@ a sentence in a step commit is not.
   focus as the editor being the page's active element, and holds the
   restored range through WebKit's caret placement as the paint does. 4/4
   green alone, and 2/2 with the read delayed 1.5 s so the refocus lands
-  before it every run, on 2026-10-23 at `8da77caad` plus the fix.
-- **`row-01-arrival-cold`.** Since 2026-10-21 red in batches of 6 to 70
-  and green alone at every sha (one alone red, run 8870 at `f1e12a702`, in
-  about twenty alone runs), so there is no last-green / first-red pair to
-  probe between: the red follows the batch, not a landing. Its failure is
-  a cold body that paints after the 2 s burst closes, leaving the last
-  frame the lid with no content in it. The bar is restated in `_row-01.ts`:
-  the hole frames are still judged over the whole burst, and the finished
-  rect is read from a short burst after the paint when the body painted
-  past the burst's close, with a note saying the body was slow. 3/3 green
-  alone at `c56dae0d8`, `dirty=0`.
+  before it every run, on 2026-10-23 at `8da77caad` `dirty=1` (runs
+  9021–9028), the blur fix not yet committed.
+- **`row-01-arrival-cold`.** Since 2026-10-20 green alone 17 times and red
+  alone once (run 8870 at `f1e12a702`), and in batches 56 green and 23 red,
+  the reds at batch sizes 2 (twice), 4 (twice), 6, 16, 20, 21 and 42 to
+  70. There is no last-green / first-red pair to probe between, so the
+  probe is waived: the red follows the batch, not a landing. Its failure
+  is a cold body that paints after the 2 s burst closes, leaving the last
+  frame the lid with no content in it. The bar is restated in `_row-01.ts`,
+  and it is a looser bar, said plainly: the hole frames are still judged
+  over the whole burst, but the finished rect is read from a short burst
+  after the paint when the body painted past the burst's close, with a
+  note saying the body was slow, so how soon the body paints is no longer
+  bounded — a body painting at 29 s passes under `BODY_READY_MS`. 3/3
+  green alone at `c56dae0d8`, `dirty=0`.
 - **`at0140-cycle-session-card`.** In the batch of 25 (run 8906,
   `f1e12a702`, 2026-10-22) it was 0/5, then red alone twice (2/4, 2/4)
   before its popover read moved into the card's body and it went green
   once. 3/3 green alone on 2026-10-23 at `56ba8fecd`, `dirty=0`.
 - **`row-33-arrangement`.** Red alone 10 of 15 runs in twelve minutes on
   2026-10-22 before its confirm fix, red in the batch of 25 and green alone
-  after; on 2026-10-23 still red alone 4 of 9 at `60b605be7` until
-  `389770768` held the arrangement frames to one workspace. 3/3 green alone
-  at `c56dae0d8`, `dirty=0`.
-- **`row-38-evicted-guarded`.** Red alone once at `8ae30c1b2` while its
-  reload leg was being written, red in a batch of 35 at `50beb0243`, green
+  after; on 2026-10-23 at `60b605be7` on `main`'s checkout, `dirty=1`, red
+  alone 2 and green alone 2, and red in 6 of 9 runs counting batches,
+  until `389770768` held the arrangement frames to one workspace. 3/3
+  green alone at `c56dae0d8`, `dirty=0`.
+- **`row-38-evicted-guarded`.** Red alone once at `8ae30c1b2` (third-fixups,
+  `dirty=1`) while its reload leg was being written, red in a batch of 35
+  at `50beb0243` (second-fixups), green
   in batches since. 3/3 green alone at `c56dae0d8`, `dirty=0`.
 - **`row-25-in-card-surfaces`.** Red alone 6 times at `f1e12a702` before
   its bar changed (paint is rows changing past the composer or wearing the
@@ -192,12 +209,30 @@ a sentence in a step commit is not.
   two: `row-44-switch-first-visit`, `row-33-arrangement` and `at0140`.
   Rows 44 and 33 were green alone straight after; `at0140` was red alone
   twice more before its edit.
-- **Lifecycle rows 35–46 on the final tree.** Run once together on
-  2026-10-23 at `c56dae0d8`, `dirty=0` (run 8999, 23 files): 22 green;
+- **Lifecycle rows 35–46 at `c56dae0d8`.** Run once together on
+  2026-10-23, `dirty=0` (run 8999, 23 files): 22 green;
   `row-38-evicted` was stopped at the 20 s budget unfinished, having run
   17 s alone every time on record, and was green alone straight after
   (run 9000, 17 s). It is a file at the budget's edge, not a red: in a
-  batch the margin is gone.
+  batch the margin is gone. That was not the tree that landed: after it
+  `8da77caad` and `a657229b6` changed `tug-text-editor.tsx` and
+  `state-preservation.ts`, which a restored Session draft runs through,
+  and the replay moved the base. The run on the final tree is the next
+  entry.
+- **Lifecycle rows 35–46, the fold row and at0024 at `675282b3e`.** Run
+  once together on 2026-10-23 on the `body-lifecycle-closing-tail` worktree,
+  `dirty=0` (run 9040, 24 files, 62 s): 23 green. `row-38-evicted-no-cover`
+  was red in the batch, a reveal frame showing the canvas through the pane,
+  and green alone straight after (run 9041, 14 s) on the same tree. A
+  catch-up fix in the session reducer landed after it, so the run on the
+  final tree is the next entry.
+- **Lifecycle rows 35–46, the fold row and at0024 on the final tree.** Run
+  once together on 2026-10-23 on the `body-lifecycle-closing-tail` worktree
+  at `6930dd68e`, `dirty=0` (run 9042, 24 files, 57 s): 24 green, among them
+  `row-38-evicted-fold` asserting the unbound page it exists for,
+  `row-38-evicted-no-cover`, and `at0024-prompt-state-roundtrip`. With run
+  9040's red, `row-38-evicted-no-cover` is a contention finding: red once in
+  a batch of 24, green alone and in the next batch of 24.
 
 ## Kind checks
 

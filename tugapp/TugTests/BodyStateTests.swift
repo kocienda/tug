@@ -58,15 +58,38 @@ final class BodyStateTests: XCTestCase {
         XCTAssertTrue(state.apply(.paint), "its first paint is heard")
     }
 
-    /// A crossing's solve is answered by a page's script, which a body not
-    /// yet live — loading, connected or bound — has none of.
-    func testOnlyALiveBodyCanAnswerACrossingsSolve() {
-        XCTAssertFalse(state().isLive)
-        XCTAssertFalse(state(.hello).isLive)
+    /// A crossing's solve is answered by a page's script, which a bound page
+    /// has up as a live one does; a body still loading, or connected and not
+    /// yet told its card, is not asked. Live — what may be told things and
+    /// asked to save — still waits for ready.
+    func testABoundOrLiveBodyCanAnswerACrossingsSolve() {
+        XCTAssertFalse(state().canSolve)
+        XCTAssertFalse(state(.hello).canSolve)
+        XCTAssertTrue(state(.hello, .bind).canSolve)
+        XCTAssertTrue(state(.hello, .bind, .ready).canSolve)
+        XCTAssertTrue(state(.hello, .bind, .ready, .evict).canSolve)
+        XCTAssertTrue(state(.hello, .bind, .ready, .bind).canSolve, "a page bound again solves before it is ready")
         XCTAssertFalse(state(.hello, .bind).isLive)
-        XCTAssertTrue(state(.hello, .bind, .ready).isLive)
-        XCTAssertTrue(state(.hello, .bind, .ready, .evict).isLive)
         XCTAssertFalse(state(.hello, .bind, .ready, .bind).isLive, "a page bound again is not live until ready")
+    }
+
+    /// A page that reloads itself over a ready one that had painted is
+    /// rebound until its own paint, through any further bind, so a card on
+    /// show is not told it is hidden for the gap; a page that had painted
+    /// nothing, a host reload, a failure or a close carries no such fact.
+    func testAPageThatReloadsItselfOverAPaintedOneIsReboundUntilItPaints() {
+        var state = self.state(.hello, .bind, .ready, .paint, .bind)
+        XCTAssertTrue(state.rebound)
+        XCTAssertTrue(state.apply(.ready))
+        XCTAssertTrue(state.apply(.bind))
+        XCTAssertTrue(state.rebound, "a second bind before the paint keeps it")
+        XCTAssertTrue(state.apply(.paint))
+        XCTAssertFalse(state.rebound)
+
+        XCTAssertFalse(self.state(.hello, .bind, .ready, .bind).rebound, "nothing painted, nothing on show")
+        XCTAssertFalse(self.state(.hello, .bind, .ready, .paint, .bind, .reload).rebound)
+        XCTAssertFalse(self.state(.hello, .bind, .ready, .paint, .bind, .fail).rebound)
+        XCTAssertFalse(self.state(.hello, .bind, .ready, .paint, .bind, .close).rebound)
     }
 
     func testAnEvictingBodyReadsAsALiveReadyPage() {

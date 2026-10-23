@@ -613,6 +613,93 @@ describe("catchUp — its answer, known by name", () => {
   });
 });
 
+describe("catchUp — an ask the read ahead of it outlives", () => {
+  const ids = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => FIXTURE_IDS.MSG_ID_N(from + i));
+
+  it("a running bracket that closes after the deadline is asked again: its turns land once, and the window keeps its start", () => {
+    const { store, conn, timers } = makeTimedStore();
+    replayRange(conn, 2, 7, { firstLoadedTurnIndex: 2, totalTurns: 8, hasOlder: true });
+    store.catchUp();
+    const first = lastAsk(conn);
+    // A read nobody here asked for opens while the ask waits, and runs past
+    // the ask's deadline.
+    emit(conn, { type: "replay_started" });
+    for (let n = 0; n <= 8; n++) emitTurn(conn, n);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(store.getSnapshot().catchingUp).toBe(false);
+    emit(conn, { type: "replay_complete", count: 9, firstLoadedTurnIndex: 0, totalTurns: 9, hasOlder: false });
+
+    // Its close is the one the ask stood behind: the card asks again, with the
+    // lapsed ask let go.
+    expect(catchUpAsks(conn)).toHaveLength(2);
+    const second = lastAsk(conn);
+    expect(store.getSnapshot().catchingUp).toBe(true);
+    expect(store._getInternalStateForDevPanel().catchUp).toMatchObject({ stage: "asked", behind: null, letGo: [first] });
+    expect(store._getInternalStateForDevPanel().catchUp.asks.map((a) => a.id)).toEqual([second]);
+
+    replayRange(conn, 7, 8, { firstLoadedTurnIndex: 7, totalTurns: 9, hasOlder: true }, second);
+    const snap = store.getSnapshot();
+    expect(snap.transcript.map((t) => t.msgId)).toEqual(ids(2, 8));
+    expect(snap.replayWindow).toEqual({ firstLoadedTurnIndex: 2, totalTurns: 9, hasOlder: true });
+    expect(snap).toMatchObject({ phase: "idle", catchingUp: false });
+    expect(store._getInternalStateForDevPanel().catchUp.asks).toEqual([]);
+  });
+
+  it("an ask tugcode dropped behind a running read ends the catch-up at once", () => {
+    const { store, conn, timers } = makeTimedStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp();
+    const askId = lastAsk(conn);
+    emit(conn, { type: "replay_started" });
+    emit(conn, { type: "request_replay_dropped", ask_id: askId });
+    expect(store._getInternalStateForDevPanel().catchUp).toMatchObject({ stage: "none", asks: [], letGo: [askId], behind: null });
+    expect(store.getSnapshot().catchingUp).toBe(false);
+
+    // The read's close asks nothing more: the drop was the answer.
+    emit(conn, { type: "replay_complete", count: 0 });
+    expect(catchUpAsks(conn)).toHaveLength(1);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(catchUpAsks(conn)).toHaveLength(1);
+  });
+
+  it("a reveal on a closed wire asks nothing and arms nothing", () => {
+    const step = (state: CodeSessionState, event: Record<string, unknown>) => reduce(state, event as unknown as CodeSessionEvent);
+    const offline = step(createInitialState(TUG, "catch-up", "resume"), { type: "transport_close" }).state;
+    expect(offline.transportState).toBe("offline");
+    const revealed = step(offline, begin());
+    expect(revealed.state.catchUp).toMatchObject({ stage: "none", asks: [] });
+    expect(revealed.effects.some((e) => e.kind === "schedule_timer" && e.name === "catch_up")).toBe(false);
+
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store._simulateTransportForTest("close");
+    store.catchUp();
+    expect(catchUpAsks(conn)).toHaveLength(0);
+    expect(store.getSnapshot().catchingUp).toBe(false);
+  });
+
+  it("a lapsed ask stands behind no bracket but a shadow: a read the card was inside closes as itself, and a later read asks nothing", () => {
+    const step = (state: CodeSessionState, event: Record<string, unknown>) => reduce(state, event as unknown as CodeSessionEvent);
+    const settled: CodeSessionState = {
+      ...createInitialState(TUG, "catch-up", "resume"),
+      replayWindow: { firstLoadedTurnIndex: 5, totalTurns: 8, hasOlder: true },
+    };
+    // The card sleeps inside a read and is revealed in it; the re-ask lapses,
+    // and the card, still inside that read, hears it close.
+    const inRead = step(step(settled, { type: "replay_started" }).state, { type: "went_dormant" }).state;
+    const lapsed = step(step(inRead, begin()).state, { type: "tick_catch_up" }).state;
+    expect(lapsed.catchUp.stage).toBe("none");
+    const closed = step(lapsed, { type: "replay_complete", count: 0, firstLoadedTurnIndex: 5, totalTurns: 8, hasOlder: true });
+    expect(closed.state.catchUp.behind).toBeNull();
+
+    // A later read nobody here asked for, set aside, closes: nothing stood
+    // behind it, so nothing is asked.
+    const later = step(step(closed.state, { type: "replay_started", inflight_only: true }).state, { type: "replay_complete", count: 0 });
+    expect(later.effects.some((e) => e.kind === "request-replay")).toBe(false);
+    expect(later.state.catchUp.stage).toBe("none");
+  });
+});
+
 describe("catchUp — its horizon", () => {
   const settled = (): CodeSessionState => ({
     ...createInitialState(TUG, "catch-up", "resume"),
@@ -990,7 +1077,7 @@ describe("catchUp — an ask the session ends", () => {
     ["session_not_owned", [{ type: "session_not_owned" }], "session_not_owned"],
   ];
   for (const [name, frames, cause] of deaths) {
-    it(`${name} while the catch-up waits ends it, lets what was set aside go, lets the ask go, and writes the queued send nowhere`, () => {
+    it(`${name} while the catch-up waits ends it, reduces what was set aside, lets the ask go, and writes the queued send nowhere`, () => {
       const { store, conn } = makeStore();
       replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
       store.catchUp();
@@ -1012,9 +1099,9 @@ describe("catchUp — an ask the session ends", () => {
       }
       expect(state.catchUp).toMatchObject({ stage: "none", asks: [], held: [], behind: null });
       expect(effects).toContainEqual({ kind: "cancel_timer", name: "catch_up" });
-      // The held tail is never reduced: the session that would complete it is
-      // gone, and its close is no turn boundary to send from.
-      expect(state.committedMsgIds.has(id)).toBe(false);
+      // The held turn is the session's last word and is committed, but the
+      // boundary it reaches sends nothing to the session that died.
+      expect(state.committedMsgIds.has(id)).toBe(true);
       expect(state).toMatchObject({ phase: "errored", lastError: { cause } });
       expect(effects.some((e) => e.kind === "send-frame")).toBe(false);
       expect(state.queuedSends).toHaveLength(1);
@@ -1029,6 +1116,33 @@ describe("catchUp — an ask the session ends", () => {
       expect(state.queuedSends).toHaveLength(1);
     });
   }
+
+  it("a session that fails to resume after delivering the user's answer commits it: the cycle ends, and nothing is written to it", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.send("prompt 2", []);
+    expect(store._getInternalStateForDevPanel().phase).toBe("submitting");
+    store.catchUp();
+    const id = FIXTURE_IDS.MSG_ID_N(2);
+    emit(conn, { type: "assistant_text", status: "complete", msg_id: id, text: "the answer", is_partial: false, rev: 0, seq: 0 });
+    emit(conn, { type: "turn_complete", seq: 0, msg_id: id, result: "success" });
+    const heard = store._getInternalStateForDevPanel();
+    expect(heard.catchUp.held).toHaveLength(2);
+
+    let state = heard;
+    const effects: Effect[] = [];
+    for (const frame of [RESUME_FAILED, ERRORED]) {
+      const next = step(state, frame);
+      state = next.state;
+      effects.push(...next.effects);
+    }
+    expect(state.committedMsgIds.has(id)).toBe(true);
+    expect(state.pendingTurn).toBeNull();
+    expect(state.scratch.size).toBe(0);
+    expect(state).toMatchObject({ phase: "errored", lastError: { cause: "resume_failed" } });
+    expect(state.catchUp).toMatchObject({ stage: "none", asks: [], held: [] });
+    expect(effects.some((e) => e.kind === "send-frame")).toBe(false);
+  });
 
   for (const name of ["session_unknown", "session_not_owned"] as const) {
     it(`${name} on a settled card with no catch-up changes nothing`, () => {
@@ -1172,6 +1286,30 @@ describe("catchUp — every exit from an open bracket, and the send it held", ()
     expect(out.state.queuedSends).toHaveLength(0);
   });
 
+  it("a transport close ends it, lets every ask go, and the send waits for the reconnect", () => {
+    const { store } = openWithASend();
+    const out = step(store._getInternalStateForDevPanel(), { type: "transport_close" });
+    expect(out.state).toMatchObject({ phase: "errored", transportState: "offline" });
+    expect(out.state.catchUp).toMatchObject({ stage: "none", openWindow: null, answering: null, asks: [] });
+    expect(out.effects).toContainEqual({ kind: "cancel_timer", name: "catch_up" });
+    expect(sends(out.effects)).toHaveLength(0);
+    expect(out.state.queuedSends).toHaveLength(1);
+  });
+
+  it("a wire error before the bracket opens leaves the catch-up waiting, and its deadline sends to the session still there", () => {
+    const made = makeTimedStore();
+    replayRange(made.conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    made.store.catchUp();
+    made.store.send("prompt 2", []);
+    const errored = step(made.store._getInternalStateForDevPanel(), { type: "error", message: "boom", recoverable: true, site: "x" });
+    expect(errored.state.catchUp.stage).toBe("asked");
+    expect(sends(errored.effects)).toHaveLength(0);
+    const lapsed = step(errored.state, { type: "tick_catch_up" });
+    expect(lapsed.state.catchUp.stage).toBe("none");
+    expect(sends(lapsed.effects)).toHaveLength(1);
+    expect(lapsed.state.queuedSends).toHaveLength(0);
+  });
+
   it("a session that fails to resume ends it, and the send stays queued for the card's next session", () => {
     const { store } = openWithASend();
     const failed = step(store._getInternalStateForDevPanel(), { type: "resume_failed", reason: "r", stale_session_id: "s" });
@@ -1203,6 +1341,8 @@ describe("catchUp — every exit from an open bracket, and the send it held", ()
     const written = conn.recordedFrames.length;
     store.dispose();
     expect(timers.pending).toBe(0);
+    // The dead store owes nothing and remembers nothing.
+    expect(store._getInternalStateForDevPanel().catchUp).toMatchObject({ stage: "none", asks: [], letGo: [], answering: null });
     emit(conn, { type: "replay_complete", count: 0, firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
     timers.advance(CATCH_UP_DEADLINE_MS);
     store.catchUp();

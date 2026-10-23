@@ -703,10 +703,10 @@ export function putCardState(cardId: string, bag: CardStateBag, options?: { keep
  * Persist whether `cardId`'s close asks on the word of an evicted page: PUT
  * while it does, DELETE once it does not. One card's writes go in the order
  * they were asked, each after the last has landed, so a late PUT never
- * outlives the DELETE that followed it. Settles once this write has landed,
- * or failed, which is logged: it never rejects.
+ * outlives the DELETE that followed it. Settles once this write has landed
+ * (`true`) or failed (`false`, logged): it never rejects.
  */
-export function putGuardWord(cardId: string, asks: boolean): Promise<void> {
+export function putGuardWord(cardId: string, asks: boolean): Promise<boolean> {
   const write = (guardWordWrites.get(cardId) ?? Promise.resolve()).then(() => writeGuardWord(cardId, asks));
   guardWordWrites.set(cardId, write);
   void write.then(() => {
@@ -716,19 +716,21 @@ export function putGuardWord(cardId: string, asks: boolean): Promise<void> {
 }
 
 /** Each card's last guard-word write, which its next one waits on. */
-const guardWordWrites = new Map<string, Promise<void>>();
+const guardWordWrites = new Map<string, Promise<boolean>>();
 
-function writeGuardWord(cardId: string, asks: boolean): Promise<void> {
-  if (!asks) return deleteDefault(GUARD_ASKS_DOMAIN, cardId);
+function writeGuardWord(cardId: string, asks: boolean): Promise<boolean> {
   const url = `/api/defaults/${GUARD_ASKS_DOMAIN}/${encodeURIComponent(cardId)}`;
-  return fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind: "json", value: true }),
-  })
-    .then(() => {})
+  const request: RequestInit = asks
+    ? { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "json", value: true }) }
+    : { method: "DELETE" };
+  return fetch(url, request)
+    .then((response) => {
+      if (!response.ok) console.warn(`[settings] ${request.method} guard word failed for`, cardId, response.status);
+      return response.ok;
+    })
     .catch((err) => {
-      console.warn("[settings] PUT guard word failed for", cardId, err);
+      console.warn(`[settings] ${request.method} guard word failed for`, cardId, err);
+      return false;
     });
 }
 

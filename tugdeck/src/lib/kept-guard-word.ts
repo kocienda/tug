@@ -20,6 +20,12 @@
  * turned automatic while it was evicted — answers too: nothing it holds
  * asks, and the word goes.
  *
+ * Whether a word needs writing is read from the durable copy's last known
+ * state, not from the store: the store says what the card's close does now,
+ * the durable copy only what its last write that landed said. A write that
+ * failed leaves the copy unknown, so the card's next word is written again
+ * whatever the store held.
+ *
  * @module lib/kept-guard-word
  */
 
@@ -30,8 +36,12 @@ export interface KeptGuardWordsDeps {
   get(cardId: string): boolean;
   /** Set the card's kept word in the shell's store. */
   set(cardId: string, asks: boolean): void;
-  /** Write the card's kept word to the durable copy; settles once it is written. */
-  persist(cardId: string, asks: boolean): Promise<void>;
+  /** Write the card's kept word to the durable copy; settles `true` once it is written, `false` if it failed. */
+  persist(cardId: string, asks: boolean): Promise<boolean>;
+  /** Settles when an eviction has waited on its word's write as long as it will. */
+  deadline(): Promise<void>;
+  /** `cardId`'s word's write settled after its eviction stopped waiting on it. */
+  late(cardId: string): void;
 }
 
 export interface KeptGuardWords {
@@ -39,7 +49,8 @@ export interface KeptGuardWords {
   asks(cardId: string): boolean;
   /**
    * `cardId`'s page was evicted, its last holds `holds`: a word that its
-   * guard asks stays. Settles once the word is durable.
+   * guard asks stays. Settles once the word is durable, or at the deadline
+   * if its write has not settled by then.
    */
   evicted(cardId: string, holds: CardHoldsValue): Promise<void>;
   /** `cardId`'s page published `holds`: once they are its guard's answer, the kept word goes. */
@@ -53,16 +64,37 @@ export interface KeptGuardWords {
  * when the shell loaded (`persisted`).
  */
 export function createKeptGuardWords(deps: KeptGuardWordsDeps, persisted: readonly string[]): KeptGuardWords {
-  for (const cardId of persisted) deps.set(cardId, true);
+  /** Each card's durable word as last written or asked, `null` once a write failed; absent is none. */
+  const durable = new Map<string, boolean | null>();
+  /** Each card's write in flight, which a word it already says waits on. */
+  const writing = new Map<string, Promise<void>>();
+  for (const cardId of persisted) {
+    deps.set(cardId, true);
+    durable.set(cardId, true);
+  }
   const keep = (cardId: string, asks: boolean): Promise<void> => {
-    if (deps.get(cardId) === asks) return Promise.resolve();
-    deps.set(cardId, asks);
-    return deps.persist(cardId, asks);
+    if (deps.get(cardId) !== asks) deps.set(cardId, asks);
+    if ((durable.get(cardId) ?? false) === asks) return writing.get(cardId) ?? Promise.resolve();
+    durable.set(cardId, asks);
+    const write = deps.persist(cardId, asks).then((landed) => {
+      if (!landed && durable.get(cardId) === asks) durable.set(cardId, null);
+      if (writing.get(cardId) === write) writing.delete(cardId);
+    });
+    writing.set(cardId, write);
+    return write;
   };
   return {
     asks: (cardId) => deps.get(cardId),
     evicted(cardId, holds) {
-      return holds.closeGuardAsks === true ? keep(cardId, true) : Promise.resolve();
+      if (holds.closeGuardAsks !== true) return Promise.resolve();
+      let settled = false;
+      const written = keep(cardId, true).then(() => {
+        settled = true;
+      });
+      const waited = deps.deadline().then(() => {
+        if (!settled) void written.then(() => deps.late(cardId));
+      });
+      return Promise.race([written, waited]);
     },
     heard(cardId, holds) {
       if (holds.closeGuardAnswered) void keep(cardId, false);

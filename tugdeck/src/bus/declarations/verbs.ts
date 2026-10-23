@@ -150,6 +150,13 @@ export const sessionAsk = defineRequest({
 /** How long the shell waits on a close decision whose guard said it would not ask. */
 export const CLOSE_DECISION_MS = 2000;
 
+/**
+ * How long an evicted card's revive waits on the durable write of the guard
+ * word its page left. The word is kept in the shell's store either way; past
+ * this, a stalled write no longer holds the card's page back.
+ */
+export const GUARD_WORD_WRITE_MS = 2000;
+
 /** Where a close decision whose guard asks ends: the person answers the card's close sheet. */
 export const CLOSE_DECISION_EXIT = "the close sheet in the card";
 

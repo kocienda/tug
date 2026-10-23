@@ -249,16 +249,19 @@ final class BodyBeatsRunner {
             // Brought back from an eviction and not yet painted, the body
             // stands under its last frame already, and the crossing takes
             // that cover rather than a second one: it comes off at the
-            // later of the paint and the land. A page not yet live — made
-            // for the card and not yet bound — has nothing to solve the
-            // crossing with, and is not awaited: the cover is what moves,
-            // and the plan starts without waiting out the guard for it.
+            // later of the paint and the land. A page whose script is not up
+            // — made for the card and not yet bound — has nothing to solve
+            // the crossing with: it is told the crossing without `solve`, so
+            // its answer is a plain ready rather than a late solve, and is
+            // not awaited. The cover is what moves, and the plan starts
+            // without waiting out the guard for it.
             body.lastCrossing?.cover = .standing
             holdForCrossing(body, stand: stand, size: size)
+            let solves = body.life.canSolve
             var solving = begin
-            solving.solve = true
+            solving.solve = solves
             controller.send(.bodyCrossing(solving), to: body)
-            if !body.life.isLive { dropFromSolve(body, solve: solve) }
+            if !solves { dropFromSolve(body, solve: solve) }
             return
         case .keepsPage:
             // A page that has not painted would snapshot nothing it ever showed.

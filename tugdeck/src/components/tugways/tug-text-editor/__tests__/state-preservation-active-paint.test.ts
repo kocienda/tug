@@ -13,6 +13,10 @@
  * The focus is stood in for here: a `focus()` that collapses the
  * selection to 0, as WebKit's does on a view just made visible.
  *
+ * A collapse the user made at the start — a click or a key inside the
+ * window — is theirs and is left, and a view that held focus with its
+ * selection in place is dispatched nothing.
+ *
  * @covers tugdeck/src/components/tugways/tug-text-editor/state-preservation.ts
  */
 
@@ -109,6 +113,42 @@ describe("the active paint's selection across focus", () => {
     paintMirrorAsActive(view);
     await new Promise((r) => setTimeout(r, 30));
     expect({ from: view.state.selection.main.from, to: view.state.selection.main.to }).toEqual({ from: 2, to: 5 });
+    view.destroy();
+  });
+
+  test("a collapse at the start that a key made inside the window is the user's, and is left", async () => {
+    const view = new EditorView({
+      state: EditorState.create({ doc: "hello world", selection: EditorSelection.range(2, 5) }),
+      parent: substrate.container,
+    });
+    Object.defineProperty(view, "focus", { value: () => {} });
+    paintMirrorAsActive(view);
+    // ⌘↑ inside the window: the key, then the selection it makes.
+    const doc = view.contentDOM.ownerDocument;
+    view.contentDOM.dispatchEvent(new (substrate.win.KeyboardEvent as typeof KeyboardEvent)("keydown", { key: "ArrowUp", metaKey: true, bubbles: true }));
+    view.dispatch({ selection: EditorSelection.cursor(0) });
+    doc.dispatchEvent(new (substrate.win.Event as typeof Event)("selectionchange"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(view.state.selection.main.from).toBe(0);
+    view.destroy();
+  });
+
+  test("a view that held focus with its selection in place is dispatched nothing", () => {
+    let transactions = 0;
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: "hello world",
+        selection: EditorSelection.range(2, 5),
+        extensions: EditorView.updateListener.of((u) => (transactions += u.transactions.length)),
+      }),
+      parent: substrate.container,
+    });
+    Object.defineProperty(view, "hasFocus", { get: () => true });
+    paintMirrorAsActive(view);
+    expect(transactions).toBe(0);
+    paintMirrorAsActive(view, { text: "hello world", atoms: [], selection: { start: 6, end: 11 } });
+    expect(transactions).toBe(1);
+    expect({ from: view.state.selection.main.from, to: view.state.selection.main.to }).toEqual({ from: 6, to: 11 });
     view.destroy();
   });
 });

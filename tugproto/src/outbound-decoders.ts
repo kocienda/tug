@@ -477,6 +477,8 @@ const replayRelocation = obj({
 
 const replayStarted = obj({ type: lit("replay_started"), ...envelope });
 
+const requestReplayDropped = obj({ type: lit("request_replay_dropped"), ...envelope, ask_id: str });
+
 const replayComplete = obj({
   type: lit("replay_complete"),
   ...envelope,
@@ -694,6 +696,7 @@ export const OUTBOUND_DECODERS = {
   replay_relocation: replayRelocation,
   replay_started: replayStarted,
   replay_complete: replayComplete,
+  request_replay_dropped: requestReplayDropped,
   prompt_anchor: promptAnchor,
   rewind_preview_result: rewindPreviewResult,
   rewind_result: rewindResult,

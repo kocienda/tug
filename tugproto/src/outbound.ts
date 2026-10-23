@@ -1509,6 +1509,19 @@ export interface ReplayStarted {
 }
 
 /**
+ * tugcode dropped a `request_replay` that named `ask_id`, unanswered, because
+ * it reached tugcode while a replay was already running (`replay_in_flight`).
+ * The card's catch-up waiting on that ask ends at once rather than at its
+ * deadline. tugcast tells the same of an ask it drops from a session's queue,
+ * on CONTROL, under the same `type`.
+ */
+export interface RequestReplayDropped {
+  type: "request_replay_dropped";
+  ask_id: string;
+  ipc_version: number;
+}
+
+/**
  * Bracket marker emitted by the replay translator at end-of-JSONL
  * (or on a hard-budget timeout). The reducer transitions
  * `phase: replaying → idle` and populates `lastReplayResult`.
@@ -1730,6 +1743,7 @@ export type OutboundMessage =
   | AddUserMessage
   | ReplayStarted
   | ReplayComplete
+  | RequestReplayDropped
   | ReplayBatch
   | WakeStarted
   | AssistantOpener
@@ -1793,6 +1807,7 @@ export const OUTBOUND_TAGS = [
   "add_user_message",
   "replay_started",
   "replay_complete",
+  "request_replay_dropped",
   "replay_batch",
   "wake_started",
   "assistant_opener",

@@ -59,6 +59,7 @@ const UNCAPTURED = [
   "replay_stage",
   "replay_started",
   "report",
+  "request_replay_dropped",
   "resume_failed",
   "stop_all_work_done",
   "tool_progress",

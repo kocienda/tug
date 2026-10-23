@@ -530,6 +530,8 @@ describe("BRACKET_FRAME_TYPES — the partition is total", () => {
     // deadline for one would be arming a timer on the way out.
     "error",
     "resume_failed",
+    // A notice about an ask, which is no frame of any bracket.
+    "request_replay_dropped",
     // Server-originated turn injection; not part of any bracket.
     "tug_notice",
   ]);

@@ -362,6 +362,8 @@ function allToolsTerminal(entry: ScratchEntry | undefined): boolean {
  * but these:
  *
  * - `none` → `asked`: the reveal asks for what the card missed.
+ * - `none` → `asked`: the close of the bracket a lapsed ask stood behind, and
+ *   the card asks again, letting the lapsed ask go ({@link CatchUpState.behind}).
  * - `asked` → `open`: the bracket that answers opens — the one carrying the
  *   ask's id ({@link CatchUpAsk}).
  * - `asked` → `asked`: the bracket the card was asked behind, named, closed
@@ -372,7 +374,9 @@ function allToolsTerminal(entry: ScratchEntry | undefined): boolean {
  *   was abandoned; or the ask will not be answered — the session respawned a
  *   second time before answering, the wire closed, tugcast dropped the ask
  *   (`request_replay_dropped`), or the session is gone — and the ask is let
- *   go.
+ *   go. A wire `error` while the ask waits is none of these: the session is
+ *   still there to answer, so the catch-up stands, and its deadline sends
+ *   whatever waited on it.
  * - `open` → `none`: the bracket closed or was abandoned — any way the phase
  *   leaves `replaying` ({@link endCatchUpWithItsBracket}).
  * - `none` → `open`, for a bracket naming an ask still owed an answer: the one
@@ -384,7 +388,13 @@ function allToolsTerminal(entry: ScratchEntry | undefined): boolean {
  * makes no move at all: it is shadowed, inert on a settled card, and its close
  * re-bases nothing.
  *
- * So no path leaves a card waiting on a bracket that will never come.
+ * So no path leaves a card waiting on a bracket that will never come. And no
+ * ask is owed for ever: {@link CatchUpState.asks} is left by an answer, by an
+ * ask let go — a drop from tugcast or tugcode, a closed wire, a gone session,
+ * a respawn flap, a re-ask over a lapsed one — and by the store's dispose,
+ * so it carries no cap. What outlives the deadline is the ask itself and the
+ * bracket it stood behind ({@link CatchUpState.behind}), whose close asks
+ * again.
  */
 export interface CatchUpState {
   readonly stage: "none" | "asked" | "open";
@@ -401,15 +411,21 @@ export interface CatchUpState {
    * nobody here asked for that opened while it waited — named by its ask id,
    * or null for an unnamed one. tugcode drops, without a word, a
    * `request_replay` that reaches it while it runs a replay
-   * (`replay_in_flight`), and the card cannot see whether its ask reached
-   * tugcode before that bracket or during it. So the close of the bracket by
-   * that name, before any answer has opened, is the one event the card asks
+   * (`replay_in_flight`), and says so for a named ask
+   * (`request_replay_dropped`), which lets the ask go at once and this with
+   * it. A notice can be lost with the wire, so the close of the bracket by
+   * that name, before any answer has opened, is also an event the card asks
    * again on — once, under a fresh id and a fresh deadline — and since every
    * answer names its ask, an answer to the first ask arriving after all is
-   * known for what it is rather than guessed at. Null when nothing stands
-   * ahead of the ask. An `inflight_only` bracket never stands ahead of one:
-   * tugcode answers `request_inflight` at once, and drops nothing while it
-   * does.
+   * known for what it is rather than guessed at. It outlives the ask's
+   * deadline, since a read can run longer than the deadline and its frames go
+   * to its shadow: the close re-asks then too, and the lapsed ask is let go.
+   * It goes when an answer opens, when the newest ask is let go, when the
+   * bracket is abandoned, or, once the ask has lapsed, when no shadow stands
+   * for its close to come from ({@link forgetBehindWithItsShadow}). Null when
+   * nothing stands ahead of the ask. An
+   * `inflight_only` bracket never stands ahead of one: tugcode answers
+   * `request_inflight` at once, and drops nothing while it does.
    */
   readonly behind: { readonly askId: string | null } | null;
   /**
@@ -461,7 +477,11 @@ export interface CatchUpState {
    * bracket naming one, still on its way, is known for an answer nobody waits
    * on rather than taken for a read the card never asked. Each goes when its
    * bracket comes; an ask tugcode dropped has none, so only the newest
-   * {@link LET_GO_ASKS_KEPT} are kept.
+   * {@link LET_GO_ASKS_KEPT} are kept. An id evicted past that cap is
+   * forgotten, and a bracket naming it arrives as an ordinary read, closing on
+   * the window it reports. Sixteen is enough because the cap bounds the asks
+   * one card leaves unanswered with a bracket still in flight, and every way an
+   * ask is let go prunes it from {@link asks} as it lands here.
    */
   readonly letGo: readonly string[];
   /**
@@ -505,11 +525,13 @@ export interface CatchUpAsk {
   /**
    * The msg-ids, in transcript order, of turns a deadline committed from
    * frames set aside while this ask was owed an answer: a running turn's tail,
-   * heard from the middle, committed as that turn. The ask's window holds each,
-   * so its answer carries it whole, and that copy replaces the tail where it
-   * stands rather than deduping away against it; the turns the answer carries
-   * that the card never saw go ahead of the earliest. An ask made after a tail
-   * stood asked for what follows it, and does not hold it.
+   * heard from the middle, committed as that turn. A deadline records it on
+   * every ask owed at that moment, not by window — harmless, since an older
+   * ask asked for an older window, which holds the turn too — so the answer
+   * carries it whole, and that copy replaces the tail where it stands rather
+   * than deduping away against it; the turns the answer carries that the card
+   * never saw go ahead of the earliest. An ask made after a tail stood asked
+   * for what follows it, and does not hold it.
    */
   readonly heldTurns: readonly string[];
 }
@@ -587,17 +609,21 @@ function askWaitedOn(state: CodeSessionState): CatchUpAsk | undefined {
 /**
  * `state` with the asks in `ended` let go: out of {@link CatchUpState.asks},
  * with their held turns, and into {@link CatchUpState.letGo}, so that an
- * answer to one arriving after all is shadowed rather than read.
+ * answer to one arriving after all is shadowed rather than read. When the
+ * newest ask is among them, the bracket it stood behind goes too: nothing
+ * waits on that bracket's close any more ({@link CatchUpState.behind}).
  */
 function letAsksGo(state: CodeSessionState, ended: readonly CatchUpAsk[]): CodeSessionState {
   if (ended.length === 0) return state;
   const gone = new Set(ended.map((a) => a.id));
+  const waitedOn = askWaitedOn(state);
   return {
     ...state,
     catchUp: {
       ...state.catchUp,
       asks: state.catchUp.asks.filter((a) => !gone.has(a.id)),
       letGo: withLetGo(state.catchUp.letGo, ended),
+      behind: waitedOn !== undefined && gone.has(waitedOn.id) ? null : state.catchUp.behind,
     },
   };
 }
@@ -620,7 +646,11 @@ function endCatchUpOverALostAsk(
  * The close of the bracket a catch-up was asked behind, before its answer
  * opened: the ask may have reached tugcode while that bracket ran and been
  * dropped there unanswered ({@link CatchUpState.behind}), so the card asks
- * again, once, under a fresh id, with a fresh deadline. Null for any
+ * again, once, under a fresh id, with a fresh deadline. The catch-up may have
+ * lapsed meanwhile — a read that outlives `CATCH_UP_DEADLINE_MS` — and the
+ * close asks again all the same, since the read's frames went to its shadow
+ * and nothing else will bring them. The lapsed ask is let go then, and the
+ * re-ask, asking for the same window, holds the turns it held. Null for any
  * other frame, and for a close that is not that bracket's.
  */
 function askAgainIfBehind(
@@ -628,11 +658,11 @@ function askAgainIfBehind(
   event: CodeSessionEvent,
   held: readonly CodeSessionEvent[],
 ): { state: CodeSessionState; effects: Effect[] } | null {
-  const { behind, askedWindow, asks } = state.catchUp;
+  const { stage, behind, askedWindow } = state.catchUp;
   const waitedOn = askWaitedOn(state);
   if (
     event.type !== "replay_complete" ||
-    state.catchUp.stage !== "asked" ||
+    stage === "open" ||
     behind === null ||
     askedWindow === null ||
     waitedOn === undefined ||
@@ -640,10 +670,17 @@ function askAgainIfBehind(
   ) {
     return null;
   }
-  devLog.warn("code-session-store", "the bracket ahead of the catch-up closed first; asking again");
-  const ask: CatchUpAsk = { id: mintAskId(), keepsWindow: waitedOn.keepsWindow, heldTurns: [] };
+  const lapsed = stage === "none";
+  devLog.warn(
+    "code-session-store",
+    lapsed
+      ? "the bracket ahead of a lapsed catch-up closed; asking again"
+      : "the bracket ahead of the catch-up closed first; asking again",
+  );
+  const ask: CatchUpAsk = { id: mintAskId(), keepsWindow: waitedOn.keepsWindow, heldTurns: lapsed ? waitedOn.heldTurns : [] };
+  const from = lapsed ? letAsksGo(state, [waitedOn]) : state;
   return {
-    state: moveCatchUp(state, "asked", { behind: null, spawned: false, held, asks: [...asks, ask] }),
+    state: moveCatchUp(from, "asked", { behind: null, spawned: false, held, asks: [...from.catchUp.asks, ask] }),
     effects: [
       { kind: "request-replay", window: askedWindow, askId: ask.id },
       { kind: "schedule_timer", name: "catch_up", ms: CATCH_UP_DEADLINE_MS, fire: { type: "tick_catch_up" } },
@@ -1029,6 +1066,13 @@ export interface CodeSessionState {
    * {@link CatchUpState}). Its stage is surfaced as `catchingUp`.
    */
   catchUp: CatchUpState;
+  /**
+   * True only inside the reduction of a frame saying the session is gone,
+   * while what it said before dying is reduced ({@link endCatchUpWithTheSession}):
+   * every write to it is held back ({@link sessionIsGone}), since the session
+   * that would receive it is the one that died.
+   */
+  sessionGoing: boolean;
   /**
    * True while a replay bracket is open over a live turn without the
    * store having entered it. A `replay_started` that lands mid-turn is
@@ -1528,8 +1572,8 @@ const CATCH_UP_MOVES: Readonly<Record<CatchUpState["stage"], readonly CatchUpSta
  * logged, and the state comes back as it was. Ending a catch-up keeps only
  * what outlives it — the asked window, the open window, the asks still owed
  * an answer and the turns held for them, the asks let go, the bracket in hand,
- * whether the body sleeps. A late open must name an ask still owed one
- * (`answering`).
+ * whether the body sleeps, and, ending one that asked, the bracket its ask
+ * stood behind. A late open must name an ask still owed one (`answering`).
  */
 function moveCatchUp(
   state: CodeSessionState,
@@ -1553,6 +1597,7 @@ function moveCatchUp(
           letGo: state.catchUp.letGo,
           lastBracket: state.catchUp.lastBracket,
           asleep: state.catchUp.asleep,
+          behind: from === "asked" ? state.catchUp.behind : null,
         }
       : state.catchUp;
   return { ...state, catchUp: { ...base, ...fields, stage: to } };
@@ -1583,6 +1628,24 @@ function endCatchUpWithItsBracket(result: {
     state: ended,
     effects: [...result.effects, { kind: "cancel_timer", name: "catch_up" }],
   });
+}
+
+/**
+ * A lapsed catch-up's {@link CatchUpState.behind} names the shadow its ask
+ * stood behind, whose close asks again; that close is the only place it is
+ * read once the stage is `none`. So when no shadow stands — the read the card
+ * was inside closed as itself, the wire took the shadow with it — the bracket
+ * it named is over, and it goes, rather than waiting to match the close of
+ * some later read nobody asked for. Run over every reduction, beside
+ * {@link endCatchUpWithItsBracket}.
+ */
+function forgetBehindWithItsShadow(result: {
+  state: CodeSessionState;
+  effects: Effect[];
+}): { state: CodeSessionState; effects: Effect[] } {
+  const { state } = result;
+  if (state.catchUp.stage !== "none" || state.catchUp.behind === null || state.replayShadowActive) return result;
+  return { state: { ...state, catchUp: { ...state.catchUp, behind: null } }, effects: result.effects };
 }
 
 /**
@@ -1631,9 +1694,10 @@ function sendWhatWaitedOnTheCatchUp(result: {
 /**
  * A catch-up that waited and was not answered ends: what the session said
  * meanwhile is applied now, in order, as it would have been had nothing been
- * asked. A turn those frames commit is held for every ask still owed an
- * answer ({@link CatchUpAsk.heldTurns}), since each asked for a window the
- * turn falls inside, for whichever late answer comes to replace.
+ * asked. A turn those frames commit is recorded on every ask still owed an
+ * answer ({@link CatchUpAsk.heldTurns}), for whichever late answer comes to
+ * replace it — every owed ask rather than those whose window holds it, which
+ * is the same set, since each asked before the turn ended.
  */
 function endCatchUpUnanswered(state: CodeSessionState): { state: CodeSessionState; effects: Effect[] } {
   let result: { state: CodeSessionState; effects: Effect[] } = {
@@ -1665,17 +1729,20 @@ function endCatchUpUnanswered(state: CodeSessionState): { state: CodeSessionStat
 
 /**
  * Whether the card errored because its session is gone: it failed to resume,
- * died, is unknown to the supervisor, or is owned by another client. Every
- * flush of the queue consults it, so nothing is written to such a session.
+ * died, is unknown to the supervisor, or is owned by another client — or is
+ * reducing what that session said before the frame saying so
+ * ({@link CodeSessionState.sessionGoing}). Every flush of the queue, and the
+ * steering pickup, consults it, so nothing is written to such a session.
  */
 function sessionIsGone(state: CodeSessionState): boolean {
   const cause = state.lastError?.cause;
   return (
-    state.phase === "errored" &&
-    (cause === "resume_failed" ||
-      cause === "session_state_errored" ||
-      cause === "session_unknown" ||
-      cause === "session_not_owned")
+    state.sessionGoing ||
+    (state.phase === "errored" &&
+      (cause === "resume_failed" ||
+        cause === "session_state_errored" ||
+        cause === "session_unknown" ||
+        cause === "session_not_owned"))
   );
 }
 
@@ -1683,15 +1750,18 @@ function sessionIsGone(state: CodeSessionState): boolean {
  * The session is gone for good — tugcode failed to resume, the bridge gave
  * the session up, the supervisor has forgotten it, or another client owns it
  * — so no ask the card has made will be answered. Before the frame that says
- * so is reduced, a catch-up still waiting ends, and every ask owed an answer
- * is let go with the turns held for it. What the session said meanwhile is
- * let go too, never reduced: the session that would have answered is gone, so
- * a held tail cannot be completed, and a turn boundary claimed from it would
- * flush a queued send to that session. The handler then runs on a catch-up
- * already at `none`. A bracket that opens later on the same card is a read of
- * its own, closing on the window it reports — unless it names one of those
- * asks, which is shadowed ({@link CatchUpState.letGo}). An open bracket is
- * left to the handler, whose phase change ends it
+ * so is reduced, a catch-up still waiting ends, what the session said
+ * meanwhile is reduced, and every ask owed an answer is let go with the turns
+ * held for it. The frames the wire delivered are the session's last word: a
+ * turn they complete — the answer to the user's own send — is committed and
+ * its cycle ends, as it would have had nothing been asked. They are reduced
+ * with every write held back ({@link CodeSessionState.sessionGoing}), so a
+ * turn boundary they reach sends no queued prompt to the session that died;
+ * the queue stays for the card's next session. The handler then runs on a
+ * catch-up already at `none`. A bracket that opens later on the same card is
+ * a read of its own, closing on the window it reports — unless it names one
+ * of those asks, which is shadowed ({@link CatchUpState.letGo}). An open
+ * bracket is left to the handler, whose phase change ends it
  * ({@link endCatchUpWithItsBracket}).
  */
 function endCatchUpWithTheSession(
@@ -1700,7 +1770,9 @@ function endCatchUpWithTheSession(
 ): { state: CodeSessionState; effects: Effect[] } {
   const waited = state.catchUp.stage === "asked";
   if (!waited && state.catchUp.asks.length === 0) return handle(state);
-  const ended = waited ? moveCatchUp(state, "none") : state;
+  const going: CodeSessionState = { ...state, sessionGoing: true };
+  const reduced = waited ? endCatchUpUnanswered(going) : { state: going, effects: [] };
+  const ended = reduced.state;
   const handled = handle({
     ...ended,
     catchUp: {
@@ -1711,8 +1783,12 @@ function endCatchUpWithTheSession(
     },
   });
   return {
-    state: handled.state,
-    effects: [...(waited ? [{ kind: "cancel_timer" as const, name: "catch_up" as const }] : []), ...handled.effects],
+    state: { ...handled.state, sessionGoing: false },
+    effects: [
+      ...(waited ? [{ kind: "cancel_timer" as const, name: "catch_up" as const }] : []),
+      ...reduced.effects,
+      ...handled.effects,
+    ],
   };
 }
 
@@ -2011,6 +2087,7 @@ export function createInitialState(
     sessionCreatedAtMs: null,
     replayPrependActive: false,
     catchUp: NO_CATCH_UP,
+    sessionGoing: false,
     replayShadowActive: false,
     replayShadowSnapshot: false,
     replayShadowInert: false,
@@ -3572,7 +3649,7 @@ function handleToolResult(
     ? releaseHeldSends(state.queuedSends)
     : state.queuedSends;
   const pickupEffects: Effect[] = [];
-  if (isLive && queuedSends.length > 0) {
+  if (isLive && queuedSends.length > 0 && !sessionIsGone(state)) {
     const [head, ...rest] = queuedSends;
     // Queue-time stamp, as at the `turn_complete` flush: the row's
     // timestamp is when the user posted, not when the agent loop picked
@@ -8097,7 +8174,9 @@ function isEmptyToolInput(input: unknown): boolean {
  *
  * A reveal inside the catch-up's own open bracket asks nothing: the move is
  * refused, and the state comes back with no ask added and no deadline armed.
- * The store, which mints the ask's id and sends it, sends nothing then.
+ * So does a reveal on a wire that is not open: a frame written to it is
+ * dropped, and the reconnect's own read brings the card what it missed. The
+ * store, which mints the ask's id and sends it, sends nothing then.
  */
 function handleBeginCatchUp(
   state: CodeSessionState,
@@ -8106,6 +8185,10 @@ function handleBeginCatchUp(
   const woke = handleWoke(state);
   if (state.catchUp.stage === "open") {
     devLog.warn("code-session-store", "catch-up open → asked is not a move it makes; refusing");
+    return woke;
+  }
+  if (state.transportState !== "online") {
+    devLog.warn("code-session-store", `a reveal on a ${state.transportState} wire asks nothing`);
     return woke;
   }
   const lifted = liftReplayShadow(woke.state);
@@ -8176,11 +8259,13 @@ function handleSessionSpawnState(
 }
 
 /**
- * `request_replay_dropped` — tugcast dropped a `request_replay` this card
- * named, unanswered, from a session's queue (a reset, or a retry over a spawn
- * that died). The ask is let go; when it is the one the catch-up waits on,
- * the catch-up ends now, as its deadline would, rather than five seconds
- * later. An ask the card no longer owes an answer is nothing to end.
+ * `request_replay_dropped` — a `request_replay` this card named was dropped
+ * unanswered: by tugcast from a session's queue (a reset, or a retry over a
+ * spawn that died), or by tugcode because it arrived while a replay ran
+ * (`replay_in_flight`). The ask is let go; when it is the one the catch-up
+ * waits on, the catch-up ends now, as its deadline would, rather than five
+ * seconds later, and the bracket it stood behind earns no second ask. An ask
+ * the card no longer owes an answer is nothing to end.
  */
 function handleRequestReplayDropped(
   state: CodeSessionState,
@@ -8224,7 +8309,9 @@ function handleTickReplayShadow(
     "code-session-store",
     "shadowed replay bracket never closed; lifting the shadow",
   );
-  return liftReplayShadow(state);
+  // Whatever bracket an ask stood behind is over, so its close is not coming.
+  const lifted = liftReplayShadow(state);
+  return { state: { ...lifted.state, catchUp: { ...lifted.state.catchUp, behind: null } }, effects: lifted.effects };
 }
 
 /**
@@ -8387,7 +8474,7 @@ function abandonBracket(
   const catchUpEnded = state.catchUp.stage === "asked";
   return {
     state: {
-      ...(catchUpEnded ? moveCatchUp(state, "none") : state),
+      ...(catchUpEnded ? moveCatchUp(state, "none", { behind: null }) : state),
       activeMsgId: null,
       scratch: new Map(),
       toolUseStartedAt: new Map(),
@@ -9038,7 +9125,7 @@ export function reduce(
   state: CodeSessionState,
   event: CodeSessionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
-  return endCatchUpWithItsBracket(reduceEvent(state, event));
+  return forgetBehindWithItsShadow(endCatchUpWithItsBracket(reduceEvent(state, event)));
 }
 
 function reduceEvent(

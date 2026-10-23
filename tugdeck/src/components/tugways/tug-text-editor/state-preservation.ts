@@ -293,12 +293,20 @@ export function paintMirrorAsActive(
   const held = state?.selection
     ? { start: state.selection.start, end: state.selection.end }
     : { start: view.state.selection.main.anchor, end: view.state.selection.main.head };
-  if (!view.hasFocus) view.focus();
+  const hadFocus = view.hasFocus;
+  if (!hadFocus) view.focus();
   const max = view.state.doc.length;
-  view.dispatch({
-    selection: EditorSelection.range(Math.min(held.start, max), Math.min(held.end, max)),
-  });
-  holdSelectionThroughFocus(view, { start: Math.min(held.start, max), end: Math.min(held.end, max) });
+  const range = { start: Math.min(held.start, max), end: Math.min(held.end, max) };
+  // A view that held focus already, its selection where the paint wants it,
+  // has had nothing move it: a dispatch would only run every update
+  // listener for no change. A focus just claimed may have moved the DOM
+  // selection under a state that has not read it back yet, so it is
+  // re-asserted whatever the state says.
+  const main = view.state.selection.main;
+  if (!hadFocus || main.anchor !== range.start || main.head !== range.end) {
+    view.dispatch({ selection: EditorSelection.range(range.start, range.end) });
+  }
+  holdSelectionThroughFocus(view, range);
   if (state !== undefined) applyScrollAxes(view, state);
 }
 
@@ -319,6 +327,11 @@ const FOCUS_COLLAPSE_WINDOW_MS = 300;
  * document's start, where `held` was not, while the document is the one
  * the paint saw, has the held range dispatched again. An edit or a
  * selection anywhere else is the user's, and is left.
+ *
+ * So is one the user made at the start itself — a click there, or ⌘↑ —
+ * which looks like WebKit's placement and is not: a `mousedown` or
+ * `keydown` heard inside the window ends the hold, and the selection the
+ * gesture makes is the user's wherever it lands.
  */
 export function holdSelectionThroughFocus(view: EditorView, held: { start: number; end: number }): void {
   if (held.start === 0 && held.end === 0) return;
@@ -327,6 +340,8 @@ export function holdSelectionThroughFocus(view: EditorView, held: { start: numbe
   const done = (): void => {
     clearTimeout(timer);
     target.removeEventListener("selectionchange", onChange);
+    target.removeEventListener("mousedown", done, true);
+    target.removeEventListener("keydown", done, true);
   };
   const onChange = (): void => {
     const main = view.state.selection.main;
@@ -338,6 +353,8 @@ export function holdSelectionThroughFocus(view: EditorView, held: { start: numbe
   };
   const timer = setTimeout(done, FOCUS_COLLAPSE_WINDOW_MS);
   target.addEventListener("selectionchange", onChange);
+  target.addEventListener("mousedown", done, true);
+  target.addEventListener("keydown", done, true);
 }
 
 /**

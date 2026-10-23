@@ -10,17 +10,20 @@
  * Session workspace is shown again: one card takes the spare and the other
  * is made cold behind it, and each stands under its kept frame from the
  * hand-off. The row folds the first card the host reports standing covered,
- * placed visible and not yet painted — the cold one, and before its page is
- * bound, where it can — so its page has not painted when the fold's plan
- * reaches the host, and may have no script yet to answer the plan's solve.
+ * placed visible and not yet painted — the cold one, before its page is
+ * bound — so its page has not painted when the fold's plan reaches the
+ * host, and has no script yet to answer the plan's solve. That is the case
+ * the row exists for, and it says so: a page already bound at the fold has
+ * its script up, is asked to solve and awaited, and fails the row rather
+ * than passing it on another case.
  *
  * The fold is a crossing that covers a whole card, and the body already
  * stands under a cover. The host stands one: the crossing takes the frame
  * the card came back under rather than snapshotting a page that has shown
  * nothing, and that cover comes off at the later of the page's paint and the
- * fold's land. A page that is not yet live cannot solve the crossing, and
- * the host does not wait on it: whenever the plan starts — on every other
- * card's answer, or at its guard — it is not waiting on this one. The
+ * fold's land. A page not yet bound cannot solve the crossing, and the host
+ * does not ask it to or wait on it: whenever the plan starts — on every
+ * other card's answer, or at its guard — it is not waiting on this one. The
  * crossing's account names where its cover came from and whether the plan
  * still waited on the body as it started; once the fold has landed the body
  * is ready, painted, shown and folded, its cover gone and its page following
@@ -83,6 +86,9 @@ interface CrossingAccount {
 
 type CrossingSnapshot = BodyViewSnapshot & { crossing?: CrossingAccount | null; beatsPlanId?: number | null };
 
+/** The phases of a page with no script yet to answer a solve: made, or connected and not yet told its card. */
+const UNBOUND = new Set(["loading", "connected"]);
+
 describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a revived card folded before it paints", () => {
   test(
     "the fold's crossing takes the cover the card came back under, and it comes off once the card has painted and landed",
@@ -113,16 +119,18 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a revived card folded befor
         const waiting = (b: BodyViewSnapshot): boolean => (b.cardId === A || b.cardId === B) && b.covered && b.visible && !b.painted;
         const until = Date.now() + 5_000;
         let target: BodyViewSnapshot | undefined;
-        // The cold body is made behind the spare's: wait for it, and take
-        // the spare's only when none has come by the deadline.
+        // The cold body is made behind the spare's: wait for it before its
+        // page is bound, and take another only when none has come by the
+        // deadline — which the case's assertion then refuses.
         let fallback: BodyViewSnapshot | undefined;
         while (target === undefined && Date.now() < until) {
           const all = (await app.bodies()).filter(waiting);
-          target = all.find((b) => b.start === "cold" && b.state !== "ready") ?? all.find((b) => b.start === "cold");
-          fallback = all[0] ?? fallback;
+          target = all.find((b) => b.start === "cold" && UNBOUND.has(b.state));
+          fallback = all.find((b) => b.start === "cold") ?? all[0] ?? fallback;
         }
         target ??= fallback;
         expect(target, "a revived card stands covered, placed visible and unpainted").toBeDefined();
+        expect(UNBOUND.has(target!.state), `the folded card's page is not yet bound at the fold (it was ${target!.state})`).toBe(true);
         const card = target!.cardId!;
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("set-card-folded", { cardId: ${JSON.stringify(card)}, folded: true }), null)`);
         note(`folded ${card}, made ${target!.start}, its page ${target!.state} at the fold`);

@@ -4,7 +4,9 @@
  * has answered for itself, either way — so a clean page gives the card's
  * close its deadline back, and a `false` before the read-back is no answer.
  * The word outlives a page that fails, as it does one that is evicted, and
- * an eviction's word is durable before the eviction is done with.
+ * an eviction's word is durable before the eviction is done with — or its
+ * write has stalled past the deadline, which is logged when it settles. A
+ * write that failed is written again on the card's next eviction.
  *
  * @covers tugdeck/src/lib/kept-guard-word.ts
  * @covers tugdeck/src/bus/shared-store.ts
@@ -15,8 +17,11 @@ import { NO_CARD_HOLDS, cardGuardAsks, type CardHoldsValue } from "../../bus/dec
 import { createTestBus, type TestBus } from "../../bus/test-bus";
 import { createKeptGuardWords } from "../kept-guard-word";
 
-/** The kept words over a plain map, with every durable write recorded. */
-function words(persisted: string[] = []) {
+/** Never settles: an eviction that waits on it waits on its write alone. */
+const NO_DEADLINE = (): Promise<void> => new Promise<void>(() => {});
+
+/** The kept words over a plain map, with every durable write recorded; `landed` answers each. */
+function words(persisted: string[] = [], landed: () => boolean = () => true) {
   const store = new Map<string, boolean>();
   const writes: Array<[string, boolean]> = [];
   const kept = createKeptGuardWords(
@@ -25,8 +30,10 @@ function words(persisted: string[] = []) {
       set: (cardId, asks) => store.set(cardId, asks),
       persist: (cardId, asks) => {
         writes.push([cardId, asks]);
-        return Promise.resolve();
+        return Promise.resolve(landed());
       },
+      deadline: NO_DEADLINE,
+      late: () => {},
     },
     persisted,
   );
@@ -102,7 +109,9 @@ describe("the kept guard word", () => {
       {
         get: () => false,
         set: () => {},
-        persist: () => new Promise<void>((resolve) => (land = resolve)),
+        persist: () => new Promise<boolean>((resolve) => (land = () => resolve(true))),
+        deadline: NO_DEADLINE,
+        late: () => {},
       },
       [],
     );
@@ -113,6 +122,50 @@ describe("the kept guard word", () => {
     land();
     await eviction;
     expect(settled).toBe(true);
+  });
+
+  test("a write that never settles holds the eviction only until the deadline, and is logged if it settles after", async () => {
+    let land = (): void => {};
+    let expire = (): void => {};
+    const late: string[] = [];
+    const store = new Map<string, boolean>();
+    const kept = createKeptGuardWords(
+      {
+        get: (cardId) => store.get(cardId) ?? false,
+        set: (cardId, asks) => store.set(cardId, asks),
+        persist: () => new Promise<boolean>((resolve) => (land = () => resolve(true))),
+        deadline: () => new Promise<void>((resolve) => (expire = resolve)),
+        late: (cardId) => late.push(cardId),
+      },
+      [],
+    );
+    let settled = false;
+    const eviction = kept.evicted("c1", DIRTY).then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expire();
+    await eviction;
+    // The card is let go with its word in the store, which its next page is sent.
+    expect(settled).toBe(true);
+    expect(kept.asks("c1")).toBe(true);
+    expect(late).toEqual([]);
+    land();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(late).toEqual(["c1"]);
+  });
+
+  test("a write that failed is written again on the card's next eviction, though the store already says it asks", async () => {
+    const answers = [false, true];
+    const { kept, writes } = words([], () => answers.shift() ?? true);
+    await kept.evicted("c1", DIRTY);
+    expect(kept.asks("c1")).toBe(true);
+    await kept.evicted("c1", DIRTY);
+    // Landed now: a third eviction has nothing to write.
+    await kept.evicted("c1", DIRTY);
+    expect(writes).toEqual([
+      ["c1", true],
+      ["c1", true],
+    ]);
   });
 });
 
@@ -127,7 +180,13 @@ describe("the kept guard word in the shell's card store", () => {
     await bus.flush();
     const store = cardGuardAsks.on(shell.bus);
     const kept = createKeptGuardWords(
-      { get: (cardId) => store.getFor(cardId), set: (cardId, asks) => store.setFor(cardId, asks), persist: () => Promise.resolve() },
+      {
+        get: (cardId) => store.getFor(cardId),
+        set: (cardId, asks) => store.setFor(cardId, asks),
+        persist: () => Promise.resolve(true),
+        deadline: NO_DEADLINE,
+        late: () => {},
+      },
       [],
     );
 
