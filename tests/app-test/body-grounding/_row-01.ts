@@ -62,9 +62,19 @@ const PLACED_MS = 3_000;
  * some 70 ms after the hand-off warm and 260 ms cold, and the lid lifts just
  * after, so two seconds still watch it stand well past both, and a file keeps
  * inside its 20 s budget, which a four-second full-window burst ran past.
+ *
+ * A body that is still not painted when the burst closes — a cold body on a
+ * loaded machine, which the ledger shows red only in batches — leaves the
+ * burst's last frame the lid, dark, with none of the body's content in it.
+ * That frame still bounds the hole reading (a lid shows no more canvas than
+ * the body does), but it is not the finished body, so the finished rect is
+ * read again from a short second burst armed once the body has painted
+ * (`FINISH_MS`), and the row says the body was slow rather than failing it
+ * for a frame it had not reached.
  */
 const BURST_MS = 2_000;
 const BURST_INTERVAL_MS = 33;
+const FINISH_MS = 200;
 
 const oneCard = {
   cards: [{ id: SEED, componentId: "session", title: "Seed", closable: true }],
@@ -214,6 +224,7 @@ async function arriveOpened(
   const crop = { x: 0, y: 0, width: Math.floor(inner.w), height: Math.floor(inner.h) };
   await armPlaceholderSampler(app);
   await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop });
+  const armWall = Date.now();
   const openWall = Date.now();
   const cardId = await open();
   const landed = Date.now() + PLACED_MS;
@@ -228,6 +239,7 @@ async function arriveOpened(
   );
   expect(shown?.visible, `${label}: the body is placed visible`).toBe(true);
   expect(shown?.componentId, `${label}: the body holds a ${componentId} card`).toBe(componentId);
+  const paintedWall = Date.now();
   const lifted = await settleFor(() => hostShowsIt(app, cardId), (v) => v, PLACED_MS);
   // A body the placer planned on its own arrival was never shown before it:
   // the host carried it in, and the plan says whether it landed.
@@ -275,7 +287,25 @@ async function arriveOpened(
   const judged = frames.filter((f) => f.wall >= landedWall!);
   expect(judged.length, `${label}: frames were captured after the pane landed`).toBeGreaterThan(0);
   note(`${label}: opened ${handOffWall - openWall} ms before the placeholder stood; its pane landed ${landedWall! - handOffWall} ms after it`);
-  return { frames, afterHandOff: judged, final: frames[frames.length - 1], body: shown!, host, handOffWall, carried };
+  // The finished body: the burst's last frame when the body painted inside
+  // the burst, and a frame taken after its paint when it did not.
+  let final = frames[frames.length - 1];
+  if (paintedWall > armWall + BURST_MS) {
+    note(`${label}: slow body — painted ${paintedWall - armWall - BURST_MS} ms after the burst closed; the finished rect is read from a later frame`);
+    await app.captureBurst({ op: "arm", durationMs: FINISH_MS, intervalMs: BURST_INTERVAL_MS, crop });
+    const finish = await settleFor(
+      () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
+      (r) => r.done,
+      FINISH_MS + 5_000,
+    );
+    const finishFrame = finish.frames[finish.frames.length - 1];
+    const finishRegion = regionAt(finishFrame.wall) ?? lastRegion!;
+    // The palette's surface was the lid's: read the body's own from this frame.
+    const finishBase = await readPalette(app, finish.windowBackground, finishFrame);
+    const [fr, fg, fb] = classifyFrame(finishFrame, finishBase, 8, finishRegion).fill.match(/\d+/g)!.map(Number);
+    final = classifyFrame(finishFrame, { ...finishBase, surface: { r: fr, g: fg, b: fb } }, 8, finishRegion);
+  }
+  return { frames, afterHandOff: judged, final, body: shown!, host, handOffWall, carried };
 }
 
 /** A card of `kind` opened the way it opens, read from the hand-off on. */

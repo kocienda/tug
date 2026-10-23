@@ -27,9 +27,10 @@ final class BodyLifecycle {
     /// The warning's next eviction, a beat after the last one finished —
     /// its process gone, or the body kept: a level change cancels it.
     private var pendingWarningStep: DispatchWorkItem?
-    /// A warning's eviction is under way: the step after it is set when it
-    /// finishes, so a warning said again does not start a second.
-    private var warningStepping = false
+    /// The warning's step chain: a step under way sets the next when it
+    /// finishes, so a warning said again does not start a second, and a
+    /// level change ends the chain so a step finishing after it sets none.
+    private var warningSteps = WarningSteps()
     /// The bodies this episode asked and that declined — shown while saving,
     /// or a save that did not answer — by serial.
     private var episode = PressureEpisode()
@@ -170,6 +171,7 @@ final class BodyLifecycle {
         if !repeated {
             pendingWarningStep?.cancel()
             pendingWarningStep = nil
+            warningSteps.levelChanged()
         }
         switch level {
         case .normal:
@@ -178,7 +180,7 @@ final class BodyLifecycle {
         case .warning:
             // A warning keeps the spare: one critical took is made again.
             if was == .critical { controller.scheduleSpare() }
-            if repeated, warningStepping || pendingWarningStep != nil { return }
+            if repeated, warningSteps.busy || pendingWarningStep != nil { return }
             evictOldestHidden()
         case .critical:
             controller.lane.cancelPendingSpare()
@@ -266,11 +268,12 @@ final class BodyLifecycle {
         let candidates = controller.bodies.filter { evictable($0, siblings: false, episode: false) }
         let next = episode.next(among: candidates.map { ($0.serial, $0.shown?.since ?? 0) })
         guard let oldest = candidates.first(where: { $0.serial == next }) else { return }
-        warningStepping = true
+        let step = warningSteps.begin()
         evict(oldest, cause: "pressure-warning") { [weak self] in
-            guard let self else { return }
-            self.warningStepping = false
-            guard self.pressure == .warning else { return }
+            // A step the level change ended — the warning lifted and came
+            // back while its eviction saved — sets no next: the new
+            // warning's own chain is running.
+            guard let self, self.warningSteps.finish(step), self.pressure == .warning else { return }
             let work = DispatchWorkItem { [weak self] in
                 self?.pendingWarningStep = nil
                 self?.evictOldestHidden()
@@ -347,8 +350,9 @@ final class BodyLifecycle {
             } else if !body.life.painted {
                 // A page that has not painted would snapshot nothing it ever
                 // showed: the cover standing over it, if one does, is its
-                // last frame still.
-                finish(body.stand?.cover)
+                // last frame still — kept afresh, so it ages from this
+                // eviction rather than from the one that took it.
+                finish(body.stand?.cover.retaken(at: Date().timeIntervalSince1970 * 1000))
             } else {
                 self.takeCover(of: body, cardId: cardId, then: finish)
             }

@@ -187,6 +187,26 @@ describe("card scope", () => {
     expect(title.on(shell.bus).arrived("c1")).toBe(false);
   });
 
+  test("forgetting a card's page keeps what the shell owns for it, sent to its next page at hello; forgetting the card drops it", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    bus.body("c1", "cards");
+    await bus.flush();
+    selection.on(shell.bus).setFor("c1", { ids: ["kept"] });
+    await bus.flush();
+
+    bus.detach("c1");
+    shell.bus.forgetPage("c1");
+
+    expect(selection.on(shell.bus).getFor("c1")).toEqual({ ids: ["kept"] });
+    const next = bus.body("c1", "cards");
+    await bus.flush();
+    expect(selection.on(next.bus).getSnapshot()).toEqual({ ids: ["kept"] });
+
+    shell.bus.forgetCard("c1");
+    expect(selection.on(shell.bus).arrived("c1")).toBe(false);
+  });
+
   test("set on the wrong page throws", async () => {
     bus = createTestBus();
     const shell = bus.shell();

@@ -95,6 +95,29 @@ final class BodyCoversTests: XCTestCase {
         XCTAssertEqual(drops, ["c1:aged"])
     }
 
+    /// A cover stood over a body brought back, then kept again when that
+    /// body is evicted before its page paints, is kept as of the second
+    /// eviction: the first keeping's timer leaves it alone, and it ages a
+    /// whole delay from the second.
+    func testACoverKeptAgainAgesFromItsSecondKeeping() {
+        let map = covers()
+        var drops: [String] = []
+        map.onDrop = { cardId, why in drops.append("\(cardId):\(why.rawValue)") }
+        keepFresh("frame", in: map, for: "c1", takenAt: 1)
+        let stand = map.standCover(for: "c1", kind: .eviction)!
+        // Evicted again before the page paints: the standing frame is kept afresh.
+        let again = stand.cover.retaken(at: 2)
+        XCTAssertEqual(again.takenAt, 2)
+        XCTAssertTrue(again.image === stand.cover.image, "the same frame")
+        XCTAssertTrue(map.keep(again, for: "c1", takenIn: map.generation, agesAfterMs: 900_000))
+        pending[0].work()
+        XCTAssertEqual(drops, [], "the first keeping's timer does not drop the second")
+        XCTAssertGreaterThan(map.bytes, 0)
+        pending[1].work()
+        XCTAssertEqual(drops, ["c1:aged"])
+        XCTAssertEqual(map.bytes, 0)
+    }
+
     func testACoverTakenBeforeAClearIsRefused() {
         let map = covers()
         let takenIn = map.generation

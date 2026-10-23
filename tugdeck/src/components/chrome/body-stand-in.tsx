@@ -31,12 +31,12 @@
  * @module components/chrome/body-stand-in
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "@/contexts/theme-provider";
 import { bodyStandInStore } from "@/lib/body-stand-in-store";
 import { bodyCardsStore } from "@/lib/body-cards-store";
-import { deckCards } from "@/bus/declarations/deck";
+import { deckCards, type DeckCardFacts } from "@/bus/declarations/deck";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { bodyFactsStore } from "@/lib/body-facts-store";
 import { paneChromeFor } from "@/lib/pane-chrome-projection";
@@ -104,12 +104,19 @@ function StandInFace({ cardId, componentId }: BodyStandInProps): React.ReactElem
   });
   // The names the chrome draws come from `deck.cards`. The face subscribes to
   // the key of the names it draws, so it re-renders when one of them moved
-  // and not on every phase tick, and takes the snapshot once per key.
-  const cardsKey = useSyncExternalStore(deckCards.subscribe, () =>
-    value === null ? "" : chromeCardsKey(value, deckCards.getSnapshot()),
-  );
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `cardsKey` is the snapshot's version, per the note above
-  const cards = useMemo(() => deckCards.getSnapshot(), [cardsKey]);
+  // and not on every phase tick: the read hands back the snapshot it held
+  // while the key is unchanged, and a new one when the key moved, so the
+  // cards reach the face through the store's own hook ([L02]).
+  const heldCards = useRef<{ key: string; cards: Record<string, DeckCardFacts> } | null>(null);
+  const cards = useSyncExternalStore(deckCards.subscribe, () => {
+    const snapshot = deckCards.getSnapshot();
+    const key = value === null ? "" : chromeCardsKey(value, snapshot);
+    const held = heldCards.current;
+    if (held !== null && held.key === key) return held.cards;
+    heldCards.current = { key, cards: snapshot };
+    return snapshot;
+  });
+  const cardsKey = heldCards.current?.key ?? "";
   const masthead = useSyncExternalStore(cardTitleStore.subscribe, () => cardTitleStore.getMasthead(cardId));
   const folded = useIsCardFolded(cardId);
   const theme = useSyncExternalStore(subscribeOnScreenTheme, getOnScreenTheme);

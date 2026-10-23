@@ -84,7 +84,46 @@ import {
 import { RELOCATION_BOUNDARY_EVENT } from "./stages";
 import type { CodeSessionEvent } from "./events";
 import type { Effect } from "./effects";
-import type { SystemNote, TurnEntry } from "./types";
+import { isInkOrigin, type SystemNote, type TurnEntry } from "./types";
+import type { ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
+
+/** How many of a card's newest turns a catch-up names. */
+const CATCH_UP_NAMED_TURNS = 16;
+
+/**
+ * What a catch-up names: the msg-ids of the newest turns the card holds,
+ * newest first, and how many turns it holds counting from the session's
+ * first. Several ids ride so a turn tugcode cannot find by its id — one that
+ * committed with no content, under an id the translator minted — does not
+ * leave the card unplaced; the count is tugcode's last resort.
+ *
+ * Only turns are named or counted. An ink entry (a shell exchange, a refs
+ * run) is never in the JSONL: its `msgId` is an id the deck minted, and
+ * counting it would place the card past turns it never held. An entry
+ * carrying such a minted id is passed over whatever its origin says.
+ */
+export function heldTurnsOf(
+  transcript: ReadonlyArray<TurnEntry>,
+  firstLoadedTurnIndex: number,
+): ReplayAfterTurn {
+  const minted = new Set<string>();
+  for (const entry of transcript) {
+    for (const m of entry.messages) {
+      if (m.kind === "refs_result") minted.add(m.runId);
+      else if (m.kind === "shell_exchange") minted.add(m.exchangeId);
+    }
+  }
+  const isTurn = (entry: TurnEntry) => !isInkOrigin(entry.origin) && !minted.has(entry.msgId);
+  const msgIds: string[] = [];
+  let held = 0;
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const entry = transcript[i];
+    if (!isTurn(entry)) continue;
+    held += 1;
+    if (entry.msgId !== "" && msgIds.length < CATCH_UP_NAMED_TURNS) msgIds.push(entry.msgId);
+  }
+  return { msgIds, heldTurns: firstLoadedTurnIndex + held };
+}
 
 /** The global timers, looked up at call time. */
 export const DEFAULT_TIMER_SOURCE: TimerSource = {
@@ -436,7 +475,31 @@ export class SessionEngine {
     if (event.type === "begin_load_previous" && event.target !== undefined) {
       this._loadPreviousTarget = event.target;
     }
+    if (event.type === "begin_catch_up") {
+      this.catchUp(event);
+      return;
+    }
     this.dispatch(event);
+  }
+
+  /**
+   * A dormant body's catch-up: the reveal's ask, sent only when the reducer
+   * takes it — read from the reduction just run, which is the state, rather
+   * than from a page mirror that can trail it. A reveal inside the catch-up's
+   * own bracket is refused there, and nothing is sent. A card that slept
+   * inside a bracket asks for that bracket's window again; any other asks for
+   * what follows the turns it holds ({@link heldTurnsOf}).
+   */
+  private catchUp(event: Extract<CodeSessionEvent, { type: "begin_catch_up" }>): void {
+    const open = this.state.phase === "replaying" ? this.state.catchUp.openWindow : null;
+    this.dispatch(event);
+    if (!this.state.catchUp.asks.some((ask) => ask.id === event.askId)) return;
+    const window: ReplayWindow = open ?? {
+      afterTurn: heldTurnsOf(this._transcript, this.state.replayWindow?.firstLoadedTurnIndex ?? 0),
+    };
+    this.dispatch({ type: "replay_asked", window });
+    const frame = encodeRequestReplay(this.tugSessionId, "catch-up", window, event.askId);
+    this.host.send(frame.feedId, frame.payload);
   }
 
   /**
@@ -853,6 +916,12 @@ export class SessionEngine {
       // details we recognize are `session_unknown` (supervisor orphan
       // dispatcher) and `session_not_owned` (router P5 authz reject).
       const ce = decoded as { type?: string; detail?: string };
+      // And one notice of tugcast's own: a catch-up's ask it dropped from the
+      // session's queue unanswered.
+      if (ce.type === "request_replay_dropped") {
+        const askId = (decoded as { ask_id?: unknown }).ask_id;
+        return typeof askId === "string" ? { type: "request_replay_dropped", askId } : null;
+      }
       if (ce.type !== "error") return null;
       if (ce.detail === "session_unknown") {
         return { type: "session_unknown", detail: ce.detail };

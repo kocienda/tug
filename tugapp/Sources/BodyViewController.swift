@@ -1702,6 +1702,10 @@ struct CrossingAccount: Equatable {
     var readyLeadMs: Double?
     var solved = false
     var solveMs: Double?
+    /// Whether the plan started by its guard running out rather than by every awaited card solving.
+    var timedOut: Bool?
+    /// Whether the plan was still waiting on this body when it started: never, for a page that cannot answer.
+    var awaited: Bool?
     var cover: Cover?
     var snapshotMs: Double?
     var coverPixels: CGSize?
@@ -1723,6 +1727,8 @@ struct CrossingAccount: Equatable {
             "readyLeadMs": readyLeadMs.map(JSONValue.number) ?? .null,
             "solved": .bool(solved),
             "solveMs": solveMs.map(JSONValue.number) ?? .null,
+            "timedOut": timedOut.map(JSONValue.bool) ?? .null,
+            "awaited": awaited.map(JSONValue.bool) ?? .null,
             "cover": cover.map { .string($0.rawValue) } ?? .null,
             "snapshotMs": snapshotMs.map(JSONValue.number) ?? .null,
             "coverPixels": coverPixels.map { .object(["width": .number($0.width), "height": .number($0.height)]) } ?? .null,

@@ -82,9 +82,13 @@ struct BodyState: Equatable {
         // the host — is bound afresh, as it always was. One that reloads
         // itself while its eviction saves abandons the eviction: the page it
         // was saving is gone, and the clock asks the new one again once it
-        // is ready.
+        // is ready. The new page has painted nothing and been shown never,
+        // whatever the old one had: its `painted` is heard again, and the
+        // cover over it comes down at that paint, not before.
         case (.bind, .connected), (.bind, .bound), (.bind, .ready), (.bind, .evicting):
             next.phase = .bound
+            next.painted = false
+            next.shownOnce = false
         case (.ready, .bound):
             next.phase = .ready
         case (.paint, .bound), (.paint, .ready), (.paint, .evicting):
@@ -178,6 +182,41 @@ struct BodyState: Equatable {
         if again { return .fail }
         if !hasCard { return .dropSpare }
         return seen ? .reload : .evict
+    }
+}
+
+/// A warning's eviction steps: one under way or due at a time, each
+/// finishing step setting the next while the warning stands. A step is
+/// begun with a token, and its finish counts only while that token is the
+/// current one: a change of level ends the chain, so a step begun before
+/// the change — its eviction still saving — finishes into nothing, and the
+/// warning said again after it starts one chain, never a second beside it.
+struct WarningSteps: Equatable {
+    private(set) var current = 0
+    private(set) var stepping = false
+
+    /// A step is under way.
+    var busy: Bool { stepping }
+
+    /// Begin a step: the token its finish carries.
+    mutating func begin() -> Int {
+        current += 1
+        stepping = true
+        return current
+    }
+
+    /// The step `token` finished. True when it was the current one, whose
+    /// finish sets the next step; false for a step the level change ended.
+    mutating func finish(_ token: Int) -> Bool {
+        guard stepping, token == current else { return false }
+        stepping = false
+        return true
+    }
+
+    /// The level changed: the step under way, if any, ends its chain.
+    mutating func levelChanged() {
+        current += 1
+        stepping = false
     }
 }
 

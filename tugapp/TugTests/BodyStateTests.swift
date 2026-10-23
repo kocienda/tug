@@ -44,6 +44,31 @@ final class BodyStateTests: XCTestCase {
         XCTAssertEqual(state.phase, .bound)
     }
 
+    /// The page that said hello again is a new page: it has painted nothing
+    /// and been shown never, so its own `painted` is heard and the cover over
+    /// it comes down at that paint rather than at once.
+    func testAPageBoundAgainHasNotPaintedOrBeenShown() {
+        var state = self.state(.hello, .bind, .ready, .paint, .show)
+        XCTAssertTrue(state.painted)
+        XCTAssertTrue(state.shownOnce)
+        XCTAssertTrue(state.apply(.bind))
+        XCTAssertFalse(state.painted, "a page bound again has painted nothing")
+        XCTAssertFalse(state.shownOnce)
+        XCTAssertTrue(state.apply(.ready))
+        XCTAssertTrue(state.apply(.paint), "its first paint is heard")
+    }
+
+    /// A crossing's solve is answered by a page's script, which a body not
+    /// yet live — loading, connected or bound — has none of.
+    func testOnlyALiveBodyCanAnswerACrossingsSolve() {
+        XCTAssertFalse(state().isLive)
+        XCTAssertFalse(state(.hello).isLive)
+        XCTAssertFalse(state(.hello, .bind).isLive)
+        XCTAssertTrue(state(.hello, .bind, .ready).isLive)
+        XCTAssertTrue(state(.hello, .bind, .ready, .evict).isLive)
+        XCTAssertFalse(state(.hello, .bind, .ready, .bind).isLive, "a page bound again is not live until ready")
+    }
+
     func testAnEvictingBodyReadsAsALiveReadyPage() {
         let evicting = state(.hello, .bind, .ready, .evict)
         XCTAssertEqual(evicting.phase, .evicting)
@@ -129,6 +154,8 @@ final class BodyStateTests: XCTestCase {
         let begun = state.eviction
         XCTAssertTrue(state.apply(.bind), "the page that said hello again is bound")
         XCTAssertEqual(state.phase, .bound)
+        XCTAssertFalse(state.painted, "the new page has painted nothing")
+        XCTAssertFalse(state.shownOnce)
         XCTAssertFalse(state.evicting(since: begun))
         XCTAssertFalse(state.apply(.decline), "the abandoned eviction cannot hand the body back")
         XCTAssertTrue(state.apply(.ready))
@@ -217,6 +244,28 @@ final class BodyStateTests: XCTestCase {
         XCTAssertNil(episode.next(among: left), "and asks the declined body no third time")
         XCTAssertEqual(episode.after(.warning, .critical), PressureEpisode())
         XCTAssertEqual(episode.after(.critical, .warning), PressureEpisode())
+    }
+
+    // MARK: - The warning's step chain
+
+    /// A warning's step sets the next when it finishes; one begun before a
+    /// level change finishes into nothing, so warning → normal → warning
+    /// inside one eviction's save runs one chain, not two.
+    func testAStepTheLevelChangeEndedSetsNoNextStep() {
+        var steps = WarningSteps()
+        let first = steps.begin()
+        XCTAssertTrue(steps.busy)
+        // The warning lifts and comes back while the first step's eviction saves.
+        steps.levelChanged()
+        XCTAssertFalse(steps.busy, "a level change leaves no step under way")
+        steps.levelChanged()
+        let second = steps.begin()
+        XCTAssertTrue(steps.busy)
+        XCTAssertFalse(steps.finish(first), "the first step's finish, arriving now, sets no next")
+        XCTAssertTrue(steps.busy, "and leaves the second step under way")
+        XCTAssertTrue(steps.finish(second), "the second step's finish sets the next")
+        XCTAssertFalse(steps.busy)
+        XCTAssertFalse(steps.finish(second), "a step finishes once")
     }
 
     /// An eviction's snapshot that never answers ends at its deadline, with

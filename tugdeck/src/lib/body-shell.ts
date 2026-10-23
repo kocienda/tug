@@ -661,8 +661,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       get: (cardId) => cardGuardAsks.getFor(cardId),
       set: (cardId, asks) => cardGuardAsks.setFor(cardId, asks),
       persist: (cardId, asks) => {
-        if (window.__tugTestMode === true && window.__tugPersistInTestMode !== true) return;
-        void putGuardWord(cardId, asks);
+        if (window.__tugTestMode === true && window.__tugPersistInTestMode !== true) return Promise.resolve();
+        return putGuardWord(cardId, asks);
       },
     },
     (() => {
@@ -673,6 +673,12 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   /** Whether `cardId`'s close guard would ask: its page's word, or the word its evicted page left. */
   const guardAsks = (cardId: string): boolean =>
     cardHolds.getFor(cardId).closeGuardAsks === true || keptWords.asks(cardId);
+  /**
+   * The evicted cards whose kept word is still being written, which are not
+   * revived until it is durable: a page brought back reads the word, and a
+   * quit between the eviction and the write would lose the card's ask.
+   */
+  const wordsWriting = new Set<string>();
   /** The modal hold the shell holds for each body card whose run said so, with its release. */
   const modalHolds = new Map<string, () => void>();
   const dropModalHold = (cardId: string): void => {
@@ -1681,12 +1687,16 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // placement that wants it shown asks for it again; one that already
         // does, a reveal racing the eviction, asks now.
         // A page that said its guard would ask leaves that word behind: the
-        // card's close asks until its next page answers for itself.
-        keptWords.evicted(cardId, cardHolds.getFor(cardId));
+        // card's close asks until its next page answers for itself. The card
+        // is revived once the word is durable.
+        wordsWriting.add(cardId);
+        void keptWords.evicted(cardId, cardHolds.getFor(cardId)).then(() => {
+          wordsWriting.delete(cardId);
+          reviveWanted();
+        });
         bodyCardsStore.setState(cardId, "evicted");
         bus.detach(cardId);
         paintGate.forget(cardId);
-        reviveWanted();
         return;
       case "covered":
         // The body asked for to bring an evicted card back stands under the
@@ -1708,11 +1718,12 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // what the gone page told the shell goes with the page, as at a
         // termination, its facts too. Marked failed, so an arrival waiting
         // on the body reveals now rather than at its bound: the card stands
-        // lidded. Forgetting the card drops the shell's own stores for it
-        // as well, which the next page is sent at hello, so they are set
-        // again at once.
+        // lidded. What the shell owns for the card stays — the word its
+        // evicted page left that its close asks (`card.guardAsks`) among
+        // it, which a failed page has not answered — and is set current
+        // again at once, for the next page to be sent at hello.
         bus.detach(cardId);
-        bus.forgetCard(cardId);
+        bus.forgetPage(cardId);
         seedCard(cardId);
         paintGate.forget(cardId);
         bodyCardsStore.setState(cardId, "failed");
@@ -1755,7 +1766,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   function reviveWanted(): void {
     for (const cardId of bodyCardsStore.cardIds()) {
       const state = bodyCardsStore.stateOf(cardId);
-      if (!pageless(state) || !wantsBodyShown(deck, cardId)) continue;
+      if (!pageless(state) || wordsWriting.has(cardId) || !wantsBodyShown(deck, cardId)) continue;
       if (state === "unmade") releaseDeferredBody(cardId);
       else askAgain(cardId);
     }

@@ -701,10 +701,24 @@ export function putCardState(cardId: string, bag: CardStateBag, options?: { keep
 
 /**
  * Persist whether `cardId`'s close asks on the word of an evicted page: PUT
- * while it does, DELETE once it does not. Fire-and-forget, as a lost write
- * costs only a deadline the next page restores.
+ * while it does, DELETE once it does not. One card's writes go in the order
+ * they were asked, each after the last has landed, so a late PUT never
+ * outlives the DELETE that followed it. Settles once this write has landed,
+ * or failed, which is logged: it never rejects.
  */
 export function putGuardWord(cardId: string, asks: boolean): Promise<void> {
+  const write = (guardWordWrites.get(cardId) ?? Promise.resolve()).then(() => writeGuardWord(cardId, asks));
+  guardWordWrites.set(cardId, write);
+  void write.then(() => {
+    if (guardWordWrites.get(cardId) === write) guardWordWrites.delete(cardId);
+  });
+  return write;
+}
+
+/** Each card's last guard-word write, which its next one waits on. */
+const guardWordWrites = new Map<string, Promise<void>>();
+
+function writeGuardWord(cardId: string, asks: boolean): Promise<void> {
   if (!asks) return deleteDefault(GUARD_ASKS_DOMAIN, cardId);
   const url = `/api/defaults/${GUARD_ASKS_DOMAIN}/${encodeURIComponent(cardId)}`;
   return fetch(url, {

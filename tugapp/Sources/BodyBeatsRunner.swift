@@ -196,7 +196,7 @@ final class BodyBeatsRunner {
                 if let solve {
                     solve.awaited.insert(ObjectIdentifier(body))
                     if covers {
-                        coverForCrossing(body, planId: planId, begin: begin)
+                        coverForCrossing(body, solve: solve, begin: begin)
                     } else {
                         var solving = begin
                         solving.solve = true
@@ -239,8 +239,9 @@ final class BodyBeatsRunner {
     /// not yet painted — takes that one, and is told at once; one that has
     /// not painted and stands under none is never snapshotted, and keeps its
     /// page as a failed snapshot would.
-    private func coverForCrossing(_ body: Body, planId: Int, begin: BodyCrossing) {
+    private func coverForCrossing(_ body: Body, solve: PlanSolve, begin: BodyCrossing) {
         guard let cardId = body.cardId else { return }
+        let planId = solve.planId
         let size = body.webView.frame.size
         let covers = controller.lifecycle.covers
         switch covers.crossingCover(for: cardId, painted: body.painted) {
@@ -248,17 +249,21 @@ final class BodyBeatsRunner {
             // Brought back from an eviction and not yet painted, the body
             // stands under its last frame already, and the crossing takes
             // that cover rather than a second one: it comes off at the
-            // later of the paint and the land.
+            // later of the paint and the land. A page not yet live — made
+            // for the card and not yet bound — has nothing to solve the
+            // crossing with, and is not awaited: the cover is what moves,
+            // and the plan starts without waiting out the guard for it.
             body.lastCrossing?.cover = .standing
             holdForCrossing(body, stand: stand, size: size)
             var solving = begin
             solving.solve = true
             controller.send(.bodyCrossing(solving), to: body)
+            if !body.life.isLive { dropFromSolve(body, solve: solve) }
             return
         case .keepsPage:
             // A page that has not painted would snapshot nothing it ever showed.
             body.lastCrossing?.cover = .keptPage
-            keepPage(body, planId: planId, begin: begin)
+            keepPage(body, solve: solve, begin: begin)
             return
         case .snapshot:
             break
@@ -280,7 +285,7 @@ final class BodyBeatsRunner {
                 )
             ) else {
                 body.lastCrossing?.cover = .keptPage
-                self.keepPage(body, planId: planId, begin: begin)
+                self.keepPage(body, solve: solve, begin: begin)
                 return
             }
             body.lastCrossing?.cover = .snapshot
@@ -318,10 +323,10 @@ final class BodyBeatsRunner {
 
     /// No cover can stand for the crossing: the card is told `begin` without
     /// `solve`, is not awaited, and keeps its page to the land.
-    private func keepPage(_ body: Body, planId: Int, begin: BodyCrossing) {
+    private func keepPage(_ body: Body, solve: PlanSolve, begin: BodyCrossing) {
         body.crossing?.keepsPage = true
         controller.send(.bodyCrossing(begin), to: body)
-        dropFromSolve(body, planId: planId)
+        dropFromSolve(body, solve: solve)
     }
 
     /// Carry a covered fold's bottom band on `track`, from the plan's start,
@@ -545,8 +550,19 @@ final class BodyBeatsRunner {
     /// The plan no longer waits on `body`: its crossing was cancelled, or its
     /// cover could not be taken.
     private func dropFromSolve(_ body: Body, planId: Int) {
-        guard let solve = solves[planId], solve.awaited.remove(ObjectIdentifier(body)) != nil else { return }
-        if solve.awaited.isEmpty { startPlan(planId, timedOut: false) }
+        guard let solve = solves[planId] else { return }
+        dropFromSolve(body, solve: solve)
+    }
+
+    /// Stop waiting on `body` for `solve`, which may still be being taken
+    /// in: `run` registers a plan's solve only once every card is in, so a
+    /// body dropped during the intake — a kept page, a page not yet live —
+    /// leaves the start to `run`, and one dropped after it starts the plan
+    /// when it was the last awaited.
+    private func dropFromSolve(_ body: Body, solve: PlanSolve) {
+        guard solve.awaited.remove(ObjectIdentifier(body)) != nil else { return }
+        guard solves[solve.planId] === solve, solve.awaited.isEmpty else { return }
+        startPlan(solve.planId, timedOut: false)
     }
 
     /// Add `planned`'s tracks to `body`'s container under the beat keys —
@@ -628,6 +644,8 @@ final class BodyBeatsRunner {
         for carried in solve.carried {
             // A card a newer plan or a placement took since is not this plan's.
             guard let body = carried.body, let beats = body.beats, beats.planId == planId else { continue }
+            body.lastCrossing?.timedOut = timedOut
+            body.lastCrossing?.awaited = solve.awaited.contains(ObjectIdentifier(body))
             if carried.track.durationMs <= 0 {
                 body.beats = nil
                 endCrossing(body)

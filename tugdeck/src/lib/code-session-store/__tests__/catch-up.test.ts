@@ -581,6 +581,21 @@ describe("catchUp — its answer, known by name", () => {
     expect(store._getInternalStateForDevPanel().catchUp.asks).toEqual([]);
   });
 
+  it("the re-ask is answered first, as when tugcast front-queues both through a Spawning window: the first ask's answer, let go, is shadowed and re-bases nothing", () => {
+    const { store, conn, first, second } = askedBehindAnUnnamedRead();
+    replayRange(conn, 7, 8, { firstLoadedTurnIndex: 7, totalTurns: 9, hasOlder: true }, second);
+    expect(store.getSnapshot().replayWindow).toEqual({ firstLoadedTurnIndex: 2, totalTurns: 9, hasOlder: true });
+
+    // The first ask was let go when its re-ask was answered; its bracket comes
+    // after all, reporting a window of its own.
+    replayRange(conn, 7, 8, { firstLoadedTurnIndex: 7, totalTurns: 9, hasOlder: true }, first);
+    const snap = store.getSnapshot();
+    expect(snap.replayWindow).toEqual({ firstLoadedTurnIndex: 2, totalTurns: 9, hasOlder: true });
+    expect(snap.transcript.map((t) => t.msgId)).toEqual(ids(2, 8));
+    expect(snap).toMatchObject({ phase: "idle", catchingUp: false });
+    expect(store._getInternalStateForDevPanel().catchUp.stage).toBe("none");
+  });
+
   it("an in-flight read standing at the sleep drops nothing: its close earns no second ask, and the answer keeps the window's start", () => {
     const { store, conn } = makeStore();
     replayRange(conn, 2, 7, { firstLoadedTurnIndex: 2, totalTurns: 8, hasOlder: true });
@@ -859,7 +874,7 @@ describe("catchUp — an answer after its deadline", () => {
     expect(JSON.stringify(snap.transcript[3])).toContain("reply 3");
     expect(JSON.stringify(snap.transcript[3])).not.toContain("only the tail");
     expect(snap.replayWindow).toEqual({ firstLoadedTurnIndex: 0, totalTurns: 4, hasOlder: false });
-    expect(store._getInternalStateForDevPanel().catchUp.heldTurns).toEqual([]);
+    expect(store._getInternalStateForDevPanel().catchUp).toMatchObject({ asks: [], answering: null });
   });
 
   it("an ask made after the tail stood is answered after it: its turns follow the tail", () => {
@@ -877,19 +892,63 @@ describe("catchUp — an answer after its deadline", () => {
     store.catchUp();
     replayRange(conn, 4, 5, { firstLoadedTurnIndex: 4, totalTurns: 6, hasOlder: true }, lastAsk(conn));
     expect(ids(store)).toEqual([0, 1, 3, 4, 5].map((n) => FIXTURE_IDS.MSG_ID_N(n)));
-    expect(store._getInternalStateForDevPanel().catchUp.heldTurns).toEqual([]);
+    expect(store._getInternalStateForDevPanel().catchUp).toMatchObject({ asks: [], answering: null });
   });
 
-  it("a spawning session's horizon runs from its ready, not from the ask", () => {
+  it("two asks lapse over two tails: the later one's answer completes its own tail and puts what the card missed ahead of it, not ahead of the earlier tail", () => {
+    const { store, conn, timers } = makeTimedStore();
+    replayRange(conn, 0, 2, { firstLoadedTurnIndex: 0, totalTurns: 3, hasOlder: false });
+    store.catchUp();
+    emit(conn, WAKE);
+    liveTail(conn, 3);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(ids(store)).toEqual([0, 1, 2, 3].map((n) => FIXTURE_IDS.MSG_ID_N(n)));
+
+    // The card sleeps through turn 4, and the next reveal's ask lapses over
+    // turn 5's tail.
+    store.catchUp();
+    emit(conn, WAKE);
+    liveTail(conn, 5);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    expect(ids(store)).toEqual([0, 1, 2, 3, 5].map((n) => FIXTURE_IDS.MSG_ID_N(n)));
+
+    // The later ask's answer, late: it asked for what follows turn 3.
+    replayRange(conn, 4, 5, { firstLoadedTurnIndex: 4, totalTurns: 6, hasOlder: true }, lastAsk(conn));
+    const snap = store.getSnapshot();
+    expect(snap.transcript.map((t) => t.msgId)).toEqual([0, 1, 2, 3, 4, 5].map((n) => FIXTURE_IDS.MSG_ID_N(n)));
+    expect(JSON.stringify(snap.transcript[5])).toContain("reply 5");
+    expect(JSON.stringify(snap.transcript[5])).not.toContain("only the tail");
+    expect(snap.replayWindow).toEqual({ firstLoadedTurnIndex: 0, totalTurns: 6, hasOlder: false });
+  });
+
+  it("a spawning session's horizon runs from its spawn, once: its ready re-arms nothing", () => {
     const { store, conn, timers } = makeTimedStore();
     replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
     store.catchUp();
     timers.advance(CATCH_UP_DEADLINE_MS - 1_000);
-    conn.dispatchDecoded(FeedId.SESSION_STATE, { tug_session_id: TUG, state: "live" });
+    conn.dispatchDecoded(FeedId.SESSION_STATE, { tug_session_id: TUG, state: "spawning" });
     timers.advance(CATCH_UP_DEADLINE_MS - 1_000);
     expect(store.getSnapshot().catchingUp).toBe(true);
+    conn.dispatchDecoded(FeedId.SESSION_STATE, { tug_session_id: TUG, state: "live" });
     timers.advance(1_000);
     expect(store.getSnapshot().catchingUp).toBe(false);
+  });
+
+  it("a session that respawns again before answering lets the ask go: the catch-up ends, and the send it held goes out", () => {
+    const { store, conn, timers } = makeTimedStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp();
+    const askId = lastAsk(conn);
+    store.send("prompt 2", []);
+    for (const spawn of ["spawning", "live", "spawning"]) {
+      conn.dispatchDecoded(FeedId.SESSION_STATE, { tug_session_id: TUG, state: spawn });
+    }
+    const state = store._getInternalStateForDevPanel();
+    expect(state.catchUp).toMatchObject({ stage: "none", asks: [], letGo: [askId] });
+    expect(store.getSnapshot().catchingUp).toBe(false);
+    expect(userMessagesOf(conn)).toHaveLength(1);
+    // No deadline stands over an ask the card let go.
+    expect(timers.pending).toBe(0);
   });
 
   it("the session's spawn moves nothing when no catch-up waits", () => {
@@ -910,51 +969,165 @@ describe("catchUp — an ask the session ends", () => {
   const RESUME_FAILED = { type: "resume_failed", reason: "no_conversation", stale_session_id: "s" };
   const ERRORED = { type: "session_state_errored", detail: "resume_failed" };
 
-  it("a session that fails to resume lets the lapsed ask go: a bracket naming it later is a read of its own", () => {
+  it("a session that fails to resume lets the lapsed ask go: a bracket naming it later is shadowed, and the window keeps its start", () => {
     const lapsed = step(step(settled(), begin()).state, { type: "tick_catch_up" }).state;
     const askId = askOf(lapsed);
     const failed = step(step(lapsed, RESUME_FAILED).state, ERRORED).state;
     expect(failed.catchUp.asks).toEqual([]);
+    expect(failed.catchUp.letGo).toEqual([askId]);
     const read = step(failed, { type: "replay_started", ask_id: askId }).state;
-    expect(read.catchUp.stage).toBe("none");
+    expect(read.catchUp).toMatchObject({ stage: "none", letGo: [] });
+    expect(read).toMatchObject({ replayShadowActive: true, replayShadowInert: true });
     const closed = step(read, { type: "replay_complete", count: 50, firstLoadedTurnIndex: 0, totalTurns: 50, hasOlder: false }).state;
-    expect(closed.replayWindow).toEqual({ firstLoadedTurnIndex: 0, totalTurns: 50, hasOlder: false });
+    expect(closed.replayWindow).toEqual({ firstLoadedTurnIndex: 5, totalTurns: 50, hasOlder: true });
+    expect(closed.replayShadowActive).toBe(false);
   });
 
-  for (const [name, frame] of [["resume_failed", RESUME_FAILED], ["session_state_errored", ERRORED]] as const) {
-    it(`${name} while the catch-up waits ends it, applies what was set aside, and lets the ask go`, () => {
-      const asked = step(settled(), begin()).state;
+  const deaths: ReadonlyArray<readonly [string, ReadonlyArray<Record<string, unknown>>, string]> = [
+    ["resume_failed", [RESUME_FAILED, ERRORED], "resume_failed"],
+    ["session_state_errored", [ERRORED], "session_state_errored"],
+    ["session_unknown", [{ type: "session_unknown" }], "session_unknown"],
+    ["session_not_owned", [{ type: "session_not_owned" }], "session_not_owned"],
+  ];
+  for (const [name, frames, cause] of deaths) {
+    it(`${name} while the catch-up waits ends it, lets what was set aside go, lets the ask go, and writes the queued send nowhere`, () => {
+      const { store, conn } = makeStore();
+      replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+      store.catchUp();
+      store.send("prompt 4", []);
       const id = FIXTURE_IDS.MSG_ID_N(3);
-      let heard = asked;
-      for (const said of [
-        WAKE,
-        { type: "assistant_text", status: "complete", msg_id: id, text: "said meanwhile", is_partial: false, rev: 0, seq: 0 },
-        { type: "turn_complete", seq: 0, msg_id: id, result: "success" },
-      ]) {
-        heard = step(heard, said).state;
-      }
+      emit(conn, WAKE);
+      emit(conn, { type: "assistant_text", status: "complete", msg_id: id, text: "said meanwhile", is_partial: false, rev: 0, seq: 0 });
+      emit(conn, { type: "turn_complete", seq: 0, msg_id: id, result: "success" });
+      const heard = store._getInternalStateForDevPanel();
       expect(heard.catchUp.held).toHaveLength(3);
-      const ended = step(heard, frame);
-      expect(ended.state.catchUp).toMatchObject({ stage: "none", asks: [], held: [], behind: null });
-      expect(ended.effects).toContainEqual({ kind: "cancel_timer", name: "catch_up" });
-      // What was set aside reached its handlers before the session's end did.
-      expect(ended.state.committedMsgIds.has(id)).toBe(true);
+      expect(heard.queuedSends).toHaveLength(1);
+
+      let state = heard;
+      const effects: Effect[] = [];
+      for (const frame of frames) {
+        const next = step(state, frame);
+        state = next.state;
+        effects.push(...next.effects);
+      }
+      expect(state.catchUp).toMatchObject({ stage: "none", asks: [], held: [], behind: null });
+      expect(effects).toContainEqual({ kind: "cancel_timer", name: "catch_up" });
+      // The held tail is never reduced: the session that would complete it is
+      // gone, and its close is no turn boundary to send from.
+      expect(state.committedMsgIds.has(id)).toBe(false);
+      expect(state).toMatchObject({ phase: "errored", lastError: { cause } });
+      expect(effects.some((e) => e.kind === "send-frame")).toBe(false);
+      expect(state.queuedSends).toHaveLength(1);
+
+      // Nothing later writes it to that session either: a stale deadline,
+      // nor the host's network path coming back.
+      for (const later of [{ type: "tick_catch_up" }, { type: "network_path_satisfied" }]) {
+        const next = step(state, later);
+        expect(next.effects.some((e) => e.kind === "send-frame")).toBe(false);
+        state = next.state;
+      }
+      expect(state.queuedSends).toHaveLength(1);
     });
   }
+
+  for (const name of ["session_unknown", "session_not_owned"] as const) {
+    it(`${name} on a settled card with no catch-up changes nothing`, () => {
+      const idle = settled();
+      expect(step(idle, { type: name })).toEqual({ state: idle, effects: [] });
+    });
+  }
+
+  for (const name of ["session_unknown", "session_not_owned"] as const) {
+    it(`${name} inside the catch-up's open bracket ends it, and the send stays queued`, () => {
+      const { store, conn } = makeStore();
+      replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+      store.catchUp();
+      store.send("prompt 2", []);
+      emit(conn, { type: "replay_started", ask_id: lastAsk(conn) });
+      const out = step(store._getInternalStateForDevPanel(), { type: name });
+      expect(out.state).toMatchObject({ phase: "errored", lastError: { cause: name } });
+      expect(out.state.catchUp).toMatchObject({ stage: "none", openWindow: null });
+      expect(out.effects.some((e) => e.kind === "send-frame")).toBe(false);
+      expect(out.state.queuedSends).toHaveLength(1);
+    });
+  }
+
+  /** tugcast's notice that it dropped the ask named `askId` unanswered. */
+  const dropped = (conn: TestFrameChannel, askId: string) =>
+    conn.dispatchDecoded(FeedId.CONTROL, { type: "request_replay_dropped", ask_id: askId, tug_session_id: TUG });
+
+  it("a wire that closes while the catch-up waits lets every ask go, sets aside nothing more, and writes nothing", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp();
+    const askId = lastAsk(conn);
+    store.send("prompt 4", []);
+    const id = FIXTURE_IDS.MSG_ID_N(3);
+    emit(conn, WAKE);
+    emit(conn, { type: "turn_complete", seq: 0, msg_id: id, result: "success" });
+    const lost = step(store._getInternalStateForDevPanel(), { type: "transport_close" });
+    expect(lost.state.catchUp).toMatchObject({ stage: "none", asks: [], held: [], letGo: [askId] });
+    expect(lost.state).toMatchObject({ transportState: "offline" });
+    expect(lost.effects).toContainEqual({ kind: "cancel_timer", name: "catch_up" });
+    expect(lost.effects.some((e) => e.kind === "send-frame")).toBe(false);
+    expect(lost.state.committedMsgIds.has(id)).toBe(false);
+    expect(lost.state.queuedSends).toHaveLength(1);
+    // The reconnect's bracket, unnamed, is a read of its own again rather
+    // than shadowed behind an ask nobody will answer.
+    const read = step(step(lost.state, { type: "transport_open" }).state, { type: "replay_started" }).state;
+    expect(read).toMatchObject({ phase: "replaying", replayShadowActive: false });
+  });
+
+  it("an ask tugcast dropped ends the catch-up waiting on it at once, and the send it held goes out", () => {
+    const { store, conn, timers } = makeTimedStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp();
+    const askId = lastAsk(conn);
+    store.send("prompt 2", []);
+    dropped(conn, askId);
+    expect(store._getInternalStateForDevPanel().catchUp).toMatchObject({ stage: "none", asks: [], letGo: [askId] });
+    expect(store.getSnapshot().catchingUp).toBe(false);
+    expect(userMessagesOf(conn)).toHaveLength(1);
+    expect(timers.pending).toBe(0);
+
+    // Its answer, should one come after all, re-bases nothing.
+    replayRange(conn, 1, 2, { firstLoadedTurnIndex: 1, totalTurns: 3, hasOlder: true }, askId);
+    expect(store.getSnapshot().replayWindow).toEqual({ firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+  });
+
+  it("a lapsed ask tugcast dropped is let go, and the catch-up waiting on a later one stands", () => {
+    const { store, conn, timers } = makeTimedStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp();
+    const lapsed = lastAsk(conn);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    store.catchUp();
+    const waited = lastAsk(conn);
+    dropped(conn, lapsed);
+    const { catchUp } = store._getInternalStateForDevPanel();
+    expect(catchUp.stage).toBe("asked");
+    expect(catchUp.asks.map((a) => a.id)).toEqual([waited]);
+    expect(catchUp.letGo).toEqual([lapsed]);
+  });
+
+  it("a drop naming no ask the card owes changes nothing", () => {
+    const settled = createInitialState(TUG, "catch-up", "resume");
+    expect(step(settled, { type: "request_replay_dropped", askId: "ask-elsewhere" })).toEqual({ state: settled, effects: [] });
+  });
 
   it("a re-ask that lapses keeps its choice of window into its late answer", () => {
     // A read asked for, whose bracket the card sleeps inside and re-asks with
     // the read's own window: the answer closes as the read would have.
     const reading = step(step(settled(), { type: "replay_asked", window: { lastTurns: 50 } }).state, { type: "replay_started" }).state;
     const reasked = step(step(reading, { type: "went_dormant" }).state, begin()).state;
-    expect(reasked.catchUp.keepsWindow).toBe(false);
+    expect(reasked.catchUp.asks[reasked.catchUp.asks.length - 1].keepsWindow).toBe(false);
     const askId = askOf(reasked);
     // Its deadline passes, the old bracket is abandoned by its silence, and
     // the answer comes late.
     const abandoned = step(step(reasked, { type: "tick_catch_up" }).state, { type: "tick_replay_silence" }).state;
     expect(abandoned.phase).toBe("errored");
     const late = step(abandoned, { type: "replay_started", ask_id: askId }).state;
-    expect(late.catchUp).toMatchObject({ stage: "open", keepsWindow: false });
+    expect(late.catchUp).toMatchObject({ stage: "open", answering: { id: askId, keepsWindow: false } });
     const closed = step(late, { type: "replay_complete", count: 4, firstLoadedTurnIndex: 7, totalTurns: 11, hasOlder: true }).state;
     expect(closed.replayWindow).toEqual({ firstLoadedTurnIndex: 7, totalTurns: 11, hasOlder: true });
   });

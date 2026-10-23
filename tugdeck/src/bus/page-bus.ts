@@ -116,6 +116,13 @@ export interface PageBus {
   detach(cardId: string): void;
   /** The shell: the card is destroyed; drop everything held for it. */
   forgetCard(cardId: string): void;
+  /**
+   * The shell: the card's page is gone for good and the card stays, as when
+   * the host reports its body failed. Everything held for the page goes, and
+   * every value it told this side, as at {@link forgetCard}; the values this
+   * side owns for the card stay, for the card's next page to be sent at hello.
+   */
+  forgetPage(cardId: string): void;
   /** Say hello: the shell to every body, a bound body to the shell. A spare says nothing. */
   announce(): void;
   census(): BusCensus;
@@ -141,8 +148,12 @@ export interface PageBus {
    * `after` names; the rest run in the order they were added.
    */
   onPeerHello(listener: (peer: PeerTarget, from: BusFrom) => void, order?: HelloOrder): () => void;
-  /** A card detached (`forgotten` false) or was forgotten (`forgotten` true). Runs before {@link onDetach} listeners. */
-  onCardGone(listener: (cardId: string, forgotten: boolean) => void): () => void;
+  /**
+   * A card detached (`forgotten` false) or was forgotten (`forgotten` true);
+   * `cardStays` unless the card itself was forgotten ({@link forgetCard}).
+   * Runs before {@link onDetach} listeners.
+   */
+  onCardGone(listener: (cardId: string, forgotten: boolean, cardStays: boolean) => void): () => void;
   /** Add a section to {@link census}. */
   addCensus(name: string, read: () => unknown): () => void;
 }
@@ -248,7 +259,7 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
   const eachHello = (what: string, peer: PeerTarget, from: BusFrom): void => {
     for (const { listener } of helloRunOrder(helloListeners)) fenced(what, from, () => listener(peer, from));
   };
-  const goneListeners = listeners<(cardId: string, forgotten: boolean) => void>();
+  const goneListeners = listeners<(cardId: string, forgotten: boolean, cardStays: boolean) => void>();
   let disposed = false;
   /** Whether this page has announced itself, so every later open announces it again. */
   let announced = false;
@@ -397,7 +408,7 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
     return false;
   };
 
-  const goneCard = (cardId: string, forgotten: boolean): void => {
+  const goneCard = (cardId: string, forgotten: boolean, cardStays: boolean): void => {
     attached.delete(cardId);
     const key = peerKey({ card: cardId });
     const queue = held.get(key);
@@ -417,7 +428,7 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
       if (kept.length > 0) held.set(key, kept);
       else held.delete(key);
     }
-    goneListeners.each((l) => fenced(`card ${cardId} gone`, null, () => l(cardId, forgotten)));
+    goneListeners.each((l) => fenced(`card ${cardId} gone`, null, () => l(cardId, forgotten, cardStays)));
     detachListeners.each((l) => fenced(`detach of card ${cardId}`, null, () => l(cardId)));
   };
 
@@ -454,8 +465,9 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
     componentOf: (cardId) => components.get(cardId) ?? null,
     onAttach: (l) => attachListeners.add(l),
     onDetach: (l) => detachListeners.add(l),
-    detach: (cardId) => goneCard(cardId, false),
-    forgetCard: (cardId) => goneCard(cardId, true),
+    detach: (cardId) => goneCard(cardId, false, true),
+    forgetCard: (cardId) => goneCard(cardId, true, false),
+    forgetPage: (cardId) => goneCard(cardId, true, true),
     announce() {
       if (disposed) return;
       announced = true;

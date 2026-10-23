@@ -513,22 +513,31 @@ impl LedgerEntry {
 
 impl LedgerEntry {
     /// Drop every `request_replay` this entry's queue still holds, and say
-    /// how many went. A replay is queued only while a spawn is coming up; one
-    /// still queued when the entry is re-armed after that spawn died was asked
-    /// of a child that never ran, and its card has long since stopped waiting
-    /// on it. Kept, it would fire on the next spawn as a replay nobody asked
-    /// that child for. User input queued beside it is left as it is.
-    pub fn drop_queued_replays(&mut self) -> usize {
-        self.queue.retain(|frame| {
-            serde_json::from_slice::<serde_json::Value>(&frame.payload)
-                .ok()
-                .and_then(|v| {
-                    v.get("type")
-                        .and_then(|t| t.as_str())
-                        .map(|t| t != "request_replay")
-                })
-                .unwrap_or(true)
-        })
+    /// which went: one entry per dropped replay, carrying the `ask_id` the
+    /// card named it with, if any. A replay is queued only while a spawn is
+    /// coming up; one still queued when the entry is re-armed after that spawn
+    /// died was asked of a child that never ran. Kept, it would fire on the
+    /// next spawn as a replay nobody asked that child for. The caller tells
+    /// the card each named ask is gone ([`build_request_replay_dropped_frame`]),
+    /// so a card waiting on one stops at once rather than at its deadline.
+    /// User input queued beside it is left as it is.
+    ///
+    /// [`build_request_replay_dropped_frame`]: super::build_request_replay_dropped_frame
+    pub fn drop_queued_replays(&mut self) -> Vec<Option<String>> {
+        let replay_of = |frame: &Frame| -> Option<Option<String>> {
+            let v = serde_json::from_slice::<serde_json::Value>(&frame.payload).ok()?;
+            (v.get("type").and_then(|t| t.as_str()) == Some("request_replay"))
+                .then(|| v.get("ask_id").and_then(|a| a.as_str()).map(str::to_owned))
+        };
+        let mut dropped = Vec::new();
+        self.queue.retain(|frame| match replay_of(frame) {
+            Some(ask_id) => {
+                dropped.push(ask_id);
+                false
+            }
+            None => true,
+        });
+        dropped
     }
 
     /// Whether this session is **finished**, not merely between frames.

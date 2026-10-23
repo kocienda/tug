@@ -40,8 +40,6 @@ export class CloseRefusalStore extends Subscribable {
     this.notify();
   }
 
-  isRefused = (cardId: string): boolean => this.refused.has(cardId);
-
   /** Why `cardId`'s close was refused, or null while no refusal stands. */
   reasonOf = (cardId: string): CloseRefusalReason | null => this.refused.get(cardId) ?? null;
 

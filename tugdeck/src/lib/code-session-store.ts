@@ -32,7 +32,7 @@ import {
   type FeedIdValue,
 } from "@/protocol";
 import type { EditorView } from "@codemirror/view";
-import type { PermissionMode, ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
+import type { PermissionMode, ReplayWindow } from "@tugproto/inbound";
 import type { TugConnection } from "@/connection";
 import type { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import { PropertyStore } from "@/lib/property-store";
@@ -111,7 +111,6 @@ import type {
   PendingAsk,
   TurnEntry,
 } from "./code-session-store/types";
-import { isInkOrigin } from "./code-session-store/types";
 
 export type {
   ActiveTurnSnapshot,
@@ -149,6 +148,7 @@ export {
 } from "./code-session-store/reducer";
 
 export {
+  heldTurnsOf,
   KNOWN_CODE_OUTPUT_TYPES,
   REPLAY_FOLD_FLUSH_THRESHOLD,
   REWIND_ANCHOR_OUTSIDE_WINDOW,
@@ -233,44 +233,6 @@ function sessionAtomVerdict(atom: AtomSegment): {
   // says so — "not on this machine" is actionable, "not answered yet" names
   // the command that answers it.
   return { verdict: answer.status === "unknown" ? "absent" : "unverified" };
-}
-
-/** How many of a card's newest turns a catch-up names. */
-const CATCH_UP_NAMED_TURNS = 16;
-
-/**
- * What a catch-up names: the msg-ids of the newest turns the card holds,
- * newest first, and how many turns it holds counting from the session's
- * first. Several ids ride so a turn tugcode cannot find by its id — one that
- * committed with no content, under an id the translator minted — does not
- * leave the card unplaced; the count is tugcode's last resort.
- *
- * Only turns are named or counted. An ink entry (a shell exchange, a refs
- * run) is never in the JSONL: its `msgId` is an id the deck minted, and
- * counting it would place the card past turns it never held. An entry
- * carrying such a minted id is passed over whatever its origin says.
- */
-export function heldTurnsOf(
-  transcript: ReadonlyArray<TurnEntry>,
-  firstLoadedTurnIndex: number,
-): ReplayAfterTurn {
-  const minted = new Set<string>();
-  for (const entry of transcript) {
-    for (const m of entry.messages) {
-      if (m.kind === "refs_result") minted.add(m.runId);
-      else if (m.kind === "shell_exchange") minted.add(m.exchangeId);
-    }
-  }
-  const isTurn = (entry: TurnEntry) => !isInkOrigin(entry.origin) && !minted.has(entry.msgId);
-  const msgIds: string[] = [];
-  let held = 0;
-  for (let i = transcript.length - 1; i >= 0; i--) {
-    const entry = transcript[i];
-    if (!isTurn(entry)) continue;
-    held += 1;
-    if (entry.msgId !== "" && msgIds.length < CATCH_UP_NAMED_TURNS) msgIds.push(entry.msgId);
-  }
-  return { msgIds, heldTurns: firstLoadedTurnIndex + held };
 }
 
 export interface CodeSessionStoreOptions {
@@ -1277,27 +1239,15 @@ export class CodeSessionStore extends Subscribable {
    *
    * The ask carries an id minted here, which tugcode echoes on the bracket
    * that answers: the card enters that bracket, and no other, as the
-   * catch-up's. It is minted here and handed to the reducer, never read back
-   * from it, because this store's mirror of the reducer's state can trail a
-   * dispatch — mid-stream, or inside a bracket's fold. A reveal inside the
-   * catch-up's own bracket asks nothing: the reducer refuses the move, and
-   * nothing is sent.
+   * catch-up's. The engine sends it, from the reduction itself: this store's
+   * mirror of the reducer's state can trail a dispatch — mid-stream, or inside
+   * a bracket's fold — so whether the reducer took the ask is read where the
+   * reduction ran, never from the mirror. A reveal inside the catch-up's own
+   * bracket asks nothing: the reducer refuses the move, and nothing is sent.
    */
   catchUp(): void {
     if (this._disposed) return;
-    const asking = this.state.catchUp.stage !== "open";
-    const open = this.state.phase === "replaying" ? this.state.catchUp.openWindow : null;
-    const askId = mintAskId();
-    this.dispatch({ type: "begin_catch_up", askId });
-    if (!asking) return;
-    // Read after the dispatch: inside a bracket the transcript's post is held
-    // until something publishes, and `begin_catch_up` does.
-    const window: ReplayWindow = open ?? {
-      afterTurn: heldTurnsOf(this._transcript, this.state.replayWindow?.firstLoadedTurnIndex ?? 0),
-    };
-    this.dispatch({ type: "replay_asked", window });
-    const frame = encodeRequestReplay(this.tugSessionId, "catch-up", window, askId);
-    this.write(frame.feedId, frame.payload);
+    this.dispatch({ type: "begin_catch_up", askId: mintAskId() });
   }
 
   /**

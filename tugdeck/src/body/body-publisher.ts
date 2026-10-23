@@ -67,7 +67,11 @@ export interface BodyPublisherSources {
   readGuarded(): boolean;
   /** Whether the card's close guard would ask, or null when it registered none. */
   readAsks(): boolean | null;
-  /** Whether the card's close guard's word is its answer yet; false with no guard. */
+  /**
+   * Whether the card's close guard's word is its answer yet. With no guard,
+   * whether the page has painted: a card that has painted with none has
+   * answered that nothing it holds asks.
+   */
   readAnswered(): boolean;
   /** The card's modal hold — its reason and whether it admits the fold — or null when it has none. */
   readHold(): { reason: string; admitsFold: boolean } | null;
@@ -187,9 +191,10 @@ function followDormancy(listener: () => void): () => void {
   });
 }
 
-/** An installed publisher: publish now, synchronously, or uninstall. */
+/** An installed publisher: publish now, synchronously; say the page has painted, and publish; or uninstall. */
 export interface InstalledBodyPublisher {
   publish(): void;
+  painted(): void;
   release(): void;
 }
 
@@ -209,6 +214,9 @@ export function installBodyPublisher(
   cardId: string,
   options: { watchContent?: boolean },
 ): InstalledBodyPublisher {
+  // Whether the page has painted its card, by which a card with a close
+  // guard has registered it (a layout effect at its mount, [L03]).
+  let painted = false;
   const publisher = new BodyPublisher(
     {
       readFacts: () => readBodyCardFacts(cardId),
@@ -220,7 +228,7 @@ export function installBodyPublisher(
       },
       readAnswered: () => {
         const guard = getCardCloseGuard(cardId);
-        return guard !== null && (guard.answered?.() ?? true);
+        return guard === null ? painted : (guard.answered?.() ?? true);
       },
       readHold: () => {
         const hold = cardModalHoldStore.getFor(cardId);
@@ -346,6 +354,10 @@ export function installBodyPublisher(
 
   return {
     publish,
+    painted: () => {
+      painted = true;
+      publish();
+    },
     release: () => {
       contentWatch?.disconnect();
       contentArrival?.disconnect();

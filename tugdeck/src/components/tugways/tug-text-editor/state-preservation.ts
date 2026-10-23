@@ -277,24 +277,67 @@ export function paintMirrorAsActive(
   //
   // When `state` is omitted (cmd-tab return — the engine has been
   // maintaining `view.state.selection` itself), `view.focus()`
-  // alone is sufficient; CM6's own focus-sync writes the global
-  // Selection from `view.state.selection`.
+  // is followed by the same re-assert, from the selection the engine
+  // held before the focus: on a freshly shown editor WebKit's focus
+  // point is offset 0, and CM6 reads that collapse back into
+  // `view.state.selection` before its own focus-sync can write the
+  // held range out, which is how a restored draft's selection came to
+  // read 0,0 after a reload. The held range is dispatched again
+  // after the focus, as the saved one is.
   //
   // The grant is idempotent (focus-language.md § One writer, "Grants
   // are idempotent"): WebKit drops focus to `<body>` when an
   // already-focused contenteditable is re-`focus()`ed, and the
   // watchdog does not correct `<body>`. The selection and scroll
   // re-asserts below are idempotent already and stay unconditional.
+  const held = state?.selection
+    ? { start: state.selection.start, end: state.selection.end }
+    : { start: view.state.selection.main.anchor, end: view.state.selection.main.head };
   if (!view.hasFocus) view.focus();
-  if (state?.selection) {
-    view.dispatch({
-      selection: EditorSelection.range(
-        state.selection.start,
-        state.selection.end,
-      ),
-    });
-  }
+  const max = view.state.doc.length;
+  view.dispatch({
+    selection: EditorSelection.range(Math.min(held.start, max), Math.min(held.end, max)),
+  });
+  holdSelectionThroughFocus(view, { start: Math.min(held.start, max), end: Math.min(held.end, max) });
   if (state !== undefined) applyScrollAxes(view, state);
+}
+
+/** How long after the focus WebKit's caret placement is still waited for. */
+const FOCUS_COLLAPSE_WINDOW_MS = 300;
+
+/**
+ * Keep `held` through the focus's own caret placement.
+ *
+ * WebKit places the caret of a contenteditable it has just focused at
+ * offset 0 as a later task, which reaches the document as a
+ * `selectionchange` that CodeMirror reads back into its state — after
+ * the re-assert the paint has already made. A restored draft's selection
+ * read 0,0 after a reload about half the time for exactly this. So the
+ * `selectionchange`s inside the window are heard until one moves the
+ * selection: one that leaves it at `held` is the paint's own re-assert
+ * echoing back, and is passed over; one that left it collapsed at the
+ * document's start, where `held` was not, while the document is the one
+ * the paint saw, has the held range dispatched again. An edit or a
+ * selection anywhere else is the user's, and is left.
+ */
+export function holdSelectionThroughFocus(view: EditorView, held: { start: number; end: number }): void {
+  if (held.start === 0 && held.end === 0) return;
+  const doc = view.state.doc;
+  const target = view.contentDOM.ownerDocument;
+  const done = (): void => {
+    clearTimeout(timer);
+    target.removeEventListener("selectionchange", onChange);
+  };
+  const onChange = (): void => {
+    const main = view.state.selection.main;
+    if (view.state.doc === doc && main.anchor === held.start && main.head === held.end) return;
+    done();
+    if (view.state.doc !== doc) return;
+    if (main.from !== 0 || main.to !== 0) return;
+    view.dispatch({ selection: EditorSelection.range(held.start, held.end) });
+  };
+  const timer = setTimeout(done, FOCUS_COLLAPSE_WINDOW_MS);
+  target.addEventListener("selectionchange", onChange);
 }
 
 /**

@@ -195,7 +195,8 @@ export interface CardHoldsValue {
   /**
    * Whether `closeGuardAsks` is the guard's answer: false while the page is
    * still learning it — a page brought back after an eviction, reading back
-   * what the evicted page set aside — and on a card with no guard.
+   * what the evicted page set aside. On a card with no guard, whether its
+   * page has painted: by then a guard would stand, so none is the answer.
    */
   closeGuardAnswered: boolean;
   /** The modal run holding the card — `/compact` in flight — or null. */

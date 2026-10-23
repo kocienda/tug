@@ -957,6 +957,19 @@ export interface SessionNotOwnedEvent {
 }
 
 /**
+ * Internal event mapped from a CONTROL frame of shape
+ * `{ type: "request_replay_dropped", ask_id, tug_session_id }`: tugcast
+ * dropped, unanswered, a `request_replay` this card named `askId` from the
+ * session's queue — a reset discarding the session, or a retry over a spawn
+ * that died. The ask will never be answered, so a catch-up waiting on it ends
+ * at once rather than at its deadline.
+ */
+export interface RequestReplayDroppedEvent {
+  type: "request_replay_dropped";
+  askId: string;
+}
+
+/**
  * Emitted by tugcode when a `--session-mode resume` spawn fails.
  * Forwarded by tugcast on the CODE_OUTPUT feed as a normal stream-json
  * message; `CodeSessionStore`'s `acceptFrame` maps it to this event
@@ -1346,8 +1359,9 @@ export interface BeginLoadPreviousEvent {
 /**
  * Mark the next replay bracket as a catch-up: a body that went dormant
  * asking, on its reveal, for the turns it missed. The bracket's turns append
- * as a normal bracket's do, deduped against what the card holds, and its
- * `replay_complete` keeps the loaded window's start, since the turns it
+ * as a normal bracket's do: one the card holds is deduped away, save a tail a
+ * deadline committed from the middle, which the bracket's whole copy replaces
+ * where it stands. Its `replay_complete` keeps the loaded window's start, since the turns it
  * carries continue the transcript rather than replacing it. Ended when the
  * bracket closes or is abandoned, or when `CATCH_UP_DEADLINE_MS` passes with
  * no bracket at all.
@@ -1594,6 +1608,7 @@ export type CodeSessionEvent =
   | SessionSpawnStateEvent
   | SessionUnknownEvent
   | SessionNotOwnedEvent
+  | RequestReplayDroppedEvent
   | TransportCloseEvent
   | TransportOpenEvent
   | TransportSettledEvent

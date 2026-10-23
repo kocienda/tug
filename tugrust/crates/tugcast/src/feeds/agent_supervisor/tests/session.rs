@@ -467,7 +467,7 @@ async fn test_request_replay_queued_on_a_dead_spawn_is_dropped_at_re_arm() {
     let mut entry = entry_arc.lock().await;
     assert_eq!(
         entry.drop_queued_replays(),
-        1,
+        vec![None],
         "the dead spawn's replay goes"
     );
     let left: Vec<String> = entry
@@ -485,26 +485,32 @@ async fn test_request_replay_queued_on_a_dead_spawn_is_dropped_at_re_arm() {
         vec!["user_message".to_string()],
         "the input queued beside it stays"
     );
-    assert_eq!(entry.drop_queued_replays(), 0);
+    assert!(entry.drop_queued_replays().is_empty());
 }
 
 /// A reset re-arms the entry, and a replay queued for the session it
 /// discards does not reach the fresh one.
 #[tokio::test]
 async fn test_reset_session_drops_a_queued_replay() {
-    let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
 
     let tug_id = TugSessionId::new("sess-reset-replay");
     let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
     entry_arc.lock().await.spawn_state = SpawnState::Spawning;
     sup.handle_control(
         "request_replay",
-        &request_replay_payload("sess-reset-replay"),
+        &serde_json::to_vec(&serde_json::json!({
+            "action": "request_replay",
+            "tug_session_id": "sess-reset-replay",
+            "ask_id": "ask-dropped",
+        }))
+        .unwrap(),
         10,
     )
     .await
     .expect_handled();
     entry_arc.lock().await.spawn_state = SpawnState::Errored;
+    while control_rx.try_recv().is_ok() {}
 
     sup.handle_control(
         "reset_session",
@@ -524,6 +530,25 @@ async fn test_reset_session_drops_a_queued_replay() {
                     != "request_replay"
             ),
         "no replay asked of the discarded session is left queued",
+    );
+    drop(entry);
+
+    // The card that named the ask is told it went, so its catch-up ends now
+    // rather than at its deadline.
+    let mut told = Vec::new();
+    while let Ok(frame) = control_rx.try_recv() {
+        let v: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        if v["type"] == "request_replay_dropped" {
+            told.push(v);
+        }
+    }
+    assert_eq!(
+        told,
+        vec![serde_json::json!({
+            "type": "request_replay_dropped",
+            "ask_id": "ask-dropped",
+            "tug_session_id": "sess-reset-replay",
+        })],
     );
 }
 

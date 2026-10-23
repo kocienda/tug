@@ -13,6 +13,12 @@
  * - Back home, critical pressure — which must be able to take every page not
  *   shown — takes the dirty sibling. Its page wrote its edits aside as it
  *   went.
+ * - Its tab is chosen with the host holding pages to a deadline none can
+ *   meet, so the page brought back fails, and fails again: the card stands
+ *   as the reloading placard. A page that failed answered nothing, so the
+ *   evicted page's word stands through both. The placard's Reload brings
+ *   the card back, reading its edits back dirty; the first tab is chosen
+ *   again, and critical pressure takes the sibling once more.
  * - The shell page reloads. The word the evicted page left, that its guard
  *   asks, is the card's rather than the shell's: the shell persisted it, and
  *   the reloaded shell reads it back. A kind that guards its close is given
@@ -57,6 +63,10 @@ const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
 const CLOSE_BUTTON = `[data-testid="tug-pane-close-button"]`;
 const SAVE_LINE = `[data-testid="card-masthead-detail"]`;
 const editorOf = (cardId: string): string => `[data-card-id="${cardId}"] [data-slot="tug-text-card-editor"] .cm-content`;
+/** A ready deadline no page can meet, so every page made under it fails. */
+const MISSED_DEADLINE_MS = 50;
+// card-dom: shell — the failed placard is the shell's, the card's only face.
+const failedPlacard = `document.querySelector('[data-body-placeholder][data-card-id="${B}"] [data-body-failed]')`;
 
 const settle = (ms = 450): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -158,8 +168,32 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a guarded card through evic
         expect(gone.some((b) => b.cardId === B), "critical pressure took the dirty sibling's page").toBe(false);
         expect((await bodyOf(app, A))?.visible, "the shown card keeps its page").toBe(true);
 
-        // ---- The shell reloads; the evicted page's word is read back ----
         const closeAsks = (): Promise<boolean | null> => app.evalJS<boolean | null>(`window.__tug.closeAsks(${JSON.stringify(B)})`);
+
+        // ---- Its pages fail before answering; the word stands ----
+        await app.bodyDelays({ readyDeadlineMs: MISSED_DEADLINE_MS });
+        await app.body(A).click(`[data-testid="tug-tab-${B}"]`);
+        const standing = await settleFor(() => app.evalJS<boolean>(`${failedPlacard} !== null`), (v) => v, 6_000);
+        await app.bodyDelays({ readyDeadlineMs: null });
+        expect(standing, "the card's next page failed twice, and the card stands as the placard").toBe(true);
+        expect(await closeAsks(), "the evicted page's word outlived the pages that failed before answering").toBe(true);
+        await app.evalJS<null>(
+          `(Array.prototype.find.call(${failedPlacard}.querySelectorAll("button"), function (b) { return b.textContent.trim() === "Reload"; }).click(), null)`,
+        );
+        await pollFor(() => bodyOf(app, B), (b) => b?.state === "ready" && b.visible, 15_000);
+        await app.body(B).waitForCondition<boolean>(
+          `(function(){ var el = document.querySelector('${SAVE_LINE}'); return el !== null && el.innerText.indexOf("Edited") === 0; })()`,
+          { timeoutMs: 15_000 },
+        );
+        await settle();
+        await app.body(B).click(`[data-testid="tug-tab-${A}"]`);
+        await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.visible, 10_000);
+        await app.simulateMemoryPressure("critical");
+        const goneAgain = await settleFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === B), 5_000);
+        await app.simulateMemoryPressure("normal");
+        expect(goneAgain.some((b) => b.cardId === B), "critical pressure took the dirty sibling's page again").toBe(false);
+
+        // ---- The shell reloads; the evicted page's word is read back ----
         expect(await closeAsks(), "the shell kept the evicted page's word that its close asks").toBe(true);
         await settle();
         await app.appReload({ timeoutMs: 15_000 });

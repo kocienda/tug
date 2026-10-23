@@ -1683,6 +1683,31 @@ fn build_session_unknown_frame(tug_session_id: &TugSessionId) -> Frame {
     control_frame(body)
 }
 
+/// The CONTROL frame that tells a card a `request_replay` it named `ask_id`
+/// was dropped from the session's queue unanswered
+/// ([`LedgerEntry::drop_queued_replays`]), so a catch-up waiting on it ends at
+/// once instead of at its deadline.
+fn build_request_replay_dropped_frame(tug_session_id: &TugSessionId, ask_id: &str) -> Frame {
+    control_frame(serde_json::json!({
+        "type": "request_replay_dropped",
+        "ask_id": ask_id,
+        "tug_session_id": tug_session_id.as_str(),
+    }))
+}
+
+/// Tell the card, one frame per named ask, that the replays
+/// [`LedgerEntry::drop_queued_replays`] just dropped will not be answered. An
+/// unnamed replay has nobody waiting on it by name, so it is told nothing.
+fn tell_dropped_replays(
+    control_tx: &broadcast::Sender<Frame>,
+    tug_session_id: &TugSessionId,
+    dropped: &[Option<String>],
+) {
+    for ask_id in dropped.iter().flatten() {
+        let _ = control_tx.send(build_request_replay_dropped_frame(tug_session_id, ask_id));
+    }
+}
+
 /// P13 spawn-budget check. Run inside `do_spawn_session`'s Phase 1 critical
 /// section under the ledger lock. Returns the `detail` string that should be
 /// stamped into both the `SESSION_STATE = errored` broadcast and the

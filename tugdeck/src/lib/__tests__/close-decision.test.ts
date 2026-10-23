@@ -40,7 +40,7 @@ describe("the close decision's horizon", () => {
     const answer = await settled(askCloseDecision("c1", false, 20));
 
     expect(answer).toBe("cancel");
-    expect(closeRefusalStore.isRefused("c1")).toBe(true);
+    expect(closeRefusalStore.reasonOf("c1")).toBe("silent");
     expect(flashed).toEqual(["c1"]);
     release();
   });
@@ -76,9 +76,9 @@ describe("the close decision's horizon", () => {
     cardCloseDecision.on(body.bus).handle(() => ({ answer: "close" as const }));
 
     const pending = askCloseDecision("c1", false, 2000);
-    expect(closeRefusalStore.isRefused("c1")).toBe(false);
+    expect(closeRefusalStore.reasonOf("c1")).toBe(null);
     expect(await settled(pending)).toBe("close");
-    expect(closeRefusalStore.isRefused("c1")).toBe(false);
+    expect(closeRefusalStore.reasonOf("c1")).toBe(null);
   });
 
   test("a guard that asks waits on the person: no deadline, so no refusal while the sheet is up", async () => {
@@ -93,9 +93,9 @@ describe("the close decision's horizon", () => {
     const pending = askCloseDecision("c1", true, 20);
     await bus.flush();
     await new Promise((r) => setTimeout(r, 60));
-    expect(closeRefusalStore.isRefused("c1")).toBe(false);
+    expect(closeRefusalStore.reasonOf("c1")).toBe(null);
     (answer as ((a: "close" | "cancel") => void) | null)?.("cancel");
     expect(await settled(pending)).toBe("cancel");
-    expect(closeRefusalStore.isRefused("c1")).toBe(false);
+    expect(closeRefusalStore.reasonOf("c1")).toBe(null);
   });
 });

@@ -481,7 +481,7 @@ function signalReadyWhenQuiet(
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           postToHost(paintedToHost, {});
-          publisher.publish();
+          publisher.painted();
           cardPainted.set(true);
         });
       });

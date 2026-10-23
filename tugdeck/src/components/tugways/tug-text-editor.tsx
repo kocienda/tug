@@ -194,6 +194,7 @@ import {
   tugCompletionExt,
 } from "./tug-text-editor/completion-extension";
 import {
+  holdSelectionThroughFocus,
   paintMirrorAsActive as paintMirrorAsActiveImpl,
   paintMirrorAsInactive as paintMirrorAsInactiveImpl,
   restoreEditState,
@@ -1600,19 +1601,32 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     // then) and re-assert it on `focus`, after the framework's focus
     // claim and the browser's focus-caret have both landed. The rAF
     // backstop covers an async `selectionchange` that re-collapses after
-    // the synchronous pass. [L24] selection lives in CM's
-    // `EditorState.selection`; we read and re-write it there, never in
-    // React state. [L23] no `scrollIntoView`, so the scroll offset
+    // the synchronous pass, and the hold the active paint uses carries the
+    // range through WebKit's own caret placement for the refocus, which
+    // lands as a later `selectionchange` collapsed at 0. [L24] selection
+    // lives in CM's `EditorState.selection`; we read and re-write it there,
+    // never in React state. [L23] no `scrollIntoView`, so the scroll offset
     // survives the round trip.
+    //
+    // The same pair fires when the host moves first responder off a card's
+    // web view and back (a body page's `window` blurs and refocuses with
+    // the editor still its active element), and WebKit re-places the caret
+    // at 0 on the way back just as it does for cmd-tab.
+    //
+    // "Holds focus" is read as the editor being the page's active element,
+    // never `view.hasFocus`: that also asks `document.hasFocus()`, which
+    // is already false while `blur` is dispatched, so a blur read through
+    // it saved nothing and the bridge never restored.
     useLayoutEffect(() => {
       if (typeof window === "undefined") return;
       let saved: { from: number; to: number } | null = null;
+      const holdsFocus = (view: EditorView): boolean => view.root.activeElement === view.contentDOM;
       const restore = (target: { from: number; to: number }): void => {
         const view = viewRef.current;
         // Only restore into the editor that actually regained focus —
         // a window-focus that lands elsewhere must not pull the caret
         // back here or steal focus.
-        if (view === null || !view.hasFocus) return;
+        if (view === null || !holdsFocus(view)) return;
         const len = view.state.doc.length;
         const from = Math.min(target.from, len);
         const to = Math.min(target.to, len);
@@ -1623,7 +1637,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       const onWindowBlur = (): void => {
         const view = viewRef.current;
         // Only the focused editor owns a selection worth preserving.
-        if (view === null || !view.hasFocus) {
+        if (view === null || !holdsFocus(view)) {
           saved = null;
           return;
         }
@@ -1639,6 +1653,11 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         // now) avoids a visible collapse; the rAF pass is the backstop.
         restore(target);
         requestAnimationFrame(() => restore(target));
+        const view = viewRef.current;
+        if (view !== null && holdsFocus(view)) {
+          const len = view.state.doc.length;
+          holdSelectionThroughFocus(view, { start: Math.min(target.from, len), end: Math.min(target.to, len) });
+        }
       };
       window.addEventListener("blur", onWindowBlur);
       window.addEventListener("focus", onWindowFocus);

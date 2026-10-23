@@ -359,8 +359,15 @@ struct Outcome {
 
 /// The spelling the ledger stores a file under: relative to the app-test
 /// directory, as the run's report names it. A path from the checkout root
-/// (`tests/app-test/…`) names the same file, and answers its history.
+/// (`tests/app-test/…`) names the same file, and answers its history; so does
+/// an absolute path under any checkout's app-test directory, which is the
+/// spelling a shell completes to.
 pub fn ledger_file_name(file: &str) -> &str {
+    if file.starts_with('/') {
+        if let Some(at) = file.rfind("/tests/app-test/") {
+            return &file[at + "/tests/app-test/".len()..];
+        }
+    }
     let file = file.strip_prefix("./").unwrap_or(file);
     file.strip_prefix("tests/app-test/").unwrap_or(file)
 }
@@ -1125,6 +1132,8 @@ mod tests {
         let asked: Vec<String> = vec![
             format!("tests/app-test/{name}"),
             format!("./tests/app-test/{name}"),
+            format!("{root}/tests/app-test/{name}"),
+            format!("{root}/.tug/worktrees/an-arc/tests/app-test/{name}"),
             name.into(),
         ];
         let answers = file_history(&conn, &base, &asked).unwrap();
@@ -1140,6 +1149,15 @@ mod tests {
             );
         }
         assert_eq!(ledger_file_name("at0417.test.ts"), "at0417.test.ts");
+        assert_eq!(
+            ledger_file_name("/u/src/tug/tests/app-test/at0417.test.ts"),
+            "at0417.test.ts"
+        );
+        assert_eq!(
+            ledger_file_name("/tmp/elsewhere/at0417.test.ts"),
+            "/tmp/elsewhere/at0417.test.ts",
+            "an absolute path outside any app-test directory is asked as written"
+        );
     }
 
     /// A selection that has to cut breaks its last tie on cost, so the

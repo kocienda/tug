@@ -10,16 +10,21 @@
  * Session workspace is shown again: one card takes the spare and the other
  * is made cold behind it, and each stands under its kept frame from the
  * hand-off. The row folds the first card the host reports standing covered,
- * placed visible and not yet painted — the cold one where it can — so its
- * page has not painted when the fold's plan reaches the host.
+ * placed visible and not yet painted — the cold one, and before its page is
+ * bound, where it can — so its page has not painted when the fold's plan
+ * reaches the host, and may have no script yet to answer the plan's solve.
  *
  * The fold is a crossing that covers a whole card, and the body already
  * stands under a cover. The host stands one: the crossing takes the frame
  * the card came back under rather than snapshotting a page that has shown
  * nothing, and that cover comes off at the later of the page's paint and the
- * fold's land. The crossing's account names where its cover came from; once
- * the fold has landed the body is ready, painted, shown and folded, its
- * cover gone and its page following its container again.
+ * fold's land. A page that is not yet live cannot solve the crossing, and
+ * the host does not wait on it: whenever the plan starts — on every other
+ * card's answer, or at its guard — it is not waiting on this one. The
+ * crossing's account names where its cover came from and whether the plan
+ * still waited on the body as it started; once the fold has landed the body
+ * is ready, painted, shown and folded, its cover gone and its page following
+ * its container again.
  *
  * @family row-38
  * @covers tugapp/Sources/BodyCovers.swift
@@ -71,6 +76,8 @@ interface CrossingAccount {
   planId: number;
   cover: "standing" | "snapshot" | "kept-page" | null;
   snapshotMs: number | null;
+  timedOut: boolean | null;
+  awaited: boolean | null;
   restored?: boolean;
 }
 
@@ -106,24 +113,32 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a revived card folded befor
         const waiting = (b: BodyViewSnapshot): boolean => (b.cardId === A || b.cardId === B) && b.covered && b.visible && !b.painted;
         const until = Date.now() + 5_000;
         let target: BodyViewSnapshot | undefined;
+        // The cold body is made behind the spare's: wait for it, and take
+        // the spare's only when none has come by the deadline.
+        let fallback: BodyViewSnapshot | undefined;
         while (target === undefined && Date.now() < until) {
           const all = (await app.bodies()).filter(waiting);
-          target = all.find((b) => b.start === "cold") ?? all[0];
+          target = all.find((b) => b.start === "cold" && b.state !== "ready") ?? all.find((b) => b.start === "cold");
+          fallback = all[0] ?? fallback;
         }
+        target ??= fallback;
         expect(target, "a revived card stands covered, placed visible and unpainted").toBeDefined();
         const card = target!.cardId!;
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("set-card-folded", { cardId: ${JSON.stringify(card)}, folded: true }), null)`);
-        note(`folded ${card}, made ${target!.start}`);
+        note(`folded ${card}, made ${target!.start}, its page ${target!.state} at the fold`);
 
         const landed = (await settleFor(
           () => bodyOf(app, card) as Promise<CrossingSnapshot | null>,
-          (b) => b !== null && b.painted && b.crossing?.restored === true && b.beatsPlanId === null,
+          // A plan that waits on no unready page lands, and the page paints
+          // its first frame, before a cold page is ready: wait for all three.
+          (b) => b !== null && b.state === "ready" && b.painted && b.crossing?.restored === true && b.beatsPlanId === null,
           10_000,
         )) as CrossingSnapshot | null;
         note(`crossing ${JSON.stringify(landed?.crossing ?? null)}; covered ${landed?.covered}, wasCovered ${landed?.wasCovered}, start ${landed?.start}`);
         expect(landed?.wasCovered, "the card came back under the frame its eviction kept").toBe(true);
         expect(landed?.crossing?.cover, "the fold's crossing took the cover the unpainted card stood under").toBe("standing");
         expect(landed?.crossing?.snapshotMs ?? null, "no snapshot was taken of a page that had shown nothing").toBeNull();
+        expect(landed?.crossing?.awaited, "the plan was not waiting on a page that could not answer when it started").toBe(false);
         expect(landed?.crossing?.restored, "the fold landed and the page follows its container again").toBe(true);
         expect(landed, "the body is ready, painted and shown, its cover gone").toMatchObject({ state: "ready", painted: true, visible: true, covered: false });
         expect(await foldedOf(app, card), "the card stands folded").toBe(true);

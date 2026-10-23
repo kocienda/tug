@@ -629,7 +629,8 @@ impl AgentSupervisor {
                 );
                 entry.spawn_state = SpawnState::Idle;
                 // A replay queued for the spawn that died is not this one's.
-                entry.drop_queued_replays();
+                let dropped = entry.drop_queued_replays();
+                tell_dropped_replays(&self.control_tx, &tug_session_id, &dropped);
                 // The retry is a spawn about to happen, and the `Idle` it
                 // parks in is a step on the way to `Spawning` — not a death.
                 // Cleared so a sweep landing in that window reads the wait it

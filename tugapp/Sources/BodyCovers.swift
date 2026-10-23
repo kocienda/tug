@@ -16,6 +16,12 @@ struct BodyCover {
     let takenAt: Double
     /// What it holds resident.
     var bytes: Int { image.bytesPerRow * image.height }
+
+    /// The same frame, taken as of `ms`: a cover kept again ages from its
+    /// second keeping, and the first keeping's timer leaves it alone.
+    func retaken(at ms: Double) -> BodyCover {
+        BodyCover(image: image, size: size, surface: surface, insets: insets, takenAt: ms)
+    }
 }
 
 /// Every cover a body can stand under, and the last frame of each card

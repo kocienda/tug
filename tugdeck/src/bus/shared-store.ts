@@ -349,7 +349,7 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
     { name: `store:${d.key}`, after: d.after?.map((s) => `store:${s.key}`) },
   );
 
-  bus.onCardGone((cardId, forgotten) => {
+  bus.onCardGone((cardId, forgotten, cardStays) => {
     // A replica page that is gone acknowledges nothing more: its acks leave every snapshot.
     for (const [pageId, card] of [...proposerCard]) {
       if (card !== cardId) continue;
@@ -357,7 +357,10 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
       for (const e of entries.values()) delete e.acks[pageId];
     }
     if (!cardScoped || !entries.has(cardId)) return;
-    if (forgotten || (!isOwner() && d.clearOnDetach === true)) {
+    // What this side owns for a card that stays outlives its page: the
+    // card's next page is sent it at hello.
+    const dropped = isOwner() ? forgotten && !cardStays : forgotten || d.clearOnDetach === true;
+    if (dropped) {
       entries.delete(cardId);
       notify();
     }

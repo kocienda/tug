@@ -103,7 +103,7 @@ split row by its pieces' glob.
 | `row-38-evicted.test.ts` | A sibling whose body critical memory pressure evicted comes back when its tab is chosen: cold, and with no cover, since critical pressure takes no snapshot, so under its stand-in until it paints, its draft and its last turn back. Every frame from the choosing is read by row 44's judge (`_row-44.ts`'s `readGesture`). | ✓ | n/a: Session-only by construction |
 | `row-38-evicted-no-cover.test.ts` | A parked card — its clock's eviction armed while it is hidden — that critical memory pressure evicted keeps no cover, as one whose snapshot failed or missed its deadline keeps none (that deadline is `AnswerOrDeadline`'s, held by a Swift unit test). Shown again, it comes back under its stand-in until its page paints: the host says nothing of a cover and, by its own per-frame layer rows, never shows the card before the paint, and every frame of the reveal is read by row 44's judge. | ✓ | n/a: Session-only by construction |
 | `row-38-evicted-guarded.test.ts` | Two Text cards that guard their close, one with an unsaved edit: parked hidden, the host arms no clock for either page (the snapshot's `evictDue`), and a warning leaves both; critical pressure takes the dirty one, the word that its close asks survives a shell reload, and the pane's close fronts it and asks. | n/a: no frames read | n/a: a Text card stands for every kind that guards its close |
-| `row-38-evicted-fold.test.ts` | A parked card the clock evicted, its last frame kept, is shown again and folded a frame later, before its new page has painted. A body stands under one cover whatever its reasons (`BodyCovers`): the fold's crossing takes the frame the card came back under rather than snapshotting a page that has shown nothing, and that cover comes off at the later of the paint and the land. The crossing's account says its cover was the standing one and no snapshot was taken; once landed the body is ready, painted, shown and folded, its cover gone. | ✓ | n/a: Session-only by construction |
+| `row-38-evicted-fold.test.ts` | A parked card the clock evicted, its last frame kept, is shown again and folded a frame later, before its new page has painted. A body stands under one cover whatever its reasons (`BodyCovers`): the fold's crossing takes the frame the card came back under rather than snapshotting a page that has shown nothing, and that cover comes off at the later of the paint and the land. The crossing's account says its cover was the standing one and no snapshot was taken, the plan did not wait on the unpainted page, and once landed the body is ready, painted, shown and folded, its cover gone. | n/a: no frames read — the bar is the host's cover account; the fold's own frames are row 9's, and row 44's judge reads a pane that keeps its box, which a folding card does not | n/a: Session-only by construction |
 | `row-39-evict-after.test.ts` | A body hidden past the host's eviction delay, a constant the row shortens through the harness's `bodyDelays`, is evicted by the clock alone, with no pressure raised: not before the delay and not past its recorded ~110 ms and a frame, and leaving the spare — the same page, by its identity — which the row waits to see stand before the clock falls due. Its card comes back under the last frame the clock's eviction kept, ready, painted and shown with its draft. | ✓ | n/a: Session-only by construction |
 | `row-40-ask-redelivered.test.ts` | A question a command-line caller asked, standing in a sibling's dialog when critical pressure evicts it, leaves the caller blocked while the card has no body and stands again in the card's new page when its tab is chosen; answered there, the caller exits with the chosen value. | ✓ | n/a: Session-only by construction |
 | `row-41-fold-pressed.test.ts` | A folded card is a shown card — every card draws its folded form in its own page — so critical pressure while it is folded takes the spare and never its body, and the unfold carries that same body from its strip to its open box, holding row 9's carried bar. | ✓ | n/a: every kind folds the same way, shown at its strip |
@@ -116,6 +116,88 @@ split row by its pieces' glob.
 
 A row's file lands with the step that builds the row; a file not yet here is a
 row not yet green.
+
+## The record
+
+Every row that has been red has an ending here, with the runs it rests on:
+how many times it ran alone, the batch sizes it was red in, the sha and
+whether the tree was dirty (`just db-inspect apptest_results`). The
+ledger keys a run by its base checkout, so an arc worktree's runs and the
+base's share one history; a sha below is the one the ledger recorded at
+run time, which a replay may since have rewritten. A written contention
+finding — green alone, red only in batches, with the sizes — is an ending;
+a sentence in a step commit is not.
+
+- **`row-17-crossing-split`, `row-28-deck-facts`, `row-10-workspace-kinds-away`.**
+  Red alone on 2026-10-22 at `50beb0243` and `c0417b7aa` (arc shas of the
+  second lifecycle fixups and the fully-solved-animations arc) and green
+  alone from `97a58cd2a` / `f1e12a702` on; no single commit names the fix —
+  the files their failures read moved in `1336e24b7` and `721d2ab84`. Run
+  alone 3/3 green each on 2026-10-23 at `56ba8fecd`, `dirty=0`.
+- **`at0024-prompt-state-roundtrip`.** Red alone 3/4 at `d6dd50244`
+  (2026-10-22), green alone 3/3 at `f1e12a702`, and on 2026-10-23 red alone
+  again: 1 pass in 4 at `56ba8fecd` and 3 in 7 at `2afb42f43`, always the
+  `gallery-prompt-entry × appReload` leg's selection axis reading 0,0 with
+  the text intact. A probe copy with a selection timeline showed the
+  selection already collapsed at the first sample after the reseed, the
+  DOM caret at offset 0 of the content: WebKit places a freshly focused
+  contenteditable's caret as a later task, which CodeMirror reads back
+  after the paint's own re-assert. `paintMirrorAsActive`
+  (`tugdeck/src/components/tugways/tug-text-editor/state-preservation.ts`)
+  now re-asserts the held selection after the focus and once more on the
+  first `selectionchange` inside 300 ms that moves it, when that left it
+  collapsed at 0 — the re-assert's own echo is passed over; jsdom tests
+  hold each. 3/3 green alone at `c56dae0d8`, `dirty=0` — and then, on the
+  tree replayed onto `62cda36fe`, 1 and 2 green in 4 alone with either
+  form of that hold: the paint was not where the selection was lost. A
+  timeline with every `Selection` mutation and focus event stacked showed
+  the paint landing 50–100 correctly, and some 0.5–1 s later the host
+  moving first responder off the card's web view and back: the body page's
+  `window` blurs and refocuses with the editor still its active element,
+  the DOM selection empties, and WebKit re-places the caret at 0 on the way
+  back, which CodeMirror reads in. `tug-text-editor.tsx` already bridges
+  that pair for cmd-tab, but it saved the selection only when
+  `view.hasFocus`, which asks `document.hasFocus()` — already false while
+  `blur` dispatches — so it never saved and never restored. It now reads
+  focus as the editor being the page's active element, and holds the
+  restored range through WebKit's caret placement as the paint does. 4/4
+  green alone, and 2/2 with the read delayed 1.5 s so the refocus lands
+  before it every run, on 2026-10-23 at `8da77caad` plus the fix.
+- **`row-01-arrival-cold`.** Since 2026-10-21 red in batches of 6 to 70
+  and green alone at every sha (one alone red, run 8870 at `f1e12a702`, in
+  about twenty alone runs), so there is no last-green / first-red pair to
+  probe between: the red follows the batch, not a landing. Its failure is
+  a cold body that paints after the 2 s burst closes, leaving the last
+  frame the lid with no content in it. The bar is restated in `_row-01.ts`:
+  the hole frames are still judged over the whole burst, and the finished
+  rect is read from a short burst after the paint when the body painted
+  past the burst's close, with a note saying the body was slow. 3/3 green
+  alone at `c56dae0d8`, `dirty=0`.
+- **`at0140-cycle-session-card`.** In the batch of 25 (run 8906,
+  `f1e12a702`, 2026-10-22) it was 0/5, then red alone twice (2/4, 2/4)
+  before its popover read moved into the card's body and it went green
+  once. 3/3 green alone on 2026-10-23 at `56ba8fecd`, `dirty=0`.
+- **`row-33-arrangement`.** Red alone 10 of 15 runs in twelve minutes on
+  2026-10-22 before its confirm fix, red in the batch of 25 and green alone
+  after; on 2026-10-23 still red alone 4 of 9 at `60b605be7` until
+  `389770768` held the arrangement frames to one workspace. 3/3 green alone
+  at `c56dae0d8`, `dirty=0`.
+- **`row-38-evicted-guarded`.** Red alone once at `8ae30c1b2` while its
+  reload leg was being written, red in a batch of 35 at `50beb0243`, green
+  in batches since. 3/3 green alone at `c56dae0d8`, `dirty=0`.
+- **`row-25-in-card-surfaces`.** Red alone 6 times at `f1e12a702` before
+  its bar changed (paint is rows changing past the composer or wearing the
+  surface's own fill), then green alone once and in the batch of 25.
+- **The batch of 25 (run 8906, `f1e12a702`).** Three files were red, not
+  two: `row-44-switch-first-visit`, `row-33-arrangement` and `at0140`.
+  Rows 44 and 33 were green alone straight after; `at0140` was red alone
+  twice more before its edit.
+- **Lifecycle rows 35–46 on the final tree.** Run once together on
+  2026-10-23 at `c56dae0d8`, `dirty=0` (run 8999, 23 files): 22 green;
+  `row-38-evicted` was stopped at the 20 s budget unfinished, having run
+  17 s alone every time on record, and was green alone straight after
+  (run 9000, 17 s). It is a file at the budget's edge, not a red: in a
+  batch the margin is gone.
 
 ## Kind checks
 

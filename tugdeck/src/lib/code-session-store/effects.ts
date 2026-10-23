@@ -64,10 +64,11 @@ export interface SendFrameEffect {
 
 /**
  * Ask the session again for a catch-up's window: the bracket the catch-up was
- * asked behind has closed first, and tugcode may have dropped the ask while it
- * ran (`replay_in_flight`), so the card asks once more — under a fresh
- * `askId`, so that a second answer, should the first ask not have been
- * dropped after all, is known for what it is.
+ * asked behind has closed before any answer opened, and the ask may have
+ * reached tugcode while that bracket ran (`replay_in_flight`, which tugcode
+ * drops without a word), so the card asks once more — under a fresh `askId`,
+ * so that an answer to the first, should it come after all, is known for what
+ * it is.
  */
 export interface RequestReplayEffect {
   kind: "request-replay";
