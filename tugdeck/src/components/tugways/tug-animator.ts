@@ -399,6 +399,18 @@ export function animate(
     },
     raw: wapiAnim,
     cancel(mode: CancelMode = "snap-to-end", opts?: { reverseEasing?: string }) {
+      // An effect that has already settled — finished, committed and
+      // cancelled above, or cancelled by an earlier call — is over, and
+      // cancelling it again does nothing. Every mode would otherwise undo
+      // that: `finish()` on an IDLE animation revives it at its end, under
+      // its own fill, with the completion above long since spent, so the
+      // effect is never committed or cancelled again; and `commitStyles()`
+      // writes the property's current computed value inline. Either one
+      // pins the property against every later layout. The settle's sweep
+      // snaps every tween a frame ever ran, finished beats included, and a
+      // revived height fill left a rail's last card short of the deck's
+      // floor through every resize after it.
+      if (wapiAnim.playState === "idle") return;
       switch (mode) {
         case "snap-to-end":
           wapiAnim.finish();
