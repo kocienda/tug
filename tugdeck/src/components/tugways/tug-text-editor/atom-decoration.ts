@@ -937,6 +937,41 @@ export const sessionVerdictRegenPlugin = ViewPlugin.fromClass(
   SessionVerdictRegenPlugin,
 );
 
+/**
+ * Re-seat the browser's caret after a regeneration has rebuilt the chips.
+ *
+ * Replacing the `<img>` a caret sits beside leaves WebKit's own caret behind:
+ * `getSelection()` still reports the point after the chip, so CodeMirror
+ * finds the DOM selection already where the state says and writes nothing,
+ * but the editing engine inserts the next keystroke at a stale position, which
+ * is the start of the line. The drawn cursor reads the state, so the caret
+ * looks right until the first character lands before the chip. A session
+ * verdict regenerates every chip moments after one is pasted or inserted,
+ * which is when a user types next.
+ *
+ * Collapsing the selection onto the very point it reports puts the engine's
+ * caret back there. It runs as an update listener, after CodeMirror has
+ * synced the DOM for the regenerating transaction, and only while the editor
+ * holds focus, since an unfocused editor's DOM selection is not its own.
+ */
+export const regenCaretResync: Extension = EditorView.updateListener.of(
+  (update) => {
+    const regenerated = update.transactions.some((tr) =>
+      tr.effects.some((e) => e.is(regenerateAtomsEffect)),
+    );
+    if (!regenerated || !update.view.hasFocus) return;
+    const sel = update.view.dom.ownerDocument.getSelection();
+    if (sel === null || sel.anchorNode === null || sel.focusNode === null) return;
+    if (!update.view.contentDOM.contains(sel.anchorNode)) return;
+    sel.setBaseAndExtent(
+      sel.anchorNode,
+      sel.anchorOffset,
+      sel.focusNode,
+      sel.focusOffset,
+    );
+  },
+);
+
 // ---------------------------------------------------------------------------
 // Pending appearance theme
 // ---------------------------------------------------------------------------

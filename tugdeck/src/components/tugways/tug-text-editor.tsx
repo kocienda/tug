@@ -138,6 +138,7 @@ import {
   regenerateAtomsEffect,
   selectedAtomSyncPlugin,
   sessionVerdictRegenPlugin,
+  regenCaretResync,
 } from "./tug-text-editor/atom-decoration";
 import { dictationSpanExtension } from "./tug-text-editor/dictation-span";
 import {
@@ -1318,6 +1319,9 @@ function buildExtensions(
     // sits. A baked bitmap can neither subscribe nor cascade, so the widget
     // rebuild is the only door the answer has.
     sessionVerdictRegenPlugin,
+    // And re-seats WebKit's caret after that rebuild, which otherwise leaves
+    // the next keystroke landing before a chip the caret sits after.
+    regenCaretResync,
     // The session chip's phase dot, live. The bake leaves it unpainted and
     // records where it would have gone; this layer places the real
     // `SessionPhaseDot` over the gap, so the mark breathes and follows the
