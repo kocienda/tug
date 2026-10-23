@@ -716,7 +716,8 @@
       "from": "body",
       "samples": [
         {
-          "band": null
+          "band": null,
+          "anchor": null
         },
         {
           "band": {
@@ -724,6 +725,15 @@
             "top": 74,
             "height": 46,
             "viewport": 136
+          },
+          "anchor": null
+        },
+        {
+          "band": null,
+          "anchor": {
+            "splitTop": 96,
+            "follows": true,
+            "viewport": 540
           }
         }
       ],
@@ -731,11 +741,15 @@
         true,
         {},
         {
+          "band": null
+        },
+        {
           "band": {
             "restFromBottom": 92,
             "top": 74,
             "height": 46
-          }
+          },
+          "anchor": null
         }
       ]
     },

@@ -64,7 +64,7 @@ test-standalone:
     @bash tugrust/scripts/report-phase.sh test-standalone 0 "build tugtool" --of "build tugtool" "tugplug tests" --needle "just test"
     cd tugrust && cargo build -p tugtool
     @bash tugrust/scripts/report-phase.sh test-standalone 1 "tugplug tests"
-    cd tugplug && bun test __tests__/
+    cd tugplug && bun test --timeout 60000 __tests__/
     @bash tugrust/scripts/report-phase.sh test-standalone 2
 
 # Run Rust tests. `--no-fail-fast`: one pass names every failure, so a red
@@ -123,6 +123,13 @@ test-ts:
     [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
     [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" test run --help >/dev/null 2>&1 || TUGTOOL_BIN=""
     [ -n "$TUGTOOL_BIN" ] || echo "[test] not recorded: no tugtool that knows test run" >&2
+    # Every suite runs under a 60 s per-test timeout in place of bun's 5 s
+    # default. A timeout here is a hang guard, never a speed bar: a CI runner is
+    # five to six times slower than a developer machine, and the 5 s default
+    # failed tests and hooks that spawn processes (the selector, git, the hook
+    # script) on it while they took under a second here. A test that
+    # sets its own timeout keeps it.
+    BUN_TIMEOUT=60000
     status=0
     suite() {
         local dir="$1" name="$2"
@@ -133,11 +140,11 @@ test-ts:
             (cd "$dir" && "$@") || status=1
         fi
     }
-    suite tugdeck tugdeck bun test
-    suite tugdeck tugdeck-scripts bun test ./scripts/__tests__
-    suite tugcode tugcode bun test
-    suite tugproto tugproto bun test
-    suite tests/app-test app-test-logic bun test scripts/ _harness/
+    suite tugdeck tugdeck bun test --timeout "$BUN_TIMEOUT"
+    suite tugdeck tugdeck-scripts bun test --timeout "$BUN_TIMEOUT" ./scripts/__tests__
+    suite tugcode tugcode bun test --timeout "$BUN_TIMEOUT"
+    suite tugproto tugproto bun test --timeout "$BUN_TIMEOUT"
+    suite tests/app-test app-test-logic bun test --timeout "$BUN_TIMEOUT" scripts/ _harness/
     exit "$status"
 
 # Run the Swift unit tests.
