@@ -217,6 +217,8 @@ let lastSelectedRowId: string | null = null;
  * reads as a warning about something that is not there.
  */
 function deleteMessage(name: string, cards: number, sessions: number): string {
+  // Never mention zero of anything: an empty workspace is just deleted.
+  if (cards === 0) return `Delete ${name}?`;
   const cardsPhrase = cards === 1 ? "1 card" : `${cards} cards`;
   const sessionsPhrase =
     sessions === 0

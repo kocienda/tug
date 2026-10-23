@@ -32,13 +32,13 @@
 }
 
 
-/* Two equal-width buttons hugging the trailing edge. The grid shrinks to its
-   content (`align-self: flex-end` + `width: max-content`), and two `1fr`
+/* Two equal-width buttons, centered. The grid shrinks to its
+   content (`align-self: center` + `width: max-content`), and two `1fr`
    columns over a content-sized grid resolve to the widest button's width — so
    Cancel and Confirm always match, whatever the labels ([P06] width-stability
    without per-button stabilization). */
 .tug-confirm-popover-actions {
-  align-self: flex-end;
+  align-self: center;
   display: grid;
   grid-template-columns: 1fr 1fr;
   width: max-content;

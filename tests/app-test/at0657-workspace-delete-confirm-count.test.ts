@@ -13,10 +13,11 @@
  * So this makes a fresh workspace through the real `+`, cancels the name
  * field New opens, and asks to delete it:
  *
- *   1. **The sentence says 0 cards.** The fresh workspace stands a three-card
- *      rail and nothing else, so any other number is the rail being counted.
- *   2. **The header and the confirm agree** — the header's own tally reads 0
- *      as well, with no filter applied.
+ *   1. **The sentence counts nothing.** The fresh workspace stands a
+ *      three-card rail and nothing else, so it asks only "Delete <name>?" —
+ *      a confirm never mentions zero of anything, and any count is the rail
+ *      being counted.
+ *   2. **The header agrees** — its own tally reads 0, with no filter applied.
  *   3. **The popover hangs BELOW its header.** Above, it covered the previous
  *      workspace's header and rows and read as a question about them.
  *
@@ -114,7 +115,7 @@ describe.skipIf(!SHOULD_RUN)(
   "at0657 — the delete confirm counts the workspace's own cards",
   () => {
     test(
-      "a fresh workspace's confirm says 0 cards, agrees with its header, and opens below it",
+      "a fresh workspace's confirm counts no cards, agrees with its header, and opens below it",
       async () => {
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
@@ -201,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             facts.message,
             "the sentence counts the workspace's cards, never its sidebar's",
-          ).toBe(`Delete ${name} and close 0 cards?`);
+          ).toBe(`Delete ${name}?`);
           expect(
             facts.tally ?? "",
             "and the header's own tally agrees",
