@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, type App } from "../_harness";
+import type { BodyLayersReading } from "../_harness/client";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { bodyOf, pollFor, settleFor, sessionPane } from "./_bodies";
 import { readSwitch } from "./_row-44";
@@ -86,30 +87,25 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: an eviction with no cover",
         const home = await app.evalJS<string>(ACTIVE_SPACE);
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
-        await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
+        const parked = await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
+        // A Session card is a kind the clock takes: hidden, its eviction is armed.
+        expect(parked?.evictDue, "the clock armed the hidden Session card's eviction").toBe(true);
         await app.simulateMemoryPressure("critical");
         const gone = await settleFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A), 6_000);
         expect(gone.some((b) => b.cardId === A), "critical pressure evicted the hidden card").toBe(false);
         await app.simulateMemoryPressure("normal");
 
         // ---- Shown again: no cover, so the stand-in stands until the page paints ----
-        // The host's word on the body, as fast as it answers, from the switch
-        // until the page has painted: it is never shown before.
-        let watching = true;
-        let shownBeforePaint = false;
-        const watch = (async () => {
-          while (watching) {
-            const b = await bodyOf(app, A);
-            if (b?.visible === true && !b.painted) shownBeforePaint = true;
-            if (b?.visible === true && b.painted) return;
-          }
-        })();
         const bad = await readSwitch(app, home, [A], "row-38-evicted-no-cover");
-        watching = false;
-        await watch;
+        // The host's own record of the reveal, one row per display frame:
+        // the card is never shown before its page has painted.
+        const layers = (await app.bodyLayers({ op: "read" })) as BodyLayersReading;
+        const rows = layers.rows.filter((r) => r.cardId === A);
+        expect(rows.length, "the host sampled the card's layers through the reveal").toBeGreaterThan(0);
+        const shownBeforePaint = rows.filter((r) => r.shown && !r.painted);
         const back = await bodyOf(app, A);
         expect(back?.wasCovered, "the host kept no last frame, so the new body stood under no cover").toBe(false);
-        expect(shownBeforePaint, "the host showed the new body only once it had painted").toBe(false);
+        expect(shownBeforePaint, "the host showed the new body only once it had painted").toEqual([]);
         expect(back, "the card's new body is ready, painted and shown").toMatchObject({ state: "ready", painted: true, visible: true, covered: false });
         expect(bad, "no frame from the reveal shows more canvas than the settled pane or loses its title, and the hand-over landed").toEqual([]);
       } finally {

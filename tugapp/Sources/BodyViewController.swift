@@ -115,9 +115,6 @@ final class BodyContainerView: NSView, StackedView {
 final class BodyCoverView: NSView {
     /// The pane's corner radius: the themes' `--tug-radius-md`.
     static let paneRadius: CGFloat = 6
-    /// The frame it stands: what an eviction of a body that has not painted
-    /// under it keeps again, its page having drawn nothing newer.
-    let kept: BodyCover
     private let plate = CALayer()
     private let frameLayer = CALayer()
     private let frameSize: CGSize
@@ -127,7 +124,6 @@ final class BodyCoverView: NSView {
     }
     override var isFlipped: Bool { true }
     init(cover: BodyCover, frame: NSRect) {
-        kept = cover
         frameSize = cover.size
         paneInsets = cover.insets
         super.init(frame: frame)
@@ -179,10 +175,13 @@ final class BeatTrackDelegate: NSObject, CAAnimationDelegate {
 /// Every body: a card's content in a WKWebView of its own, in its own
 /// WebContent process, placed by the host over the shell's page.
 ///
-/// A body's life (`loading → connected → bound → ready → painted → visible /
-/// hidden → destroyed`, with `failed` from any state before ready at the
-/// deadline and on a second WebContent termination within ten seconds) is
-/// kept here, and the shell hears of every transition that matters to it
+/// A body's life is a `BodyState` (`loading → connected → bound → ready`,
+/// `evicting` on the way to giving up its process, `gone` once its card
+/// closes, the paint and the first showing facts of the phase), moved only
+/// through `BodyLifecycle.move`. It `fail`s from any live phase: at its
+/// ready deadline while it is not yet ready, and on a second WebContent
+/// termination within ten seconds, ready or not. The shell hears of every
+/// transition that matters to it
 /// through `window.__tugBridge.onBodyState`. The shell decides what each body
 /// is for (`bodyCreate`) and where it stands (`placeCards`); this object
 /// makes the views, binds them, places them, shows them, and tears them down.
@@ -245,13 +244,23 @@ final class BodyViewController {
         /// A body brought back from an eviction may be shown from its
         /// hand-off: its cover stands until it has painted.
         var canShow: Bool {
-            if cover != nil { return state != .failed }
+            if covered { return state != .failed }
             return painted && (state == .ready || state == .bound)
         }
-        /// The card's last frame before its eviction, over the web view until
-        /// the page paints; nil for any body not brought back from one.
+        /// Brought back from an eviction and not yet painted: its cover
+        /// stands for that.
+        var covered: Bool { stand?.kinds.contains(.eviction) == true }
+        /// The one cover over the web view, for whichever reasons `stand`
+        /// names: the card's last frame before its eviction, until the page
+        /// paints, and a whole card's frame through a crossing, until it
+        /// lands. Nil while neither holds.
         var cover: BodyCoverView?
-        /// The body was made under a cover, for the harness: `cover` goes at the paint.
+        /// Why `cover` stands: the covers' own record of it, shared.
+        var stand: BodyCovers.Stand?
+        /// The cover while a crossing holds it: a whole card's frame over its
+        /// page, which lays itself out at the landing size beneath it.
+        var crossingCover: BodyCoverView? { stand?.kinds.contains(.crossing) == true ? cover : nil }
+        /// The body was made under a cover, for the harness: `covered` goes at the paint.
         var wasCovered = false
         /// The card draws its pane's chrome in its own page: its container
         /// is the pane's rect outset by the apron, wears no surface, and
@@ -307,10 +316,6 @@ final class BodyViewController {
         /// posted `crossingReady` — and to the land when `keepsPage`, a whole
         /// card that shrinks with no cover standing over it.
         var crossing: (size: CGSize, begin: CFTimeInterval, keepsPage: Bool)?
-        /// A whole card that shrinks wears its last frame over its page for
-        /// the crossing, while the page lays itself out at the landing size
-        /// beneath it; nil for every other crossing, and after the land.
-        var crossingCover: BodyCoverView?
         /// The folded form's bottom band a covered fold carries from its
         /// open place to the closing edge, as its page named it when solved;
         /// nil for every other crossing, and after the land.
@@ -329,12 +334,8 @@ final class BodyViewController {
         }
     }
 
-    /// How long a body has to report ready after it is asked for, unless
-    /// the harness shortens it (`BodyGeometry.readyDeadlineMs`).
-    static let readyDeadlineMs = BodyGeometry.readyDeadlineMs(
-        environment: ProcessInfo.processInfo.environment,
-        fallback: 10_000
-    )
+    /// How long a body has to report ready after it is asked for.
+    static let readyDeadlineMs = 10_000
     /// The deadline a body made now is held to: `readyDeadlineMs`, unless
     /// the harness has shortened it (`setDelays`).
     private var readyDeadline = BodyViewController.readyDeadlineMs
@@ -676,9 +677,9 @@ final class BodyViewController {
     /// shows it.
     func didPaint(_ body: Body) {
         guard let cardId = body.cardId, lifecycle.move(body, .paint, quietly: true) else { return }
-        // A body brought back from an eviction is its own page from here.
-        body.cover?.removeFromSuperview()
-        body.cover = nil
+        // A body brought back from an eviction is its own page from here,
+        // its cover off unless a crossing still holds it.
+        lifecycle.paintTakesDownCover(body)
         TugLog.info("bodies", "painted", [TugLog.field("card", cardId)])
         notifyShell(BodyStateReport(cardId: cardId, state: .painted))
         // The show and its face's removal land together.
@@ -1016,7 +1017,7 @@ final class BodyViewController {
                 "cardId": .string(cardId),
                 "state": .string(body.life.reported),
                 "painted": .bool(body.painted),
-                "covered": .bool(body.cover != nil),
+                "covered": .bool(body.covered),
                 "hidden": .bool(body.container.isHidden),
                 "opacity": .number(Double(layer?.presentation()?.opacity ?? layer?.opacity ?? 0)),
                 "faced": .bool(faceHandOver.isStanding(cardId)),
@@ -1334,6 +1335,7 @@ final class BodyViewController {
         // drag takes its ghost away, or commits the spring the hand released.
         carrier.letGo(of: body)
         bodies.removeAll { $0 === body }
+        if let cardId = body.cardId, let stand = body.stand { lifecycle.covers.release(stand, for: cardId) }
         // A body that held the keyboard takes it with it; AppKit hands it to
         // the window, so give it to whoever the shell names — another card's
         // body, the shell, or a modal standing in the overlay.
@@ -1377,7 +1379,7 @@ final class BodyViewController {
             return
         }
         lifecycle.setEvictAfter(ms: delays.evictAfterMs ?? BodyLifecycle.evictAfter)
-        readyDeadline = delays.readyDeadlineMs.map { max(1, Int($0)) } ?? BodyViewController.readyDeadlineMs
+        readyDeadline = BodyGeometry.readyDeadlineMs(harness: delays.readyDeadlineMs, fallback: BodyViewController.readyDeadlineMs)
     }
 
     /// The body's frame as it stands, drawn at `size` points and `scale`
@@ -1575,8 +1577,11 @@ final class BodyViewController {
             entry["visible"] = .bool(body.visible && body.canShow)
             entry["shown"] = .bool(body.seen)
             entry["painted"] = .bool(body.painted)
-            entry["covered"] = .bool(body.cover != nil)
+            entry["covered"] = .bool(body.covered)
             entry["wasCovered"] = .bool(body.wasCovered)
+            // Whether the clock's eviction is armed for it: what tells a body
+            // the clock will take from one it passes over, without waiting.
+            entry["evictDue"] = .bool(body.evictDue != nil)
             // The page's identity: a body torn down and made again, the spare
             // remade after a warning took it, reads as another page.
             entry["page"] = .number(Double(body.serial))
@@ -1654,15 +1659,26 @@ final class BodyViewController {
 /// A body's last crossing, as the harness reads it: its plan and size, how
 /// far ahead of the first moving beat the body was ready, whether it said
 /// `crossingSolved` before its plan started and how long after the plan's
-/// receipt, how long a whole card's cover took to snapshot and its size in
-/// pixels, the surface it wore, and whether the page follows its container
-/// again.
+/// receipt, where a whole card's cover came from, how long it took to
+/// snapshot and its size in pixels, the surface it wore, and whether the
+/// page follows its container again.
 struct CrossingAccount: Equatable {
+    /// Where a covered crossing's cover came from.
+    enum Cover: String {
+        /// The cover the body already stood under, brought back from an eviction.
+        case standing
+        /// A snapshot of the page, taken for the crossing.
+        case snapshot
+        /// None: the page is kept to the land.
+        case keptPage = "kept-page"
+    }
+
     var planId: Int
     var size: CGSize
     var readyLeadMs: Double?
     var solved = false
     var solveMs: Double?
+    var cover: Cover?
     var snapshotMs: Double?
     var coverPixels: CGSize?
     var band: BodyBeats.CrossingBand?
@@ -1682,6 +1698,7 @@ struct CrossingAccount: Equatable {
             "readyLeadMs": readyLeadMs.map(JSONValue.number) ?? .null,
             "solved": .bool(solved),
             "solveMs": solveMs.map(JSONValue.number) ?? .null,
+            "cover": cover.map { .string($0.rawValue) } ?? .null,
             "snapshotMs": snapshotMs.map(JSONValue.number) ?? .null,
             "coverPixels": coverPixels.map { .object(["width": .number($0.width), "height": .number($0.height)]) } ?? .null,
             "band": band.map {

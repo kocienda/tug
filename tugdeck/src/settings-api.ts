@@ -8,6 +8,7 @@
  *   Layout    → domain `dev.tugapp.deck.layout`,   key `layout`        (Value::Json)
  *   Theme     → domain `dev.tugapp.app`,            key `theme`         (Value::String)
  *   Card state → domain `dev.tugapp.deck.cardstate`, key `<cardId>`      (Value::Json) — `putCardState` / `readCardStates`
+ *   Guard word → domain `dev.tugapp.deck.guardasks`, key `<cardId>`      (Value::Json `true`) — `putGuardWord` / `readGuardWords`
  *   Deck state→ domain `dev.tugapp.deck.state`,     key `focusedCardId` (Value::String)
  *
  * The tagged-value wire format is `{"kind":"json","value":{...}}` for JSON
@@ -27,6 +28,8 @@ import { canonicalizeDirPath, probeDirs } from "./lib/dir-existence";
 import type { FindOptions } from "./lib/transcript-search";
 
 const CARDSTATE_DOMAIN = "dev.tugapp.deck.cardstate";
+/** The cards whose close asks on the word of an evicted page (`lib/kept-guard-word.ts`): an entry while the word stands. */
+const GUARD_ASKS_DOMAIN = "dev.tugapp.deck.guardasks";
 
 /**
  * Cap a card-state bag before the tugbank write — the seam where the
@@ -697,12 +700,41 @@ export function putCardState(cardId: string, bag: CardStateBag, options?: { keep
 }
 
 /**
+ * Persist whether `cardId`'s close asks on the word of an evicted page: PUT
+ * while it does, DELETE once it does not. Fire-and-forget, as a lost write
+ * costs only a deadline the next page restores.
+ */
+export function putGuardWord(cardId: string, asks: boolean): Promise<void> {
+  if (!asks) return deleteDefault(GUARD_ASKS_DOMAIN, cardId);
+  const url = `/api/defaults/${GUARD_ASKS_DOMAIN}/${encodeURIComponent(cardId)}`;
+  return fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "json", value: true }),
+  })
+    .then(() => {})
+    .catch((err) => {
+      console.warn("[settings] PUT guard word failed for", cardId, err);
+    });
+}
+
+/** The cards whose persisted word says their close asks, from the TugbankClient cache. */
+export function readGuardWords(client: TugbankClient): string[] {
+  const domain = client.readDomain(GUARD_ASKS_DOMAIN);
+  if (!domain) return [];
+  return Object.entries(domain)
+    .filter(([, entry]) => (entry as TaggedValue).kind === "json" && (entry as TaggedValue).value === true)
+    .map(([cardId]) => cardId);
+}
+
+/**
  * Card-keyed defaults domains — one entry per card id, written as a card
  * gains state and never removed by the close path. All accumulate the same
  * way, so all get the same orphan sweep at startup.
  */
 export const CARD_KEYED_DOMAINS: readonly string[] = [
   CARDSTATE_DOMAIN,
+  GUARD_ASKS_DOMAIN,
   PERMISSION_MODE_DOMAIN,
   MODEL_DOMAIN,
   PLAN_REVIEW_LAST_DOMAIN,

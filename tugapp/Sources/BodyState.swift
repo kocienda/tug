@@ -1,5 +1,11 @@
 import Foundation
 
+/// How short of memory the machine says it is: the dispatch source's three
+/// levels, or the harness standing in for it (`simulateMemoryPressure`).
+enum MemoryPressureLevel: String {
+    case normal, warning, critical
+}
+
 /// One body's lifecycle: the phase its page is in and the facts that ride
 /// with it, moved only by `apply`, which refuses a move the lifecycle does
 /// not have.
@@ -73,8 +79,11 @@ struct BodyState: Equatable {
         case (.hello, .loading):
             next.phase = .connected
         // A page that says hello again — reloaded by WebKit rather than by
-        // the host — is bound afresh, as it always was.
-        case (.bind, .connected), (.bind, .bound), (.bind, .ready):
+        // the host — is bound afresh, as it always was. One that reloads
+        // itself while its eviction saves abandons the eviction: the page it
+        // was saving is gone, and the clock asks the new one again once it
+        // is ready.
+        case (.bind, .connected), (.bind, .bound), (.bind, .ready), (.bind, .evicting):
             next.phase = .bound
         case (.ready, .bound):
             next.phase = .ready
@@ -117,6 +126,33 @@ struct BodyState: Equatable {
         phase == .evicting && eviction == count
     }
 
+    /// Whether the eviction clock may stand for the body at all: never for
+    /// a gone body, and never for a kind that may veto its close, which
+    /// only its page can answer — critical pressure alone takes that one.
+    func clockArms(guardsClose: Bool) -> Bool {
+        phase != .gone && !guardsClose
+    }
+
+    /// What the eviction clock does when it falls due.
+    enum ClockFall: Equatable {
+        /// Evict the body now.
+        case evict
+        /// The body cannot be taken yet — in the host's hand, say — so the
+        /// clock is set again a whole delay on.
+        case again
+        /// Nothing, and no clock after it: the body is going, an eviction
+        /// already under way settles its own, or it has no clock.
+        case stop
+    }
+
+    /// The clock falls due for the body, which `takeable` says may or may
+    /// not be evicted now.
+    func clockFalls(takeable: Bool, guardsClose: Bool) -> ClockFall {
+        guard clockArms(guardsClose: guardsClose) else { return .stop }
+        if takeable { return .evict }
+        return phase == .evicting ? .stop : .again
+    }
+
     /// What a WebContent termination does to the body.
     enum TerminationAnswer: Equatable {
         /// Nothing: the card closed and its page was going anyway.
@@ -156,6 +192,14 @@ struct BodyState: Equatable {
 struct PressureEpisode: Equatable {
     private(set) var declined: Set<Int> = []
     private(set) var reasked: Set<Int> = []
+
+    /// The episode standing once the machine says `level` after `was`. A
+    /// level said again continues the episode, since the source may say one
+    /// level more than once and a declined body is asked again once an
+    /// episode, not once a delivery; only a change of level starts a new one.
+    func after(_ was: MemoryPressureLevel, _ level: MemoryPressureLevel) -> PressureEpisode {
+        level == was ? self : PressureEpisode()
+    }
 
     /// A body declined.
     mutating func decline(_ serial: Int) {

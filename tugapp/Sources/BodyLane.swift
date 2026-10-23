@@ -133,7 +133,13 @@ final class BodyLane {
     }
 
     private func make(_ entry: Entry) {
-        guard let made = controller.make(cardId: entry.cardId, path: "/?body=\(entry.cardId)") else { return }
+        guard let made = controller.make(cardId: entry.cardId, path: "/?body=\(entry.cardId)") else {
+            // No page could be made for it: the shell hears the card failed,
+            // as at a missed deadline, and decides whether to ask again,
+            // rather than waiting on a page that will never come.
+            controller.notifyShell(BodyStateReport(cardId: entry.cardId, state: .failed, cause: "no page could be made"))
+            return
+        }
         made.componentId = entry.componentId
         made.intent = entry.intent
         made.guardsClose = entry.guardsClose

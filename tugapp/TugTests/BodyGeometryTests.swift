@@ -15,28 +15,12 @@ final class BodyGeometryTests: XCTestCase {
         check("and flips back", BodyGeometry.flipped(flipped, inHeight: height) == body)
     }
 
-    func testTheReadyDeadlineIsShortenedOnlyUnderTheHarness() {
-        let harness = ["TUGAPP_TEST_SOCKET": "/tmp/s"]
-        check("the decided deadline", BodyGeometry.readyDeadlineMs(environment: [:], fallback: 10_000) == 10_000)
-        check(
-            "outside the harness the variable is not read",
-            BodyGeometry.readyDeadlineMs(environment: ["TUG_BODY_READY_DEADLINE_MS": "1500"], fallback: 10_000) == 10_000
-        )
-        check(
-            "under the harness it shortens the deadline",
-            BodyGeometry.readyDeadlineMs(
-                environment: harness.merging(["TUG_BODY_READY_DEADLINE_MS": "1500"]) { $1 },
-                fallback: 10_000
-            ) == 1500
-        )
-        for bad in ["", "soon", "0", "-5", "1.5"] {
-            check(
-                "\"\(bad)\" is ignored",
-                BodyGeometry.readyDeadlineMs(
-                    environment: harness.merging(["TUG_BODY_READY_DEADLINE_MS": bad]) { $1 },
-                    fallback: 10_000
-                ) == 10_000
-            )
+    func testTheReadyDeadlineIsTheHarnessesWhenItSetsOne() {
+        check("the decided deadline", BodyGeometry.readyDeadlineMs(harness: nil, fallback: 10_000) == 10_000)
+        check("the harness shortens it", BodyGeometry.readyDeadlineMs(harness: 1500, fallback: 10_000) == 1500)
+        check("a fraction is whole milliseconds", BodyGeometry.readyDeadlineMs(harness: 1500.7, fallback: 10_000) == 1500)
+        for low in [0.0, -5, 0.4] {
+            check("\(low) is held to a millisecond", BodyGeometry.readyDeadlineMs(harness: low, fallback: 10_000) == 1)
         }
     }
 }

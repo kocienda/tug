@@ -265,6 +265,7 @@ export async function crossLeg(app: App, card: string, leg: Leg, s: Standing, cr
   polling = false;
   const presented = await presentedRead;
   note(`${label}: settle seen ${settle.saw}, running ${settle.now}`);
+  expect(settle.now, `${label}: the settle is over before its frames are judged`).toBe(false);
 
   // The plan that carried the card, which need not be the last: a settle
   // re-armed mid-tween plans again, and finds the card already placed at

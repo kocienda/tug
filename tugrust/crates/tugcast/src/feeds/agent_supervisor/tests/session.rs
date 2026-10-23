@@ -108,6 +108,59 @@ async fn test_request_replay_live_session_forwards_to_input_tx() {
     assert_eq!(parsed["type"], "request_replay");
 }
 
+/// The `ask_id` a card named its request with reaches tugcode untouched, both
+/// on a live session and through the Spawning queue, for tugcode to echo on
+/// the bracket that answers; an unnamed request stays the legacy bytes.
+#[tokio::test]
+async fn test_request_replay_passes_its_ask_id_through_live_and_queued() {
+    let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    let named = |id: &str| {
+        serde_json::to_vec(&serde_json::json!({
+            "action": "request_replay",
+            "tug_session_id": id,
+            "reason": "catch-up",
+            "ask_id": "ask-3",
+        }))
+        .unwrap()
+    };
+
+    let live_id = TugSessionId::new("sess-ask-live");
+    let live = insert_ledger_entry(&sup, &live_id).await;
+    let (tx, mut rx) = mpsc::channel::<Frame>(4);
+    {
+        let mut entry = live.lock().await;
+        entry.spawn_state = SpawnState::Live;
+        entry.input_tx = Some(tx);
+    }
+    sup.handle_control("request_replay", &named("sess-ask-live"), 10)
+        .await
+        .expect_handled();
+    let body: serde_json::Value =
+        serde_json::from_slice(&rx.try_recv().expect("forwarded").payload).unwrap();
+    assert_eq!(body["type"], "request_replay");
+    assert_eq!(body["ask_id"], "ask-3");
+
+    let spawning_id = TugSessionId::new("sess-ask-spawning");
+    let spawning = insert_ledger_entry(&sup, &spawning_id).await;
+    spawning.lock().await.spawn_state = SpawnState::Spawning;
+    sup.handle_control("request_replay", &named("sess-ask-spawning"), 10)
+        .await
+        .expect_handled();
+    sup.handle_control(
+        "request_replay",
+        &request_replay_payload("sess-ask-spawning"),
+        10,
+    )
+    .await
+    .expect_handled();
+    let mut entry = spawning.lock().await;
+    let unnamed = entry.queue.pop().expect("unnamed request queued");
+    let queued = entry.queue.pop().expect("named request queued");
+    assert_eq!(&unnamed.payload[..], b"{\"type\":\"request_replay\"}");
+    let body: serde_json::Value = serde_json::from_slice(&queued.payload).unwrap();
+    assert_eq!(body["ask_id"], "ask-3");
+}
+
 /// Every line `body` writes to the trace, captured by a subscriber of its own.
 async fn trace_lines<F: std::future::Future<Output = ()>>(body: F) -> Vec<String> {
     use parking_lot::Mutex as SyncMutex;

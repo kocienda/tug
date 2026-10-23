@@ -833,9 +833,12 @@ export class SessionEngine {
   private frameToEvent(feedId: number, decoded: unknown): CodeSessionEvent | null {
     if (feedId === FeedId.SESSION_STATE) {
       // SESSION_STATE payload shape is `{ tug_session_id, state, detail }`.
-      // Only `state: "errored"` maps to a reducer event; all other
-      // states (`pending`, `spawning`, `closed`, …) are dropped.
+      // `errored`, `spawning` and `live` map to reducer events; the other
+      // states (`pending`, `closed`, …) are dropped.
       const ss = decoded as { state?: string; detail?: string };
+      if (ss.state === "spawning" || ss.state === "live") {
+        return { type: "session_spawn_state", state: ss.state };
+      }
       if (ss.state !== "errored") return null;
       return {
         type: "session_state_errored",
@@ -1282,7 +1285,7 @@ export class SessionEngine {
           break;
         case "request-replay": {
           // A catch-up's ask again, after the bracket ahead of it closed.
-          const frame = encodeRequestReplay(this.tugSessionId, "catch-up", effect.window);
+          const frame = encodeRequestReplay(this.tugSessionId, "catch-up", effect.window, effect.askId);
           this.host.send(frame.feedId, frame.payload);
           break;
         }
@@ -1294,6 +1297,16 @@ export class SessionEngine {
             // the prepended block's order correct and lets the list view
             // observe one structural growth at the front rather than M.
             this._prependStaging.push(effect.entry);
+          } else if (effect.replaces === true && this._transcript.some((t) => t.msgId === effect.entry.msgId)) {
+            // A catch-up's late answer: its whole copy of a turn replaces the
+            // tail the deadline committed, in place. It keeps its own key, so
+            // nothing cached against the tail's row outlives the tail.
+            this._transcript = this._transcript.map((t) => (t.msgId === effect.entry.msgId ? effect.entry : t));
+          } else if (effect.before !== undefined && this._transcript.some((t) => t.msgId === effect.before)) {
+            // A turn of the late answer older than the held tail goes in
+            // ahead of it, so the transcript reads in the answer's order.
+            const at = this._transcript.findIndex((t) => t.msgId === effect.before);
+            this._transcript = [...this._transcript.slice(0, at), effect.entry, ...this._transcript.slice(at)];
           } else {
             // Append, but keep the turn interleaved with any shell rows the
             // ledger restore ([P07]) seated ahead of it — on a Maker ▸

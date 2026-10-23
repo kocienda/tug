@@ -715,6 +715,11 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       // The pane activates this card before running the sheet when the
       // buffer is dirty, so the user decides looking at the content.
       needsDecision: () => store.getSnapshot().saveState !== "clean",
+      // A page brought back after an eviction knows whether its buffer is
+      // dirty only once its restore has bound the document and read its
+      // set-aside edits back; before the restore starts its open, nothing
+      // is bound yet, and a clean buffer then is no answer.
+      answered: () => store.getSnapshot().phase !== "empty" && !store.opening,
       // The answer moves with the store; a body card publishes it on each move.
       subscribe: store.subscribe,
       run: async () => {

@@ -24,6 +24,7 @@
  * @covers tugdeck/src/components/layout/layout-card-registration.tsx
  * @covers tugdeck/src/lib/card-close-commands.ts
  * @covers tugdeck/src/lib/body-arrangement.ts
+ * @covers tugdeck/src/components/tugways/tug-popover.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -39,11 +40,20 @@ const TEST_TIMEOUT_MS = 180_000;
 const READ_MS = 8_000;
 
 const present = (selector: string): string => `document.querySelector(${JSON.stringify(selector)}) !== null`;
-const centreOf = (selector: string): string => `(function () {
+
+/**
+ * In the body: `selector`'s centre, whether the element hit there is it or
+ * inside it, what was hit, and the target's visibility — a popover the page
+ * hid stands where it was and hits as its wrapper.
+ */
+const hitAtCentreOf = (selector: string): string => `(function () {
   var el = document.querySelector(${JSON.stringify(selector)});
   if (el === null) return null;
   var r = el.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  var x = r.left + r.width / 2, y = r.top + r.height / 2;
+  var hit = document.elementFromPoint(x, y);
+  var who = hit === null ? "nothing" : hit.tagName.toLowerCase() + Array.from(hit.attributes).filter(function (a) { return a.name.indexOf("data-") === 0; }).map(function (a) { return "[" + a.name + "]"; }).join("");
+  return { x: x, y: y, hit: hit !== null && el.contains(hit), who: who, visibility: getComputedStyle(el).visibility };
 })()`;
 
 interface DeckRead {
@@ -64,20 +74,53 @@ const spaces = (app: App): Promise<SpacesRead> => app.evalJS<SpacesRead>("window
  * front.
  */
 async function shownCards(app: App): Promise<BodyApp> {
-  const shown = await settleFor(
-    () => app.bodies(),
-    (bodies) => bodies.some((b) => b.componentId === "cards" && b.state === "ready" && b.visible),
+  // The shown workspace's own Cards card: just after a switch the departing
+  // workspace's Cards body can still read visible, and is not the one shown.
+  const pick = async (): Promise<string | undefined> => {
+    const own = new Set((await deckState(app)).cards.map((c) => c.id));
+    return (await app.bodies()).find((b) => b.componentId === "cards" && b.cardId !== null && own.has(b.cardId) && b.state === "ready" && b.visible)?.cardId ?? undefined;
+  };
+  const id = await settleFor(pick, (v) => v !== undefined, READ_MS);
+  expect(id, "the workspace on screen shows a Cards body").toBeDefined();
+  // A popover raised in the page closes when the page's layout moves under
+  // it, so the page is read once it stands: its frame and its view's size
+  // the same across reads 100 ms apart.
+  let before = "";
+  const rest = await settleFor(
+    async () => {
+      await Bun.sleep(100);
+      const b = (await app.bodies()).find((x) => x.cardId === id);
+      const now = b === undefined ? "" : JSON.stringify([b.frame, b.pageSize]);
+      const still = now !== "" && now === before;
+      before = now;
+      return still;
+    },
+    (v) => v,
     READ_MS,
   );
-  const id = shown.find((b) => b.componentId === "cards" && b.state === "ready" && b.visible)?.cardId;
-  expect(id, "the workspace on screen shows a Cards body").toBeDefined();
+  expect(rest, "the shown Cards body stands at its size").toBe(true);
   return app.body(id!);
 }
 
 async function clickIn(body: BodyApp, selector: string): Promise<void> {
-  const at = await body.evalJS<{ x: number; y: number } | null>(centreOf(selector));
+  // A surface that has just mounted may not stand where it will: a popover
+  // is placed after its first measure, and enters on a transform. Click its
+  // centre once two reads 100 ms apart agree and the element there is it.
+  let last: { x: number; y: number } | null = null;
+  const at = await settleFor(
+    async () => {
+      await Bun.sleep(100);
+      const now = await body.evalJS<{ x: number; y: number; hit: boolean; who: string; visibility: string } | null>(hitAtCentreOf(selector));
+      const still = now !== null && last !== null && Math.abs(now.x - last.x) < 0.5 && Math.abs(now.y - last.y) < 0.5;
+      last = now;
+      return now === null ? null : { ...now, still };
+    },
+    (r) => r !== null && r.hit && r.still,
+    READ_MS,
+  );
   expect(at, `${selector} stands in the body`).not.toBeNull();
-  await body.nativeClick(at!);
+  expect(at!.hit && at!.still, `${selector} stands still and is what its centre hits (last: ${JSON.stringify(at)})`).toBe(true);
+  await body.nativeClick({ x: at!.x, y: at!.y });
 }
 
 // ---------------------------------------------------------------------------

@@ -51,6 +51,7 @@ function publisherOn(body: TestPage, facts: () => CardFactsValue): BodyPublisher
       readWaive: () => false,
       readGuarded: () => true,
       readAsks: () => null,
+      readAnswered: () => false,
       readHold: () => null,
       readCaptureArmed: () => false,
       readRestoreHold: () => null,

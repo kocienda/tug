@@ -31,7 +31,7 @@
  * @module components/chrome/body-stand-in
  */
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "@/contexts/theme-provider";
 import { bodyStandInStore } from "@/lib/body-stand-in-store";
@@ -91,29 +91,32 @@ function StandInFace({ cardId, componentId }: BodyStandInProps): React.ReactElem
   useSyncExternalStore(cardTitleStore.subscribe, () => cardTitleStore.get(cardId));
   const ownSpaceId = spaceOf ?? spaces.activeSpaceId;
   const own = ownSpaceId === spaces.activeSpaceId ? state : (spaces.mountedDecks.get(ownSpaceId) ?? state);
+  // Each card of the pane says whether its close waives the confirm, which
+  // the chrome draws; the face re-renders when one of them moves.
+  const paneCardIds = own.panes.find((p) => p.cardIds.includes(cardId))?.cardIds ?? [cardId];
+  useSyncExternalStore(bodyFactsStore.subscribe, () =>
+    paneCardIds.map((id) => (bodyFactsStore.waives(id) ? "1" : "0")).join(""),
+  );
   const value = paneChromeFor(own, cardId, {
     titleOf: (id) => cardTitleStore.get(id),
     waives: (id) => bodyFactsStore.waives(id),
     spaces: { list: spaces.spaces, ownSpaceId },
   });
-  // The names the chrome draws come from `deck.cards`; the snapshot is held
-  // while its key stands, so the face re-renders when a name it draws moved
-  // and not on every phase tick.
-  const heldCards = useRef<{ key: string; cards: ReturnType<typeof deckCards.getSnapshot> } | null>(null);
-  const cards = useSyncExternalStore(deckCards.subscribe, () => {
-    const next = deckCards.getSnapshot();
-    const key = value === null ? "" : chromeCardsKey(value, next);
-    if (heldCards.current !== null && heldCards.current.key === key) return heldCards.current.cards;
-    heldCards.current = { key, cards: next };
-    return next;
-  });
+  // The names the chrome draws come from `deck.cards`. The face subscribes to
+  // the key of the names it draws, so it re-renders when one of them moved
+  // and not on every phase tick, and takes the snapshot once per key.
+  const cardsKey = useSyncExternalStore(deckCards.subscribe, () =>
+    value === null ? "" : chromeCardsKey(value, deckCards.getSnapshot()),
+  );
+  const cards = useMemo(() => deckCards.getSnapshot(), [cardsKey]);
   const masthead = useSyncExternalStore(cardTitleStore.subscribe, () => cardTitleStore.getMasthead(cardId));
   const folded = useIsCardFolded(cardId);
   const theme = useSyncExternalStore(subscribeOnScreenTheme, getOnScreenTheme);
   // Everything the face is drawn from, as one string: the placer reads the
   // face's display list again when it moves while the card stays a face, so
-  // a masthead, name or theme change is not drawn stale (`card-placement.ts`).
-  const faceKey = JSON.stringify([theme, value, value === null ? "" : chromeCardsKey(value, cards), masthead, folded]);
+  // a masthead, name, waive or theme change is not drawn stale
+  // (`card-placement.ts`); the waives ride in `value`'s cards.
+  const faceKey = JSON.stringify([theme, value, cardsKey, masthead, folded]);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   const refs = useMemo(
     () => ({

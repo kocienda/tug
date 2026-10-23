@@ -403,14 +403,14 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
         // Return opens the TIME cell's popover (the cell `<button>` activates).
         await app.nativeKey("Return");
-        await app.waitForCondition<boolean>(POPOVER_OPEN, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(POPOVER_OPEN, { timeoutMs: 6000 });
         // While the popover is open the card's cycle scope is covered but still
         // on the stack — the card reads as cycling, NOT exited.
         expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
         // Escape closes the popover. The ring returns to the TIME cell, the card
         // is still cycling, and DOM focus did not fall back to the editor.
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(`${POPOVER_OPEN} === false`, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(`${POPOVER_OPEN} === false`, { timeoutMs: 6000 });
         await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
         expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
         expect(await app.body("A").evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
@@ -679,14 +679,14 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
 
         // Space OPENS the STATE popover (the cell button activates).
         await app.nativeKey(" ");
-        await app.waitForCondition<boolean>(POPOVER_OPEN, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(POPOVER_OPEN, { timeoutMs: 6000 });
         expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
 
         // A SECOND Space CLOSES it (space-dismiss): the popover dismisses, the ring
         // returns to the STATE cell, the card stays cycling, and DOM focus does not
         // fall back to the editor.
         await app.nativeKey(" ");
-        await app.waitForCondition<boolean>(`${POPOVER_OPEN} === false`, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(`${POPOVER_OPEN} === false`, { timeoutMs: 6000 });
         await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
         expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
         expect(await app.body("A").evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);

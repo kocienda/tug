@@ -120,6 +120,46 @@ final class BodyStateTests: XCTestCase {
         XCTAssertFalse(state.apply(.decline), "a closed body is never handed back from its eviction")
     }
 
+    /// A page that reloads itself while its eviction saves — WebKit's own
+    /// reload, which says hello again without the host's `reload` — is bound,
+    /// and the eviction in flight finds it no longer evicting under its
+    /// count and lets it be.
+    func testAPageBoundAgainMidEvictionAbandonsTheEviction() {
+        var state = self.state(.hello, .bind, .ready, .evict)
+        let begun = state.eviction
+        XCTAssertTrue(state.apply(.bind), "the page that said hello again is bound")
+        XCTAssertEqual(state.phase, .bound)
+        XCTAssertFalse(state.evicting(since: begun))
+        XCTAssertFalse(state.apply(.decline), "the abandoned eviction cannot hand the body back")
+        XCTAssertTrue(state.apply(.ready))
+        XCTAssertTrue(state.apply(.evict), "once ready the clock may ask it again")
+    }
+
+    // MARK: - The eviction clock
+
+    /// A kind that may veto its close has no clock: none is armed for it,
+    /// whatever it declined, and one falling due for it sets no other.
+    func testAGuardedKindHasNoClockAndNoneFallsAgain() {
+        let ready = state(.hello, .bind, .ready)
+        XCTAssertFalse(ready.clockArms(guardsClose: true))
+        XCTAssertTrue(ready.clockArms(guardsClose: false))
+        let declined = state(.hello, .bind, .ready, .evict, .decline)
+        XCTAssertFalse(declined.clockArms(guardsClose: true), "a critical eviction it declined arms nothing")
+        XCTAssertEqual(ready.clockFalls(takeable: false, guardsClose: true), .stop)
+        XCTAssertEqual(ready.clockFalls(takeable: true, guardsClose: true), .stop)
+    }
+
+    func testTheClockEvictsATakeableBodyAndAsksAnUntakeableOneAgain() {
+        let ready = state(.hello, .bind, .ready)
+        XCTAssertEqual(ready.clockFalls(takeable: true, guardsClose: false), .evict)
+        XCTAssertEqual(ready.clockFalls(takeable: false, guardsClose: false), .again, "in the host's hand: asked a delay on")
+        let evicting = state(.hello, .bind, .ready, .evict)
+        XCTAssertEqual(evicting.clockFalls(takeable: false, guardsClose: false), .stop, "an eviction under way settles its own")
+        let gone = state(.hello, .bind, .ready, .close)
+        XCTAssertFalse(gone.clockArms(guardsClose: false))
+        XCTAssertEqual(gone.clockFalls(takeable: false, guardsClose: false), .stop)
+    }
+
     func testATerminationOfAClosedBodyDoesNothing() {
         let gone = state(.hello, .bind, .ready, .close)
         XCTAssertEqual(gone.onTermination(hasCard: true, seen: true, again: false), .ignore)
@@ -162,6 +202,21 @@ final class BodyStateTests: XCTestCase {
         XCTAssertEqual(episode.next(among: left), 2)
         episode.decline(2)
         XCTAssertNil(episode.next(among: left), "the episode has asked each declined body once more")
+    }
+
+    /// The source may say one level more than once: the episode goes on, so
+    /// a declined body is not asked afresh by a delivery; a new level starts
+    /// a new one.
+    func testALevelSaidAgainContinuesItsEpisodeAndOnlyAChangeStartsOne() {
+        var episode = PressureEpisode()
+        episode.decline(1)
+        let left: [(serial: Int, hiddenSince: Double)] = [(1, 10)]
+        XCTAssertEqual(episode.next(among: left), 1)
+        episode = episode.after(.warning, .warning)
+        XCTAssertTrue(episode.passesOver(1), "the repeated warning keeps what the episode heard")
+        XCTAssertNil(episode.next(among: left), "and asks the declined body no third time")
+        XCTAssertEqual(episode.after(.warning, .critical), PressureEpisode())
+        XCTAssertEqual(episode.after(.critical, .warning), PressureEpisode())
     }
 
     /// An eviction's snapshot that never answers ends at its deadline, with

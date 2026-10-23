@@ -98,6 +98,33 @@ function differing(a: number[][], b: number[][], scale: number, tolerance = 8): 
 }
 
 /**
+ * The rows (in points from the column's top) where the surface paints: the
+ * shown column differs from the closed one past the noise tolerance, or it
+ * wears the surface's own fill — the colour most of its rows inside the box
+ * wear — and differs at all. A menu's fill can sit within the tolerance of
+ * what it opens over (the Overview's composer field is 7 units from the
+ * menu's fill on its widest channel), and is still the menu's paint; its
+ * shadow, which wears no fill, is judged as before.
+ */
+function painted(shown: number[][], gone: number[][], scale: number, boxRows: [number, number]): number[] {
+  const counts = new Map<string, number>();
+  for (let i = Math.max(0, boxRows[0]); i < Math.min(shown.length, boxRows[1]); i++) {
+    const key = shown[i].join(",");
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let fill: number[] | null = null;
+  let most = 0;
+  for (const [key, n] of counts) if (n > most) [fill, most] = [key.split(",").map(Number), n];
+  const out: number[] = [];
+  for (let i = 0; i < Math.min(shown.length, gone.length); i++) {
+    const delta = Math.max(...shown[i].map((v, ch) => Math.abs(v - gone[i][ch])));
+    const wearsFill = fill !== null && shown[i].every((v, ch) => Math.abs(v - fill![ch]) <= 1);
+    if (delta > 8 || (wearsFill && delta > 1)) out.push(i / scale);
+  }
+  return out;
+}
+
+/**
  * Raise a surface with `open`, read it inside the body's viewport, read a
  * column of its interior by composite, close it with `close`, and read the
  * same column again.
@@ -133,11 +160,15 @@ async function readInCard(app: App, label: string, selector: string, open: () =>
   await Bun.sleep(250);
   const gone = await column(app, x, y, h);
   // In points from the box's top.
-  const changed = differing(shown.rows, gone.rows, shown.scale).map((pt) => pt - COLUMN_REACH_PT);
   const height = box.bottom - box.top;
+  const boxRows: [number, number] = [Math.round(COLUMN_REACH_PT * shown.scale), Math.round((COLUMN_REACH_PT + height) * shown.scale)];
+  const changed = painted(shown.rows, gone.rows, shown.scale, boxRows).map((pt) => pt - COLUMN_REACH_PT);
   const first = changed.length > 0 ? changed[0] : null;
   const last = changed.length > 0 ? changed[changed.length - 1] : null;
-  const outside = changed.filter((pt) => pt < -OUTSIDE_PT || pt > height + OUTSIDE_PT);
+  // Well outside the box, only a change past the noise tolerance counts.
+  const outside = differing(shown.rows, gone.rows, shown.scale)
+    .map((pt) => pt - COLUMN_REACH_PT)
+    .filter((pt) => pt < -OUTSIDE_PT || pt > height + OUTSIDE_PT);
   note(`${label}: ${changed.length} rows changed, from ${first?.toFixed(1)} to ${last?.toFixed(1)} pt against a box ${height.toFixed(1)} pt tall; ${outside.length} well outside it`);
   expect(first, `${label}: the composite's paint begins where the box does`).not.toBeNull();
   expect(Math.abs(first!), `${label}: the paint's top is the box's top`).toBeLessThanOrEqual(EDGE_PT);

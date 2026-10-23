@@ -15,15 +15,11 @@ enum BodyGeometry {
     }
 
     /// How long a body has to report ready: `fallback` (the decided ten
-    /// seconds), unless the harness shortens it with
-    /// `TUG_BODY_READY_DEADLINE_MS` so a fallback case does not wait the
-    /// whole deadline. Outside the harness the variable is not read, and a
-    /// value that is not a positive whole number is ignored.
-    static func readyDeadlineMs(environment: [String: String], fallback: Int) -> Int {
-        guard environment["TUGAPP_TEST_SOCKET"] != nil,
-              let raw = environment["TUG_BODY_READY_DEADLINE_MS"],
-              let ms = Int(raw), ms > 0 else { return fallback }
-        return ms
+    /// seconds), unless the harness set a deadline of its own through
+    /// `bodyDelays` so a fallback case does not wait the whole deadline. A
+    /// harness deadline is held to at least a millisecond.
+    static func readyDeadlineMs(harness: Double?, fallback: Int) -> Int {
+        harness.map { max(1, Int($0)) } ?? fallback
     }
 }
 

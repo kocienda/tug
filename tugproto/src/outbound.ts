@@ -1501,6 +1501,11 @@ export interface ReplayStarted {
    * aside.
    */
   inflight_only?: true;
+  /**
+   * The `ask_id` of the `request_replay` this bracket answers, when that
+   * request named one; absent on a bracket nobody asked for by name.
+   */
+  ask_id?: string;
 }
 
 /**
@@ -1563,6 +1568,8 @@ export interface ReplayComplete {
    * nothing new was committed.
    */
   aborted?: boolean;
+  /** The `ask_id` its `replay_started` carried: every close of the bracket names it. */
+  ask_id?: string;
   ipc_version: number;
 }
 

@@ -51,11 +51,6 @@ function arrangementCards(deck: ArrangementDeck): Array<{ id: string; componentI
   return [...cards].map(([id, componentId]) => ({ id, componentId }));
 }
 
-/** Every card the arrangement holds — every workspace's — in a stable order. */
-export function arrangementCardIds(deck: ArrangementDeck): string[] {
-  return arrangementCards(deck).map((card) => card.id);
-}
-
 /** The supervisor's SESSION_STATE words for a session with no subprocess: tugcast's `Idle`, `Errored` and `Closed`. */
 const CHILDLESS = new Set(["pending", "errored", "closed"]);
 

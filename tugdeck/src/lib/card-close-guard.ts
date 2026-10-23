@@ -38,6 +38,12 @@ export interface CardCloseGuard {
    */
   needsDecision(): boolean;
   run: CardCloseDecision;
+  /**
+   * Whether `needsDecision()`'s answer is the card's yet: false while the
+   * card is still learning it — a page brought back after an eviction,
+   * reading back what the evicted page set aside. Absent means always.
+   */
+  answered?(): boolean;
   /** Call `listener` whenever `needsDecision()`'s answer may have changed. Returns the release. */
   subscribe?: (listener: () => void) => () => void;
 }

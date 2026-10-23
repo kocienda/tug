@@ -4,7 +4,8 @@ import XCTest
 // The covers' map is their only owner: a cover the map lets go — by budget,
 // by age, by its card closing, or by critical pressure's clear — frees its
 // image there and then, whatever timer is still pending for it. A clear
-// also refuses a cover taken before it.
+// also refuses a cover taken before it. A body stands under one cover
+// whatever its reasons, and that cover counts against the budget.
 final class BodyCoversTests: XCTestCase {
     /// Whether each image made by `image(_:)` has been freed, by its tag.
     private var freed: [String: Bool] = [:]
@@ -86,9 +87,10 @@ final class BodyCoversTests: XCTestCase {
         keepFresh("second", in: map, for: "c1", takenAt: 2)
         XCTAssertEqual(freed["first"], true, "the replaced cover is freed at once")
         pending[0].work()
-        XCTAssertTrue(map.has("c1"), "the first cover's timer leaves the second alone")
+        XCTAssertEqual(freed["second"], false, "the first cover's timer leaves the second alone")
+        XCTAssertGreaterThan(map.bytes, 0)
         pending[1].work()
-        XCTAssertFalse(map.has("c1"))
+        XCTAssertEqual(map.bytes, 0)
         XCTAssertEqual(freed["second"], true)
         XCTAssertEqual(drops, ["c1:aged"])
     }
@@ -100,20 +102,93 @@ final class BodyCoversTests: XCTestCase {
         autoreleasepool {
             XCTAssertFalse(map.keep(cover("late"), for: "c1", takenIn: takenIn, agesAfterMs: 900_000))
         }
-        XCTAssertFalse(map.has("c1"))
+        XCTAssertEqual(map.bytes, 0)
         XCTAssertEqual(freed["late"], true, "a refused cover is held by nothing")
         XCTAssertTrue(pending.isEmpty, "and has no timer")
     }
 
-    func testTakingACoverHandsItToTheBodyAndTheMapHoldsItNoLonger() {
+    func testStandingAKeptCoverTakesItOutOfTheKeptMapAndTakingItDownFreesIt() {
         let map = covers()
         keepFresh("shown", in: map, for: "c1")
-        var standing: BodyCover? = map.take("c1")
-        XCTAssertFalse(map.has("c1"))
-        XCTAssertEqual(freed["shown"], false, "the body's cover view holds it now")
+        var standing: BodyCovers.Stand? = map.standCover(for: "c1", kind: .eviction)
+        // Dropping the card's kept cover finds none: the kept map holds it no longer.
+        map.drop("c1")
+        XCTAssertEqual(freed["shown"], false, "it stands over the body now")
+        XCTAssertTrue(map.takeDown(standing!, kind: .eviction, for: "c1"), "the paint takes it off")
         standing = nil
         XCTAssertNil(standing)
         XCTAssertEqual(freed["shown"], true)
+    }
+
+    func testACrossingAskedOnACoveredUnpaintedBodyTakesTheStandingCoverAndItComesOffAtTheLaterEnd() {
+        let map = covers()
+        keepFresh("evicted", in: map, for: "c1")
+        var stand: BodyCovers.Stand? = map.standCover(for: "c1", kind: .eviction)
+        // Dropping the card's kept cover finds none: it stands over the body now.
+        map.drop("c1")
+        XCTAssertEqual(freed["evicted"], false)
+        let standingBytes = map.bytes
+        XCTAssertGreaterThan(standingBytes, 0, "a standing cover still counts")
+
+        // The page has not painted: the crossing takes the cover that stands
+        // rather than snapshotting a page that has shown nothing.
+        let reused: Bool = {
+            if case .standing(let taken) = map.crossingCover(for: "c1", painted: false) { return taken === stand }
+            return false
+        }()
+        XCTAssertTrue(reused, "a covered body's crossing takes the cover it stands under: one cover over one body")
+        XCTAssertEqual(stand?.kinds, [.eviction, .crossing])
+        XCTAssertEqual(map.bytes, standingBytes, "no second cover was stood")
+
+        // The page paints before the crossing lands: the crossing still holds it.
+        XCTAssertFalse(map.takeDown(stand!, kind: .eviction, for: "c1"))
+        XCTAssertEqual(stand?.kinds, [.crossing])
+        XCTAssertEqual(map.bytes, standingBytes)
+        // The land takes it off.
+        XCTAssertTrue(map.takeDown(stand!, kind: .crossing, for: "c1"))
+        XCTAssertEqual(map.bytes, 0)
+        stand = nil
+        XCTAssertEqual(freed["evicted"], true, "a cover taken down is held by nothing")
+    }
+
+    func testAnUnpaintedBodyUnderNoCoverKeepsItsPageAndOnlyAPaintedOneIsSnapshotted() {
+        let map = covers()
+        guard case .keepsPage = map.crossingCover(for: "c1", painted: false) else {
+            return XCTFail("an unpainted body under no cover keeps its page")
+        }
+        guard case .snapshot = map.crossingCover(for: "c1", painted: true) else {
+            return XCTFail("a painted body under no cover is snapshotted")
+        }
+        XCTAssertEqual(map.bytes, 0, "asking stood nothing")
+    }
+
+    func testTheBudgetCountsCoversStandingOverBodiesAndNeverDropsThem() {
+        // Each cover is 64 × 4 × 4 = 1024 bytes; the budget holds two.
+        let map = covers(budget: 2048)
+        var drops: [String] = []
+        map.onDrop = { cardId, why in drops.append("\(cardId):\(why.rawValue)") }
+        let stand = autoreleasepool { map.standCover(for: "c0", kind: .crossing, fresh: cover("crossing", width: 64, takenAt: 0)) }
+        XCTAssertNotNil(stand)
+        keepFresh("old", in: map, for: "c1", width: 64, takenAt: 1)
+        keepFresh("new", in: map, for: "c2", width: 64, takenAt: 2)
+        XCTAssertEqual(drops, ["c1:budget"], "the standing cover's bytes leave room for one kept cover")
+        XCTAssertEqual(freed["crossing"], false, "the standing cover, though oldest, is on screen and stays")
+        XCTAssertEqual(map.bytes, 2048)
+        map.clear()
+        XCTAssertEqual(map.bytes, 1024, "a clear drops the kept covers and leaves the one standing")
+    }
+
+    func testAnOlderBodyGoingLeavesItsCardsNewerCoverStanding() {
+        let map = covers()
+        let old = autoreleasepool { map.standCover(for: "c1", kind: .crossing, fresh: cover("old")) }!
+        XCTAssertTrue(map.takeDown(old, kind: .crossing, for: "c1"))
+        keepFresh("new", in: map, for: "c1")
+        XCTAssertNotNil(map.standCover(for: "c1", kind: .eviction))
+        let bytes = map.bytes
+        // The closed body's removal comes after its card's new body stands.
+        map.release(old, for: "c1")
+        XCTAssertEqual(map.bytes, bytes, "the new body keeps its cover")
+        XCTAssertEqual(freed["new"], false)
     }
 }
 

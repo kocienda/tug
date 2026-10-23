@@ -1348,6 +1348,8 @@ export interface BodyViewSnapshot {
   covered: boolean;
   /** Whether the body was made under an evicted card's last frame, whether or not it stands yet. */
   wasCovered: boolean;
+  /** Whether the host's clock has an eviction armed for it: hidden, and a kind the clock takes. */
+  evictDue: boolean;
   /** Whether the body began as the warm spare (`warm`) or was made for its card (`cold`). */
   start: "warm" | "cold";
   /**

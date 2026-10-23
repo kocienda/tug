@@ -389,6 +389,7 @@ export class ReplayRunner {
     window?: ReplayWindow,
     lineage?: ReplayLineageEntry[],
     relocation?: ReplayRelocationOrigin,
+    askId?: string,
   ): Promise<void> {
     // Pre-Step-5 the early-return `if (this.sessionMode !== "resume") return;`
     // gated runReplay by the original spawn mode. That assumption (mode=new
@@ -713,6 +714,11 @@ export class ReplayRunner {
     const batch: OutboundMessage[] = [];
     const yieldToLoop = (): Promise<void> =>
       new Promise((resolve) => setTimeout(resolve, 0));
+    // The ask this bracket answers, named on its opener and on whichever
+    // close ends it, so the card that asked can tell this bracket from any
+    // other. A request that named no ask leaves the bracket unnamed.
+    const named = <T extends OutboundMessage>(m: T): T =>
+      askId === undefined ? m : { ...m, ask_id: askId };
     // Emit a single frame as its own raw wire line: one wire line, one
     // inner frame.
     const writeRaw = (m: OutboundMessage): void => {
@@ -824,7 +830,7 @@ export class ReplayRunner {
             // Buffer it; the bracket-close emits last after the
             // remaining content batch is flushed.
             if (typeof msg.count === "number") count = msg.count;
-            bufferedReplayComplete = msg;
+            bufferedReplayComplete = named(msg);
             continue;
           }
           if (msg.type === "replay_started") {
@@ -835,7 +841,7 @@ export class ReplayRunner {
             // reducer's handleAddUserMessage phase guard) so the user's
             // pending submissions render before the JSONL pass emits
             // anything else. See `injectPendingRowSynthetics`.
-            writeRaw(msg);
+            writeRaw(named(msg));
             bracketOpened = true;
             // The arc's earlier stages, in order, ahead of this session's own
             // turns — inside the one bracket, because one restore is one
@@ -1028,7 +1034,7 @@ export class ReplayRunner {
         aborted: true,
         ipc_version: IPC_VERSION,
       };
-      writeLine(complete);
+      writeLine(named(complete));
       logReplay("aborted", {
         session_id: this.host.sessionId(),
         count,
@@ -1047,7 +1053,7 @@ export class ReplayRunner {
         },
         ipc_version: IPC_VERSION,
       };
-      writeLine(complete);
+      writeLine(named(complete));
       logReplay("error", {
         session_id: this.host.sessionId(),
         kind: "replay_timeout",
@@ -1067,7 +1073,7 @@ export class ReplayRunner {
         },
         ipc_version: IPC_VERSION,
       };
-      writeLine(complete);
+      writeLine(named(complete));
       logReplay("error", {
         session_id: this.host.sessionId(),
         kind: "claude_exited_during_replay",
@@ -1119,7 +1125,7 @@ export class ReplayRunner {
         },
         ipc_version: IPC_VERSION,
       };
-      writeLine(complete);
+      writeLine(named(complete));
     }
 
     logReplay("complete", {

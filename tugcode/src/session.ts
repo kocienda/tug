@@ -1984,8 +1984,9 @@ export class SessionManager {
     window?: ReplayWindow,
     lineage?: ReplayLineageEntry[],
     relocation?: ReplayRelocationOrigin,
+    askId?: string,
   ): Promise<void> {
-    return this.replay.runReplay(window, lineage, relocation);
+    return this.replay.runReplay(window, lineage, relocation, askId);
   }
 
   /** Abort the in-flight replay, if any — the `cancel_replay` verb. */

@@ -7,12 +7,19 @@
  * second takes an unsaved edit, then the first tab is chosen. Only the
  * card's own page can answer whether its close should ask, so:
  *
- * - With `evictAfterMs` shortened and the workspace parked, both pages stand
- *   hidden well past the delay, and through a warning: the clock and a
- *   warning never take a page that guards its close.
+ * - With `evictAfterMs` shortened and the workspace parked, the host arms
+ *   no clock for either hidden page, and both stand through a warning: the
+ *   clock and a warning never take a page that guards its close.
  * - Back home, critical pressure — which must be able to take every page not
  *   shown — takes the dirty sibling. Its page wrote its edits aside as it
  *   went.
+ * - The shell page reloads. The word the evicted page left, that its guard
+ *   asks, is the card's rather than the shell's: the shell persisted it, and
+ *   the reloaded shell reads it back. A kind that guards its close is given
+ *   a page as soon as the shell is back, shown or not, so the read is taken
+ *   at once: from the shell's first answer on, the card's close asks —
+ *   on the kept word until the new page has read its edits back, on the
+ *   page's own word after.
  * - The pane's close then visits the evicted card: the shell kept the page's
  *   word that its guard asks, so the card is fronted, its page comes back,
  *   reads its edits back dirty, and its save sheet asks. Don't Save closes
@@ -21,6 +28,7 @@
  * @family row-38
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugdeck/src/lib/body-shell.ts
+ * @covers tugdeck/src/lib/kept-guard-word.ts
  * @covers tugdeck/src/lib/body-handoff.ts
  * @covers tugdeck/src/body/body-verbs.ts
  * @covers tugdeck/src/lib/text-card-store.ts
@@ -129,12 +137,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a guarded card through evic
           5_000,
         );
         expect(hidden.map((b) => b?.shown), "the parked workspace's pages are hidden").toEqual([false, false]);
-        // The clock falls due a delay after the hiding; a clock that took the
-        // page would have done so well inside twice that.
-        await settle(EVICT_AFTER_MS * 2);
-        const afterClock = await app.bodies();
-        expect(afterClock.some((b) => b.cardId === A), "the clock passed over the clean Text card's page").toBe(true);
-        expect(afterClock.some((b) => b.cardId === B), "the clock passed over the dirty Text card's page").toBe(true);
+        // The host arms the clock as it hides a page; one that guards its
+        // close is given none, which is the clock passing over it.
+        expect(hidden.map((b) => b?.evictDue), "the clock armed no eviction for either page that guards its close").toEqual([false, false]);
 
         await app.simulateMemoryPressure("warning");
         await settle(750);
@@ -152,6 +157,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a guarded card through evic
         await app.simulateMemoryPressure("normal");
         expect(gone.some((b) => b.cardId === B), "critical pressure took the dirty sibling's page").toBe(false);
         expect((await bodyOf(app, A))?.visible, "the shown card keeps its page").toBe(true);
+
+        // ---- The shell reloads; the evicted page's word is read back ----
+        const closeAsks = (): Promise<boolean | null> => app.evalJS<boolean | null>(`window.__tug.closeAsks(${JSON.stringify(B)})`);
+        expect(await closeAsks(), "the shell kept the evicted page's word that its close asks").toBe(true);
+        await settle();
+        await app.appReload({ timeoutMs: 15_000 });
+        expect(await closeAsks(), "the reloaded shell read the evicted page's word back").toBe(true);
+        await pollFor(() => bodyOf(app, A), (b) => b?.state === "ready" && b.visible, 15_000);
 
         // ---- The pane's close visits the evicted card, and its sheet asks ----
         const closedAt = performance.now();

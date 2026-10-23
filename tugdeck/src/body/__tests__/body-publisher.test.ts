@@ -59,6 +59,7 @@ async function setup(): Promise<{
       readWaive: () => state.waive,
       readGuarded: () => state.guarded,
       readAsks: () => state.asks,
+      readAnswered: () => state.asks !== null,
       readHold: () => state.hold,
       readCaptureArmed: () => false,
       readRestoreHold: () => null,

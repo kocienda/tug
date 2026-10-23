@@ -130,7 +130,7 @@ export const INBOUND_HANDLERS: InboundHandlers = {
       return;
     }
     console.log(`[dev::replay::request] session_id=${sessionId}`);
-    sessionManager.runReplay(msg.window, msg.lineage, msg.relocation).catch((err) => {
+    sessionManager.runReplay(msg.window, msg.lineage, msg.relocation, msg.ask_id).catch((err) => {
       console.error("request_replay failed:", err);
     });
   },

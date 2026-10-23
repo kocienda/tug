@@ -818,16 +818,22 @@ export function encodeSetSessionPrivate(sessionId: string, isPrivate: boolean): 
  * so a long session loads only its most relevant tail. The supervisor
  * forwards the window verbatim; tugcode reports the resulting slice on
  * `replay_complete`. Absent ⇒ the whole session (legacy).
+ *
+ * The optional `askId` names the ask, for a card that must tell its answer
+ * from any other bracket — a catch-up. tugcast passes it through and tugcode
+ * echoes it on the bracket that answers.
  */
 export function encodeRequestReplay(
   tugSessionId: string,
   reason: ReplayRequestReason,
   window?: ReplayWindow,
+  askId?: string,
 ): Frame {
   return controlFrame("request_replay", {
     tug_session_id: tugSessionId,
     reason,
     ...(window !== undefined ? { window } : {}),
+    ...(askId !== undefined ? { ask_id: askId } : {}),
   });
 }
 

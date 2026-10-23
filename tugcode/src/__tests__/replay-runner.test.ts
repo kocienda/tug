@@ -89,6 +89,22 @@ describe("ReplayRunner", () => {
     expect(host.tailerResets).toBe(1);
   });
 
+  test("a request naming an ask names it on the bracket's opener and its close, and an unnamed one names none", async () => {
+    const host = fakeHost({
+      readJsonl: async () => ({ kind: "missing", message: "no such file" }),
+    });
+    const runner = new ReplayRunner(host, { sessionsDbPath: null });
+
+    const named = await captureIpc(() => runner.runReplay(undefined, undefined, undefined, "ask-7"));
+    expect(named.map((m) => [m.type, (m as { ask_id?: string }).ask_id])).toEqual([
+      ["replay_started", "ask-7"],
+      ["replay_complete", "ask-7"],
+    ]);
+
+    const unnamed = await captureIpc(() => runner.runReplay());
+    expect(unnamed.every((m) => !("ask_id" in m))).toBe(true);
+  });
+
   test("a request landing while a replay is in flight is dropped", async () => {
     let release!: () => void;
     const held = new Promise<void>((r) => {

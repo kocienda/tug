@@ -63,13 +63,16 @@ export interface SendFrameEffect {
 }
 
 /**
- * Ask the session again for a catch-up's window: the bracket that was running
- * when the catch-up asked has closed first, which says tugcode dropped the ask
- * (`replay_in_flight`) rather than queue it, so the card asks once more.
+ * Ask the session again for a catch-up's window: the bracket the catch-up was
+ * asked behind has closed first, and tugcode may have dropped the ask while it
+ * ran (`replay_in_flight`), so the card asks once more — under a fresh
+ * `askId`, so that a second answer, should the first ask not have been
+ * dropped after all, is known for what it is.
  */
 export interface RequestReplayEffect {
   kind: "request-replay";
   window: ReplayWindow;
+  askId: string;
 }
 
 /**
@@ -95,6 +98,20 @@ export interface AppendTranscriptEffect {
    * false ⇒ the normal append (newest at the end).
    */
   prepend?: boolean;
+  /**
+   * When true, the transcript already holds a turn under this entry's msg-id
+   * — the tail a catch-up's deadline committed from frames it set aside — and
+   * this whole copy, from the late answer, replaces it where it stands rather
+   * than being appended. With no such turn it is appended as usual.
+   */
+  replaces?: boolean;
+  /**
+   * The msg-id of a held tail this turn belongs ahead of: a late answer
+   * carries the turns the card missed in order, the held tail's among them,
+   * so one older than the tail goes in before it. With no such turn it is
+   * appended as usual.
+   */
+  before?: string;
 }
 
 /**

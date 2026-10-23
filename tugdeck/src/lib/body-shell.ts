@@ -144,6 +144,9 @@ import { createSurfaceRelay, overlayRectOf } from "./surface-relay";
 import { indicate } from "./drag-indication";
 import { askCloseDecision, withdrawCloseDecision } from "./close-decision";
 import { closeRefusalStore } from "./close-refusal-store";
+import { createKeptGuardWords } from "./kept-guard-word";
+import { getTugbankClient } from "./tugbank-singleton";
+import { putGuardWord, readGuardWords } from "../settings-api";
 import { pageBus, type PageBus } from "../bus/page-bus";
 import { installKeyCardRoute } from "../bus/command-route";
 import {
@@ -165,6 +168,7 @@ import {
   cardContext,
   cardCrossing,
   cardFacts,
+  cardGuardAsks,
   cardHolds,
   cardInspected,
   cardInspection,
@@ -646,16 +650,28 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   /** The shell's close guard held for each body card whose guard spoke, with its release. */
   const closeGuards = new Map<string, () => void>();
   /**
-   * The body cards whose page said its guard would ask, and was then evicted:
-   * the detach clears the page's word with everything else it held, but a
-   * close must still ask, so the shell keeps it until the card's next page
-   * says so itself. That page says it only once its card has read back what
-   * the evicted one set aside, so a word of `false` before then is no answer.
+   * The word each evicted page left that its card's close asks, kept until
+   * the card's next page answers for itself (`kept-guard-word.ts`), and read
+   * back from its durable copy at load, so a shell reload keeps it too. The
+   * durable copy is held back in test mode, as the deck holds its own.
    */
-  const evictedAsking = new Set<string>();
+  const keptWords = createKeptGuardWords(
+    {
+      get: (cardId) => cardGuardAsks.getFor(cardId),
+      set: (cardId, asks) => cardGuardAsks.setFor(cardId, asks),
+      persist: (cardId, asks) => {
+        if (window.__tugTestMode === true && window.__tugPersistInTestMode !== true) return;
+        void putGuardWord(cardId, asks);
+      },
+    },
+    (() => {
+      const client = getTugbankClient();
+      return client === null ? [] : readGuardWords(client);
+    })(),
+  );
   /** Whether `cardId`'s close guard would ask: its page's word, or the word its evicted page left. */
   const guardAsks = (cardId: string): boolean =>
-    cardHolds.getFor(cardId).closeGuardAsks === true || evictedAsking.has(cardId);
+    cardHolds.getFor(cardId).closeGuardAsks === true || keptWords.asks(cardId);
   /** The modal hold the shell holds for each body card whose run said so, with its release. */
   const modalHolds = new Map<string, () => void>();
   const dropModalHold = (cardId: string): void => {
@@ -697,7 +713,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     surfaces.remove(cardId);
     closeGuards.get(cardId)?.();
     closeGuards.delete(cardId);
-    evictedAsking.delete(cardId);
     dropModalHold(cardId);
     cardIdentityElsewhere.set(cardId, null);
     paneTitleBarItemsStore.set(cardId, null);
@@ -838,6 +853,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       deck.observeCardDidResize(cardId, () => geometry.count(cardId, "resizes")),
       deck.observeCardWillBeginDestruction(cardId, () => {
         postToHost(bodyDestroyToHost, { cardId, save: false });
+        keptWords.closed(cardId);
         forget(cardId);
         geometry.forget(cardId);
         bus.forgetCard(cardId);
@@ -850,6 +866,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     perCard.set(cardId, () => {
       for (const unreg of unregs) unreg();
     });
+    // A card whose evicted page's word stands — read back after a shell
+    // reload — has a close that asks before any page of it says so.
+    if (keptWords.asks(cardId)) holdCloseGuard(cardId);
   };
 
   /** Set the shell's stores for `cardId`, which its page is sent at hello: current from the start. */
@@ -1367,7 +1386,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
    */
   const applyHolds = (cardId: string, holds: CardHoldsValue, prev: CardHoldsValue): void => {
     if (holds.closeGuardAsks !== null) holdCloseGuard(cardId);
-    if (holds.closeGuardAsks === true) evictedAsking.delete(cardId);
+    keptWords.heard(cardId, holds);
     const hold = holds.modalHold;
     const was = prev.modalHold;
     if (hold?.reason !== was?.reason || hold?.admitsFold !== was?.admitsFold) {
@@ -1659,8 +1678,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // placement that wants it shown asks for it again; one that already
         // does, a reveal racing the eviction, asks now.
         // A page that said its guard would ask leaves that word behind: the
-        // card's close asks until its next page says so itself.
-        if (cardHolds.getFor(cardId).closeGuardAsks === true) evictedAsking.add(cardId);
+        // card's close asks until its next page answers for itself.
+        keptWords.evicted(cardId, cardHolds.getFor(cardId));
         bodyCardsStore.setState(cardId, "evicted");
         bus.detach(cardId);
         paintGate.forget(cardId);

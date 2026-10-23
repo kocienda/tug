@@ -30,6 +30,10 @@ pub type DomainSnapshot = BTreeMap<String, Value>;
 struct Cached {
     entries: DomainSnapshot,
     generation: u64,
+    /// A write landed that the cache could not read back: the pair is the
+    /// last one read, and the next read reads the domain again rather than
+    /// serve it.
+    stale: bool,
 }
 
 // ── Callback registry ────────────────────────────────────────────────────────
@@ -89,6 +93,9 @@ struct Inner {
     store: DefaultsStore,
     cache: Mutex<HashMap<String, Cached>>,
     callbacks: Arc<Mutex<CallbackRegistry>>,
+    /// Tests only: make the read-back after a write fail.
+    #[cfg(test)]
+    fail_reload: std::sync::atomic::AtomicBool,
 }
 
 // ── TugbankClient ────────────────────────────────────────────────────────────
@@ -123,6 +130,8 @@ impl TugbankClient {
             store,
             cache: Mutex::new(HashMap::new()),
             callbacks: Arc::new(Mutex::new(CallbackRegistry::new())),
+            #[cfg(test)]
+            fail_reload: std::sync::atomic::AtomicBool::new(false),
         });
 
         Ok(Self { inner })
@@ -145,15 +154,8 @@ impl TugbankClient {
     /// Broadcasts a Unix socket notification so tugcast and other
     /// processes are notified of the change.
     pub fn set(&self, domain: &str, key: &str, value: Value) -> Result<(), Error> {
-        self.inner.store.domain(domain)?.set(key, value.clone())?;
-        if self.reload(domain).is_err() {
-            let mut cache = self.inner.cache.lock();
-            cache
-                .entry(domain.to_owned())
-                .or_default()
-                .entries
-                .insert(key.to_owned(), value);
-        }
+        self.inner.store.domain(domain)?.set(key, value)?;
+        self.read_back(domain);
         broadcast_domain_changed(domain);
         Ok(())
     }
@@ -165,12 +167,7 @@ impl TugbankClient {
     pub fn delete(&self, domain: &str, key: &str) -> Result<bool, Error> {
         let existed = self.inner.store.domain(domain)?.remove(key)?;
         if existed {
-            if self.reload(domain).is_err() {
-                let mut cache = self.inner.cache.lock();
-                if let Some(c) = cache.get_mut(domain) {
-                    c.entries.remove(key);
-                }
-            }
+            self.read_back(domain);
             broadcast_domain_changed(domain);
         }
         Ok(existed)
@@ -242,9 +239,30 @@ impl TugbankClient {
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
+    /// Read `domain` back into the cache after a write. When the read fails
+    /// the cached pair is left as it was and marked stale, so the next read
+    /// reads entries and generation again together: patching the written
+    /// entry in beside the old generation would publish the write under a
+    /// number every page has already applied, and the page would drop it.
+    fn read_back(&self, domain: &str) {
+        if self.reload(domain).is_err() {
+            if let Some(c) = self.inner.cache.lock().get_mut(domain) {
+                c.stale = true;
+            }
+        }
+    }
+
     /// Read `domain`'s entries and generation in one transaction into the
     /// cache, returning the entries.
     fn reload(&self, domain: &str) -> Result<DomainSnapshot, Error> {
+        #[cfg(test)]
+        if self
+            .inner
+            .fail_reload
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(Error::Sqlite(rusqlite::Error::InvalidQuery));
+        }
         let (entries, generation) = self
             .inner
             .store
@@ -256,27 +274,19 @@ impl TugbankClient {
             Cached {
                 entries: entries.clone(),
                 generation,
+                stale: false,
             },
         );
         Ok(entries)
     }
 
     fn ensure_domain_loaded(&self, domain: &str) -> Result<(), Error> {
-        let already_loaded = {
+        let fresh = {
             let cache = self.inner.cache.lock();
-            cache.contains_key(domain)
+            cache.get(domain).is_some_and(|c| !c.stale)
         };
-        if !already_loaded {
-            let (entries, generation) = self
-                .inner
-                .store
-                .domain(domain)?
-                .read_all_with_generation()?;
-            let mut cache = self.inner.cache.lock();
-            cache.entry(domain.to_owned()).or_insert(Cached {
-                entries,
-                generation,
-            });
+        if !fresh {
+            self.reload(domain)?;
         }
         Ok(())
     }
@@ -371,6 +381,49 @@ mod tests {
         let (fresh, generation) = client.read_domain_with_generation("gen").unwrap();
         assert_eq!(fresh.get("b"), Some(&Value::I64(2)));
         assert_eq!(generation, before + 1);
+    }
+
+    #[test]
+    fn test_a_write_whose_read_back_fails_is_read_with_its_own_generation() {
+        let tmp = NamedTempFile::new().expect("temp file");
+        let client = TugbankClient::open(tmp.path()).expect("open failed");
+        client.set("gen", "a", Value::I64(1)).unwrap();
+        let (_, before) = client.read_domain_with_generation("gen").unwrap();
+
+        // The write lands; reading the domain back fails.
+        client
+            .inner
+            .fail_reload
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        client.set("gen", "b", Value::I64(2)).unwrap();
+        client
+            .inner
+            .fail_reload
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+
+        // The next read reads entries and generation again, as one pair: the
+        // new entry never rides the old number, which a page would drop as
+        // already applied.
+        let (entries, generation) = client.read_domain_with_generation("gen").unwrap();
+        assert_eq!(entries.get("b"), Some(&Value::I64(2)));
+        assert!(
+            generation > before,
+            "generation {generation} must pass {before}"
+        );
+
+        // A delete whose read-back fails is read the same way.
+        client
+            .inner
+            .fail_reload
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(client.delete("gen", "b").unwrap());
+        client
+            .inner
+            .fail_reload
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let (after_delete, after_generation) = client.read_domain_with_generation("gen").unwrap();
+        assert_eq!(after_delete.get("b"), None);
+        assert!(after_generation > generation);
     }
 
     #[test]

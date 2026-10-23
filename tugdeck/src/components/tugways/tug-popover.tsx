@@ -903,7 +903,11 @@ function TugPopoverContentShell({
       if (contentEl instanceof HTMLElement) {
         contentEl.style.visibility = "hidden";
       }
-      ctx.close();
+      // Close through the chain as every other dismiss does ([P05]): a
+      // controlled composite (a confirm) has no `onOpenChange` and answers
+      // only the chain's dismiss, so a bare `close()` left it open and
+      // hidden, its owner waiting on an answer nobody could give.
+      ctx.closeAndEmit();
     };
     // Observe every layout ancestor of the trigger, up to <html>.
     // A pane / card resize resizes an ancestor; a window resize

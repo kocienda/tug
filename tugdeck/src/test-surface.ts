@@ -129,6 +129,7 @@ import { bodyVisibilityStore } from "./lib/body-visibility-store";
 import { harnessBodyDelays } from "./bus/declarations/deck";
 import { postToHost } from "./host/channel";
 import { bodyDelaysToHost, type BodyDelays } from "./host/declarations/lifecycle";
+import { getCardCloseGuard } from "./lib/card-close-guard";
 import {
   annotateCounters,
   type AnnotateCountersSnapshot,
@@ -586,8 +587,12 @@ import {
  * `2.53.0`: adds {@link TugTestSurface.bodyDelays}, on the shell: the one
  * seam on the body clocks — dormancy, eviction and the ready deadline — which
  * are constants in the product. Additive; major stays `2`.
+ *
+ * `2.54.0`: adds {@link TugTestSurface.closeAsks}, on the shell: whether a
+ * card's close guard, as the shell holds it, would ask — read where a page's
+ * word and the word an evicted page left meet. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.53.0" as const;
+export const SURFACE_VERSION = "2.54.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1812,6 +1817,13 @@ export interface TugTestSurface {
     evictAfterMs?: number | null;
     readyDeadlineMs?: number | null;
   }): void;
+
+  /**
+   * Whether `cardId`'s close guard, as this page holds it, would ask: null
+   * when it holds none. On the shell, a body card's guard answers from its
+   * page's word or the word its evicted page left (SURFACE_VERSION 2.54.0).
+   */
+  closeAsks(cardId: string): boolean | null;
 
   // ---- Dev lifecycle-matrix driving (SURFACE_VERSION 1.6.0) ----
 
@@ -3562,6 +3574,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       if (delays.evictAfterMs !== undefined || delays.readyDeadlineMs !== undefined) {
         postToHost(bodyDelaysToHost, { ...hostBodyDelays });
       }
+    },
+
+    closeAsks(cardId: string): boolean | null {
+      return getCardCloseGuard(cardId)?.needsDecision() ?? null;
     },
 
     /**

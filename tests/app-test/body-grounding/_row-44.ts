@@ -12,7 +12,9 @@
  * more of the canvas colour than the
  * settled pane does, and its title band holds at least three quarters of the
  * settled title's ink — or, for a card that has never had a page, three
- * quarters of the settled band's chrome. The first switched frame shows the
+ * quarters of the settled band's chrome. A box showing canvas-coloured paint
+ * with no grid in it, while the host has nothing of its card's on screen, is
+ * an open hole and fails too. The first switched frame shows the
  * host's face where the departing view stood: the host hides that view in
  * the transaction that stands a face for each arriving card whose page has
  * not painted, so neither the departing card nor the canvas shows over an
@@ -29,7 +31,7 @@ import { note, type App } from "../_harness";
 import type { BodyLayerRow, BodyLayersReading, CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { bodyOf, pollFor, settleFor } from "./_bodies";
-import { asRgbJs, FLOOR_COLUMNS, framesDiffer, gridColumnsIn, near, parseRgb, type FrameRegion, type Rgb } from "./_frames";
+import { asRgbJs, classifyFrame, FLOOR_COLUMNS, framesDiffer, gridColumnsIn, near, parseRgb, showsBareHole, type FrameRegion, type Palette, type Rgb } from "./_frames";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 60_000;
@@ -226,6 +228,7 @@ export async function readGesture(
     (r) => r.done,
     BURST_MS + 5_000,
   )) as BodyLayersReading;
+  if (!layers.done) return ["the host's layer rows did not finish"];
   const account = await app.handOvers();
   const handOver = account.handOvers.find((h) => h.serial > serialBefore) ?? null;
   const handOverBad: string[] = [];
@@ -283,9 +286,14 @@ export async function readGesture(
   const settled = decodePngFile(last.path);
   const settledInk: Record<string, number> = {};
   const settledCanvas: Record<string, number> = {};
+  // Each card's palette for the bare-hole read: its own settled fill, the
+  // canvas, and the window's background, which is what an open hole shows.
+  const palettes: Record<string, Palette> = {};
   for (const id of cardIds) {
     settledInk[id] = band === "title" ? inkShare(settled, titleOf(rects[id])) : 1 - canvasShare(settled, titleOf(rects[id]), canvas);
     settledCanvas[id] = canvasShare(settled, boxOf(rects[id]), canvas);
+    const probe: Palette = { surface: canvas, canvas, bare: parseRgb(reading.windowBackground) };
+    palettes[id] = { ...probe, surface: parseRgb(classifyFrame(last, probe, 8, boxOf(rects[id])).fill) };
   }
   let firstTitleBad: { wall: number; path: string } | null = null;
   for (const f of switched) {
@@ -307,6 +315,16 @@ export async function readGesture(
       // tolerance of the canvas and draws no grid.
       if (floor > settledCanvas[id] + BOX_CANVAS_SLACK && gridColumnsIn(png, canvas, boxOf(r)) >= FLOOR_COLUMNS) {
         bad.push(`${id} at ${ms} ms: box canvas ${(floor * 100).toFixed(1)}% against settled ${(settledCanvas[id] * 100).toFixed(1)}%`);
+        firstBad ??= { path: f.path, ms };
+      }
+      // An open hole draws no grid, so the grid gate above cannot see one.
+      // Canvas-coloured paint with no grid in it is a hole only where the
+      // host had nothing of the card's on screen: a lid is its page's own.
+      const host = layers.rows.filter((row) => row.cardId === id && row.wall <= f.wall).at(-1);
+      const hostShows = host !== undefined && (host.faced || (!host.hidden && host.opacity > 0));
+      const classes = classifyFrame(f, palettes[id], 8, boxOf(r));
+      if (!hostShows && showsBareHole(classes)) {
+        bad.push(`${id} at ${ms} ms: an open hole in the box, canvas ${(classes.canvas * 100).toFixed(1)}% grid ${(classes.grid * 100).toFixed(1)}% bare ${(classes.bare * 100).toFixed(1)}%, nothing of the card's on screen`);
         firstBad ??= { path: f.path, ms };
       }
       const titleFails = ink < HELD_TITLE_SHARE * settledInk[id];

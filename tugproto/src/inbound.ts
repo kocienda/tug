@@ -364,6 +364,15 @@ export interface RequestReplay {
    * mark, byte-identical to the behavior before directory changes existed.
    */
   relocation?: ReplayRelocationOrigin;
+  /**
+   * The id of the ask this request is, minted by the card that asked. tugcode
+   * echoes it on the `replay_started` and `replay_complete` of the bracket it
+   * runs for this request, so the card can tell its answer from any other
+   * bracket — a cold-boot read, another ask's answer, or a second answer to
+   * an ask it re-sent. Absent ⇒ nobody is waiting on this request by name,
+   * and its bracket carries none.
+   */
+  ask_id?: string;
 }
 
 /**

@@ -67,6 +67,8 @@ export interface BodyPublisherSources {
   readGuarded(): boolean;
   /** Whether the card's close guard would ask, or null when it registered none. */
   readAsks(): boolean | null;
+  /** Whether the card's close guard's word is its answer yet; false with no guard. */
+  readAnswered(): boolean;
   /** The card's modal hold — its reason and whether it admits the fold — or null when it has none. */
   readHold(): { reason: string; admitsFold: boolean } | null;
   /** Whether a chord capture is armed in the card. */
@@ -96,6 +98,7 @@ export class BodyPublisher {
       waive: s.readWaive(),
       guarded: s.readGuarded(),
       closeGuardAsks: s.readAsks(),
+      closeGuardAnswered: s.readAnswered(),
       modalHold: s.readHold(),
       captureArmed: s.readCaptureArmed(),
     });
@@ -214,6 +217,10 @@ export function installBodyPublisher(
       readAsks: () => {
         const guard = getCardCloseGuard(cardId);
         return guard === null ? null : guard.needsDecision();
+      },
+      readAnswered: () => {
+        const guard = getCardCloseGuard(cardId);
+        return guard !== null && (guard.answered?.() ?? true);
       },
       readHold: () => {
         const hold = cardModalHoldStore.getFor(cardId);

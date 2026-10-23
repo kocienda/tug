@@ -1,12 +1,6 @@
 import AppKit
 import WebKit
 
-/// How short of memory the machine says it is: the dispatch source's three
-/// levels, or the harness standing in for it (`simulateMemoryPressure`).
-enum MemoryPressureLevel: String {
-    case normal, warning, critical
-}
-
 /// The bodies' lifecycle: every move of a body's state, and what the host
 /// does with a body's process — eviction by time and by memory pressure, the
 /// covers an evicted card comes back under, and the declines a pressure
@@ -33,14 +27,21 @@ final class BodyLifecycle {
     /// The warning's next eviction, a beat after the last one finished —
     /// its process gone, or the body kept: a level change cancels it.
     private var pendingWarningStep: DispatchWorkItem?
+    /// A warning's eviction is under way: the step after it is set when it
+    /// finishes, so a warning said again does not start a second.
+    private var warningStepping = false
     /// The bodies this episode asked and that declined — shown while saving,
     /// or a save that did not answer — by serial.
     private var episode = PressureEpisode()
-    /// The last frame of each card evicted and not yet asked for again, taken
-    /// as its process went: the cover its next body stands under. Bounded:
-    /// a cover older than `evictAfterMs` goes, and past `coverBudgetBytes`
-    /// the oldest go first. Critical pressure takes none and drops them all,
-    /// and refuses any snapshot still answering.
+    /// Every cover a body stands under — brought back from an eviction, or
+    /// carried through a crossing — and the last frame of each card evicted
+    /// and not yet asked for again, taken as its process went. Bounded: a
+    /// kept cover older than `evictAfterMs` goes, and past `coverBudgetBytes`
+    /// the oldest kept covers go first. The budget counts the covers standing
+    /// over bodies as well, though none of those is ever dropped for it: a
+    /// standing cover is on screen, so the kept ones give way to it. Critical
+    /// pressure takes no cover, drops every kept one, and refuses any
+    /// snapshot still answering.
     private(set) lazy var covers: BodyCovers = {
         let covers = BodyCovers(budgetBytes: BodyLifecycle.coverBudgetBytes)
         covers.onDrop = { cardId, why in
@@ -48,12 +49,14 @@ final class BodyLifecycle {
         }
         return covers
     }()
-    /// What the covers may hold together, counted in pixel bytes — the most
-    /// they could hold resident. Twenty covers of a 640 × 480 pane at one
-    /// point a pixel are 25.3 MB of pixels (100.7 MB at the backing's two),
-    /// and moved the footprint 1.4 MB as CoreGraphics images against 26.7 MB
-    /// for the same bytes malloc'd: so twenty ordinary panes keep theirs, and
-    /// window-sized ones, 5 MB each, give way past six.
+    /// What the covers may hold together, kept and standing, counted in
+    /// pixel bytes — the most they could hold resident. Twenty covers of a
+    /// 640 × 480 pane at one point a pixel are 25.3 MB of pixels (100.7 MB
+    /// at the backing's two), and moved the footprint 1.4 MB as CoreGraphics
+    /// images against 26.7 MB for the same bytes malloc'd: so twenty ordinary
+    /// panes keep theirs, and window-sized ones, 5 MB each, give way past six.
+    /// A crossing's cover is taken at the backing's scale, and while it
+    /// stands it leaves that much less room for the kept ones.
     static let coverBudgetBytes = 32 << 20
     /// How long a body may stay hidden before it gives up its process, ms:
     /// fifteen minutes. A dormant body has stopped working but still holds
@@ -124,14 +127,25 @@ final class BodyLifecycle {
     /// aged or budgeted out — is told nothing and arrives as any card does,
     /// under the shell's stand-in until its page paints.
     func standCover(over body: Body) {
-        guard let cardId = body.cardId, let kept = covers.take(cardId) else { return }
-        let cover = BodyCoverView(cover: kept, frame: body.container.bounds)
+        guard let cardId = body.cardId, let stand = covers.standCover(for: cardId, kind: .eviction) else { return }
+        let cover = BodyCoverView(cover: stand.cover, frame: body.container.bounds)
         if let insets = body.insets { cover.paneInsets = insets }
         cover.autoresizingMask = [.width, .height]
         body.container.addSubview(cover, positioned: .above, relativeTo: body.webView)
         body.cover = cover
+        body.stand = stand
         body.wasCovered = true
         controller.notifyShell(BodyStateReport(cardId: cardId, state: .covered))
+    }
+
+    /// The body's page has painted: a cover it was brought back under
+    /// comes off, unless a crossing still holds it to its land.
+    func paintTakesDownCover(_ body: Body) {
+        guard let cardId = body.cardId, let stand = body.stand,
+              covers.takeDown(stand, kind: .eviction, for: cardId) else { return }
+        body.cover?.removeFromSuperview()
+        body.cover = nil
+        body.stand = nil
     }
 
     // MARK: - Pressure
@@ -143,13 +157,20 @@ final class BodyLifecycle {
     /// siblings and the spare with them, and the spare is made again once
     /// the level eases. A body placed visible is never evicted, and nothing
     /// here counts bodies.
+    ///
+    /// A level said again continues its episode, and a repeated warning
+    /// starts no step while one is under way or due; one whose steps had run
+    /// out asks again, the episode still declining each body only once.
     func memoryPressure(_ level: PressureLevel) {
         let was = pressure
+        let repeated = level == was
         pressure = level
         TugLog.info("bodies", "memory pressure", [TugLog.field("level", level.rawValue)])
-        pendingWarningStep?.cancel()
-        pendingWarningStep = nil
-        episode = PressureEpisode()
+        episode = episode.after(was, level)
+        if !repeated {
+            pendingWarningStep?.cancel()
+            pendingWarningStep = nil
+        }
         switch level {
         case .normal:
             if was == .critical { controller.scheduleSpare() }
@@ -157,6 +178,7 @@ final class BodyLifecycle {
         case .warning:
             // A warning keeps the spare: one critical took is made again.
             if was == .critical { controller.scheduleSpare() }
+            if repeated, warningStepping || pendingWarningStep != nil { return }
             evictOldestHidden()
         case .critical:
             controller.lane.cancelPendingSpare()
@@ -205,12 +227,12 @@ final class BodyLifecycle {
     /// pressure asks, so one the placement named visible is never taken
     /// ([B06]); one that cannot be asked yet — in the host's hand, or
     /// mid-eviction — is asked again a whole delay on. A kind that may veto
-    /// its close has no clock.
+    /// its close has no clock, now or after a critical eviction it declined.
     func armEviction(_ body: Body) {
         body.evictDue?.cancel()
         body.evictDue = nil
         let ms = evictAfterMs
-        guard body.cardId != nil, !body.guardsClose, let shown = body.shown, !shown.value else { return }
+        guard body.cardId != nil, let shown = body.shown, !shown.value else { return }
         scheduleEviction(body, inMs: max(0, ms - (Date().timeIntervalSince1970 * 1000 - shown.since)))
     }
 
@@ -219,16 +241,17 @@ final class BodyLifecycle {
         body.evictDue?.cancel()
         body.evictDue = nil
         let ms = evictAfterMs
-        guard body.state != .gone, body.cardId != nil, body.shown?.value == false else { return }
+        guard body.life.clockArms(guardsClose: body.guardsClose), body.cardId != nil,
+              body.shown?.value == false else { return }
         let work = DispatchWorkItem { [weak self, weak body] in
             guard let self, let body else { return }
             body.evictDue = nil
-            guard self.evictable(body, siblings: false, episode: false) else {
-                // An eviction already going settles its own re-arm.
-                if body.state != .evicting { self.scheduleEviction(body, inMs: ms) }
-                return
+            let takeable = self.evictable(body, siblings: false, episode: false)
+            switch body.life.clockFalls(takeable: takeable, guardsClose: body.guardsClose) {
+            case .evict: self.evict(body, cause: "hidden")
+            case .again: self.scheduleEviction(body, inMs: ms)
+            case .stop: break
             }
-            self.evict(body, cause: "hidden")
         }
         body.evictDue = work
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(delay.rounded())), execute: work)
@@ -243,8 +266,11 @@ final class BodyLifecycle {
         let candidates = controller.bodies.filter { evictable($0, siblings: false, episode: false) }
         let next = episode.next(among: candidates.map { ($0.serial, $0.shown?.since ?? 0) })
         guard let oldest = candidates.first(where: { $0.serial == next }) else { return }
+        warningStepping = true
         evict(oldest, cause: "pressure-warning") { [weak self] in
-            guard let self, self.pressure == .warning else { return }
+            guard let self else { return }
+            self.warningStepping = false
+            guard self.pressure == .warning else { return }
             let work = DispatchWorkItem { [weak self] in
                 self?.pendingWarningStep = nil
                 self?.evictOldestHidden()
@@ -271,7 +297,10 @@ final class BodyLifecycle {
     /// whichever way it went — the body removed, kept or let go — so a
     /// warning's next step is timed from there.
     private func evict(_ body: Body, cause: String, then done: (() -> Void)? = nil) {
-        guard let cardId = body.cardId, move(body, .evict) else { return }
+        guard let cardId = body.cardId, move(body, .evict) else {
+            done?()
+            return
+        }
         let count = body.life.eviction
         TugLog.info("bodies", "evicting", [TugLog.field("card", cardId), TugLog.field("cause", cause)])
         var settled = false
@@ -319,7 +348,7 @@ final class BodyLifecycle {
                 // A page that has not painted would snapshot nothing it ever
                 // showed: the cover standing over it, if one does, is its
                 // last frame still.
-                finish(body.cover?.kept)
+                finish(body.stand?.cover)
             } else {
                 self.takeCover(of: body, cardId: cardId, then: finish)
             }

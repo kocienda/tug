@@ -60,6 +60,19 @@ fn parse_request_replay_reason(payload: &[u8]) -> String {
         .unwrap_or_else(|| "unspecified".to_owned())
 }
 
+/// Extract the `ask_id` a card named its `request_replay` with. The supervisor
+/// passes it to tugcode untouched, whether it forwards the request at once or
+/// queues it through the Spawning window, and tugcode echoes it on the
+/// bracket that answers — the one way the card can tell its answer from a
+/// cold-boot read or a second answer to an ask it re-sent. Absent, empty or
+/// not a string ⇒ `None`, and the request goes out unnamed.
+fn parse_request_replay_ask_id(payload: &[u8]) -> Option<String> {
+    serde_json::from_slice::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|v| v.get("ask_id").and_then(|a| a.as_str()).map(str::to_owned))
+        .filter(|a| !a.is_empty())
+}
+
 impl AgentSupervisor {
     /// The session lifecycle family's share of
     /// [`AgentSupervisor::handle_control`]: the same arms, the same replies,
@@ -155,7 +168,8 @@ impl AgentSupervisor {
                 };
                 let window = parse_request_replay_window(payload);
                 let reload_reason = parse_request_replay_reason(payload);
-                self.do_request_replay(&tug_session_id, window, &reload_reason)
+                let ask_id = parse_request_replay_ask_id(payload);
+                self.do_request_replay(&tug_session_id, window, ask_id, &reload_reason)
                     .await;
                 Ok(())
             }
@@ -817,6 +831,7 @@ impl AgentSupervisor {
         &self,
         tug_session_id: &TugSessionId,
         window: Option<serde_json::Value>,
+        ask_id: Option<String>,
         reload_reason: &str,
     ) {
         let entry_arc = {
@@ -891,32 +906,37 @@ impl AgentSupervisor {
         // whether we forward immediately (Live) or queue (Spawning). The
         // optional recency `window` is forwarded verbatim — the supervisor
         // doesn't interpret it; tugcode validates the shape at its handler
-        // boundary. The no-window, no-lineage, no-relocation path stays byte-identical to
-        // the legacy full-replay request.
-        let body: Vec<u8> = if window.is_none() && lineage.is_none() && relocation.is_none() {
-            b"{\"type\":\"request_replay\"}".to_vec()
-        } else {
-            let mut payload = serde_json::Map::new();
-            payload.insert("type".into(), serde_json::json!("request_replay"));
-            if let Some(w) = &window {
-                payload.insert("window".into(), w.clone());
-            }
-            if let Some(l) = &lineage {
-                payload.insert("lineage".into(), serde_json::json!(l));
-            }
-            if let Some((parent, from_dir, to_dir)) = &relocation {
-                payload.insert(
-                    "relocation".into(),
-                    serde_json::json!({
-                        "parentSessionId": parent,
-                        "fromDir": from_dir,
-                        "toDir": to_dir,
-                    }),
-                );
-            }
-            serde_json::to_vec(&serde_json::Value::Object(payload))
-                .expect("request_replay payload serializes")
-        };
+        // boundary. The `ask_id` rides the same way, for tugcode to echo. The
+        // no-window, no-lineage, no-relocation, unnamed path stays
+        // byte-identical to the legacy full-replay request.
+        let body: Vec<u8> =
+            if window.is_none() && lineage.is_none() && relocation.is_none() && ask_id.is_none() {
+                b"{\"type\":\"request_replay\"}".to_vec()
+            } else {
+                let mut payload = serde_json::Map::new();
+                payload.insert("type".into(), serde_json::json!("request_replay"));
+                if let Some(w) = &window {
+                    payload.insert("window".into(), w.clone());
+                }
+                if let Some(a) = &ask_id {
+                    payload.insert("ask_id".into(), serde_json::json!(a));
+                }
+                if let Some(l) = &lineage {
+                    payload.insert("lineage".into(), serde_json::json!(l));
+                }
+                if let Some((parent, from_dir, to_dir)) = &relocation {
+                    payload.insert(
+                        "relocation".into(),
+                        serde_json::json!({
+                            "parentSessionId": parent,
+                            "fromDir": from_dir,
+                            "toDir": to_dir,
+                        }),
+                    );
+                }
+                serde_json::to_vec(&serde_json::Value::Object(payload))
+                    .expect("request_replay payload serializes")
+            };
         let frame = Frame::new(FeedId::CODE_INPUT, body);
 
         // For the Spawning branch we need the entry mutex held while we

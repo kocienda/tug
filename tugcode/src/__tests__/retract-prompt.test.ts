@@ -110,12 +110,25 @@ function retractManager(jsonl: string | null) {
     killCalls++;
     (manager as any).claudeProcess = null;
   };
+  // The retraction runs off a `setTimeout(0)` and nothing awaits it; keep the
+  // promise its real body returns, so a test can wait on that and not a clock.
+  const rewind = (manager as any).rewind;
+  const apply = rewind.applyPromptRetraction.bind(rewind);
+  rewind.applyPromptRetraction = (promptUuid: string) => {
+    const running: Promise<void> = apply(promptUuid);
+    retractions.set(manager, running);
+    return running;
+  };
   return { manager, writes, spawns, killCalls: () => killCalls };
 }
 
-/** Await the setTimeout(0)-scheduled retraction and its async body. */
-async function settleRetraction(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 10));
+/** The retraction each manager last began, by the promise its body returned. */
+const retractions = new WeakMap<SessionManager, Promise<void>>();
+
+/** Await the setTimeout(0)-scheduled retraction, if one was scheduled, and its async body. */
+async function settleRetraction(manager: SessionManager): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0));
+  await retractions.get(manager);
 }
 
 describe("handleInterrupt retract flag", () => {
@@ -160,7 +173,7 @@ describe("retraction on turn close", () => {
       (manager as any).handleClaudeLine(
         JSON.stringify({ type: "result", subtype: "success", result: "" }),
       );
-      await settleRetraction();
+      await settleRetraction(manager);
     });
 
     // In-place truncation of the live session's own file: the retracted
@@ -195,7 +208,7 @@ describe("retraction on turn close", () => {
       (manager as any).handleClaudeLine(
         JSON.stringify({ type: "result", subtype: "success", result: "" }),
       );
-      await settleRetraction();
+      await settleRetraction(manager);
     });
 
     expect(writes.length).toBe(0);
@@ -216,7 +229,7 @@ describe("retraction degrade guards", () => {
       (manager as any).handleClaudeLine(
         JSON.stringify({ type: "result", subtype: "success", result: "" }),
       );
-      await settleRetraction();
+      await settleRetraction(manager);
     });
 
     expect(writes.length).toBe(0);
@@ -242,7 +255,7 @@ describe("retraction degrade guards", () => {
       (manager as any).activeTurn = new ActiveTurn(1, [
         { type: "text", text: "follow-on" },
       ]);
-      await settleRetraction();
+      await settleRetraction(manager);
     });
 
     expect(writes.length).toBe(0);
@@ -263,7 +276,7 @@ describe("retraction degrade guards", () => {
       (manager as any).handleClaudeLine(
         JSON.stringify({ type: "result", subtype: "success", result: "" }),
       );
-      await settleRetraction();
+      await settleRetraction(manager);
     });
 
     expect(writes.length).toBe(0);
@@ -283,7 +296,7 @@ describe("retraction degrade guards", () => {
       (manager as any).handleClaudeLine(
         JSON.stringify({ type: "result", subtype: "success", result: "" }),
       );
-      await settleRetraction();
+      await settleRetraction(manager);
     });
 
     expect(writes.length).toBe(0);

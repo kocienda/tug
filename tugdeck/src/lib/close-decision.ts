@@ -9,8 +9,9 @@
  * said it would not answers at once, so a body silent past the deadline is
  * not answering: the close is cancelled, and the card's pane says so
  * (`close-refusal-store.ts`) beside the dev-log line, rather than the close
- * silently not happening. A body that goes away cancels it, and so does a
- * newer ask of the same card.
+ * silently not happening. A body that goes away cancels it, and the pane
+ * says that too, with its reason; a newer ask of the same card cancels it
+ * silently, being the answer to it.
  *
  * @module lib/close-decision
  */
@@ -45,6 +46,9 @@ export async function askCloseDecision(
   if (result.reason === "timeout") {
     tugDevLogStore.error("body", "a body did not answer its close decision; the close is cancelled", { cardId });
     closeRefusalStore.refuse(cardId);
+  } else if (result.reason === "detached") {
+    tugDevLogStore.warn("body", "a body's page went away while it was asked its close decision; the close is cancelled", { cardId });
+    closeRefusalStore.refuse(cardId, "gone");
   }
   return "cancel";
 }

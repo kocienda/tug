@@ -127,7 +127,7 @@ import { hostCapabilitiesStore, reloadBody } from "@/lib/body-handoff";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugPaneBanner } from "@/components/tugways/tug-pane-banner";
 import { BodyStandIn } from "./body-stand-in";
-import { CLOSE_REFUSAL_LABEL, CLOSE_REFUSAL_MESSAGE, closeRefusalStore } from "@/lib/close-refusal-store";
+import { CLOSE_REFUSAL_LABEL, CLOSE_REFUSAL_MESSAGES, closeRefusalStore } from "@/lib/close-refusal-store";
 import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -707,7 +707,7 @@ function BodyPlaceholder({ cardId, hostStackId, componentId, isActive = true }: 
   });
   const failed = useSyncExternalStore(bodyCardsStore.subscribe, () => bodyCardsStore.stateOf(cardId) === "failed");
   const chain = useResponderChain();
-  const closeRefused = useSyncExternalStore(closeRefusalStore.subscribe, () => closeRefusalStore.isRefused(cardId));
+  const closeRefused = useSyncExternalStore(closeRefusalStore.subscribe, () => closeRefusalStore.reasonOf(cardId));
   // The banner portals into the pane's card root, as a card's own banner does.
   // That root is the pane's, shared by every tab, so the banner stands only
   // while this card is the tab shown: a refusal is about this card, never the
@@ -741,12 +741,12 @@ function BodyPlaceholder({ cardId, hostStackId, componentId, isActive = true }: 
           <TugPanePortalContext value={hostCardRootEl}>
             <CardIdContext value={cardId}>
               <TugPaneBanner
-                visible={closeRefused && isActive}
+                visible={closeRefused !== null && isActive}
                 variant="status"
                 tone="caution"
                 icon="CircleAlert"
                 label={CLOSE_REFUSAL_LABEL}
-                message={CLOSE_REFUSAL_MESSAGE}
+                message={CLOSE_REFUSAL_MESSAGES[closeRefused ?? "silent"]}
                 footer={
                   <TugPushButton emphasis="outlined" onClick={() => closeRefusalStore.clear(cardId)}>
                     Dismiss

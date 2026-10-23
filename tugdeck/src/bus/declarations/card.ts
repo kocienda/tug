@@ -192,6 +192,12 @@ export interface CardHoldsValue {
   guarded: boolean;
   /** Whether the card's close guard would ask, or null when it registered none. */
   closeGuardAsks: boolean | null;
+  /**
+   * Whether `closeGuardAsks` is the guard's answer: false while the page is
+   * still learning it — a page brought back after an eviction, reading back
+   * what the evicted page set aside — and on a card with no guard.
+   */
+  closeGuardAnswered: boolean;
   /** The modal run holding the card — `/compact` in flight — or null. */
   modalHold: { reason: string; admitsFold: boolean } | null;
   /** Whether a chord capture is armed in the card, which parks the host's menu bar. */
@@ -203,6 +209,7 @@ export const NO_CARD_HOLDS: CardHoldsValue = {
   waive: false,
   guarded: true,
   closeGuardAsks: null,
+  closeGuardAnswered: false,
   modalHold: null,
   captureArmed: false,
 };
@@ -216,10 +223,27 @@ export const cardHolds = defineSharedStore<CardHoldsValue>({
     waive: bool,
     guarded: bool,
     closeGuardAsks: nullable(bool),
+    closeGuardAnswered: bool,
     modalHold: nullable(obj({ reason: str, admitsFold: bool })),
     captureArmed: bool,
   }),
   initial: NO_CARD_HOLDS,
+});
+
+/**
+ * Whether the card's close asks on the word of a page that is gone: a page
+ * that said its guard would ask, then was evicted. The detach clears that
+ * page's `card.holds` with everything else it held, but the card's close must
+ * still ask, so the shell keeps the word — and persists it, so a shell reload
+ * reads it back — until the card's next page has answered for itself
+ * (`closeGuardAnswered`), either way.
+ */
+export const cardGuardAsks = defineSharedStore<boolean>({
+  key: "card.guardAsks",
+  owner: "shell",
+  scope: { card: true },
+  codec: bool,
+  initial: false,
 });
 
 /** The room the card asks of its pane: a sheet's floor, and the opening bid of an arriving card. */

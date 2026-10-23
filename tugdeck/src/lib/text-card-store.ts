@@ -77,9 +77,6 @@ export type SaveMode = "manual" | "automatic";
 /** Idle debounce between the last edit and the write-through. */
 export const AUTOSAVE_DEBOUNCE_MS = 1000;
 
-/** Consecutive write failures before the card surfaces a banner. */
-export const WRITE_FAILURE_BANNER_THRESHOLD = 3;
-
 /**
  * How long an apparently-vanished file is given to come back before the
  * store calls it missing. A checkout, a branch switch, or an editor's
@@ -476,10 +473,22 @@ export class TextCardStore extends Subscribable {
     while (this._opens.size > 0) await Promise.allSettled([...this._opens]);
   }
 
+  /** Whether an open is in flight: {@link whenOpened} has yet to settle. */
+  get opening(): boolean {
+    return this._opens.size > 0;
+  }
+
   /** Track `open` until it settles, for {@link whenOpened}. */
   private _opened(open: Promise<void>): Promise<void> {
     this._opens.add(open);
-    void open.finally(() => this._opens.delete(open)).catch(() => undefined);
+    void open
+      .finally(() => {
+        this._opens.delete(open);
+        // The last open settling is news to a reader of `opening`: the
+        // buffer's dirty bit is known from here.
+        if (this._opens.size === 0 && !this._disposed) this.notify();
+      })
+      .catch(() => undefined);
     return open;
   }
 

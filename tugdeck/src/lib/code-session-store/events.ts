@@ -807,12 +807,23 @@ export type WireErrorEvent = WireEvent<Wire.ErrorEvent, "site" | "recoverable"> 
  * Internal event mapped from a `SESSION_STATE { state: "errored" }`
  * frame. The store's `frameToEvent` extracts the `detail` field from
  * the wire payload; the reducer rolls it into `state.lastError.message`.
- * Only the `"errored"` state maps to an event — all other states
- * (`pending`, `spawning`, `closed`, …) are dropped in `frameToEvent`.
+ * `"spawning"` and `"live"` map to {@link SessionSpawnStateEvent}; the
+ * others (`pending`, `closed`, …) are dropped in `frameToEvent`.
  */
 export interface SessionStateErroredEvent {
   type: "session_state_errored";
   detail?: string;
+}
+
+/**
+ * Internal event mapped from a `SESSION_STATE { state: "spawning" | "live" }`
+ * frame: the session's tugcode is being spawned, or the spawn is ready and
+ * claude has said `session_init`. A catch-up asked of a spawning session is
+ * answered only after its ready, so these move the catch-up's horizon.
+ */
+export interface SessionSpawnStateEvent {
+  type: "session_spawn_state";
+  state: "spawning" | "live";
 }
 
 /**
@@ -1349,6 +1360,13 @@ export interface BeginLoadPreviousEvent {
  */
 export interface BeginCatchUpEvent {
   type: "begin_catch_up";
+  /**
+   * The id the store minted for the ask and sends as its `ask_id`. Minted
+   * there, not here, because the store sends the ask, and its mirror of the
+   * reducer's state can trail a dispatch — mid-stream, or inside a bracket's
+   * fold — so an id read back from it after the dispatch would be stale.
+   */
+  askId: string;
 }
 
 /**
@@ -1573,6 +1591,7 @@ export type CodeSessionEvent =
   | UnknownEventEvent
   | WireErrorEvent
   | SessionStateErroredEvent
+  | SessionSpawnStateEvent
   | SessionUnknownEvent
   | SessionNotOwnedEvent
   | TransportCloseEvent

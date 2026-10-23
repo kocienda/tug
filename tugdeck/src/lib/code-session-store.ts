@@ -55,6 +55,7 @@ import { putImageBytes, synthesizeUserMessageFromBlocks } from "./synthesize-use
 import {
   createInitialState,
   deriveActiveTurnSnapshot,
+  mintAskId,
   type CodeSessionState,
 } from "./code-session-store/reducer";
 import {
@@ -1273,18 +1274,29 @@ export class CodeSessionStore extends Subscribable {
    * since the bracket lost its tail with the subscription; the new bracket
    * completes it. `catchingUp` stands until the bracket closes, or for
    * `CATCH_UP_DEADLINE_MS` when no bracket comes.
+   *
+   * The ask carries an id minted here, which tugcode echoes on the bracket
+   * that answers: the card enters that bracket, and no other, as the
+   * catch-up's. It is minted here and handed to the reducer, never read back
+   * from it, because this store's mirror of the reducer's state can trail a
+   * dispatch — mid-stream, or inside a bracket's fold. A reveal inside the
+   * catch-up's own bracket asks nothing: the reducer refuses the move, and
+   * nothing is sent.
    */
   catchUp(): void {
     if (this._disposed) return;
+    const asking = this.state.catchUp.stage !== "open";
     const open = this.state.phase === "replaying" ? this.state.catchUp.openWindow : null;
-    this.dispatch({ type: "begin_catch_up" });
+    const askId = mintAskId();
+    this.dispatch({ type: "begin_catch_up", askId });
+    if (!asking) return;
     // Read after the dispatch: inside a bracket the transcript's post is held
     // until something publishes, and `begin_catch_up` does.
     const window: ReplayWindow = open ?? {
       afterTurn: heldTurnsOf(this._transcript, this.state.replayWindow?.firstLoadedTurnIndex ?? 0),
     };
     this.dispatch({ type: "replay_asked", window });
-    const frame = encodeRequestReplay(this.tugSessionId, "catch-up", window);
+    const frame = encodeRequestReplay(this.tugSessionId, "catch-up", window, askId);
     this.write(frame.feedId, frame.payload);
   }
 

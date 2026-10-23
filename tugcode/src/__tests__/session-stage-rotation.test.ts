@@ -39,6 +39,16 @@ let spawnArgs: string[][] = [];
 /** Every JSON line written to stdout since the last reset, in write order. */
 let emitted: any[] = [];
 
+/**
+ * The host variables a stage's spawn sets or clears, as this process holds
+ * them. A suite run from inside an arc stage inherits that stage's — its
+ * backstop and its arc — and the product keeps a backstop the user set
+ * themselves, so each test starts from a host holding none, and the host's own
+ * come back after.
+ */
+const STAGE_ENV = ["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "TUG_ARC"] as const;
+let hostStageEnv: Array<[string, string | undefined]> = [];
+
 function fakeProcess(): unknown {
   return {
     stdin: { write: () => {}, flush: () => {}, end: () => {} },
@@ -53,6 +63,8 @@ beforeEach(() => {
   spawnEnvs = [];
   spawnArgs = [];
   emitted = [];
+  hostStageEnv = STAGE_ENV.map((name) => [name, process.env[name]]);
+  for (const name of STAGE_ENV) delete process.env[name];
   (Bun as unknown as { which: unknown }).which = (cmd: string) =>
     cmd === "claude" ? FAKE_CLAUDE : null;
   (Bun as unknown as { spawn: unknown }).spawn = (
@@ -90,6 +102,9 @@ afterEach(() => {
   (Bun as unknown as { which: unknown }).which = realWhich;
   (Bun as unknown as { spawn: unknown }).spawn = realSpawn;
   (Bun as any).write = realWrite;
+  for (const [name, value] of hostStageEnv) {
+    if (value !== undefined) process.env[name] = value;
+  }
 });
 
 function manager(): any {

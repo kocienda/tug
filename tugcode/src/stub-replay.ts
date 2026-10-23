@@ -462,11 +462,14 @@ export class StubReplayEngine {
    * bracket covered. An `afterTurn` is placed as production places it: after
    * the newest finished turn carrying a named msg-id, else one turn before
    * the count the card holds.
+   *
+   * The bracket names the ask it answers, as production's does.
    */
-  answerReplay(window?: ReplayWindow): void {
-    this.emit({ type: "replay_started", ipc_version: IPC_VERSION } as OutboundMessage);
+  answerReplay(window?: ReplayWindow, askId?: string): void {
+    const named = askId === undefined ? {} : { ask_id: askId };
+    this.emit({ type: "replay_started", ...named, ipc_version: IPC_VERSION } as OutboundMessage);
     if (window === undefined || "lastTurns" in window) {
-      this.emit({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION } as OutboundMessage);
+      this.emit({ type: "replay_complete", count: 0, ...named, ipc_version: IPC_VERSION } as OutboundMessage);
       return;
     }
     const total = this.turnsDone.length;
@@ -488,6 +491,7 @@ export class StubReplayEngine {
       firstLoadedTurnIndex: first,
       totalTurns: total,
       hasOlder: first > 0,
+      ...named,
       ipc_version: IPC_VERSION,
     } as unknown as OutboundMessage);
   }

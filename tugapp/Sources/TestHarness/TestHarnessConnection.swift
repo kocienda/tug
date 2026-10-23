@@ -163,8 +163,8 @@ final class TestHarnessConnection {
     /// responder's class. Additive; major stays `1`.
     ///
     /// `1.21.0`: adds `stallBodyReadies` — the next `count` bodies' readies
-    /// are ignored, as `TUG_BODY_FORCE_STALL` ignores the first ones, so a
-    /// row can fail a body made mid-run. Additive; major stays `1`.
+    /// are ignored, so a row can fail a body made mid-run. Additive; major
+    /// stays `1`.
     ///
     /// `1.22.0`: `windowState` adds the user's frontmost app and keyboard
     /// input source, each as read before `run()` and as read now, so a

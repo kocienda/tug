@@ -357,6 +357,14 @@ struct Outcome {
     secs: i64,
 }
 
+/// The spelling the ledger stores a file under: relative to the app-test
+/// directory, as the run's report names it. A path from the checkout root
+/// (`tests/app-test/…`) names the same file, and answers its history.
+pub fn ledger_file_name(file: &str) -> &str {
+    let file = file.strip_prefix("./").unwrap_or(file);
+    file.strip_prefix("tests/app-test/").unwrap_or(file)
+}
+
 /// The three answers, per file, for the given base root.
 ///
 /// `SKIP` rows are excluded from consideration entirely — a file the runner
@@ -369,6 +377,9 @@ struct Outcome {
 /// next run projects from — so it is neither. A stalled file *did* run,
 /// though, and contended with its batch, so it still counts toward
 /// `files_in_run`.
+///
+/// A file named from the checkout root is read under the spelling the ledger
+/// stores ([`ledger_file_name`]), and answered under the name it was asked by.
 pub fn file_history(
     conn: &Connection,
     base_root: &str,
@@ -387,7 +398,7 @@ pub fn file_history(
     let mut out = Vec::with_capacity(files.len());
     for file in files {
         let outcomes: Vec<Outcome> = stmt
-            .query_map(params![base_root, file], |row| {
+            .query_map(params![base_root, ledger_file_name(file)], |row| {
                 Ok(Outcome {
                     status: row.get(0)?,
                     head_sha: row.get(1)?,
@@ -1097,6 +1108,38 @@ mod tests {
         })
         .unwrap();
         assert_eq!(none["answer"], "no-history");
+    }
+
+    #[test]
+    fn a_file_named_from_the_checkout_root_answers_the_history_recorded_for_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let name = "body-grounding/row-38-evicted.test.ts";
+        record_run(
+            &mut conn,
+            &run(&root, "97a58cd", 1_755_000_000, vec![file(name, "PASS")]),
+        )
+        .unwrap();
+        let base = resolve_base_root(Path::new(&root));
+        let asked: Vec<String> = vec![
+            format!("tests/app-test/{name}"),
+            format!("./tests/app-test/{name}"),
+            name.into(),
+        ];
+        let answers = file_history(&conn, &base, &asked).unwrap();
+        for (answer, asked) in answers.iter().zip(&asked) {
+            assert_eq!(
+                &answer.file, asked,
+                "answered under the name it was asked by"
+            );
+            assert_ne!(
+                answer.history,
+                History::NoHistory,
+                "{asked} reads the recorded history"
+            );
+        }
+        assert_eq!(ledger_file_name("at0417.test.ts"), "at0417.test.ts");
     }
 
     /// A selection that has to cut breaks its last tie on cost, so the
