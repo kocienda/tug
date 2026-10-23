@@ -40,6 +40,15 @@ export const CROSSING_BAND_ATTR = "data-crossing-band";
 /** Marks the element that absorbs a card's height: the scroller between its head and its bottom band. */
 export const CROSSING_SCROLLER_ATTR = "data-crossing-scroller";
 
+/**
+ * Marks chrome inside the scroller that pins to its top while its entry
+ * scrolls past (`position: sticky`). A snapshot cannot carry a pin: its
+ * pinned row is pixels that ride away with the rest, where the live page
+ * keeps the pin at the scroller's top. So a pin that is stuck is counted as
+ * part of the head, and the split falls below it.
+ */
+export const CROSSING_PIN_ATTR = "data-crossing-pin";
+
 /** The band's distance from the viewport's bottom in the open form, CSS px. */
 export const CROSSING_BAND_REST_ATTR = "data-crossing-band-rest";
 
@@ -88,7 +97,11 @@ export function readCrossingBand(root: ParentNode): CrossingBand | null {
  * fold, CSS px in the form the page is solved at.
  */
 export interface CrossingAnchor {
-  /** The row the picture splits at: above it hangs from the top, below it from the bottom. */
+  /**
+   * The row the picture splits at: above it hangs from the top, below it from
+   * the bottom. For content that follows, the scroller's top — or the bottom
+   * of the pin stuck there, which hangs with the head.
+   */
   readonly splitTop: number;
   /** The split is the scroller's top, the content following the bottom; else the band's top. */
   readonly follows: boolean;
@@ -102,5 +115,15 @@ export function readCrossingAnchor(root: ParentNode): CrossingAnchor | null {
   const viewport = window.innerHeight;
   if (scroller == null || band == null || !(viewport > 0)) return null;
   const follows = scroller.closest(`[${STILL_ANCHOR_ATTR}="bottom"]`) !== null;
-  return { splitTop: (follows ? scroller : band).getBoundingClientRect().top, follows, viewport };
+  if (!follows) return { splitTop: band.getBoundingClientRect().top, follows, viewport };
+  const top = scroller.getBoundingClientRect().top;
+  let splitTop = top;
+  // A pin is stuck when it sits at the scroller's top rather than at its
+  // entry's — or, telescoped, at the bottom of the pin above it: read from
+  // where it stands, in document order, not from a flag a scroll event stamps.
+  for (const pin of scroller.querySelectorAll<HTMLElement>(`[${CROSSING_PIN_ATTR}]`)) {
+    const rect = pin.getBoundingClientRect();
+    if (rect.top <= splitTop + 2 && rect.bottom > splitTop + 2) splitTop = rect.bottom;
+  }
+  return { splitTop, follows, viewport };
 }

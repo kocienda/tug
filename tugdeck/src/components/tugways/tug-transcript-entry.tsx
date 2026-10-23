@@ -656,6 +656,7 @@ export const TugTranscriptEntryPin = React.forwardRef<
       ref={pinRef}
       className="tug-transcript-entry__pin"
       data-stuck={stuck === true ? "true" : undefined}
+      data-crossing-pin=""
     >
       <div className="tug-transcript-entry__icon" aria-hidden="true">
         {PARTICIPANT_ICONS[participant]}

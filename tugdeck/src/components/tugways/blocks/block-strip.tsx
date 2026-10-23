@@ -127,6 +127,12 @@ export interface BlockStripProps {
   /** When `true`, stamps `data-collapsed="true"` on the root. */
   dataCollapsed?: boolean;
   /**
+   * When `true`, stamps `data-crossing-pin` on the root: the strip pins to
+   * its scroller's top, and a card crossing counts it with the head while it
+   * is stuck (`lib/crossing-band.ts`).
+   */
+  dataCrossingPin?: boolean;
+  /**
    * Click handler on the strip root. A caller that treats the whole band
    * as an affordance (the rail section bands focus their section's list)
    * wires it here; slot contents that own their own clicks (buttons) stop
@@ -169,6 +175,7 @@ export const BlockStrip = React.forwardRef<HTMLDivElement, BlockStripProps>(
       dataTestid,
       dataPhase,
       dataCollapsed,
+      dataCrossingPin,
       onClick,
       onPointerDown,
       onKeyDown,
@@ -183,6 +190,7 @@ export const BlockStrip = React.forwardRef<HTMLDivElement, BlockStripProps>(
         data-altitude={altitude}
         data-phase={dataPhase}
         data-collapsed={dataCollapsed ? "true" : undefined}
+        data-crossing-pin={dataCrossingPin ? "" : undefined}
         className={className}
         onClick={onClick}
         onPointerDown={onPointerDown}

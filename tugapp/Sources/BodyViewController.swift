@@ -567,6 +567,13 @@ final class BodyViewController {
             spare.guardsClose = guardsClose
             spare.warm = true
             spare.askedAt = CACurrentMediaTime()
+            // The card's hidden clock starts now, not when the spare was
+            // made: every placement since then named the spare hidden, and a
+            // `since` carried over would let a spare older than the eviction
+            // delay be evicted the moment its card is ready — before its
+            // first paint can place it visible — taking a Run in New
+            // Session's opening command with the page.
+            spare.shown = nil
             lifecycle.standCover(over: spare)
             armDeadline(spare)
             if spare.state == .connected { bind(spare) }
@@ -1690,6 +1697,8 @@ struct CrossingAccount: Equatable {
 
     var planId: Int
     var size: CGSize
+    /// When the plan carrying it was received (media time).
+    var receivedAt: CFTimeInterval?
     var readyLeadMs: Double?
     var solved = false
     var solveMs: Double?

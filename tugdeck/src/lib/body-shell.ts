@@ -120,6 +120,7 @@ import { bodilessFactsStore } from "./bodiless-facts-store";
 import { scheduleAfterPaint } from "./after-paint";
 import { bodyStandInStore } from "./body-stand-in-store";
 import {
+  cardCrossingReleased,
   cardIsSolving,
   cardPlanCancelled,
   cardPlanLanded,
@@ -830,15 +831,17 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
    * sizes on. Null when none stands — and for a card a solving plan carries,
    * whose page lays itself out at its landing size before the motion: there
    * is no moving edge inside it to hold still, and a hold released at the
-   * land would relayout the page there.
+   * land would relayout the page there. The card stays solving past the host's
+   * `landed` until the pane's mark is seen gone, which is read here.
    */
   const crossingOf = (cardId: string): CrossingMirror | null => {
-    if (cardIsSolving(cardId)) return null;
     const placeholder = document.querySelector<HTMLElement>(
       `[data-body-placeholder][data-card-id="${CSS.escape(cardId)}"]`,
     );
     const frame = placeholder?.closest<HTMLElement>(".tug-pane") ?? null;
     const mirror = placeholder != null && frame !== null ? crossingMirrorOf(frame, placeholder) : null;
+    if (mirror === null) cardCrossingReleased(cardId);
+    if (cardIsSolving(cardId)) return null;
     return crossingForBody(mirror, cardCrossing.getFor(cardId));
   };
 

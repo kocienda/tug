@@ -231,7 +231,7 @@ export interface RunPlanInput {
  * plan without them, ms. The host's `BodyViewController.solveGuardMs` is the
  * source; the shell mirrors it to size what it arms from the plan's posting.
  */
-export const SOLVE_GUARD_MS = 250;
+export const SOLVE_GUARD_MS = 600;
 
 /** What a posted plan says of itself to the settle that asked for it. */
 export interface PostedPlan {

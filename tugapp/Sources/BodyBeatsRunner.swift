@@ -22,7 +22,14 @@ final class BodyBeatsRunner {
     /// How long a solving plan waits for its cards to say `crossingSolved`
     /// before it starts without them, ms — and a crossing cover's snapshot
     /// deadline. The shell's `SOLVE_GUARD_MS` mirrors it.
-    static let solveGuardMs: Double = 250
+    ///
+    /// A page that never answers is what the guard is for; a page that does
+    /// answer is given the time it takes. A whole card with a long real
+    /// transcript lays itself out at its new size in 250–340 ms from the
+    /// plan's receipt (read on the user's deck, 2026-10-23), which a 250 ms
+    /// guard turned into the old motion — the page's answer, and the split
+    /// cover it carries, arriving after the plan had started.
+    static let solveGuardMs: Double = 600
 
     /// The key a covered fold's band ride runs under, on the page and on the
     /// cover's mask.
@@ -180,6 +187,7 @@ final class BodyBeatsRunner {
                 let covers = resizesWhole || holdsFirst
                 body.crossing = (crossing, moveBegin, covers && solve == nil)
                 body.lastCrossing = CrossingAccount(planId: planId, size: crossing)
+                body.lastCrossing?.receivedAt = anchor.mediaTime
                 // Tell the body now, in this task, so it pins its scrollers
                 // and acknowledges inside a display period: one hop to its
                 // page and one back, never a round trip through tugcast.
@@ -278,6 +286,12 @@ final class BodyBeatsRunner {
             body.lastCrossing?.cover = .snapshot
             body.lastCrossing?.snapshotMs = (CACurrentMediaTime() - asked) * 1000
             body.lastCrossing?.coverPixels = CGSize(width: image.width, height: image.height)
+            TugLog.info("bodies", "a crossing's cover stands", [
+                TugLog.field("card", cardId),
+                TugLog.field("plan", "\(planId)"),
+                TugLog.field("snapshot_ms", String(format: "%.1f", (CACurrentMediaTime() - asked) * 1000)),
+                TugLog.field("pixels", "\(image.width)x\(image.height)"),
+            ])
             self.holdForCrossing(body, stand: stand, size: size)
             var solving = begin
             solving.solve = true
@@ -496,8 +510,20 @@ final class BodyBeatsRunner {
     /// change of a whole card's height names where its picture splits, kept
     /// the same way.
     func crossingSolved(_ body: Body, band: CrossingSolved.Band?, anchor: CrossingSolved.Anchor?) {
-        guard body.crossing != nil, let planId = body.lastCrossing?.planId, let solve = solves[planId],
-              solve.awaited.remove(ObjectIdentifier(body)) != nil else { return }
+        guard body.crossing != nil, let planId = body.lastCrossing?.planId else { return }
+        guard let solve = solves[planId], solve.awaited.remove(ObjectIdentifier(body)) != nil else {
+            // Its plan started without it: the guard ran out first. Said in
+            // the log with how late it was, which is what tunes the guard.
+            if let receivedAt = body.lastCrossing?.receivedAt, body.lastCrossing?.solved != true, let cardId = body.cardId {
+                TugLog.warn("bodies", "a card solved after its plan started", [
+                    TugLog.field("card", cardId),
+                    TugLog.field("plan", "\(planId)"),
+                    TugLog.field("since_receipt_ms", String(format: "%.1f", (CACurrentMediaTime() - receivedAt) * 1000)),
+                    TugLog.field("snapshot_ms", body.lastCrossing?.snapshotMs.map { String(format: "%.1f", $0) } ?? "none"),
+                ])
+            }
+            return
+        }
         body.lastCrossing?.solved = true
         body.lastCrossing?.solveMs = (CACurrentMediaTime() - solve.receivedAt) * 1000
         if let band, let cover = body.crossingCover, band.viewport > 0 {

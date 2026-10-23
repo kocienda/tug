@@ -1011,6 +1011,15 @@ export class CardPlacer {
   private planSerial = 0;
   /** The cards a posted plan is carrying, until the host says it landed or was cancelled. */
   private readonly inFlight = new Map<string, InFlightPlan>();
+  /**
+   * Cards a solving plan has landed whose pane may still wear the shell's
+   * own crossing mark: the host's `landed` comes a frame or so before the
+   * shell's tween ends, and a card read as no longer solving in that
+   * window would be handed the shell's hold, then released from it when
+   * the mark came off — a relayout at the land the solve existed to
+   * prevent. Cleared when the mark is seen gone, or a new plan takes the card.
+   */
+  private readonly landedSolving = new Set<string>();
   /** What the last {@link runPlan} decided, and what the host has said of it since. */
   private lastPlan: CardPlanReport | null = null;
   /**
@@ -1411,6 +1420,7 @@ export class CardPlacer {
         landed: null,
         lateMs: null,
       });
+      this.landedSolving.delete(c.cardId);
       this.inFlight.set(c.cardId, {
         planId,
         landing: c.landing,
@@ -1543,7 +1553,12 @@ export class CardPlacer {
    * size by the plan, and the mirror holds nothing over it.
    */
   isSolving(cardId: string): boolean {
-    return this.inFlight.get(cardId)?.solves === true;
+    return this.inFlight.get(cardId)?.solves === true || this.landedSolving.has(cardId);
+  }
+
+  /** The shell's own crossing mark over `cardId`'s pane is gone: a landed solve is over. */
+  crossingReleased(cardId: string): void {
+    this.landedSolving.delete(cardId);
   }
 
   /** The host ran `cardId`'s beats of plan `planId` to their end. */
@@ -1553,6 +1568,7 @@ export class CardPlacer {
     const flight = this.inFlight.get(cardId);
     if (flight?.planId === planId) {
       this.inFlight.delete(cardId);
+      if (flight.solves) this.landedSolving.add(cardId);
       this.clearHorizon(cardId);
       if (flight.lands) this.deck.noteCardDidLand(cardId);
       this.measureAtRest();
@@ -1780,6 +1796,11 @@ export function cardPlacementDiag(): CardPlacementDiag | null {
 /** Whether `cardId` rides a solving plan now ({@link CardPlacer.isSolving}); false with no placer installed. */
 export function cardIsSolving(cardId: string): boolean {
   return installed?.isSolving(cardId) ?? false;
+}
+
+/** The shell's crossing mark over `cardId`'s pane is gone, as a reader of it saw. */
+export function cardCrossingReleased(cardId: string): void {
+  installed?.crossingReleased(cardId);
 }
 
 /** The host ran a body's planned beats to their end. */

@@ -482,6 +482,7 @@ export const BlockHeader = React.forwardRef<
       dataPhase={phase}
       dataCollapsed={collapsed}
       className={cn("tool-call-header", className)}
+      dataCrossingPin
       leading={leadingNode}
       // The verb — omitted for a verb-less row (a changeset file block), where
       // the identity leads instead; the strip renders no name span. The name
