@@ -199,6 +199,24 @@ final class BodyBeatsTests: XCTestCase {
         )
     }
 
+    func testASplitCoverHangsItsTailFromTheEdgeAndItsHeadFromTheTop() throws {
+        // A card of 600 shrinking to 300 under its cover.
+        let track = BodyBeats.Track(
+            delayMs: 0, durationMs: 300, keyTimes: [0, 0.5, 1],
+            rects: [600, 400, 300].map { CGRect(x: 0, y: 0, width: 400, height: $0) },
+            opacities: nil, timings: [.linear, .linear]
+        )
+        let following = try XCTUnwrap(BodyBeats.CoverSplit(splitTop: 48, follows: true, viewport: 300, scale: 1, coverHeight: 600))
+        check("a following card splits at its scroller's top", following.splitY == 48)
+        let ride = BodyBeats.splitRide(track, split: following, coverHeight: 600, landingHeight: 300)
+        check("the tail frame's bottom is on the edge", ride.tailTops == [0, -200, -300], "\(ride.tailTops)")
+        check("and so is the page's", ride.pageOffsets == [300, 100, 0], "\(ride.pageOffsets)")
+        let topped = try XCTUnwrap(BodyBeats.CoverSplit(splitTop: 240, follows: false, viewport: 300, scale: 1, coverHeight: 600))
+        check("a scrolled-up card splits at its band, fixed from the bottom", topped.splitY == 540, "\(topped.splitY)")
+        check("and its page stays put", BodyBeats.splitRide(track, split: topped, coverHeight: 600, landingHeight: 300).pageOffsets == [0, 0, 0])
+        check("a split at the cover's top is refused", BodyBeats.CoverSplit(splitTop: 0, follows: true, viewport: 300, scale: 1, coverHeight: 600) == nil)
+    }
+
     func testTheLayerMappingIsSolvedFromThreeFramesAndInverts() throws {
         // A flipped geometry with a centred anchor, as a layer in an unflipped
         // superlayer of height 800 would report it: nothing here assumes it.

@@ -393,7 +393,7 @@ Every motion the deck performs, by the name the work speaks in, with the fix-up 
 
 | Id | Motion | Trigger | Fix-up carried today | Fully-solved end state | Solved |
 |---|---|---|---|---|---|
-| C1 | Card fold | ⌃⌘Y, View menu | page relayout at the land, `inert` at crossing end, compaction cover, Z2 row occupant | page is at folded size and painted before frame one; the container reveals a snapshot of the start and swaps at the land | yes |
+| C1 | Card fold | ⌃⌘Y, View menu | page relayout at the land, `inert` at crossing end, compaction cover, Z2 row occupant | page is at folded size and painted before frame one; the container shows a snapshot of the start, whose Z2 band holds its place until the closing edge reaches it and then rides the edge as the live strip, so the land swaps nothing visible | yes |
 | C2 | Card unfold | same | list reveal re-applies scroll, "unfold's first frames" relayout | end size and scroll target solved in the set-up | yes |
 | C3 | Move card to slot | ⌘1–6, slot picker, badge | flash ring parked until the land | the flash is a beat in the choreography | no |
 | C4 | Move card up, down, top, bottom | ⌃⌘↑↓, ⇧ | the land chain | one move | no |
@@ -402,7 +402,7 @@ Every motion the deck performs, by the name the work speaks in, with the fix-up 
 | C7 | Card drag and grip resize | mouse on title or grip | drop lands as a one-card plan; `returnToLanding` if unmoved | already solved; the drop is the set-up | no |
 | C8 | Card activate | click, chords | none | a cut; stays one | no |
 | C9 | Tab drag ghost | tab drag | none | fine as is | no |
-| S1 | Split column | ⌃⌘/ | retiring member held to completion; height term a real tween | both members at final size and painted before frame one | yes |
+| S1 | Split column | ⌃⌘/ | retiring member held to completion; height term a real tween | both members at final size and painted before frame one; a whole card's snapshot is split at the row its page names — the masthead hangs from the top, the rest from the moving edge, the page bottom-pinned when its transcript follows — so composer and Z2 ride the edge and the land shows what the last frame did | yes |
 | S2 | Unsplit, stack column | same | same | same | yes |
 | S3 | Column seam drag | mouse on sash | commits on release | already solved | no |
 | S4 | Equalize heights, bullseye, content width | ⌃⌘B, settings | `scaleX` under 20 % distortion else real width; land chain | solved width; no scale stand-in | no |

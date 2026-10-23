@@ -348,4 +348,52 @@ enum BodyBeats {
         }
         return BandRide(keyTimes: keyTimes, pageOffsets: offsets, coverHeights: covers, timings: timings)
     }
+
+    /// How a covered whole card rides a change of height that is not a fold
+    /// (`lib/crossing-band.ts`'s anchor), in the container's points: the
+    /// cover splits at `splitY`; its head hangs from the top and its tail
+    /// from the moving bottom edge, and the page hangs from the bottom too
+    /// when its content follows it, so composer and band ride the edge from
+    /// the first frame and the land shows what the last frame did.
+    struct CoverSplit: Equatable {
+        var splitY: Double
+        var follows: Bool
+
+        /// From the page's reading, CSS px in the solved form, scaled by the
+        /// page's points per CSS px. A following card splits at its
+        /// scroller's top, the same in both forms; one that does not splits
+        /// at its bottom band, fixed from the bottom. Nil for a split the
+        /// cover cannot carry.
+        init?(splitTop: Double, follows: Bool, viewport: Double, scale: Double, coverHeight: Double) {
+            guard viewport > 0, scale > 0, splitTop >= 0, splitTop <= viewport else { return nil }
+            self.follows = follows
+            self.splitY = follows ? splitTop * scale : coverHeight - (viewport - splitTop) * scale
+            guard splitY > 0, splitY < coverHeight else { return nil }
+        }
+
+        init(splitY: Double, follows: Bool) {
+            self.splitY = splitY
+            self.follows = follows
+        }
+    }
+
+    /// Where a split cover's tail and the page stand at each key of a
+    /// track: the tail's top — the whole frame's, bottom-pinned, of which
+    /// the rows below the split show — and the page's offset below its
+    /// model place, both from the container's top.
+    struct SplitRide: Equatable {
+        var tailTops: [Double]
+        var pageOffsets: [Double]
+    }
+
+    /// Carry `split` over `track`, whose rects are the container's: the
+    /// tail's bottom on the edge throughout, and the page's bottom on it
+    /// when the content follows, else the page where it stands.
+    static func splitRide(_ track: Track, split: CoverSplit, coverHeight: Double, landingHeight: Double) -> SplitRide {
+        let heights = track.rects.map { Double($0.height) }
+        return SplitRide(
+            tailTops: heights.map { $0 - coverHeight },
+            pageOffsets: heights.map { split.follows ? $0 - landingHeight : 0 }
+        )
+    }
 }

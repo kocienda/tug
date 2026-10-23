@@ -163,8 +163,10 @@ final class BodyBeatsRunner {
                 // wears no surface behind it: given its smaller landing size
                 // bare, the card would stand at its landing for the whole
                 // motion over the canvas the container still spans. So a
-                // whole card that shrinks takes its new size only under its
-                // cover, and with none it keeps its page to the land.
+                // whole card that changes size takes its new size only under
+                // its cover — which, split at the row the page names, hangs
+                // its head from the top and its tail from the moving edge
+                // (`rideSplit`) — and with none it keeps its page to the land.
                 //
                 // A card that stands at First for the whole motion and lands
                 // only at its end — a stack's retiring member, held at its
@@ -172,10 +174,10 @@ final class BodyBeatsRunner {
                 // throughout, whatever its size does, so it takes its new size
                 // under a cover too.
                 let page = body.webView.frame.size
-                let shrinksWhole = body.whole
-                    && (crossing.width < page.width - 0.5 || crossing.height < page.height - 0.5)
+                let resizesWhole = body.whole
+                    && (abs(crossing.width - page.width) > 0.5 || abs(crossing.height - page.height) > 0.5)
                 let holdsFirst = !instant && Self.firstMoveMs(planned, track) >= track.delayMs + track.durationMs
-                let covers = shrinksWhole || holdsFirst
+                let covers = resizesWhole || holdsFirst
                 body.crossing = (crossing, moveBegin, covers && solve == nil)
                 body.lastCrossing = CrossingAccount(planId: planId, size: crossing)
                 // Tell the body now, in this task, so it pins its scrollers
@@ -323,17 +325,10 @@ final class BodyBeatsRunner {
         let ride = BodyBeats.bandRide(track, band: band, landingHeight: Double(landing.height))
         let begin = anchor.beginTime(startWallMs: startWallMs, delayMs: track.delayMs)
 
-        // The page's layer position per point of its frame's y, read rather
-        // than assumed, as `probeMapping` reads the container's.
-        let held = body.webView.frame
-        let base = page.position
-        body.webView.frame = held.offsetBy(dx: 0, dy: 1)
-        let perPoint = page.position.y - base.y
-        body.webView.frame = held
-        guard abs(perPoint) > 0.5 else { return }
+        guard let positions = Self.positions(of: body.webView, atTops: ride.pageOffsets) else { return }
         page.removeAnimation(forKey: Self.bandKey)
         page.add(Self.keyframes(
-            "position", values: ride.pageOffsets.map { NSValue(point: CGPoint(x: base.x, y: base.y + perPoint * $0)) },
+            "position", values: positions,
             keyTimes: ride.keyTimes, timings: ride.timings, durationMs: track.durationMs,
             begin: page.convertTime(begin, from: nil)
         ), forKey: Self.bandKey)
@@ -366,14 +361,141 @@ final class BodyBeatsRunner {
         ), forKey: Self.bandKey + "-bounds")
     }
 
+    /// Carry a covered whole card's split picture on `track`, from the plan's
+    /// start (`BodyBeats.splitRide`). The cover is cut at the split: what is
+    /// above stays where it stands, and what is below rides the bottom edge
+    /// as a second cover under the first, masked to the tail and moved with
+    /// the edge. A page whose content follows its bottom rides the edge too,
+    /// so where the cover's tail does not reach the page shows the same rows
+    /// in the same place; one that does not stays where it stands, its rows
+    /// at the top where the cover's head shows them. Every model is the
+    /// land's — the page at its place, the tail at the landing's edge — so
+    /// the land moves nothing, and the covers come off over a page that
+    /// shows exactly what they did.
+    ///
+    /// A following page that grows carries no tail: the page's own bottom
+    /// rows ride the edge and are the honest picture, where the cover's
+    /// would be the smaller form's — an unfold's folded strip, say.
+    private func rideSplit(
+        _ body: Body, split: BodyBeats.CoverSplit, track: BodyBeats.Track, anchor: ClockAnchor, startWallMs: Double
+    ) {
+        guard let cover = body.crossingCover, let coverLayer = cover.layer, let landing = body.beats?.landing else { return }
+        let size = cover.frame.size
+        let ride = BodyBeats.splitRide(track, split: split, coverHeight: Double(size.height), landingHeight: Double(landing.height))
+        let begin = anchor.beginTime(startWallMs: startWallMs, delayMs: track.delayMs)
+        let splitY = CGFloat(split.splitY)
+
+        let head = CALayer()
+        head.backgroundColor = CGColor(gray: 0, alpha: 1)
+        head.frame = cover.convertToLayer(CGRect(x: 0, y: 0, width: size.width, height: splitY))
+        coverLayer.mask = head
+
+        let insets = cover.paneInsets
+        // The pane's columns, from its top down past either form's bottom:
+        // the moving edge is the only bottom, and the container clips there.
+        let pane = CGRect(
+            x: insets?.left ?? 0, y: insets?.top ?? 0,
+            width: size.width - (insets?.left ?? 0) - (insets?.right ?? 0), height: 2 * max(size.height, landing.height)
+        )
+        let grows = landing.height > size.height + 0.5
+        if !(split.follows && grows) {
+            rideTail(body, cover: cover, splitY: splitY, pane: pane, ride: ride, track: track, begin: begin)
+        }
+
+        guard split.follows, let page = body.webView.layer,
+              let pagePositions = Self.positions(of: body.webView, atTops: ride.pageOffsets) else { return }
+        page.removeAnimation(forKey: Self.bandKey)
+        page.add(Self.keyframes(
+            "position", values: pagePositions, keyTimes: track.keyTimes, timings: track.timings,
+            durationMs: track.durationMs, begin: page.convertTime(begin, from: nil)
+        ), forKey: Self.bandKey)
+        let bounds = body.webView.bounds
+        Self.mask(
+            page, of: body.webView, to: ride.pageOffsets.map { bounds.intersection(pane.offsetBy(dx: 0, dy: -CGFloat($0))) },
+            track: track, begin: begin
+        )
+    }
+
+    /// The split cover's tail: a second cover under the first, cut above
+    /// `splitY`, its frame's bottom on the moving edge.
+    private func rideTail(
+        _ body: Body, cover: BodyCoverView, splitY: CGFloat, pane: CGRect, ride: BodyBeats.SplitRide,
+        track: BodyBeats.Track, begin: CFTimeInterval
+    ) {
+        let size = cover.frame.size
+        // Under the head, so the rows it carries up pass behind the masthead
+        // rather than over it.
+        let tail = cover.twin()
+        tail.autoresizingMask = []
+        body.container.addSubview(tail, positioned: .below, relativeTo: cover)
+        body.crossingTail = tail
+        guard let tailLayer = tail.layer else { return }
+        // What rides is clipped to the pane as it stands in the container —
+        // the apron around the pane is transparent in the frame, and rows
+        // passing behind it would show through — by a mask that moves
+        // against the ride, so the clip stands still while its layer moves.
+        guard let positions = Self.positions(of: tail, atTops: ride.tailTops), let last = ride.tailTops.last else { return }
+        tailLayer.add(Self.keyframes(
+            "position", values: positions, keyTimes: track.keyTimes, timings: track.timings,
+            durationMs: track.durationMs, begin: tailLayer.convertTime(begin, from: nil)
+        ), forKey: Self.bandKey)
+        tail.frame.origin.y = CGFloat(last)
+        let rows = CGRect(x: 0, y: splitY, width: size.width, height: size.height - splitY)
+        Self.mask(
+            tailLayer, of: tail, to: ride.tailTops.map { rows.intersection(pane.offsetBy(dx: 0, dy: -CGFloat($0))) },
+            track: track, begin: begin
+        )
+    }
+
+    /// Mask `layer` to `rects` — in `view`'s own coordinates, one per key of
+    /// `track` — moving the mask from one to the next on the track's clock,
+    /// its model the last.
+    private static func mask(_ layer: CALayer, of view: NSView, to rects: [CGRect], track: BodyBeats.Track, begin: CFTimeInterval) {
+        let converted = rects.map { view.convertToLayer($0.isNull ? .zero : $0) }
+        let mask = CALayer()
+        mask.backgroundColor = CGColor(gray: 0, alpha: 1)
+        mask.anchorPoint = .zero
+        if let last = converted.last {
+            mask.position = last.origin
+            mask.bounds = CGRect(origin: .zero, size: last.size)
+        }
+        layer.mask = mask
+        let local = mask.convertTime(begin, from: nil)
+        mask.add(keyframes(
+            "position", values: converted.map { NSValue(point: $0.origin) },
+            keyTimes: track.keyTimes, timings: track.timings, durationMs: track.durationMs, begin: local
+        ), forKey: bandKey + "-position")
+        mask.add(keyframes(
+            "bounds", values: converted.map { NSValue(rect: CGRect(origin: .zero, size: $0.size)) },
+            keyTimes: track.keyTimes, timings: track.timings, durationMs: track.durationMs, begin: local
+        ), forKey: bandKey + "-bounds")
+    }
+
+    /// The positions `view`'s layer takes with the view's top at each of
+    /// `tops`, read from the layer rather than assumed — the view is moved
+    /// down a point and its layer read, as `probeMapping` reads the
+    /// container's — and nil when the frame does not move the layer.
+    private static func positions(of view: NSView, atTops tops: [Double]) -> [NSValue]? {
+        guard let layer = view.layer else { return nil }
+        let held = view.frame
+        let base = layer.position
+        view.frame = held.offsetBy(dx: 0, dy: 1)
+        let perPoint = layer.position.y - base.y
+        view.frame = held
+        guard abs(perPoint) > 0.5 else { return nil }
+        return tops.map { NSValue(point: CGPoint(x: base.x, y: base.y + perPoint * ($0 - Double(held.minY)))) }
+    }
+
     /// `crossingSolved`: the body is laid out at its crossing size. Its plan
     /// starts once it awaits no other card. Late — the plan started or the
     /// crossing was cancelled — it is ignored.
     ///
     /// A covered fold's page names its folded form's bottom band, in CSS px:
     /// it is kept in the container's points, scaled by the page's own size
-    /// against its viewport, for `startPlan` to carry.
-    func crossingSolved(_ body: Body, band: CrossingSolved.Band?) {
+    /// against its viewport, for `startPlan` to carry. Any other covered
+    /// change of a whole card's height names where its picture splits, kept
+    /// the same way.
+    func crossingSolved(_ body: Body, band: CrossingSolved.Band?, anchor: CrossingSolved.Anchor?) {
         guard body.crossing != nil, let planId = body.lastCrossing?.planId, let solve = solves[planId],
               solve.awaited.remove(ObjectIdentifier(body)) != nil else { return }
         body.lastCrossing?.solved = true
@@ -384,6 +506,12 @@ final class BodyBeatsRunner {
                 scale: Double(body.webView.frame.height) / band.viewport, coverHeight: Double(cover.frame.height)
             )
             body.lastCrossing?.band = body.crossingBand
+        } else if let anchor, let cover = body.crossingCover, anchor.viewport > 0 {
+            body.crossingSplit = BodyBeats.CoverSplit(
+                splitTop: anchor.splitTop, follows: anchor.follows, viewport: anchor.viewport,
+                scale: Double(body.webView.frame.height) / anchor.viewport, coverHeight: Double(cover.frame.height)
+            )
+            body.lastCrossing?.split = body.crossingSplit
         }
         if solve.awaited.isEmpty { startPlan(planId, timedOut: false) }
     }
@@ -490,6 +618,8 @@ final class BodyBeatsRunner {
             )
             if let band = body.crossingBand {
                 rideBand(body, band: band, track: carried.track, anchor: anchor, startWallMs: startWallMs)
+            } else if let split = body.crossingSplit {
+                rideSplit(body, split: split, track: carried.track, anchor: anchor, startWallMs: startWallMs)
             }
         }
         CATransaction.commit()
@@ -650,11 +780,14 @@ final class BodyBeatsRunner {
                 cover.autoresizingMask = [.width, .height]
             }
         }
-        if body.crossingBand != nil {
+        if body.crossingBand != nil || body.crossingSplit != nil {
             body.crossingBand = nil
+            body.crossingSplit = nil
             body.webView.layer?.removeAnimation(forKey: Self.bandKey)
             body.webView.layer?.mask = nil
         }
+        body.crossingTail?.removeFromSuperview()
+        body.crossingTail = nil
         CATransaction.commit()
         controller.send(.bodyCrossing(.land), to: body)
     }

@@ -140,7 +140,7 @@ import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-epis
 import { landRecorder } from "../lib/land-frame-record";
 import { CARD_FOLD_ATTR } from "../lib/folded-body";
 import { runCrossingSolve } from "./crossing-solve";
-import { readCrossingBand } from "../lib/crossing-band";
+import { readCrossingAnchor, readCrossingBand } from "../lib/crossing-band";
 import { deckTrace } from "../deck-trace";
 import { createBodyLand } from "./body-land";
 import { loadMakerTooling, registerCardKinds } from "../card-kinds";
@@ -963,8 +963,14 @@ async function bindBody(bind: BodyBind): Promise<void> {
         const foldLanded = foldLandedNow();
         bodyLand.markSolved({ foldLanded, resizeMissed });
         // A fold that has landed names its bottom band, for the host to
-        // carry to the closing edge; the layout is quiet, so the read is free.
-        postToHost(crossingSolvedToHost, { band: foldLanded === true ? readCrossingBand(document) : null });
+        // carry to the closing edge; any other change of a whole card's
+        // height names where its picture splits, the head staying at the
+        // top and the rest riding the edge. The layout is quiet, so the
+        // read is free.
+        postToHost(crossingSolvedToHost, {
+          band: foldLanded === true ? readCrossingBand(document) : null,
+          anchor: foldLanded === null ? readCrossingAnchor(document) : null,
+        });
       },
     });
   });

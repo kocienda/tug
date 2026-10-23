@@ -4955,6 +4955,7 @@ export function SessionCardBody({
                 className="session-view-slot"
                 ref={viewSlotRef}
                 data-active-view={activeView}
+                data-crossing-scroller=""
                 // Folded away with the card ([P03]). The CSS takes it off the
                 // screen; `inert` is what takes it out of the FOCUS walk and
                 // the accessibility tree, and it is the same flag rather than

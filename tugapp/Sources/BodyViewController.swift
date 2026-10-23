@@ -123,14 +123,17 @@ final class BodyCoverView: NSView {
         didSet { needsLayout = true }
     }
     override var isFlipped: Bool { true }
-    init(cover: BodyCover, frame: NSRect) {
-        frameSize = cover.size
-        paneInsets = cover.insets
+    convenience init(cover: BodyCover, frame: NSRect) {
+        self.init(contents: cover.image, size: cover.size, surface: cover.surface, insets: cover.insets, frame: frame)
+    }
+    private init(contents: Any?, size: CGSize, surface: CGColor?, insets: CardInsets?, frame: NSRect) {
+        frameSize = size
+        paneInsets = insets
         super.init(frame: frame)
         wantsLayer = true
-        plate.backgroundColor = cover.surface
+        plate.backgroundColor = surface
         plate.cornerRadius = BodyCoverView.paneRadius
-        frameLayer.contents = cover.image
+        frameLayer.contents = contents
         frameLayer.contentsGravity = .resize
         layer?.addSublayer(plate)
         layer?.addSublayer(frameLayer)
@@ -138,6 +141,12 @@ final class BodyCoverView: NSView {
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+    /// A second view of the same frame, at the same place: for a crossing
+    /// that rides one part of the picture apart from the rest
+    /// (`BodyBeatsRunner.rideSplit`).
+    func twin() -> BodyCoverView {
+        BodyCoverView(contents: frameLayer.contents, size: frameSize, surface: plate.backgroundColor, insets: paneInsets, frame: frame)
+    }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func layout() {
         super.layout()
@@ -320,6 +329,12 @@ final class BodyViewController {
         /// open place to the closing edge, as its page named it when solved;
         /// nil for every other crossing, and after the land.
         var crossingBand: BodyBeats.CrossingBand?
+        /// Where a covered whole card's picture splits for a change of
+        /// height that is not a fold, and the cover's tail — a second cover
+        /// cut above the split, riding the bottom edge — standing over the
+        /// first; nil for every other crossing, and after the land.
+        var crossingSplit: BodyBeats.CoverSplit?
+        var crossingTail: BodyCoverView?
         /// The last crossing's account, for the harness: its plan, its size,
         /// and how far ahead of the first beat the body was ready.
         var lastCrossing: CrossingAccount?
@@ -1172,8 +1187,8 @@ final class BodyViewController {
     }
 
     /// `crossingSolved` (`BodyBeatsRunner`).
-    func crossingSolved(_ body: Body, band: CrossingSolved.Band?) {
-        beats.crossingSolved(body, band: band)
+    func crossingSolved(_ body: Body, band: CrossingSolved.Band?, anchor: CrossingSolved.Anchor?) {
+        beats.crossingSolved(body, band: band, anchor: anchor)
     }
 
     /// `bodySurface`: the page's background as sRGB bytes, posted when it
@@ -1682,6 +1697,7 @@ struct CrossingAccount: Equatable {
     var snapshotMs: Double?
     var coverPixels: CGSize?
     var band: BodyBeats.CrossingBand?
+    var split: BodyBeats.CoverSplit?
     var surface: [Double]?
     var restored = false
 
@@ -1704,6 +1720,7 @@ struct CrossingAccount: Equatable {
             "band": band.map {
                 .object(["restTop": .number($0.restTop), "height": .number($0.height), "reach": .number($0.reach)])
             } ?? .null,
+            "split": split.map { .object(["splitY": .number($0.splitY), "follows": .bool($0.follows)]) } ?? .null,
         ]
         if let surface { fields["surface"] = .array(surface.map(JSONValue.number)) }
         if restored { fields["restored"] = .bool(true) }

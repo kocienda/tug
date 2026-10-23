@@ -424,7 +424,8 @@ struct BodyCrossing: Codable, Equatable {
 
 /// `crossingSolved`: the page is laid out at its crossing's size, with the
 /// folded form's bottom band in CSS px when the card is folding and has one
-/// (`lib/crossing-band.ts`). `band` must be present, null or not.
+/// (`lib/crossing-band.ts`), or where a whole card's picture splits for any
+/// other change of height. Both keys must be present, null or not.
 struct CrossingSolved: Decodable, Equatable {
     struct Band: Codable, Equatable {
         /// Its top's distance from the viewport's bottom in the open form.
@@ -436,12 +437,24 @@ struct CrossingSolved: Decodable, Equatable {
         var viewport: Double
     }
 
+    struct Anchor: Codable, Equatable {
+        /// The row the picture splits at, in the solved form: above it hangs
+        /// from the top, below it from the bottom.
+        var splitTop: Double
+        /// The split is the scroller's top, the content following the
+        /// bottom; else the bottom band's top.
+        var follows: Bool
+        var viewport: Double
+    }
+
     var band: Band?
+    var anchor: Anchor?
 
-    private enum CodingKeys: String, CodingKey { case band }
+    private enum CodingKeys: String, CodingKey { case band, anchor }
 
-    init(band: Band?) {
+    init(band: Band?, anchor: Anchor?) {
         self.band = band
+        self.anchor = anchor
     }
 
     init(from decoder: Decoder) throws {
@@ -449,7 +462,11 @@ struct CrossingSolved: Decodable, Equatable {
         guard container.contains(.band) else {
             throw DecodingError.keyNotFound(CodingKeys.band, .init(codingPath: [], debugDescription: "no band"))
         }
+        guard container.contains(.anchor) else {
+            throw DecodingError.keyNotFound(CodingKeys.anchor, .init(codingPath: [], debugDescription: "no anchor"))
+        }
         band = try container.decode(Band?.self, forKey: .band)
+        anchor = try container.decode(Anchor?.self, forKey: .anchor)
     }
 }
 

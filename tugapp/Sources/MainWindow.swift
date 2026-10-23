@@ -2874,7 +2874,7 @@ extension MainWindow {
         case .crossingSolved(let solved):
             // A body is laid out at its crossing size: its plan may start
             // once every card it awaits has said so. The shell never posts this.
-            if let fromBody { bodies.crossingSolved(fromBody, band: solved.band) }
+            if let fromBody { bodies.crossingSolved(fromBody, band: solved.band, anchor: solved.anchor) }
         case .bodySurface(let surface):
             // A body's page background, for its container to wear behind
             // the web view. The shell never posts this.
