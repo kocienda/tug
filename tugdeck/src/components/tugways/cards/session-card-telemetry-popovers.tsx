@@ -90,7 +90,6 @@ import {
 } from "@/components/tugways/tug-transcript-entry";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
-import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import {
   ArcVerbRow,
   type ArcSurfaceVerbKind,
@@ -1690,8 +1689,7 @@ export function JobsPopoverContent({
  * track, the phase glyph, the word and the fraction. The placard and the
  * sidebar row read one arc in one grammar. The masthead's title line stood
  * here for a while (dot, `session^arc`, compact mark) and read as a caption
- * rather than as the arc; the user put the block back. The trouble facts ride
- * as a mark, because the notes below the steps say them in full ([B06]).
+ * rather than as the arc; the user put the block back.
  */
 function ArcPopoverHead({ fact }: { fact: ArcSessionFact }): React.ReactElement {
   return (
@@ -1701,8 +1699,6 @@ function ArcPopoverHead({ fact }: { fact: ArcSessionFact }): React.ReactElement 
         worker={fact.boundSession.length > 0 ? fact.boundSession : null}
         model={fact.track}
         stepTitle={fact.stepTitle}
-        facts={fact.facts}
-        troublePlacement="mark"
       />
     </div>
   );
@@ -1770,7 +1766,6 @@ export function ArcPopoverContent({
   // through and no second derivation to disagree with the Arcs card's row.
   const steps = fact.steps;
   const model = fact.track;
-  const facts = fact.facts;
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   // The list below is the ledger when there is one and the task list when
   // there is not, so the row to reveal is read off whichever is rendered.
@@ -1816,12 +1811,6 @@ export function ArcPopoverContent({
         ) : tasks.length > 0 ? (
           <TaskListItems tasks={tasks} idle={idle} />
         ) : null}
-        {/* Below the last step — or below the block, on an arc that has no
-            ledger of either kind yet, which is the one case where "below the
-            steps" has no steps to be below. */}
-        <div className="session-arc-popover-notes">
-          <ArcTroubleNotes facts={facts} />
-        </div>
       </TugPopupListScroller>
     </TugPopupListFrame>
   );

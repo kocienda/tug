@@ -326,9 +326,8 @@ describe("the documents-only half of an arc's life", () => {
       ],
     });
     const fact = index.get("sess-d")!;
-    // No base to diverge from, so no clause can apply — and the counters say
-    // how far the plan got without claiming to know what any row is called.
-    expect(fact.facts).toEqual([]);
+    // The counters say how far the plan got without claiming to know what any
+    // row is called.
     expect(fact.steps).toEqual([]);
   });
 

@@ -1,24 +1,20 @@
 /**
  * at0478-arc-fit-verified.test.ts — a project declares its surfaces, an
- * unclaimed path really refuses, and a verified fit reaches the arc lane.
+ * unclaimed path really refuses, and a verified fit is recorded on the arc.
  *
- * Two claims, in the order a project actually meets them.
+ * The refusal is the half a table test cannot prove: the resolver's
+ * `Unclaimed` is covered in `tugarc-core`, but that a real arc, over a real
+ * diff, against a real committed `.tugtool/config.toml`, exits 2 and names the
+ * path is a property of the verb over a tree. A project's table is complete
+ * exactly when the verb stops refusing, and the first incomplete arc is the
+ * one that says so — so the fixture declares a table that misses a directory
+ * the round touches, watches it refuse, declares the surface, and watches the
+ * refusal clear. A green verify records the head it verified and the base it
+ * verified onto, and `arc status --json` carries the fact.
  *
- * The refusal first, because it is the half a table test cannot prove: the
- * resolver's `Unclaimed` is covered in `tugarc-core`, but that a real arc,
- * over a real diff, against a real committed `.tugtool/config.toml`, exits 2
- * and names the path is a property of the verb over a tree. A project's table
- * is complete exactly when the verb stops refusing, and the first incomplete
- * arc is the one that says so — so the fixture declares a table that misses a
- * directory the round touches, watches it refuse, declares the surface, and
- * watches the refusal clear.
- *
- * Then the face. A green verify records the head it verified and the base it
- * verified onto; the fact rides the changeset entry that already reaches the
- * lane, and `arcMetaFacts` derives `fit verified` from it purely. What the
- * fact *says* is settled in `bun:test` over that pure function; what cannot be
- * settled there is that the composed entry reaches the lane and paints, which
- * is this file's job.
+ * The lane used to paint the fit as a `verified` mark and note; both were
+ * removed on 2026-10-23 (Tug resolves fit at join itself), so this file no
+ * longer launches the app.
  *
  * The exit-2 assertion is spawned directly rather than through the fixture's
  * `tugtool()` helper, which throws on a non-zero exit and so cannot express a
@@ -26,9 +22,6 @@
  * `~/.local/bin/tugtool` is a symlink into the *main* checkout's build, which
  * would run a `tugtool` with no `verify` subcommand at all.
  *
- * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
- * @covers tugdeck/src/lib/arc-meta-facts.ts
- * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugrust/crates/tugarc-core/src/ops/show.rs
  * @covers tugrust/crates/tugarc-core/src/ops/commit.rs
  * @covers tugrust/crates/tugarc-core/src/surfaces.rs
@@ -38,21 +31,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { realpathSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { launchTugApp, note } from "./_harness";
-import { sessionCardShape } from "./_harness/shapes";
-import {
-  mkTempTugbank,
-  rmTempTugbank,
-  seedTugbankForLaunch,
-} from "./_harness/tugbank-helpers";
+import { note } from "./_harness";
 import {
   commitRound,
   createArc,
   gitRetry,
   makeArcScratchRepo,
   rmArcScratchRepo,
-  rmScratchSession,
-  seedScratchSession,
   tugtool,
   tugtoolPath,
   type ArcScratchRepo,
@@ -61,22 +46,11 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "a7c0d1ea-0000-4000-8000-000000000478";
-const CARD = '[data-card-id="A"]';
-const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
-const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
-
 const ARC_NAME = "at0478-fit";
-const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
-/** The line's mark, and the sentence under the block the mark stands for. */
-const FIT_MARK = `${ROW} [data-slot="tug-arc-lifecycle-fact-mark"][data-fact="fit"]`;
-const FIT_NOTE = `${ROW} [data-slot="arc-trouble-note"][data-fact="fit"]`;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 let scratch: ArcScratchRepo | null = null;
-let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
 
 /**
@@ -147,23 +121,18 @@ beforeAll(() => {
   writeFileSync(join(created.worktree, "src/a.txt"), "the arc's own change\n");
   writeFileSync(join(created.worktree, "docs/b.md"), "prose the table forgot\n");
   commitRound(projectDir(), ARC_NAME, "at0478(round): touch two surfaces", scratch.cli);
-
-  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
   rmArcScratchRepo(scratch);
-  rmScratchSession(fixtureDir);
 });
-
-const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
   test(
-    "an unclaimed path refuses, declaring the surface clears it, and the lane says the fit",
-    async () => {
-      // ── The refusal, before the app is involved at all ──────────────────
+    "an unclaimed path refuses, declaring the surface clears it, and the fit is recorded",
+    () => {
+      // ── The refusal ─────────────────────────────────────────────────────
       const refused = verifyExit();
       note(`refused: exit ${refused.code}`);
       expect(refused.code).toBe(2);
@@ -202,71 +171,6 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
       expect(status.data.fit?.current).toBe(true);
       expect(status.data.fit?.head.length).toBe(40);
       expect(status.data.fit?.base.length).toBe(40);
-
-      // ── And the lane says it ────────────────────────────────────────────
-      const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
-      const app = await launchTugApp({
-        testName: "at0478-arc-fit-verified",
-        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
-      });
-      try {
-        await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-        );
-        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
-        await app.awaitEngineReady("A", { timeoutMs: 15000 });
-
-        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
-        await app.nativeType("/commit");
-        await settle();
-        await app.nativeKey("Escape");
-        await settle();
-        await app.nativeKey("Return", ["cmd"]);
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
-          { timeoutMs: 8000 },
-        );
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LANE)}) !== null`,
-          { timeoutMs: 30000 },
-        );
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ROW)}) !== null`,
-          { timeoutMs: 30000 },
-        );
-
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(FIT_MARK)}) !== null`,
-          { timeoutMs: 30000 },
-        );
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(FIT_NOTE)}) !== null`,
-          { timeoutMs: 30000 },
-        );
-        const mark = await app.body("A").evalJS<{ text: string; tone: string }>(
-          `(() => {
-             const el = document.querySelector(${JSON.stringify(FIT_MARK)});
-             const note = document.querySelector(${JSON.stringify(FIT_NOTE)});
-             return {
-               text: (note.textContent ?? "").trim(),
-               tone: el.getAttribute("data-tone") ?? "",
-             };
-           })()`,
-        );
-        note(`lane fact: ${mark.text} (${mark.tone})`);
-        // Under the block, `verified` is the whole of what a reader needs;
-        // "fit" is `tugtool arc verify`'s word and stays in the hover ([B07]).
-        // The line itself carries the receipt as a mark in the same tone.
-        expect(mark.text).toBe("verified");
-        // A quiet receipt, not a warning — the fit says; it never gates.
-        expect(mark.tone).toBe("subtle");
-      } finally {
-        await app.close();
-        rmTempTugbank(tugbankPath);
-      }
     },
     TEST_TIMEOUT_MS,
   );

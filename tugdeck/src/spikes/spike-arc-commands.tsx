@@ -543,7 +543,6 @@ function PopupFrame(props: FrameProps): React.ReactElement {
               name={ARC}
               worker={WORKER}
               model={props.m.model}
-              troublePlacement="mark"
             />
           </div>
           <ArcStepItems steps={props.m.steps} live={props.m.model.live} />

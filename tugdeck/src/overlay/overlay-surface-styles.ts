@@ -94,7 +94,6 @@ import "../components/tugways/cards/session-card-telemetry-popovers.css";
 import "../components/tugways/tug-transcript-entry.css";
 import "../components/tugways/tug-icons.css";
 import "../components/tugways/arc-step-list.css";
-import "../components/tugways/arc-trouble-notes.css";
 import "../components/tugways/arc-verb-row.css";
 import "../components/tugways/body-kinds/todo-list-block.css";
 import "../components/tugways/tug-list-view.css";

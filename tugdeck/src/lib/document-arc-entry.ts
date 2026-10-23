@@ -14,9 +14,9 @@
  * a silent empty answer instead of a compile error, and that is exactly how
  * the Z2 placard came to draw a different strip from the Arcs card for the
  * same arc. Its three callers turned out to want nothing the conversion
- * provided: two computed `arcMetaFacts`, which reads only branch fields and
- * so could only ever return `[]`, and the third passed it to an `unbind` that
- * ignored its argument. If a surface seems to need the conversion again, it
+ * provided: two derived facts that read only branch fields and so could only
+ * ever come back empty, and the third passed it to an `unbind` that ignored
+ * its argument. If a surface seems to need the conversion again, it
  * is asking a branch question of an arc that has no branch.
  *
  * The line this module holds is what the wire can honestly say. The

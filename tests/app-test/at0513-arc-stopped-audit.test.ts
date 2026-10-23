@@ -142,7 +142,6 @@ interface RowReading {
   phases: string[];
   litCell: string | null;
   note: string;
-  facts: Array<{ key: string | null; label: string }>;
   phaseMarks: number;
   markOverrides: number;
   registers: number;
@@ -151,7 +150,7 @@ interface RowReading {
   text: string;
 }
 
-/** The row, read whole from one beat: strip, note, facts, register — in the Arcs card's body. */
+/** The row, read whole from one beat: strip, note, register — in the Arcs card's body. */
 const readRow = (app: App): Promise<RowReading> =>
   kindBody(app, "dashes").evalJS<RowReading>(
     `(() => {
@@ -166,8 +165,6 @@ const readRow = (app: App): Promise<RowReading> =>
            .map((el) => el.getAttribute("data-phase")),
          litCell: lit?.getAttribute("data-phase") ?? null,
          note: (row.querySelector('[data-slot="tug-arc-lifecycle-note"]')?.textContent ?? "").trim(),
-         facts: Array.from(row.querySelectorAll('[data-slot="tug-arc-lifecycle-fact"]'))
-           .map((el) => ({ key: el.getAttribute("data-fact"), label: (el.textContent ?? "").trim() })),
          phaseMarks: row.querySelectorAll('[data-slot="tug-arc-phase-mark"]').length,
          markOverrides: row.querySelectorAll(".tug-arc-lifecycle-mark-slot").length,
          registers: row.querySelectorAll('[data-slot="arc-join-register"]').length,
@@ -224,8 +221,6 @@ describe.skipIf(!SHOULD_RUN)("AT0513: a stopped audit on the Arcs card", () => {
 
         // ── The kind is the cell set, and no word repeats it ──────────────
         expect(row.phases).toEqual(["brief", "devise", "review", "implement", "audit", "join"]);
-        expect(row.facts.map((f) => f.key)).not.toContain("kind");
-        expect(row.facts.map((f) => f.label)).not.toContain("planned");
         expect(row.text).not.toContain("planned");
 
         // ── The mark override changes nothing for a host that passes none ──

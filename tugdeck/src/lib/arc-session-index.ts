@@ -41,9 +41,7 @@ import type {
 import { documentArcTrackModel } from "./document-arc-entry";
 import {
   type ArcBranchFacts,
-  type ArcMetaFact,
   arcBranchFacts,
-  arcMetaFacts,
 } from "./arc-meta-facts";
 import { sessionLineStore } from "./session-line-store";
 import {
@@ -98,12 +96,6 @@ export interface ArcSessionFact {
    * reference-stable for every reader between beats.
    */
   readonly track: ArcTrackModel;
-  /**
-   * What is in the arc's way, derived here for the same reason {@link track}
-   * is. A branchless arc has no base to diverge from, so this is always
-   * empty for one, and that is a fact rather than a gap.
-   */
-  readonly facts: readonly ArcMetaFact[];
   /** The arc's documents — what a transport control reads to know what a
    *  press would open. */
   readonly documents: ArcDocuments | undefined;
@@ -179,7 +171,6 @@ export function buildArcSessionIndex(
         stepTitle: entry.step_title ?? null,
         hasPlan: entry.documents?.plan !== undefined,
         track: arcTrackModelFromEntry(entry),
-        facts: arcMetaFacts(entry),
         documents: entry.documents,
         boundSession,
         steps: entry.steps ?? [],
@@ -216,10 +207,6 @@ export function buildArcSessionIndex(
         hasPlan: arc.documents.plan !== undefined,
         // The counters' own builder, never the adapted entry's — see `track`.
         track: documentArcTrackModel(arc),
-        // Empty by construction, not by omission: every clause `arcMetaFacts`
-        // derives is about a checkout's standing against a base, and this arc
-        // has neither.
-        facts: [],
         documents: arc.documents,
         boundSession,
         steps: [],

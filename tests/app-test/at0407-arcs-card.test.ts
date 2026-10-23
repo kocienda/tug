@@ -14,7 +14,7 @@
  *
  * Beneath the eyebrow, the lifecycle line says what the arc is DOING: the
  * track, the phase glyph, the fraction while a step is open, the phase in a
- * word, and the divergence facts. The track is the whole reading — an arc
+ * word. The track is the whole reading — an arc
  * driving a stepped plan stands at `implement` with one tick per plan row.
  * The step's TITLE is not on the line at all: it is the fraction's hover
  * sentence ([D168]).
@@ -405,7 +405,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
 
         // ── The block's two lines are related by their centre ─────────────
         // The eyebrow anchors an identity to each edge; the line under it
-        // centres its whole run — track, then glyph, fraction, word, facts —
+        // centres its whole run — track, then glyph, fraction, word —
         // as one unit. The line used to hang under the arc's NAME instead,
         // which was the right rule while it packed everything against its
         // leading edge.
@@ -591,18 +591,14 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
                phases: Array.from(
                  track.querySelectorAll('[data-slot="tug-arc-track-cell"]'),
                ).map((el) => el.getAttribute("data-phase")),
-               facts: Array.from(
-                 row.querySelectorAll('[data-slot="tug-arc-lifecycle-fact"]'),
-               ).map((el) => ({
-                 key: el.getAttribute("data-fact"),
-                 tone: el.getAttribute("data-tone"),
-                 label: (el.textContent ?? "").trim(),
-               })),
+               note: (
+                 row.querySelector('[data-slot="tug-arc-lifecycle-note"]')?.textContent ?? ""
+               ).trim(),
              };
            })()`;
         type Row = {
           phases: string[];
-          facts: Array<{ key: string; tone: string; label: string }>;
+          note: string;
         };
         const planned = await kindBody(app, "dashes").evalJS<Row>(read(PLANNED_ROW));
         const plain = await kindBody(app, "dashes").evalJS<Row>(read(PLAIN_ROW));
@@ -610,16 +606,12 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         note("at0407 plain row", JSON.stringify(plain));
 
         // ── The word ──────────────────────────────────────────────────────
-        // There is none. The kind is the cell set, and the fact that carries
-        // the word is dropped by the line — a planned row's note used to
-        // trail `planned` with nothing between them, so a stopped audit read
-        // `stopped · audit did not mark planned`. Asserted over the whole
-        // fact list on both rows, so the kind under any spelling is caught.
-        const kindFact = (row: Row) => row.facts.find((f) => f.key === "kind");
-        expect(kindFact(planned)).toBeUndefined();
-        expect(planned.facts.map((f) => f.label)).not.toContain("planned");
-        expect(plain.facts.map((f) => f.label)).not.toContain("plain");
-        expect(kindFact(plain)).toBeUndefined();
+        // There is none. The kind is the cell set — a planned row's note used
+        // to trail `planned` with nothing between them, so a stopped audit
+        // read `stopped · audit did not mark planned`. Asserted over the note
+        // on both rows, so the kind is caught on either.
+        expect(planned.note).not.toContain("planned");
+        expect(plain.note).not.toContain("plain");
 
         // ── The cells ─────────────────────────────────────────────────────
         // The two sets differ by devise and review alone, and the plain row is

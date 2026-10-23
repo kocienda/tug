@@ -1,5 +1,5 @@
 /* arc-lifecycle-line.css — packing and tones for the line. The note is the
-   only run that gives way; everything else is a fixed-width fact, and the
+   only run that gives way; everything else keeps its width, and the
    line clips at its box rather than overflowing it.
 
    **One centred unit: the track, then the reading.** The graphic and the
@@ -14,8 +14,8 @@
    sets the distance from the track to the glyph beside it.
 
    **Two alignments, on purpose.** The line sets four kinds of thing beside
-   each other: two graphics (the track, the phase glyph) and three runs of type
-   at two sizes in two faces (the mono fraction, the note, the facts). The type
+   each other: two graphics (the track, the phase glyph) and two runs of type
+   at two sizes in two faces (the mono fraction, the note). The type
    is aligned to its own BASELINE, so the mono fraction's digits and the word
    beside them sit on one line whatever either's size; the graphics keep the
    container's `center`, which lands the cap-height strip on the type's cap
@@ -54,9 +54,7 @@
 /* The type runs, on one baseline. Named individually rather than as `> *`:
    the glyph is the one child of the reading that must NOT join them. */
 .tug-arc-lifecycle-reading > .tug-step-fraction,
-.tug-arc-lifecycle-reading > .tug-arc-lifecycle-note,
-.tug-arc-lifecycle-reading > .tug-arc-lifecycle-sep,
-.tug-arc-lifecycle-reading > .tug-arc-lifecycle-fact {
+.tug-arc-lifecycle-reading > .tug-arc-lifecycle-note {
   align-self: baseline;
 }
 
@@ -81,64 +79,4 @@
 
 .tug-arc-lifecycle-line[data-stopped="true"] .tug-arc-lifecycle-note {
   color: var(--tug7-element-tone-icon-normal-danger-rest);
-}
-
-/* The mark between the two clauses, in the quietest ink either of them can
-   wear: it belongs to neither, and a separator that took the trouble
-   clause's tone would read as part of the trouble. */
-.tug-arc-lifecycle-sep {
-  flex: 0 0 auto;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-.tug-arc-lifecycle-fact {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-.tug-arc-lifecycle-fact[data-tone="danger"] {
-  color: var(--tug7-element-tone-icon-normal-danger-rest);
-}
-
-.tug-arc-lifecycle-fact[data-tone="caution"] {
-  color: var(--tug7-element-tone-icon-normal-caution-rest);
-}
-
-.tug-arc-lifecycle-fact[data-tone="muted"] {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.tug-arc-lifecycle-fact[data-tone="subtle"] {
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* The clause as a mark, on a host that renders the sentences below its steps.
-
-   Fixed width and NOT part of the baseline run: it is a graphic, so it takes
-   the container's centring like the phase glyph beside it and lands on the
-   track's cap band rather than half a line under it. The tones are the
-   clause's own, and the glyph draws in `currentColor`, so one fact reads the
-   same colour whether it is a word or a mark. */
-.tug-arc-lifecycle-fact-mark {
-  flex: 0 0 auto;
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.tug-arc-lifecycle-fact-mark[data-tone="danger"] {
-  color: var(--tug7-element-tone-icon-normal-danger-rest);
-}
-
-.tug-arc-lifecycle-fact-mark[data-tone="caution"] {
-  color: var(--tug7-element-tone-icon-normal-caution-rest);
-}
-
-.tug-arc-lifecycle-fact-mark[data-tone="muted"] {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.tug-arc-lifecycle-fact-mark[data-tone="subtle"] {
-  color: var(--tug7-element-global-text-normal-subtle-rest);
 }

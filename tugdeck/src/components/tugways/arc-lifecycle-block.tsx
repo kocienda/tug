@@ -7,7 +7,7 @@
  * bound to at most one live card, so there is never a second atom to draw.
  * Line two is {@link ArcLifecycleLine},
  * which carries every reading of what the arc is DOING — the track, the phase
- * glyph, the fraction, the word, the facts. The Arcs card, the
+ * glyph, the fraction, the word. The Arcs card, the
  * Changes shade's collapsed arc row and the masthead's arc placard are this
  * one block, all three at the reading scale, so a reader who learned it once
  * has learned it everywhere, and the block never grows: two lines for every
@@ -125,8 +125,6 @@ export function ArcLifecycleBlock({
   note,
   stepTitle,
   mark,
-  facts,
-  troublePlacement,
   layout = "stack",
 }: ArcLifecycleBlockProps): React.ReactElement {
   const line = (
@@ -135,8 +133,6 @@ export function ArcLifecycleBlock({
       {...(note !== undefined ? { note } : {})}
       {...(stepTitle !== undefined ? { stepTitle } : {})}
       {...(mark !== undefined ? { mark } : {})}
-      {...(facts !== undefined ? { facts } : {})}
-      {...(troublePlacement !== undefined ? { troublePlacement } : {})}
     />
   );
   return (

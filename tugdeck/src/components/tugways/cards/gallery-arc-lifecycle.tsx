@@ -27,8 +27,8 @@
  * The sixth, Z2's ARC cell, is an instrument readout and takes the shape its
  * four neighbours already take: two dots and a word. The rules are [D168].
  *
- * **Every moment below is ONE wire entry.** The track model, the reading, the
- * facts, and the masthead's binding are all projections of that single object,
+ * **Every moment below is ONE wire entry.** The track model, the reading, and
+ * the masthead's binding are all projections of that single object,
  * so no two panels on a row can disagree.
  *
  * **Nothing here is drawn by hand, and the masthead least of all.** The
@@ -55,7 +55,6 @@ import "./gallery-arc-lifecycle.css";
 import React from "react";
 
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
-import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import {
   ArcLifecycleLine,
@@ -74,7 +73,6 @@ import { arcVerbs, type ArcVerbSet, type ArcVerbSurface } from "@/lib/arc-verbs"
 import {
   arcBranchFacts,
   arcEntryGlanceFraction,
-  arcMetaFacts,
 } from "@/lib/arc-meta-facts";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
@@ -619,15 +617,6 @@ function blockedEntry(blocker: ArcJoinBlockerWire): ArcChangesetEntry {
 }
 
 /**
- * The one blocked entry both faces of the last stage are drawn over — the
- * overlap case, which is the one that still refuses. Derived once, so the two
- * blocks standing beside each other cannot be reading two different objects.
- */
-const BLOCKED_EXEMPLAR = blockedEntry(BLOCKED_CASES[1]!.blocker);
-const BLOCKED_MODEL = arcTrackModelFromEntry(BLOCKED_EXEMPLAR);
-const BLOCKED_FACTS = arcMetaFacts(BLOCKED_EXEMPLAR);
-
-/**
  * The session-scoped binding, projected from the entry exactly as
  * `arcSessionIndex` projects it — so the masthead is reading the same object
  * the two blocks beside it are.
@@ -649,7 +638,6 @@ function factFor(m: Moment): ArcSessionFact {
     stepTitle: e.step_title ?? null,
     hasPlan: e.documents?.plan !== undefined,
     track: arcTrackModelFromEntry(e),
-    facts: arcMetaFacts(e),
     documents: e.documents,
     boundSession: e.bound_session ?? "",
     steps: e.steps ?? [],
@@ -709,7 +697,6 @@ function LineTrailingFrame(): React.ReactElement {
       worker={m.worker}
       model={arcTrackModelFromEntry(m.entry)}
       stepTitle={m.entry.step_title ?? null}
-      facts={arcMetaFacts(m.entry)}
       lineTrailing={
         <BlockFoldCue
           collapsed={collapsed}
@@ -790,8 +777,6 @@ function VerbRowFrame({
         worker={m.worker}
         model={arcTrackModelFromEntry(m.entry)}
         stepTitle={m.entry.step_title ?? null}
-        facts={arcMetaFacts(m.entry)}
-        troublePlacement="mark"
       />
       <ArcVerbRow
         arc={m.entry.display_name}
@@ -864,7 +849,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
         <TugLabel className="cg-section-title">
           The lifecycle, as one track — TugArcTrack
         </TugLabel>
-        <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real ArcLifecycleLine, so the strip, the glyph, the fraction, and the word are spaced by the component rather than by this card. A direct arc draws brief · implement · join: it never had the two middle cells, but it did have a brief, so both round ends land on whole cells instead of the endcap travelling onto the first tick. The track is centred in its row and the reading — glyph, fraction, word, facts — is flush right, which is the eyebrow's own two-edge anchoring one line down. Cap-height, so it rides any line the atom is on. The type runs sit on one baseline and the two graphics are centred, which lands the cap-height strip on the type's own cap band; the glyph is sized a pixel proud of that band rather than four, so it reads as the strip's neighbour. What is behind you is a FILL and what is ahead is an OUTLINE: done is the muted text tone, active the theme's key color — the tone the pulsing dot uses for the same claim — the join the theme's selection color, and pending no fill at all">
+        <Stage caption="brief · devise · review · implement (one tick per step) · join. Each row is the real ArcLifecycleLine, so the strip, the glyph, the fraction, and the word are spaced by the component rather than by this card. A direct arc draws brief · implement · join: it never had the two middle cells, but it did have a brief, so both round ends land on whole cells instead of the endcap travelling onto the first tick. The track is centred in its row and the reading — glyph, fraction, word — is flush right, which is the eyebrow's own two-edge anchoring one line down. Cap-height, so it rides any line the atom is on. The type runs sit on one baseline and the two graphics are centred, which lands the cap-height strip on the type's own cap band; the glyph is sized a pixel proud of that band rather than four, so it reads as the strip's neighbour. What is behind you is a FILL and what is ahead is an OUTLINE: done is the muted text tone, active the theme's key color — the tone the pulsing dot uses for the same claim — the join the theme's selection color, and pending no fill at all">
           <div className="cg-arc-legend">
             {MOMENTS.map((m) => {
               const model = arcTrackModelFromEntry(m.entry);
@@ -1027,7 +1012,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
         {MOMENTS.map((m) => {
           const model = arcTrackModelFromEntry(m.entry);
           const stepTitle = m.entry.step_title ?? null;
-          const facts = arcMetaFacts(m.entry);
           const name = m.entry.display_name;
           return (
             <Stage key={m.key} caption={m.caption}>
@@ -1041,7 +1025,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
                     worker={m.worker}
                     model={model}
                     stepTitle={stepTitle}
-                    facts={facts}
                   />
                 </div>
                 <div className="cg-arc-surface" data-wide="true">
@@ -1176,35 +1159,6 @@ export function GalleryArcLifecycle(): React.ReactElement {
                 </div>
               );
             })}
-          </div>
-        </Stage>
-        <Stage caption="The row's whole reading, for the case that still refuses, in both of the line's faces. The register takes `blockers[0].detail` as its line — the server's own sentence, never a second copy composed here. LEFT is the default: the trouble is a sentence on the line, and because it is the only run there that cannot shrink, it takes its width from the phase word beside it — which is how `Implementing` came to read `I…`. RIGHT is what a host with somewhere to put the sentences opts into: a fixed-width tone mark in the clause's slot, keeping the same stacked hover, with every applicable sentence in full below. The transcript's stage notes and the arc receipt's header keep the left face, having nothing under them to render into">
-          <div className="cg-arc-surfaces">
-            <div className="cg-arc-surface">
-              <span className="cg-arc-surface-name">
-                The default · a sentence on the line
-              </span>
-              <ArcLifecycleBlock
-                name={BLOCKED_ARC}
-                worker={SOLO}
-                model={BLOCKED_MODEL}
-                facts={BLOCKED_FACTS}
-              />
-            </div>
-            <div className="cg-arc-surface">
-              <span className="cg-arc-surface-name">
-                Arcs card / Changes shade / ARC placard · the mark, and the
-                notes below
-              </span>
-              <ArcLifecycleBlock
-                name={BLOCKED_ARC}
-                worker={SOLO}
-                model={BLOCKED_MODEL}
-                facts={BLOCKED_FACTS}
-                troublePlacement="mark"
-              />
-              <ArcTroubleNotes facts={BLOCKED_FACTS} />
-            </div>
           </div>
         </Stage>
         <p className="cg-arc-prose">

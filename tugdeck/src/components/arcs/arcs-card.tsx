@@ -50,8 +50,7 @@
  * `implement` with the ledger's own counts. It carries neither the menu, which
  * is a live arc's, nor the fold, which reads a ledger a waiting document's
  * entry does not carry — only the transport, which is how paperwork becomes an
- * arc. It carries no trouble facts either: those are a branch's, and this row
- * has no branch.
+ * arc.
  *
  * `ChangesetAllStore` is the account-global snapshot, so this card is a
  * projection of it and nothing more. Rows key on the arc's **owner key**, which makes two
@@ -116,9 +115,8 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentation";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { ArcStepItems } from "@/components/tugways/arc-step-list";
-import { ArcTroubleNotes } from "@/components/tugways/arc-trouble-notes";
 import { arcTrackModelFromEntry } from "@/components/tugways/tug-arc-track";
-import { arcBranchFacts, arcMetaFacts } from "@/lib/arc-meta-facts";
+import { arcBranchFacts } from "@/lib/arc-meta-facts";
 import { compareArcEntries } from "@/lib/arc-order";
 import { documentArcTrackModel } from "@/lib/document-arc-entry";
 import { ArcJoinRegisterView } from "@/components/tugways/arc-join-register";
@@ -892,18 +890,8 @@ function ArcRowCell({
   // drawn either way and disabled when there is nothing to fold, so every row
   // in the list ends at the same edge and the column never goes ragged.
   const steps = entry.steps ?? [];
-  // What is in the arc's way, derived once: the line wears it as a mark and
-  // the fold opens over the sentences ([B06]).
-  const facts = arcMetaFacts(entry);
-  // What the fold opens over, and its hover in the plural the count takes.
-  // An arc still being briefed has no steps and may still have something in
-  // its way, and a message is enough to make the row expandable ([B07]) — so
-  // the noun follows whichever of the two the fold would show.
-  const foldNoun = steps.length > 0 ? "steps" : "notes";
-  const foldWord =
-    steps.length > 0
-      ? `${steps.length} step${steps.length === 1 ? "" : "s"}`
-      : "what is in the way";
+  // The fold's hover, in the plural the count takes.
+  const foldWord = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
   const expanded = dataSource.expanded.has(row.ownerId);
   // Every verb the arc offers, in the row under the block — and the same
   // housekeeping verbs again on the row's second button ([B08]).
@@ -958,8 +946,8 @@ function ArcRowCell({
     >
       <span className="arcs-block">
         {/* The arc's whole life in the one block: line one the identities,
-            line two the track, the phase glyph, the fraction, the word, and
-            the divergence facts. The pill wears no review tint — that yellow
+            line two the track, the phase glyph, the fraction, and the word.
+            The pill wears no review tint — that yellow
             means WAITING, and an arc is not waiting for anyone.
 
             Every row answers the same menu, held or not: Replay reaches a
@@ -971,11 +959,6 @@ function ArcRowCell({
           worker={worker}
           model={model}
           stepTitle={entry.step_title ?? null}
-          facts={facts}
-          // The row folds open to the ledger and the notes, so the line
-          // carries a mark rather than a sentence it would take the phase
-          // word's width to paint ([B06]).
-          troublePlacement="mark"
           {...(ready && register !== null
             ? {
                 note: register.line,
@@ -1019,15 +1002,13 @@ function ArcRowCell({
                 onToggle={() => dataSource.toggle(row.ownerId)}
                 collapsedLabel="Expand"
                 expandedLabel="Collapse"
-                ariaLabelExpand={`Expand ${foldNoun} for arc ${entry.display_name}`}
-                ariaLabelCollapse={`Collapse ${foldNoun} for arc ${entry.display_name}`}
+                ariaLabelExpand={`Expand steps for arc ${entry.display_name}`}
+                ariaLabelCollapse={`Collapse steps for arc ${entry.display_name}`}
                 tooltip={expanded ? `Hide ${foldWord}` : `Show ${foldWord}`}
                 size="xs"
                 subtype="icon"
-                // Disabled only when the fold would open over nothing at all
-                // ([B07]): a message is a reading, and an arc with one is
-                // expandable whether or not it has a ledger yet.
-                disabled={steps.length === 0 && facts.length === 0}
+                // Disabled when the fold would open over nothing at all.
+                disabled={steps.length === 0}
                 data-slot="arcs-steps-fold"
               />
             </>
@@ -1068,14 +1049,9 @@ function ArcRowCell({
             about one arc's steps. Structure rather than appearance: the rows
             mount while open and unmount when folded, so an arc nobody has
             opened costs no ledger DOM at all. */}
-        {expanded && (steps.length > 0 || facts.length > 0) ? (
+        {expanded && steps.length > 0 ? (
           <span className="arcs-steps" data-slot="arcs-steps">
-            {steps.length > 0 ? <ArcStepItems steps={steps} live={model.live} /> : null}
-            {/* Below the last step, in full, one per line ([B04]) — every
-                applicable fact rather than the loudest, because the width
-                that forced one clause on the line is not a constraint here
-                ([B05]). */}
-            <ArcTroubleNotes facts={facts} />
+            <ArcStepItems steps={steps} live={model.live} />
           </span>
         ) : null}
       </span>
@@ -1130,15 +1106,6 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
           name={entry.display_name}
           worker={entry.bound_session ?? null}
           model={model}
-          // No facts, and none are possible: every clause `arcMetaFacts`
-          // derives is about the checkout's standing against a base, and a
-          // branchless arc has no base, no worktree and no changed files to
-          // stand against one. The call used to be made through an adapter
-          // that filled those in empty, which is a long way to travel to
-          // learn nothing.
-          // No mark here: a plan row has no fold and nothing below it, so the
-          // sentence stays on the line rather than being demoted to a hover
-          // with nowhere to land ([B06]).
         />
         <PlanVerbRow row={row} />
         {waiting !== null ? (
