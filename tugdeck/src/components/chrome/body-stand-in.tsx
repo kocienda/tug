@@ -108,6 +108,7 @@ function StandInFace({ cardId, componentId }: BodyStandInProps): React.ReactElem
   const cardsKey = useSyncExternalStore(deckCards.subscribe, () =>
     value === null ? "" : chromeCardsKey(value, deckCards.getSnapshot()),
   );
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `cardsKey` is the snapshot's version, per the note above
   const cards = useMemo(() => deckCards.getSnapshot(), [cardsKey]);
   const masthead = useSyncExternalStore(cardTitleStore.subscribe, () => cardTitleStore.getMasthead(cardId));
   const folded = useIsCardFolded(cardId);

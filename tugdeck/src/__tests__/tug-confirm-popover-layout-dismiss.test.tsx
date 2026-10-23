@@ -37,7 +37,9 @@ beforeAll(async () => {
   function ConfirmProbe(): React.ReactElement {
     const [anchor, setAnchor] = React.useState<HTMLElement | null>(null);
     const [open, setOpen] = React.useState(false);
-    raise = () => setOpen(true);
+    React.useLayoutEffect(() => {
+      raise = () => setOpen(true);
+    }, []);
     return (
       <div>
         <button type="button" data-probe="anchor" ref={setAnchor}>
