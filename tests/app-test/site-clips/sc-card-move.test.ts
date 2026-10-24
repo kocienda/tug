@@ -31,9 +31,10 @@ const TEST_TIMEOUT_MS = 110_000;
 const CARDS = ["sc-move-a", "sc-move-b", "sc-move-c"] as const;
 const FRONT = CARDS[2];
 
-/** Rest before the press, and the settle after each drop. */
+/** Rest before the press, the settle after the first drop, and the longer one after the return, which also restores the column it left. */
 const REST_MS = 600;
 const SETTLE_MS = 1_400;
+const RETURN_SETTLE_MS = 2_400;
 /** How far a card may stand from where it rested and still count as back. */
 const BACK_TOLERANCE_PX = 4;
 /** The drag's own pace: steps × delay, plus the press. */
@@ -92,7 +93,7 @@ describe.skipIf(!RUNS)("site clip: card move", () => {
         const crop = cropAround(Object.values(rest), 24, await contentSize(app));
 
         const dragMs = PRESS_MS + DRAG_STEPS * DRAG_STEP_MS;
-        const reading = await burstTo(app, crop, REST_MS + 2 * (dragMs + SETTLE_MS), outDirFor("card-move"), async () => {
+        const reading = await burstTo(app, crop, REST_MS + 2 * dragMs + SETTLE_MS + RETURN_SETTLE_MS, outDirFor("card-move"), async () => {
           await Bun.sleep(REST_MS);
           await drag(app, from, to);
           await Bun.sleep(SETTLE_MS);
@@ -102,9 +103,8 @@ describe.skipIf(!RUNS)("site clip: card move", () => {
 
         const after = await standIns(app);
         for (const id of CARDS) {
-          const dx = Math.abs(after[id]!.x - rest[id]!.x);
-          const dy = Math.abs(after[id]!.y - rest[id]!.y);
-          expect(Math.max(dx, dy), `${id} is back where it rested (moved ${dx.toFixed(1)}, ${dy.toFixed(1)})`).toBeLessThanOrEqual(BACK_TOLERANCE_PX);
+          const off = (["x", "y", "width", "height"] as const).map((k) => Math.abs(after[id]![k] - rest[id]![k]));
+          expect(Math.max(...off), `${id} is back where it rested, at its size (off by ${off.map((v) => v.toFixed(1)).join(", ")})`).toBeLessThanOrEqual(BACK_TOLERANCE_PX);
         }
       } finally {
         await app.close();
