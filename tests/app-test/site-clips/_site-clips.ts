@@ -79,9 +79,18 @@ export function outDirFor(clip: string): string {
  * workspace's deck. The theme rides the workspace record in a temp tugbank,
  * so the boot paints in it; `stubDir` (from `stubDirectory()`) is where
  * tugcode finds the stub transcripts a scene's session cards are bound to.
+ *
+ * A scene whose cards need states (a Text card's file, a Diff card's
+ * descriptor) launches with an EMPTY deck and seeds the real one afterwards
+ * with `seedDeckState({ state, cardStates })`: a card's body reads its state
+ * bag when it mounts, so a card the restore already mounted would not pick
+ * up a bag seeded later. The wait below asks only for the cards the launch
+ * deck carries.
  */
 export async function launchForMode(testName: string, deck: unknown, stubDir?: string): Promise<App> {
   if (MODE === undefined) throw new Error("site clips: TUG_SITE_CLIPS_MODE must be dark or light");
+  const cards = (deck as { cards?: unknown[] } | null)?.cards;
+  const expected = Array.isArray(cards) ? cards.length : 0;
   const tugbankPath = mkTempTugbank();
   onTestRunEnd(() => rmTempTugbank(tugbankPath));
   seedTugbankForLaunch(tugbankPath);
@@ -105,7 +114,7 @@ export async function launchForMode(testName: string, deck: unknown, stubDir?: s
     skipAccessibilityPreflight: true,
   });
   await app.waitForCondition<boolean>(
-    `typeof window.tugdeck !== "undefined" && window.tugdeck.diag.getDeckState().cards.length > 0 && document.documentElement.dataset.themeMode === ${JSON.stringify(MODE)}`,
+    `typeof window.tugdeck !== "undefined" && window.tugdeck.diag.getDeckState().cards.length >= ${expected} && document.documentElement.dataset.themeMode === ${JSON.stringify(MODE)}`,
     { timeoutMs: 15_000 },
   );
   return app;
