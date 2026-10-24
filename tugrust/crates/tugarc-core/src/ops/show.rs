@@ -1104,8 +1104,9 @@ pub(crate) fn arc_rounds(repo_root: &Path, base: &str, branch: &str) -> Vec<ArcR
     // `%x1e` (record separator) divides commits, because a subject cannot
     // contain either and a trailer value spans to end of line — a plain
     // newline-per-commit format could not tell a two-line record from two.
-    let format =
-        format!("--format=%h%x1f%s%x1f%cI%x1f%(trailers:key={SWEEP_TRAILER_KEY},valueonly)%x1f%B%x1e");
+    let format = format!(
+        "--format=%h%x1f%s%x1f%cI%x1f%(trailers:key={SWEEP_TRAILER_KEY},valueonly)%x1f%B%x1e"
+    );
     let Ok(out) = git_stdout(repo_root, &["log", &format, &format!("{base}..{branch}")]) else {
         return Vec::new();
     };

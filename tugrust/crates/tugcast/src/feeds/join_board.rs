@@ -690,12 +690,27 @@ mod tests {
     #[test]
     fn a_withheld_reason_is_said_once_per_change() {
         let mut said = SaidOnce::default();
-        assert!(said.say("offer:a", Some("no-candidate")), "the first word is said");
-        assert!(!said.say("offer:a", Some("no-candidate")), "a recompute is not a change");
-        assert!(said.say("offer:a", Some("offered")), "the offer standing is");
-        assert!(said.say("offer:b", Some("offered")), "each arc keeps its own");
+        assert!(
+            said.say("offer:a", Some("no-candidate")),
+            "the first word is said"
+        );
+        assert!(
+            !said.say("offer:a", Some("no-candidate")),
+            "a recompute is not a change"
+        );
+        assert!(
+            said.say("offer:a", Some("offered")),
+            "the offer standing is"
+        );
+        assert!(
+            said.say("offer:b", Some("offered")),
+            "each arc keeps its own"
+        );
         assert!(!said.say("offer:a", None), "forgetting says nothing");
-        assert!(said.say("offer:a", Some("offered")), "and the next word is said again");
+        assert!(
+            said.say("offer:a", Some("offered")),
+            "and the next word is said again"
+        );
     }
 
     fn detail_for(repo: &Path) -> ArcDetail {
