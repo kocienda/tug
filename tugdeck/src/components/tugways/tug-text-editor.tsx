@@ -3578,9 +3578,7 @@ function paintCompletionPopup(
         + (k === state.selectedIndex ? " tug-completion-menu-item-selected" : "");
     });
     popup.style.display = "block";
-    (items[state.selectedIndex] as HTMLElement | undefined)?.scrollIntoView({
-      block: "nearest",
-    });
+    revealCompletionRow(popup, items[state.selectedIndex] as HTMLElement | undefined);
   } else {
     popup.style.display = "block";
     popup.innerHTML = "";
@@ -3643,8 +3641,10 @@ function paintCompletionPopup(
       });
       popup.appendChild(div);
     });
-    const selectedEl = popup.children[state.selectedIndex] as HTMLElement | undefined;
-    selectedEl?.scrollIntoView({ block: "nearest" });
+    revealCompletionRow(
+      popup,
+      popup.children[state.selectedIndex] as HTMLElement | undefined,
+    );
   }
 
   // ---- Deferred positioning ----
@@ -3704,6 +3704,26 @@ function paintCompletionPopup(
       popup.style.bottom = "";
     },
   });
+}
+
+/**
+ * Scroll the popup — and only the popup — so `row` is inside its scrollport.
+ *
+ * Never `scrollIntoView`: that walks every scrollable ancestor on both axes,
+ * and a popup painted wider than the card (or before the deferred measure
+ * clamps it into the viewport) dragged the whole card's content sideways out
+ * of view. The popup is the one scroller this list owns, so the reveal is a
+ * minimal vertical `scrollTop` write on it. [L06]
+ */
+function revealCompletionRow(popup: HTMLDivElement, row: HTMLElement | undefined): void {
+  if (row === undefined) return;
+  const top = row.offsetTop;
+  const bottom = top + row.offsetHeight;
+  if (top < popup.scrollTop) {
+    popup.scrollTop = top;
+  } else if (bottom > popup.scrollTop + popup.clientHeight) {
+    popup.scrollTop = bottom - popup.clientHeight;
+  }
 }
 
 /** Navigate to a specific item by index — used by the popup's hover handler. */
