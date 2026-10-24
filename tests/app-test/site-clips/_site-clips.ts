@@ -178,3 +178,36 @@ export async function stillTo(app: App, crop: Rect | undefined, outPath: string)
   copyFileSync(last.path, outPath);
   return { scale: r.scale };
 }
+
+/**
+ * Every card's pane rect in the shell's content, by card id, as the deck lays
+ * them out now — the shell's stand-ins, read the way `at0747` reads them. A
+ * scene reads these to crop its capture to the cards it is about.
+ */
+// card-dom: shell — the stand-ins are the shell's model of where each card stands.
+export function standIns(app: App): Promise<Record<string, Rect>> {
+  return app.evalJS<Record<string, Rect>>(`(function () {
+    var out = {};
+    document.querySelectorAll('.tug-pane:not([data-departing])').forEach(function (f) {
+      var ph = f.querySelector('[data-body-placeholder][data-card-id]');
+      if (!ph) return;
+      var r = f.getBoundingClientRect();
+      out[ph.getAttribute('data-card-id')] = { x: r.x, y: r.y, width: r.width, height: r.height };
+    });
+    return out;
+  })()`);
+}
+
+/** A crop in content points around `rects`, padded by `pad`, kept inside the content area. */
+export function cropAround(rects: Rect[], pad: number, content: { width: number; height: number }): Rect {
+  const x0 = Math.max(0, Math.floor(Math.min(...rects.map((r) => r.x)) - pad));
+  const y0 = Math.max(0, Math.floor(Math.min(...rects.map((r) => r.y)) - pad));
+  const x1 = Math.min(content.width, Math.ceil(Math.max(...rects.map((r) => r.x + r.width)) + pad));
+  const y1 = Math.min(content.height, Math.ceil(Math.max(...rects.map((r) => r.y + r.height)) + pad));
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
+
+/** The window's content size in points, read off the shell. */
+export function contentSize(app: App): Promise<{ width: number; height: number }> {
+  return app.evalJS<{ width: number; height: number }>(`({ width: window.innerWidth, height: window.innerHeight })`);
+}
