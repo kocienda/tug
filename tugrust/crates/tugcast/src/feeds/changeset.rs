@@ -1742,10 +1742,14 @@ async fn arc_entries(
         // session's own backgrounded tests are running in that worktree is the
         // hazard `base_motion` already refuses mid-turn; two engines moving the
         // same branch must obey the same gate.
-        if holders_busy(
+        let holder_busy = holders_busy(
             &busy_sessions,
             holder_line_of(&holder_lines, &detail.owner_key),
-        ) {
+        );
+        // Said once per change, because a held pilot builds no candidate and
+        // the offer it would have made reads only as `no-candidate`.
+        crate::feeds::join_board::pilot_receipt(detail, bound, holder_busy);
+        if holder_busy {
             continue;
         }
         if let Some(action) = crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)

@@ -814,6 +814,56 @@ describe("JoinModeController", () => {
     controller.dispose();
   });
 
+  it("entering the mode on the arc whose join is running keeps the narration", () => {
+    // A re-entry over a running join — a reveal that raced the press, or a
+    // hand door opened while it runs — used to null the narration, so the
+    // register lost its subject the moment the mode closed again and the
+    // join's progress row read nothing at all.
+    const { controller } = build();
+    controller.enter(TARGET);
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+      controller.exit();
+    });
+    controller.land("land it");
+    (staged as unknown as () => void)();
+
+    controller.enter(TARGET);
+    controller.exit();
+
+    const snapshot = controller.getSnapshot();
+    expect(snapshot.narrating).toBe(true);
+    expect(snapshot.register).toMatchObject({ phase: "in_flight", word: "joining" });
+    controller.dispose();
+  });
+
+  it("entering the mode after the join settled drops the narration", () => {
+    // The keep is only for a join still running: a settled one's sentence is
+    // the last join's, and opening the mode puts the composer to a new use.
+    const { controller } = build();
+    controller.enter(TARGET);
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+      controller.exit();
+    });
+    controller.land("land it");
+    (staged as unknown as () => void)();
+    _ingestJoinFrameForTest({
+      action: "changeset_join_ok",
+      project_dir: WORKSPACE_KEY,
+      arc: "join-lane",
+      summary: "joined abc1234 · join-lane → main · 2 round(s)",
+    });
+
+    controller.enter(TARGET);
+    controller.exit();
+
+    expect(controller.getSnapshot().narrating).toBe(false);
+    controller.dispose();
+  });
+
   it("the server's front beat takes over the press's placeholder", () => {
     const { controller } = build();
     controller.enter(TARGET);

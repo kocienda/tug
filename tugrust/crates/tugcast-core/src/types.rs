@@ -907,6 +907,15 @@ pub struct ArcJoinOffer {
     pub request_id: String,
     pub base_sha: String,
     pub arc_head: String,
+    /// What a surface remembers having shown: the arc's authored work, stable
+    /// across a base-motion replay and new the moment a round lands.
+    ///
+    /// `request_id` and `arc_head` both move when the base moves, because a
+    /// replay rewrites every round onto the new base, so a surface keyed on
+    /// either re-reads a neighbour's join as new work here. This one is minted
+    /// from the rounds' count and messages, which the replay keeps.
+    #[serde(default)]
+    pub work_id: String,
     /// The message this join would land with, composed exactly as the landing
     /// itself would compose it.
     ///

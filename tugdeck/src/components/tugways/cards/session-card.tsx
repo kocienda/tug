@@ -53,9 +53,17 @@ import {
 } from "../tug-prompt-entry";
 import { ShadeViewController } from "@/lib/shade-view-controller";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
-import { shouldRevealJoinOffer } from "@/lib/join-offer-reveal";
+import {
+  isLandingInFlight,
+  joinOfferRevealHold,
+  joinOfferRevealHoldSentence,
+  JoinOfferMemory,
+  JoinOfferRevealReceipts,
+  type JoinOfferRevealInput,
+} from "@/lib/join-offer-reveal";
+import { sendLandingReceipt } from "@/lib/landing-press-receipt";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
-import { getChangesetJoinStore } from "@/lib/changeset-join-store";
+import { getChangesetJoinStore, useChangesetJoinLand } from "@/lib/changeset-join-store";
 import { CommitModeController } from "@/lib/commit-mode-controller";
 import {
   JoinModeController,
@@ -2134,6 +2142,12 @@ export function SessionCardBody({
           "sheetDidHide never fired — the watchdog landed the staged callback",
         );
       },
+      onReentry: () => {
+        tugDevLogStore.warn(
+          "landing",
+          "room re-entered during a staged landing — a sheet showed before the landing ran",
+        );
+      },
     });
   }
   useEffect(() => {
@@ -2166,6 +2180,9 @@ export function SessionCardBody({
   useSheetDelegate(cardId, {
     sheetDidHide: () => {
       stagedLandingRef.current?.sheetDidHide();
+    },
+    sheetWillShow: () => {
+      stagedLandingRef.current?.sheetWillShow();
     },
   });
   // Captured by the JSX's composed ref below for the first-mount
@@ -3193,12 +3210,17 @@ export function SessionCardBody({
   // The conditions are {@link shouldRevealJoinOffer}, apart from the card so
   // the decision is a unit test rather than a claim about a rendered tree.
   //
-  // **Once per arc head, remembered only for this mount.** The offer's
-  // `request_id` moves when *either* head does, so it is not what to remember:
-  // a base push would mint a new id over work the reader has already been
-  // shown, and the room would open again every time somebody else landed
-  // something. The **arc head** is the fact that says "work you have not
-  // seen" — a new round moves it, a base move does not. Nothing durable
+  // **Once per piece of work, remembered only for this mount, spent by any
+  // door.** The work is spent when join mode becomes active on the offered arc — the
+  // one place the Z4A segment, ⌃⌘C, the Session menu, `/arc-join`, an Arcs
+  // row and this reveal all pass through — so a room opened by hand while the
+  // gate held is as shown as one this effect opened. The offer's
+  // `request_id` and `arc_head` both move when the base does — a base move
+  // replays every ready arc's rounds onto the new base, rewriting the head —
+  // so neither is what to remember: the room would open again every time
+  // somebody else landed something. The server's **work id** is the fact that
+  // says "work you have not seen", minted from the rounds' count and messages:
+  // a new round moves it, a replay does not. Nothing durable
   // records the reveal: closing the shade discards nothing, and the worst case
   // of forgetting is one extra glance ([L22] — mount-local memory,
   // deliberately not a store).
@@ -3213,14 +3235,16 @@ export function SessionCardBody({
   // signal the gate above can wait on: a reveal deferred over a half-typed
   // composer fires on its own when the composer empties.
   const [composerEmpty, setComposerEmpty] = useState(true);
-  const revealedOffersRef = useRef<Set<string>>(new Set());
-  // **A cleared block is new work to show, even at the same arc head.**
+  const revealMemoryRef = useRef<JoinOfferMemory | null>(null);
+  if (revealMemoryRef.current === null) revealMemoryRef.current = new JoinOfferMemory();
+  const revealMemory = revealMemoryRef.current;
+  // **A cleared block is new work to show, even at the same work id.**
   //
-  // The memory above is keyed on the arc head because that is the fact that
+  // The memory above is keyed on the work id because that is the fact that
   // means "work you have not seen" — a base move must not re-open the room.
   // A resolve is the one thing that moves the BASE and changes the answer: a
   // arc blocked by uncommitted work on the base carries a standing offer its
-  // head already spent, so without this the room would stay shut on the arc
+  // work already spent, so without this the room would stay shut on the arc
   // the user just unblocked, which is the moment they most want it open.
   //
   // The edge is what is remembered, not the state: forgetting on every clean
@@ -3228,43 +3252,108 @@ export function SessionCardBody({
   const joinBlocked = (boundArcEntry?.join?.blockers ?? []).length > 0;
   const wasBlockedRef = useRef(false);
   useEffect(() => {
-    if (wasBlockedRef.current && !joinBlocked) revealedOffersRef.current.clear();
+    if (wasBlockedRef.current && !joinBlocked) revealMemory.forget();
     wasBlockedRef.current = joinBlocked;
-  }, [joinBlocked]);
+  }, [joinBlocked, revealMemory]);
+  // This card's own join of the offered arc, from the press to its terminal
+  // frame. The press exits the mode and hides the shade, so in the commit
+  // right after it every other gate input reads clear; this is the one that
+  // still says the room was just left on purpose.
+  const offeredArcLand = useChangesetJoinLand(
+    changesController.workspaceKey,
+    boundArcEntry?.display_name ?? "",
+  );
+  const landingInFlight = isLandingInFlight({
+    narrating: joinSnapshot.narrating,
+    landProgress: boundArcEntry === null ? null : offeredArcLand,
+    joinPhase: joinSnapshot.landPhase,
+  });
+  // Entry spends. Declared ahead of the reveal so a commit that both opens the
+  // room and moves the offer has spent it before the gate reads the memory;
+  // `joinOffer` is a dependency so work that moves while the room is open is
+  // spent too — the reader is already looking at the work it names.
+  const joinActiveOwnerId = joinSnapshot.active ? (joinSnapshot.arc?.ownerId ?? null) : null;
   useEffect(() => {
-    const arcHead = joinOffer?.arc_head;
-    if (arcHead === undefined) return;
-    // A refusal never spends the head: spending it says the reader has seen
-    // this work, and a reveal that did not happen showed them nothing.
-    if (
-      !shouldRevealJoinOffer({
-        alreadyRevealed: revealedOffersRef.current.has(arcHead),
-        turnInFlight,
-        anyLandingActive,
-        composerEmpty,
-        shadeShowing: shadeView !== "none",
-        folded,
-      })
-    ) {
-      return;
+    const workId = joinOffer?.work_id;
+    revealMemory.spendOnEntry(
+      joinActiveOwnerId,
+      workId === undefined || boundArcEntry === null
+        ? null
+        : { ownerId: boundArcEntry.owner_id, key: workId },
+    );
+  }, [joinActiveOwnerId, joinOffer, boundArcEntry, revealMemory]);
+  // The gate's inputs for a key. Built in one place so the effect's decision
+  // and the segment dot's sentence read the same facts.
+  const revealInput = (key: string): JoinOfferRevealInput => ({
+    alreadyRevealed: revealMemory.has(key),
+    landingInFlight,
+    turnInFlight,
+    anyLandingActive,
+    composerEmpty,
+    shadeShowing: shadeView !== "none",
+    folded,
+  });
+  // Why the room is waiting, in the gate's own words, for the Changes
+  // segment's dot. Read at render because the dot is: the memory it consults
+  // is spent in an effect, but a spent key means the room was open, and the
+  // render that closes it reads the memory fresh.
+  const revealHoldSentence =
+    joinOffer === null
+      ? null
+      : joinOfferRevealHoldSentence(joinOfferRevealHold(revealInput(joinOffer.work_id)));
+  // One `tugcast.log` line per new answer, so "the shade did not reveal" is
+  // read from the log rather than reconstructed from the code.
+  const revealReceiptsRef = useRef<JoinOfferRevealReceipts | null>(null);
+  if (revealReceiptsRef.current === null) revealReceiptsRef.current = new JoinOfferRevealReceipts();
+  const revealReceipts = revealReceiptsRef.current;
+  useEffect(() => {
+    const workId = joinOffer?.work_id;
+    if (workId === undefined) return;
+    // A refusal never spends the work: the entry below does, through the
+    // effect above, and a reveal that did not happen showed them nothing.
+    const hold = joinOfferRevealHold({
+      alreadyRevealed: revealMemory.has(workId),
+      landingInFlight,
+      turnInFlight,
+      anyLandingActive,
+      composerEmpty,
+      shadeShowing: shadeView !== "none",
+      folded,
+    });
+    const receipt = {
+      key: workId,
+      verdict: hold === null ? ("revealed" as const) : ("deferred" as const),
+      reason: hold,
+    };
+    if (revealReceipts.due(receipt)) {
+      sendLandingReceipt({
+        kind: "reveal",
+        verdict: receipt.verdict,
+        ...(hold !== null ? { reason: hold } : {}),
+        gate: { key: workId, arc: boundArcEntry?.display_name ?? null },
+      });
     }
-    revealedOffersRef.current.add(arcHead);
+    if (hold !== null) return;
     enterChanges();
   }, [
     joinOffer,
+    landingInFlight,
     turnInFlight,
     anyLandingActive,
     composerEmpty,
     shadeView,
     folded,
     enterChanges,
+    revealMemory,
+    revealReceipts,
+    boundArcEntry,
   ]);
 
   // The same reveal, asked for out loud — an Arcs card arc row activating routes
   // here through the card-content responder, and this is [D152]'s one reveal
   // path rather than a second one. Defined beside the effect above so both
-  // share the controller and the memory: whichever fires first spends the
-  // standing offer's head, so the passive reveal never re-opens the room for
+  // share the controller: the entry it makes spends the standing offer's work
+  // like every other door's, so the passive reveal never re-opens the room for
   // work the reader has just been shown.
   //
   // The quiet-moment gate is deliberately not consulted. It exists to keep an
@@ -3282,19 +3371,17 @@ export function SessionCardBody({
   // entry follows in the same commit — the mode↔sheet coupling raises the
   // shade after the render the unfold has already been committed in, so it
   // never lands over Z2. Handing the entry to the deferred effect instead
-  // would put a bidden entry behind the unbidden gate: a head already spent
+  // would put a bidden entry behind the unbidden gate: work already spent
   // on this mount, a half-typed composer or a turn in flight would each
   // swallow the click and leave the reader with a card that merely unfolded.
-  // The head is added first, so the effect re-running on the unfold sees the
-  // room as already shown and defers rather than entering it twice.
+  // The unfold and the entry land in one commit, so the effect re-running on
+  // the unfold finds a landing up and defers rather than entering it twice.
   const revealChanges = useCallback((): void => {
-    const arcHead = joinOffer?.arc_head;
-    if (arcHead === undefined) {
+    if (joinOffer === null) {
       unfoldForChanges();
       shadeViewController.show("changes");
       return;
     }
-    revealedOffersRef.current.add(arcHead);
     enterChanges();
   }, [joinOffer, shadeViewController, enterChanges, unfoldForChanges]);
 
@@ -5321,6 +5408,7 @@ export function SessionCardBody({
                 // feed and the offer goes with it, so the dot cannot outlive
                 // what it points at.
                 changesHasOffer={joinOffer !== null && shadeView === "none"}
+                changesOfferNote={revealHoldSentence}
                 onEnterChanges={enterChanges}
                 // A rejected drop / paste (unsupported, oversize, or
                 // undecodable image) is transient input validation, not a

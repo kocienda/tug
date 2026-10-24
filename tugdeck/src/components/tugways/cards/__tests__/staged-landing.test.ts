@@ -200,3 +200,55 @@ describe("createStagedLanding", () => {
     expect(t.pending()).toBe(0);
   });
 });
+
+describe("the re-entry tripwire", () => {
+  function staged() {
+    const t = timers();
+    let reentries = 0;
+    const staging = createStagedLanding({
+      onFault: () => {},
+      onReentry: () => {
+        reentries += 1;
+      },
+      setTimer: t.setTimer,
+      clearTimer: t.clearTimer,
+    });
+    return { t, staging, reentries: () => reentries };
+  }
+
+  it("a sheet showing while a landing is parked is reported", () => {
+    const { staging, reentries } = staged();
+    staging.stage(() => {});
+    staging.sheetWillShow();
+    expect(reentries()).toBe(1);
+  });
+
+  it("a sheet showing in the post-hide beat, before the landing ran, is reported", () => {
+    const { t, staging, reentries } = staged();
+    let runs = 0;
+    staging.stage(() => {
+      runs += 1;
+    });
+    staging.sheetDidHide();
+    staging.sheetWillShow();
+    expect(reentries()).toBe(1);
+    // The tripwire reports; it does not take the landing away.
+    t.advance(150);
+    expect(runs).toBe(1);
+  });
+
+  it("a sheet showing with nothing staged is ordinary", () => {
+    const { staging, reentries } = staged();
+    staging.sheetWillShow();
+    expect(reentries()).toBe(0);
+  });
+
+  it("a sheet showing after the landing ran is ordinary", () => {
+    const { t, staging, reentries } = staged();
+    staging.stage(() => {});
+    staging.sheetDidHide();
+    t.advance(150);
+    staging.sheetWillShow();
+    expect(reentries()).toBe(0);
+  });
+});

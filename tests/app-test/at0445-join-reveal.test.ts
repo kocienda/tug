@@ -45,10 +45,12 @@
  *   running turn, a half-typed composer — so an offer is never silent, only
  *   quiet.
  * - **Closing costs nothing, and does not re-reveal.** The shade goes down and
- *   stays down for the same offer across a full re-run of the arc — a base
- *   move re-reconciles in silence. The memory is the card's, for this mount
- *   only: nothing durable records that a room was closed, which is precisely
- *   the machinery whose absence this file pins.
+ *   stays down for the same work across a full re-run of the arc — a base
+ *   move replays the arc's rounds onto the new base, rewriting its head, and
+ *   re-reconciles in silence, because the card remembers the server's work id
+ *   rather than the head. The memory is the card's, for this mount only:
+ *   nothing durable records that a room was closed, which is precisely the
+ *   machinery whose absence this file pins.
  * - **New work summons it again.** A round the user has never seen mints a new
  *   offer id, and the shade comes back up.
  *
@@ -79,10 +81,12 @@
  * @covers tugdeck/src/lib/shade-view-controller.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/lib/arc-join-register.ts
+ * @covers tugdeck/src/lib/join-offer-reveal.ts
  * @covers tugdeck/src/components/arcs/arcs-card.tsx
  * @covers tugrust/crates/tugarc-core/src/log.rs
  * @covers tugrust/crates/tugarc-core/src/ops/join.rs
  * @covers tugrust/crates/tugarc-core/src/ops/show.rs
+ * @covers tugrust/crates/tugarc-core/src/replay.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
@@ -103,6 +107,7 @@ import {
 import {
   commitRound,
   createArc,
+  disarmAutoreplay,
   gitRetry as git,
   makeArcScratchRepo,
   rmScratchSession,
@@ -469,6 +474,16 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // coupling drops the shade with it — the card returns to the Prompt
         // route in one press. Nothing durable is written, which is the
         // machinery this file exists to pin the absence of.
+        //
+        // ⌃⌘C is the Session card's, so it reaches the card only while the
+        // card holds the keyboard — and showing the Arcs rail above made the
+        // Arcs card active. A reader closing the room is looking at it, so the
+        // card is put back in front first, as their click on it would.
+        await app.dispatchControlAction("focus-session-card", { cardId: "A" });
+        expect(
+          await app.evalJS<string | null>(`window.__tug.getActiveCardId()`),
+          "the card holds the keyboard the close is pressed on",
+        ).toBe("A");
         await app.dispatchControlAction("toggle-changes-view");
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
@@ -498,10 +513,12 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
 
         // ── The base moves, and the shade stays down ─────────────────────
         // A full re-run of the arc — not merely a quiet minute. The base sha
-        // moves, the arc is reconciled again, the candidate is rebuilt, and a
-        // new offer id is minted. The card has already shown this arc head's
-        // room, and a re-reveal on every base push would be the nagging the
-        // old dialog was accused of.
+        // moves, base motion replays the arc's rounds onto it (a new arc
+        // head), the arc is reconciled again, the candidate is rebuilt, and a
+        // new offer id is minted. The card has already shown this work, and a
+        // re-reveal on every base push would be the nagging the old dialog was
+        // accused of — and, with every ready arc replayed at once, a
+        // neighbour's join would reopen this room.
         //
         // The watch is the recorder's, armed from the moment the room closed,
         // and it ends when the re-reconcile is SEEN to have run — the bound
@@ -516,9 +533,23 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           `(window.__at0445.bound = [], window.__at0445.tick(), null)`,
         );
         const baseMovedAt = Date.now();
+        const headBefore = git(scratch, "rev-parse", `tugarc/${ARC}`).trim();
+        // The fixture disarms auto-replay on every arc it cuts, so no other
+        // instance moves a test's branches. This step is about the replay, so
+        // the bound arc is armed for the base move alone and disarmed again
+        // the moment its head is seen to move.
+        git(scratch, "config", `branch.tugarc/${ARC}.tugautoreplay`, "true");
         writeFileSync(join(scratch, "base-move.txt"), "at0445 the base moved\n");
         git(scratch, "add", "-A");
         git(scratch, "commit", "-m", "at0445: the base moves under a closed shade");
+        const replayDeadline = Date.now() + 8000;
+        while (
+          git(scratch, "rev-parse", `tugarc/${ARC}`).trim() === headBefore &&
+          Date.now() < replayDeadline
+        ) {
+          await settle(100);
+        }
+        disarmAutoreplay(scratch, ARC);
         await registerReaches(app, ARC, "ready", 240000);
         const reRan = await kindBody(app, "dashes")
           .waitForCondition<boolean>(
@@ -540,9 +571,15 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         }
         const quietWatch = await readRecording(app);
         note(`at0445 base move: re-reconcile seen ${reRan}, bound words ${JSON.stringify(quietWatch.bound)}`);
+        // The replay is the case that matters: a base move that left the head
+        // where it was would prove only that nothing changed.
+        expect(
+          git(scratch, "rev-parse", `tugarc/${ARC}`).trim(),
+          "base motion replayed the arc onto the moved base",
+        ).not.toBe(headBefore);
         expect(
           quietWatch.sheetSeen || (await shadeUp(app)),
-          "a base move under an unchanged arc head re-reconciles in silence",
+          "a replay onto a moved base is not new work, so it re-reconciles in silence",
         ).toBe(false);
         await app.body("A").evalJS<null>(`(window.__at0445.armSheet = false, null)`);
         expect(
@@ -552,7 +589,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         note(`at0445 ${at()} quiet: the base moved, the arc re-ran, and nothing revealed`);
 
         // ── A new round, and the shade comes back ────────────────────────
-        // The arc head moves. That is work the user has never seen, which is
+        // A round lands. That is work the user has never seen, which is
         // the case a standing surface must still announce — the failure the
         // old durable dismissal produced was a run that walked four milestones
         // and spoke at the first.

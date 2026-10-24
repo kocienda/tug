@@ -18,6 +18,15 @@
  *
  * Exactly-once is a null-swap on the parked callback: both beats call the same
  * `run`, and whichever arrives second finds nothing to do.
+ *
+ * **A sheet showing while a landing is staged is a fault, and it is said.** The
+ * press closed the room as its own act, so the room coming back before the
+ * landing has run means something re-entered it over the user's own landing —
+ * the shade standing over a join with its progress hidden behind it. Nothing
+ * else about that shape is visible: the hide still fires, the deadline is
+ * disarmed, the landing still runs. So `sheetWillShow` inside the staging
+ * window — parked, or handed to the post-hide beat and not yet run — reports
+ * the re-entry, which is the line that names the fault on its first occurrence.
  */
 
 /** The beat the shade's exit animation is given before the landing fires. */
@@ -36,6 +45,8 @@ export interface StagedLanding {
   stage: (runLand: () => void) => void;
   /** The shade finished hiding — disarm the deadline and run what is parked. */
   sheetDidHide: () => void;
+  /** A sheet is about to show — a fault if a landing is still staged. */
+  sheetWillShow: () => void;
   /** Release both timers and drop any parked callback ([L27]). */
   dispose: () => void;
 }
@@ -43,6 +54,8 @@ export interface StagedLanding {
 export interface StagedLandingDeps {
   /** Called when the deadline fired because the hide never did. */
   onFault: () => void;
+  /** Called when a sheet shows while a landing is still staged. */
+  onReentry?: () => void;
   /** Injected by the tests; the browser's timers otherwise. */
   setTimer?: (fn: () => void, ms: number) => number;
   clearTimer?: (id: number) => void;
@@ -91,6 +104,10 @@ export function createStagedLanding(deps: StagedLandingDeps): StagedLanding {
         delay = null;
         run();
       }, POST_HIDE_DELAY_MS);
+    },
+
+    sheetWillShow: (): void => {
+      if (parked !== null || delay !== null) deps.onReentry?.();
     },
 
     dispose: (): void => {

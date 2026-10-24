@@ -573,6 +573,7 @@ function briefEntry(message: string, source: string): ArcChangesetEntry {
         request_id: `${BRIEF_ARC}:fbe9ca5b:05c9f2eb`,
         base_sha: "fbe9ca5b00000",
         arc_head: "05c9f2ebb0000",
+        work_id: `${BRIEF_ARC}:3:5a1c9e07`,
         message,
         message_source: source,
       },

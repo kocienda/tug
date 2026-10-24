@@ -174,6 +174,7 @@ describe("joinOfferStands — the offer-stands fact", () => {
     request_id: "ready:base1:head1",
     base_sha: "base1",
     arc_head: "head1",
+    work_id: "ready:1:00000001",
   };
 
   test("an arc row carrying an offer stands", () => {
@@ -238,6 +239,7 @@ describe("joinOfferBase and joinOfferArcName — what stands, and about what", (
     request_id: "ready:base1:head1",
     base_sha: "base1",
     arc_head: "head1",
+    work_id: "ready:1:00000001",
   };
   const standing = [
     arcRow({ base: "main", join: { phase: "resolved", offer } }),

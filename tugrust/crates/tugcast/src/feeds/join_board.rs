@@ -208,6 +208,7 @@ pub fn join_state_for(
     }
 
     if !blockers.is_empty() {
+        offer_receipt(detail, Some("blocked"));
         // The question is read before the stuck line, always: an orphaned
         // question *becomes* a stuck line, and reading the two the other way
         // round would withhold the conversion until the next recompute.
@@ -260,10 +261,29 @@ pub fn join_state_for(
         .and_then(|sha| standing_report(repo_root, name, sha));
     let question = standing_question(repo_root, detail);
     let stuck = standing_stuck(repo_root, detail);
-    let offer = standing_offer(
-        repo_root,
+    // The first reason the offer is withheld, in the order a reader would
+    // clear them. Named rather than folded into one flag so the log can say
+    // which one held a ready arc's room shut.
+    let withheld = if candidate.is_none() {
+        Some("no-candidate")
+    } else if run.is_some() {
+        Some("run-held")
+    } else if question.is_some() {
+        Some("question")
+    } else if stuck.is_some() {
+        Some("stuck")
+    } else {
+        None
+    };
+    let offer = standing_offer(repo_root, detail, withheld.is_none());
+    offer_receipt(
         detail,
-        candidate.is_some() && run.is_none() && question.is_none() && stuck.is_none(),
+        match (&offer, withheld) {
+            (Some(_), _) => None,
+            (None, Some(reason)) => Some(reason),
+            // Quiet, and still nothing: a head that would not read.
+            (None, None) => Some("unreadable"),
+        },
     );
 
     ArcJoinState {
@@ -344,6 +364,71 @@ pub fn standing_resolve_receipts(
     receipts
 }
 
+/// What was last said about each ready arc's offer, so it is said once per
+/// change ([B05]).
+///
+/// The feed recomposes on every movement anywhere in the workspace, so a line
+/// per recompute would bury the one that matters. A line per *change* is the
+/// log a person reads after "the shade did not reveal": which reason held the
+/// offer, and when it stopped holding.
+#[derive(Default)]
+pub(crate) struct SaidOnce {
+    last: HashMap<String, &'static str>,
+}
+
+impl SaidOnce {
+    /// Record `word` for `key`; true when it differs from what was last said.
+    /// `None` forgets the key, so the next word is said whatever it is.
+    pub(crate) fn say(&mut self, key: &str, word: Option<&'static str>) -> bool {
+        match word {
+            None => {
+                self.last.remove(key);
+                false
+            }
+            Some(word) => self.last.insert(key.to_string(), word) != Some(word),
+        }
+    }
+}
+
+fn said_once() -> &'static Mutex<SaidOnce> {
+    static SAID: OnceLock<Mutex<SaidOnce>> = OnceLock::new();
+    SAID.get_or_init(|| Mutex::new(SaidOnce::default()))
+}
+
+/// Log why a ready arc's offer stands or is withheld, once per change.
+///
+/// Only a ready arc is spoken of: one still being worked has no offer to
+/// withhold. `withheld` is `None` when the offer stands.
+fn offer_receipt(detail: &ArcDetail, withheld: Option<&'static str>) {
+    let key = format!("offer:{}", detail.owner_key);
+    let word = detail.join_ready.then_some(withheld.unwrap_or("offered"));
+    if !said_once().lock().say(&key, word) {
+        return;
+    }
+    match withheld {
+        None => tracing::info!(arc = %detail.name, verdict = "offered", "offer-receipt"),
+        Some(reason) => {
+            tracing::info!(arc = %detail.name, verdict = "withheld", reason, "offer-receipt")
+        }
+    }
+}
+
+/// Log the pilot holding off a ready, bound arc because its holder is busy, and
+/// letting go of it, once per change.
+///
+/// A held pilot builds no candidate, so the offer reads `no-candidate` until
+/// the holder's turn ends; this is the line that says why.
+pub(crate) fn pilot_receipt(detail: &ArcDetail, bound: bool, holder_busy: bool) {
+    let key = format!("pilot:{}", detail.owner_key);
+    let word = (detail.join_ready && bound).then_some(if holder_busy { "held" } else { "free" });
+    let changed = said_once().lock().say(&key, word);
+    if changed && holder_busy {
+        tracing::info!(arc = %detail.name, verdict = "held", reason = "holder-busy", "pilot-receipt");
+    } else if changed {
+        tracing::info!(arc = %detail.name, verdict = "free", "pilot-receipt");
+    }
+}
+
 /// The join this arc is ready for, if it is ready for one.
 ///
 /// Everything this reads is already computed by the caller, with one exception:
@@ -383,13 +468,15 @@ fn standing_offer(repo_root: &Path, detail: &ArcDetail, quiet: bool) -> Option<A
         ops::landing_message_preview(&Paths::from_env(), repo_root, name, &detail.branch);
     Some(ArcJoinOffer {
         // The three facts the offer is about, joined. Stable across recomputes
-        // because every one of them is, which is what lets a surface reveal
-        // itself once per offer rather than on every recompute — and distinct
-        // the moment any of them moves, which is what makes new work summon the
-        // surface again.
+        // because every one of them is, and distinct the moment any of them
+        // moves — including a base-motion replay, which rewrites the head. A
+        // surface that reveals once per piece of work keys on `work_id` instead.
         request_id: format!("{name}:{base_sha}:{arc_head}"),
         base_sha,
         arc_head,
+        // What a surface keys "already shown" on. The three facts above all
+        // move when a replay rewrites the rounds onto a new base; this does not.
+        work_id: detail.work_id.clone(),
         message,
         message_source: message_source.as_str().to_string(),
     })
@@ -596,6 +683,19 @@ mod tests {
             &["config", "tugarc.mergedriver", &stub.to_string_lossy()],
         );
         temp
+    }
+
+    /// A reason is said when it changes and not on the recomputes between;
+    /// forgetting a key lets the next word be said whatever it is.
+    #[test]
+    fn a_withheld_reason_is_said_once_per_change() {
+        let mut said = SaidOnce::default();
+        assert!(said.say("offer:a", Some("no-candidate")), "the first word is said");
+        assert!(!said.say("offer:a", Some("no-candidate")), "a recompute is not a change");
+        assert!(said.say("offer:a", Some("offered")), "the offer standing is");
+        assert!(said.say("offer:b", Some("offered")), "each arc keeps its own");
+        assert!(!said.say("offer:a", None), "forgetting says nothing");
+        assert!(said.say("offer:a", Some("offered")), "and the next word is said again");
     }
 
     fn detail_for(repo: &Path) -> ArcDetail {
@@ -994,17 +1094,23 @@ mod tests {
         );
     }
 
-    /// New work mints a new offer, and nothing else does.
+    /// New work mints a new offer and a new work id; a base move keeps the id.
     ///
-    /// The id is what a surface reveals itself once per, so a base move must
-    /// not mint one — the same work reconciled again is the same offer — while
-    /// a round the user has never seen must.
+    /// The work id is what a surface reveals itself once per, so a base move
+    /// must not move it — the same work reconciled again is the same work —
+    /// while a round the user has never seen must. That a replay of the rounds
+    /// keeps it too is `replay`'s own test, over the real replay.
     #[test]
     fn a_new_round_mints_a_new_offer_and_a_base_move_does_not() {
         let temp = fixture();
         let repo = temp.path();
         reconciled(repo);
         let first = compose(repo).offer.expect("offered once");
+        assert_eq!(
+            first.work_id,
+            detail_for(repo).work_id,
+            "the offer carries the arc's own work id"
+        );
 
         // The base moves and the arc reconciles again. The base sha is part
         // of the identity, so this is a distinct offer — but it describes the
@@ -1018,6 +1124,7 @@ mod tests {
             moved.arc_head, first.arc_head,
             "a push to the base is not new work on the arc"
         );
+        assert_eq!(moved.work_id, first.work_id, "nor does it move the work id");
 
         // A new round is.
         git(repo, &["switch", "-q", "tugarc/demo"]);
@@ -1028,6 +1135,7 @@ mod tests {
         reconciled(repo);
         let again = compose(repo).offer.expect("a new round offers again");
         assert_ne!(again.arc_head, first.arc_head);
+        assert_ne!(again.work_id, first.work_id, "a new round is new work");
         assert_ne!(
             again.request_id, first.request_id,
             "new work is a new offer, so a surface that has already shown the \

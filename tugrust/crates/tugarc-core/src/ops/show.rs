@@ -337,6 +337,16 @@ pub struct ArcDetail {
     pub branch: String,
     pub base: String,
     pub rounds: u32,
+    /// What this arc's authored work *is*, stable across a base-motion replay
+    /// and different the moment a round lands: `<arc>:<rounds>:<hash>`, where
+    /// the hash covers every authored round's message.
+    ///
+    /// The arc head cannot carry this. A replay moves every round onto the new
+    /// base, so the head sha changes when nobody did any work, and a surface
+    /// that remembered the head re-reads a neighbour's join as new work here.
+    /// The replay keeps each round's message and the round count, and those
+    /// are what a new round moves.
+    pub work_id: String,
     /// Worktree path relative to the **main** repository root — the root this
     /// composition normalizes to, which is not necessarily the root the caller
     /// asked from. For display by a human who is standing in the repository;
@@ -558,6 +568,7 @@ pub fn arc_detail_entries_in(paths: &Paths, repo_root: &Path) -> Vec<ArcDetail> 
         // disagree about what a round is (Spec S03).
         let authored = arc_rounds(repo_root, &base, branch);
         let rounds = authored.len() as u32;
+        let work_id = work_id_of(name, &authored);
 
         let worktree_abs = worktree_path(repo_root, name);
         let worktree_rel = worktree_abs
@@ -682,6 +693,7 @@ pub fn arc_detail_entries_in(paths: &Paths, repo_root: &Path) -> Vec<ArcDetail> 
             worktree_dirty,
             files,
             round_subjects,
+            work_id,
         });
     }
     entries
@@ -1067,6 +1079,11 @@ pub(crate) struct ArcRound {
     pub hash: String,
     pub subject: String,
     pub committed_at: String,
+    /// The round's whole commit message, trimmed. A base-motion replay
+    /// rewrites every round with `commit-tree` — new sha, new author and
+    /// committer dates — and copies this verbatim, so it is the one fact of a
+    /// round that survives the replay unchanged.
+    pub message: String,
 }
 
 /// An arc's rounds — every commit ahead of its base **except** the join's
@@ -1088,7 +1105,7 @@ pub(crate) fn arc_rounds(repo_root: &Path, base: &str, branch: &str) -> Vec<ArcR
     // contain either and a trailer value spans to end of line — a plain
     // newline-per-commit format could not tell a two-line record from two.
     let format =
-        format!("--format=%h%x1f%s%x1f%cI%x1f%(trailers:key={SWEEP_TRAILER_KEY},valueonly)%x1e");
+        format!("--format=%h%x1f%s%x1f%cI%x1f%(trailers:key={SWEEP_TRAILER_KEY},valueonly)%x1f%B%x1e");
     let Ok(out) = git_stdout(repo_root, &["log", &format, &format!("{base}..{branch}")]) else {
         return Vec::new();
     };
@@ -1103,6 +1120,7 @@ pub(crate) fn arc_rounds(repo_root: &Path, base: &str, branch: &str) -> Vec<ArcR
             let subject = parts.next().unwrap_or("").to_string();
             let committed_at = parts.next().unwrap_or("").to_string();
             let sweep_mark = parts.next().unwrap_or("");
+            let message = parts.next().unwrap_or("").trim().to_string();
             // A non-empty trailer field means this commit marked itself.
             if !sweep_mark.trim().is_empty() {
                 return None;
@@ -1111,9 +1129,21 @@ pub(crate) fn arc_rounds(repo_root: &Path, base: &str, branch: &str) -> Vec<ArcR
                 hash,
                 subject,
                 committed_at,
+                message,
             })
         })
         .collect()
+}
+
+/// The work id [`ArcDetail::work_id`] carries, minted from the authored rounds.
+///
+/// The count and every message, never a sha or a date: those are exactly what
+/// a replay rewrites. FNV-1a is enough — the id tells one state of one arc's
+/// work from the next, not one arc from every other.
+fn work_id_of(name: &str, rounds: &[ArcRound]) -> String {
+    let messages: Vec<&str> = rounds.iter().map(|r| r.message.as_str()).collect();
+    let digest = tugcore::ports::fnv1a_32(messages.join("\u{1e}").as_bytes());
+    format!("{name}:{}:{digest:08x}", rounds.len())
 }
 
 #[cfg(test)]

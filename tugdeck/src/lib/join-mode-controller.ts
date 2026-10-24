@@ -631,8 +631,13 @@ export class JoinModeController extends Subscribable implements LandingMode {
     }
     this.deps.commitModeController.exit();
     // Opening the mode is the composer being put to a new use, so the last
-    // join's settled sentence stops being what it is for.
-    this.narration = null;
+    // join's settled sentence stops being what it is for — unless the mode is
+    // opening on the very arc whose join is still running. That join is not
+    // over, the press on it is refused by the gate's `pending` arm, and the
+    // narration is the only subject its register has once the mode closes
+    // again; aiming at the arc must not quietly discard what is being said
+    // about it.
+    if (!this.narratingRunningJoinOf(target)) this.narration = null;
     this.target = target;
     this.seedMessage = seed.length > 0 ? seed : null;
     this.active = true;
@@ -778,6 +783,20 @@ export class JoinModeController extends Subscribable implements LandingMode {
       ARC_OWNER_KIND,
       target.ownerId,
     );
+  }
+
+  /**
+   * Whether the narration is about `target` and its join has not reached a
+   * terminal frame — a join this composer pressed that is still running.
+   */
+  private narratingRunningJoinOf(target: JoinTarget): boolean {
+    const narration = this.narration;
+    if (narration === null || narration.ownerId !== target.ownerId) return false;
+    const progress = getChangesetJoinStore()?.landProgress(
+      this.deps.changesController.workspaceKey,
+      narration.name,
+    );
+    return progress != null && progress.terminal !== true;
   }
 
   /**

@@ -508,13 +508,19 @@ export interface ArcResolvedBaseWire {
 export interface ArcJoinOfferWire {
   /**
    * `<arc>:<base_sha>:<arc_head>` — stable across recomputes, and different
-   * the moment any of those three facts moves. A surface reveals itself once
-   * per id, so stability is what keeps it from re-revealing on every recompute
-   * and motion is what makes new work summon it again.
+   * the moment any of those three facts moves, including a base-motion replay
+   * that rewrites the head. Not what a surface reveals itself once per; that
+   * is `work_id`.
    */
   request_id: string;
   base_sha: string;
   arc_head: string;
+  /**
+   * The arc's authored work, `<arc>:<rounds>:<hash of the round messages>`.
+   * A replay onto a moved base keeps it and a new round moves it, so it is the
+   * key a surface remembers "already shown" by.
+   */
+  work_id: string;
   /**
    * The message this join would land with, composed server-side by the same
    * code the landing itself uses, so the preview cannot drift from the act.

@@ -788,6 +788,29 @@ mod tests {
         assert_eq!(cells(&f), vec![round[..9].to_string()]);
     }
 
+    /// A replay moves every round and keeps the arc's work id; a new round
+    /// moves the id.
+    ///
+    /// The id is what the Changes room remembers having shown, so a
+    /// neighbour's join — which replays every other ready arc onto the new
+    /// base — must not read here as new work, while a round must.
+    #[test]
+    fn a_replay_keeps_the_work_id_and_a_new_round_moves_it() {
+        let f = init(&[("g.txt", "arc\n", "add g"), ("h.txt", "arc\n", "add h")]);
+        let work_id =
+            || crate::ops::arc_detail_entry_in(&f.paths, f.path(), "demo").unwrap().work_id;
+        let before = work_id();
+        let pre_replay = f.tip("tugarc/demo");
+
+        f.advance_base("f.txt", "B\n", "base moves");
+        replay_onto(&f.paths, f.path(), "demo").unwrap();
+        assert_ne!(f.tip("tugarc/demo"), pre_replay, "the replay rewrote the rounds");
+        assert_eq!(work_id(), before, "and the work they carry is the same work");
+
+        f.round("i.txt", "arc\n", "add i");
+        assert_ne!(work_id(), before, "a new round is new work");
+    }
+
     /// Redo of a replay lands the recorded tip **exactly**, and the next undo
     /// still works.
     ///

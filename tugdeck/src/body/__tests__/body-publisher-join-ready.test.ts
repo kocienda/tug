@@ -21,7 +21,12 @@ import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
 
 const ARC = "tugarc/ready#a1";
-const offer = { request_id: "ready:base1:head1", base_sha: "base1", arc_head: "head1" };
+const offer = {
+  request_id: "ready:base1:head1",
+  base_sha: "base1",
+  arc_head: "head1",
+  work_id: "ready:1:00000001",
+};
 
 const idle = {
   phase: "idle",

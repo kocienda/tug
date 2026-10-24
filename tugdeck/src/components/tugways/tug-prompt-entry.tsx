@@ -763,6 +763,13 @@ export interface TugPromptEntryProps {
    */
   changesHasOffer?: boolean;
   /**
+   * Why the Changes room is waiting to open, in the reveal gate's own words —
+   * "opens when the turn finishes", "unfold to open". Appended to the Changes
+   * segment's tooltip while the dot stands, so a deferred reveal says what it
+   * is waiting on. Ignored without `changesHasOffer`.
+   */
+  changesOfferNote?: string | null;
+  /**
    * Entering the Changes room, which the host must resolve: which landing a
    * card enters depends on what it is mated to, and only the host holds both
    * controllers. Leaving to the prompt is handled here, because it has to
@@ -1152,6 +1159,7 @@ export const TugPromptEntry = React.forwardRef<
     landingMode,
     changesLandingKind = "commit",
     changesHasOffer = false,
+    changesOfferNote = null,
     onEnterChanges,
     onAttachmentError,
     sessionMetadataStore,
@@ -3911,8 +3919,12 @@ export const TugPromptEntry = React.forwardRef<
             label: "Changes",
             icon: <GitCommitHorizontal strokeWidth={2} />,
             // The label is invariant; the tooltip follows the binding, so the
-            // bubble says which message this room is for.
-            tooltip: LANDING_WORDS[changesLandingKind].routeTooltip,
+            // bubble says which message this room is for — and, while the
+            // dot stands, what the room is waiting on before it opens.
+            tooltip:
+              changesHasOffer && changesOfferNote !== null
+                ? `${LANDING_WORDS[changesLandingKind].routeTooltip} — ${changesOfferNote}`
+                : LANDING_WORDS[changesLandingKind].routeTooltip,
             tooltipShortcut: commandShortcut(TUG_ACTIONS.TOGGLE_CHANGES_VIEW),
           },
         ]}

@@ -29,10 +29,17 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { LandingKind } from "@/lib/landing-mode";
 
 export interface LandingPressReceipt {
-  /** Which landing was pressed. */
-  kind: LandingKind;
-  /** `ok` when the gate passed; `refused` otherwise. */
-  verdict: "ok" | "refused";
+  /**
+   * Which landing was pressed — or `reveal`, the passive Changes reveal's own
+   * receipt, which rides this channel so its line lands in the same log beside
+   * the presses it is so often asked about.
+   */
+  kind: LandingKind | "reveal";
+  /**
+   * `ok` when a press's gate passed; `refused` otherwise. A reveal reads
+   * `revealed` when it fired and `deferred` when its gate held.
+   */
+  verdict: "ok" | "refused" | "revealed" | "deferred";
   /** The gate's failing reason, or the fault marker, when refused. */
   reason?: string;
   /** The sentence the user was shown, when refused. */
