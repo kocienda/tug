@@ -90,8 +90,8 @@ const MESSAGES = 3;
 const BURST_MS = 9_500;
 const STEP_AT_MS = 3_000;
 const POST_AT_MS = 6_000;
-/** Wide enough for three Comfy cards (800 px each) to stand clear beside both rails, as the first hero was captured. */
-const CONTENT_SIZE = { width: 3260, height: 1360 };
+/** The first hero's size: wide enough for three Comfy cards (800 px each) beside both rails, and tall enough for a transcript. The harness grants what the display allows. */
+const CONTENT_SIZE = { width: 3260, height: 2040 };
 const BOUND_MS = 30_000;
 const STREAMING_MS = 15_000;
 
