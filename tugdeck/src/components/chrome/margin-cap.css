@@ -92,10 +92,17 @@
     var(--tug7-surface-global-primary-normal-canvas-rest),
     var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
   );
+  /* Mixed in oklch like the canvas, then taken into sRGB for the gradient
+     stop, as the root grid's is in `globals.css`: an oklch stop on a long
+     repeating gradient loses most of its lines on macOS 26. */
   --tugx-rail-margin-grid: color-mix(
-    in oklch,
-    var(--tug7-surface-global-primary-normal-grid-rest),
-    var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
+    in srgb,
+    color-mix(
+      in oklch,
+      var(--tug7-surface-global-primary-normal-grid-rest),
+      var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
+    ) 100%,
+    transparent
   );
   background-color: var(--tugx-rail-margin-canvas);
   /* One un-tiled image per axis, not a 24px tile. WebKit rasterizes a tile

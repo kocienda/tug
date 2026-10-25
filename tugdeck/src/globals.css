@@ -57,10 +57,15 @@ body {
   transform-origin: 0 0;
   background-color: var(--tug7-surface-global-primary-normal-canvas-rest);
   /* One un-tiled image per axis: a 24px tile drifts under a fractional zoom
-     (see `margin-cap.css`), and the caps hold their phase to this grid. */
+     (see `margin-cap.css`), and the caps hold their phase to this grid.
+     The line colour is taken into sRGB first: macOS 26's WebKit draws a
+     window-long repeating gradient with oklch stops by dropping most of its
+     1px lines (an uneven, sparse lattice), and the same gradient in sRGB is
+     drawn whole. The token stays oklch; only the gradient's stop is mixed. */
+  --tugx-canvas-grid-line: color-mix(in srgb, var(--tug7-surface-global-primary-normal-grid-rest) 100%, transparent);
   background-image:
-    repeating-linear-gradient(var(--tug7-surface-global-primary-normal-grid-rest) 0 1px, transparent 1px 24px),
-    repeating-linear-gradient(90deg, var(--tug7-surface-global-primary-normal-grid-rest) 0 1px, transparent 1px 24px);
+    repeating-linear-gradient(var(--tugx-canvas-grid-line) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, var(--tugx-canvas-grid-line) 0 1px, transparent 1px 24px);
   background-size: 100% calc(100% + 24px), calc(100% + 24px) 100%;
   background-repeat: no-repeat;
 }

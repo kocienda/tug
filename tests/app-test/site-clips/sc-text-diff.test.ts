@@ -26,7 +26,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { App, BodyApp } from "../_harness";
+import type { BodyApp } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { standUpKind } from "../body-grounding/_kind-bodies";
 import { cardKind, kindPane } from "../body-grounding/_kinds";

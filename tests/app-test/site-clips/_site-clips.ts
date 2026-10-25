@@ -121,7 +121,7 @@ export async function launchForMode(
     env: {
       TUGBANK_PATH: tugbankPath,
       ...(stubDir === undefined ? {} : { [STUB_TRANSCRIPT_DIR_ENV]: stubDir }),
-      ...(extra.env ?? {}),
+      ...extra.env,
     },
     persistInTestMode: true,
     restoreInTestMode: true,
