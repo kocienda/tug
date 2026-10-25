@@ -293,7 +293,13 @@ mkdir -p "$PRODUCTS_DIR"
 OUTPUT_DMG="$PRODUCTS_DIR/$DMG_NAME"
 rm -f "$OUTPUT_DMG"
 DMGBUILD="$("$SCRIPT_DIR/dmg/ensure-dmgbuild.sh")"
-"$DMGBUILD" \
+# Run dmgbuild through build-dmg.py, under the interpreter dmgbuild is
+# installed for (its shebang), so the image is made with `diskutil image`
+# rather than the hdiutil verbs macOS 27 deprecates. Left unquoted so an
+# `/usr/bin/env python3` shebang splits into its words.
+DMGBUILD_PYTHON="$(sed -n '1s/^#! *//p' "$DMGBUILD")"
+# shellcheck disable=SC2086
+$DMGBUILD_PYTHON "$SCRIPT_DIR/dmg/build-dmg.py" \
     -s "$SCRIPT_DIR/dmg/settings.py" \
     -D app="$STAGING_APP" \
     -D background="$REPO_ROOT/resources/dmg-background.tiff" \

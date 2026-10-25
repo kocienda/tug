@@ -35,6 +35,10 @@ icon = defines.get("icon", "VolumeIcon.icns")
 
 format = "UDZO"  # compressed, read-only — matches the prior hdiutil output.
 
+# APFS, not dmgbuild's HFS+ default: build-dmg.py creates the image with
+# `diskutil image create blank`, which makes APFS volumes only.
+filesystem = "APFS"
+
 # -- Contents: just the app + an Applications symlink ------------------------
 
 files = [application]
