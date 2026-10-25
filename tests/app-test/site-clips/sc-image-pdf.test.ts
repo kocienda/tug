@@ -21,7 +21,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { standUpKind } from "../body-grounding/_kind-bodies";
@@ -32,20 +32,19 @@ const TEST_TIMEOUT_MS = 110_000;
 const IMAGE = "sc-image";
 const PDF = "sc-pdf";
 
-/** The scene's directory: plain, since the masthead prints the path. */
+/** The scene's directory: plain, since the masthead prints the path; the files keep their own names. */
 const PROJECT_DIR = "/tmp/tug-site";
-const IMAGE_PATH = join(PROJECT_DIR, "art/tangles.png");
-const PDF_PATH = join(PROJECT_DIR, "docs/real-programmers.pdf");
+const scenePath = (dir: string, file: string): string => join(PROJECT_DIR, dir, basename(file));
 
 const CARD_IMG = '[data-slot="file-view-card"] img.tugx-image-img';
 const PDF_SURFACE = '[data-slot="file-view-pdf"]';
 const PDF_CANVAS = `${PDF_SURFACE} [data-slot="pdf-page"] canvas`;
 
-function deck(): Record<string, unknown> {
+function deck(imagePath: string, pdfPath: string): Record<string, unknown> {
   return {
     cards: [
-      { id: IMAGE, componentId: "file-view", title: "tangles.png", closable: true },
-      { id: PDF, componentId: "file-view", title: "real-programmers.pdf", closable: true },
+      { id: IMAGE, componentId: "file-view", title: basename(imagePath), closable: true },
+      { id: PDF, componentId: "file-view", title: basename(pdfPath), closable: true },
     ],
     panes: [kindPane("file-view", IMAGE, 0), kindPane("file-view", PDF, 1)],
     activePaneId: `${IMAGE}-pane`,
@@ -61,6 +60,8 @@ describe.skipIf(!RUNS)("site still: Image and PDF", () => {
       const image = process.env.TUG_SITE_IMAGE;
       const pdf = process.env.TUG_SITE_PDF;
       if (image === undefined || pdf === undefined) throw new Error("sc-image-pdf: TUG_SITE_IMAGE and TUG_SITE_PDF name the files to show");
+      const IMAGE_PATH = scenePath("art", image);
+      const PDF_PATH = scenePath("docs", pdf);
       mkdirSync(join(PROJECT_DIR, "art"), { recursive: true });
       mkdirSync(join(PROJECT_DIR, "docs"), { recursive: true });
       onTestRunEnd(() => rmSync(PROJECT_DIR, { recursive: true, force: true }));
@@ -72,7 +73,7 @@ describe.skipIf(!RUNS)("site still: Image and PDF", () => {
       const app = await launchForMode("sc-image-pdf", { cards: [], panes: [], imposition: { sidebars: {} } });
       try {
         await app.seedDeckState({
-          state: deck(),
+          state: deck(IMAGE_PATH, PDF_PATH),
           cardStates: {
             [IMAGE]: { content: { path: IMAGE_PATH } },
             [PDF]: { content: { path: PDF_PATH, view: { pageMode: "continuous", zoom: "fit-width" } } },
