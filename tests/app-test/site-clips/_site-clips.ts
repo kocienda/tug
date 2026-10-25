@@ -86,8 +86,18 @@ export function outDirFor(clip: string): string {
  * bag when it mounts, so a card the restore already mounted would not pick
  * up a bag seeded later. The wait below asks only for the cards the launch
  * deck carries.
+ *
+ * `extra.env` rides the launch environment — a scene with an arc redirects
+ * `TUG_DATA_DIR` to its scratch root, one with jots names `TUG_JOTS_PATH` —
+ * and `extra.contentSize` resizes the window after the boot, for a scene
+ * wider than the harness's default.
  */
-export async function launchForMode(testName: string, deck: unknown, stubDir?: string): Promise<App> {
+export async function launchForMode(
+  testName: string,
+  deck: unknown,
+  stubDir?: string,
+  extra: { env?: Record<string, string>; contentSize?: { width: number; height: number } } = {},
+): Promise<App> {
   if (MODE === undefined) throw new Error("site clips: TUG_SITE_CLIPS_MODE must be dark or light");
   const cards = (deck as { cards?: unknown[] } | null)?.cards;
   const expected = Array.isArray(cards) ? cards.length : 0;
@@ -108,11 +118,16 @@ export async function launchForMode(testName: string, deck: unknown, stubDir?: s
   const app = await launchTugApp({
     testName: `${testName}-${MODE}`,
     visible: true,
-    env: { TUGBANK_PATH: tugbankPath, ...(stubDir === undefined ? {} : { [STUB_TRANSCRIPT_DIR_ENV]: stubDir }) },
+    env: {
+      TUGBANK_PATH: tugbankPath,
+      ...(stubDir === undefined ? {} : { [STUB_TRANSCRIPT_DIR_ENV]: stubDir }),
+      ...(extra.env ?? {}),
+    },
     persistInTestMode: true,
     restoreInTestMode: true,
     skipAccessibilityPreflight: true,
   });
+  if (extra.contentSize !== undefined) await app.setWindowContentSize(extra.contentSize);
   await app.waitForCondition<boolean>(
     `typeof window.tugdeck !== "undefined" && window.tugdeck.diag.getDeckState().cards.length >= ${expected} && document.documentElement.dataset.themeMode === ${JSON.stringify(MODE)}`,
     { timeoutMs: 15_000 },
@@ -170,10 +185,13 @@ export async function burstTo(
   if (durationMs > BURST_CAP_MS) throw new Error(`site clips: a burst is at most ${BURST_CAP_MS} ms, not ${durationMs}`);
   await app.captureBurst({ op: "arm", durationMs, intervalMs: CAPTURE_INTERVAL_MS, ...(crop ? { crop } : {}) });
   await act();
+  // The host writes its PNGs after the capture ends, and a whole-window
+  // burst at a wide window is hundreds of multi-megabyte files, so the
+  // grace after the burst is generous rather than tight.
   const reading = await pollFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
     (r) => r.done,
-    durationMs + 10_000,
+    durationMs + 90_000,
   );
   return writeFrames(reading, outDir);
 }
