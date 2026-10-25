@@ -41,7 +41,7 @@ import { join, resolve } from "node:path";
 
 import type { App } from "../_harness";
 import { kindBody } from "../_harness/card-reach";
-import { claudeProjectDir, encodeProjectDir } from "../_harness/claude-home";
+import { ClaudeHome, claudeProjectDir } from "../_harness/claude-home";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import {
   appendArcLogLine,
@@ -199,13 +199,14 @@ function stageArc(scratch: ArcScratchRepo, arc: Arc): void {
  * `cwd` moves with it: the sessions ran in this checkout and its worktrees,
  * and a row's `cwd` is where the resume looks for the project.
  *
- * The source is the user's OWN Claude home, `~/.claude`, by name: the runner
+ * The source is the user's OWN Claude home, `~/.claude`, resolved with no
+ * config dir so `CLAUDE_CONFIG_DIR` cannot redirect it: the runner
  * may point `CLAUDE_CONFIG_DIR` at a home of its own, which is where the app
  * under test reads (so the copy goes through `claudeProjectDir`), but the
  * history being borrowed lives in the real one.
  */
 function transplant(sessionId: string, repo: string): void {
-  const from = join(homedir(), ".claude", "projects", encodeProjectDir(CHECKOUT), `${sessionId}.jsonl`);
+  const from = join(ClaudeHome.resolve(undefined, homedir()).projectDir(CHECKOUT), `${sessionId}.jsonl`);
   const dir = claudeProjectDir(repo);
   mkdirSync(dir, { recursive: true });
   let text: string;
