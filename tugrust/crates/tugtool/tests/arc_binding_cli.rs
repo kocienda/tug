@@ -736,8 +736,18 @@ fn arc_redo_reverses_an_undo_and_then_says_there_is_nothing_left() {
 // ---------------------------------------------------------------------------
 
 /// A `git` that forwards every call to the real one, except the call it was
-/// told to stop at — where it announces itself and then blocks until the test
-/// opens the gate.
+/// told to stop at — where it announces itself and then blocks, and never runs
+/// git at all.
+///
+/// The paused call dies with the process that made it, so nothing the test
+/// asserts survived the kill can be undone behind its back. It dies two ways:
+/// [`kill_join_at`] kills `tugtool`'s whole process group, which takes the
+/// shim with it in the same signal; and should the shim ever escape that
+/// group, it watches the process that called it and exits the moment that
+/// process is gone. An earlier shim waited on a gate the test opened after
+/// the kill and then ran the real git, so an orphan finished the `branch -D`
+/// the test was asserting never happened — on a slow runner, after the
+/// assertion's own `git` had lost the race (nightly `40184770963`).
 ///
 /// A pause point outside the product is what makes this a *crash* test rather
 /// than a crash-hook test: nothing in `tugarc-core` knows it is being watched,
@@ -757,14 +767,17 @@ else
   esac
 fi
 if [ "$pause" = yes ] && [ ! -f "$SHIM_PAUSED" ]; then
+  caller=$PPID
   : > "$SHIM_PAUSED"
-  while [ ! -f "$SHIM_GATE" ]; do sleep 0.05; done
+  while kill -0 "$caller" 2>/dev/null; do sleep 0.05; done
+  exit 137
 fi
 exec "$SHIM_REAL_GIT" "$@"
 "#;
 
-/// Run `tugtool arc join <name>` under the shim and SIGKILL it the moment the
-/// teardown reaches `pause_on`.
+/// Run `tugtool arc join <name>` under the shim and SIGKILL its process group
+/// — `tugtool` and the paused `git` together — the moment the teardown reaches
+/// `pause_on`.
 fn kill_join_at(tmp: &Path, root: &Path, name: &str, pause_on: &str) {
     let shim_dir = tmp.join(format!("shim-{pause_on}").replace(' ', "-"));
     std::fs::create_dir_all(&shim_dir).unwrap();
@@ -780,7 +793,6 @@ fn kill_join_at(tmp: &Path, root: &Path, name: &str, pause_on: &str) {
         .trim()
         .to_string();
     let paused = shim_dir.join("paused");
-    let gate = shim_dir.join("gate");
 
     let mut cmd = tug(tmp);
     cmd.current_dir(root);
@@ -796,8 +808,13 @@ fn kill_join_at(tmp: &Path, root: &Path, name: &str, pause_on: &str) {
     cmd.env("SHIM_REAL_GIT", &real_git);
     cmd.env("SHIM_PAUSE_ON", pause_on);
     cmd.env("SHIM_PAUSED", &paused);
-    cmd.env("SHIM_GATE", &gate);
     cmd.env("SHIM_SEEN_BRANCH_D", shim_dir.join("saw-branch-d"));
+    // Its own process group, so one signal reaches every process the join
+    // started, the paused `git` included.
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     let mut child = cmd.spawn().unwrap();
 
     // Bounded wait, no fixed sleep: the shim announces the pause by creating a
@@ -813,9 +830,12 @@ fn kill_join_at(tmp: &Path, root: &Path, name: &str, pause_on: &str) {
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    child.kill().unwrap();
+    let group = libc::pid_t::try_from(child.id()).unwrap();
+    // SAFETY: `kill` with a negative pid signals the process group `group`,
+    // which `process_group(0)` made this child's own; it touches no memory.
+    let killed = unsafe { libc::kill(-group, libc::SIGKILL) };
+    assert_eq!(killed, 0, "SIGKILL the join's process group");
     let _ = child.wait();
-    std::fs::write(&gate, "go").unwrap();
 }
 
 fn oplog_list(tmp: &Path, root: &Path) -> String {

@@ -67,7 +67,30 @@ ci: lint test-fast
 
 # The fast lane plus the integration suites and the WASM rebuild; nightly,
 # release, and before a release by hand.
-ci-full: ci wasm-check test-slow
+#
+# Every lane runs even after one goes red, and the reds are named together at
+# the end: a chain of dependencies stops at the first failing recipe, so one
+# flaky test would hide every suite after it from the night's verdict.
+ci-full:
+    #!/usr/bin/env bash
+    red=()
+    lanes=(lint-audit lint-ts lint-rust test-rust test-ts test-swift test-standalone wasm-check test-rust-slow test-ts-slow)
+    n=0
+    for recipe in "${lanes[@]}"; do
+        if [ "$n" -eq 0 ]; then
+            bash tugrust/scripts/report-phase.sh ci-full 0 "$recipe" --of "${lanes[@]}"
+        else
+            bash tugrust/scripts/report-phase.sh ci-full "$n" "$recipe"
+        fi
+        n=$((n + 1))
+        just "$recipe" || red+=("$recipe")
+    done
+    bash tugrust/scripts/report-phase.sh ci-full "$n"
+    if [ "${#red[@]}" -gt 0 ]; then
+        echo "ci-full: red in ${red[*]} — tugtool test last --failures names them" >&2
+        exit 1
+    fi
+    echo "ci-full: every lane green"
 
 # The fast lane's tests: every suite that spawns neither git nor a real tugcast.
 test-fast: test-rust test-ts test-swift test-standalone
