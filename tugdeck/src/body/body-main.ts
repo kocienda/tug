@@ -368,9 +368,25 @@ function applyMotion(): void {
  */
 function catchUpCard(cardId: string, done: () => void): () => void {
   const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
-  if (store === null || !sessionAnswersCatchUp(deckCards.getSnapshot()[cardId]?.sessionState)) {
+  if (store === null) {
+    done();
+    return () => {};
+  }
+  const sessionState = deckCards.getSnapshot()[cardId]?.sessionState;
+  if (!sessionAnswersCatchUp(sessionState)) {
     // Nothing will answer: the deadlines the sleep stopped start from now.
-    store?.noteAwake();
+    // Said aloud when the card holds a turn, because waking over one with
+    // no ask is a transcript frozen where it slept: that turn's end, if it
+    // came, is in a frame this body never heard and nothing will replay.
+    const phase = store.getSnapshot().phase;
+    if (phase !== "idle" && phase !== "errored") {
+      tugDevLogStore.warn("body-dormancy", "a reveal asked nothing over a live turn: the shell says its session cannot answer", {
+        cardId,
+        sessionState: sessionState ?? null,
+        phase,
+      });
+    }
+    store.noteAwake();
     done();
     return () => {};
   }

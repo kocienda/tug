@@ -631,8 +631,8 @@ export class SessionEngine {
         // The receipt for an interrupt that found nothing to interrupt —
         // tugcode's `handleInterrupt` reached a card with no claude process
         // (`no_process`) or a live claude with no turn open (`no_turn`).
-        // Either way no turn can end, so the reducer clears the
-        // per-interrupt flags and leaves the transcript alone.
+        // The reducer clears the per-interrupt flags, and under `no_turn`
+        // commits any turn the deck still holds, since nothing else can.
         return { type: "interrupt_noop", reason: frame.reason };
       case "stop_all_work_done":
         // tugcode's answer to `stop_all_work` — the group was swept and its

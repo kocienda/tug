@@ -356,9 +356,10 @@ export type TurnCancelledEvent = Pick<
  * write this rather than returning silently: `no_process` is a card whose
  * claude is not up, `no_turn` a live claude with no turn open.
  *
- * It ends the *interrupt*, never the turn. By construction there was no turn,
- * so the handler clears the per-interrupt flags and leaves the transcript
- * exactly as it found it.
+ * It ends the interrupt, and under `no_turn` it ends the deck's turn too:
+ * a deck still holding one open missed the frames that closed it, and with
+ * tugcode holding none, nothing else will ever end it. `no_process` with a
+ * turn open offers Force Stop instead (`handleInterruptNoop`).
  */
 export type InterruptNoopEvent = Pick<Wire.InterruptNoop, "type" | "reason">;
 

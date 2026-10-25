@@ -247,25 +247,50 @@ describe("reducer — turn_cancelled settles the interrupted turn", () => {
   });
 });
 
-describe("reducer — interrupt_noop ends the interrupt, not the turn", () => {
+describe("reducer — interrupt_noop: the user's Stop always stops", () => {
   function noopEvent(
     reason: "no_process" | "no_turn" = "no_turn",
   ): CodeSessionEvent {
     return { type: "interrupt_noop", reason } as CodeSessionEvent;
   }
 
-  it("clears the per-interrupt flags and leaves the transcript untouched", () => {
+  // The 2026-10-25 stuck card: the deck missed the frames that ended its
+  // turn, so it held the turn open; every Stop reached tugcode, which had no
+  // turn and said so, and the card stayed on Stop. tugcode is the only writer
+  // of that turn's end, so `no_turn` is the end.
+  it("no_turn over a turn the deck still holds commits it as interrupted", () => {
     const mid = caseBInterrupt();
-    const { state, effects } = applyAll(mid, [noopEvent()]);
+    const { state, effects } = applyAll(mid, [noopEvent("no_turn")]);
     expect(state.interruptInFlight).toBe(false);
     expect(state.pendingInterruptReason).toBeNull();
     expect(state.interruptInFlightSegmentStartedAt).toBeNull();
-    // No turn ended, because by construction tugcode had none to end.
+    expect(state.stopStalled).toBe(false);
+    expect(state.phase).toBe("idle");
+    expect(state.pendingTurn).toBeNull();
+    const entries = appended(effects);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.entry.result).toBe("interrupted");
+    expect(entries[0]!.entry.msgId).toBe("m1");
+  });
+
+  it("no_turn over a turn with no Stop in flight still ends it", () => {
+    // The receipt is the bridge's word that no turn is open, whatever the
+    // deck's flags say by the time it lands.
+    const { state } = applyAll(streamingTurn(), [noopEvent("no_turn")]);
+    expect(state.phase).toBe("idle");
+    expect(state.pendingTurn).toBeNull();
+  });
+
+  it("no_process over an open turn offers Force Stop instead of ending it", () => {
+    // A claude being put back under the card may yet run the turn, so the
+    // turn stands — and the stop control becomes Force Stop, whose answer
+    // settles the card either way.
+    const mid = caseBInterrupt();
+    const { state, effects } = applyAll(mid, [noopEvent("no_process")]);
+    expect(state.interruptInFlight).toBe(false);
+    expect(state.stopStalled).toBe(true);
     expect(appended(effects)).toHaveLength(0);
-    expect(effects).toEqual([]);
-    expect(state.phase).toBe(mid.phase);
     expect(state.pendingTurn).toBe(mid.pendingTurn);
-    expect(state.scratch).toBe(mid.scratch);
   });
 
   it("closes the in-flight segment so the waiting time is still accounted", () => {
@@ -281,5 +306,34 @@ describe("reducer — interrupt_noop ends the interrupt, not the turn", () => {
     const result = reduce(idle, noopEvent());
     expect(result.state).toBe(idle);
     expect(result.effects).toEqual([]);
+  });
+});
+
+describe("reducer — stop_all_work_done settles a turn nothing else will end", () => {
+  it("Force Stop's answer commits a turn no turn_cancelled closed", () => {
+    // tugcode writes its cancel during the teardown, before `done`; a turn
+    // the deck still holds when `done` lands had no tugcode turn behind it.
+    const stalled = applyAll(caseBInterrupt(), [
+      { type: "interrupt_noop", reason: "no_process" } as CodeSessionEvent,
+    ]).state;
+    expect(stalled.stopStalled).toBe(true);
+    const { state, effects } = applyAll(stalled, [
+      { type: "stop_all_work_done" } as CodeSessionEvent,
+    ]);
+    expect(state.stopStalled).toBe(false);
+    expect(state.phase).toBe("idle");
+    expect(state.pendingTurn).toBeNull();
+    expect(appended(effects)).toHaveLength(1);
+  });
+
+  it("after a turn_cancelled already committed, done only clears the flag", () => {
+    const stalled = applyAll(caseBInterrupt(), [
+      { type: "interrupt_noop", reason: "no_process" } as CodeSessionEvent,
+      cancelEvent({ is_recovery: true }),
+    ]).state;
+    const { effects } = applyAll(stalled, [
+      { type: "stop_all_work_done" } as CodeSessionEvent,
+    ]);
+    expect(appended(effects)).toHaveLength(0);
   });
 });

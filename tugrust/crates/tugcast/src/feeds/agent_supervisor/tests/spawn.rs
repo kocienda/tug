@@ -505,6 +505,39 @@ async fn test_spawn_session_reconnect_bypasses_cap() {
 }
 
 #[tokio::test]
+async fn a_spawn_for_a_live_entry_broadcasts_live_not_pending() {
+    // A relaunched shell's restore, a workspace shown again and a reconnect
+    // all send `spawn_session` for a session this process already runs. The
+    // SESSION_STATE word that spawn broadcasts has to be the entry's own:
+    // `pending` here, with no `session_init` ever coming to say `live`
+    // again, left the shell reading the child as gone, and a dormant body
+    // revealed over it skipped its catch-up and woke frozen where it slept
+    // (the 2026-10-25 stuck `comely-peach` card).
+    let (sup, mut state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    preload_entry_in_state(&sup, &TugSessionId::new("sess-1"), SpawnState::Live).await;
+
+    sup.handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
+        .await
+        .expect_handled_with("a spawn for a live entry is a reconnect");
+
+    let (session, state) = session_state_of(&state_rx.try_recv().expect("the spawn broadcasts a state"));
+    assert_eq!(session, "sess-1");
+    assert_eq!(state, "live");
+    // No `spawning` follows: nothing was spawned.
+    assert!(state_rx.try_recv().is_err(), "a live entry's spawn broadcasts one word");
+}
+
+#[tokio::test]
+async fn a_fresh_spawn_still_broadcasts_pending_first() {
+    let (sup, mut state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    sup.handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
+        .await
+        .expect_handled();
+    let (_, state) = session_state_of(&state_rx.try_recv().expect("the spawn broadcasts a state"));
+    assert_eq!(state, "pending");
+}
+
+#[tokio::test]
 async fn test_spawn_session_rate_limit_rejects_after_budget_exhausted() {
     // Cap very high, rate = 2. The third fresh spawn within 60s
     // trips the leaky bucket even though the concurrent cap has

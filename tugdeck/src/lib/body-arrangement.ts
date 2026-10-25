@@ -51,15 +51,23 @@ function arrangementCards(deck: ArrangementDeck): Array<{ id: string; componentI
   return [...cards].map(([id, componentId]) => ({ id, componentId }));
 }
 
-/** The supervisor's SESSION_STATE words for a session with no subprocess: tugcast's `Idle`, `Errored` and `Closed`. */
-const CHILDLESS = new Set(["pending", "errored", "closed"]);
+/**
+ * The supervisor's SESSION_STATE words for a session whose subprocess is gone
+ * and not coming: tugcast's `Errored` and `Closed`. `pending` and `spawning`
+ * are a spawn under way — tugcast queues a replay asked then and serves it
+ * once tugcode is up — so neither is childless; reading `pending` as gone
+ * made a dormant body skip its catch-up over a session that was about to
+ * answer, and wake frozen (the 2026-10-25 stuck `comely-peach` card).
+ */
+const CHILDLESS = new Set(["errored", "closed"]);
 
 /**
  * A card's `sessionState` from its ledger row (`row`, null when the shell
  * holds none) and the supervisor's last SESSION_STATE for the session
  * (`child`, null when none was heard): a `live` row whose child the
- * supervisor last said was gone is `childless`, since tugcast answers no
- * replay for it. A row with no word of its child is taken as it reads.
+ * supervisor last said was gone for good is `childless`, since tugcast
+ * answers no replay for it. A row with no word of its child, or whose child
+ * is being spawned, is taken as it reads.
  */
 export function sessionStateOf(row: SessionRowState | null, child: string | null): DeckCardFacts["sessionState"] {
   if (row === "live" && child !== null && CHILDLESS.has(child)) return "childless";

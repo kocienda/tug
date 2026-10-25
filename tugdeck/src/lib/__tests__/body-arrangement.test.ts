@@ -97,13 +97,16 @@ describe("arrangementSnapshot", () => {
 });
 
 describe("sessionStateOf", () => {
-  test("a live row whose child the supervisor last said was idle, errored or closed is childless", () => {
-    expect(sessionStateOf("live", "pending")).toBe("childless");
+  test("a live row whose child the supervisor last said was errored or closed is childless", () => {
     expect(sessionStateOf("live", "errored")).toBe("childless");
     expect(sessionStateOf("live", "closed")).toBe("childless");
   });
 
-  test("a live row whose child is spawning or live, or of which nothing was heard, reads live", () => {
+  test("a live row whose child is pending, spawning or live, or of which nothing was heard, reads live", () => {
+    // A spawn under way answers a replay once it is up: tugcast queues the
+    // ask through its spawning window. Reading `pending` as gone skipped a
+    // dormant body's catch-up over a session about to answer.
+    expect(sessionStateOf("live", "pending")).toBe("live");
     expect(sessionStateOf("live", "spawning")).toBe("live");
     expect(sessionStateOf("live", "live")).toBe("live");
     expect(sessionStateOf("live", null)).toBe("live");

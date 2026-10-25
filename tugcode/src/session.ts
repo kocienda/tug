@@ -3862,11 +3862,13 @@ export class SessionManager {
    * ({@link Rewind.maybeScheduleRetraction}) runs the conversation-rewind
    * truncation anchored at the turn's own prompt record.
    *
-   * **Both early returns emit an {@link InterruptNoop} receipt.** The deck
-   * raises `interruptInFlight` the instant the user presses Stop and has no
-   * way to distinguish a working interrupt from one that reached a bridge
-   * with nothing to interrupt. A silent early return therefore strands the
-   * card; the receipt is what ends it.
+   * **Both nothing-to-interrupt returns emit an {@link InterruptNoop}
+   * receipt.** The deck raises `interruptInFlight` the instant the user
+   * presses Stop and has no way to distinguish a working interrupt from one
+   * that reached a bridge with nothing to interrupt. A silent early return
+   * therefore strands the card; the receipt is what ends it. The one silent
+   * return is a follow-on queued behind a finished turn, which is something
+   * to interrupt: the deck's silence deadline answers that stop.
    */
   handleInterrupt(retract: boolean = false): void {
     if (!this.claudeProcess) {
@@ -3895,10 +3897,16 @@ export class SessionManager {
       this.armInterruptEscalation(this.activeTurn);
       return;
     }
-    // No turn was open. The control request above still went to stdin, which
-    // is harmless — but no escalation is armed and no turn can end, so this
-    // interrupt has no terminal of its own. Receipt it, or the deck waits for
-    // a `turn_complete` that nothing is going to produce.
+    // A follow-on is queued behind a turn that just ended: claude holds it and
+    // will run it, so "no turn" would be a lie the deck now acts on — it
+    // commits its open turn on that receipt. Answer nothing; the deck's
+    // silence deadline turns Stop into Force Stop, whose teardown ends both.
+    if (this.pendingTurnInputs.length > 0) return;
+    // No turn was open and none is coming. The control request above still
+    // went to stdin, which is harmless — but no escalation is armed and no
+    // turn can end, so this interrupt has no terminal of its own. Receipt it:
+    // the deck ends whatever turn it still holds on this word, since no
+    // `turn_complete` is ever going to come for it.
     this.emitInterruptNoop("no_turn");
   }
 

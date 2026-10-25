@@ -13,6 +13,8 @@
 //   - no claude process → exactly one `interrupt_noop{reason:"no_process"}`;
 //   - a live claude with no turn → `interrupt_noop{reason:"no_turn"}`, and no
 //     escalation armed, because there is nothing to escalate against;
+//   - a follow-on queued behind a finished turn → no receipt, since the deck
+//     ends its turn on `no_turn` and that one is about to run;
 //   - a real interrupt on a live turn → no `interrupt_noop`, an escalation
 //     armed, and exactly one `turn_cancelled` when that escalation fires.
 
@@ -158,6 +160,21 @@ describe("interrupt receipts — no silent early return", () => {
     // on it — but no escalation is armed, because there is no turn to force.
     expect(handle.writes.length).toBeGreaterThan(0);
     expect((manager as any).timers.has("interrupt-escalation")).toBe(false);
+  });
+
+  test("a follow-on queued behind a finished turn is not answered no_turn", async () => {
+    // The deck commits its open turn on `no_turn`, so the receipt must never
+    // be sent while claude holds a buffered message it is about to run. The
+    // deck's silence deadline answers this stop with Force Stop instead.
+    const manager = makeManager();
+    (manager as any).claudeProcess = mockClaudeChild().child;
+    (manager as any).pendingTurnInputs.push({ content: [] });
+
+    const emitted = await captureIpc(() => {
+      manager.handleInterrupt();
+    });
+
+    expect(noops(emitted)).toHaveLength(0);
   });
 
   test("a real interrupt on a live turn receipts nothing and arms the escalation", async () => {

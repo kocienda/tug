@@ -936,10 +936,28 @@ impl AgentSupervisor {
         // the ledger row the bridge writes on `session_init` (with
         // `state="live"` and `card_id`). Pre-handshake spawns don't
         // appear in any picker — by then the user has already chosen.
-
+        //
+        // The word is the entry's own state. A spawn for a session this
+        // process already runs — a relaunched shell's restore, a workspace
+        // shown again, a reconnect — used to broadcast `pending` here all
+        // the same, and only the bridge's `session_init` ever says `live`,
+        // which a held bridge never sends again. So the shell read the
+        // session's child as gone for the rest of the process, and a dormant
+        // body revealed over it skipped its catch-up and woke frozen at the
+        // moment it slept (the 2026-10-25 stuck `comely-peach` card).
+        let state_word = {
+            let entry = entry_arc.lock().await;
+            match entry.spawn_state {
+                SpawnState::Idle => "pending",
+                SpawnState::Spawning => "spawning",
+                SpawnState::Live => "live",
+                SpawnState::Errored => "errored",
+                SpawnState::Closed => "closed",
+            }
+        };
         self.session_state.publish_tagged(build_session_state_frame(
             &tug_session_id,
-            "pending",
+            state_word,
             None,
         ));
 

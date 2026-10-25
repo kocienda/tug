@@ -313,7 +313,7 @@ describe("what clears a stalled stop", () => {
     expect(snap.activeTurn).toBeNull();
   });
 
-  it("a late interrupt_noop clears it without touching the turn", () => {
+  it("a late no_process receipt keeps Force Stop on offer and the turn open", () => {
     const { store, conn, timers } = caseBInterrupt();
     timers.advance(INTERRUPT_SILENCE_DEADLINE_MS);
     const stalled = store.getSnapshot();
@@ -323,10 +323,25 @@ describe("what clears a stalled stop", () => {
       ipc_version: IPC_VERSION,
     });
     const snap = store.getSnapshot();
-    expect(snap.stopStalled).toBe(false);
-    // By construction tugcode had no turn to end, so the deck's stays.
+    // A claude being put back may yet run the turn, so it stands; the stop
+    // is still unanswered, so Force Stop stays on offer.
+    expect(snap.stopStalled).toBe(true);
     expect(snap.phase).toBe(stalled.phase);
     expect(snap.activeTurn).not.toBeNull();
+  });
+
+  it("a late no_turn receipt ends the turn: nothing else will", () => {
+    const { store, conn, timers } = caseBInterrupt();
+    timers.advance(INTERRUPT_SILENCE_DEADLINE_MS);
+    emit(conn, {
+      type: "interrupt_noop",
+      reason: "no_turn",
+      ipc_version: IPC_VERSION,
+    });
+    const snap = store.getSnapshot();
+    expect(snap.stopStalled).toBe(false);
+    expect(snap.phase).toBe("idle");
+    expect(snap.activeTurn).toBeNull();
   });
 
   it("a terminal clears it", () => {
@@ -412,21 +427,21 @@ describe("force stop — the control an unanswered stop turns Stop into", () => 
     expect(sent[0]!.type).toBe("stop_all_work");
   });
 
-  it("stop_all_work_done clears stopStalled even with no turn_cancelled", () => {
+  it("stop_all_work_done with no turn_cancelled settles the card and its turn", () => {
     // The belt to `turn_cancelled`'s braces: tugcode answers `done` on its
     // failure paths too, so a teardown that half-worked still settles the
-    // card rather than leaving Force Stop standing over nothing.
+    // card rather than leaving Force Stop standing over nothing. tugcode's
+    // cancel is written before `done`, so a turn still open here is one no
+    // frame will end: Force Stop has to stop it.
     const { store, conn, timers } = caseBInterrupt();
     timers.advance(INTERRUPT_SILENCE_DEADLINE_MS);
     store.forceStop();
-    const stalled = store.getSnapshot();
 
     emit(conn, { type: "stop_all_work_done", ipc_version: IPC_VERSION });
     const snap = store.getSnapshot();
     expect(snap.stopStalled).toBe(false);
-    // The turn is not this frame's to end.
-    expect(snap.phase).toBe(stalled.phase);
-    expect(snap.activeTurn).not.toBeNull();
+    expect(snap.phase).toBe("idle");
+    expect(snap.activeTurn).toBeNull();
   });
 
   it("a stop_all_work_done with nothing stalled is inert", () => {

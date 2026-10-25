@@ -4933,31 +4933,37 @@ function handleTurnCancelled(
  * interrupt: no claude process (`no_process`), or a live claude with no turn
  * open (`no_turn`).
  *
- * It ends the interrupt and nothing else. The per-interrupt flags come down
- * and the open in-flight segment is closed into its intervals projection, so
- * `deriveInflightActiveMs` still accounts for the time the user spent
- * waiting; the phase, the transcript and `pendingTurn` are left exactly as
- * they were, because by construction there was no turn for this receipt to
- * close.
+ * The per-interrupt flags come down and the open in-flight segment is closed
+ * into its intervals projection, so `deriveInflightActiveMs` still accounts
+ * for the time the user spent waiting.
  *
- * `no_turn` can arrive while the deck believes a turn IS in flight — the two
- * sides disagreeing about whether one is open is precisely the condition that
- * produced the receipt. Ending the deck's turn here would be the worse
- * reading of that disagreement: it would discard a turn that may still be
- * streaming, on the word of the side that has already said it is not
- * watching one. Clearing the flag is the honest minimum, and it is enough —
- * the card stops saying "Interrupting" and goes back to showing whatever it
- * actually has.
+ * **The user's Stop always stops.** `no_turn` can arrive while the deck
+ * believes a turn IS in flight: a card that missed the frames that ended its
+ * turn still holds it open. tugcode is the only writer of that turn's end,
+ * and it has just said it holds no turn, so no frame is ever coming to close
+ * the deck's. The receipt is therefore that turn's end, and it commits the
+ * turn as interrupted exactly as `turn_cancelled` does. (This reverses the
+ * earlier reading, which cleared only the flag and left the card on "Stop"
+ * over a turn nothing could end: the 2026-10-25 stuck `comely-peach` card.)
+ * tugcode answers `no_turn` only when nothing is queued behind a finished
+ * turn either, so a follow-on about to start is never cut here.
+ *
+ * `no_process` is not read as a turn's end: a claude being put back under
+ * the card may yet run the turn. With a turn open it raises `stopStalled`
+ * instead, so the stop control becomes Force Stop, whose answer settles the
+ * card either way ({@link handleStopAllWorkDone}).
  */
 function handleInterruptNoop(
   state: CodeSessionState,
   event: InterruptNoopEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
+  const turnOpen = holdsLiveTurn(state);
   if (
     !state.interruptInFlight &&
     state.pendingInterruptReason === null &&
     state.interruptInFlightSegmentStartedAt === null &&
-    !state.stopStalled
+    !state.stopStalled &&
+    !turnOpen
   ) {
     // Nothing to clear. Returning the same reference keeps `getSnapshot()`
     // stable for `useSyncExternalStore`, the same idempotence contract every
@@ -4977,19 +4983,52 @@ function handleInterruptNoop(
           ...state.interruptInFlightIntervals,
           [state.interruptInFlightSegmentStartedAt, end] as const,
         ];
+  const answered: CodeSessionState = {
+    ...state,
+    interruptInFlight: false,
+    interruptInFlightSegmentStartedAt: null,
+    interruptInFlightIntervals,
+    // A receipt, late or not, answers the stop. Force Stop is for a stop
+    // nothing answered, and this is the thing answering it.
+    stopStalled: false,
+  };
+  if (turnOpen && event.reason === "no_turn") {
+    // The reason survives into the commit: `buildTurnEntry` reads it off the
+    // pre-reset state, so a logout's stop is still named as one.
+    return handleTurnCancelled(answered, endOfAnUnendableTurn());
+  }
+  if (turnOpen) {
+    return {
+      state: { ...answered, pendingInterruptReason: null, stopStalled: true },
+      effects: [],
+    };
+  }
   return {
-    state: {
-      ...state,
-      interruptInFlight: false,
-      pendingInterruptReason: null,
-      interruptInFlightSegmentStartedAt: null,
-      interruptInFlightIntervals,
-      // A receipt, late or not, answers the stop. Force Stop is for a stop
-      // nothing answered, and this is the thing answering it.
-      stopStalled: false,
-    },
+    state: { ...answered, pendingInterruptReason: null },
     effects: [],
   };
+}
+
+/**
+ * Whether the deck holds a live turn: the same test `handleTurnCancelled`'s
+ * idempotence guard drops on, so a commit routed through it from here is
+ * never a drop.
+ */
+function holdsLiveTurn(state: CodeSessionState): boolean {
+  return (
+    state.pendingTurn !== null &&
+    state.phase !== "idle" &&
+    state.phase !== "replaying"
+  );
+}
+
+/**
+ * The cancel the deck commits for itself when tugcode has said no frame will
+ * end its turn. No msg-id, so the commit takes the turn's own; no partial,
+ * so it folds nothing the content frames did not already bring.
+ */
+function endOfAnUnendableTurn(): TurnCancelledEvent {
+  return { type: "turn_cancelled", msg_id: "", seq: 0, partial_result: "" };
 }
 
 // ---------------------------------------------------------------------------
@@ -8433,8 +8472,10 @@ function handleForceStop(
  * the cancel may never come. Clearing `stopStalled` here means the card
  * settles either way.
  *
- * It touches nothing else: the turn is not this frame's to end, and if a
- * cancel is coming it will do that properly.
+ * The cancel is written during the teardown, before this frame, so a turn
+ * the deck still holds open here is one no frame will ever end — tugcode had
+ * no turn of its own to cancel. Force Stop has to stop, so this commits it
+ * as interrupted, as `turn_cancelled` would have.
  */
 function handleStopAllWorkDone(
   state: CodeSessionState,
@@ -8442,7 +8483,14 @@ function handleStopAllWorkDone(
   if (!state.stopStalled) {
     return { state, effects: [] };
   }
-  return { state: { ...state, stopStalled: false }, effects: [] };
+  const settled: CodeSessionState = { ...state, stopStalled: false };
+  if (holdsLiveTurn(settled)) {
+    return handleTurnCancelled(
+      { ...settled, pendingInterruptReason: settled.pendingInterruptReason ?? "recovery" },
+      endOfAnUnendableTurn(),
+    );
+  }
+  return { state: settled, effects: [] };
 }
 
 /**
@@ -9113,6 +9161,26 @@ function handleRefsResult(
   return { state, effects: [{ kind: "ingest-ink-turn", entry }] };
 }
 
+/**
+ * The goal settlement every cancel commit performs, against the PRE-commit
+ * state: a cancelled cycle is never a success, so the goal is left
+ * possibly-active rather than achieved. A result that committed nothing
+ * settles nothing.
+ */
+function settleGoalOnCancel(
+  state: CodeSessionState,
+  res: { state: CodeSessionState; effects: Effect[] },
+): { state: CodeSessionState; effects: Effect[] } {
+  const committedKey =
+    state.pendingTurn !== null && res.state.pendingTurn === null
+      ? state.pendingTurn.turnKey
+      : null;
+  const settled = settleGoalOnCycleCommit(res.state.goal, committedKey, false);
+  return settled === res.state.goal
+    ? res
+    : { ...res, state: { ...res.state, goal: settled } };
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -9202,26 +9270,13 @@ function reduceEvent(
         ? res
         : { ...res, state: { ...res.state, goal: settled } };
     }
-    case "turn_cancelled": {
-      // Same goal settlement the `turn_complete` case performs, against the
-      // same PRE-commit state: a cancelled cycle is never a success, so the
-      // goal is left possibly-active rather than achieved.
-      const res = handleTurnCancelled(state, event);
-      const committedKey =
-        state.pendingTurn !== null && res.state.pendingTurn === null
-          ? state.pendingTurn.turnKey
-          : null;
-      const settled = settleGoalOnCycleCommit(
-        res.state.goal,
-        committedKey,
-        false,
-      );
-      return settled === res.state.goal
-        ? res
-        : { ...res, state: { ...res.state, goal: settled } };
-    }
+    case "turn_cancelled":
+      // Same goal settlement the `turn_complete` case performs.
+      return settleGoalOnCancel(state, handleTurnCancelled(state, event));
     case "interrupt_noop":
-      return handleInterruptNoop(state, event);
+      // A `no_turn` receipt can commit the deck's turn, so it settles the
+      // goal as a cancel does.
+      return settleGoalOnCancel(state, handleInterruptNoop(state, event));
     case "goal_feedback":
       return {
         state: {
@@ -9396,7 +9451,7 @@ function reduceEvent(
     case "pop_interactive":
       return handlePopInteractive(state);
     case "stop_all_work_done":
-      return handleStopAllWorkDone(state);
+      return settleGoalOnCancel(state, handleStopAllWorkDone(state));
     case "prompt_anchor":
       return handlePromptAnchor(state, event);
     case "rewind_preview_result":
