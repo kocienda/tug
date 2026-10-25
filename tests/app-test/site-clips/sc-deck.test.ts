@@ -115,7 +115,9 @@ function deck(): Record<string, unknown> {
     cards: CARDS.map((id) => ({ id, componentId: "session", title: "Session", closable: true })),
     panes: CARDS.map((id, slot) => kindPane("session", id, slot)),
     activePaneId: `${CARDS[0]}-pane`,
-    imposition: { kind: "three-up", layout: "flow", sidebars: {} },
+    // The left rail reads Arcs, Jots, Overview from the top, as the first hero
+    // did; registration order alone would put Arcs at the bottom.
+    imposition: { kind: "three-up", layout: "flow", sidebars: {}, rails: { left: { order: ["dashes", "jots", "overview"] } } },
     hasFocus: true,
   };
 }
