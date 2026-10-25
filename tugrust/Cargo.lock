@@ -2851,7 +2851,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tugarc-core"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "rand 0.10.0",
  "rusqlite",
@@ -2867,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "tugbank"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "assert_cmd",
  "base64",
@@ -2881,7 +2881,7 @@ dependencies = [
 
 [[package]]
 name = "tugbank-core"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "parking_lot",
  "rusqlite",
@@ -2894,7 +2894,7 @@ dependencies = [
 
 [[package]]
 name = "tugcast"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -2946,7 +2946,7 @@ dependencies = [
 
 [[package]]
 name = "tugcast-core"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -2959,7 +2959,7 @@ dependencies = [
 
 [[package]]
 name = "tugchanges-core"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "dirs",
  "rusqlite",
@@ -2972,7 +2972,7 @@ dependencies = [
 
 [[package]]
 name = "tugcore"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "chrono",
  "dirs",
@@ -2988,7 +2988,7 @@ dependencies = [
 
 [[package]]
 name = "tugedit-core"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "regex",
  "similar",
@@ -2996,7 +2996,7 @@ dependencies = [
 
 [[package]]
 name = "tugexec"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "clap",
  "libc",
@@ -3011,7 +3011,7 @@ dependencies = [
 
 [[package]]
 name = "tuggram"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "libc",
  "serde",
@@ -3021,7 +3021,7 @@ dependencies = [
 
 [[package]]
 name = "tuglog"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "tracing",
  "tracing-appender",
@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "tugrelaunch"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "clap",
  "libc",
@@ -3067,7 +3067,7 @@ dependencies = [
 
 [[package]]
 name = "tugtool"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -3095,7 +3095,7 @@ dependencies = [
 
 [[package]]
 name = "tugtool-core"
-version = "0.8.18"
+version = "0.8.19"
 dependencies = [
  "regex",
  "roxmltree",
