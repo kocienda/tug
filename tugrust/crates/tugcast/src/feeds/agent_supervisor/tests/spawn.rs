@@ -520,11 +520,15 @@ async fn a_spawn_for_a_live_entry_broadcasts_live_not_pending() {
         .await
         .expect_handled_with("a spawn for a live entry is a reconnect");
 
-    let (session, state) = session_state_of(&state_rx.try_recv().expect("the spawn broadcasts a state"));
+    let (session, state) =
+        session_state_of(&state_rx.try_recv().expect("the spawn broadcasts a state"));
     assert_eq!(session, "sess-1");
     assert_eq!(state, "live");
     // No `spawning` follows: nothing was spawned.
-    assert!(state_rx.try_recv().is_err(), "a live entry's spawn broadcasts one word");
+    assert!(
+        state_rx.try_recv().is_err(),
+        "a live entry's spawn broadcasts one word"
+    );
 }
 
 #[tokio::test]
