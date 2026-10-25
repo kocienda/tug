@@ -36,7 +36,11 @@ jobs:
         working-directory: tugdeck/crates
 
       # Restore here, save at the end with `if: always()`, so a red run still
-      # leaves a cache for the next one.
+      # leaves a cache for the next one. The key ends in the run id, so every
+      # run saves what it built and the next restores the newest by prefix: a
+      # key fixed by `Cargo.lock` alone let a run that died five minutes in
+      # save a half-built target that every later run hit exactly, and an
+      # exact hit is never saved over — so each night rebuilt the rest cold.
       - name: Restore cargo cache
         id: cargo-cache
         uses: actions/cache/restore@v4
@@ -45,8 +49,10 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             tugrust/target
-          key: ${{ runner.os }}-cargo-full-lane-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-full-lane-
+          key: ${{ runner.os }}-cargo-full-lane-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-full-lane-${{ hashFiles('tugrust/rust-toolchain.toml', '**/Cargo.lock') }}-
+            ${{ runner.os }}-cargo-full-lane-
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -55,6 +61,15 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack@0.15.0
+
+      # wasm-pack compiles the `wasm-bindgen` CLI from source on first use —
+      # two minutes of every night's WASM rebuild. The version it builds is the
+      # one `tugdeck/crates/Cargo.lock` pins, so that is the key.
+      - name: Cache wasm-bindgen
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/.wasm-pack
+          key: ${{ runner.os }}-wasm-pack-${{ hashFiles('tugdeck/crates/Cargo.lock') }}
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -85,7 +100,7 @@ jobs:
         run: just ci-full
 
       - name: Save cargo cache
-        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: |
