@@ -24,6 +24,7 @@ import { getConnection } from "@/lib/connection-singleton";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { useCardDeck } from "@/card-deck-context";
 import { useTugAlert } from "./tug-alert";
+import { logoutConfirmMessage } from "./configure-tug-copy";
 
 /**
  * No `claude_logout_result` within this window → treat the logout as failed.
@@ -50,8 +51,7 @@ export function TugLogout(): null {
     void (async () => {
       const confirmed = await showAlert({
         title: "Log Out of Claude?",
-        message:
-          "Your in-progress turns will stop, and you'll need to log in again to continue.",
+        message: logoutConfirmMessage(authStore.getSnapshot().account),
         confirmLabel: "Log Out",
         cancelLabel: "Cancel",
         confirmRole: "danger",

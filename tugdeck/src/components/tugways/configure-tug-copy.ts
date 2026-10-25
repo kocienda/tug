@@ -36,6 +36,26 @@ export function subscriptionLabel(
 }
 
 /**
+ * The Log Out confirm's message. Names the account being logged out of the
+ * way the wizard's signed-in row does — email, then the plan from
+ * {@link subscriptionLabel} — so the user knows which login they are giving
+ * up. Each part is dropped when unknown, never shown as a placeholder.
+ */
+export function logoutConfirmMessage(
+  account: { email: string | null; subscriptionType?: string | null } | null,
+): string {
+  const consequence =
+    "Your in-progress turns will stop, and you'll need to log in again to continue.";
+  const email = account?.email?.trim();
+  if (!email) return consequence;
+  const plan = subscriptionLabel(account?.subscriptionType);
+  const who = plan
+    ? `You're logged in as ${email} on the ${plan}.`
+    : `You're logged in as ${email}.`;
+  return `${who} ${consequence}`;
+}
+
+/**
  * Compare two `MAJOR.MINOR.PATCH[-pre]` versions numerically: negative when
  * `a` is older than `b`, positive when newer, zero when the same. Numeric
  * segments compare as numbers (so 2.1.9 is older than 2.1.10); a pre-release

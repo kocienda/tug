@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   subscriptionLabel,
+  logoutConfirmMessage,
   pendingOpenStepCopy,
   claudeInstalledCopy,
   claudeTooOldCopy,
@@ -26,6 +27,28 @@ import {
   deriveConfigureTugRequired,
   deriveFirstRunComplete,
 } from "../configure-tug-copy";
+
+describe("logoutConfirmMessage", () => {
+  const consequence =
+    "Your in-progress turns will stop, and you'll need to log in again to continue.";
+
+  test("names the account and its plan ahead of the consequence", () => {
+    expect(
+      logoutConfirmMessage({ email: "kocienda@mac.com", subscriptionType: "max" }),
+    ).toBe(`You're logged in as kocienda@mac.com on the Claude Max plan. ${consequence}`);
+  });
+
+  test("drops the plan when the tier is unknown", () => {
+    expect(logoutConfirmMessage({ email: "a@b.com", subscriptionType: null })).toBe(
+      `You're logged in as a@b.com. ${consequence}`,
+    );
+  });
+
+  test("falls back to the consequence alone with no email", () => {
+    expect(logoutConfirmMessage(null)).toBe(consequence);
+    expect(logoutConfirmMessage({ email: "  ", subscriptionType: "pro" })).toBe(consequence);
+  });
+});
 
 describe("subscriptionLabel", () => {
   test("maps each known tier to its formal label (no trailing period)", () => {
