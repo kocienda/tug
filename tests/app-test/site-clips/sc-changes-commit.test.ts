@@ -18,9 +18,11 @@
  * During the burst ⌃⌘C raises the shade and, on the empty composer, enters
  * commit mode; then the scribe's stream arrives the way at0497 delivers it,
  * as `changeset_draft_*` CONTROL frames through the test surface, and the
- * message writes itself into the composer under the wave. The capture
- * covers the card; the site's `make-clip --crop` cuts the shade and the
- * composer out of it.
+ * message writes itself into the composer under the wave. Then the Commit
+ * press, a real click the way at0607 makes it: the commit lands in the
+ * scratch repository and its receipt settles into the transcript. The
+ * capture covers the card; the site's `make-clip --crop` cuts the shade and
+ * the composer out of it.
  *
  * @visible
  */
@@ -51,13 +53,16 @@ const SESSION_ROWS = `${SHEET} .tug-changes-list-file-list[data-entry-kind="sess
 const ANY_ROWS = `${SHEET} [data-testid="tug-changes-list-file-block"]`;
 const COMMIT_BUTTON = '[data-testid="tug-prompt-entry-commit-button"]';
 const AUTO_BUTTON = '[data-testid="tug-prompt-entry-commit-auto"]';
+const RECEIPT = '[data-slot="tug-commit-changes-list"] [data-testid="tug-changes-list-file-block"]';
 const PROMPT_PHASE = `(function(){ var e = document.querySelector('[data-slot="tug-prompt-entry"]'); return e === null ? null : e.getAttribute("data-phase"); })()`;
 
-/** The burst, and its beats: the card at rest, the shade rising, the files read, the message written. */
+/** The burst, and its beats: the card at rest, the shade rising, the files read, the message written, read, and committed. */
 const BURST_MS = 9_800;
-const REST_MS = 900;
-const SHADE_MS = 2_200;
-const DELTA_MS = 70;
+const REST_MS = 700;
+const SHADE_MS = 1_800;
+const DELTA_MS = 50;
+const READY_MS = 1_100;
+const RECEIPT_MS = 60_000;
 
 /** The files the session edited: their committed form, and the edit. */
 const FILES: ReadonlyArray<{ path: string; before: string; after: string; old: string; new: string }> = [
@@ -277,7 +282,7 @@ function deltas(message: string): string[] {
 
 describe.skipIf(!RUNS)("site clip: changes and commit message", () => {
   test(
-    "records the shade rising and the message written into the composer",
+    "records the shade rising, the message written into the composer, and the commit’s receipt",
     async () => {
       const scratch = realpathSync(mkdtempSync(join(tmpdir(), "sc-changes-")));
       onTestRunEnd(() => rmSync(scratch, { recursive: true, force: true }));
@@ -345,9 +350,17 @@ describe.skipIf(!RUNS)("site clip: changes and commit message", () => {
             await Bun.sleep(DELTA_MS);
           }
           await draftFrame({ action: "changeset_draft_state", state: "ready" });
+          await Bun.sleep(READY_MS);
+
+          // Commit: the press lands the message on the scratch repository,
+          // and the receipt settles into the transcript.
+          await body.nativeClickAtElement(COMMIT_BUTTON);
+          await body.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(RECEIPT)}) !== null`, { timeoutMs: RECEIPT_MS });
+          notes.committed = git(repo, "log", "-1", "--format=%s");
         });
         writeFileSync(join(outDirFor("changes-commit"), "notes.json"), JSON.stringify(notes, null, 2));
         expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        expect(notes.committed, "the press produced the commit it asked for").toBe(MESSAGE.split("\n")[0]);
       } finally {
         await app.close();
       }
