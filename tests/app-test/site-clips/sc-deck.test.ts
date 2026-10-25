@@ -90,7 +90,7 @@ const MESSAGES = 3;
 const BURST_MS = 9_500;
 const STEP_AT_MS = 3_000;
 const POST_AT_MS = 6_000;
-/** The first hero's size: wide enough for three Comfy cards (800 px each) beside both rails, and tall enough for a transcript. The harness grants what the display allows. */
+/** The first hero's size: wide enough for three Comfy cards (800 px each) to stand at the deck's own gap under Flow, the default layout, beside both rails, and tall enough for a transcript. The harness grants what the display allows. */
 const CONTENT_SIZE = { width: 3260, height: 2040 };
 const BOUND_MS = 30_000;
 const STREAMING_MS = 15_000;
@@ -115,7 +115,7 @@ function deck(): Record<string, unknown> {
     cards: CARDS.map((id) => ({ id, componentId: "session", title: "Session", closable: true })),
     panes: CARDS.map((id, slot) => kindPane("session", id, slot)),
     activePaneId: `${CARDS[0]}-pane`,
-    imposition: { kind: "three-up", layout: "fit", sidebars: {} },
+    imposition: { kind: "three-up", layout: "flow", sidebars: {} },
     hasFocus: true,
   };
 }
