@@ -75,6 +75,17 @@ class SessionLineStore extends Subscribable {
   }
 
   /**
+   * Record that `sessionId` is a segment of `lineId` only when no frame has
+   * said whose segment it is — for a card binding, whose `lineId` is a seed
+   * the server may since have corrected (`cardLine`). Never moves the
+   * seat, and a line of one (`lineId === sessionId`) says nothing worth keeping.
+   */
+  seed(sessionId: string, lineId: string): void {
+    if (sessionId === lineId || this.lineBySession.has(sessionId.trim())) return;
+    this.write(sessionId, lineId, false);
+  }
+
+  /**
    * Forget a segment — a trashed session. The line's seat is dropped only when
    * this segment was the one holding it, so trashing an old segment does not
    * unseat the line the user is working in.

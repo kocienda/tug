@@ -17,13 +17,23 @@
  * frame replaces the whole map: the server's answer is authoritative, and a
  * merge would keep rows the ledger has since dropped.
  *
+ * It is kept current by asking again, never by guessing ({@link
+ * SpaceBindingsLedgerStore.refreshOnPushes}). A card's session rotates mid-run
+ * — every arc stage is a new segment — and a cache filled once at boot then
+ * names a segment three rotations back: a workspace the user had not opened
+ * would resume it, and its parked row would read its stale identity.
+ *
  * React readers go through `useSyncExternalStore` ([L02]); `getSnapshot` is
  * stable by identity until a frame lands.
  */
 
 import { Subscribable } from "./subscribable";
-import type { CardBinding } from "../protocol";
-import { subscribeToListCardBindingsOk } from "./session-ledger-events";
+import type { CardBinding, SessionUpdatedPush } from "../protocol";
+import {
+  subscribeToListCardBindingsErr,
+  subscribeToListCardBindingsOk,
+  subscribeToSessionUpdated,
+} from "./session-ledger-events";
 
 class SpaceBindingsLedgerStore extends Subscribable {
   private rows: ReadonlyMap<string, CardBinding> = new Map();
@@ -78,6 +88,59 @@ class SpaceBindingsLedgerStore extends Subscribable {
       this.notify();
     });
   };
+
+  /**
+   * Re-ask the server (`ask` sends `list_card_bindings`) whenever a ledger push
+   * says a card's row has moved past what this cache holds: a live segment on a
+   * card the cache seats elsewhere or not at all — a rotation, a rewind, a
+   * fresh spawn — or the removal of a segment it seats a card on.
+   *
+   * The push is the event, so this watches rather than polls, and the server
+   * still chooses which segment a line resumes ([P06]); the cache never derives
+   * one from a push. One request is in flight at a time, and pushes that land
+   * while it is out ask once more after the answer, so a burst costs two.
+   * Returns the release.
+   */
+  refreshOnPushes = (ask: () => void): (() => void) => {
+    let inFlight = false;
+    let again = false;
+    const send = (): void => {
+      inFlight = true;
+      again = false;
+      ask();
+    };
+    const settle = (): void => {
+      if (!inFlight) return;
+      inFlight = false;
+      if (again) send();
+    };
+    const releases = [
+      subscribeToListCardBindingsOk(settle),
+      subscribeToListCardBindingsErr(settle),
+      subscribeToSessionUpdated((push) => {
+        if (!this.hasLoaded || !this.isPassedBy(push)) return;
+        if (inFlight) again = true;
+        else send();
+      }),
+    ];
+    return () => {
+      for (const release of releases) release();
+    };
+  };
+
+  /** Whether `push` names a seat this cache does not hold ({@link refreshOnPushes}). */
+  private isPassedBy(push: SessionUpdatedPush): boolean {
+    if (push.removed === true) {
+      for (const row of this.rows.values()) if (row.session_id === push.session_id) return true;
+      return false;
+    }
+    const fields = push.fields;
+    // A background owner's id is no deck card's, and a closed or failed
+    // segment is never the one a line resumes over a live one.
+    if (fields === undefined || fields.card_id === null || fields.background) return false;
+    if (fields.state !== "live") return false;
+    return this.rows.get(fields.card_id)?.session_id !== push.session_id;
+  }
 
   /** Test seam: drop every row and the install guard. */
   _resetForTest = (): void => {

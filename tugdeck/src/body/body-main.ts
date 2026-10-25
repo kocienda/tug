@@ -62,7 +62,7 @@ import {
 } from "../action-dispatch";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
-import { cardSessionBindingStore, shareCardBinding } from "../lib/card-session-binding-store";
+import { cardSessionBindingStore, seedBindingLines, shareCardBinding } from "../lib/card-session-binding-store";
 import { shareArcPresses } from "../lib/arc-press-store";
 import { cardServicesStore } from "../lib/card-services-store";
 import { attachSessionLedgerStore } from "../lib/session-ledger-store";
@@ -288,12 +288,23 @@ function putCardStateGuarded(
  * of the store whose facts moved.
  */
 function followDeckCards(cardId: string): void {
+  // Every binding read from the replica names its line, which no frame this
+  // page heard may have — seeded before the readers are woken to read it.
+  const seedLines = (cards: ReturnType<typeof deckCards.getSnapshot>): void => {
+    for (const entry of Object.values(cards)) {
+      if (entry.binding !== null) seedBindingLines(entry.binding);
+    }
+  };
   let before = deckCards.getSnapshot();
+  seedLines(before);
   deckCards.subscribe(() => {
     const next = deckCards.getSnapshot();
     const moved = movedFacets(before, next, cardId);
     before = next;
-    if (moved.has("binding")) cardSessionBindingStore.notify();
+    if (moved.has("binding")) {
+      seedLines(next);
+      cardSessionBindingStore.notify();
+    }
     if (moved.has("title")) cardTitleStore.notify();
     if (moved.has("identity")) cardIdentityElsewhere.notify();
     if (moved.has("activity")) cardActivityElsewhere.notify();

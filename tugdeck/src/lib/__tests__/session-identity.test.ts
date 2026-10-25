@@ -24,6 +24,11 @@ import {
 import { sessionNameStore } from "@/lib/session-name-store";
 import { sessionTagStore } from "@/lib/session-tag-store";
 import { sessionLineStore } from "@/lib/session-line-store";
+import {
+  cardSessionBindingStore,
+  seedBindingLines,
+  type CardSessionBinding,
+} from "@/lib/card-session-binding-store";
 
 const ID = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const SHORT = "f6e43925";
@@ -314,6 +319,33 @@ describe("identity resolves through the line map", () => {
     expect(resolveSessionIdentity(STAGE).tag).toBeNull();
     sessionLineStore.seat(STAGE, LINE);
     expect(resolveSessionIdentity(STAGE).tag).toBe("nutty-gnat");
+  });
+
+  // A page that holds a binding second-hand — the shell taking a body's
+  // proposal, a body reading `deck.cards` — never heard the ack that named the
+  // line. The parked-workspace row read `tug-site/6989cd6d` for that reason.
+  const binding: CardSessionBinding = {
+    tugSessionId: ROOT,
+    seatedSessionId: STAGE,
+    lineId: LINE,
+    workspaceKey: "/Users/k/src/tug-site",
+    projectDir: "/Users/k/src/tug-site",
+    sessionMode: "resume",
+  };
+
+  test("a binding a page holds names its address's and seat's line", () => {
+    sessionTagStore.setTag(LINE, "indigo-heath");
+    expect(resolveSessionIdentity(ROOT).tag).toBeNull();
+    cardSessionBindingStore.setBinding("card-x", binding);
+    cardSessionBindingStore.clearBinding("card-x");
+    expect(resolveSessionIdentity(ROOT).tag).toBe("indigo-heath");
+    expect(resolveSessionIdentity(STAGE).tag).toBe("indigo-heath");
+  });
+
+  test("a binding's line never overwrites the line a frame named", () => {
+    sessionLineStore.bind(ROOT, LINE);
+    seedBindingLines({ ...binding, lineId: "stale-line" });
+    expect(sessionLineStore.lineOf(ROOT)).toBe(LINE);
   });
 });
 

@@ -76,6 +76,20 @@ describe("sessionLineStore", () => {
     unsubscribe();
   });
 
+  test("a seed fills an unknown segment and never overwrites a known one", () => {
+    sessionLineStore.seat("root", "L");
+    // A binding's line is the ack's seed; the server's frame stands.
+    sessionLineStore.seed("root", "stale");
+    expect(sessionLineStore.lineOf("root")).toBe("L");
+    sessionLineStore.seed("stage", "L");
+    expect(sessionLineStore.lineOf("stage")).toBe("L");
+    // A seed never moves the seat.
+    expect(sessionLineStore.seatOf("L")).toBe("root");
+    // A line of one is no line at all.
+    sessionLineStore.seed("solo", "solo");
+    expect(sessionLineStore.lineOf("solo")).toBeNull();
+  });
+
   test("blank ids are refused rather than filed under an empty key", () => {
     sessionLineStore.seat("", "L3");
     sessionLineStore.seat("root", "");

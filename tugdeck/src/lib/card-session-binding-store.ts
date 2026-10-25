@@ -120,6 +120,7 @@ export class CardSessionBindingStore extends Subscribable {
   };
 
   setBinding = (cardId: string, binding: CardSessionBinding): void => {
+    seedBindingLines(binding);
     const next = new Map(this._bindings);
     next.set(cardId, binding);
     this._bindings = next;
@@ -297,6 +298,29 @@ export function shareCardBinding(
   return () => {
     for (const release of releases.splice(0)) release();
   };
+}
+
+/**
+ * Tell this page's line store whose segments a binding names: its address and
+ * its seat, each a segment of `binding.lineId`.
+ *
+ * A page can hold a binding it never heard the frames for. The shell takes a
+ * body card's binding as a proposal, and a body reads every other card's from
+ * `deck.cards` — so the spawn ack and the pushes that taught the card's own
+ * page its line never reached the page drawing the row. Every identity read
+ * keys on the line ([P12]), and a row asking about the address in such a page
+ * fell back to the bare id: a parked workspace's session read `tug-site/6989cd6d`
+ * instead of its callsign, and its synopsis was lost with it.
+ *
+ * Seeded, never written over: the binding's line is the ack's, which the
+ * server may have corrected since ({@link cardLine}).
+ */
+export function seedBindingLines(binding: CardSessionBinding): void {
+  if (binding.lineId.length === 0) return;
+  sessionLineStore.seed(binding.tugSessionId, binding.lineId);
+  if (binding.seatedSessionId !== undefined) {
+    sessionLineStore.seed(binding.seatedSessionId, binding.lineId);
+  }
 }
 
 /**

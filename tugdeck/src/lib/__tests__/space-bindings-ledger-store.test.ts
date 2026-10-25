@@ -12,8 +12,12 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 
 import { spaceBindingsLedgerStore } from "../space-bindings-ledger-store";
-import { publishListCardBindingsOk } from "../session-ledger-events";
-import type { CardBinding } from "../../protocol";
+import {
+  publishListCardBindingsErr,
+  publishListCardBindingsOk,
+  publishSessionUpdated,
+} from "../session-ledger-events";
+import type { CardBinding, SessionRow } from "../../protocol";
 
 function row(over: Partial<CardBinding> & { card_id: string }): CardBinding {
   return {
@@ -23,6 +27,17 @@ function row(over: Partial<CardBinding> & { card_id: string }): CardBinding {
     turn_count: 0,
     ...over,
   };
+}
+
+/** A `session_updated` push for `sessionId`, as the supervisor sends one. */
+function push(
+  sessionId: string,
+  fields: Partial<SessionRow> & { card_id: string | null },
+): void {
+  publishSessionUpdated({
+    session_id: sessionId,
+    fields: { session_id: sessionId, state: "live", background: false, ...fields } as SessionRow,
+  });
 }
 
 // Before as well as after: the store is a module singleton, and a file that
@@ -119,5 +134,72 @@ describe("spaceBindingsLedgerStore", () => {
     publishListCardBindingsOk({ bindings: [row({ card_id: "A" })] });
     expect(calls).toBe(1);
     unsubscribe();
+  });
+});
+
+// The cache is filled at boot and a session rotates mid-run: every arc stage
+// is a new segment. Left alone it named a segment four rotations back, and a
+// workspace the user had not opened would have resumed that one.
+describe("refreshOnPushes", () => {
+  let asks = 0;
+  let release: (() => void) | null = null;
+
+  beforeEach(() => {
+    asks = 0;
+    spaceBindingsLedgerStore.installOnce();
+    release = spaceBindingsLedgerStore.refreshOnPushes(() => {
+      asks += 1;
+    });
+    publishListCardBindingsOk({ bindings: [row({ card_id: "A", session_id: "seat-1" })] });
+  });
+
+  afterEach(() => {
+    release?.();
+    release = null;
+  });
+
+  test("a live segment the cache does not seat its card on asks again", () => {
+    push("seat-2", { card_id: "A" });
+    expect(asks).toBe(1);
+  });
+
+  test("a card the cache has no row for asks again", () => {
+    push("fresh", { card_id: "B" });
+    expect(asks).toBe(1);
+  });
+
+  test("the removal of a segment the cache seats asks again", () => {
+    publishSessionUpdated({ session_id: "seat-1", removed: true });
+    expect(asks).toBe(1);
+  });
+
+  test("a push the cache already agrees with asks nothing", () => {
+    // Every turn pushes the seated segment's row; none of them is news.
+    push("seat-1", { card_id: "A" });
+    // A retired segment closing, a background owner, a cardless row.
+    push("seat-0", { card_id: "A", state: "closed" });
+    push("bg", { card_id: "spawner", background: true });
+    push("loose", { card_id: null });
+    publishSessionUpdated({ session_id: "not-cached", removed: true });
+    expect(asks).toBe(0);
+  });
+
+  test("a burst while a request is out costs one more request, not one per push", () => {
+    push("seat-2", { card_id: "A" });
+    push("seat-3", { card_id: "A" });
+    push("seat-4", { card_id: "A" });
+    expect(asks).toBe(1);
+    publishListCardBindingsOk({ bindings: [row({ card_id: "A", session_id: "seat-2" })] });
+    expect(asks).toBe(2);
+    publishListCardBindingsOk({ bindings: [row({ card_id: "A", session_id: "seat-4" })] });
+    expect(asks).toBe(2);
+    expect(spaceBindingsLedgerStore.get("A")?.session_id).toBe("seat-4");
+  });
+
+  test("an error answer frees the next push to ask", () => {
+    push("seat-2", { card_id: "A" });
+    publishListCardBindingsErr({ reason: "ledger_read_failed" });
+    push("seat-3", { card_id: "A" });
+    expect(asks).toBe(2);
   });
 });

@@ -130,6 +130,7 @@ import { pickerNoticeStore } from "./picker-notice-store";
 import { subscribeToListCardBindingsOk } from "./session-ledger-events";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { handOffToBody, isBodyCard } from "./body-handoff";
+import { page } from "../bus/page";
 import { FeedId } from "../protocol";
 import type { CardBinding } from "../protocol";
 import {
@@ -611,6 +612,14 @@ function installRegistrySubscriptions(connection: TugConnection): void {
   // the parked workspaces' — so a switch can restore without a round trip
   // ([P08], Spec S03).
   spaceBindingsLedgerStore.installOnce();
+  // And kept current: a rotation mid-run moves a card's resume segment, and the
+  // boot answer would go on naming the old one. The shell's alone — a body is
+  // shown its own card's row, and the Cards body reads the shell's cache.
+  if (!page.isBody) {
+    spaceBindingsLedgerStore.refreshOnPushes(() =>
+      connection.sendControlFrame("list_card_bindings", {}),
+    );
+  }
 
   // When a binding arrives for a restoring card, the restore succeeded.
   // Also notify the card's CodeSessionStore that the wire is settled,
