@@ -233,7 +233,14 @@ if [ "$SKIP_SIGN" = false ]; then
         bash "$SCRIPT_DIR/sign-bundle.sh" "$STAGING_APP"
     fi
 else
-    echo "==> Skipping code signing (--skip-sign)"
+    # --skip-sign means "no Developer ID", never "no signature". xcodebuild's
+    # throwaway signature is ad-hoc WITH the hardened runtime (the project sets
+    # ENABLE_HARDENED_RUNTIME), and under that runtime dyld refuses to map
+    # Sparkle.framework ("different Team IDs") and the app dies at launch.
+    # sign-bundle.sh's ad-hoc path re-signs inside-out without the runtime,
+    # the same bundle `just app-release` produces on a machine with no cert.
+    echo "==> Code signing ad-hoc (--skip-sign)"
+    bash "$SCRIPT_DIR/sign-bundle.sh" "$STAGING_APP" -
 fi
 
 # Step 9: Notarization
