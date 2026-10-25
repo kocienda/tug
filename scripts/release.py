@@ -80,6 +80,12 @@ RUN_APPEAR_INTERVAL = 2
 CI_APPEAR_TRIES = 60
 CI_APPEAR_INTERVAL = 2
 
+# How long one read may take before the script stops waiting on it. Every
+# probe read answers in well under a second; a `gh api` that stalls on the
+# network otherwise holds the run silent until someone presses ^C, and a read
+# that gives up is reported as UNKNOWN, which the walk already stops on.
+READ_TIMEOUT = 30
+
 # Set once in main() so a declined row can say what resumes the run.
 INVOCATION = "just release"
 
@@ -144,9 +150,9 @@ def read(argv, check=True):
     release stands, and a dry run that skipped it would be printing a plan for
     a tree it never looked at.
     """
-    proc = subprocess.run(
-        argv, cwd=REPO_ROOT, capture_output=True, text=True, check=False
-    )
+    proc = run_read(argv)
+    if proc is None:
+        return None
     if check and proc.returncode != 0:
         return None
     return proc.stdout.strip()
@@ -154,9 +160,24 @@ def read(argv, check=True):
 
 def read_rc(argv):
     """Run a read-only command for its exit code alone."""
-    return subprocess.run(
-        argv, cwd=REPO_ROOT, capture_output=True, text=True, check=False
-    ).returncode
+    proc = run_read(argv)
+    return 124 if proc is None else proc.returncode
+
+
+def run_read(argv):
+    """The completed read, or None when it gave no answer within READ_TIMEOUT.
+
+    stdin is closed so a tool that would prompt fails instead of waiting on a
+    terminal it cannot be seen in.
+    """
+    try:
+        return subprocess.run(
+            argv, cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+            stdin=subprocess.DEVNULL, timeout=READ_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        say(f"  (no answer from `{quote(argv)}` in {READ_TIMEOUT} s; read as unknown)")
+        return None
 
 
 def show_row(argv, why=None):
@@ -313,11 +334,10 @@ def probe():
     # 2. Does origin already have the tag for it? Three outcomes, never two:
     #    exit 0 is published, an HTTP 404 is absent, and anything else is a
     #    network this script should not guess about.
-    proc = subprocess.run(
-        ["gh", "api", f"repos/{{owner}}/{{repo}}/git/ref/tags/v{st.version}"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
-    )
-    if proc.returncode == 0:
+    proc = run_read(["gh", "api", f"repos/{{owner}}/{{repo}}/git/ref/tags/v{st.version}"])
+    if proc is None:
+        st.tag = None
+    elif proc.returncode == 0:
         st.tag = True
     elif "HTTP 404" in proc.stderr:
         st.tag = False
@@ -416,6 +436,8 @@ def decide_next(st, component, redo=False):
         return "draft"
     if not st.tree_clean:
         return "commit"
+    if st.remote_sha is None:
+        stop("Cannot reach origin to tell whether HEAD is already pushed.")
     if not st.head_pushed:
         return "push"
     return "ci"
@@ -962,6 +984,8 @@ def main(argv):
 
     preflight()
     step_checks(force)
+    say()
+    say("Reading where the release stands, from this checkout and origin...")
     st = probe()
     report(st)
 
