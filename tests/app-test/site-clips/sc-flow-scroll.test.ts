@@ -15,19 +15,19 @@
  * @visible
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "bun:test";
 
 import { standUpKind } from "../body-grounding/_kind-bodies";
 import { cardKind, kindPane } from "../body-grounding/_kinds";
-import { RUNS, burstTo, launchForMode, outDirFor } from "./_site-clips";
+import { RUNS, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARDS = ["sc-flow-a", "sc-flow-b", "sc-flow-c", "sc-flow-d", "sc-flow-e"] as const;
 
-/** Rest before the travel, the hold at the far end, and the settle after the return. */
+/** Rest before the travel, the hold at the far end, and the return to the first slot. */
 const REST_MS = 700;
 const HOLD_MS = 1_500;
-const SETTLE_MS = 1_500;
+const RETURN_MS = 1_500;
 
 function deck(): Record<string, unknown> {
   return {
@@ -51,13 +51,12 @@ describe.skipIf(!RUNS)("site clip: flow scroll", () => {
         for (const id of CARDS.slice(0, 2)) await standUpKind(app, hello, id);
         await Bun.sleep(1_500);
 
-        const reading = await burstTo(app, undefined, REST_MS + HOLD_MS + SETTLE_MS, outDirFor("flow-scroll"), async () => {
-          await Bun.sleep(REST_MS);
-          await app.performMenuItem(`go.goToSlot.${CARDS.length}`);
-          await Bun.sleep(HOLD_MS);
-          await app.performMenuItem("go.goToSlot.1");
-        });
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        const s = scene()
+          .mark("loop-start", 0)
+          .at(REST_MS, () => app.performMenuItem(`go.goToSlot.${CARDS.length}`))
+          .at(REST_MS + HOLD_MS, () => app.performMenuItem("go.goToSlot.1"))
+          .mark("loop-end", REST_MS + HOLD_MS + RETURN_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("flow-scroll") }));
       } finally {
         await app.close();
       }

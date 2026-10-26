@@ -146,6 +146,14 @@ export class SessionLedgerStore extends Subscribable {
    */
   private readonly detachedRows = new Map<string, SessionRow>();
 
+  /**
+   * Fields a test seeded over a session's row ({@link seedRow}), applied to
+   * every push and listing for that session from then on. Empty in the
+   * product: only the test surface writes it, for a stub-bound card whose
+   * session has no engine transcript and so no turn count of its own.
+   */
+  private readonly seededFields = new Map<string, Partial<SessionRow>>();
+
   /** Resolves attached to in-flight `trash_session` calls, keyed by id. */
   private readonly pendingTrash = new Map<string, (r: TrashSessionResult) => void>();
 
@@ -342,7 +350,8 @@ export class SessionLedgerStore extends Subscribable {
           });
           merged = [...backfilled, ...prevById.values()];
         }
-        const sorted = [...merged].sort(
+        // A seeded row's fields stand over the listing as over a push.
+        const sorted = merged.map((row) => this.withSeed(row)).sort(
           (a, b) => b.last_used_at - a.last_used_at,
         );
         // Refresh the reverse index for this projectDir: drop any stale ids
@@ -446,6 +455,7 @@ export class SessionLedgerStore extends Subscribable {
    * own note, and {@link detachedRows}.
    */
   private patchRow(sessionId: string, row: SessionRow): void {
+    row = this.withSeed(row);
     // A content-empty row never enters the list — see `isEmptySessionRow`.
     // Spawn-time pushes carry exactly this shape, and the host already
     // filters them out of `list_sessions`. It is KEPT rather than dropped
@@ -502,7 +512,31 @@ export class SessionLedgerStore extends Subscribable {
     this.notify();
   }
 
+  /**
+   * Lay `fields` over `sessionId`'s row, now and on every later push or
+   * listing: a frame that would knock a seeded fact back to the ledger's own
+   * is re-seeded as it lands. Returns whether a row was there to patch; the
+   * seed stands either way, for the row's first push. A test-surface door
+   * for a stub-bound card, whose session writes no engine transcript and so
+   * reads `No turns` in the masthead however many turns the stub ran.
+   */
+  seedRow(sessionId: string, fields: Partial<SessionRow>): boolean {
+    const merged = { ...this.seededFields.get(sessionId), ...fields };
+    this.seededFields.set(sessionId, merged);
+    const row = this.findRow(sessionId);
+    if (row === null) return false;
+    this.patchRow(sessionId, row);
+    return true;
+  }
+
+  /** `row` with any fields {@link seedRow} laid over its session, or `row` itself. */
+  private withSeed(row: SessionRow): SessionRow {
+    const seeded = this.seededFields.get(row.session_id);
+    return seeded === undefined ? row : { ...row, ...seeded };
+  }
+
   private removeRow(sessionId: string): void {
+    this.seededFields.delete(sessionId);
     this.detachedRows.delete(sessionId);
     const located = this.rowLocations.get(sessionId);
     if (located === undefined) return;

@@ -20,7 +20,7 @@
  * @visible
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,16 +30,18 @@ import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, type App } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { pollFor } from "../body-grounding/_frames";
 import { stubDirectory } from "../streaming-stub-fixture";
-import { rectIn } from "../one-view-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor, standIns } from "./_site-clips";
+import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
+import { elementRects } from "./_components";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARD = "sc-tool";
 const IPC_VERSION = 2;
 /** The transcript's pace: the gap between one frame and the next. */
 const PACE_MS = 300;
-/** The burst: the five calls, and the turn ending after them. */
-const BURST_MS = 9_800;
+/** The blocks have all landed by here: the five calls at the transcript's pace, and the turn's end. */
+const LANDED_MS = 9_000;
+/** The loop: the five calls, and the turn ending after them. */
+const LOOP_MS = 9_400;
 const STATUS_BAR = '[data-slot="session-card-status-bar"]';
 const BLOCKS = '[data-slot="bash-tool-block"]';
 const PROJECT_NAME = "tug-site";
@@ -127,32 +129,26 @@ describe.skipIf(!RUNS)("site clip: tool block", () => {
         await bindStub(app, stubDir);
         await Bun.sleep(800);
 
-        const rest = await standIns(app);
-        expect(rest[CARD], "the card stands in its slot").toBeDefined();
-        const view = (await app.bodies()).find((b) => b.cardId === CARD)!.frame;
         const body = app.body(CARD);
-        const bar = await rectIn(body, STATUS_BAR);
-        expect(bar, "the status bar is mounted").not.toBeNull();
-        const card = rest[CARD]!;
-        const crop = cropAround([{ x: card.x, y: card.y, width: card.width, height: view.y + bar!.y + bar!.height - card.y }], 12, await contentSize(app));
+        const crop = await cropFor(app, [CARD], { endAt: { card: CARD, selector: STATUS_BAR } });
 
         const notes: Record<string, unknown> = {};
-        const reading = await burstTo(app, crop, BURST_MS, outDirFor("tool-block"), async () => {
-          await body.driveSession({ op: "send", text: "Build the site, make the caption edit, and check the types." });
-          await pollFor(
-            () => body.evalJS<number>(`document.querySelectorAll(${JSON.stringify(BLOCKS)}).length`).catch(() => 0),
-            (n) => n >= CALLS.length,
-            BURST_MS,
-          );
-          await Bun.sleep(600);
-          // Where the blocks stand, in the crop's points, for the cut the site makes.
-          const rects = await body.evalJS<{ x: number; y: number; width: number; height: number }[]>(
-            `[...document.querySelectorAll(${JSON.stringify(BLOCKS)})].map(function (el) { var r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })`,
-          );
-          notes.blocks = rects.map((r) => ({ x: view.x + r.x - crop.x, y: view.y + r.y - crop.y, width: r.width, height: r.height }));
-        });
+        const s = scene()
+          .at(0, () => body.driveSession({ op: "send", text: "Build the site, make the caption edit, and check the types." }))
+          .mark("loop-start")
+          .at(LANDED_MS, async () => {
+            await pollFor(
+              () => body.evalJS<number>(`document.querySelectorAll(${JSON.stringify(BLOCKS)}).length`).catch(() => 0),
+              (n) => n >= CALLS.length,
+              LOOP_MS - LANDED_MS,
+            );
+            // Where the blocks stand, in the crop's points, for the cut the site makes.
+            notes.blocks = (await elementRects(app, CARD, BLOCKS)).map((r) => ({ x: r.x - crop.x, y: r.y - crop.y, width: r.width, height: r.height }));
+          })
+          .mark("loop-end", LOOP_MS);
+        const reading = await s.record(app, { outDir: outDirFor("tool-block"), crop });
         writeFileSync(join(outDirFor("tool-block"), "notes.json"), JSON.stringify(notes, null, 2));
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        expectRecorded(reading);
       } finally {
         await app.close();
       }

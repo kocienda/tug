@@ -10,14 +10,15 @@
  *
  * The scene: one Session card filling a one-up, bound to a stub transcript
  * of one short turn (`streaming-stub-fixture.ts`), prompted so it streams
- * through the real feed. The burst opens mid-stream and runs past the turn's
- * end, so the clip carries both states and the change between them. The
- * capture is cropped to the card — its masthead through its status row.
+ * through the real feed. The loop opens as the stream begins and runs past
+ * the turn's end, so the clip carries both states and the change between
+ * them. The capture is cropped to the card — its masthead through its
+ * status row.
  *
  * @visible
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,16 +28,15 @@ import type { App } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { pollFor } from "../body-grounding/_frames";
 import { startStreams, streamingTranscript, stubDirectory, type StubCard } from "../streaming-stub-fixture";
-import { rectIn } from "../one-view-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor, standIns } from "./_site-clips";
+import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARD = "sc-busy";
 
 /** One message streams for about four seconds at the fixture's pace. */
 const MESSAGES = 1;
-/** The burst: the stream, its end, and the indicators settling after it. */
-const BURST_MS = 9_500;
+/** The loop: the stream, its end, and the indicators settling after it. */
+const LOOP_MS = 9_000;
 const STATUS_BAR = '[data-slot="session-card-status-bar"]';
 /** The project the masthead names: a plain directory, since the masthead shows its basename. */
 const PROJECT_NAME = "tug-site";
@@ -100,19 +100,13 @@ describe.skipIf(!RUNS)("site clip: busy to done", () => {
         const cards = [await bindStub(app, stubDir)];
         await Bun.sleep(800);
 
-        const rest = await standIns(app);
-        expect(rest[CARD], "the card stands in its slot").toBeDefined();
-        // Masthead through status row: the card's top down to the status
-        // bar's bottom edge, leaving the composer below it out.
-        const view = (await app.bodies()).find((b) => b.cardId === CARD)!.frame;
-        const bar = await rectIn(app.body(CARD), STATUS_BAR);
-        expect(bar, "the status bar is mounted").not.toBeNull();
-        const card = rest[CARD]!;
-        const crop = cropAround([{ x: card.x, y: card.y, width: card.width, height: view.y + bar!.y + bar!.height - card.y }], 12, await contentSize(app));
-
-        await startStreams(app, cards);
-        const reading = await burstTo(app, crop, BURST_MS, outDirFor("busy-done"));
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        // Masthead through status row, leaving the composer below it out.
+        const crop = await cropFor(app, [CARD], { endAt: { card: CARD, selector: STATUS_BAR } });
+        const s = scene()
+          .at(0, () => startStreams(app, cards))
+          .mark("loop-start")
+          .mark("loop-end", LOOP_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("busy-done"), crop }));
       } finally {
         await app.close();
       }

@@ -24,8 +24,7 @@ import { describe, expect, test } from "bun:test";
 import type { App } from "../_harness";
 import { standUpKind } from "../body-grounding/_kind-bodies";
 import { cardKind, kindPane } from "../body-grounding/_kinds";
-import { rectIn } from "../one-view-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor, standIns } from "./_site-clips";
+import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene, standIns } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARDS = ["sc-move-a", "sc-move-b", "sc-move-c"] as const;
@@ -54,10 +53,9 @@ function deck(): Record<string, unknown> {
 
 /** Where to press the front card's grab handle, in window content points, as it stands now. */
 async function grabPoint(app: App): Promise<{ x: number; y: number }> {
-  const handle = await rectIn(app.body(FRONT), ".tug-pane-title-bar .tug-pane-grab-handle");
+  const handle = await app.elementRect(FRONT, ".tug-pane-title-bar .tug-pane-grab-handle");
   expect(handle, "the front card offers its grab handle").not.toBeNull();
-  const view = (await app.bodies()).find((s) => s.cardId === FRONT)!.frame;
-  return { x: view.x + handle!.x + Math.min(20, handle!.width / 2), y: view.y + handle!.y + handle!.height / 2 };
+  return { x: handle!.x + Math.min(20, handle!.width / 2), y: handle!.y + handle!.height / 2 };
 }
 
 /** One drag at the clip's pace, released at `to`. */
@@ -90,16 +88,17 @@ describe.skipIf(!RUNS)("site clip: card move", () => {
         const to = { x: Math.max(a.x, 0) + Math.min(80, a.width / 3), y: from.y + 120 };
         // And back to the tile the card rested in: the zone nearest its old centre.
         const home = { x: c.x + c.width / 2, y: c.y + c.height / 2 };
-        const crop = cropAround(Object.values(rest), 24, await contentSize(app));
+        const crop = await cropFor(app, [...CARDS], { pad: 24 });
 
+        // A drag is the one act here longer than a key: the next entry is
+        // scheduled past its pace, so it never pushes.
         const dragMs = PRESS_MS + DRAG_STEPS * DRAG_STEP_MS;
-        const reading = await burstTo(app, crop, REST_MS + 2 * dragMs + SETTLE_MS + RETURN_SETTLE_MS, outDirFor("card-move"), async () => {
-          await Bun.sleep(REST_MS);
-          await drag(app, from, to);
-          await Bun.sleep(SETTLE_MS);
-          await drag(app, await grabPoint(app), home);
-        });
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        const s = scene()
+          .mark("loop-start", 0)
+          .at(REST_MS, () => drag(app, from, to))
+          .at(REST_MS + dragMs + SETTLE_MS, async () => drag(app, await grabPoint(app), home))
+          .mark("loop-end", REST_MS + 2 * dragMs + SETTLE_MS + RETURN_SETTLE_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("card-move"), crop }));
 
         const after = await standIns(app);
         for (const id of CARDS) {

@@ -617,6 +617,13 @@ export const tugCaretTheme: Extension = EditorView.theme({
       "tug-text-editor-caret-blink 1.2s linear var(--tug-loop-iterations, infinite)",
   },
 
+  // Under clip mode (`lib/clip-mode.ts`) the caret holds steady: a site
+  // clip's two cuts are recorded seconds apart, and a blink's phase is the
+  // one thing in a typing scene that would differ between them.
+  "html[data-tug-clip] &.cm-focused > .cm-scroller > .tug-text-editor-caret-layer": {
+    animation: "none",
+  },
+
   "@keyframes tug-text-editor-caret-blink": {
     "0%, 49.9%": { opacity: 1 },
     "50%, 99.9%": { opacity: 0 },

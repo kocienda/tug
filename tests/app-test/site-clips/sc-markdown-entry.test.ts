@@ -22,14 +22,21 @@ import { describe, expect, test } from "bun:test";
 
 import { kindPane, kindSidebars } from "../body-grounding/_kinds";
 import { stubDirectory } from "../streaming-stub-fixture";
-import { rectIn } from "../one-view-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor } from "./_site-clips";
-import { bashTurnTranscript, bindStub, inWindow, typeSlowly } from "./_components";
+import { RUNS, contentSize, cropAround, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
+import { bashTurnTranscript, bindStub, typeInto } from "./_components";
 
 const TEST_TIMEOUT_MS = 120_000;
 const CARD = "sc-md";
 const OVERVIEW = "sc-md-overview";
-const BURST_MS = 9_600;
+/** The typing's pace: a word every this long. */
+const WORD_MS = 80;
+/** The pause after a Return before the next line's first word. */
+const RETURN_MS = 120;
+/** The pause between the session's last word and the press into the Overview, and from that press to its first word. */
+const CROSS_MS = 900;
+const FOCUS_MS = 300;
+/** The loop holds this long past the last word. */
+const TAIL_MS = 1_000;
 /** The window: the session's flow pane, the right rail, and little canvas between. */
 const CONTENT_SIZE = { width: 1160, height: 900 };
 const SESSION_ENTRY = '[data-slot="tug-prompt-entry"]';
@@ -75,34 +82,27 @@ describe.skipIf(!RUNS)("site clip: markdown entry", () => {
         await Bun.sleep(1_000);
 
         const body = app.body(CARD);
-        const bodies = await app.bodies();
-        const sessionView = bodies.find((b) => b.cardId === CARD)!.frame;
-        const overviewView = bodies.find((b) => b.cardId === OVERVIEW)!.frame;
-        const entry = await rectIn(body, SESSION_ENTRY);
+        const entry = await app.elementRect(CARD, SESSION_ENTRY);
         expect(entry, "the session's entry is mounted").not.toBeNull();
-        const composer = await rectIn(overview, OVERVIEW_FIELD);
+        const composer = await app.elementRect(OVERVIEW, OVERVIEW_FIELD);
         expect(composer, "the Overview's composer is mounted").not.toBeNull();
-        const e = inWindow(sessionView, entry!);
-        const c = inWindow(overviewView, composer!);
-        const crop = cropAround([{ ...e, y: e.y - HEADROOM, height: e.height + HEADROOM }, { ...c, y: c.y - HEADROOM, height: c.height + HEADROOM }], 16, await contentSize(app));
+        const roomAbove = (r: { x: number; y: number; width: number; height: number }) => ({ ...r, y: r.y - HEADROOM, height: r.height + HEADROOM });
+        const crop = cropAround([roomAbove(entry!), roomAbove(composer!)], 16, await contentSize(app));
 
-        const reading = await burstTo(app, crop, BURST_MS, outDirFor("markdown-entry"), async () => {
-          await Bun.sleep(500);
-          await body.nativeClickAtElement(SESSION_FIELD);
-          await Bun.sleep(300);
-          for (let i = 0; i < SESSION_LINES.length; i++) {
-            if (i > 0) {
-              await app.nativeKey("Return");
-              await Bun.sleep(120);
-            }
-            if (SESSION_LINES[i] !== "") await typeSlowly(app, SESSION_LINES[i]!, 80);
+        const s = scene().at(500, () => body.nativeClickAtElement(SESSION_FIELD)).mark("loop-start");
+        let t = 800;
+        for (const [i, line] of SESSION_LINES.entries()) {
+          if (i > 0) {
+            s.at(t, () => app.nativeKey("Return"));
+            t += RETURN_MS;
           }
-          await Bun.sleep(900);
-          await overview.nativeClickAtElement(OVERVIEW_CONTENT);
-          await Bun.sleep(300);
-          await typeSlowly(app, OVERVIEW_LINE, 80);
-        });
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+          if (line !== "") t = typeInto(s, t, app, line, WORD_MS);
+        }
+        t += CROSS_MS;
+        s.at(t, () => overview.nativeClickAtElement(OVERVIEW_CONTENT));
+        t = typeInto(s, t + FOCUS_MS, app, OVERVIEW_LINE, WORD_MS);
+        s.mark("loop-end", t + TAIL_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("markdown-entry"), crop }));
       } finally {
         await app.close();
       }

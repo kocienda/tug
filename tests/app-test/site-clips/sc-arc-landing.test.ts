@@ -14,7 +14,8 @@
  * assistant turn closing the stage, and then — during the burst — the join
  * receipt appended as a settled `/arc-join` exchange (the shape at0419
  * drives), whose summary names this checkout's own `HEAD` so the receipt's
- * file rows are real. The capture is cropped to the transcript column.
+ * file rows are real. The capture is cropped to the transcript column, read
+ * through the deck's rect diag.
  *
  * @visible
  */
@@ -28,8 +29,7 @@ import { join } from "node:path";
 import type { App } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { CODE_OUTPUT_FEED } from "../arc-run-transcript-fixture";
-import { rectIn } from "../one-view-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor } from "./_site-clips";
+import { RUNS, contentSize, cropAround, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARD = "sc-landing";
@@ -157,26 +157,25 @@ describe.skipIf(!RUNS)("site clip: arc landing", () => {
         );
         await Bun.sleep(800);
 
-        const view = (await app.bodies()).find((b) => b.cardId === CARD)?.frame;
-        expect(view, "the card's body is placed").toBeDefined();
-        const scroller = await rectIn(app.body(CARD), SCROLLER);
-        expect(scroller, "the transcript scroller is mounted").not.toBeNull();
-        const column = { x: view!.x + scroller!.x, y: view!.y + scroller!.y, width: scroller!.width, height: scroller!.height };
-        const crop = cropAround([column], 0, await contentSize(app));
+        const column = await app.elementRect(CARD, SCROLLER);
+        expect(column, "the transcript scroller is mounted").not.toBeNull();
+        const crop = cropAround([column!], 0, await contentSize(app));
 
-        const reading = await burstTo(app, crop, REST_MS + HOLD_MS, outDirFor("arc-landing"), async () => {
-          await Bun.sleep(REST_MS);
-          await app.driveSession(CARD, {
-            op: "shellExchange",
-            exchangeId: "join-1",
-            command: "/arc-join",
-            output: summary,
-            cwd: SHOWN_CWD,
-            exitCode: 0,
-            startedAtMs: Date.now(),
-          });
-        });
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        const s = scene()
+          .mark("loop-start", 0)
+          .at(REST_MS, () =>
+            app.driveSession(CARD, {
+              op: "shellExchange",
+              exchangeId: "join-1",
+              command: "/arc-join",
+              output: summary,
+              cwd: SHOWN_CWD,
+              exitCode: 0,
+              startedAtMs: Date.now(),
+            }),
+          )
+          .mark("loop-end", REST_MS + HOLD_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("arc-landing"), crop }));
         expect(
           await app.body(CARD).evalJS<boolean>(`document.querySelector(${JSON.stringify(JOIN_BOUNDARY)}) !== null`),
           "the join landed as a boundary",

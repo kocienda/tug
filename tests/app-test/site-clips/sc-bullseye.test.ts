@@ -8,27 +8,27 @@
  * both site variables are set.
  *
  * The scene: four Session cards in one pane, each bound to a stub transcript
- * that has already run out, the second card focused. The burst spans a rest,
- * the press into bullseye, a hold, the press out and the settle, so the clip
+ * that has already run out, the second card focused. The scene is a rest,
+ * the press into bullseye, a hold, the press out and the return, so the clip
  * loops from the deck at rest back to the deck at rest. The whole content
  * area is recorded; the site crops at encode time.
  *
  * @visible
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "bun:test";
 
 import { cardAtRest, sessionPaneDeck, spawnWithTranscript } from "../one-view-fixture";
 import { stubDirectory } from "../streaming-stub-fixture";
-import { RUNS, burstTo, launchForMode, outDirFor } from "./_site-clips";
+import { RUNS, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARDS = ["sc-bull-a", "sc-bull-b", "sc-bull-c", "sc-bull-d"];
 
-/** Rest before the press, the hold in bullseye, and the settle after the release. */
+/** Rest before the press, the hold in bullseye, and the return after the release. */
 const REST_MS = 700;
 const HOLD_MS = 1_600;
-const SETTLE_MS = 1_300;
+const RETURN_MS = 1_300;
 
 describe.skipIf(!RUNS)("site clip: bullseye", () => {
   test(
@@ -42,13 +42,12 @@ describe.skipIf(!RUNS)("site clip: bullseye", () => {
         await cardAtRest(app, CARDS[1]);
         await Bun.sleep(800);
 
-        const reading = await burstTo(app, undefined, REST_MS + HOLD_MS + SETTLE_MS, outDirFor("bullseye"), async () => {
-          await Bun.sleep(REST_MS);
-          await app.performMenuItem("view.bullseye");
-          await Bun.sleep(HOLD_MS);
-          await app.performMenuItem("view.bullseye");
-        });
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        const s = scene()
+          .mark("loop-start", 0)
+          .at(REST_MS, () => app.performMenuItem("view.bullseye"))
+          .at(REST_MS + HOLD_MS, () => app.performMenuItem("view.bullseye"))
+          .mark("loop-end", REST_MS + HOLD_MS + RETURN_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("bullseye") }));
       } finally {
         await app.close();
       }

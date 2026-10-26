@@ -17,6 +17,7 @@ import type { PageBus } from "../bus/page-bus";
 import {
   cardCloseDecision,
   cardContentAction,
+  cardElementRect,
   cardFlash,
   cardRefuseHold,
   cardsShrink,
@@ -170,6 +171,19 @@ export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
       return { answer: guard === null ? ("close" as const) : await guard.run() };
     }),
     sessionAsk.on(bus).handle((ask, _from, signal) => showAsk(cardId, ask, signal)),
+    // Where an element of this card stands in this page: the shell adds the
+    // card's view origin and answers a recording's crop from one place.
+    cardElementRect.on(bus).handle(({ selector }) => {
+      let el: Element | null = null;
+      try {
+        el = document.querySelector(selector);
+      } catch {
+        el = null;
+      }
+      if (el === null) return { rect: null };
+      const r = el.getBoundingClientRect();
+      return { rect: { x: r.x, y: r.y, width: r.width, height: r.height } };
+    }),
   ];
   // The shell's Escape met a layout selection: the Cards table runs here,
   // where the filter is (`cards-escape.ts`).

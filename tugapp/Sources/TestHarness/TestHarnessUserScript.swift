@@ -34,6 +34,11 @@ enum TestHarnessUserScript {
     /// then honors the tugbank-sourced boot arguments (layout, card
     /// bags, focused card) instead of starting empty — the true
     /// cold-boot restore channel for quit-and-relaunch tests.
+    ///
+    /// When `TUGAPP_CLIP_MODE=1` is set, also injects `__tugClipMode =
+    /// true`: the deck pins `--tug-timing` to 1 and stills the composer's
+    /// caret blink (`lib/clip-mode.ts`), so a site clip recorded twice —
+    /// once per theme mode — has the same frames in both cuts.
     static func install(into config: WKWebViewConfiguration) {
         var source = "window.__tugTestMode = true;"
         if ProcessInfo.processInfo.environment["TUGAPP_PERSIST_IN_TEST_MODE"] == "1" {
@@ -41,6 +46,9 @@ enum TestHarnessUserScript {
         }
         if ProcessInfo.processInfo.environment["TUGAPP_RESTORE_IN_TEST_MODE"] == "1" {
             source += "\nwindow.__tugRestoreInTestMode = true;"
+        }
+        if ProcessInfo.processInfo.environment["TUGAPP_CLIP_MODE"] == "1" {
+            source += "\nwindow.__tugClipMode = true;"
         }
         let script = WKUserScript(
             source: source,

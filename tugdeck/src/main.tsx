@@ -38,6 +38,8 @@ import { installPage, page } from "./bus/page";
 import { createPageBus, installPageBus, pageBus } from "./bus/page-bus";
 import { connectionTransport } from "./bus/transport";
 import { cardPlacementDiag } from "./lib/card-placement";
+import { installClipMode } from "./lib/clip-mode";
+import { cardElementRect } from "./bus/declarations/verbs";
 import {
   reassertOnReconnect,
   restorePassCards,
@@ -151,6 +153,7 @@ declare global {
         getCardState(cardId: string): unknown;
         captureCardState(cardId: string): unknown;
         registeredComponentKeys(cardId: string): string[];
+        elementRect(cardId: string, selector: string): Promise<{ x: number; y: number; width: number; height: number } | null>;
       };
       /**
        * Measurement surface — the two write-capable moves a profiling
@@ -510,6 +513,8 @@ async function loadTestSurface(
   // DeckManager construction. The cleanup function is intentionally not stored
   // here — the observer should live for the entire app lifetime.
   initMotionObserver();
+  // A site clip's launch pins the page for the recording; a no-op otherwise.
+  installClipMode();
 
   // The motion guard, in EVERY build: the registry loop owners hold, the
   // render-cost probe those holds arm, the input-latency observer, and the
@@ -1062,6 +1067,23 @@ async function loadTestSurface(
       registeredComponentKeys: (cardId: string) => {
         const reg = deck.peekComponentStatePreservationRegistry(cardId);
         return reg ? Array.from(reg.keys()) : [];
+      },
+      /**
+       * Where an element of `cardId`'s body stands in the window's content,
+       * points with a top-left origin: the card's view as the placer last
+       * posted it to the host, plus the element's rect as the body page
+       * answers it (`card.elementRect`). Null when the card has no posted
+       * view or the selector matches nothing. One source for a recording's
+       * crop, in place of the stand-in, the host's body frame and an eval in
+       * the body composed by hand. Read-only.
+       */
+      elementRect: async (cardId: string, selector: string) => {
+        const body = cardPlacementDiag()?.lastPosted?.bodies.find((b) => b.cardId === cardId) ?? null;
+        if (body === null) return null;
+        const result = await cardElementRect.ask({ selector }, { card: cardId, horizon: { ms: 2_000 } });
+        if (!result.ok || result.value.rect === null) return null;
+        const r = result.value.rect;
+        return { x: body.x + r.x, y: body.y + r.y, width: r.width, height: r.height };
       },
     },
 

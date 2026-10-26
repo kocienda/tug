@@ -23,6 +23,7 @@ import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, type App, type BodyApp } from "../_h
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { pollFor } from "../body-grounding/_frames";
 import type { Rect } from "../one-view-fixture";
+import type { Scene } from "./_site-clips";
 
 /** The attribute a driver stamps on the element it is about to press. */
 export const TARGET = "data-sc-target";
@@ -53,18 +54,35 @@ export async function press(body: BodyApp, selector: string, pick: { index: numb
   await body.nativeClickAtElement(TARGET_SEL);
 }
 
-/** A body rect carried into the window's content points. */
-export function inWindow(view: Rect, r: Rect): Rect {
-  return { x: view.x + r.x, y: view.y + r.y, width: r.width, height: r.height };
+/**
+ * Schedule `text` typed into the focused field as a person would, a word
+ * at a time `wordMs` apart, from `at` ms on `scene`; answers the ms after
+ * the last word, for what the scene does next. ASCII only.
+ */
+export function typeInto(scene: Scene, at: number, app: App, text: string, wordMs = 90): number {
+  const words = text.split(" ");
+  words.forEach((word, i) => {
+    scene.at(at + i * wordMs, () => app.nativeType(i === 0 ? word : ` ${word}`));
+  });
+  return at + words.length * wordMs;
 }
 
-/** Type `text` as a person would: a word at a time, `wordMs` apart. ASCII only. */
-export async function typeSlowly(app: App, text: string, wordMs = 90): Promise<void> {
-  const words = text.split(" ");
-  for (let i = 0; i < words.length; i++) {
-    await app.nativeType(i === 0 ? words[i]! : ` ${words[i]!}`);
-    await Bun.sleep(wordMs);
+/**
+ * Every element `selector` matches in `cardId`'s body, in window content
+ * points and document order, each read through the deck's `elementRect`
+ * diag — the one source a crop reads — by stamping it with its index first.
+ */
+export async function elementRects(app: App, cardId: string, selector: string): Promise<Rect[]> {
+  const count = await app.body(cardId).evalJS<number>(
+    `(function(){ var all = document.querySelectorAll(${JSON.stringify(selector)}); all.forEach(function (el, i) { el.setAttribute("data-sc-rect", String(i)); }); return all.length; })()`,
+  );
+  const out: Rect[] = [];
+  for (let i = 0; i < count; i++) {
+    const r = await app.elementRect(cardId, `[data-sc-rect="${i}"]`);
+    if (r === null) throw new Error(`site clips: element ${i} of ${selector} in ${cardId} has no rect`);
+    out.push(r);
   }
+  return out;
 }
 
 // ---- The shared Bash turn -------------------------------------------------

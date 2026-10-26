@@ -17,30 +17,42 @@
  * gate: with either unset the file skips, so a path named by mistake never
  * launches the app. `TUGAPP_APP_TEST=1` is the runner's own export and is
  * never set by hand. The budget is raised because a driver boots the app and
- * runs a burst of up to ten seconds, which the default 20 s budget would stop.
+ * runs a burst of up to thirty seconds, which the default 20 s budget would
+ * stop.
  *
  * A launch seeds its theme the way `at0663-workspace-theme-switch.test.ts`
  * does — a temp tugbank holding a one-workspace layout blob whose `theme` is
  * Ironclad for `dark` and Sloop for `light` — so the first frame is already in
  * the mode being recorded. The frames come from `captureBurst`, the host's
  * composited window capture, at the window's backing scale (2× on Retina:
- * a crop of `w` content points is `2w` pixels). The harness reclaims burst
- * PNGs with the test's screenshots at teardown, so every frame is copied out
- * to `$TUG_SITE_CLIPS_OUT/<clip>/<mode>/frame-NNNN.png` before the driver
- * returns, with a `reading.json` beside them saying how to place the pixels.
- * The site's `tools/make-clip` encodes the run from there.
+ * a crop of `w` content points is `2w` pixels). The burst is armed with the
+ * run's directory as its `outDir`, so the host writes every frame straight to
+ * `$TUG_SITE_CLIPS_OUT/<clip>/<mode>/frame-NNNN.png` with a `reading.json`
+ * beside them saying how to place the pixels and where the marks fell. The
+ * site's `tools/make-clip` encodes the run from there.
+ *
+ * A scene is a timeline (`scene()`): acts at times from the burst's arming
+ * and marks naming a frame, `loop-start` and `loop-end` among them, so the
+ * clip's trim is the scene author's and the two modes share it. Its crop is
+ * declared (`cropFor`): the cards it is about, the slot it ends at, and the
+ * padding — the arithmetic from the stand-in, the body's view and the
+ * element's rect is done once, through the deck's `elementRect` diag.
  */
 
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { expect } from "bun:test";
+import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { launchTugApp, type App } from "../_harness";
-import type { CaptureBurstReading } from "../_harness/client";
+import { CAPTURE_BURST_CAP_MS, type CaptureBurstReading } from "../_harness/client";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { pollFor } from "../body-grounding/_frames";
 import type { Rect } from "../one-view-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV } from "../streaming-stub-fixture";
+import { cropRect, runTimeline, timelineSpan, type TimelineEntry } from "./_scene";
+
+export { cropAround } from "./_scene";
 
 export type ClipMode = "dark" | "light";
 
@@ -62,7 +74,9 @@ export const THEME_FOR_MODE: Record<ClipMode, string> = { dark: "ironclad", ligh
 /** The capture interval every clip is recorded at: ~30 frames a second. */
 export const CAPTURE_INTERVAL_MS = 33;
 /** The host caps a burst here. */
-export const BURST_CAP_MS = 10_000;
+export const BURST_CAP_MS = CAPTURE_BURST_CAP_MS;
+/** How long a burst runs past a scene's last entry, so what it set in motion lands in frame. */
+export const SETTLE_MS = 1_000;
 
 const SPACE_ID = "5c11a000-0000-4000-8000-000000000001";
 
@@ -132,6 +146,9 @@ export async function launchForMode(
     },
     persistInTestMode: true,
     restoreInTestMode: true,
+    // Every clip records under clip mode: `--tug-timing` pinned to 1 and the
+    // caret held steady, so the two cuts of a scene have the same frames.
+    clipMode: true,
     skipAccessibilityPreflight: true,
   });
   if (extra.contentSize !== undefined) await app.setWindowContentSize(extra.contentSize);
@@ -142,11 +159,8 @@ export async function launchForMode(
   return app;
 }
 
-/** What `reading.json` records beside a run's frames. */
+/** A run's reading: what the host answered when the burst was done, with `frames` as a count. */
 export interface FramesReading {
-  clip: string;
-  mode: ClipMode;
-  theme: string;
   scale: number;
   crop: Rect | null;
   contentWidth: number;
@@ -154,17 +168,15 @@ export interface FramesReading {
   intervalMs: number;
   durationMs: number;
   frames: number;
+  /** Each mark's name and the index of the frame it stamped. */
+  marks: Record<string, number>;
+  /** Where the host wrote the frames and its `reading.json`. */
+  outDir: string;
 }
 
-const pad = (n: number): string => String(n).padStart(4, "0");
-
-function writeFrames(reading: CaptureBurstReading, outDir: string): FramesReading {
-  if (MODE === undefined) throw new Error("site clips: TUG_SITE_CLIPS_MODE must be dark or light");
-  reading.frames.forEach((frame, i) => copyFileSync(frame.path, join(outDir, `frame-${pad(i)}.png`)));
-  const facts: FramesReading = {
-    clip: outDir.split("/").slice(-2, -1)[0] ?? "",
-    mode: MODE,
-    theme: THEME_FOR_MODE[MODE],
+/** The host's reading of a finished burst, with `frames` counted. The host wrote `reading.json` itself. */
+function summarize(reading: CaptureBurstReading, outDir: string): FramesReading {
+  return {
     scale: reading.scale,
     crop: reading.crop ?? null,
     contentWidth: reading.contentWidth,
@@ -172,26 +184,20 @@ function writeFrames(reading: CaptureBurstReading, outDir: string): FramesReadin
     intervalMs: reading.intervalMs,
     durationMs: reading.durationMs,
     frames: reading.frames.length,
+    marks: reading.marks,
+    outDir,
   };
-  writeFileSync(join(outDir, "reading.json"), JSON.stringify(facts, null, 2));
-  return facts;
 }
 
 /**
- * Record `durationMs` of the window — the whole content area, or `crop` in
- * content points — into `outDir`, performing `act` once the burst is armed.
- * Resolves when every frame is written and copied out.
+ * Arm a burst of `durationMs` into `outDir` — the whole content area, or
+ * `crop` in content points — and wait for the host to finish writing it.
+ * `run` performs the scene once the burst is armed.
  */
-export async function burstTo(
-  app: App,
-  crop: Rect | undefined,
-  durationMs: number,
-  outDir: string,
-  act: () => Promise<void> = async () => {},
-): Promise<FramesReading> {
+async function burst(app: App, crop: Rect | undefined, durationMs: number, outDir: string, run: () => Promise<void>): Promise<FramesReading> {
   if (durationMs > BURST_CAP_MS) throw new Error(`site clips: a burst is at most ${BURST_CAP_MS} ms, not ${durationMs}`);
-  await app.captureBurst({ op: "arm", durationMs, intervalMs: CAPTURE_INTERVAL_MS, ...(crop ? { crop } : {}) });
-  await act();
+  await app.captureBurst({ op: "arm", durationMs, intervalMs: CAPTURE_INTERVAL_MS, outDir, ...(crop ? { crop } : {}) });
+  await run();
   // The host writes its PNGs after the capture ends, and a whole-window
   // burst at a wide window is hundreds of multi-megabyte files, so the
   // grace after the burst is generous rather than tight.
@@ -200,7 +206,74 @@ export async function burstTo(
     (r) => r.done,
     durationMs + 90_000,
   );
-  return writeFrames(reading, outDir);
+  return summarize(reading, outDir);
+}
+
+/** What a scene records with: where the frames go, the crop (or the whole window), and the settle past its last entry. */
+export interface RecordOptions {
+  outDir: string;
+  crop?: Rect;
+  settleMs?: number;
+}
+
+/**
+ * A scene: acts and marks on a timeline from the burst's arming. `at(ms,
+ * act)` performs `act` at `ms`; `mark(name)` names the next frame captured
+ * at the time of the latest entry (or at `ms`, when given), so
+ * `.at(1_000, act).mark("loop-start")` stamps the frame the act lands on.
+ * `record` arms the burst for the span plus settle and runs the timeline.
+ */
+export class Scene {
+  private readonly entries: TimelineEntry[] = [];
+  private cursor = 0;
+
+  at(ms: number, act: () => Promise<unknown>): this {
+    if (!(ms >= 0)) throw new Error(`site clips: a scene's entry is at a time from the start, not ${ms}`);
+    this.entries.push({ at: ms, kind: "act", act });
+    this.cursor = Math.max(this.cursor, ms);
+    return this;
+  }
+
+  mark(name: string, ms: number = this.cursor): this {
+    if (!(ms >= 0)) throw new Error(`site clips: a scene's mark is at a time from the start, not ${ms}`);
+    if (this.entries.some((e) => e.kind === "mark" && e.name === name)) throw new Error(`site clips: the mark ${name} is already on the scene`);
+    this.entries.push({ at: ms, kind: "mark", name });
+    this.cursor = Math.max(this.cursor, ms);
+    return this;
+  }
+
+  /** The time of the scene's last entry. */
+  get span(): number {
+    return timelineSpan(this.entries);
+  }
+
+  /**
+   * Record the scene: arm the burst for the span plus `settleMs` (default
+   * {@link SETTLE_MS}) into `outDir`, run the entries on schedule, placing
+   * each mark through the host, and answer the reading with its marks once
+   * the host has written every frame and its `reading.json`.
+   */
+  async record(app: App, opts: RecordOptions): Promise<FramesReading> {
+    const durationMs = this.span + (opts.settleMs ?? SETTLE_MS);
+    const clock = { now: () => Date.now(), sleep: (ms: number) => Bun.sleep(ms) };
+    return burst(app, opts.crop, durationMs, opts.outDir, () =>
+      runTimeline(this.entries, clock, async (name) => {
+        await app.captureBurst({ op: "mark", name });
+      }),
+    );
+  }
+}
+
+/** A new, empty scene. */
+export function scene(): Scene {
+  return new Scene();
+}
+
+/** The assertion every driver makes on its recording: frames landed, and `loop-start` and `loop-end` fell in order. */
+export function expectRecorded(reading: FramesReading): void {
+  expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+  expect(reading.marks["loop-start"], "the loop-start mark landed").toBeDefined();
+  expect(reading.marks["loop-end"], "the loop-end mark landed").toBeGreaterThan(reading.marks["loop-start"]!);
 }
 
 /** One still of the window (or `crop`) as it stands, written to `outPath`. */
@@ -232,13 +305,40 @@ export function standIns(app: App): Promise<Record<string, Rect>> {
   })()`);
 }
 
-/** A crop in content points around `rects`, padded by `pad`, kept inside the content area. */
-export function cropAround(rects: Rect[], pad: number, content: { width: number; height: number }): Rect {
-  const x0 = Math.max(0, Math.floor(Math.min(...rects.map((r) => r.x)) - pad));
-  const y0 = Math.max(0, Math.floor(Math.min(...rects.map((r) => r.y)) - pad));
-  const x1 = Math.min(content.width, Math.ceil(Math.max(...rects.map((r) => r.x + r.width)) + pad));
-  const y1 = Math.min(content.height, Math.ceil(Math.max(...rects.map((r) => r.y + r.height)) + pad));
-  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+/** What a scene's crop is declared with: the slot it ends at, and the padding around it. */
+export interface CropOptions {
+  /** The element whose top edge the crop starts at, `above` points higher — a card's first block, so the prompt above it is left out. */
+  startAt?: { card: string; selector: string; above?: number };
+  /** The element whose bottom edge the crop stops at — a card's status bar, so its composer is left out. */
+  endAt?: { card: string; selector: string };
+  /** Content points around the cards; 12 unless given. */
+  pad?: number;
+}
+
+/**
+ * The crop, in content points, of a scene about `cards`: their pane rects
+ * as the deck lays them out now, cut at `startAt`'s top edge and `endAt`'s
+ * bottom edge when given, padded and kept inside the window. The bounds'
+ * rects come from the deck's `elementRect` diag — the card's view plus the
+ * element's rect in its body — so no driver composes that sum itself.
+ */
+export async function cropFor(app: App, cards: string[], opts: CropOptions = {}): Promise<Rect> {
+  const rest = await standIns(app);
+  const rects = cards.map((id) => {
+    const r = rest[id];
+    if (r === undefined) throw new Error(`site clips: the card ${id} has no stand-in; the deck holds ${Object.keys(rest).join(", ") || "none"}`);
+    return r;
+  });
+  const edge = async (at: { card: string; selector: string } | undefined): Promise<Rect | null> => {
+    if (at === undefined) return null;
+    const r = await app.elementRect(at.card, at.selector);
+    if (r === null) throw new Error(`site clips: ${at.selector} is not mounted in ${at.card}`);
+    return r;
+  };
+  const startEl = await edge(opts.startAt);
+  const start = startEl === null ? null : { ...startEl, y: startEl.y - (opts.startAt?.above ?? 0) };
+  const end = await edge(opts.endAt);
+  return cropRect(rects, { start, end }, opts.pad ?? 12, await contentSize(app));
 }
 
 /** The window's content size in points, read off the shell. */

@@ -335,6 +335,72 @@ export function getCaretState(
   return caller.evalJS<CaretState | null>(script, evalOpts);
 }
 
+/** The ledger-row facts a test seeds over a stub session's row (tugdeck `SessionRow`, the fields a masthead reads). */
+export interface SeededSessionFields {
+  turn_count: number;
+  last_used_at: number;
+  last_user_prompt: string | null;
+  name: string | null;
+  tag: string;
+}
+
+/**
+ * Lay `fields` over `sessionId`'s row in the page's ledger store, now and on
+ * every later `session_updated` push for it (tugdeck SURFACE_VERSION 2.55.0).
+ * Call it in the page that draws the card — a body page holds its own store.
+ * Resolves `false` when the page has no ledger store attached.
+ */
+export function seedSessionRow(
+  caller: HarnessCaller,
+  sessionId: string,
+  fields: Partial<SeededSessionFields>,
+  evalOpts?: EvalJsOptions,
+): Promise<boolean> {
+  const script = callSurface(
+    `window.__tug.seedSessionRow(${lit(sessionId)}, ${lit(JSON.stringify(fields))})`,
+  );
+  return caller.evalJS<boolean>(script, evalOpts);
+}
+
+/** An element's rect in window content points, top-left origin. */
+export interface ElementRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The shell's `tugdeck.diag.elementRect(cardId, selector)`: the element's
+ * rect in window content points, or null. The call answers a promise — it
+ * asks the body over the page bus — and `evaluateJavaScript` does not await
+ * one, so the promise is settled into a slot on the shell's window and the
+ * slot is polled; each call takes a fresh slot, so two in flight cannot
+ * read each other's answer.
+ */
+export async function elementRect(
+  caller: HarnessCaller,
+  cardId: string,
+  selector: string,
+  timeoutMs = 5_000,
+): Promise<ElementRect | null> {
+  const slot = `__tugElementRect_${Math.random().toString(36).slice(2)}`;
+  await caller.evalJS<boolean>(
+    `(function () {
+      window[${lit(slot)}] = undefined;
+      window.tugdeck.diag.elementRect(${lit(cardId)}, ${lit(selector)})
+        .then(function (r) { window[${lit(slot)}] = { rect: r }; }, function () { window[${lit(slot)}] = { rect: null }; });
+      return true;
+    })()`,
+  );
+  const settled = await caller.waitForCondition<{ rect: ElementRect | null } | null>(
+    `window[${lit(slot)}] === undefined ? null : window[${lit(slot)}]`,
+    { timeoutMs },
+  );
+  await caller.evalJS<boolean>(`(delete window[${lit(slot)}], true)`);
+  return settled?.rect ?? null;
+}
+
 /**
  * Read the value of a persisted form control by its
  * `data-tug-state-key` key.
@@ -1468,10 +1534,12 @@ export function accessibilityOrder(caller: HarnessCaller): Promise<string[]> {
   return caller.rpcCall("accessibilityOrder", {});
 }
 
-// ---- composite capture burst (surface `1.16.0`) ----
+// ---- composite capture burst (surface `1.16.0`; `mark`, `outDir` and the 30 s cap `2.1.0`) ----
 
 /** One frame of a {@link CaptureBurstReading}. */
 export interface CaptureBurstFrame {
+  /** The frame's capture index: what `marks` point at, and the NNNN of its file under an `outDir`. */
+  index: number;
   /** Ms from arming, host clock. */
   t: number;
   /** Wall-clock ms at capture, comparable with the shell's `Date.now()`. */
@@ -1482,11 +1550,12 @@ export interface CaptureBurstFrame {
 
 /**
  * What `captureBurst {op: "read"}` answers: the frames landed so far, `done`
- * once the burst has ended and every PNG is written, and what a reader needs
- * to place a frame's pixels — the backing scale, the window's content size in
- * points, the crop the frames were cut to (content points, when armed with
- * one) and the window's own background colour as `#rrggbb`, which is what an
- * open hole with nothing beneath it shows.
+ * once the burst has ended and every PNG is written (and, under an `outDir`,
+ * the `reading.json` beside them), the marks stamped so far, and what a
+ * reader needs to place a frame's pixels — the backing scale, the window's
+ * content size in points, the crop the frames were cut to (content points,
+ * when armed with one) and the window's own background colour as `#rrggbb`,
+ * which is what an open hole with nothing beneath it shows.
  */
 export interface CaptureBurstReading {
   done: boolean;
@@ -1498,22 +1567,37 @@ export interface CaptureBurstReading {
   windowBackground: string;
   intervalMs: number;
   durationMs: number;
+  /** Each mark's name and the capture index it stamped. */
+  marks: Record<string, number>;
+  /** Where the frames and `reading.json` went; absent for the host's temporary location. */
+  outDir?: string;
 }
+
+/** The most a burst may run for; the host clamps `durationMs` to it. */
+export const CAPTURE_BURST_CAP_MS = 30_000;
 
 /**
  * Arm a burst of composited window captures — every `intervalMs` (default
  * 16) for `durationMs`, each cropped to `crop` in content points when given
- * — or read what it has recorded. A frame-by-frame reading of a reveal or a
- * departure, where `captureWindow` sees the one frame the test's timing
- * lands on. The burst runs in the UI process off the main thread; a busy page
- * cannot stall it.
+ * and written under `outDir` as `frame-NNNN.png` with a `reading.json` when
+ * given — stamp the next frame's index under a mark, or read what it has
+ * recorded. A frame-by-frame reading of a reveal or a departure, where
+ * `captureWindow` sees the one frame the test's timing lands on. The burst
+ * runs in the UI process off the main thread; a busy page cannot stall it.
  */
 export function captureBurst(
   caller: HarnessCaller,
   params:
-    | { op: "arm"; durationMs: number; intervalMs?: number; crop?: { x: number; y: number; width: number; height: number } }
+    | {
+        op: "arm";
+        durationMs: number;
+        intervalMs?: number;
+        crop?: { x: number; y: number; width: number; height: number };
+        outDir?: string;
+      }
+    | { op: "mark"; name: string }
     | { op: "read" },
-): Promise<CaptureBurstReading | { armed: true; durationMs: number; intervalMs: number }> {
+): Promise<CaptureBurstReading | { armed: true; durationMs: number; intervalMs: number } | { marked: string; index: number }> {
   return caller.rpcCall("captureBurst", params);
 }
 

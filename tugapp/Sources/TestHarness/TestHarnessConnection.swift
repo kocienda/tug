@@ -190,7 +190,13 @@ final class TestHarnessConnection {
     /// harness's word, a fault the product cannot have; a row now fails a
     /// body by holding a real page to a shortened ready deadline, through
     /// the shell's `__tug.bodyDelays`. A removal is breaking, hence the major.
-    static let surfaceVersion = "2.0.0"
+    ///
+    /// `2.1.0`: `captureBurst` adds `{op: "mark", name}` — the index of the
+    /// next frame captured, stamped under a name and answered by `read` as
+    /// `marks` — an `outDir` on `arm`, under which the host writes the frames
+    /// and a `reading.json` into that directory, and a 30 s cap. Additive;
+    /// major stays `2`.
+    static let surfaceVersion = "2.1.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -818,15 +824,19 @@ final class TestHarnessConnection {
         }
     }
 
-    /// `{op: "arm", durationMs, intervalMs?, crop?}` starts a burst of
+    /// `{op: "arm", durationMs, intervalMs?, crop?, outDir?}` starts a burst of
     /// composited captures of the harness window — every `intervalMs`
-    /// (default 16, floor 8) for `durationMs` (cap 10 000), each cropped to
+    /// (default 16, floor 8) for `durationMs` (cap 30 000), each cropped to
     /// `crop` (content points, top-left origin) when given and written as a
-    /// PNG — and answers at once. `{op: "read"}` answers the frames so far
+    /// PNG — and answers at once. With `outDir` the frames are written there
+    /// as `frame-NNNN.png` with a `reading.json` beside them once the burst
+    /// is done. `{op: "mark", name}` stamps the index of the next frame
+    /// captured under `name`. `{op: "read"}` answers the frames so far
     /// with `done` once the burst has ended and every PNG is on disk, plus
-    /// the window's scale, content size and background colour, so a reader
-    /// can place and classify what each frame shows. Re-arming replaces a
-    /// running burst's record; the files are the test's to reclaim.
+    /// the marks and the window's scale, content size and background colour,
+    /// so a reader can place and classify what each frame shows. Re-arming
+    /// replaces a running burst's record; files in the temporary location are
+    /// the test's to reclaim, and files under an `outDir` are its to keep.
     private func dispatchCaptureBurst(id: Int, verbObj: [String: Any]) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -844,10 +854,22 @@ final class TestHarnessConnection {
                    let w = (c["width"] as? NSNumber)?.doubleValue, let h = (c["height"] as? NSNumber)?.doubleValue {
                     crop = CGRect(x: x, y: y, width: w, height: h)
                 }
-                let burst = CaptureBurst(window: window, crop: crop, durationMs: durationMs, intervalMs: intervalMs)
+                let outDir = verbObj["outDir"] as? String
+                let burst = CaptureBurst(window: window, crop: crop, durationMs: durationMs, intervalMs: intervalMs, outDir: outDir)
                 self.captureBurst = burst
                 burst.start()
                 self.respond(id: id, ok: true, payload: ["value": ["armed": true, "durationMs": durationMs, "intervalMs": intervalMs]])
+            case "mark":
+                guard let burst = self.captureBurst else {
+                    self.respondError(id: id, name: "ProtocolError", message: "captureBurst: nothing armed")
+                    return
+                }
+                guard let name = verbObj["name"] as? String, !name.isEmpty else {
+                    self.respondError(id: id, name: "ProtocolError", message: "captureBurst: mark needs a name")
+                    return
+                }
+                let index = burst.mark(name)
+                self.respond(id: id, ok: true, payload: ["value": ["marked": name, "index": index]])
             case "read":
                 guard let burst = self.captureBurst else {
                     self.respondError(id: id, name: "ProtocolError", message: "captureBurst: nothing armed")
@@ -855,7 +877,7 @@ final class TestHarnessConnection {
                 }
                 self.respond(id: id, ok: true, payload: ["value": burst.read().harnessJSON])
             default:
-                self.respondError(id: id, name: "ProtocolError", message: "captureBurst: op must be 'arm' or 'read'")
+                self.respondError(id: id, name: "ProtocolError", message: "captureBurst: op must be 'arm', 'mark' or 'read'")
             }
         }
     }

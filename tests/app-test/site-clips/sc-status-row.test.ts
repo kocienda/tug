@@ -38,8 +38,7 @@ import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, type App } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { pollFor } from "../body-grounding/_frames";
 import { stubDirectory } from "../streaming-stub-fixture";
-import { rectIn } from "../one-view-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor } from "./_site-clips";
+import { RUNS, contentSize, cropAround, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARD = "sc-status";
@@ -48,8 +47,8 @@ const IPC_VERSION = 2;
 const PACE_MS = 35;
 /** Heartbeats a tool call stays open before its result: about half a second. */
 const HOLD_BEATS = 14;
-/** The burst: the turn from its first frame past its end. */
-const BURST_MS = 9_800;
+/** The loop: the turn from its first streaming frame past its end. */
+const LOOP_MS = 9_000;
 const STATUS_BAR = '[data-slot="session-card-status-bar"]';
 const PROMPT_PHASE = `(function(){ var e = document.querySelector('[data-slot="tug-prompt-entry"]'); return e === null ? null : e.getAttribute("data-phase"); })()`;
 const PROJECT_NAME = "tug-site";
@@ -221,16 +220,18 @@ describe.skipIf(!RUNS)("site clip: status row", () => {
         await pollFor(phase, (p) => p !== null && p !== "streaming", STREAMING_MS);
         await Bun.sleep(1_500);
 
-        const view = (await app.bodies()).find((b) => b.cardId === CARD)!.frame;
-        const bar = await rectIn(body, STATUS_BAR);
+        const bar = await app.elementRect(CARD, STATUS_BAR);
         expect(bar, "the status bar is mounted").not.toBeNull();
-        const crop = cropAround([{ x: view.x + bar!.x, y: view.y + bar!.y, width: bar!.width, height: bar!.height }], 4, await contentSize(app));
+        const crop = cropAround([bar!], 4, await contentSize(app));
 
-        const reading = await burstTo(app, crop, BURST_MS, outDirFor("status-row"), async () => {
-          await body.driveSession({ op: "send", text: "Fix the stopped-job count and run the suite." });
-          await pollFor(phase, (p) => p === "streaming", STREAMING_MS);
-        });
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        const s = scene()
+          .at(0, async () => {
+            await body.driveSession({ op: "send", text: "Fix the stopped-job count and run the suite." });
+            await pollFor(phase, (p) => p === "streaming", STREAMING_MS);
+          })
+          .mark("loop-start")
+          .mark("loop-end", LOOP_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("status-row"), crop }));
       } finally {
         await app.close();
       }

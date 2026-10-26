@@ -32,19 +32,19 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { note, type App } from "../_harness";
 import { ClaudeHome } from "../_harness/claude-home";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { CODE_OUTPUT_FEED } from "../arc-run-transcript-fixture";
-import { MODE, RUNS, contentSize, cropAround, launchForMode, outDirFor, standIns, stillTo } from "./_site-clips";
+import { MODE, RUNS, cropFor, launchForMode, outDirFor, stillTo } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 300_000;
-/** This checkout — whose history the session comes from. */
-const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", "..", ".."));
+/** The base checkout — whose history the session comes from. */
+const CHECKOUT = baseCheckout(resolve(import.meta.dir, "..", "..", ".."));
 const CARD = "sc-session-card";
 const PROJECT_NAME = "tug";
 /** `workspace-xp`: a workspace-switch bug diagnosed and fixed in two turns, with a cache refresher added in the second. */
@@ -92,6 +92,21 @@ interface Row {
   type?: string;
   timestamp?: string;
   message?: { id?: string; content?: Block[] | string; usage?: Record<string, number> };
+}
+
+/**
+ * The checkout whose Claude home holds the session: `root` itself, or, when
+ * `root` is a git worktree — an arc's, say — the checkout it was cut from,
+ * read off the worktree's `.git` file (`gitdir: <base>/.git/worktrees/<name>`).
+ * A worktree's own project directory in the Claude home holds no sessions.
+ */
+function baseCheckout(root: string): string {
+  const dotGit = join(root, ".git");
+  if (statSync(dotGit).isDirectory()) return realpathSync(root);
+  const pointer = readFileSync(dotGit, "utf8").trim();
+  const gitdir = pointer.startsWith("gitdir: ") ? resolve(root, pointer.slice("gitdir: ".length)) : null;
+  if (gitdir === null) throw new Error(`sc-session-card: ${dotGit} is neither a directory nor a gitdir pointer`);
+  return realpathSync(dirname(dirname(dirname(gitdir))));
 }
 
 function deck(): Record<string, unknown> {
@@ -261,9 +276,7 @@ describe.skipIf(!RUNS)("site still: the session card", () => {
         );
         await Bun.sleep(SETTLE_MS);
 
-        const rest = await standIns(app);
-        expect(rest[CARD], "the card stands in its slot").toBeDefined();
-        const crop = cropAround([rest[CARD]!], 0, await contentSize(app));
+        const crop = await cropFor(app, [CARD], { pad: 0 });
         const { scale } = await stillTo(app, crop, join(outDirFor("session-card"), "still.png"));
         const phase = await app.body(CARD).evalJS<string | null>(
           `(function(){ var e = document.querySelector('[data-slot="tug-prompt-entry"]'); return e === null ? null : e.getAttribute("data-phase"); })()`,

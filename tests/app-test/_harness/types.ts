@@ -810,6 +810,17 @@ export interface LaunchTugAppOptions {
   restoreInTestMode?: boolean;
 
   /**
+   * Launch the page under clip mode, for a site clip recording: `--tug-timing`
+   * pinned to 1 on every page and the composer's caret blink stilled, so the
+   * two cuts of a scene — one per theme mode — have the same frames.
+   *
+   * Sets `TUGAPP_CLIP_MODE=1` on the launched Tug.app's environment; Swift's
+   * `TestHarnessUserScript` injects `window.__tugClipMode = true`, which
+   * `lib/clip-mode.ts` reads once at boot in the shell and in every body.
+   */
+  clipMode?: boolean;
+
+  /**
    * Override the harness-minted instance ID. When unset, the harness
    * generates `apptest-<uuid>` per launch — each `launchTugApp` call
    * gets its own per-instance data dir, tugbank, and tmux session.

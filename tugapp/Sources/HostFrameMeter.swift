@@ -220,13 +220,26 @@ final class HostFrameMeter: NSObject {
 /// the main thread the display link ticks on; the PNGs are encoded on a
 /// second queue so a slow encode does not stretch the interval. `read`
 /// answers what has landed, and `done` once both have finished.
+///
+/// A burst armed with an `outDir` writes its frames as `frame-NNNN.png`
+/// (NNNN the frame's capture index) and, once every frame is on disk, a
+/// `reading.json` carrying what `read` answers, straight into that
+/// directory, so a recording lands where it is wanted rather than being
+/// copied out of the temporary location. `mark` stamps the index of the
+/// next frame captured under a name; the marks ride the reading, so a
+/// scene's loop points are the host's own count rather than a search over
+/// frame timestamps.
 final class CaptureBurst {
-    /// The most a burst may run for; beyond it the frames outgrow their use.
-    static let maxDurationMs = 10_000
+    /// The most a burst may run for. A clip's crop and interval are what
+    /// keep its frames within their use; the cap only bounds a runaway.
+    static let maxDurationMs = 30_000
     /// The shortest interval: the display's own period, near enough.
     static let minIntervalMs = 8
 
     struct Frame: Encodable {
+        /// The frame's capture index, which `marks` point at and which names
+        /// the file under an `outDir`.
+        let index: Int
         /// Ms from arming, host clock.
         let t: Double
         /// Wall-clock ms (`Date().timeIntervalSince1970 * 1000`) at capture,
@@ -242,12 +255,17 @@ final class CaptureBurst {
     private var captured = 0
     private var encoded = 0
     private var captureFinished = false
+    private var marks: [String: Int] = [:]
+    /// Set once `reading.json` is on disk under `outDir`; always true without one.
+    private var readingWritten: Bool
 
     private let windowNumber: CGWindowID
     private let durationMs: Int
     private let intervalMs: Int
     /// The crop in device pixels of the window image, or nil for the whole.
     private let cropPx: CGRect?
+    /// Where the frames and `reading.json` go, or nil for the temporary location.
+    private let outDir: URL?
     /// Reported back so a reader can place the crop in content points.
     let crop: CGRect?
     let scale: CGFloat
@@ -255,8 +273,9 @@ final class CaptureBurst {
     let windowBackgroundHex: String
     let armedAt: CFTimeInterval
 
-    /// `crop` is in the window's content points, top-left origin.
-    init(window: NSWindow, crop: CGRect?, durationMs: Int, intervalMs: Int) {
+    /// `crop` is in the window's content points, top-left origin. `outDir`,
+    /// when given, is made if missing.
+    init(window: NSWindow, crop: CGRect?, durationMs: Int, intervalMs: Int, outDir: String? = nil) {
         let scale = window.backingScaleFactor
         let contentSize = window.contentView?.bounds.size ?? .zero
         windowNumber = CGWindowID(window.windowNumber)
@@ -265,6 +284,12 @@ final class CaptureBurst {
         self.scale = scale
         self.contentSize = contentSize
         self.crop = crop
+        let dir = outDir.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        if let dir {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        self.outDir = dir
+        readingWritten = dir == nil
         let frameHeightPx = window.frame.height * scale
         let titleBarPx = frameHeightPx - contentSize.height * scale
         cropPx = crop.map { c in
@@ -297,6 +322,9 @@ final class CaptureBurst {
                     continue
                 }
                 next += interval
+                lock.lock()
+                let index = captured
+                lock.unlock()
                 let t = (CACurrentMediaTime() - armedAt) * 1000
                 let wall = Date().timeIntervalSince1970 * 1000
                 guard let whole = captureOwnWindowImage(windowNumber) else { continue }
@@ -305,13 +333,13 @@ final class CaptureBurst {
                 captured += 1
                 lock.unlock()
                 encodeQueue.async { [self] in
-                    let path = (NSTemporaryDirectory() as NSString)
-                        .appendingPathComponent("tugapp-burst-\(UUID().uuidString).png")
+                    let path = outDir.map { $0.appendingPathComponent(String(format: "frame-%04d.png", index)).path }
+                        ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("tugapp-burst-\(UUID().uuidString).png")
                     let rep = NSBitmapImageRep(cgImage: image)
                     if let png = rep.representation(using: .png, properties: [:]),
                        (try? png.write(to: URL(fileURLWithPath: path))) != nil {
                         lock.lock()
-                        frames.append(Frame(t: t, wall: wall, path: path))
+                        frames.append(Frame(index: index, t: t, wall: wall, path: path))
                         lock.unlock()
                     }
                     lock.lock()
@@ -322,7 +350,32 @@ final class CaptureBurst {
             lock.lock()
             captureFinished = true
             lock.unlock()
+            // The encode queue is serial, so a block queued here runs after
+            // the last frame's encode: every PNG is on disk when it writes.
+            if let outDir {
+                encodeQueue.async { [self] in
+                    lock.lock()
+                    var reading = snapshot()
+                    lock.unlock()
+                    reading.done = true
+                    if let data = try? JSONEncoder().encode(reading) {
+                        try? data.write(to: outDir.appendingPathComponent("reading.json"))
+                    }
+                    lock.lock()
+                    readingWritten = true
+                    lock.unlock()
+                }
+            }
         }
+    }
+
+    /// Stamp the index of the next frame captured under `name`. A name
+    /// marked twice keeps the later index.
+    func mark(_ name: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        marks[name] = captured
+        return captured
     }
 
     /// A burst's reading: whether every frame is written, each frame's file,
@@ -345,14 +398,24 @@ final class CaptureBurst {
         var durationMs: Int
         /// Absent for a burst of the whole window.
         var crop: Crop?
+        /// Each mark's name and the capture index it stamped.
+        var marks: [String: Int]
+        /// Where the frames and `reading.json` went; absent for the temporary location.
+        var outDir: String?
     }
 
-    /// The reading so far.
+    /// The reading so far. `done` holds once every frame is encoded and,
+    /// under an `outDir`, `reading.json` is written too.
     func read() -> Reading {
         lock.lock()
         defer { lock.unlock() }
+        return snapshot()
+    }
+
+    /// The reading under the lock, which the caller holds.
+    private func snapshot() -> Reading {
         return Reading(
-            done: captureFinished && encoded == captured,
+            done: captureFinished && encoded == captured && readingWritten,
             frames: frames.sorted { $0.t < $1.t },
             scale: Double(scale),
             contentWidth: Double(contentSize.width),
@@ -360,7 +423,9 @@ final class CaptureBurst {
             windowBackground: windowBackgroundHex,
             intervalMs: intervalMs,
             durationMs: durationMs,
-            crop: crop.map { .init(x: $0.minX, y: $0.minY, width: $0.width, height: $0.height) }
+            crop: crop.map { .init(x: $0.minX, y: $0.minY, width: $0.width, height: $0.height) },
+            marks: marks,
+            outDir: outDir?.path
         )
     }
 }

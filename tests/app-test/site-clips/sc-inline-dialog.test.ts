@@ -15,8 +15,9 @@
  * which mounts the wizard at the tool_use position. During the burst the
  * driver clicks an option and then Submit — real clicks, so the selection
  * and the submit are the app's own — and ingests the result, a closing line
- * of prose and the turn's end. The capture covers the card; the site's
- * `make-clip --crop` cuts the transcript out of it.
+ * of prose streamed a word at a time, and the turn's end. The capture
+ * covers the card; the site's `make-clip --crop` cuts the transcript out
+ * of it.
  *
  * @visible
  */
@@ -30,7 +31,7 @@ import type { App } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { pollFor } from "../body-grounding/_frames";
 import { CODE_OUTPUT_FEED } from "../arc-run-transcript-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor, standIns } from "./_site-clips";
+import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARD = "sc-dialog";
@@ -46,11 +47,17 @@ const BLOCK = '[data-slot="ask-user-question-tool-block"]';
 /** The attribute the driver stamps on the element it is about to click. */
 const TARGET = "data-sc-target";
 
-/** The burst, and its beats: the question arrives, is read, answered, sent, and the turn goes on. */
-const BURST_MS = 9_800;
+/** The scene's beats: the question arrives, is read, answered, sent, and the turn goes on. */
 const REST_MS = 700;
 const READ_MS = 2_300;
 const CHOSEN_MS = 1_400;
+/** From Submit to the tool's result, the result to the prose, and the prose's pace. */
+const RESULT_MS = 300;
+const PROSE_MS = 900;
+const WORD_MS = 45;
+/** From the turn's end to the block's rect being noted, and to the loop's end. */
+const NOTE_MS = 400;
+const TAIL_MS = 1_200;
 
 const PROMPT = "The overlay has no controls now. What should a click on the picture do?";
 /**
@@ -148,16 +155,11 @@ describe.skipIf(!RUNS)("site clip: inline dialog", () => {
         );
         await Bun.sleep(600);
 
-        const rest = await standIns(app);
-        expect(rest[CARD], "the card stands in its slot").toBeDefined();
-        const card = rest[CARD]!;
-        const view = (await app.bodies()).find((b) => b.cardId === CARD)!.frame;
-        const crop = cropAround([card], 12, await contentSize(app));
+        const crop = await cropFor(app, [CARD]);
 
         const notes: Record<string, unknown> = {};
-        const reading = await burstTo(app, crop, BURST_MS, outDirFor("inline-dialog"), async () => {
-          await Bun.sleep(REST_MS);
-
+        const s = scene().mark("loop-start", 0);
+        s.at(REST_MS, async () => {
           // The question arrives: the tool_use hosts the wizard, the forward makes it live.
           await ingest(app, { type: "tool_use", msg_id: "m1", seq: 1, tool_name: "AskUserQuestion", tool_use_id: TOOL_USE_ID, input: { questions: [QUESTION] } });
           await ingest(app, {
@@ -169,15 +171,18 @@ describe.skipIf(!RUNS)("site clip: inline dialog", () => {
             input: { questions: [QUESTION] },
           });
           await app.body(CARD).waitForCondition<boolean>(`document.querySelectorAll(${JSON.stringify(OPTION_ROWS)}).length >= 3`, { timeoutMs: 10_000 });
-          await Bun.sleep(READ_MS);
+        });
+        const chooseAt = REST_MS + READ_MS;
+        s.at(chooseAt, async () => {
           notes.scroll = await app.body(CARD).evalJS<unknown>(
             `(function(){ var s = document.querySelector('[data-tug-scroll-key="session-card-transcript"]'); if (!s) return null; return { scrollHeight: s.scrollHeight, clientHeight: s.clientHeight, scrollTop: s.scrollTop }; })()`,
           );
-
           // The answer: a click on the first option, a beat, and Submit.
           await aim(app, OPTION_ROWS, { index: 0 });
           await app.body(CARD).nativeClickAtElement(`[${TARGET}]`);
-          await Bun.sleep(CHOSEN_MS);
+        });
+        const submitAt = chooseAt + CHOSEN_MS;
+        s.at(submitAt, async () => {
           notes.afterOption = await app.body(CARD).evalJS<unknown>(
             `(function(){
                var rows = Array.prototype.slice.call(document.querySelectorAll(${JSON.stringify(OPTION_ROWS)}));
@@ -195,32 +200,37 @@ describe.skipIf(!RUNS)("site clip: inline dialog", () => {
             (gone) => gone,
             4_000,
           ).catch(() => false);
-
-          // The tool returns, and the turn goes on.
-          await ingest(app, {
+        });
+        // The tool returns, and the turn goes on: the closing prose a word at a time.
+        const resultAt = submitAt + RESULT_MS;
+        s.at(resultAt, () =>
+          ingest(app, {
             type: "tool_result",
             tool_use_id: TOOL_USE_ID,
             output: `User has answered your questions: "${QUESTION.question}"="${CHOSEN}". You can now continue with the user's answers in mind.`,
             is_error: false,
-          });
-          await Bun.sleep(900);
-          await ingest(app, { type: "content_block_start", msg_id: "m2", block_index: 0, kind: "text" });
-          const words = CLOSING.match(/\S+\s*/g) ?? [CLOSING];
-          for (const [i, w] of words.entries()) {
-            await ingest(app, { type: "assistant_text", msg_id: "m2", block_index: 0, seq: 2, rev: i, text: w, is_partial: true, status: "partial" });
-            await Bun.sleep(45);
-          }
+          }),
+        );
+        const proseAt = resultAt + PROSE_MS;
+        s.at(proseAt, () => ingest(app, { type: "content_block_start", msg_id: "m2", block_index: 0, kind: "text" }));
+        const words = CLOSING.match(/\S+\s*/g) ?? [CLOSING];
+        words.forEach((w, i) => {
+          s.at(proseAt + (i + 1) * WORD_MS, () => ingest(app, { type: "assistant_text", msg_id: "m2", block_index: 0, seq: 2, rev: i, text: w, is_partial: true, status: "partial" }));
+        });
+        const doneAt = proseAt + (words.length + 1) * WORD_MS;
+        s.at(doneAt, async () => {
           await ingest(app, { type: "assistant_text", msg_id: "m2", block_index: 0, seq: 2, rev: words.length, text: CLOSING, is_partial: false, status: "complete" });
           await ingest(app, { type: "turn_complete", msg_id: "m2", seq: 3, result: "success" });
-
-          // Where the block stands, in the crop's points, for the cut the site makes.
-          const block = await app.body(CARD).evalJS<{ x: number; y: number; width: number; height: number } | null>(
-            `(function(){ var el = document.querySelector(${JSON.stringify(BLOCK)}); if (!el) return null; var r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()`,
-          );
-          notes.block = block === null ? null : { x: view.x + block.x - crop.x, y: view.y + block.y - crop.y, width: block.width, height: block.height };
         });
+        s.at(doneAt + NOTE_MS, async () => {
+          // Where the block stands, in the crop's points, for the cut the site makes.
+          const block = await app.elementRect(CARD, BLOCK);
+          notes.block = block === null ? null : { x: block.x - crop.x, y: block.y - crop.y, width: block.width, height: block.height };
+        });
+        s.mark("loop-end", doneAt + TAIL_MS);
+        const reading = await s.record(app, { outDir: outDirFor("inline-dialog"), crop });
         writeFileSync(join(outDirFor("inline-dialog"), "notes.json"), JSON.stringify(notes, null, 2));
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        expectRecorded(reading);
         expect(notes.submitted, "the answer was submitted and the wizard settled").toBe(true);
       } finally {
         await app.close();

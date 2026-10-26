@@ -257,8 +257,12 @@ export type {
  *
  * `2.0.0`: REMOVES `stallBodyReadies`. A row fails a body by holding a real
  * page to a shortened ready deadline instead ({@link App.bodyDelays}).
+ *
+ * `2.1.0`: `captureBurst` adds `{op: "mark", name}`, an `outDir` on `arm`
+ * under which the host writes the frames and a `reading.json`, and a 30 s
+ * cap. Additive; major stays `2`.
  */
-export const EXPECTED_SURFACE_VERSION = "2.0.0" as const;
+export const EXPECTED_SURFACE_VERSION = "2.1.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -819,6 +823,29 @@ export class App {
     return client.getCaretState(await this.pageOf(cardId), cardId);
   }
 
+  /**
+   * Lay `fields` over `sessionId`'s ledger row in the page that holds
+   * `cardId`, now and on every later push for the session — see
+   * `client.seedSessionRow`. How a stub-bound card's masthead comes to read
+   * a turn count: the stub writes no engine transcript for the ledger to
+   * count, so the row the supervisor pushes at a turn's end says `No turns`.
+   */
+  async seedSessionState(cardId: string, sessionId: string, fields: Partial<client.SeededSessionFields>): Promise<boolean> {
+    return client.seedSessionRow(await this.pageOf(cardId), sessionId, fields);
+  }
+
+  /**
+   * Where an element of `cardId`'s body stands in the window's content, in
+   * points with a top-left origin, read through the shell's
+   * `tugdeck.diag.elementRect` — the card's view as the shell last placed it
+   * plus the element's rect as the body answers it. Null when the card has
+   * no placed view or the selector matches nothing. One source for a
+   * recording's crop.
+   */
+  elementRect(cardId: string, selector: string): Promise<client.ElementRect | null> {
+    return client.elementRect(this as HarnessCaller, cardId, selector);
+  }
+
   /** Read a persisted form-control's value by its persist key, in the page that holds the card. */
   async getFormControlValue(
     cardId: string,
@@ -1030,13 +1057,14 @@ export class App {
 
   /**
    * A burst of composited window captures — see `client.captureBurst`. The
-   * frames a read hands out are reclaimed with the screenshots.
+   * frames a read hands out are reclaimed with the screenshots, unless the
+   * burst was armed with an `outDir`: those frames are the test's to keep.
    */
   async captureBurst(
     params: Parameters<typeof client.captureBurst>[1],
   ): ReturnType<typeof client.captureBurst> {
     const reading = await client.captureBurst(this as HarnessCaller, params);
-    if ("frames" in reading) {
+    if ("frames" in reading && reading.outDir === undefined) {
       for (const frame of reading.frames) {
         if (!this.screenshots.includes(frame.path)) this.screenshots.push(frame.path);
       }
@@ -2759,6 +2787,7 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
     ...(opts.visible && !opts.foreground ? { TUGAPP_HARNESS_VISIBLE: "1" } : {}),
     ...(opts.persistInTestMode ? { TUGAPP_PERSIST_IN_TEST_MODE: "1" } : {}),
     ...(opts.restoreInTestMode ? { TUGAPP_RESTORE_IN_TEST_MODE: "1" } : {}),
+    ...(opts.clipMode ? { TUGAPP_CLIP_MODE: "1" } : {}),
     ...(opts.keepSetup ? { TUGAPP_TEST_KEEP_SETUP: "1" } : {}),
     ...opts.env,
     TUGAPP_TEST_SOCKET: socketPath,

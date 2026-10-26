@@ -31,6 +31,12 @@
  * departure are dispatched to it, and they reach the listener a real pointer
  * would.
  *
+ * The rest line's facts — the turn count, the last prompt, the stamp — are
+ * seeded over the session's ledger row through the harness, now and over
+ * every later push, since a stub writes no engine transcript for the ledger
+ * to count and the row the supervisor pushes at the turn's end would
+ * otherwise read `No turns`.
+ *
  * The tape is fed by hand. A live session's sparkline reads the `ACTIVITY`
  * feed, which tugcode flushes once a bin from the turn it is running; a stub
  * transcript replays through the transcript feed alone and flushes nothing,
@@ -61,8 +67,7 @@ import { onTestRunEnd } from "../_harness/test-cleanup";
 import { pollFor } from "../body-grounding/_frames";
 import { kindPane } from "../body-grounding/_kinds";
 import { stubDirectory } from "../streaming-stub-fixture";
-import { rectIn } from "../one-view-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor, standIns } from "./_site-clips";
+import { RUNS, contentSize, cropAround, expectRecorded, launchForMode, outDirFor, scene, standIns } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARD = "sc-masthead";
@@ -73,8 +78,8 @@ const IPC_VERSION = 2;
 const PACE_MS = 40;
 /** Heartbeats a tool call stays open before its result: about half a second. */
 const HOLD_BEATS = 14;
-/** The burst: the turn from its first frame past its end. */
-const BURST_MS = 9_800;
+/** The loop: the turn from its first streaming frame past its end. */
+const LOOP_MS = 9_000;
 /** The turn runs this long before the pointer arrives in the title bar. */
 const REVEAL_AT_MS = 1_200;
 /** The row stands unfurled this long before the atom is right-clicked. */
@@ -219,33 +224,8 @@ async function bindStub(app: App, stubDir: string): Promise<{ tugSessionId: stri
   return { tugSessionId, projectDir };
 }
 
-/**
- * The `session_updated` frame the supervisor pushes after a ledger write,
- * with the facts the rest line reads — the turns, the size, the stamp — so
- * the masthead's third line reads as a session's that has worked, not a
- * fresh one's, once the recorded turn ends. The callsign is the one the
- * spawn minted, read back off the masthead, so the name does not change.
- */
-function sessionFrame(tugSessionId: string, projectDir: string, tag: string): string {
-  return JSON.stringify({
-    session_id: tugSessionId,
-    fields: {
-      session_id: tugSessionId,
-      project_dir: projectDir,
-      tag,
-      name: null,
-      name_user_set: false,
-      turn_count: 6,
-      file_size: 184_320,
-      last_user_prompt: PROMPT,
-      last_used_at: Date.now(),
-    },
-  });
-}
-
-function publishSession(frame: string): string {
-  return `window.__tug.publishSessionUpdated(${JSON.stringify(frame)})`;
-}
+/** The rest line's facts, laid over the session's row: a session that has worked six turns, last on this prompt. */
+const SEEDED = { turn_count: 6, last_user_prompt: PROMPT };
 
 /** The masthead's text, for a wait on what its lines say. */
 const MASTHEAD_TEXT = `(document.querySelector(${JSON.stringify(MASTHEAD)}) || { textContent: "" }).textContent || ""`;
@@ -263,19 +243,12 @@ function pointer(kind: "pointerenter" | "pointerleave"): string {
 /**
  * The meter: every tick, the characters the transcript grew by and the
  * shell blocks that opened since the last tick, recorded on the session's
- * text, tokens and tools channels through the test surface. Once the turn
- * has run and ended it also pushes the ledger frame again on every tick: the
- * supervisor's own `session_updated` lands at the turn's end with the stub's
- * empty row, and the rest line would read `No turns` until the next push.
- * Installed in the card's own page, where the masthead's stores are; it
- * stops itself.
+ * text, tokens and tools channels through the test surface. Installed in
+ * the card's own page, where the masthead's stores are; it stops itself.
  */
-function installMeter(tugSessionId: string, frame: string): string {
+function installMeter(tugSessionId: string): string {
   return `(function(){
     var sid = ${JSON.stringify(tugSessionId)};
-    var frame = ${JSON.stringify(frame)};
-    var phase = function () { var e = document.querySelector('[data-slot="tug-prompt-entry"]'); return e === null ? null : e.getAttribute("data-phase"); };
-    var streamed = false;
     var transcript = function () { return document.querySelector(${JSON.stringify(TRANSCRIPT)}); };
     var chars = function () { var t = transcript(); return t === null ? 0 : (t.textContent || "").length; };
     var blocks = function () { return document.querySelectorAll(${JSON.stringify(BASH_BLOCK)}).length; };
@@ -295,9 +268,6 @@ function installMeter(tugSessionId: string, frame: string): string {
         window.__tug.recordActivity(sid, "tokens", Math.round(grew * ${TEXT_GAIN} / 4));
       }
       if (opened > 0) window.__tug.recordActivity(sid, "tools", opened * ${TOOL_UNITS});
-      var p = phase();
-      if (p === "streaming") streamed = true;
-      else if (streamed) window.__tug.publishSessionUpdated(frame);
     }, ${METER_TICK_MS});
     return true;
   })()`;
@@ -310,7 +280,7 @@ describe.skipIf(!RUNS)("site clip: masthead", () => {
       const stubDir = stubDirectory();
       const app = await launchForMode("sc-masthead", deck(), stubDir);
       try {
-        const { tugSessionId, projectDir } = await bindStub(app, stubDir);
+        const { tugSessionId } = await bindStub(app, stubDir);
         await Bun.sleep(800);
         const body = app.body(CARD);
         const phase = () => body.evalJS<string | null>(PROMPT_PHASE).catch(() => null);
@@ -318,14 +288,12 @@ describe.skipIf(!RUNS)("site clip: masthead", () => {
         const menuOpen = standing(MENU);
         const popupOpen = standing(BADGE_POPUP);
 
-        // The ledger's facts for the rest line, pushed to the shell and to
-        // the card's page, which is where the masthead reads them.
+        // The ledger's facts for the rest line, seeded over the row in the
+        // card's page, which is where the masthead reads them.
         const title = await body.evalJS<string>(`(document.querySelector(${JSON.stringify(ATOM)}) || { textContent: "" }).textContent || ""`);
         const tag = title.split("/").pop()?.trim() ?? "";
         expect(tag, "the masthead names the session's callsign").not.toBe("");
-        const frame = sessionFrame(tugSessionId, projectDir, tag);
-        expect(await app.evalJS<boolean>(publishSession(frame))).toBe(true);
-        expect(await body.evalJS<boolean>(publishSession(frame))).toBe(true);
+        expect(await app.seedSessionState(CARD, tugSessionId, { ...SEEDED, last_used_at: Date.now() }), "the row is seeded").toBe(true);
         await pollFor(() => body.evalJS<string>(MASTHEAD_TEXT).catch(() => ""), (t) => t.includes("6 turns"), 5_000);
 
         // The menu and the popup, each raised once and measured, so the crop
@@ -334,13 +302,13 @@ describe.skipIf(!RUNS)("site clip: masthead", () => {
         // the bar and would otherwise hold it open from the first frame.
         await body.nativeRightClickAtElement(ATOM);
         await pollFor(menuOpen, (open) => open, POPUP_MS);
-        const menu = await rectIn(body, MENU);
+        const menu = await app.elementRect(CARD, MENU);
         expect(menu, "the identity menu is mounted").not.toBeNull();
         await app.nativeKey("Escape");
         await pollFor(menuOpen, (open) => !open, POPUP_MS);
         await body.nativeClickAtElement(BADGE);
         await pollFor(popupOpen, (open) => open, POPUP_MS);
-        const popup = await rectIn(body, BADGE_POPUP);
+        const popup = await app.elementRect(CARD, BADGE_POPUP);
         expect(popup, "the slot badge's popup is mounted").not.toBeNull();
         await body.nativeClickAtElement(DESCRIPTION);
         await pollFor(popupOpen, (open) => !open, POPUP_MS);
@@ -350,33 +318,41 @@ describe.skipIf(!RUNS)("site clip: masthead", () => {
         const rest = await standIns(app);
         const card = rest[CARD];
         expect(card, "the card stands in its slot").toBeDefined();
-        const view = (await app.bodies()).find((b) => b.cardId === CARD)!.frame;
         // The card's top through the lower of the two bottom edges, a little past it.
-        const bottom = view.y + Math.max(menu!.y + menu!.height, popup!.y + popup!.height + 12) + 16;
+        const bottom = Math.max(menu!.y + menu!.height, popup!.y + popup!.height + 12) + 16;
         const crop = cropAround([{ x: card!.x, y: card!.y, width: card!.width, height: bottom - card!.y }], 12, await contentSize(app));
 
-        expect(await body.evalJS<boolean>(installMeter(tugSessionId, frame)), "the meter is installed").toBe(true);
-        const reading = await burstTo(app, crop, BURST_MS, outDirFor("masthead"), async () => {
-          await body.driveSession({ op: "send", text: PROMPT });
-          await pollFor(phase, (p) => p === "streaming", STREAMING_MS);
-          await Bun.sleep(REVEAL_AT_MS);
-          await body.evalJS<boolean>(pointer("pointerenter"));
-          await Bun.sleep(MENU_AFTER_MS);
-          await body.nativeRightClickAtElement(ATOM);
-          await pollFor(menuOpen, (open) => open, POPUP_MS);
-          await Bun.sleep(MENU_HOLD_MS);
-          await app.nativeKey("Escape");
-          await pollFor(menuOpen, (open) => !open, POPUP_MS);
-          await Bun.sleep(BADGE_AFTER_MS);
-          await body.nativeClickAtElement(BADGE);
-          await pollFor(popupOpen, (open) => open, POPUP_MS);
-          await Bun.sleep(BADGE_HOLD_MS);
-          await body.nativeClickAtElement(DESCRIPTION);
-          await pollFor(popupOpen, (open) => !open, POPUP_MS);
-          await Bun.sleep(LEAVE_AFTER_MS);
-          await body.evalJS<boolean>(pointer("pointerleave"));
-        });
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        expect(await body.evalJS<boolean>(installMeter(tugSessionId)), "the meter is installed").toBe(true);
+        const menuAt = REVEAL_AT_MS + MENU_AFTER_MS;
+        const escapeAt = menuAt + MENU_HOLD_MS;
+        const badgeAt = escapeAt + BADGE_AFTER_MS;
+        const dismissAt = badgeAt + BADGE_HOLD_MS;
+        const s = scene()
+          .at(0, async () => {
+            await body.driveSession({ op: "send", text: PROMPT });
+            await pollFor(phase, (p) => p === "streaming", STREAMING_MS);
+          })
+          .mark("loop-start")
+          .at(REVEAL_AT_MS, () => body.evalJS<boolean>(pointer("pointerenter")))
+          .at(menuAt, async () => {
+            await body.nativeRightClickAtElement(ATOM);
+            await pollFor(menuOpen, (open) => open, POPUP_MS);
+          })
+          .at(escapeAt, async () => {
+            await app.nativeKey("Escape");
+            await pollFor(menuOpen, (open) => !open, POPUP_MS);
+          })
+          .at(badgeAt, async () => {
+            await body.nativeClickAtElement(BADGE);
+            await pollFor(popupOpen, (open) => open, POPUP_MS);
+          })
+          .at(dismissAt, async () => {
+            await body.nativeClickAtElement(DESCRIPTION);
+            await pollFor(popupOpen, (open) => !open, POPUP_MS);
+          })
+          .at(dismissAt + LEAVE_AFTER_MS, () => body.evalJS<boolean>(pointer("pointerleave")))
+          .mark("loop-end", LOOP_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("masthead"), crop }));
       } finally {
         await app.close();
       }

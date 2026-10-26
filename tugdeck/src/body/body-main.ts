@@ -89,6 +89,7 @@ import { applyShellModifierLatch } from "../components/tugways/modifier-latch";
 import { applyTheme, followShellTheme, getOnScreenTheme } from "../contexts/theme-provider";
 import { pageZoomStore } from "../lib/page-zoom-store";
 import { initMotionObserver } from "../lib/scale-timing";
+import { installClipMode } from "../lib/clip-mode";
 import { installMotionGuard } from "../lib/motion-guard";
 import { motionBreaker } from "../lib/motion-guard/breaker";
 import { applyShellMenuFacts, initBodyHostMenuState } from "../lib/host-menu-state";
@@ -906,6 +907,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
   bodyVisibilityStore.setDormantAfterMs(readDormantAfter());
   harnessBodyDelays.subscribe(() => bodyVisibilityStore.setDormantAfterMs(readDormantAfter()));
   initMotionObserver();
+  // A site clip's launch pins this page as it pins the shell's.
+  installClipMode();
   // The body's own motion guard: its loops take holds in this page's
   // registry, so the probe, the input-latency observer and
   // `window.__tugMotion` have to be this page's too, or nothing measures or

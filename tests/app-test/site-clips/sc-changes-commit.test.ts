@@ -38,7 +38,7 @@ import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, type App } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { pollFor } from "../body-grounding/_frames";
 import { stubDirectory } from "../streaming-stub-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor, standIns } from "./_site-clips";
+import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 140_000;
 const CARD = "sc-changes";
@@ -56,12 +56,13 @@ const AUTO_BUTTON = '[data-testid="tug-prompt-entry-commit-auto"]';
 const RECEIPT = '[data-slot="tug-commit-changes-list"] [data-testid="tug-changes-list-file-block"]';
 const PROMPT_PHASE = `(function(){ var e = document.querySelector('[data-slot="tug-prompt-entry"]'); return e === null ? null : e.getAttribute("data-phase"); })()`;
 
-/** The burst, and its beats: the card at rest, the shade rising, the files read, the message written, read, and committed. */
-const BURST_MS = 9_800;
+/** The scene's beats: the card at rest, the shade rising, the scribe starting, each delta, the message read, and the receipt held. */
 const REST_MS = 700;
 const SHADE_MS = 1_800;
+const DRAFTING_MS = 500;
 const DELTA_MS = 50;
 const READY_MS = 1_100;
+const RECEIPT_HOLD_MS = 3_000;
 const RECEIPT_MS = 60_000;
 
 /** The files the session edited: their committed form, and the edit. */
@@ -320,9 +321,7 @@ describe.skipIf(!RUNS)("site clip: changes and commit message", () => {
         writeFileSync(join(repo, FILES[0].path), FILES[0].after);
         await Bun.sleep(1_500);
 
-        const rest = await standIns(app);
-        expect(rest[CARD], "the card stands in its slot").toBeDefined();
-        const crop = cropAround([rest[CARD]!], 12, await contentSize(app));
+        const crop = await cropFor(app, [CARD]);
 
         const draftFrame = (frame: Record<string, unknown>) =>
           body.evalJS<boolean>(
@@ -330,36 +329,39 @@ describe.skipIf(!RUNS)("site clip: changes and commit message", () => {
           );
 
         const notes: Record<string, unknown> = {};
-        const reading = await burstTo(app, crop, BURST_MS, outDirFor("changes-commit"), async () => {
-          await Bun.sleep(REST_MS);
-
+        const words = deltas(MESSAGE);
+        const draftAt = REST_MS + SHADE_MS;
+        const wordsAt = draftAt + DRAFTING_MS;
+        const readyAt = wordsAt + words.length * DELTA_MS;
+        const commitAt = readyAt + READY_MS;
+        const s = scene()
+          .mark("loop-start", 0)
           // ⌃⌘C: the shade rises and, on the empty composer, commit mode opens.
-          await app.nativeKey("c", ["ctrl", "cmd"]);
-          await body.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(SHEET)}) !== null`, { timeoutMs: 20_000 });
-          await body.waitForCondition<boolean>(`document.querySelectorAll(${JSON.stringify(ANY_ROWS)}).length >= ${FILES.length}`, { timeoutMs: 20_000 });
-          notes.sessionRows = await body.evalJS<number>(`document.querySelectorAll(${JSON.stringify(SESSION_ROWS)}).length`);
-          notes.commitMode = await body.evalJS<boolean>(`document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) !== null`);
-          await Bun.sleep(SHADE_MS);
-
+          .at(REST_MS, async () => {
+            await app.nativeKey("c", ["ctrl", "cmd"]);
+            await body.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(SHEET)}) !== null`, { timeoutMs: 20_000 });
+            await body.waitForCondition<boolean>(`document.querySelectorAll(${JSON.stringify(ANY_ROWS)}).length >= ${FILES.length}`, { timeoutMs: 20_000 });
+            notes.sessionRows = await body.evalJS<number>(`document.querySelectorAll(${JSON.stringify(SESSION_ROWS)}).length`);
+            notes.commitMode = await body.evalJS<boolean>(`document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) !== null`);
+          })
           // Auto-Message: the scribe writes the message into the composer.
-          await draftFrame({ action: "changeset_draft_state", state: "drafting" });
-          await Bun.sleep(500);
-          notes.drafting = await body.evalJS<boolean>(`(function(){ var b = document.querySelector(${JSON.stringify(AUTO_BUTTON)}); return b !== null && b.hasAttribute("data-drafting"); })()`);
-          for (const text of deltas(MESSAGE)) {
-            await draftFrame({ action: "changeset_draft_delta", text });
-            await Bun.sleep(DELTA_MS);
-          }
-          await draftFrame({ action: "changeset_draft_state", state: "ready" });
-          await Bun.sleep(READY_MS);
-
+          .at(draftAt, () => draftFrame({ action: "changeset_draft_state", state: "drafting" }))
+          .at(wordsAt, async () => {
+            notes.drafting = await body.evalJS<boolean>(`(function(){ var b = document.querySelector(${JSON.stringify(AUTO_BUTTON)}); return b !== null && b.hasAttribute("data-drafting"); })()`);
+          });
+        words.forEach((text, i) => s.at(wordsAt + i * DELTA_MS, () => draftFrame({ action: "changeset_draft_delta", text })));
+        s.at(readyAt, () => draftFrame({ action: "changeset_draft_state", state: "ready" }))
           // Commit: the press lands the message on the scratch repository,
           // and the receipt settles into the transcript.
-          await body.nativeClickAtElement(COMMIT_BUTTON);
-          await body.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(RECEIPT)}) !== null`, { timeoutMs: RECEIPT_MS });
-          notes.committed = git(repo, "log", "-1", "--format=%s");
-        });
+          .at(commitAt, async () => {
+            await body.nativeClickAtElement(COMMIT_BUTTON);
+            await body.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(RECEIPT)}) !== null`, { timeoutMs: RECEIPT_MS });
+            notes.committed = git(repo, "log", "-1", "--format=%s");
+          })
+          .mark("loop-end", commitAt + RECEIPT_HOLD_MS);
+        const reading = await s.record(app, { outDir: outDirFor("changes-commit"), crop });
         writeFileSync(join(outDirFor("changes-commit"), "notes.json"), JSON.stringify(notes, null, 2));
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        expectRecorded(reading);
         expect(notes.committed, "the press produced the commit it asked for").toBe(MESSAGE.split("\n")[0]);
       } finally {
         await app.close();

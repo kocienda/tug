@@ -170,6 +170,48 @@ describe("SessionLedgerStore", () => {
     store.dispose();
   });
 
+  it("seedRow lays its fields over the row now and over every later push", () => {
+    const { store } = newStore();
+    store.getSnapshot("/proj");
+    publishListSessionsOk({
+      project_dir: "/proj",
+      sessions: [makeRow({ session_id: "stub", last_user_prompt: "hello", turn_count: 0 })],
+      dir_exists: true,
+    });
+    expect(store.seedRow("stub", { turn_count: 6, last_used_at: 900 })).toBe(true);
+    expect(store.findRow("stub")?.turn_count).toBe(6);
+    expect(store.findRow("stub")?.last_used_at).toBe(900);
+
+    // The supervisor's own push at a turn's end carries the ledger's count,
+    // which for a session with no engine transcript is zero: the seed holds.
+    publishSessionUpdated({
+      session_id: "stub",
+      fields: makeRow({ session_id: "stub", last_user_prompt: "hello again", turn_count: 0, last_used_at: 50 }),
+    });
+    const row = store.findRow("stub");
+    expect(row?.turn_count).toBe(6);
+    expect(row?.last_used_at).toBe(900);
+    expect(row?.last_user_prompt, "a field the seed did not name follows the push").toBe("hello again");
+
+    // A settled listing is authoritative for the ledger's facts, but not over a seed.
+    publishListSessionsOk({
+      project_dir: "/proj",
+      sessions: [makeRow({ session_id: "stub", last_user_prompt: "hello again", turn_count: 0, last_used_at: 60 })],
+      dir_exists: true,
+    });
+    expect(store.findRow("stub")?.turn_count, "a listing keeps the seed").toBe(6);
+    expect(store.findRow("stub")?.last_used_at).toBe(900);
+
+    // A seed before any row stands, for the row's first push.
+    expect(store.seedRow("later", { turn_count: 3 })).toBe(false);
+    publishSessionUpdated({
+      session_id: "later",
+      fields: makeRow({ session_id: "later", last_user_prompt: "first", turn_count: 0 }),
+    });
+    expect(store.findRow("later")?.turn_count).toBe(3);
+    store.dispose();
+  });
+
   it("session_updated patches a row in place and re-sorts", () => {
     const { store } = newStore();
     store.getSnapshot("ws-1");

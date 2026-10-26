@@ -16,21 +16,21 @@
  * @visible
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "bun:test";
 
 import { standUpKind } from "../body-grounding/_kind-bodies";
 import { cardKind, kindPane } from "../body-grounding/_kinds";
 import { stubDirectory } from "../streaming-stub-fixture";
-import { RUNS, burstTo, contentSize, cropAround, launchForMode, outDirFor, standIns } from "./_site-clips";
+import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
 const CARDS = ["sc-fold-a", "sc-fold-b", "sc-fold-c"] as const;
 const FOLDED = CARDS[1];
 
-/** Rest before the press, the hold folded, and the settle after the unfold. */
+/** Rest before the press, the hold folded, and the return after the unfold. */
 const REST_MS = 700;
 const HOLD_MS = 1_500;
-const SETTLE_MS = 1_300;
+const RETURN_MS = 1_300;
 
 function deck(): Record<string, unknown> {
   return {
@@ -54,17 +54,13 @@ describe.skipIf(!RUNS)("site clip: fold", () => {
         await app.dispatchControlAction("focus-session-card", { cardId: FOLDED });
         await Bun.sleep(800);
 
-        const rest = await standIns(app);
-        for (const id of CARDS) expect(rest[id], `${id} stands in the flow`).toBeDefined();
-        const crop = cropAround([rest[CARDS[0]]!, rest[FOLDED]!], 24, await contentSize(app));
-
-        const reading = await burstTo(app, crop, REST_MS + HOLD_MS + SETTLE_MS, outDirFor("fold"), async () => {
-          await Bun.sleep(REST_MS);
-          await app.performMenuItem("view.foldCard");
-          await Bun.sleep(HOLD_MS);
-          await app.performMenuItem("view.foldCard");
-        });
-        expect(reading.frames, "frames were recorded").toBeGreaterThan(60);
+        const crop = await cropFor(app, [CARDS[0], FOLDED], { pad: 24 });
+        const s = scene()
+          .mark("loop-start", 0)
+          .at(REST_MS, () => app.performMenuItem("view.foldCard"))
+          .at(REST_MS + HOLD_MS, () => app.performMenuItem("view.foldCard"))
+          .mark("loop-end", REST_MS + HOLD_MS + RETURN_MS);
+        expectRecorded(await s.record(app, { outDir: outDirFor("fold"), crop }));
       } finally {
         await app.close();
       }

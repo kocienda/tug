@@ -82,7 +82,7 @@ import {
 } from "./lib/card-session-binding-store";
 import { publishListCardBindingsOk } from "./lib/session-ledger-events";
 import { markHarnessSession } from "./lib/harness-sessions";
-import type { CardBinding } from "./protocol";
+import type { CardBinding, SessionRow } from "./protocol";
 import { FeedId } from "./protocol";
 import type { IngestSpikeRequest, IngestSpikeResponse } from "./lib/workers/ingest-worker";
 import { cardServicesStore } from "./lib/card-services-store";
@@ -130,6 +130,7 @@ import { harnessBodyDelays } from "./bus/declarations/deck";
 import { postToHost } from "./host/channel";
 import { bodyDelaysToHost, type BodyDelays } from "./host/declarations/lifecycle";
 import { getCardCloseGuard } from "./lib/card-close-guard";
+import { getSessionLedgerStore } from "./lib/session-ledger-store";
 import {
   annotateCounters,
   type AnnotateCountersSnapshot,
@@ -591,8 +592,13 @@ import {
  * `2.54.0`: adds {@link TugTestSurface.closeAsks}, on the shell: whether a
  * card's close guard, as the shell holds it, would ask — read where a page's
  * word and the word an evicted page left meet. Additive; major stays `2`.
+ *
+ * `2.55.0`: adds {@link TugTestSurface.seedSessionRow}, on every page: fields
+ * laid over a session's ledger row in this page's store, now and on every
+ * later push, so a stub-bound card's masthead reads a turn count its session
+ * has no engine transcript to count. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.54.0" as const;
+export const SURFACE_VERSION = "2.55.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1429,6 +1435,18 @@ export interface TugTestSurface {
    * console warning, so assert on what rendered, never on this alone.
    */
   publishSessionUpdated(payloadJson: string): boolean;
+
+  /**
+   * Lay the fields in `fieldsJson` (a partial `SessionRow`) over
+   * `sessionId`'s row in THIS page's ledger store, now and on every later
+   * push for the session, so the supervisor's own turn-end push cannot knock
+   * them back. A stub-bound card's masthead reads its turn count and stamp
+   * this way: the stub writes no engine transcript, and the ledger's count
+   * is `engine(file)`. Returns `false` when the JSON does not parse or no
+   * ledger store is attached; `true` means the seed stands, whether or not
+   * a row was there yet to patch (SURFACE_VERSION 2.55.0).
+   */
+  seedSessionRow(sessionId: string, fieldsJson: string): boolean;
 
   /**
    * Write the session atom for `sessionId` to the system pasteboard
@@ -4048,6 +4066,20 @@ function pageStoreSurfaceMethods() {
         ...(body as Record<string, unknown>),
         action: "session_updated",
       });
+      return true;
+    },
+
+    seedSessionRow(sessionId: string, fieldsJson: string): boolean {
+      let fields: unknown;
+      try {
+        fields = JSON.parse(fieldsJson);
+      } catch {
+        return false;
+      }
+      if (typeof fields !== "object" || fields === null || Array.isArray(fields)) return false;
+      const store = getSessionLedgerStore();
+      if (store === null) return false;
+      store.seedRow(sessionId, fields as Partial<SessionRow>);
       return true;
     },
 

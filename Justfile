@@ -191,7 +191,7 @@ test-ts:
     suite tugdeck tugdeck-scripts bun test --timeout {{BUN_HANG_GUARD_MS}} ./scripts/__tests__
     suite tugcode tugcode bun test --timeout {{BUN_HANG_GUARD_MS}}
     suite tugproto tugproto bun test --timeout {{BUN_HANG_GUARD_MS}}
-    suite tests/app-test app-test-logic bun test --timeout {{BUN_HANG_GUARD_MS}} scripts/ _harness/
+    suite tests/app-test app-test-logic bun test --timeout {{BUN_HANG_GUARD_MS}} scripts/ _harness/ site-clips/_scene.test.ts
     exit "$status"
 
 # Run the TypeScript full lane: `tugdeck/full-lane/`, outside `bunfig.toml`'s

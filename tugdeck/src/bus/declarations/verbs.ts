@@ -40,7 +40,7 @@
  */
 
 import type { PendingAsk } from "../../lib/code-session-store/types";
-import { arr, bool, empty, literal, num, obj, opaque, optional, str } from "../codec";
+import { arr, bool, empty, literal, nullable, num, obj, opaque, optional, str } from "../codec";
 import { defineAction } from "../routed-action";
 import { defineRequest } from "../request";
 import { defineSharedStore } from "../shared-store";
@@ -166,6 +166,21 @@ export const cardCloseDecision = defineRequest({
   owner: "card",
   codec: empty,
   replyCodec: obj({ answer: literal("close", "cancel") }),
+  onDetach: "fail",
+});
+
+/**
+ * Where an element of a card's body stands, in the body page's own viewport
+ * px: the rect of the first match of `selector`, or null for no match. The
+ * shell's `tugdeck.diag.elementRect` adds the card's view origin to it, so a
+ * recording's crop is read from one source rather than composed by hand from
+ * the stand-in, the body frame and an eval in the body.
+ */
+export const cardElementRect = defineRequest({
+  id: "card.elementRect",
+  owner: "card",
+  codec: obj({ selector: str }),
+  replyCodec: obj({ rect: nullable(obj({ x: num, y: num, width: num, height: num })) }),
   onDetach: "fail",
 });
 
