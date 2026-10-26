@@ -16,6 +16,13 @@
  * re-measure re-lands its anchor. The quiet frame is read from the same
  * delivery wrapper and commit census the land record uses.
  *
+ * Nor is a quiet frame, while a list view still owes the width change its
+ * reflow: it answers one after a debounce and drains its stale heights over
+ * the commits after that, so a frame inside the debounce is quiet and the
+ * page is not laid out. Every frame the solve waits it asks each list to
+ * answer at once (`lib/owed-reflow.ts`), and it is solved only on a quiet
+ * frame with nothing owed.
+ *
  * Everything the sequence touches comes in through {@link CrossingSolveDeps},
  * so it runs as data in a test.
  *
@@ -44,6 +51,10 @@ export interface CrossingSolveDeps {
   readonly endEpisode: () => void;
   /** Whether no delivery ran and no commit landed since `t`. */
   readonly quietSince: (t: number) => boolean;
+  /** Answer every width change a list view is still debouncing. */
+  readonly flushReflows: () => void;
+  /** Whether a list view still owes a width change its reflow. */
+  readonly reflowOwed: () => boolean;
   /** The page is laid out; `resizeMissed` when the host's resize never came. */
   readonly solved: (facts: { resizeMissed: boolean; frames: number }) => void;
 }
@@ -78,7 +89,9 @@ export function runCrossingSolve(deps: CrossingSolveDeps): () => void {
       if (done) return;
       frames += 1;
       const at = deps.now();
-      if ((frames >= 2 && deps.quietSince(lastTick)) || frames >= SOLVE_QUIET_FRAME_CAP) {
+      deps.flushReflows();
+      const quiet = frames >= 2 && deps.quietSince(lastTick) && !deps.reflowOwed();
+      if (quiet || frames >= SOLVE_QUIET_FRAME_CAP) {
         done = true;
         deps.solved({ resizeMissed, frames });
         return;

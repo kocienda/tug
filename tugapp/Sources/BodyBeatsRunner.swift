@@ -35,6 +35,11 @@ final class BodyBeatsRunner {
     /// cover's mask.
     private static let bandKey = "crossing-band"
 
+    /// How wide the right strip a widening whole card rides its edge with
+    /// is, points (`BodyBeats.EdgeStrip`): the title bar's buttons, the
+    /// composer's send and microphone, the scrollbar and the pane's border.
+    static let edgeStripWidth: Double = 112
+
     /// A solving plan between its receipt and its start: every card it put
     /// tracks on, the cards it still awaits, when it arrived (media time),
     /// and the guard that starts it without them ([L27]: cancelled when the
@@ -184,6 +189,23 @@ final class BodyBeatsRunner {
                 let resizesWhole = body.whole
                     && (abs(crossing.width - page.width) > 0.5 || abs(crossing.height - page.height) > 0.5)
                 let holdsFirst = !instant && Self.firstMoveMs(planned, track) >= track.delayMs + track.durationMs
+                // A whole card that only WIDENS has nothing of its start to
+                // keep: a picture of the narrower face cannot grow, and held
+                // over the page it showed the old face for the whole motion
+                // and the new one all at once at the land. Its cover stands
+                // only through the set-up, while its page is solved at the
+                // landing width; the motion's start takes it off, and the
+                // page shows from the first moving frame, the edge revealing
+                // it, with the end face's right strip riding the edge
+                // (`standEdge`, `rideEdge`).
+                let widens = body.whole && solve != nil && !holdsFirst && body.painted && body.cover == nil
+                    && abs(crossing.height - page.height) <= 0.5 && crossing.width > page.width + 0.5
+                body.crossingEdge = widens
+                    ? BodyBeats.EdgeStrip(
+                        landingWidth: Double(crossing.width), leftInset: body.insets?.left ?? 0,
+                        rightInset: body.insets?.right ?? 0, width: Self.edgeStripWidth
+                    )
+                    : nil
                 let covers = resizesWhole || holdsFirst
                 body.crossing = (crossing, moveBegin, covers && solve == nil)
                 body.lastCrossing = CrossingAccount(planId: planId, size: crossing)
@@ -472,6 +494,93 @@ final class BodyBeatsRunner {
         )
     }
 
+    /// Stand a widening card's right strip over its solved page: a picture
+    /// of the page at its landing size, masked to the strip and standing
+    /// where its pixels came from, which `rideEdge` then carries on the
+    /// edge. `done` runs once the strip stands or could not be taken — then
+    /// the card goes without one, its edge a plain clip — and not at all
+    /// when the plan started or the crossing ended while it was taken. The
+    /// strip stands under the start's cover, which the motion's start takes
+    /// off.
+    private func standEdge(_ body: Body, edge: BodyBeats.EdgeStrip, planId: Int, then done: @escaping () -> Void) {
+        guard let cardId = body.cardId else {
+            done()
+            return
+        }
+        let size = body.webView.frame.size
+        let asked = CACurrentMediaTime()
+        controller.snapshotFrame(
+            of: body, cardId: cardId, size: size, scale: window.backingScaleFactor,
+            deadline: .milliseconds(Int(Self.solveGuardMs)), purpose: "a widening card's edge"
+        ) { [weak self, weak body] image in
+            guard let self, let body, body.state != .gone else { return }
+            guard body.crossing != nil, body.lastCrossing?.planId == planId, self.solves[planId] != nil else { return }
+            guard let image else {
+                done()
+                return
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let tail = BodyCoverView(
+                cover: BodyCover(
+                    image: image, size: size, surface: body.surface, insets: body.insets,
+                    takenAt: Date().timeIntervalSince1970 * 1000
+                ),
+                frame: CGRect(origin: .zero, size: size)
+            )
+            tail.autoresizingMask = []
+            // Hidden until its ride begins: at its landing place it reaches
+            // past the narrower cover standing over the set-up.
+            tail.isHidden = true
+            body.container.addSubview(tail, positioned: .above, relativeTo: body.webView)
+            if let tailLayer = tail.layer {
+                let strip = CALayer()
+                strip.backgroundColor = CGColor(gray: 0, alpha: 1)
+                strip.frame = tail.convertToLayer(CGRect(
+                    x: CGFloat(edge.stripLeft), y: 0, width: size.width - CGFloat(edge.stripLeft), height: size.height
+                ))
+                tailLayer.mask = strip
+            }
+            CATransaction.commit()
+            body.crossingTail = tail
+            body.lastCrossing?.snapshotMs = (CACurrentMediaTime() - asked) * 1000
+            body.lastCrossing?.coverPixels = CGSize(width: image.width, height: image.height)
+            done()
+        }
+    }
+
+    /// Carry a widening card's right strip on `track`, from the plan's start
+    /// (`BodyBeats.edgeRide`): the strip's right on the moving edge, and the
+    /// page — at its landing width since the solve — masked to the strip's
+    /// left, so the strip stands over exactly what is hidden of the page.
+    /// Every model is the land's — the strip where its pixels came from, the
+    /// page shown to the strip — so the land moves nothing, and the strip
+    /// comes off over a page that shows exactly what it did. With no strip
+    /// — its picture could not be taken — the page is shown to the edge.
+    private func rideEdge(
+        _ body: Body, edge: BodyBeats.EdgeStrip, track: BodyBeats.Track, anchor: ClockAnchor, startWallMs: Double
+    ) {
+        guard let page = body.webView.layer, let landing = body.beats?.landing else { return }
+        let ride = BodyBeats.edgeRide(track, strip: edge, landingWidth: Double(landing.width))
+        let begin = anchor.beginTime(startWallMs: startWallMs, delayMs: track.delayMs)
+        var widths = track.rects.map { Double($0.width) }
+        if let tail = body.crossingTail, let tailLayer = tail.layer,
+           let positions = Self.positions(of: tail, atLefts: ride.tailLefts) {
+            tail.isHidden = false
+            tailLayer.removeAnimation(forKey: Self.bandKey)
+            tailLayer.add(Self.keyframes(
+                "position", values: positions, keyTimes: track.keyTimes, timings: track.timings,
+                durationMs: track.durationMs, begin: tailLayer.convertTime(begin, from: nil)
+            ), forKey: Self.bandKey)
+            widths = ride.pageWidths
+        }
+        let height = body.webView.bounds.height
+        Self.mask(
+            page, of: body.webView, to: widths.map { CGRect(x: 0, y: 0, width: CGFloat($0), height: height) },
+            track: track, begin: begin
+        )
+    }
+
     /// Mask `layer` to `rects` — in `view`'s own coordinates, one per key of
     /// `track` — moving the mask from one to the next on the track's clock,
     /// its model the last.
@@ -511,6 +620,19 @@ final class BodyBeatsRunner {
         return tops.map { NSValue(point: CGPoint(x: base.x, y: base.y + perPoint * ($0 - Double(held.minY)))) }
     }
 
+    /// The positions `view`'s layer takes with the view's left at each of
+    /// `lefts`, read from the layer as `positions(of:atTops:)` reads a top.
+    private static func positions(of view: NSView, atLefts lefts: [Double]) -> [NSValue]? {
+        guard let layer = view.layer else { return nil }
+        let held = view.frame
+        let base = layer.position
+        view.frame = held.offsetBy(dx: 1, dy: 0)
+        let perPoint = layer.position.x - base.x
+        view.frame = held
+        guard abs(perPoint) > 0.5 else { return nil }
+        return lefts.map { NSValue(point: CGPoint(x: base.x + perPoint * ($0 - Double(held.minX)), y: base.y)) }
+    }
+
     /// `crossingSolved`: the body is laid out at its crossing size. Its plan
     /// starts once it awaits no other card. Late — the plan started or the
     /// crossing was cancelled — it is ignored.
@@ -522,6 +644,22 @@ final class BodyBeatsRunner {
     /// the same way.
     func crossingSolved(_ body: Body, band: CrossingSolved.Band?, anchor: CrossingSolved.Anchor?) {
         guard body.crossing != nil, let planId = body.lastCrossing?.planId else { return }
+        // A widening card's edge strip is cut from its solved page, so it is
+        // taken now, and the card is counted solved once it stands.
+        if let edge = body.crossingEdge, let solve = solves[planId],
+           solve.awaited.contains(ObjectIdentifier(body)) {
+            standEdge(body, edge: edge, planId: planId) { [weak self, weak body] in
+                guard let self, let body else { return }
+                self.solved(body, planId: planId, band: nil, anchor: nil)
+            }
+            return
+        }
+        solved(body, planId: planId, band: band, anchor: anchor)
+    }
+
+    /// `body` is solved for plan `planId`: counted, its band or split kept,
+    /// and the plan started when it awaits no other card.
+    private func solved(_ body: Body, planId: Int, band: CrossingSolved.Band?, anchor: CrossingSolved.Anchor?) {
         guard let solve = solves[planId], solve.awaited.remove(ObjectIdentifier(body)) != nil else {
             // Its plan started without it: the guard ran out first. Said in
             // the log with how late it was, which is what tunes the guard.
@@ -670,6 +808,9 @@ final class BodyBeatsRunner {
                 rideBand(body, band: band, track: carried.track, anchor: anchor, startWallMs: startWallMs)
             } else if let split = body.crossingSplit {
                 rideSplit(body, split: split, track: carried.track, anchor: anchor, startWallMs: startWallMs)
+            } else if let edge = body.crossingEdge {
+                takeDownCrossingCover(body)
+                rideEdge(body, edge: edge, track: carried.track, anchor: anchor, startWallMs: startWallMs)
             }
         }
         CATransaction.commit()
@@ -796,7 +937,18 @@ final class BodyBeatsRunner {
             body.lastCrossing?.surface = surface
         }
         body.webView.autoresizingMask = []
+        // A widening card's page is wider than the cover standing over it
+        // until the motion starts, and the cover's apron is transparent: it
+        // is cut at the First pane's right, so nothing of it shows past the
+        // card's own edge, nor over a neighbour, before its ride begins.
+        let firstPaneRight = body.webView.frame.width - CGFloat(body.insets?.right ?? 0)
         body.webView.frame = CGRect(origin: .zero, size: crossing.size)
+        if body.crossingEdge != nil, let page = body.webView.layer {
+            let cut = CALayer()
+            cut.backgroundColor = CGColor(gray: 0, alpha: 1)
+            cut.frame = body.webView.convertToLayer(CGRect(x: 0, y: 0, width: firstPaneRight, height: crossing.size.height))
+            page.mask = cut
+        }
         CATransaction.commit()
     }
 
@@ -817,22 +969,11 @@ final class BodyBeatsRunner {
             body.webView.frame = bounds
         }
         body.webView.autoresizingMask = Self.pageResizing
-        if let stand = body.stand, let cardId = body.cardId, let cover = body.cover, stand.kinds.contains(.crossing) {
-            if controller.lifecycle.covers.takeDown(stand, kind: .crossing, for: cardId) {
-                cover.removeFromSuperview()
-                body.cover = nil
-                body.stand = nil
-            } else {
-                // Its page has not painted since it was brought back: the
-                // cover stays for that, following its container again.
-                cover.layer?.mask = nil
-                cover.frame = body.container.bounds
-                cover.autoresizingMask = [.width, .height]
-            }
-        }
-        if body.crossingBand != nil || body.crossingSplit != nil {
+        takeDownCrossingCover(body)
+        if body.crossingBand != nil || body.crossingSplit != nil || body.crossingEdge != nil {
             body.crossingBand = nil
             body.crossingSplit = nil
+            body.crossingEdge = nil
             body.webView.layer?.removeAnimation(forKey: Self.bandKey)
             body.webView.layer?.mask = nil
         }
@@ -840,6 +981,25 @@ final class BodyBeatsRunner {
         body.crossingTail = nil
         CATransaction.commit()
         controller.send(.bodyCrossing(.land), to: body)
+    }
+
+    /// Take a crossing's cover off `body`: at the land, or at the motion's
+    /// start for a widening card, whose page shows from the first frame.
+    private func takeDownCrossingCover(_ body: Body) {
+        guard let stand = body.stand, let cardId = body.cardId, let cover = body.cover, stand.kinds.contains(.crossing) else {
+            return
+        }
+        if controller.lifecycle.covers.takeDown(stand, kind: .crossing, for: cardId) {
+            cover.removeFromSuperview()
+            body.cover = nil
+            body.stand = nil
+        } else {
+            // Its page has not painted since it was brought back: the
+            // cover stays for that, following its container again.
+            cover.layer?.mask = nil
+            cover.frame = body.container.bounds
+            cover.autoresizingMask = [.width, .height]
+        }
     }
 
     private static func keyframes(_ keyPath: String, values: [Any], track: BodyBeats.Track, begin: CFTimeInterval) -> CAKeyframeAnimation {

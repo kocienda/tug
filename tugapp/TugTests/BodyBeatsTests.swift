@@ -217,6 +217,25 @@ final class BodyBeatsTests: XCTestCase {
         check("a split at the cover's top is refused", BodyBeats.CoverSplit(splitTop: 0, follows: true, viewport: 300, scale: 1, coverHeight: 600) == nil)
     }
 
+    func testAWideningCardRidesItsRightStripOnTheEdge() throws {
+        // A card of 695 widening to 820, its pane 10 in from either side.
+        let track = BodyBeats.Track(
+            delayMs: 0, durationMs: 300, keyTimes: [0, 0.5, 1],
+            rects: [695, 760, 820].map { CGRect(x: 0, y: 0, width: $0, height: 1000) },
+            opacities: nil, timings: [.linear, .linear]
+        )
+        let strip = try XCTUnwrap(BodyBeats.EdgeStrip(landingWidth: 820, leftInset: 10, rightInset: 10, width: 112))
+        check("the strip is cut its width in from the pane's right", strip.stripLeft == 698, "\(strip.stripLeft)")
+        let ride = BodyBeats.edgeRide(track, strip: strip, landingWidth: 820)
+        check("the strip's right is on the edge", ride.tailLefts == [-125, -60, 0], "\(ride.tailLefts)")
+        check("and the page shows up to the strip", ride.pageWidths == [573, 638, 698], "\(ride.pageWidths)")
+        check("the land shows the page where the strip's pixels came from", ride.pageWidths.last == strip.stripLeft)
+        check(
+            "a pane narrower than its strip is refused",
+            BodyBeats.EdgeStrip(landingWidth: 120, leftInset: 10, rightInset: 10, width: 112) == nil
+        )
+    }
+
     func testTheLayerMappingIsSolvedFromThreeFramesAndInverts() throws {
         // A flipped geometry with a centred anchor, as a layer in an unflipped
         // superlayer of height 800 would report it: nothing here assumes it.

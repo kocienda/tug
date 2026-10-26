@@ -141,6 +141,7 @@ import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-epis
 import { landRecorder } from "../lib/land-frame-record";
 import { CARD_FOLD_ATTR } from "../lib/folded-body";
 import { runCrossingSolve } from "./crossing-solve";
+import { flushOwedReflows, reflowOwed } from "../lib/owed-reflow";
 import { readCrossingAnchor, readCrossingBand } from "../lib/crossing-band";
 import { deckTrace } from "../deck-trace";
 import { createBodyLand } from "./body-land";
@@ -995,6 +996,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
         if (crossing === episode) crossing = null;
       },
       quietSince: (t) => landRecorder.quietSince(t),
+      flushReflows: flushOwedReflows,
+      reflowOwed,
       solved: ({ resizeMissed }) => {
         cancelSolve = null;
         const foldLanded = foldLandedNow();

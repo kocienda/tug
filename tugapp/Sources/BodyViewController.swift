@@ -336,6 +336,11 @@ final class BodyViewController {
         /// cut above the split, riding the bottom edge — standing over the
         /// first; nil for every other crossing, and after the land.
         var crossingSplit: BodyBeats.CoverSplit?
+        /// Where a whole card whose width grows cuts its end face's right
+        /// strip, which rides the right edge as `crossingTail` once the
+        /// solved page's snapshot stands; nil for every other crossing, and
+        /// after the land.
+        var crossingEdge: BodyBeats.EdgeStrip?
         var crossingTail: BodyCoverView?
         /// The last crossing's account, for the harness: its plan, its size,
         /// and how far ahead of the first beat the body was ready.

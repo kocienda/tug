@@ -1,17 +1,22 @@
 /**
  * The crossing solve, read over a stepped clock: it ends the episode only
  * once the host's resize lands (or its fallback runs out), says solved only
- * after a quiet frame and never before the second, and a cancel stops it.
+ * after a quiet frame and never before the second, waits out any reflow a
+ * list view still owes, and a cancel stops it.
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { runCrossingSolve, SOLVE_QUIET_FRAME_CAP, SOLVE_RESIZE_FALLBACK_MS } from "../crossing-solve";
 
-/** A page whose clock, frames, timers and resize advance by hand. */
-function page(busyUntil = Number.NEGATIVE_INFINITY) {
+/**
+ * A page whose clock, frames, timers and resize advance by hand. A list view
+ * on it owes a reflow for its first `owedFlushes` frames' flushes.
+ */
+function page(busyUntil = Number.NEGATIVE_INFINITY, owedFlushes = 0) {
   let t = 0;
   let nextId = 1;
+  let flushes = 0;
   const frames = new Map<number, () => void>();
   const timers = new Map<number, { at: number; cb: () => void }>();
   let resize: (() => void) | null = null;
@@ -40,12 +45,17 @@ function page(busyUntil = Number.NEGATIVE_INFINITY) {
     endEpisode: () => log.push(`episode end at ${t}`),
     // Busy (a delivery or a commit) until `busyUntil`; quiet after.
     quietSince: (since) => since >= busyUntil,
+    flushReflows: () => {
+      flushes += 1;
+    },
+    reflowOwed: () => flushes <= owedFlushes,
     solved: (facts) => solved.push(facts),
   });
   return {
     cancel,
     log,
     solved,
+    flushes: () => flushes,
     resize(at: number) {
       t = at;
       resize?.();
@@ -92,6 +102,31 @@ describe("runCrossingSolve", () => {
     expect(p.solved).toEqual([]);
     p.frame(83.3);
     expect(p.solved).toEqual([{ resizeMissed: false, frames: 4 }]);
+  });
+
+  test("a quiet frame is not solved while a list view still owes its reflow", () => {
+    // The width change's debounce and drain: quiet frames, and the page is
+    // not laid out until the drain has nothing left.
+    const p = page(Number.NEGATIVE_INFINITY, 4);
+    p.resize(20);
+    p.frame(33.3);
+    p.frame(50);
+    p.frame(66.7);
+    p.frame(83.3);
+    expect(p.solved).toEqual([]);
+    p.frame(100);
+    expect(p.solved).toEqual([{ resizeMissed: false, frames: 5 }]);
+  });
+
+  test("every frame it waits asks the list views to answer their width change now", () => {
+    const p = page(Number.NEGATIVE_INFINITY, 2);
+    p.resize(20);
+    p.frame(33.3);
+    expect(p.flushes()).toBe(1);
+    p.frame(50);
+    p.frame(66.7);
+    expect(p.flushes()).toBe(3);
+    expect(p.solved).toEqual([{ resizeMissed: false, frames: 3 }]);
   });
 
   test("with no resize the fallback solves, and says so", () => {

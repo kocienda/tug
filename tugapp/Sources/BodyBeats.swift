@@ -396,4 +396,49 @@ enum BodyBeats {
             pageOffsets: heights.map { split.follows ? $0 - landingHeight : 0 }
         )
     }
+
+    /// How a whole card whose width grows rides its right edge (bullseye in,
+    /// a content-width step), in the container's points: the page stands at
+    /// its landing width from the first frame, and the end face's right
+    /// strip — the pane's border, its scrollbar, the title bar's buttons and
+    /// the composer's — rides the moving edge over it. Nothing is a picture
+    /// of the start, so the land shows what the last frame did.
+    struct EdgeStrip: Equatable {
+        /// The strip's left in the landing's picture, from the container's left.
+        var stripLeft: Double
+
+        /// The strip a page at `landingWidth` with its pane `rightInset`
+        /// from the container's right carries: `width` points of the pane
+        /// and the apron beside it, never past the pane's left. Nil for a
+        /// pane too narrow to split.
+        init?(landingWidth: Double, leftInset: Double, rightInset: Double, width: Double) {
+            let left = landingWidth - rightInset - width
+            guard width > 0, left > leftInset else { return nil }
+            self.stripLeft = left
+        }
+
+        init(stripLeft: Double) {
+            self.stripLeft = stripLeft
+        }
+    }
+
+    /// The right strip's ride: how much of the page shows at each key — the
+    /// page masked to its left of the strip — and where the strip's picture
+    /// stands, its right on the container's.
+    struct EdgeRide: Equatable {
+        var pageWidths: [Double]
+        var tailLefts: [Double]
+    }
+
+    /// Carry `strip` over `track`, whose rects are the container's: the
+    /// strip's right on the moving edge throughout, and the page shown up
+    /// to the strip's left. At the landing the strip stands where its
+    /// pixels came from.
+    static func edgeRide(_ track: Track, strip: EdgeStrip, landingWidth: Double) -> EdgeRide {
+        let offsets = track.rects.map { Double($0.width) - landingWidth }
+        return EdgeRide(
+            pageWidths: offsets.map { max(0, strip.stripLeft + $0) },
+            tailLefts: offsets
+        )
+    }
 }

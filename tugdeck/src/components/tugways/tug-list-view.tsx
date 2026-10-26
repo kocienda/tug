@@ -116,6 +116,7 @@ import {
   type Measured,
 } from "@/lib/fold-crossing";
 import { planCrossingApply } from "@/lib/crossing-apply";
+import { registerOwedReflow } from "@/lib/owed-reflow";
 import { deferToSetUp } from "@/lib/set-up-apply";
 import {
   anchorDepthFromEnd,
@@ -4170,7 +4171,19 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         );
       });
       widthObserver.observe(scroller);
+      // A crossing solve asks for the debounced answer now — its resize is
+      // one step, not a drag — and counts the page laid out only once no
+      // stale height is left to drain (`lib/owed-reflow.ts`).
+      const releaseOwed = registerOwedReflow({
+        flush: () => {
+          if (settleTimer === null) return;
+          clearTimeout(settleTimer);
+          runInvalidation();
+        },
+        owed: () => settleTimer !== null || heightIndexRef.current.staleCount() > 0,
+      });
       return () => {
+        releaseOwed();
         widthObserver.disconnect();
         if (settleTimer !== null) {
           clearTimeout(settleTimer);
