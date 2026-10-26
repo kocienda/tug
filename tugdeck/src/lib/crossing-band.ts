@@ -26,8 +26,10 @@
  * so the composer and band ride the moving edge from the first frame. Where
  * the split falls is the card's own fact: a transcript following its bottom
  * hangs from the scroller's top ([`data-still-anchor="bottom"`] on the card
- * root, the same mark the shell's own hold reads); a scrolled-up one keeps
- * its rows at the top and hangs only its bottom band.
+ * root, the same mark the shell's own hold reads); any other — a scrolled-up
+ * transcript, an editor — keeps its rows at the top and hangs from the
+ * bottom everything below its scroller, which the live page bottom-hangs
+ * too: the composer and band, or an editor's status bar.
  *
  * @module lib/crossing-band
  */
@@ -103,19 +105,18 @@ export interface CrossingAnchor {
    * of the pin stuck there, which hangs with the head.
    */
   readonly splitTop: number;
-  /** The split is the scroller's top, the content following the bottom; else the band's top. */
+  /** The split is the scroller's top, the content following the bottom; else the scroller's bottom. */
   readonly follows: boolean;
   readonly viewport: number;
 }
 
-/** Where the picture under `root` splits, or null when the card names no scroller or band. */
+/** Where the picture under `root` splits, or null when the card names no scroller. */
 export function readCrossingAnchor(root: ParentNode): CrossingAnchor | null {
   const scroller = root.querySelector<HTMLElement>(`[${CROSSING_SCROLLER_ATTR}]`);
-  const band = root.querySelector<HTMLElement>(`[${CROSSING_BAND_ATTR}]`);
   const viewport = window.innerHeight;
-  if (scroller == null || band == null || !(viewport > 0)) return null;
+  if (scroller == null || !(viewport > 0)) return null;
   const follows = scroller.closest(`[${STILL_ANCHOR_ATTR}="bottom"]`) !== null;
-  if (!follows) return { splitTop: band.getBoundingClientRect().top, follows, viewport };
+  if (!follows) return { splitTop: scroller.getBoundingClientRect().bottom, follows, viewport };
   const top = scroller.getBoundingClientRect().top;
   let splitTop = top;
   // A pin is stuck when it sits at the scroller's top rather than at its

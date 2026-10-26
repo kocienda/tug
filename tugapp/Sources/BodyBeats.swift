@@ -362,7 +362,7 @@ enum BodyBeats {
         /// From the page's reading, CSS px in the solved form, scaled by the
         /// page's points per CSS px. A following card splits at its
         /// scroller's top, the same in both forms; one that does not splits
-        /// at its bottom band, fixed from the bottom. Nil for a split the
+        /// at its scroller's bottom, fixed from the bottom. Nil for a split the
         /// cover cannot carry.
         init?(splitTop: Double, follows: Bool, viewport: Double, scale: Double, coverHeight: Double) {
             guard viewport > 0, scale > 0, splitTop >= 0, splitTop <= viewport else { return nil }

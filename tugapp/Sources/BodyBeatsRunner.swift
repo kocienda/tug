@@ -421,7 +421,7 @@ final class BodyBeatsRunner {
         )
         let grows = landing.height > size.height + 0.5
         if !(split.follows && grows) {
-            rideTail(body, cover: cover, splitY: splitY, pane: pane, ride: ride, track: track, begin: begin)
+            rideTail(body, cover: cover, split: split, pane: pane, ride: ride, track: track, begin: begin)
         }
 
         guard split.follows, let page = body.webView.layer,
@@ -438,18 +438,21 @@ final class BodyBeatsRunner {
         )
     }
 
-    /// The split cover's tail: a second cover under the first, cut above
-    /// `splitY`, its frame's bottom on the moving edge.
+    /// The split cover's tail: a second cover, cut above the split, its
+    /// frame's bottom on the moving edge.
     private func rideTail(
-        _ body: Body, cover: BodyCoverView, splitY: CGFloat, pane: CGRect, ride: BodyBeats.SplitRide,
+        _ body: Body, cover: BodyCoverView, split: BodyBeats.CoverSplit, pane: CGRect, ride: BodyBeats.SplitRide,
         track: BodyBeats.Track, begin: CFTimeInterval
     ) {
         let size = cover.frame.size
-        // Under the head, so the rows it carries up pass behind the masthead
-        // rather than over it.
+        let splitY = CGFloat(split.splitY)
+        // A following tail is rows, carried up behind the masthead: under
+        // the head. Any other is the card's bottom chrome, which a shrinking
+        // edge carries up over the head's rows, clipped only at the edge:
+        // over it.
         let tail = cover.twin()
         tail.autoresizingMask = []
-        body.container.addSubview(tail, positioned: .below, relativeTo: cover)
+        body.container.addSubview(tail, positioned: split.follows ? .below : .above, relativeTo: cover)
         body.crossingTail = tail
         guard let tailLayer = tail.layer else { return }
         // What rides is clipped to the pane as it stands in the container —
