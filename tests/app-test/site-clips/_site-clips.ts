@@ -90,13 +90,20 @@ export function outDirFor(clip: string): string {
  * `extra.env` rides the launch environment — a scene with an arc redirects
  * `TUG_DATA_DIR` to its scratch root, one with jots names `TUG_JOTS_PATH` —
  * and `extra.contentSize` resizes the window after the boot, for a scene
- * wider than the harness's default.
+ * wider than the harness's default. `extra.spaces` adds parked workspaces
+ * beside the active one, each with its own deck and theme, for a scene that
+ * switches between them; the wait below still asks only for the active
+ * deck's cards.
  */
 export async function launchForMode(
   testName: string,
   deck: unknown,
   stubDir?: string,
-  extra: { env?: Record<string, string>; contentSize?: { width: number; height: number } } = {},
+  extra: {
+    env?: Record<string, string>;
+    contentSize?: { width: number; height: number };
+    spaces?: { id: string; name: string; theme: string; deck: unknown }[];
+  } = {},
 ): Promise<App> {
   if (MODE === undefined) throw new Error("site clips: TUG_SITE_CLIPS_MODE must be dark or light");
   const cards = (deck as { cards?: unknown[] } | null)?.cards;
@@ -112,7 +119,7 @@ export async function launchForMode(
     JSON.stringify({
       version: 5,
       activeSpaceId: SPACE_ID,
-      spaces: [{ id: SPACE_ID, name: "Site", theme: THEME_FOR_MODE[MODE], deck }],
+      spaces: [{ id: SPACE_ID, name: "Site", theme: THEME_FOR_MODE[MODE], deck }, ...(extra.spaces ?? [])],
     }),
   );
   const app = await launchTugApp({
