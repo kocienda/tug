@@ -113,10 +113,10 @@
  * The census is scoped for the same reason, and the scope is the bench card
  * rather than `.tug-pane`: `document.querySelector('.tug-pane')` returns the
  * FIRST pane, which is the Session card's. Unscoped it is not a claim this test
- * can make at all — `tugx-icon-twinkle` on `.tug-icon-spark` is an infinite
- * loop on an SVG element, which the census convicts by construction, so any
- * deck chrome that happens to be twinkling would turn the assertion into a red
- * about somebody else's glyph.
+ * can make at all — a running progress glyph is an infinite loop on an SVG
+ * element, which the census convicts by construction, so any deck chrome that
+ * happens to be busy would turn the assertion into a red about somebody else's
+ * glyph.
  *
  * ## Occlusion
  *

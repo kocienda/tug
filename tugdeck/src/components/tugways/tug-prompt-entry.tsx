@@ -48,6 +48,7 @@ import {
   ArrowUp,
   GitCommitHorizontal,
   MessageSquareText,
+  PencilSparkles,
   Plus,
   Square,
 } from "lucide-react";
@@ -117,8 +118,6 @@ import { TugAttachmentPreview } from "./cards/tug-attachment-preview";
 import { TugChoiceGroup } from "./tug-choice-group";
 import { TugProgressIndicator } from "./tug-progress-indicator";
 import { TugDictationButton } from "./tug-dictation-button";
-// Tug-authored, not lucide's: the sparkles have to be addressable to twinkle.
-import { PencilSparkles } from "./tug-icons";
 import { TugPushButton } from "./tug-push-button";
 import { TugTooltip } from "./tug-tooltip";
 import { TugActionTooltip } from "./tug-action-tooltip";
@@ -4081,7 +4080,7 @@ export const TugPromptEntry = React.forwardRef<
 
   // ── Commit-mode chrome ([P03], Z5 icon rail) ─────────────────────────────
   // Z5: auto-message / commit, both icons ([P03]). Auto-Message drafts
-  // (pencil-sparkles; a spinner + disabled while drafting), Commit lands.
+  // (pencil-sparkles; the wave + disabled while drafting), Commit lands.
   //
   // The land button is NOT disabled by the land gate, and that is the point
   // ([L31]). An HTML-disabled button takes no pointer events, so a press on it
@@ -4132,12 +4131,23 @@ export const TugPromptEntry = React.forwardRef<
           // input (CSS) so a click can't re-request.
           emphasis={landingDrafting ? "filled" : "outlined"}
           role="accent"
-          // The sparkles twinkle for as long as the scribe is writing. A lit
-          // button says "pressed"; it does not say "still going" — and this
-          // wait is long enough (a model reading a diff) that a still button
-          // is the one thing that would read as stuck. The pencil holds still
-          // underneath: the tool is steady, the magic is what flickers.
-          activity={landingDrafting ? "twinkle" : undefined}
+          // The pencil trades places with the wave for as long as the scribe
+          // is writing. A lit button says "pressed"; it does not say "still
+          // going" — and this wait is long enough (a model reading a diff)
+          // that a still button is the one thing that would read as stuck.
+          // The wave is the glyph every other "the system is working" moment
+          // wears (the dictation button, the submit's arbitration, the wave
+          // caret filling this same message), so the wait is one of that
+          // family rather than a motion of its own.
+          activity={landingDrafting ? "busy" : undefined}
+          activityIcon={
+            <TugProgressIndicator
+              variant="wave"
+              state="running"
+              role="inherit"
+              size={14}
+            />
+          }
           data-drafting={landingDrafting ? "" : undefined}
           aria-pressed={landingDrafting || undefined}
           onClick={handleCommitAutoMessage}

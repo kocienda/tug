@@ -147,21 +147,11 @@ export type TugButtonRounded = "none" | "sm" | "md" | "lg" | "full";
  * content and overlays a spinner, which reads as "this button is out of
  * service." An activity keeps the glyph and lets it move.
  *
- * Two moving parts, usable together or apart:
- *
- *  - **The name** picks the motion. `busy` is the null motion — the
- *    attribute is on and nothing moves in place — for buttons whose tell is
- *    a swapped-in {@link TugButtonProps.activityIcon} (a progress glyph
- *    replacing the rest glyph). `twinkle` animates the parts of the glyph
- *    marked `.tug-icon-spark` (see `tug-icons.tsx`), leaving the rest of the
- *    drawing still — sparkles that sparkle while the thing they promise is
- *    being written.
- *  - **The glyph** decides what can move. Whole-icon motion is the button's
- *    business and lives in `tug-button.css`; part-of-icon motion belongs to
- *    the icon, which declares its own animatable parts and answers the
- *    ancestor's `data-tug-activity` in `tug-icons.css`. A `twinkle` on a
- *    glyph that marks no sparks is simply still — the button does not
- *    invent motion for a drawing that never offered any.
+ * `busy` is the one name, and it is the null motion: the attribute is on and
+ * nothing moves in place. The tell is a swapped-in
+ * {@link TugButtonProps.activityIcon} — a progress glyph replacing the rest
+ * glyph, the wave everywhere today — so the motion belongs to that glyph and
+ * every in-flight button in the deck wears the same one.
  *
  * The attribute, not the prop, is the contract ([L06]). A surface that must
  * not re-render to show a transient — the prompt entry's shell arbitration,
@@ -171,11 +161,10 @@ export type TugButtonRounded = "none" | "sm" | "md" | "lg" | "full";
  * is the ordinary path; writing the attribute is the escape hatch for state
  * that has no business in React.
  *
- * Adding a motion is: a name here, a rule keyed on it, and the keyframes
- * beside the rule — in `tug-button.css` if it moves the whole glyph, in the
- * icon's own file if it moves a part.
+ * Adding a motion is: a name here, a rule keyed on it in `tug-button.css`,
+ * and the keyframes beside the rule.
  */
-export type TugButtonActivity = "busy" | "twinkle";
+export type TugButtonActivity = "busy";
 
 /**
  * TugButton confirmation configuration.
@@ -315,7 +304,7 @@ export interface TugButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButt
    * Motion the button wears while the action it fires is in flight. See
    * {@link TugButtonActivity} for the vocabulary and for the contract a
    * surface uses to drive the attribute by hand.
-   * @selector [data-tug-activity="busy" | "twinkle"]
+   * @selector [data-tug-activity="busy"]
    */
   activity?: TugButtonActivity;
 
@@ -577,9 +566,9 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
   onKeyDown: onKeyDownProp,
   ...rest
 }: TugButtonProps, ref) {
-  // The petals spin while the button loads and the sparks twinkle under an
-  // activity (`tug-button.css`, `tug-icons.css`); the motion registry hears
-  // both ([D7]).
+  // The petals spin while the button loads and the activity glyph runs
+  // under an activity (`tug-button.css`); the motion registry hears both
+  // ([D7]).
   useMotionHold(loading || activity !== undefined);
   // `role` is overloaded. For 99% of call sites it's a semantic theming
   // value from [D02]'s emphasis × role matrix (`action`, `data`, etc.)

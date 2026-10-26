@@ -1552,22 +1552,13 @@ body {
  * this is a separate claim from `loading` (which blanks the button and
  * overlays a spinner: out of service, not working).
  *
- * Two halves live here, and the split is deliberate:
- *
- *  - The **glyph swap**, below. With an `activityIcon` the slot holds both
- *    glyphs and this picks one, exactly as the confirmation swap does. A
- *    surface that must not re-render to show a transient writes
- *    `data-tug-activity` onto the button element by hand and gets the swap
- *    out of the cascade ([L06]). The hidden half is `display: none` — an
- *    unrendered element runs no animation, so a progress glyph parked in
- *    the slot costs nothing for the whole time it is not showing.
- *
- *  - **Motion that moves a part of the glyph** is NOT here. It belongs to
- *    the icon, which marks its own animatable parts and answers this same
- *    attribute from an ancestor (`.tug-icon-spark` in tug-icons.css). The
- *    button says "work is in flight"; the drawing decides what that looks
- *    like on it. Whole-icon motion would live here, since the icon slot is
- *    the button's own layout.
+ * The **glyph swap**, below. With an `activityIcon` the slot holds both
+ * glyphs and this picks one, exactly as the confirmation swap does. A
+ * surface that must not re-render to show a transient writes
+ * `data-tug-activity` onto the button element by hand and gets the swap out
+ * of the cascade ([L06]). The hidden half is `display: none` — an unrendered
+ * element runs no animation, so a progress glyph parked in the slot costs
+ * nothing for the whole time it is not showing.
  *
  * `busy` is the null motion: attribute on, nothing moves in place. It is
  * what a swap-only activity asks for.
