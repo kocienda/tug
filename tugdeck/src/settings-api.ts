@@ -449,6 +449,45 @@ export function putLayoutMixerOpen(open: boolean): void {
   });
 }
 
+/** tugbank domain/key holding how a card masthead spells a file's path. */
+export const MASTHEAD_PATHS_DOMAIN = "dev.tugapp.app";
+export const MASTHEAD_PATHS_KEY = "masthead-paths";
+
+/**
+ * How a document card's masthead writes the path it names: `"full"`, the
+ * absolute path, or `"project"`, the path relative to the open project it sits
+ * in (`lib/masthead-path.ts` says which project that is). A path in no open
+ * project is written in full either way.
+ */
+export type MastheadPathStyle = "full" | "project";
+
+/** An absent or unreadable key means full paths, the shape mastheads have always had. */
+export function parseMastheadPathStyle(
+  entry: TaggedValue | undefined,
+): MastheadPathStyle {
+  return entry?.kind === "string" && entry.value === "project" ? "project" : "full";
+}
+
+/**
+ * Persist the masthead path style. Deck-wide: it is a statement about how the
+ * user wants paths to read, not about one card. Fire-and-forget like
+ * `putLayoutMixerOpen`, with the local cache written first so every masthead
+ * answers the choice rather than the round trip. Stored as `Value::String`.
+ */
+export function putMastheadPathStyle(style: MastheadPathStyle): void {
+  getTugbankClient()?.setLocalValue(MASTHEAD_PATHS_DOMAIN, MASTHEAD_PATHS_KEY, {
+    kind: "string",
+    value: style,
+  });
+  fetch(`/api/defaults/${MASTHEAD_PATHS_DOMAIN}/${MASTHEAD_PATHS_KEY}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "string", value: style }),
+  }).catch((err) => {
+    console.warn("[settings] PUT masthead-paths failed:", err);
+  });
+}
+
 /** tugbank domain/key holding the app-wide default project directory. */
 export const DEFAULT_PROJECT_PATH_DOMAIN = "dev.tugapp.app";
 export const DEFAULT_PROJECT_PATH_KEY = "default-project-path";

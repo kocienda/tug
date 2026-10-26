@@ -26,6 +26,10 @@
  * items are visibly two serializations of one entity rather than two copies of
  * one string.
  *
+ * The masthead renders in the card's own body page, not in the shell's pane
+ * chrome, so every press and every read goes through `app.body("A")`; only the
+ * Escape that closes a menu is the app's.
+ *
  * @covers tugdeck/src/components/tugways/file-identity-menu.tsx
  * @covers tugdeck/src/components/tugways/card-masthead.tsx
  */
@@ -33,7 +37,7 @@
 import { describe, expect, test } from "bun:test";
 import * as path from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -41,10 +45,10 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const CARD = '[data-card-id="A"]';
 const EDITOR_CONTENT = `${CARD} [data-slot="tug-text-card-editor"] .cm-content`;
-// The masthead is the PANE's title bar, not a descendant of the card.
-const PANE = '[data-pane-id="p1"]';
-const MASTHEAD_TITLE = `${PANE} [data-testid="card-masthead-title"]`;
-const MASTHEAD_DESCRIPTION = `${PANE} [data-testid="card-masthead-description"]`;
+// The masthead is the card's chrome tier, in the card's body page.
+const MASTHEAD = '[data-slot="card-masthead"]';
+const MASTHEAD_TITLE = `${MASTHEAD} [data-testid="card-masthead-title"]`;
+const MASTHEAD_DESCRIPTION = `${MASTHEAD} [data-testid="card-masthead-description"]`;
 const MENU = '[data-slot="tug-editor-context-menu"]';
 
 /** Distinguishes "the copy wrote this" from "the copy never happened". */
@@ -126,27 +130,27 @@ async function seedTextCard(app: App, filePath: string): Promise<void> {
  * title bar's own guard exists for.
  */
 async function openMenuAt(
-  app: App,
+  body: BodyApp,
   selector: string,
 ): Promise<ReadonlyArray<{ action: string; label: string; disabled: boolean }>> {
-  await app.nativeRightClickAtElement(selector);
-  await app.waitForCondition<boolean>(
+  await body.nativeRightClickAtElement(selector);
+  await body.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENU)}) !== null`,
     { timeoutMs: 8_000 },
   );
   // And nothing else answered the same press — the label's own Copy menu is
   // the one this would otherwise stack under.
   expect(
-    await app.evalJS<number>(`document.querySelectorAll('.tug-menu-content').length`),
+    await body.evalJS<number>(`document.querySelectorAll('.tug-menu-content').length`),
   ).toBe(1);
-  return await app.evalJS<
+  return await body.evalJS<
     ReadonlyArray<{ action: string; label: string; disabled: boolean }>
   >(menuRows());
 }
 
-async function closeMenu(app: App): Promise<void> {
+async function closeMenu(app: App, body: BodyApp): Promise<void> {
   await app.nativeKey("Escape");
-  await app.waitForCondition<boolean>(
+  await body.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENU)}) === null`,
     { timeoutMs: 8_000 },
   );
@@ -162,9 +166,10 @@ describe.skipIf(!SHOULD_RUN)("at0574 — the document masthead's own menu", () =
       const app = await launchTugApp({ testName: "at0574-card-masthead-file-menu" });
       try {
         await seedTextCard(app, file);
+        const body = app.body("A");
 
         // ---- The run that used to answer with the wrong menu. -------------
-        const onTitle = await openMenuAt(app, MASTHEAD_TITLE);
+        const onTitle = await openMenuAt(body, MASTHEAD_TITLE);
         note("at0574 title menu", JSON.stringify(onTitle));
         expect(onTitle.map((r) => r.action)).toEqual([
           "reveal-in-finder",
@@ -177,17 +182,17 @@ describe.skipIf(!SHOULD_RUN)("at0574 — the document masthead's own menu", () =
           "Copy Path",
         ]);
         expect(onTitle.every((r) => !r.disabled)).toBe(true);
-        await closeMenu(app);
+        await closeMenu(app, body);
 
         // ---- The run that used to answer with nothing. --------------------
-        const onPath = await openMenuAt(app, MASTHEAD_DESCRIPTION);
+        const onPath = await openMenuAt(body, MASTHEAD_DESCRIPTION);
         note("at0574 path menu", JSON.stringify(onPath));
         expect(onPath.map((r) => r.action)).toEqual(onTitle.map((r) => r.action));
 
         // ---- Copy Path carries the path itself. ---------------------------
         setPasteboard(SENTINEL);
-        await app.nativeClickAtElement(`${MENU} [data-item-action="copy-annotation-value"]`);
-        await app.waitForCondition<boolean>(
+        await body.nativeClickAtElement(`${MENU} [data-item-action="copy-annotation-value"]`);
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) === null`,
           { timeoutMs: 8_000 },
         );
@@ -200,9 +205,9 @@ describe.skipIf(!SHOULD_RUN)("at0574 — the document masthead's own menu", () =
         // sees over the path a paste outside Tug needs.
         const atomText = `[${path.basename(file)}](<${file}>)`;
         setPasteboard(SENTINEL);
-        await openMenuAt(app, MASTHEAD_DESCRIPTION);
-        await app.nativeClickAtElement(`${MENU} [data-item-action="copy-annotation-atom"]`);
-        await app.waitForCondition<boolean>(
+        await openMenuAt(body, MASTHEAD_DESCRIPTION);
+        await body.nativeClickAtElement(`${MENU} [data-item-action="copy-annotation-atom"]`);
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) === null`,
           { timeoutMs: 8_000 },
         );

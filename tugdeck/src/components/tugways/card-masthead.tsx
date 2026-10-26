@@ -19,7 +19,8 @@
  * The chrome tier's geometry and the row's seating in it are
  * `masthead-frame.css` — shared with the Session card's masthead for the same
  * reason. What is genuinely this card's own is here: the glyph, and a path line
- * that truncates in the middle (`TugPath`) and can be acted on.
+ * that truncates in the middle (`TugPath`) and can be acted on, spelled in full
+ * or relative to its project as Settings ▸ General chooses (`useMastheadPath`).
  *
  * The tier answers a right-click for the whole of its three lines, with the
  * file's own items — Show in Finder, Copy as Atom, Copy Path. That menu is
@@ -36,6 +37,7 @@ import type { DocumentMastheadPayload } from "@/lib/card-title-store";
 import { TugSessionRow } from "@/components/tugways/tug-session-row";
 import { TugPath } from "@/components/tugways/tug-path";
 import { useFileIdentityMenu } from "@/components/tugways/file-identity-menu";
+import { useMastheadPath } from "@/lib/masthead-path";
 
 import "./masthead-frame.css";
 import "./card-masthead.css";
@@ -63,6 +65,11 @@ export function CardMasthead({
 
   const isPath = payload.descriptionKind === "path";
   const actionable = onActivateDescription !== undefined;
+  // What the path line SHOWS. The menu below keeps the absolute path: Copy
+  // Path and Show in Finder act on the file, not on its spelling.
+  const shownPath = useMastheadPath(
+    isPath && payload.description !== null ? payload.description : "",
+  );
 
   // The tier's own right-click, claimed for the whole of it: a card showing a
   // file has three lines about that file, and every one of them used to answer
@@ -132,7 +139,7 @@ export function CardMasthead({
             ""
           ) : isPath ? (
             <TugPath
-              path={payload.description}
+              path={shownPath}
               className="card-masthead-description"
               data-testid="card-masthead-description"
               data-kind="path"

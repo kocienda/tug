@@ -2,7 +2,7 @@
  * settings-general-body.tsx — the General settings panel.
  *
  * App-wide preferences that belong to the app itself rather than to a card
- * type. Two rows today, both directories. The **default project directory** —
+ * type. Two directory rows and one choice. The **default project directory** —
  * where Tug looks when nothing else says otherwise (Open Quickly with no
  * bound card, and the session picker's path seed when there are no recents).
  * And the **briefs directory** — where a brief is written when the user asks
@@ -13,6 +13,11 @@
  * `{project_dir}/briefs` respectively, each shown in its field as a
  * placeholder so the user sees what they will get without the fallback being
  * written back as if they had chosen it.
+ *
+ * The choice is how a card **masthead** spells the file it names — the full
+ * path, or the path relative to the open project it sits in. It belongs to
+ * no one card type: the text card, the file view and the diff pop-out all
+ * draw their path through the one masthead (`lib/masthead-path.ts`).
  *
  * **The field never comes to rest on a value tugbank doesn't hold.** A path
  * shown in a settled field is a claim about what Tug will do — Open Quickly
@@ -38,10 +43,12 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
 import { TugBox } from "../tug-box";
+import { TugChoiceGroup } from "../tug-choice-group";
 import { TugLabel } from "../tug-label";
 import { TugFileChooser } from "../tug-file-chooser";
 import { useResponderForm } from "../use-responder-form";
@@ -57,6 +64,10 @@ import {
   BRIEFS_PATH_KEY,
   DEFAULT_BRIEFS_TEMPLATE,
   putBriefsPath,
+  MASTHEAD_PATHS_DOMAIN,
+  MASTHEAD_PATHS_KEY,
+  parseMastheadPathStyle,
+  putMastheadPathStyle,
 } from "@/settings-api";
 import type { TaggedValue } from "@/lib/tugbank-client";
 import "./settings-general-body.css";
@@ -158,7 +169,20 @@ export function SettingsGeneralBody() {
     [briefsStored],
   );
 
-  const { ResponderScope, responderRef } = useResponderForm({});
+  const mastheadPaths = useTugbankValue(
+    MASTHEAD_PATHS_DOMAIN,
+    MASTHEAD_PATHS_KEY,
+    parseMastheadPathStyle,
+    "full",
+  );
+  const mastheadPathsId = useId();
+
+  const { ResponderScope, responderRef } = useResponderForm({
+    selectValue: {
+      [mastheadPathsId]: (v: string) =>
+        putMastheadPathStyle(v === "project" ? "project" : "full"),
+    },
+  });
 
   return (
     <ResponderScope>
@@ -217,6 +241,34 @@ export function SettingsGeneralBody() {
           <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
             Where a brief is written when you ask for one. Unset means briefs/
             inside the project; {"{project_dir}"} stands for the project.
+          </TugLabel>
+        </TugBox>
+
+        <TugBox
+          label="Card Masthead Paths"
+          labelPosition="legend"
+          variant="bordered"
+          className="settings-general-group"
+        >
+          <div
+            className="settings-general-field"
+            data-testid="settings-masthead-paths-field"
+          >
+            <TugChoiceGroup
+              size="sm"
+              senderId={mastheadPathsId}
+              value={mastheadPaths}
+              aria-label="Card masthead paths"
+              items={[
+                { value: "full", label: "Full Path" },
+                { value: "project", label: "Project Relative" },
+              ]}
+            />
+          </div>
+          <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
+            How a text, file or diff card names its file. Project Relative
+            writes the path from the open project it sits in; a file outside
+            every open project keeps its full path.
           </TugLabel>
         </TugBox>
 
