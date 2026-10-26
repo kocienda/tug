@@ -311,6 +311,12 @@ final class BodyViewController {
         /// The time trigger's eviction, armed while the body is hidden and
         /// due `evictAfterMs` after it was hidden.
         var evictDue: DispatchWorkItem?
+        /// The dormant clock, armed while the body is hidden and due
+        /// `dormantAfterMs` after it was hidden (`BodyLifecycle.armDormancy`).
+        var dormantDue: DispatchWorkItem?
+        /// Whether the host has declared this body dormant, to tugcast and to
+        /// its page: hidden past the dormant delay, and not shown since.
+        var declaredDormant = false
         /// The page's surface as it last posted it, which the container wears
         /// behind a content box, never behind a whole card.
         var surface: CGColor?
@@ -375,6 +381,9 @@ final class BodyViewController {
         didSet { HostRunLoopWatch.shared.noteBodyCount(bodies.count) }
     }
     private(set) var region = CardHitRegion()
+    /// A tell to tugcast over the app's control socket, set by the app
+    /// delegate: how the host declares a body dormant, or withdraws it.
+    var tellTugcast: ((String, ControlParams) -> Void)?
     /// Each card the last placement named, with its index in the deck's
     /// reading order: the lane's order after whether a card is shown, and
     /// where a page made from the lane after that placement stands.
@@ -785,11 +794,40 @@ final class BodyViewController {
         if body.shown?.value != shown {
             body.shown = (shown, Date().timeIntervalSince1970 * 1000)
             lifecycle.armEviction(body)
+            lifecycle.armDormancy(body)
+            // Shown again: tugcast hears first, so the body's catch-up is
+            // answered on a wire that sends it its session again.
+            if shown { declareDormant(body, false) }
         }
         guard let current = body.shown, body.state == .bound || body.life.isLive,
               body.toldShown != current.value else { return }
         body.toldShown = current.value
-        send(.bodyVisibility(BodyVisibility(shown: current.value, since: current.since)), to: body)
+        send(.bodyVisibility(BodyVisibility(
+            shown: current.value, since: current.since, dormant: body.declaredDormant && !current.value
+        )), to: body)
+    }
+
+    /// Declare `body` dormant, or withdraw the declaration ([B05]): tugcast
+    /// first, which then sends the body nothing of any session and never cuts
+    /// its quiet socket, then the page, which sleeps on the host's word even
+    /// when WebKit has stopped its own clock. A no-op when nothing changes.
+    func declareDormant(_ body: Body, _ dormant: Bool) {
+        guard body.declaredDormant != dormant, let cardId = body.cardId else { return }
+        body.declaredDormant = dormant
+        TugLog.info("bodies", "dormant", [TugLog.field("card", cardId), TugLog.field("dormant", dormant ? "yes" : "no")])
+        tellTugcast?("body_dormant", ["card_id": cardId, "dormant": dormant])
+        guard dormant, let current = body.shown, !current.value,
+              body.state == .bound || body.life.isLive else { return }
+        send(.bodyVisibility(BodyVisibility(shown: false, since: current.since, dormant: true)), to: body)
+    }
+
+    /// Say every standing declaration again, for a tugcast that has just
+    /// started and holds none.
+    func redeclareDormancy() {
+        for body in bodies where body.declaredDormant {
+            guard let cardId = body.cardId else { continue }
+            tellTugcast?("body_dormant", ["card_id": cardId, "dormant": true])
+        }
     }
 
     func refreshRegion() {
@@ -1293,6 +1331,8 @@ final class BodyViewController {
         body.deadline = nil
         body.evictDue?.cancel()
         body.evictDue = nil
+        body.dormantDue?.cancel()
+        body.dormantDue = nil
         guard save else {
             remove(body)
             return
@@ -1360,6 +1400,10 @@ final class BodyViewController {
         body.deadline = nil
         body.evictDue?.cancel()
         body.evictDue = nil
+        body.dormantDue?.cancel()
+        body.dormantDue = nil
+        // The card's next body starts undeclared, so tugcast must too.
+        declareDormant(body, false)
         // A card going away mid-gesture takes its gesture with it: a rail's
         // drag takes its ghost away, or commits the spring the hand released.
         carrier.letGo(of: body)
@@ -1408,6 +1452,7 @@ final class BodyViewController {
             return
         }
         lifecycle.setEvictAfter(ms: delays.evictAfterMs ?? BodyLifecycle.evictAfter)
+        lifecycle.setDormantAfter(ms: delays.dormantAfterMs ?? BodyLifecycle.dormantAfter)
         readyDeadline = BodyGeometry.readyDeadlineMs(harness: delays.readyDeadlineMs, fallback: BodyViewController.readyDeadlineMs)
     }
 

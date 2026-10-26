@@ -1046,6 +1046,14 @@ pub struct SessionLedger {
     /// records sessions exactly as it always did and simply cannot be
     /// found from outside.
     session_index: Option<tugcore::session_index::SessionIndex>,
+    /// The segments whose turn is open, as the supervisor's per-session turn
+    /// latch last said. Process state, not a column: a turn does not outlive
+    /// the tugcast that ran it, so a restart answers every segment idle, which
+    /// is what it is. It rides every `session_updated` push as `turn_active`,
+    /// so the shell can read a card's phase for a body that is not listening
+    /// from the one place that knows it, rather than infer a turn's end from
+    /// stamps and samples.
+    turn_latches: Mutex<HashSet<String>>,
 }
 
 impl SessionLedger {
@@ -1231,6 +1239,7 @@ impl SessionLedger {
             changes_db_path: changes_db.clone(),
             writer_identity,
             session_index: None,
+            turn_latches: Mutex::new(HashSet::new()),
         };
         // Journal replay completes a post-quarantine rebuild: salvage
         // recovered what was readable; the journal re-applies everything
@@ -1290,6 +1299,7 @@ impl SessionLedger {
             changes_db_path: None,
             writer_identity: crate::changes_writer::local_identity(0),
             session_index: None,
+            turn_latches: Mutex::new(HashSet::new()),
         })
     }
 
@@ -6188,6 +6198,24 @@ impl SessionLedger {
             )
             .optional()?;
         Ok(metrics)
+    }
+
+    /// Record where a segment's turn latch stands. True when it moved, which
+    /// is when the row is worth pushing again.
+    pub fn set_turn_active(&self, session_id: &str, active: bool) -> bool {
+        let mut latches = self.turn_latches.lock();
+        if active {
+            latches.insert(session_id.to_owned())
+        } else {
+            latches.remove(session_id)
+        }
+    }
+
+    /// Whether a segment's turn is open, as the latch last said — what every
+    /// builder of a session-row frame reads beside the row, for the reason
+    /// [`usage_for`](Self::usage_for) gives.
+    pub fn turn_active(&self, session_id: &str) -> bool {
+        self.turn_latches.lock().contains(session_id)
     }
 
     /// What this segment cost, summed over its committed turns ([`SessionUsage`]).
@@ -15694,6 +15722,7 @@ mod tests {
             changes_db_path: None,
             writer_identity: crate::changes_writer::local_identity(0),
             session_index: None,
+            turn_latches: Mutex::new(HashSet::new()),
         }
     }
 

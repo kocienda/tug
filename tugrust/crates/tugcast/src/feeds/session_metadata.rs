@@ -105,6 +105,17 @@ pub fn is_wake_started(payload: &[u8]) -> bool {
         .any(|w| w == WAKE_STARTED_NEEDLE)
 }
 
+/// Needle bytes for `replay_complete` — a replay bracket's close, at which the
+/// supervisor puts back the turn latch the bracket opened over.
+const REPLAY_COMPLETE_NEEDLE: &[u8] = b"\"type\":\"replay_complete\"";
+
+/// Check if a payload could close a replay bracket (`replay_complete`).
+pub fn is_replay_complete(payload: &[u8]) -> bool {
+    payload
+        .windows(REPLAY_COMPLETE_NEEDLE.len())
+        .any(|w| w == REPLAY_COMPLETE_NEEDLE)
+}
+
 /// Needle bytes for the three frames that open and close a background job.
 ///
 /// `task_started` fires when a `Bash` or `Agent` is launched with

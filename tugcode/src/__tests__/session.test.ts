@@ -175,6 +175,35 @@ describe("stdin message format", () => {
     expect(parsed.message.content.length).toBe(1);
     expect(parsed.message.content[0].type).toBe("text");
     expect(parsed.message.content[0].text).toBe("hello world");
+    // No submission id on the frame, so none for claude: it mints its own.
+    expect(parsed.uuid).toBeUndefined();
+  });
+
+  test("a submission id rides to claude as the input message's uuid", async () => {
+    // Claude records the input's `uuid` as the JSONL user entry's `uuid`, or
+    // as a `queued_command`'s `source_uuid` when it absorbs the message
+    // mid-turn — which is how a replay matches a journal row to the JSONL.
+    // Only a UUID is handed on; anything else is left for claude to mint.
+    for (const [submissionId, expected] of [
+      ["0f3c1e5a-1b2c-4d5e-8f90-123456789abc", "0f3c1e5a-1b2c-4d5e-8f90-123456789abc"],
+      ["turn-lq2x-abc", undefined],
+    ] as const) {
+      const manager = new SessionManager("/tmp/tugcode-stdin-test-" + Date.now(), crypto.randomUUID());
+      const mockStdin = injectMockSubprocess(manager, [
+        { type: "result", subtype: "success", result: "" },
+      ]);
+      const writtenData: string[] = [];
+      mockStdin.write = (data: unknown) => {
+        writtenData.push(String(data));
+      };
+      const userMsg = {
+        type: "user_message" as const,
+        content: [{ type: "text" as const, text: "hello world" }],
+        submission_id: submissionId,
+      };
+      await captureIpcOutput(() => manager.handleUserMessage(userMsg));
+      expect(JSON.parse(writtenData[0].replace(/\n$/, "")).uuid).toBe(expected);
+    }
   });
 });
 

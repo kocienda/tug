@@ -39,7 +39,7 @@ import {
  * `path` unchanged when it sits under none of them.
  *
  * A file at a project's top level keeps the project's name in front
- * (`tug/README.md`): the bare name would be a copy of the masthead's title
+ * (`tug/Justfile`): the bare name would be a copy of the masthead's title
  * line, and the line would no longer say which project it is in.
  */
 export function projectRelativePath(

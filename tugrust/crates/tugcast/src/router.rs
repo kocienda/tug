@@ -108,6 +108,19 @@ impl ClientLiveness {
     fn is_stale(&self, now: Instant) -> bool {
         now.duration_since(self.last_frame) > HEARTBEAT_TIMEOUT
     }
+
+    /// The tick's question, with the host's word in it: a body the host has
+    /// declared dormant is quiet on purpose ([B05]), so its silence is not
+    /// evidence of a dead wire. The declaration is taken as proof of life, so
+    /// the window starts fresh from the tick the declaration is withdrawn
+    /// rather than from a frame sent before the body went quiet.
+    fn is_stale_unless_vouched(&mut self, now: Instant, vouched: bool) -> bool {
+        if vouched {
+            self.record_frame(now);
+            return false;
+        }
+        self.is_stale(now)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1043,6 +1056,27 @@ fn admits_session(
     session_of(&frame.payload).is_none_or(|id| sessions.admits(&id))
 }
 
+/// Does a body the host has declared dormant take `frame`? ([B05])
+///
+/// A dormant body hears nothing of any session — the subscription its own
+/// dormancy would empty, emptied by the host's word, which a page whose
+/// JavaScript WebKit has suspended cannot race. A frame that names no
+/// session, or is on a feed that is not session-scoped, still passes, as it
+/// does for a page scoped to no session.
+fn admits_while_dormant(session_feeds: &HashSet<FeedId>, frame: &Frame) -> bool {
+    !session_feeds.contains(&frame.feed_id) || session_of(&frame.payload).is_none()
+}
+
+/// The card a `request_replay` wakes: a body's own catch-up ask (`reason:
+/// "catch-up"`), which it sends only on its reveal ([B05]). Any other ask, or
+/// one from a page that is not a body with a card, wakes nothing.
+fn catch_up_wakes_card<'a>(identity: &'a PageIdentity, payload: &serde_json::Value) -> Option<&'a str> {
+    if identity.role != PageRole::Body || payload.get("reason").and_then(|r| r.as_str()) != Some("catch-up") {
+        return None;
+    }
+    identity.card_id.as_deref()
+}
+
 /// Build the `feed_stats` CONTROL response (Spec S02).
 ///
 /// Pure over its arguments so it is unit-testable without a socket. Rows
@@ -1160,6 +1194,9 @@ struct ClientSink {
     sessions: SessionSubscription,
     /// The router's session-scoped feeds, shared by every connection.
     session_feeds: Arc<HashSet<FeedId>>,
+    /// The cards whose body the host has declared dormant, from the page
+    /// registry; read only when this connection is a body.
+    dormant_cards: watch::Receiver<HashSet<String>>,
     /// This connection's own table. Plain `u64`s: the client task is its
     /// only writer.
     counters: FeedCounters,
@@ -1179,6 +1216,7 @@ impl ClientSink {
         identity: PageIdentity,
         global_counters: Arc<GlobalFeedCounters>,
         session_feeds: Arc<HashSet<FeedId>>,
+        dormant_cards: watch::Receiver<HashSet<String>>,
     ) -> Self {
         Self {
             socket,
@@ -1187,6 +1225,7 @@ impl ClientSink {
             subscription: None,
             sessions: SessionSubscription::All,
             session_feeds,
+            dormant_cards,
             counters: FeedCounters::new(),
             global_counters,
             retained_watches: Vec::new(),
@@ -1208,6 +1247,7 @@ impl ClientSink {
         let feed_id = frame.feed_id;
         if !admits(self.subscription.as_ref(), feed_id)
             || !admits_session(&self.sessions, &self.session_feeds, &frame)
+            || (self.declared_dormant() && !admits_while_dormant(&self.session_feeds, &frame))
         {
             self.counters.record_dropped(feed_id);
             self.global_counters.record_dropped(feed_id);
@@ -1227,6 +1267,18 @@ impl ClientSink {
         } else {
             SendOutcome::Disconnected
         }
+    }
+
+    /// Whether this connection is a body whose card the host has declared
+    /// dormant. Read per frame from the registry's watch, so a declaration
+    /// takes effect on the next frame and survives the body's reconnects.
+    fn declared_dormant(&self) -> bool {
+        self.identity.role == PageRole::Body
+            && self
+                .identity
+                .card_id
+                .as_deref()
+                .is_some_and(|card| self.dormant_cards.borrow().contains(card))
     }
 
     /// Send a JSON control frame (flags=CONTROL) to the client.
@@ -1567,6 +1619,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
         identity,
         Arc::clone(&router.feed_counters),
         Arc::clone(&router.session_feeds),
+        router.pages.dormant_cards(),
     );
 
     // Build the StreamMap for output fan-in
@@ -1836,6 +1889,17 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                     // The subscription argument is None until
                                                     // the connection can name its feeds.
                                                     let parsed = action.parse::<ControlAction>().ok();
+                                                    // A body's catch-up ask is its reveal, said on
+                                                    // the wire its answer rides: the card is shown,
+                                                    // and the host's word to that effect, on another
+                                                    // channel, may not have landed yet ([B05]).
+                                                    if parsed == Some(ControlAction::RequestReplay) {
+                                                        if let Some(card) = catch_up_wakes_card(&sink.identity, &payload) {
+                                                            if router.pages.set_card_dormant(card, false) {
+                                                                info!(client_id, card, "a body's catch-up withdrew its dormancy");
+                                                            }
+                                                        }
+                                                    }
                                                     if parsed == Some(ControlAction::FeedStats) {
                                                         let stats = build_feed_stats_json(
                                                             sink.client_id,
@@ -2057,7 +2121,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                 teardown_client(&router, client_id).await;
                                 return;
                             }
-                            if liveness.is_stale(Instant::now()) {
+                            if liveness.is_stale_unless_vouched(Instant::now(), sink.declared_dormant()) {
                                 warn!(client_id, "Heartbeat timeout, closing connection");
                                 teardown_client(&router, client_id).await;
                                 return;
@@ -3068,6 +3132,33 @@ mod tests {
         assert!(liveness.is_stale(frame_at + Duration::from_secs(181)));
     }
 
+    /// A body the host has declared dormant is quiet on purpose ([B05]): no
+    /// silence cuts it while the declaration stands, and when it is withdrawn
+    /// the window runs from the last tick that read it, never from the frame
+    /// the body sent before it went quiet.
+    #[test]
+    fn a_declared_dormant_body_is_never_cut_for_silence() {
+        let t0 = Instant::now();
+        let mut liveness = ClientLiveness::new(t0);
+
+        // Twenty minutes of silence, ticked through under the declaration.
+        let mut tick = t0;
+        while tick < t0 + Duration::from_secs(20 * 60) {
+            tick += HEARTBEAT_INTERVAL;
+            assert!(
+                !liveness.is_stale_unless_vouched(tick, true),
+                "a declared-dormant body was cut for silence"
+            );
+        }
+
+        // Shown again: the declaration is withdrawn, and the next tick does
+        // not read twenty minutes of silence.
+        let next = tick + HEARTBEAT_INTERVAL;
+        assert!(!liveness.is_stale_unless_vouched(next, false));
+        // A body shown and still silent past the window is cut as before.
+        assert!(liveness.is_stale_unless_vouched(tick + HEARTBEAT_TIMEOUT + Duration::from_secs(1), false));
+    }
+
     #[test]
     fn test_register_stream() {
         let (shutdown_tx, _) = mpsc::channel(1);
@@ -3805,6 +3896,48 @@ mod tests {
             admits_session(&only(&[]), &feeds, &other),
             "a frame on a feed that is not session-scoped is never session-filtered"
         );
+    }
+
+    /// A declared-dormant body hears nothing of any session, whatever its own
+    /// subscription says ([B05]); what names no session still reaches it.
+    #[test]
+    fn a_declared_dormant_body_takes_no_session_scoped_frame() {
+        let feeds: HashSet<FeedId> = [FeedId::CODE_OUTPUT, FeedId::SESSION_STATE].into();
+        let scoped = Frame::new(
+            FeedId::CODE_OUTPUT,
+            crate::feeds::code::splice_tug_session_id(br#"{"type":"x"}"#, "s-a"),
+        );
+        let unscoped = Frame::new(FeedId::CODE_OUTPUT, br#"{"type":"x"}"#.to_vec());
+        let other = Frame::new(
+            FeedId::JOTS,
+            crate::feeds::code::splice_tug_session_id(br#"{"type":"x"}"#, "s-a"),
+        );
+
+        assert!(!admits_while_dormant(&feeds, &scoped), "its own session is dropped");
+        assert!(admits_while_dormant(&feeds, &unscoped));
+        assert!(admits_while_dormant(&feeds, &other));
+    }
+
+    /// The reveal's catch-up ask withdraws the host's declaration in band, so
+    /// its answer is not refused on a wire still marked dormant; nothing else
+    /// a body asks, and nothing a shell asks, does.
+    #[test]
+    fn only_a_bodys_catch_up_ask_wakes_its_card() {
+        let body = PageIdentity {
+            role: PageRole::Body,
+            page_id: Some("p".into()),
+            card_id: Some("c1".into()),
+        };
+        let shell = PageIdentity {
+            role: PageRole::Shell,
+            page_id: Some("s".into()),
+            card_id: None,
+        };
+        let catch_up = serde_json::json!({ "action": "request_replay", "reason": "catch-up", "tug_session_id": "x" });
+        let launch = serde_json::json!({ "action": "request_replay", "reason": "launch", "tug_session_id": "x" });
+        assert_eq!(catch_up_wakes_card(&body, &catch_up), Some("c1"));
+        assert_eq!(catch_up_wakes_card(&body, &launch), None);
+        assert_eq!(catch_up_wakes_card(&shell, &catch_up), None);
     }
 
     #[test]

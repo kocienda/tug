@@ -1262,6 +1262,15 @@ export class CodeSessionStore extends Subscribable {
   }
 
   /**
+   * Whether the body sleeps: between {@link noteDormant} and the reveal. A
+   * sleeping body is scoped to nothing, so an ask it sent would be answered
+   * to nobody; its reveal's {@link catchUp} is the one ask it makes.
+   */
+  isAsleep(): boolean {
+    return this.state.catchUp.asleep;
+  }
+
+  /**
    * The dormant body is shown again with nothing to ask, its session being
    * unable to answer a catch-up: an open bracket's deadlines start from now.
    * {@link catchUp} does the same as part of its ask.

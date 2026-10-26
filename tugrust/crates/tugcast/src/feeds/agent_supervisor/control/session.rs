@@ -417,7 +417,7 @@ impl AgentSupervisor {
         };
 
         // Phase 1 emit: ledger-only preview, scan still pending.
-        let ledger_preview = build_listed_union(rows, &live, None);
+        let ledger_preview = build_listed_union(rows, &live, None, &|id| ledger_arc.turn_active(id));
         Self::send_list_sessions_ok(&control_tx, project_dir, dir_exists, &ledger_preview, true);
 
         // ── Phase 2: the expensive JSONL scan, run off the control loop in
@@ -478,7 +478,7 @@ impl AgentSupervisor {
                         send_control(&progress_tx, body);
                     },
                 );
-                build_listed_union(rows, &live, Some(scan))
+                build_listed_union(rows, &live, Some(scan), &|id| ledger_arc.turn_active(id))
             })
             .await;
             match built {

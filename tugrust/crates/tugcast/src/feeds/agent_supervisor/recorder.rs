@@ -179,6 +179,12 @@ pub trait SessionsRecorder: Send + Sync {
     fn project_dir_of(&self, _session_id: &str) -> Option<String> {
         None
     }
+
+    /// Where a segment's turn latch stands, from the supervisor at each of the
+    /// latch's edges. The ledger recorder holds it beside the rows and pushes
+    /// the row when it moves, so `session_updated` carries the turn as the
+    /// supervisor sees it. The default holds nothing.
+    fn record_turn_latch(&self, _session_id: &str, _active: bool) {}
 }
 
 /// Call the recorder on the blocking pool and await the answer — the one way
@@ -254,6 +260,7 @@ impl LedgerSessionsRecorder {
                     &row,
                     self.scan_metrics(session_id),
                     self.usage(session_id),
+                    self.ledger.turn_active(session_id),
                 ));
             }
             Ok(None) => {}
@@ -486,6 +493,8 @@ impl SessionsRecorder for LedgerSessionsRecorder {
             event = "ledger.mark_closed",
             session_id,
         );
+        // A closed session has no turn open, whatever the latch last said.
+        self.ledger.set_turn_active(session_id, false);
         // The fact rides the durable transition rather than any one of the
         // several `closed` publish sites, and only when a row really moved —
         // so a session that ended once has one ending in the fact base however
@@ -516,6 +525,7 @@ impl SessionsRecorder for LedgerSessionsRecorder {
             event = "ledger.mark_failed",
             session_id,
         );
+        self.ledger.set_turn_active(session_id, false);
         if transitioned {
             self.record_lifecycle_fact(&crate::feeds::facts_library::session_end_fact(
                 crate::session_ledger::now_millis(),
@@ -626,6 +636,12 @@ impl SessionsRecorder for LedgerSessionsRecorder {
                 warn!(error = %err, session_id, "ledger get for the arc binding failed");
                 None
             }
+        }
+    }
+
+    fn record_turn_latch(&self, session_id: &str, active: bool) {
+        if self.ledger.set_turn_active(session_id, active) {
+            self.broadcast_row(session_id);
         }
     }
 }
@@ -781,10 +797,16 @@ pub(super) fn relocation_edge(
 ///
 /// Kept pure — it takes the pair, not a ledger handle — so each caller does its
 /// own lookup beside the `ledger.get` it already performs.
+///
+/// `turn_active` is the segment's turn latch as the ledger holds it
+/// ([`SessionLedger::turn_active`](crate::session_ledger::SessionLedger::turn_active)),
+/// read by every caller for the same reason as `metrics`: a push that omitted
+/// it would end, on the deck, a turn that is still running.
 pub fn build_session_updated_frame(
     row: &crate::session_ledger::SessionRow,
     metrics: Option<crate::session_ledger::SessionScanMetrics>,
     usage: Option<crate::session_ledger::SessionUsage>,
+    turn_active: bool,
 ) -> Frame {
     let body = serde_json::json!({
         "action": "session_updated",
@@ -813,6 +835,10 @@ pub fn build_session_updated_frame(
             // leave a session silently un-narrated with nothing saying why
             // ([P05]).
             "private": row.private,
+            // Whether the segment's turn is open, from the supervisor's turn
+            // latch — the one source of a card's phase while its body is not
+            // listening. Not a column: see `SessionLedger::turn_active`.
+            "turn_active": turn_active,
         },
         // What the segment cost, beside the row rather than on it: `usage` is
         // a `SUM` over another table, not a `sessions` column, and the arc
@@ -915,6 +941,50 @@ mod tests {
         let recorder: Arc<dyn SessionsRecorder> =
             Arc::new(LedgerSessionsRecorder::new(Arc::clone(&ledger)));
         (ledger, recorder)
+    }
+
+    /// The turn latch rides the row: each edge the supervisor reports pushes
+    /// the row once with `turn_active` as it now stands, a report that moves
+    /// nothing pushes nothing, and a close ends the turn on the row whatever
+    /// the latch last said.
+    #[test]
+    fn the_turn_latch_rides_the_session_row_push() {
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let (tx, mut rx) = broadcast::channel::<Frame>(16);
+        let recorder = LedgerSessionsRecorder::with_broadcast(Arc::clone(&ledger), tx);
+        recorder.record(SessionRecord {
+            session_id: "claude-abc",
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: None,
+        });
+        while rx.try_recv().is_ok() {}
+        let turn_active = |rx: &mut broadcast::Receiver<Frame>| {
+            let frame = rx.try_recv().expect("a row push");
+            let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
+            assert_eq!(body["action"], "session_updated");
+            body["fields"]["turn_active"].as_bool().expect("turn_active is a bool")
+        };
+
+        recorder.record_turn_latch("claude-abc", true);
+        assert!(turn_active(&mut rx), "a turn opened");
+        recorder.record_turn_latch("claude-abc", true);
+        assert!(rx.try_recv().is_err(), "an edge that moved nothing pushes nothing");
+
+        // The bridge's turn-end stamp lands while the latch still reads open;
+        // the supervisor's close is the push that ends it.
+        recorder.record_turn("claude-abc");
+        assert!(turn_active(&mut rx), "the stamp alone does not end the turn");
+        recorder.record_turn_latch("claude-abc", false);
+        assert!(!turn_active(&mut rx), "the latch's close ends it");
+
+        recorder.record_turn_latch("claude-abc", true);
+        assert!(turn_active(&mut rx));
+        recorder.mark_closed("claude-abc");
+        assert!(!turn_active(&mut rx), "a closed session has no turn open");
+        assert!(!ledger.turn_active("claude-abc"));
     }
 
     #[test]

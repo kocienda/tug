@@ -414,6 +414,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let bridgeHandler = BridgeHandler(delegate: self, window: window, processManager: processManager)
         self.bridgeHandler = bridgeHandler
         window.bridgeDelegate = bridgeHandler
+        // The host declares a hidden body dormant to tugcast directly, over
+        // the control socket, so the declaration rides the clock the host
+        // runs rather than one a suspended page might not.
+        window.bodies?.tellTugcast = { [weak processManager] action, params in
+            processManager?.sendControl(action, params: params)
+        }
         // The splash went up in `MainWindow.init`; the deadline is armed
         // here because the screen it mounts asks the delegate which stage
         // stalled, and this is the line that makes the delegate exist.
@@ -530,6 +536,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 for view in self.window.pageViews {
                     self.window.hostChannel.call(.reauthenticate(token: token), in: view)
                 }
+                // A restarted tugcast holds no declaration: say again which
+                // hidden bodies are dormant, before they reconnect to it.
+                self.window.bodies?.redeclareDormancy()
                 // Maker mode is the user-facing name; the tugcast wire
                 // verb stays `dev_mode` — it genuinely is the
                 // dev-*serving* switch (Vite, watchers, allowlist).

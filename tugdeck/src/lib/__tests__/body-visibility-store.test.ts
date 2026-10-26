@@ -52,6 +52,34 @@ describe("BodyVisibilityStore", () => {
     expect(clock.pending).toBe(0);
   });
 
+  test("the host's dormant declaration is the fact, whatever the page's own clock did", () => {
+    // WebKit froze the page's timer: it never fires, and the host's word
+    // arrives with the hide's own `since`.
+    const { store, clock, notifications } = setup(60_000);
+    const since = clock.now();
+    store.apply({ shown: false, since, dormant: false });
+    expect(store.getSnapshot().dormant).toBe(false);
+    store.apply({ shown: false, since, dormant: true });
+    expect(store.getSnapshot()).toEqual({ shown: false, since, dormant: true });
+    expect(notifications()).toBe(2);
+    expect(clock.pending, "no clock left to run").toBe(0);
+
+    // Said twice, nothing moves; shown again, it stays dormant until it has
+    // caught up, as a body its own clock put to sleep does.
+    store.apply({ shown: false, since, dormant: true });
+    expect(notifications()).toBe(2);
+    store.apply({ shown: true, since: since + 90_000, dormant: false });
+    expect(store.getSnapshot()).toEqual({ shown: true, since: since + 90_000, dormant: true });
+    store.wake();
+    expect(store.getSnapshot().dormant).toBe(false);
+  });
+
+  test("a dormant flag on a shown body declares nothing", () => {
+    const { store } = setup(60_000);
+    store.apply({ shown: true, since: 5, dormant: true });
+    expect(store.getSnapshot().dormant).toBe(false);
+  });
+
   test("hidden for the delay goes dormant, and not a moment before", () => {
     const { store, clock, notifications } = setup(60_000);
     store.apply({ shown: false, since: clock.now() });

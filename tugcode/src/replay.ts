@@ -285,6 +285,11 @@ export interface JsonlAttachmentEntry extends JsonlEnvelope {
     type?: string;
     prompt?: string | ReadonlyArray<JsonlContentBlock>;
     commandMode?: string;
+    /**
+     * The `uuid` of the input message claude absorbed — tugcode hands claude
+     * the deck's submission id as that `uuid`, so this is the submission id.
+     */
+    source_uuid?: string;
   };
 }
 
@@ -1379,6 +1384,8 @@ export interface TranslateJsonlEntryOptions {
  * bracket. No `promptUuid` is carried — `/rewind` stays anchored on the
  * turn opener ([P05]). Only `commandMode: "prompt"` (a plain steered
  * message) is surfaced; other modes (e.g. a queued slash command) skip.
+ * `source_uuid` is the submission's id, carried as `submissionId` so the
+ * reducer can tell this copy from the never-drop synthetic of the same row.
  */
 function handleQueuedCommandEntry(entry: JsonlAttachmentEntry): OutboundMessage[] {
   if (entry.attachment?.commandMode !== "prompt") return [];
@@ -1404,6 +1411,9 @@ function handleQueuedCommandEntry(entry: JsonlAttachmentEntry): OutboundMessage[
       type: "add_user_message",
       content: submittedContent,
       timestamp: parseEntryTimestamp(entry),
+      ...(typeof entry.attachment?.source_uuid === "string" && entry.attachment.source_uuid.length > 0
+        ? { submissionId: entry.attachment.source_uuid }
+        : {}),
       ipc_version: IPC_VERSION,
     },
   ];
@@ -1783,6 +1793,11 @@ function handleUserEntry(
     // cold-booted session-card recovers each turn's anchor from the replay.
     ...(typeof entry.uuid === "string" && entry.uuid.length > 0
       ? { promptUuid: entry.uuid }
+      : {}),
+    // The same `uuid` is the submission's id: tugcode hands claude the deck's
+    // id as the input message's `uuid`, and claude records it as this entry's.
+    ...(typeof entry.uuid === "string" && entry.uuid.length > 0
+      ? { submissionId: entry.uuid }
       : {}),
     // Stated, never inferred: the wheel's own record says which submissions it
     // sent, and claiming one here is what spends it. Every other frame omits

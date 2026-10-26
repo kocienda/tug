@@ -552,7 +552,10 @@ async function main() {
       // produces an error event from the engine and asks us to
       // shut down.
       if (stubReplay !== null) {
-        const ok = stubReplay.dispatchTurn();
+        const ok = stubReplay.dispatchTurn({
+          content: msg.content,
+          ...(typeof msg.submission_id === "string" ? { submissionId: msg.submission_id } : {}),
+        });
         if (!ok) {
           // The engine emitted its own error event — after any paced turn
           // still streaming — and quiesce drains it onto the pipe instead

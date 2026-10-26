@@ -24,7 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 use serde::Serialize;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tugcast_core::{Frame, MAX_PAGE_FIELD_LEN, PageIdentity, PageRole};
 
 /// Capacity of the departures channel. A receiver that lags reconciles
@@ -213,6 +213,12 @@ struct Inner {
 pub(crate) struct PageRegistry {
     inner: Mutex<Inner>,
     departures: broadcast::Sender<u64>,
+    /// The cards whose body the host has declared dormant (`body_dormant`):
+    /// hidden past the dormant delay by the host's own clock. The router
+    /// sends such a body no session-scoped frame and never cuts its quiet
+    /// socket for silence. Keyed by card, not connection, so the declaration
+    /// holds across the body's reconnects; only the host's word clears it.
+    dormant_cards: watch::Sender<HashSet<String>>,
 }
 
 impl Default for PageRegistry {
@@ -231,12 +237,14 @@ fn now_ms() -> u64 {
 impl PageRegistry {
     pub(crate) fn new() -> Self {
         let (departures, _) = broadcast::channel(DEPARTURES_CAPACITY);
+        let (dormant_cards, _) = watch::channel(HashSet::new());
         Self {
             inner: Mutex::new(Inner {
                 pages: BTreeMap::new(),
                 departed_cards: HashMap::new(),
             }),
             departures,
+            dormant_cards,
         }
     }
 
@@ -313,6 +321,24 @@ impl PageRegistry {
         if let Some(record) = self.inner.lock().pages.get_mut(&client_id) {
             record.sessions = sessions;
         }
+    }
+
+    /// Record the host's word on `card`'s body: dormant or not. Answers
+    /// whether the set changed, so a repeated declaration is a no-op.
+    pub(crate) fn set_card_dormant(&self, card: &str, dormant: bool) -> bool {
+        self.dormant_cards.send_if_modified(|cards| {
+            if dormant {
+                cards.insert(card.to_owned())
+            } else {
+                cards.remove(card)
+            }
+        })
+    }
+
+    /// A receiver of the declared-dormant cards, for a connection to read on
+    /// every frame it forwards without taking the registry's lock.
+    pub(crate) fn dormant_cards(&self) -> watch::Receiver<HashSet<String>> {
+        self.dormant_cards.subscribe()
     }
 
     /// A receiver of departed client ids.
@@ -585,5 +611,26 @@ mod tests {
             serde_json::to_value(only).unwrap(),
             serde_json::json!(["a", "b"])
         );
+    }
+
+    /// The host's declaration is keyed by card, held until the host withdraws
+    /// it, and seen by a connection's receiver at once — including one taken
+    /// after the declaration, as a reconnecting body's is.
+    #[test]
+    fn a_dormant_declaration_holds_by_card_until_withdrawn() {
+        let reg = PageRegistry::new();
+        let early = reg.dormant_cards();
+        assert!(reg.set_card_dormant("c1", true));
+        assert!(!reg.set_card_dormant("c1", true), "a repeat changes nothing");
+        assert!(early.borrow().contains("c1"));
+
+        // The body's socket goes and a new one comes: the card still sleeps.
+        reg.register(7, &body("p1", "c1"));
+        reg.depart(7);
+        assert!(reg.dormant_cards().borrow().contains("c1"));
+
+        assert!(reg.set_card_dormant("c1", false));
+        assert!(!early.borrow().contains("c1"));
+        assert!(!reg.set_card_dormant("c1", false), "withdrawing twice changes nothing");
     }
 }

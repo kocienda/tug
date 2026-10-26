@@ -273,7 +273,12 @@ impl AgentSupervisor {
                         let usage = ledger.usage_for(&segment.session_id).unwrap_or(None);
                         let _ = self
                             .control_tx
-                            .send(build_session_updated_frame(&row, metrics, usage));
+                            .send(build_session_updated_frame(
+                                &row,
+                                metrics,
+                                usage,
+                                ledger.turn_active(&segment.session_id),
+                            ));
                     }
                 }
                 // Every line the name was taken from is un-taught the same way
@@ -308,7 +313,12 @@ impl AgentSupervisor {
                         let usage = ledger.usage_for(&segment.session_id).unwrap_or(None);
                         let _ = self
                             .control_tx
-                            .send(build_session_updated_frame(&row, metrics, usage));
+                            .send(build_session_updated_frame(
+                                &row,
+                                metrics,
+                                usage,
+                                ledger.turn_active(&segment.session_id),
+                            ));
                     }
                 }
                 let body = serde_json::json!({
@@ -366,7 +376,12 @@ impl AgentSupervisor {
                     let usage = ledger.usage_for(session_id).unwrap_or(None);
                     let _ = self
                         .control_tx
-                        .send(build_session_updated_frame(&row, metrics, usage));
+                        .send(build_session_updated_frame(
+                            &row,
+                            metrics,
+                            usage,
+                            ledger.turn_active(session_id),
+                        ));
                 }
                 let body = serde_json::json!({
                     "action": "set_session_private_ok",

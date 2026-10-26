@@ -2,9 +2,9 @@
 // pending-row replay. The load-bearing implementation of the never-drop
 // guarantee from [DM08]. tugcode's `runReplay` queries the submission
 // journal (via the cross-process bun:sqlite handle) and emits a
-// synthetic `add_user_message` for every pending row whose
-// `user_text` does not appear as a `user_message` line in JSONL —
-// claude has not yet acknowledged those submissions. The synthetic
+// synthetic `add_user_message` for every pending row whose id — the
+// submission's id — claude has not written down in the JSONL, as a
+// turn opener's `uuid` or an absorbed message's `source_uuid`. The synthetic
 // emit happens BETWEEN the translator's `replay_started` and its first
 // subsequent emit so the reducer's
 // `phase: replaying` guard accepts the frame.
@@ -21,7 +21,7 @@ import {
   type JsonlReadResult,
   SessionManager,
   buildContentBlocksFromLegacyJournal,
-  extractUserMessageTextCounts,
+  extractSubmissionIds,
   jsonlPathFor,
 } from "../session.ts";
 import type {
@@ -183,10 +183,25 @@ function makeManager(
   });
 }
 
-function userJsonlEntry(text: string): string {
+function userJsonlEntry(text: string, uuid?: string): string {
   return JSON.stringify({
     type: "user",
+    ...(uuid !== undefined ? { uuid } : {}),
     message: { role: "user", content: [{ type: "text", text }] },
+  });
+}
+
+/** A message claude absorbed into a running turn, as claude records it. */
+function queuedCommandJsonlEntry(text: string, sourceUuid: string): string {
+  return JSON.stringify({
+    type: "attachment",
+    uuid: `att-${sourceUuid}`,
+    attachment: {
+      type: "queued_command",
+      prompt: [{ type: "text", text }],
+      source_uuid: sourceUuid,
+      commandMode: "prompt",
+    },
   });
 }
 
@@ -202,70 +217,34 @@ function assistantJsonlEntry(opts: { msgId: string; text: string }): string {
 }
 
 // ---------------------------------------------------------------------------
-// extractUserMessageTextCounts — pure helper unit tests
+// extractSubmissionIds — pure helper unit tests
 // ---------------------------------------------------------------------------
 
-describe("extractUserMessageTextCounts", () => {
-  test("empty JSONL yields empty map", () => {
-    expect(extractUserMessageTextCounts("").size).toBe(0);
+describe("extractSubmissionIds", () => {
+  test("empty JSONL yields no ids", () => {
+    expect(extractSubmissionIds("").size).toBe(0);
   });
 
-  test("single user-message yields count of 1", () => {
-    const jsonl = userJsonlEntry("hello");
-    const counts = extractUserMessageTextCounts(jsonl);
-    expect(counts.get("hello")).toBe(1);
-    expect(counts.size).toBe(1);
+  test("a turn opener's uuid is a submission id", () => {
+    expect([...extractSubmissionIds(userJsonlEntry("hello", "s-1"))]).toEqual(["s-1"]);
   });
 
-  test("duplicate user-messages yield count > 1", () => {
-    const jsonl = [userJsonlEntry("hi"), userJsonlEntry("hi")].join("\n");
-    expect(extractUserMessageTextCounts(jsonl).get("hi")).toBe(2);
+  test("an absorbed message's source_uuid is a submission id", () => {
+    expect([...extractSubmissionIds(queuedCommandJsonlEntry("steer", "s-2"))]).toEqual(["s-2"]);
   });
 
-  test("multi-block text concatenates within one entry", () => {
-    const entry = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: [
-          { type: "text", text: "part-a " },
-          { type: "text", text: "part-b" },
-        ],
-      },
-    });
-    expect(extractUserMessageTextCounts(entry).get("part-a part-b")).toBe(1);
-  });
-
-  test("tool_result entries (also type: 'user') do NOT count", () => {
-    const entry = JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "tu-1",
-            content: "ok",
-          },
-        ],
-      },
-    });
-    expect(extractUserMessageTextCounts(entry).size).toBe(0);
+  test("other attachments and other record types contribute nothing", () => {
+    const jsonl = [
+      JSON.stringify({ type: "attachment", uuid: "a-1", attachment: { type: "environment" } }),
+      JSON.stringify({ type: "queue-operation", operation: "enqueue", commandUuid: "s-3" }),
+      assistantJsonlEntry({ msgId: "m1", text: "reply" }),
+    ].join("\n");
+    expect(extractSubmissionIds(jsonl).size).toBe(0);
   });
 
   test("malformed JSON lines are skipped silently", () => {
-    const jsonl = ["{not-json", userJsonlEntry("survived")].join("\n");
-    const counts = extractUserMessageTextCounts(jsonl);
-    expect(counts.get("survived")).toBe(1);
-  });
-
-  test("non-user types are ignored", () => {
-    const jsonl = [
-      assistantJsonlEntry({ msgId: "m1", text: "reply" }),
-      userJsonlEntry("kept"),
-    ].join("\n");
-    expect(extractUserMessageTextCounts(jsonl).size).toBe(1);
-    expect(extractUserMessageTextCounts(jsonl).get("kept")).toBe(1);
+    const jsonl = ["{not-json", userJsonlEntry("survived", "s-4")].join("\n");
+    expect([...extractSubmissionIds(jsonl)]).toEqual(["s-4"]);
   });
 });
 
@@ -296,6 +275,7 @@ describe("runReplay — pending-row injection", () => {
     const jsonl = [
       JSON.stringify({
         type: "user",
+        uuid: "j-told",
         message: {
           role: "user",
           content: [
@@ -340,7 +320,7 @@ describe("runReplay — pending-row injection", () => {
     ]);
   });
 
-  test("pending row whose user_text is NOT in JSONL emits a synthetic", async () => {
+  test("pending row claude has not written down emits a synthetic carrying its id", async () => {
     const fx = freshFixture();
     seedJournal(fx.sessionsDbPath, [
       {
@@ -350,7 +330,7 @@ describe("runReplay — pending-row injection", () => {
         created_at: 1_000,
       },
     ]);
-    // JSONL is empty (or missing — both produce no user_message texts).
+    // JSONL is empty (or missing — both write down no submission).
     const manager = makeManager(fx, "");
 
     const { emitted } = await captureStdout(() => manager.runReplay());
@@ -360,8 +340,7 @@ describe("runReplay — pending-row injection", () => {
     );
     expect(synthetics).toHaveLength(1);
     expect((synthetics[0].content[0] as any).text).toBe("submission claude never saw");
-    // No `msg_id` on `add_user_message` per [D15] — the journal id is
-    // not exposed on the wire; identification is by text content.
+    expect(synthetics[0].submissionId).toBe("j-only");
     // The synthetic lands inside the `replay_started` /
     // `replay_complete` bracket — the reducer's
     // `handleAddUserMessage` phase guard requires `replaying`.
@@ -374,7 +353,7 @@ describe("runReplay — pending-row injection", () => {
     expect(completeIdx).toBeGreaterThan(syntheticIdx);
   });
 
-  test("pending row whose user_text IS in JSONL emits NO synthetic", async () => {
+  test("pending row whose id opens a JSONL turn emits NO synthetic", async () => {
     const fx = freshFixture();
     seedJournal(fx.sessionsDbPath, [
       {
@@ -385,26 +364,50 @@ describe("runReplay — pending-row injection", () => {
       },
     ]);
     const jsonl = [
-      userJsonlEntry("claude saw this"),
+      userJsonlEntry("claude saw this", "j-acked"),
       assistantJsonlEntry({ msgId: "msg_01ACK", text: "ack" }),
     ].join("\n");
     const manager = makeManager(fx, jsonl);
 
     const { emitted } = await captureStdout(() => manager.runReplay());
 
-    // The JSONL pass emits one add_user_message (for the JSONL
-    // user_message line) and a turn_complete{success}. The
-    // journal-driven synthetic does NOT fire because the row matched —
-    // only one user-side frame in total. Identification is by text;
-    // `add_user_message` carries no `msg_id` per [D15].
+    // The JSONL pass emits one add_user_message (for the JSONL user
+    // entry), carrying the submission's id; the journal-driven synthetic
+    // does NOT fire because the row's id is written down.
     const replays = emitted.filter(
       (m): m is AddUserMessage => m.type === "add_user_message",
     );
     expect(replays).toHaveLength(1);
     expect((replays[0].content[0] as any).text).toBe("claude saw this");
+    expect(replays[0].submissionId).toBe("j-acked");
   });
 
-  test("multiple pending rows, partial JSONL match: synthetic fires only for unmatched", async () => {
+  test("a message absorbed mid-turn renders once: the JSONL's copy, no synthetic", async () => {
+    // The turn is still running when the catch-up reads the JSONL: the
+    // opener and the absorbed message are both written down, and both rows
+    // are still pending, since only the turn's end consumes them. Matching by
+    // text missed the absorbed one — it has no `user` line — and rendered it
+    // a second time on every catch-up during the turn.
+    const fx = freshFixture();
+    seedJournal(fx.sessionsDbPath, [
+      { journal_id: "j-opener", session_id: fx.sessionId, user_text: "do the thing", created_at: 1_000 },
+      { journal_id: "j-steer", session_id: fx.sessionId, user_text: "and mention zebras", created_at: 2_000 },
+    ]);
+    const jsonl = [
+      userJsonlEntry("do the thing", "j-opener"),
+      queuedCommandJsonlEntry("and mention zebras", "j-steer"),
+    ].join("\n");
+    const manager = makeManager(fx, jsonl);
+
+    const { emitted } = await captureStdout(() => manager.runReplay());
+
+    const replays = emitted.filter(
+      (m): m is AddUserMessage => m.type === "add_user_message",
+    );
+    expect(replays.map((r) => r.submissionId)).toEqual(["j-opener", "j-steer"]);
+  });
+
+  test("multiple pending rows, partial JSONL match: synthetic fires only for the unwritten", async () => {
     const fx = freshFixture();
     seedJournal(fx.sessionsDbPath, [
       {
@@ -421,7 +424,7 @@ describe("runReplay — pending-row injection", () => {
       },
     ]);
     const jsonl = [
-      userJsonlEntry("claude saw"),
+      userJsonlEntry("claude saw", "j-acked"),
       assistantJsonlEntry({ msgId: "msg_01SAW", text: "ok" }),
     ].join("\n");
     const manager = makeManager(fx, jsonl);
@@ -431,17 +434,16 @@ describe("runReplay — pending-row injection", () => {
     const replays = emitted.filter(
       (m): m is AddUserMessage => m.type === "add_user_message",
     );
-    // Two replays total: one for the matched row (from the JSONL pass)
-    // and one synthetic for the unmatched row. Identification by text
-    // — `add_user_message` carries no `msg_id` per [D15].
+    // Two replays total: one for the written row (from the JSONL pass)
+    // and one synthetic for the unwritten row.
     expect(replays).toHaveLength(2);
     const synthetic = replays.find((r) => (((r as any).content?.[0]) as any)?.text === "claude has not seen");
-    expect(synthetic).toBeDefined();
+    expect(synthetic?.submissionId).toBe("j-pending");
   });
 
-  test("duplicate user_text — multiset count handles partial JSONL match correctly", async () => {
-    // JSONL has 1 occurrence of "hello"; journal has 2. The first
-    // pending row matches; the second emits a synthetic.
+  test("duplicate user_text — the id, not the text, says which row claude wrote down", async () => {
+    // JSONL holds the second "hello"; the journal holds both. The first,
+    // which claude never wrote down, is the one that emits a synthetic.
     const fx = freshFixture();
     seedJournal(fx.sessionsDbPath, [
       {
@@ -458,7 +460,7 @@ describe("runReplay — pending-row injection", () => {
       },
     ]);
     const jsonl = [
-      userJsonlEntry("hello"),
+      userJsonlEntry("hello", "j-second"),
       assistantJsonlEntry({ msgId: "msg_01HELLO", text: "hi" }),
     ].join("\n");
     const manager = makeManager(fx, jsonl);
@@ -468,14 +470,7 @@ describe("runReplay — pending-row injection", () => {
     const replays = emitted.filter(
       (m): m is AddUserMessage => m.type === "add_user_message",
     );
-    // 1 from JSONL (the matched "hello") + 1 synthetic (the unmatched
-    // "hello" from j-second). Both carry the literal text "hello"; the
-    // multiset count IS the contract — under `add_user_message`'s
-    // no-`msg_id` shape ([D15]) the synthetic and the JSONL-derived
-    // emission are wire-indistinguishable, which is the correct
-    // substrate-truth: each "hello" submission gets one row.
-    expect(replays).toHaveLength(2);
-    expect(replays.every((r) => (((r as any).content?.[0]) as any)?.text === "hello")).toBe(true);
+    expect(replays.map((r) => r.submissionId).sort()).toEqual(["j-first", "j-second"]);
   });
 
   test("attachments round-trip from journal BLOB to synthetic frame as content blocks", async () => {

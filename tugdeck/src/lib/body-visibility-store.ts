@@ -85,11 +85,24 @@ export class BodyVisibilityStore extends Subscribable {
     return this.dormantAfterMs;
   }
 
-  /** The host's word. Hidden arms the clock from `since`; shown cancels it. */
-  apply(visibility: BodyVisibility): void {
+  /**
+   * The host's word. Hidden arms the clock from `since`; shown cancels it.
+   * A hidden body the host declares `dormant` is dormant at once, whatever
+   * the page's own clock has done: the host's clock is the one WebKit cannot
+   * freeze, and it has already told tugcast to send this body nothing.
+   */
+  apply(visibility: Pick<BodyVisibility, "shown" | "since"> & { readonly dormant?: boolean }): void {
     const current = this.snapshot;
-    if (current.shown === visibility.shown && current.since === visibility.since) return;
-    this.snapshot = { ...current, shown: visibility.shown, since: visibility.since };
+    const declared = visibility.dormant === true && !visibility.shown;
+    if (current.shown === visibility.shown && current.since === visibility.since && (!declared || current.dormant)) {
+      return;
+    }
+    this.snapshot = {
+      ...current,
+      shown: visibility.shown,
+      since: visibility.since,
+      dormant: current.dormant || declared,
+    };
     this.rearm();
     this.notify();
   }

@@ -4,7 +4,9 @@
  * turn-end stamp or a row no longer live is the turn over, a working reading
  * that hears nothing past its horizon falls idle, a card with no page is
  * followed from its ledger row alone, and a body that speaks again takes its
- * card back. The derivation is pure over data; the store is driven here by
+ * card back. Where the row carries tugcast's turn latch, the latch decides
+ * the turn outright and stamps and samples only refine it. The derivation is
+ * pure over data; the store is driven here by
  * sources that hold plain values.
  *
  * @covers tugdeck/src/lib/bodiless-facts-store.ts
@@ -18,6 +20,7 @@ import {
   BodilessFactsStore,
   followedSession,
   enterBodiless,
+  latchOf,
   onActivity,
   onHorizon,
   onLedger,
@@ -108,6 +111,53 @@ describe("the derivation", () => {
     const ended = onLedger(enterBodiless(facts({ activity: "streaming" }), 1_000, 5_000), row({ last_used_at: 2_000 }), 6_000);
     expect(onActivity(ended, "text", 6_000 + TURN_TAIL_MS - 1)).toBe(ended);
     expect(onActivity(ended, "text", 6_000 + TURN_TAIL_MS)).toMatchObject({ activity: "streaming", working: true });
+  });
+
+  test("the latch is the row's turn_active on a live row, closed on a row that is not, unknown where it is not said", () => {
+    expect(latchOf(row({ turn_active: true }))).toBe(true);
+    expect(latchOf(row({ turn_active: false }))).toBe(false);
+    expect(latchOf(row({ turn_active: true, state: "closed" }))).toBe(false);
+    expect(latchOf(row())).toBeNull();
+    expect(latchOf(null)).toBeNull();
+  });
+
+  test("a row's latch decides the turn: closed ends it whatever the stamp, open opens it whatever the stamp", () => {
+    const working = enterBodiless(facts({ activity: "streaming", canInterrupt: true }), 1_000, 5_000);
+    expect(onLedger(working, row({ last_used_at: 1_000, turn_active: false }), 6_000), "closed with no stamp").toEqual({
+      activity: "idle",
+      working: false,
+      mark: 1_000,
+      endedAt: 6_000,
+    });
+    expect(
+      onLedger(working, row({ last_used_at: 2_000, turn_active: true }), 6_000),
+      "a stamp while the latch is open is not the turn's end",
+    ).toEqual({ ...working, mark: 2_000 });
+    expect(onLedger(working, row({ last_used_at: 1_000, turn_active: true }), 6_000)).toBe(working);
+
+    const idle = enterBodiless(facts(), 1_000, 5_000);
+    expect(onLedger(idle, row({ turn_active: true }), 6_000)).toEqual({
+      activity: "awaiting_first_token",
+      working: true,
+      mark: 1_000,
+      endedAt: null,
+    });
+    expect(onLedger(idle, row({ turn_active: false }), 6_000)).toBe(idle);
+
+    const asking = enterBodiless(facts({ activity: "awaiting_approval" }), 1_000, 5_000);
+    expect(onLedger(asking, row({ turn_active: true }), 6_000), "a question waits inside an open turn").toBe(asking);
+    expect(onLedger(asking, row({ turn_active: false }), 6_000)).toMatchObject({ activity: "idle", working: false });
+    const errored = enterBodiless(facts({ activity: "errored" }), 1_000, 5_000);
+    expect(onLedger(errored, row({ last_used_at: 2_000, turn_active: false }), 6_000)).toEqual({ ...errored, mark: 2_000 });
+  });
+
+  test("under a known latch a sample only names the work: closed, it opens nothing however late", () => {
+    const idle = enterBodiless(facts(), 1_000, 5_000);
+    expect(onActivity(idle, "text", 6_000 + 10 * TURN_TAIL_MS, false)).toBe(idle);
+    const open = onLedger(idle, row({ turn_active: true }), 6_000);
+    expect(onActivity(open, "tools", 6_001, true)).toMatchObject({ activity: "tool_work", working: true });
+    const ended = onLedger(open, row({ turn_active: false }), 7_000);
+    expect(onActivity(ended, "text", 7_001, null), "an unknown latch keeps the tail rule").toBe(ended);
   });
 
   test("the followed session: the binding, else the ledger's live row for a card no page has bound", () => {
@@ -309,6 +359,42 @@ describe("the store", () => {
     deck.cardFacts.set("a", facts({ activity: "streaming", canInterrupt: true, dormant: true }));
     deck.changed();
     expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false });
+  });
+
+  test("a hidden card's turn ends on the latch's push, though no stamp moved and samples run on", () => {
+    const { deck, store } = setup();
+    deck.rows.set("s1", row({ last_used_at: 1_000, turn_active: true }));
+    deck.cardFacts.set("a", facts({ activity: "streaming", canInterrupt: true, dormant: true }));
+    deck.changed();
+    expect(store.canInterrupt("a")).toBe(true);
+
+    deck.rows.set("s1", row({ last_used_at: 1_000, turn_active: false }));
+    deck.changed();
+    expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false });
+    deck.clock += 10 * TURN_TAIL_MS;
+    deck.sample("s1", "text");
+    expect(store.canInterrupt("a"), "a sample under a closed latch is not a turn").toBe(false);
+
+    // The next turn opens on the push, before any sample names its work.
+    deck.rows.set("s1", row({ last_used_at: 1_000, turn_active: true }));
+    deck.changed();
+    expect(store.bodilessOf("a")).toEqual({ activity: "awaiting_first_token", canInterrupt: true });
+    deck.sample("s1", "tools");
+    expect(store.activityOf("a")).toBe("tool_work");
+  });
+
+  test("a card frozen idle on a busy session reads busy until the latch closes, whatever stamps land meanwhile", () => {
+    const { deck, store } = setup();
+    deck.rows.set("s1", row({ last_used_at: 1_000, turn_active: true }));
+    deck.cardFacts.set("a", facts({ activity: "idle", dormant: true }));
+    deck.changed();
+    expect(store.canInterrupt("a")).toBe(true);
+    deck.rows.set("s1", row({ last_used_at: 3_000, turn_count: 9, turn_active: true }));
+    deck.changed();
+    expect(store.canInterrupt("a"), "a transcript count set mid-turn ends nothing").toBe(true);
+    deck.rows.set("s1", row({ last_used_at: 3_000, turn_count: 9, turn_active: false }));
+    deck.changed();
+    expect(store.canInterrupt("a")).toBe(false);
   });
 
   test("a working reading that hears nothing past its horizon falls idle, once; a sample moves the horizon on", () => {

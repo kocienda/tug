@@ -420,6 +420,31 @@ describe("request_replay", () => {
     expect(captured[5]).toMatchObject({ count: 1, firstLoadedTurnIndex: 1, totalTurns: 2, hasOlder: true });
   });
 
+  test("a replayed opener carries the message that opened its turn, and its submission id", () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: {
+        schemaVersion: TRANSCRIPT_SCHEMA_VERSION,
+        tugcodeVersion: "stub",
+        turns: [
+          { index: 0, outputs: turn("a") },
+          { index: 1, outputs: turn("b").slice(0, 2) },
+        ],
+      },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.dispatchTurn({ content: [{ type: "text", text: "first" }], submissionId: "sub-a" });
+    engine.dispatchTurn({ content: [{ type: "text", text: "second" }], submissionId: "sub-b" });
+    captured.length = 0;
+    engine.answerReplay({ turnRange: [0, Number.MAX_SAFE_INTEGER] });
+    const openers = captured.filter((m) => m.type === "add_user_message");
+    expect(openers).toEqual([
+      expect.objectContaining({ content: [{ type: "text", text: "first" }], submissionId: "sub-a" }),
+      expect.objectContaining({ content: [{ type: "text", text: "second" }], submissionId: "sub-b", inflightSnapshot: true }),
+    ]);
+  });
+
   test("an afterTurn is placed after the newest finished turn it names, else by its count", () => {
     const captured: OutboundMessage[] = [];
     const engine = new StubReplayEngine({

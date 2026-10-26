@@ -1017,7 +1017,10 @@ fn write_synopsis(config: &ObserverBridgeConfig, session_id: &str, raw: Option<&
                 let metrics = ledger.scan_metrics_for(&row_id).unwrap_or(None);
                 let usage = ledger.usage_for(&row_id).unwrap_or(None);
                 let _ = tx.send(crate::feeds::agent_supervisor::build_session_updated_frame(
-                    &row, metrics, usage,
+                    &row,
+                    metrics,
+                    usage,
+                    ledger.turn_active(&row_id),
                 ));
             }
         }

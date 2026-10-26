@@ -117,6 +117,7 @@ control_actions! {
     Relaunch => "relaunch",
     CheckAuth => "check_auth",
     CheckHostTools => "check_host_tools",
+    BodyDormant => "body_dormant",
     OfferHostTools => "offer_host_tools",
     InstallClaude => "install_claude",
     ClaudeDownloadResume => "claude_download_resume",
@@ -143,6 +144,10 @@ pub const RUST_ONLY_ACTIONS: &[(ControlAction, &str)] = &[
     (
         ControlAction::SharedAgentClassify,
         "the shared agent's classify entry point, reached by tell; no deck control sends it",
+    ),
+    (
+        ControlAction::BodyDormant,
+        "the host's declaration that a hidden body has gone dormant, sent over the UDS tell; no deck control sends it",
     ),
 ];
 

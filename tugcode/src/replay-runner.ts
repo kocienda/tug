@@ -37,7 +37,7 @@ import {
   collectJsonlUuids,
   countNewlines,
   defaultSessionsDbPath,
-  extractUserMessageTextCounts,
+  extractSubmissionIds,
   firstUncarriedPromptUuid,
   jsonlPathFor,
   readSubagentTranscripts,
@@ -1235,11 +1235,15 @@ export class ReplayRunner {
    * (mid-turn-replay Step 5.6
    * — the load-bearing implementation of [DM08]).
    *
-   * For each pending journal row whose `user_text` does not appear as
-   * a `user_message` line in the JSONL, emit a synthetic
-   * `add_user_message` frame. The synthetic carries the journal id
-   * as `msg_id` (a TEMPORARY KEY for the reducer's
-   * `pendingUserMessage` slot) and the row's user_text + attachments.
+   * For each pending journal row whose id — the submission's id, which
+   * tugcode hands claude as the input message's `uuid` — claude has not
+   * written down in the JSONL ({@link extractSubmissionIds}), emit a
+   * synthetic `add_user_message` frame carrying the row's user_text +
+   * attachments and the id as `submissionId`. A row claude absorbed into a
+   * running turn is written down too, as a `queued_command`'s
+   * `source_uuid`, so it is not re-emitted beside the JSONL pass's copy;
+   * the held turns a catch-up names are in the same JSONL, so their rows are
+   * found the same way.
    *
    * **Why no terminal event for the synthetic.** The pending row by
    * definition has no claude response yet — there is no scratch
@@ -1282,19 +1286,12 @@ export class ReplayRunner {
     if (pendingRows.length === 0) return;
 
     const jsonl = input.kind === "ok" ? input.jsonl : "";
-    const userMessageCounts = extractUserMessageTextCounts(jsonl);
+    const written = extractSubmissionIds(jsonl);
 
     for (const row of pendingRows) {
-      const remaining = userMessageCounts.get(row.user_text) ?? 0;
-      if (remaining > 0) {
-        // The submission appears in JSONL — claude has acknowledged
-        // it; the JSONL pass will emit the corresponding
-        // `add_user_message`. Decrement so a duplicate-text
-        // submission later in the journal correctly accounts for
-        // multiple JSONL matches.
-        userMessageCounts.set(row.user_text, remaining - 1);
-        continue;
-      }
+      // Claude has written the submission down — as a turn's opener or as
+      // a message absorbed mid-turn — and the JSONL pass renders it.
+      if (written.has(row.journal_id)) continue;
       const attachments = this.decodeUserAttachmentsBlob(row.user_attachments);
       // Synthesize Anthropic-API content blocks from the journal's
       // legacy `text` + `attachments` columns. Flat shape (text
@@ -1311,6 +1308,7 @@ export class ReplayRunner {
         // holds the text as it went out, which is what the wheel's record
         // holds too.
         ...(wheelPrompts.claim(row.user_text) ? { origin: "wheel" as const } : {}),
+        submissionId: row.journal_id,
         ipc_version: IPC_VERSION,
       });
       logReplay("pending_row_synthetic_emit", {

@@ -850,10 +850,12 @@
       "from": "shell",
       "samples": [
         {
+          "dormantAfterMs": null,
           "evictAfterMs": 1500,
           "readyDeadlineMs": null
         },
         {
+          "dormantAfterMs": 400,
           "evictAfterMs": null,
           "readyDeadlineMs": 50
         }
@@ -861,6 +863,7 @@
       "refused": [
         1500,
         {
+          "dormantAfterMs": null,
           "evictAfterMs": "1500",
           "readyDeadlineMs": null
         }
@@ -1875,21 +1878,33 @@
       "samples": [
         {
           "shown": true,
-          "since": 1760000000000
+          "since": 1760000000000,
+          "dormant": false
         },
         {
           "shown": false,
-          "since": 1760000060000.5
+          "since": 1760000060000.5,
+          "dormant": false
+        },
+        {
+          "shown": false,
+          "since": 1760000060000.5,
+          "dormant": true
         }
       ],
       "refused": [
         true,
         {
           "shown": "yes",
-          "since": 0
+          "since": 0,
+          "dormant": false
         },
         {
           "shown": false
+        },
+        {
+          "shown": false,
+          "since": 0
         }
       ]
     },

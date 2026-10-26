@@ -540,6 +540,31 @@ describe("a reconnect re-binds the same server and reloads only a restarted one"
     expect(sentActions().filter((a) => a.startsWith("request_"))).toEqual(["request_inflight"]);
   });
 
+  it("the same server, a sleeping card mid-turn: it asks nothing until its reveal's catch-up", () => {
+    const cardId = "reconnect-asleep";
+    const tugSessionId = "sess-reconnect-asleep";
+    const { deck, services } = launched(cardId, tugSessionId);
+    services.codeSessionStore.send("keep going", []);
+    services.codeSessionStore.noteDormant();
+    expect(services.codeSessionStore.isAsleep()).toBe(true);
+
+    bounceTheWire();
+    reassertOnReconnect(asDeck(deck), reconnectedConnection("srv-A", "srv-A"));
+    answerTheBindingsQuery(cardId, tugSessionId);
+    sentFrames.length = 0;
+    ack(cardId, tugSessionId, "resume");
+
+    expect(cardServicesStore.getServices(cardId)).toBe(services);
+    expect(sentActions(), "a body scoped to nothing would hear no answer").not.toContain("request_inflight");
+    expect(findRequestReplayFrames()).toEqual([]);
+
+    // The reveal's catch-up is the one ask, and it carries the turn in flight.
+    services.codeSessionStore.catchUp();
+    expect(services.codeSessionStore.isAsleep()).toBe(false);
+    expect(findRequestReplayFrames()).toEqual([{ tugSessionId, reason: "catch-up" }]);
+    expect(sentActions()).not.toContain("request_inflight");
+  });
+
   it("the same server, a card whose read the drop cut short: rebuilt and read again, for its first reason", () => {
     const cardId = "reconnect-cut-short";
     const tugSessionId = "sess-reconnect-cut-short";

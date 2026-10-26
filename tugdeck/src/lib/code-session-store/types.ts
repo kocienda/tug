@@ -163,6 +163,14 @@ export interface UserMessage extends MessageBase {
    * back into turn-level metadata.
    */
   submitAt: number;
+  /**
+   * The submission's one identity — the `turnKey` the store minted when the
+   * user posted, sent as the `user_message`'s `submission_id` and carried by
+   * every copy rebuilt from it after (the journal's never-drop synthetic, the
+   * JSONL's opener and its absorbed-mid-turn record). Absent on a copy whose
+   * source never had one. A replay bracket holds one message per id.
+   */
+  submissionId?: string;
 }
 
 export interface AssistantText extends MessageBase {

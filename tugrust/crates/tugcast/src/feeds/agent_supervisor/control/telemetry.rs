@@ -451,7 +451,12 @@ impl AgentSupervisor {
             let usage = ledger.usage_for(&row.session_id).unwrap_or(None);
             let _ = self
                 .control_tx
-                .send(build_session_updated_frame(&session_row, metrics, usage));
+                .send(build_session_updated_frame(
+                    &session_row,
+                    metrics,
+                    usage,
+                    ledger.turn_active(&row.session_id),
+                ));
         }
     }
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use tokio::sync::{broadcast, mpsc};
-use tracing::info;
+use tracing::{info, warn};
 use tugcast_core::{ControlAction as A, FeedId, Frame};
 
 use crate::control::send_control;
@@ -193,6 +193,15 @@ async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action
     broadcast_version_result(cat).await;
 }
 
+/// The card and the flag of a `body_dormant` tell, or `None` when either is
+/// missing or the card id is empty.
+fn parse_body_dormant(raw_payload: &[u8]) -> Option<(String, bool)> {
+    let payload = serde_json::from_slice::<serde_json::Value>(raw_payload).ok()?;
+    let card = payload.get("card_id")?.as_str().filter(|c| !c.is_empty())?;
+    let dormant = payload.get("dormant")?.as_bool()?;
+    Some((card.to_owned(), dormant))
+}
+
 /// Broadcast a `host_tools_result` CONTROL frame from a probed host.
 ///
 /// The floor rides along rather than being restated in the deck, so the one
@@ -334,6 +343,21 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 let tools = crate::feeds::host_tools::probe().await;
                 broadcast_host_tools_result(cat, tools);
             });
+        }
+        Ok(A::BodyDormant) => {
+            // The host's word on a hidden body ([B05]): its own clock, which
+            // WebKit cannot freeze, has run the dormant delay since the hide,
+            // or the body is shown again. tugcast takes it as the fact the
+            // router reads, so a dormant body hears nothing of any session and
+            // its quiet socket is not cut as a dead wire.
+            match parse_body_dormant(raw_payload) {
+                Some((card, dormant)) => {
+                    if pages.set_card_dormant(&card, dormant) {
+                        info!(card = %card, dormant, "dispatch_action: body dormancy declared");
+                    }
+                }
+                None => warn!("dispatch_action: body_dormant without a card_id and a dormant flag"),
+            }
         }
         Ok(A::OfferHostTools) => {
             // Ask macOS to install the Command Line Tools. `xcode-select
@@ -856,5 +880,42 @@ mod tests {
         .await;
 
         assert!(pending_asks.lock().is_empty());
+    }
+
+    /// The host's `body_dormant` tell reaches the registry the router reads
+    /// ([B05]), and a malformed one changes nothing.
+    #[tokio::test]
+    async fn a_body_dormant_tell_marks_the_card_in_the_registry() {
+        let pages = PageRegistry::new();
+        let (shutdown_tx, _) = mpsc::channel(1);
+        let (client_action_tx, _control_rx) = broadcast::channel(16);
+        let dev_state = crate::dev::new_shared_dev_state();
+        let (page_lane, _lane_rx) = broadcast::channel::<AddressedFrame>(16);
+        let mut stream_outputs = HashMap::new();
+        stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
+        let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let pending_asks = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let ctx = ActionContext {
+            shutdown_tx: &shutdown_tx,
+            stream_outputs: &stream_outputs,
+            dev_state: &dev_state,
+            pending_evals: &pending_evals,
+            pending_asks: &pending_asks,
+            shared_agent: &None,
+            page_lane: &page_lane,
+            pages: &pages,
+            default_to: PageTarget::Shell,
+        };
+        let tell = |payload: &'static [u8]| dispatch_action("body_dormant", payload, &ctx);
+
+        tell(br#"{"action":"body_dormant","card_id":"c1","dormant":true}"#).await;
+        assert!(pages.dormant_cards().borrow().contains("c1"));
+
+        tell(br#"{"action":"body_dormant","card_id":"","dormant":false}"#).await;
+        tell(br#"{"action":"body_dormant","card_id":"c1"}"#).await;
+        assert!(pages.dormant_cards().borrow().contains("c1"), "a malformed tell is ignored");
+
+        tell(br#"{"action":"body_dormant","card_id":"c1","dormant":false}"#).await;
+        assert!(!pages.dormant_cards().borrow().contains("c1"));
     }
 }

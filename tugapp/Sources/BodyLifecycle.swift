@@ -71,6 +71,15 @@ final class BodyLifecycle {
     /// The clock the time trigger runs to: `evictAfter`, unless the harness
     /// has shortened it (`BodyViewController.setDelays`).
     private(set) var evictAfterMs: Double = BodyLifecycle.evictAfter
+    /// How long a body may stay hidden before the host declares it dormant,
+    /// ms: a minute, the page's own `DORMANT_AFTER_MS`. The host's clock is
+    /// the one that decides ([B05]): it knows when it hid the body, and
+    /// WebKit does not suspend it as it may a hidden page's timers, so the
+    /// declaration reaches tugcast before anything can cut the body's wire.
+    static let dormantAfter: Double = 60_000
+    /// The clock the dormant declaration runs to: `dormantAfter`, unless the
+    /// harness has shortened it.
+    private(set) var dormantAfterMs: Double = BodyLifecycle.dormantAfter
     /// How long a warning waits after one eviction before it takes the next:
     /// time for the process the last one gave up to be gone, and for the
     /// level to say whether that was enough.
@@ -220,6 +229,33 @@ final class BodyLifecycle {
         evictAfterMs = ms
         TugLog.info("bodies", "evict after", [TugLog.field("ms", String(format: "%.0f", ms))])
         for body in controller.bodies { armEviction(body) }
+    }
+
+    /// The dormant clock, from the harness: every hidden body's clock is set
+    /// again against when it was hidden.
+    func setDormantAfter(ms: Double) {
+        guard ms > 0, ms != dormantAfterMs else { return }
+        dormantAfterMs = ms
+        TugLog.info("bodies", "dormant after", [TugLog.field("ms", String(format: "%.0f", ms))])
+        for body in controller.bodies { armDormancy(body) }
+    }
+
+    /// Set `body`'s dormant declaration: due `dormantAfterMs` after it was
+    /// hidden, while it stays hidden, and nothing while it is shown. A
+    /// sibling is shown, so it has none. One already declared needs no clock.
+    func armDormancy(_ body: Body) {
+        body.dormantDue?.cancel()
+        body.dormantDue = nil
+        guard body.cardId != nil, !body.declaredDormant, let shown = body.shown, !shown.value else { return }
+        let delay = max(0, dormantAfterMs - (Date().timeIntervalSince1970 * 1000 - shown.since))
+        let work = DispatchWorkItem { [weak self, weak body] in
+            guard let self, let body else { return }
+            body.dormantDue = nil
+            guard body.shown?.value == false else { return }
+            self.controller.declareDormant(body, true)
+        }
+        body.dormantDue = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(delay.rounded())), execute: work)
     }
 
     /// Set the time trigger's eviction for `body`: due `evictAfterMs` after

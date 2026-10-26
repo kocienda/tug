@@ -77,6 +77,7 @@ import {
   type JsonlReadResult,
   defaultJsonlReader,
   defaultJsonlWriter,
+  isSubmissionId,
   jsonlPathFor,
 } from "./journal.ts";
 
@@ -90,7 +91,7 @@ export {
   defaultJsonlReader,
   defaultJsonlWriter,
   defaultSessionsDbPath,
-  extractUserMessageTextCounts,
+  extractSubmissionIds,
   jsonlPathFor,
   readSubagentTranscripts,
   recordTimestampMs,
@@ -3648,6 +3649,12 @@ export class SessionManager {
     const userInput = JSON.stringify({
       type: "user",
       session_id: "",
+      // The submission's id, as claude's own id for this input: claude
+      // records it as the JSONL user entry's `uuid`, or as the
+      // `queued_command`'s `source_uuid` when it absorbs the message into a
+      // running turn. That is what lets a replay match the pending-turn
+      // journal row (keyed on the same id) to what claude wrote down.
+      ...(isSubmissionId(msg.submission_id) ? { uuid: msg.submission_id } : {}),
       message: {
         role: "user",
         content: contentBlocks,

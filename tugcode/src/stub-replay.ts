@@ -94,7 +94,17 @@ import type {
 import { IPC_VERSION } from "./types.ts";
 import { errorFrame } from "./ipc.ts";
 import { turnAfterHeld } from "./replay.ts";
-import type { ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
+import type { ContentBlock, ReplayAfterTurn, ReplayWindow } from "@tugproto/inbound";
+
+/**
+ * The `user_message` that opened a turn: its content and its submission id,
+ * which a replayed opener carries back as production's JSONL replay does, so
+ * the deck can tell a replayed copy of a message from a second message.
+ */
+export interface StubTurnOpener {
+  readonly content: ContentBlock[];
+  readonly submissionId?: string;
+}
 
 /**
  * Schema version of the transcript document. Bumped when the
@@ -272,6 +282,14 @@ export function loadTranscript(path: string): TugcodeTranscript {
   };
 }
 
+/** A replayed opener's content and submission id, or empty content for a turn dispatched with none. */
+function openerFields(opener: StubTurnOpener | undefined): { content: ContentBlock[]; submissionId?: string } {
+  if (opener === undefined) return { content: [] };
+  return opener.submissionId === undefined
+    ? { content: opener.content }
+    : { content: opener.content, submissionId: opener.submissionId };
+}
+
 // ---------------------------------------------------------------------------
 // Replay engine
 // ---------------------------------------------------------------------------
@@ -303,6 +321,9 @@ export class StubReplayEngine {
   private turnsDone: OutboundMessage[][] = [];
   /** Whether the turn dispatched last has put its end on the wire (true before any). */
   private turnEnded = true;
+  /** The opener of the turn dispatched last, and of each finished turn beside {@link turnsDone}. */
+  private turnOpener: StubTurnOpener | undefined;
+  private turnsDoneOpeners: (StubTurnOpener | undefined)[] = [];
 
   constructor(args: {
     transcript: TugcodeTranscript;
@@ -345,7 +366,7 @@ export class StubReplayEngine {
    *          the engine has exhausted its turns (caller should
    *          shut down).
    */
-  dispatchTurn(): boolean {
+  dispatchTurn(opener?: StubTurnOpener): boolean {
     if (this.nextTurnIndex >= this.transcript.turns.length) {
       const err: ErrorEvent = errorFrame(
         "stub_replay_exhausted",
@@ -367,6 +388,7 @@ export class StubReplayEngine {
     if (paceMs <= 0) {
       this.turnSent = [];
       this.turnEnded = false;
+      this.turnOpener = opener;
       for (const output of turn.outputs) {
         this.sendTurnOutput(output);
       }
@@ -375,6 +397,7 @@ export class StubReplayEngine {
     this.pacing = this.pacing.then(async () => {
       this.turnSent = [];
       this.turnEnded = false;
+      this.turnOpener = opener;
       for (let i = 0; i < turn.outputs.length; i++) {
         if (i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
         this.sendTurnOutput(turn.outputs[i]);
@@ -389,6 +412,7 @@ export class StubReplayEngine {
     if (output.type === "turn_complete" || output.type === "turn_cancelled") {
       this.turnEnded = true;
       this.turnsDone.push([...this.turnSent]);
+      this.turnsDoneOpeners.push(this.turnOpener);
     }
   }
 
@@ -404,7 +428,7 @@ export class StubReplayEngine {
    */
   requestInflight(): void {
     this.emit({ type: "replay_started", inflight_only: true, ipc_version: IPC_VERSION } as OutboundMessage);
-    if (this.turnSent.length > 0) this.emitSnapshot(this.turnSent);
+    if (this.turnSent.length > 0) this.emitSnapshot(this.turnSent, this.turnOpener);
     this.emit({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION } as OutboundMessage);
   }
 
@@ -413,10 +437,10 @@ export class StubReplayEngine {
    * `inflightSnapshot`, each block opened and its text whole as it now
    * stands, and its end if it has been sent.
    */
-  private emitSnapshot(sent: readonly OutboundMessage[]): void {
+  private emitSnapshot(sent: readonly OutboundMessage[], opener: StubTurnOpener | undefined): void {
     this.emit({
       type: "add_user_message",
-      content: [],
+      ...openerFields(opener),
       inflightSnapshot: true,
       ipc_version: IPC_VERSION,
     } as unknown as OutboundMessage);
@@ -478,13 +502,13 @@ export class StubReplayEngine {
     const first = Math.max(0, Math.min(Math.floor(rawFirst), total));
     const end = Math.max(first, Math.min(Math.floor(rawEnd), total));
     for (let i = first; i < end; i++) {
-      this.emit({ type: "add_user_message", content: [], ipc_version: IPC_VERSION } as unknown as OutboundMessage);
+      this.emit({ type: "add_user_message", ...openerFields(this.turnsDoneOpeners[i]), ipc_version: IPC_VERSION } as unknown as OutboundMessage);
       for (const output of this.turnsDone[i]) {
         if (output.type === "assistant_text" && output.is_partial) continue;
         this.emit(output);
       }
     }
-    if (!this.turnEnded && this.turnSent.length > 0) this.emitSnapshot(this.turnSent);
+    if (!this.turnEnded && this.turnSent.length > 0) this.emitSnapshot(this.turnSent, this.turnOpener);
     this.emit({
       type: "replay_complete",
       count: end - first,

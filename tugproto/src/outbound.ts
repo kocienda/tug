@@ -1319,6 +1319,15 @@ export interface AddUserMessage {
    * from them only what its live cycle lacks. Absent everywhere else.
    */
   inflightSnapshot?: boolean;
+  /**
+   * The submission this frame renders — the deck-minted id the
+   * `user_message` carried ({@link UserMessage.submission_id} in
+   * `inbound.ts`). Set on the replay path from the JSONL user entry's
+   * `uuid` or a `queued_command`'s `source_uuid`, and on the never-drop
+   * synthetic from its journal row. A copy whose id the bracket already
+   * holds is the same submission again, and the reducer keeps one.
+   */
+  submissionId?: string;
   ipc_version: number;
 }
 

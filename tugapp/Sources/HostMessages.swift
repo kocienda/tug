@@ -309,9 +309,11 @@ struct BodyDestroy: Decodable, Equatable {
 }
 
 /// `bodyDelays`: the harness's seam on the host's body clocks, never sent by
-/// the product — how long a hidden body keeps its process, and how long a new
-/// page has to say it is ready, ms; nil for the host's own constant.
+/// the product — how long a hidden body waits before it is declared dormant,
+/// how long it keeps its process, and how long a new page has to say it is
+/// ready, ms; nil for the host's own constant.
 struct BodyDelays: Decodable, Equatable {
+    var dormantAfterMs: Double?
     var evictAfterMs: Double?
     var readyDeadlineMs: Double?
 }
@@ -539,10 +541,13 @@ struct BodyStateReport: Codable, Equatable {
 }
 
 /// `onBodyVisibility`: whether the body is shown — its container paints, a
-/// sibling's included — and since when, wall-clock ms.
+/// sibling's included — and since when, wall-clock ms; and whether the host
+/// has declared it dormant, hidden past the dormant delay by the host's own
+/// clock. Never dormant while shown.
 struct BodyVisibility: Codable, Equatable {
     var shown: Bool
     var since: Double
+    var dormant: Bool
 }
 
 // MARK: - The host's services

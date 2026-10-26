@@ -2239,6 +2239,7 @@ function handleSend(
       attachments: event.atoms,
       origin: senderOrigin(event.origin),
       submitAt,
+      submissionId: event.turnKey,
     };
     const next: CodeSessionState = {
       ...state,
@@ -2328,6 +2329,8 @@ function handleSend(
             // renderer can paint chips at the original positions.
             // Per [Step 5c].
             content: event.content,
+            // The submission's identity, for every copy made of it after.
+            submission_id: event.turnKey,
           },
         },
       ],
@@ -3662,12 +3665,13 @@ function handleToolResult(
       attachments: head.atoms,
       origin: head.origin,
       submitAt: head.queuedAt,
+      submissionId: head.turnKey,
     };
     nextMessages.push(steered);
     queuedSends = rest;
     pickupEffects.push({
       kind: "send-frame",
-      msg: { type: "user_message", content: head.content },
+      msg: { type: "user_message", content: head.content, submission_id: head.turnKey },
     });
   }
 
@@ -4277,6 +4281,7 @@ function flushQueuedHeadResult(
     attachments: next.atoms,
     origin: next.origin,
     submitAt: next.queuedAt,
+    submissionId: next.turnKey,
   };
   return {
     state: {
@@ -4323,6 +4328,7 @@ function flushQueuedHeadResult(
           // queue time by `buildWirePayload`. We pass them through
           // verbatim — the reducer never re-reads the bytes-store.
           content: next.content,
+          submission_id: next.turnKey,
         },
       },
     ],
@@ -7268,6 +7274,18 @@ function handleReplayComplete(
 }
 
 /**
+ * Whether any in-flight turn already holds a message for `submissionId`.
+ */
+function scratchHoldsSubmission(scratch: ReadonlyMap<string, ScratchEntry>, submissionId: string): boolean {
+  for (const entry of scratch.values()) {
+    for (const message of entry.messages) {
+      if (message.kind === "user_message" && message.submissionId === submissionId) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Replay user-message echo: the synthetic open of each replayed turn.
  * Sets `pendingTurn` + seeds the scratch with the opening user_message
  * so the upcoming `turn_complete` commits a `TurnEntry` with this user
@@ -7314,7 +7332,15 @@ function handleAddUserMessage(
     attachments: event.atoms,
     origin: senderOrigin(event.origin),
     submitAt: now,
+    ...(event.submissionId !== undefined ? { submissionId: event.submissionId } : {}),
   };
+
+  // One submission, one message. A bracket can carry the same submission
+  // twice — the never-drop synthetic of a journal row beside the JSONL's own
+  // record of it — and the copy already held is the one kept.
+  if (event.submissionId !== undefined && scratchHoldsSubmission(state.scratch, event.submissionId)) {
+    return { state, effects: [] };
+  }
 
   // Legacy fake-compaction replay ([P06]): a `/compact` seed block split off
   // this opener re-marks the carry-forward summary so an OLD JSONL renders it

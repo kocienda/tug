@@ -203,6 +203,15 @@ export interface SessionRow {
    * for an older tugcast. Keep in lockstep with the Rust `SessionRow.private`.
    */
   private?: boolean;
+  /**
+   * Whether the session's turn is open, from tugcast's per-session turn latch.
+   * Carried by every `session_updated` push and every `list_sessions` row, so
+   * a listing that replaces a cached row keeps what the last push said; it is
+   * absent only on a row from an older tugcast, and absent means unknown,
+   * never idle. It is the one source of a card's phase while the
+   * card's body is not listening (`bodiless-facts-store.ts`).
+   */
+  turn_active?: boolean;
 }
 
 /** Busy/idle detail of a terminal-live session. */

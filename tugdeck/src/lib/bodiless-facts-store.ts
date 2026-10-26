@@ -15,6 +15,15 @@
  * So for such a card the shell follows the session with what it already
  * hears for every session, card or no card:
  *
+ * - the session ledger's row carries `turn_active`, tugcast's own turn latch
+ *   for the session, on every `session_updated` push and every listed row.
+ *   Where the row says it,
+ *   it decides whether a turn is in flight, outright: a turn that ends while
+ *   the body sleeps reads idle the moment the push lands, and a turn the
+ *   catch-up has not reached yet still reads busy. The stamps and samples
+ *   below decide only on a row that does not say it — one from an older
+ *   tugcast — and the samples still name the kind of work a latched turn is
+ *   doing;
  * - the app-wide ACTIVITY meters (`session-activity-store.ts`): a rate
  *   sample — text, tokens, tools, subagents — is the session working, now;
  * - the session ledger's row (`session-ledger-store.ts`), which tugcast
@@ -90,7 +99,20 @@ export const TURN_TAIL_MS = 2 * ACTIVITY_BIN_MS;
 export const WORKING_HORIZON_MS = 30 * 60_000;
 
 /** The ledger row's fields a reading moves on. */
-export type LedgerReading = Pick<SessionRow, "last_used_at" | "state">;
+export type LedgerReading = Pick<SessionRow, "last_used_at" | "state" | "turn_active">;
+
+/** The phase a turn the latch opened reads until a sample names its work. */
+const LATCHED_OPEN = "awaiting_first_token";
+
+/**
+ * The turn latch a row carries: whether its session's turn is open, or null
+ * when the row does not say. A row whose session is no longer `live` has no
+ * turn open, whatever it says.
+ */
+export function latchOf(row: LedgerReading | null): boolean | null {
+  if (row === null || typeof row.turn_active !== "boolean") return null;
+  return row.turn_active && row.state === "live";
+}
 
 /** What the shell reads of a bodiless card's session. */
 export interface BodilessReading {
@@ -127,10 +149,21 @@ export function enterBodiless(
  * A rate sample for the session: it is working. Tools and subagents read as
  * tool work, text and tokens as streaming. A sample in the tail of a turn
  * whose end was just heard changes nothing.
+ *
+ * `latch` is the row's turn latch ({@link latchOf}). Where it is known it
+ * decides whether the session is working, so a sample only names the work a
+ * latched turn is doing, and a sample while the latch reads closed — the
+ * tail of a turn that ended, or one that has not opened yet — changes nothing.
  */
-export function onActivity(reading: BodilessReading, channel: ActivityChannel, atMs: number): BodilessReading {
+export function onActivity(
+  reading: BodilessReading,
+  channel: ActivityChannel,
+  atMs: number,
+  latch: boolean | null = null,
+): BodilessReading {
   if (!RATE_CHANNELS.has(channel)) return reading;
-  if (reading.endedAt !== null && atMs - reading.endedAt < TURN_TAIL_MS) return reading;
+  if (latch === false) return reading;
+  if (latch === null && reading.endedAt !== null && atMs - reading.endedAt < TURN_TAIL_MS) return reading;
   const activity = channel === "tools" || channel === "subagents" ? "tool_work" : "streaming";
   if (reading.working && reading.activity === activity) return reading;
   return { ...reading, activity, working: true };
@@ -141,8 +174,13 @@ export function onActivity(reading: BodilessReading, channel: ActivityChannel, a
  * ended, and so is a row that is no longer `live` — its session closed or
  * failed: a working session, or one that stood waiting on an answer, is
  * idle. Any other phase it froze at — ready, errored — stands.
+ *
+ * A row that carries the turn latch is read by {@link onLatch} instead, and
+ * its stamp only moves the mark.
  */
 export function onLedger(reading: BodilessReading, row: LedgerReading | null, atMs: number): BodilessReading {
+  const latch = latchOf(row);
+  if (latch !== null) return onLatch(reading, latch, row?.last_used_at ?? null, atMs);
   const lastUsedAt = row?.last_used_at ?? null;
   const stamped = lastUsedAt !== null && lastUsedAt > reading.mark;
   const gone = row !== null && row.state !== "live";
@@ -154,6 +192,25 @@ export function onLedger(reading: BodilessReading, row: LedgerReading | null, at
     mark: stamped ? lastUsedAt : reading.mark,
     endedAt: atMs,
   };
+}
+
+/**
+ * The row's turn latch, which is the session's turn as tugcast sees it. Open:
+ * a reading that was not working, or waiting on an answer, is a turn that
+ * opened ({@link LATCHED_OPEN} until a sample names its work). Closed: a
+ * working reading, or one waiting on an answer, is idle; any other phase it
+ * froze at stands. The row's stamp moves the mark either way, so a row that
+ * later stops saying the latch is read from where this left it.
+ */
+export function onLatch(reading: BodilessReading, latch: boolean, lastUsedAt: number | null, atMs: number): BodilessReading {
+  const mark = lastUsedAt !== null && lastUsedAt > reading.mark ? lastUsedAt : reading.mark;
+  const asking = reading.activity === "awaiting_approval";
+  if (latch) {
+    if (!reading.working && !asking) return { activity: LATCHED_OPEN, working: true, mark, endedAt: null };
+  } else if (reading.working || asking) {
+    return { activity: "idle", working: false, mark, endedAt: atMs };
+  }
+  return mark === reading.mark ? reading : { ...reading, mark };
 }
 
 /**
@@ -379,7 +436,7 @@ export class BodilessFactsStore extends Subscribable {
       const current = this.entries.get(cardId);
       if (current === undefined) return;
       const at = this.sources.now();
-      const next = onActivity(current.reading, channel, at);
+      const next = onActivity(current.reading, channel, at, latchOf(current.row));
       if (next.working) current.workAt = at;
       if (next === current.reading) return;
       this.take(cardId, current, next);
@@ -438,6 +495,8 @@ export class BodilessFactsStore extends Subscribable {
     const reading = onLedger(entry.reading, row, this.sources.now());
     if (reading === entry.reading) return false;
     const prev = entry.facts;
+    // A turn the latch opened starts the horizon's clock afresh.
+    if (reading.working && !entry.reading.working) entry.workAt = this.sources.now();
     this.take(cardId, entry, reading);
     return entry.facts.activity !== prev.activity || entry.facts.canInterrupt !== prev.canInterrupt;
   }

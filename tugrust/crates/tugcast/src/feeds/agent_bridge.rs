@@ -31,7 +31,7 @@ use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 
 use super::agent_supervisor::{
     LedgerEntry, SessionRecord, SessionsRecorder, SpawnState, build_session_state_frame,
-    offload_recorder,
+    offload_recorder, publish_turn_latch,
 };
 use super::attribution::{
     CMD_ORIGIN, CommandClaims, DeclaredPromotions, InspectedReplayBatch, InspectedToolResult,
@@ -908,6 +908,7 @@ pub async fn run_session_bridge(
             // settles it for one that had already counted the open, and for
             // a bridge that ends here and never respawns.
             entry.replay_brackets_open = 0;
+            entry.replay_latch_found = None;
             // Whatever it had backgrounded died with it; a job that will never
             // report must not leave the session permanently unfinished. That
             // covers the provisional `launch:` entries too, and for the same
@@ -918,6 +919,7 @@ pub async fn run_session_bridge(
             // And no call it was running can report any more.
             entry.open_runs.clear();
         }
+        publish_turn_latch(&sessions_recorder, &ledger_entry).await;
 
         match outcome {
             RelayOutcome::Cancelled => {
@@ -2264,6 +2266,27 @@ async fn relay_session_io_tracked(
                                 })
                                 .await;
                             }
+                            // The latch belongs to the entry's current
+                            // segment only. A prompt queued while this
+                            // segment spawned (a rotation's stage prompt)
+                            // filed its open under the segment it replaces,
+                            // whose row stays `live`; nothing would ever close
+                            // it there, so the latch leaves that row here.
+                            if let (Some(previous), Some(current)) =
+                                (previous_claude_id.clone(), claude_id.as_deref())
+                                && previous != current
+                            {
+                                offload_recorder(sessions_recorder, move |r| {
+                                    r.record_turn_latch(&previous, false)
+                                })
+                                .await;
+                            }
+                            // A prompt that beat this init opened its turn
+                            // with no claude id to file the latch under, and
+                            // the row it belongs on exists only now: file it
+                            // here, or the row reads idle for the whole turn.
+                            // Pushes only when the latch moved.
+                            publish_turn_latch(sessions_recorder, ledger_entry).await;
                             // **The card's seat moved.** The row push above
                             // told the deck the segment exists and which line
                             // it is on; it did not say the card is now sitting
@@ -4490,6 +4513,20 @@ mod tests {
         Arc<Mutex<crate::feeds::agent_supervisor::LedgerEntry>>,
         Vec<serde_json::Value>,
     ) {
+        drive_segments_with(ledger, tug_id, line, frames, |_| {}).await
+    }
+
+    /// [`drive_segments`], with `prepare` run on the entry before any frame.
+    async fn drive_segments_with(
+        ledger: Arc<crate::session_ledger::SessionLedger>,
+        tug_id: &str,
+        line: Option<&str>,
+        frames: &[&str],
+        prepare: impl FnOnce(&mut crate::feeds::agent_supervisor::LedgerEntry),
+    ) -> (
+        Arc<Mutex<crate::feeds::agent_supervisor::LedgerEntry>>,
+        Vec<serde_json::Value>,
+    ) {
         use crate::feeds::agent_supervisor::LedgerSessionsRecorder;
         use crate::feeds::workspace_registry::WorkspaceKey;
 
@@ -4510,6 +4547,7 @@ mod tests {
             // A session that has been running has a window; the reset test is
             // the one that cares which claude it belongs to.
             entry.context_window_tokens = Some(700_000);
+            prepare(&mut entry);
         }
 
         let (_input_tx, mut input_rx) = mpsc::channel::<Frame>(16);
@@ -4631,6 +4669,35 @@ mod tests {
             None,
             "a fresh claude starts with no reading"
         );
+    }
+
+    /// A rotation's stage prompt can reach tugcast while the new segment is
+    /// still spawning, so its turn opens under the segment being replaced. That
+    /// row stays `live`, and nothing else would ever close its latch: the init
+    /// that seats the new segment moves the latch onto it.
+    #[tokio::test]
+    async fn a_session_init_naming_a_fresh_claude_moves_the_turn_latch_onto_it() {
+        let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sessions
+            .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
+            .expect("seed the root");
+        sessions.set_turn_active("root", true);
+
+        let stage = segment_line("rotation", "root", "stage-1", r#","stage":"implement""#);
+        drive_segments_with(
+            sessions.clone(),
+            "root",
+            Some("line-1"),
+            &[&stage, &init_line("stage-1")],
+            |entry| {
+                entry.claude_session_id = Some("root".to_string());
+                entry.turn_active = true;
+            },
+        )
+        .await;
+
+        assert!(!sessions.turn_active("root"), "the retired segment has no turn open");
+        assert!(sessions.turn_active("stage-1"), "the turn is the new segment's");
     }
 
     #[tokio::test]

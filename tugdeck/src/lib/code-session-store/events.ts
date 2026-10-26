@@ -1091,6 +1091,11 @@ export interface AddUserMessageEvent {
    * where the JSONL history ends and the live turn's own record begins.
    */
   inflightSnapshot?: boolean;
+  /**
+   * The submission this frame renders (the wire frame's `submissionId`).
+   * The reducer drops a second copy of an id the bracket already holds.
+   */
+  submissionId?: string;
   [key: string]: unknown;
 }
 

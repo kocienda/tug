@@ -597,15 +597,27 @@ import {
  * laid over a session's ledger row in this page's store, now and on every
  * later push, so a stub-bound card's masthead reads a turn count its session
  * has no engine transcript to count. Additive; major stays `2`.
+ *
+ * `2.56.0`: adds {@link TugTestSurface.sessionRowFacts}, on every page: the
+ * turn latch, stamp and state of a session's row as this page's ledger store
+ * holds it, so a test can say what the shell has heard of a turn no body is
+ * listening to; and {@link TugTestSurface.userMessageTexts}, the text of
+ * every user message a card's store holds, committed and in flight, read
+ * from the store rather than the windowed transcript. Additive; major stays
+ * `2`.
  */
-export const SURFACE_VERSION = "2.55.0" as const;
+export const SURFACE_VERSION = "2.56.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
 let nextTestMotionHold = 1;
 
 /** The host's body clocks as the harness last set them (`bodyDelays`); null is the host's constant. */
-const hostBodyDelays: { -readonly [K in keyof BodyDelays]: BodyDelays[K] } = { evictAfterMs: null, readyDeadlineMs: null };
+const hostBodyDelays: { -readonly [K in keyof BodyDelays]: BodyDelays[K] } = {
+  dormantAfterMs: null,
+  evictAfterMs: null,
+  readyDeadlineMs: null,
+};
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1447,6 +1459,22 @@ export interface TugTestSurface {
    * a row was there yet to patch (SURFACE_VERSION 2.55.0).
    */
   seedSessionRow(sessionId: string, fieldsJson: string): boolean;
+
+  /**
+   * `sessionId`'s row as THIS page's ledger store holds it — its turn latch
+   * (`turn_active`, null when the row does not say), its `last_used_at` and
+   * its state — or null when the store holds no such row (SURFACE_VERSION
+   * 2.56.0).
+   */
+  sessionRowFacts(sessionId: string): { turnActive: boolean | null; lastUsedAt: number; state: string } | null;
+
+  /**
+   * The text of every user message `cardId`'s session store holds, in order:
+   * each committed turn's, then the turn in flight's. Read from the store,
+   * since the transcript is windowed. Null when the card has no store in this
+   * page (SURFACE_VERSION 2.56.0).
+   */
+  userMessageTexts(cardId: string): string[] | null;
 
   /**
    * Write the session atom for `sessionId` to the system pasteboard
@@ -3586,10 +3614,19 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
     },
 
     bodyDelays(delays): void {
-      if (delays.dormantAfterMs !== undefined) harnessBodyDelays.set({ dormantAfterMs: delays.dormantAfterMs });
+      // The dormant delay rides both clocks: the host's, which declares a
+      // hidden body dormant, and the page's own, which agrees with it.
+      if (delays.dormantAfterMs !== undefined) {
+        harnessBodyDelays.set({ dormantAfterMs: delays.dormantAfterMs });
+        hostBodyDelays.dormantAfterMs = delays.dormantAfterMs;
+      }
       if (delays.evictAfterMs !== undefined) hostBodyDelays.evictAfterMs = delays.evictAfterMs;
       if (delays.readyDeadlineMs !== undefined) hostBodyDelays.readyDeadlineMs = delays.readyDeadlineMs;
-      if (delays.evictAfterMs !== undefined || delays.readyDeadlineMs !== undefined) {
+      if (
+        delays.dormantAfterMs !== undefined ||
+        delays.evictAfterMs !== undefined ||
+        delays.readyDeadlineMs !== undefined
+      ) {
         postToHost(bodyDelaysToHost, { ...hostBodyDelays });
       }
     },
@@ -4081,6 +4118,24 @@ function pageStoreSurfaceMethods() {
       if (store === null) return false;
       store.seedRow(sessionId, fields as Partial<SessionRow>);
       return true;
+    },
+
+    sessionRowFacts(sessionId: string): { turnActive: boolean | null; lastUsedAt: number; state: string } | null {
+      const row = getSessionLedgerStore()?.findRow(sessionId) ?? null;
+      if (row === null) return null;
+      return { turnActive: typeof row.turn_active === "boolean" ? row.turn_active : null, lastUsedAt: row.last_used_at, state: row.state };
+    },
+
+    userMessageTexts(cardId: string): string[] | null {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) return null;
+      const snap = services.codeSessionStore.getSnapshot();
+      const turns = snap.activeTurn === null ? snap.transcript : [...snap.transcript, snap.activeTurn];
+      const texts: string[] = [];
+      for (const turn of turns) {
+        for (const m of turn.messages) if (m.kind === "user_message") texts.push(m.text);
+      }
+      return texts;
     },
 
     async renderedRows(cardId: string): Promise<RenderedRowFacts[] | null> {

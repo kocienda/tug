@@ -48,6 +48,16 @@ pub enum TurnOpener {
     Wake,
 }
 
+/// The busy latch as the outermost replay bracket found it: the turn flag, its
+/// opener, and the keys of the jobs then open. Whatever replay moves inside the
+/// bracket is put back to this at its close ([`LedgerEntry::restore_replay_latch`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayLatch {
+    pub turn_active: bool,
+    pub turn_opener: Option<TurnOpener>,
+    pub jobs: std::collections::BTreeSet<String>,
+}
+
 /// Per-session ledger record, keyed by [`TugSessionId`] in the supervisor.
 ///
 /// Shape follows the supervisor ledger contract. Notably, there is no
@@ -410,6 +420,12 @@ pub struct LedgerEntry {
     /// prevents legitimate overlapping brackets, so in healthy operation
     /// the counter is 0 between brackets and 1 during one.
     pub replay_brackets_open: u32,
+    /// What the busy latch read when the outermost replay bracket opened —
+    /// taken at the counter's `0 → 1` edge and spent at its `1 → 0` edge by
+    /// [`Self::restore_replay_latch`], so the bracket closes on the entry it
+    /// found rather than on a quiet one. `None` outside a bracket, and after
+    /// a close has spent it, so a stray `replay_complete` restores nothing.
+    pub replay_latch_found: Option<ReplayLatch>,
     /// The resident context window after this session's latest turn, in
     /// tokens — the four-token sum of `cost_update.usage`, which tugcode
     /// documents as exactly that figure.
@@ -507,6 +523,7 @@ impl LedgerEntry {
             cancel: CancellationToken::new(),
             card_id: None,
             replay_brackets_open: 0,
+            replay_latch_found: None,
         }
     }
 }
@@ -712,8 +729,19 @@ impl LedgerEntry {
         }
     }
 
-    /// Force the entry **quiet** at the close of the outermost replay bracket,
-    /// and answer whether anything had to be cleared.
+    /// Note what the busy latch reads as the outermost replay bracket opens.
+    /// Called by the merger at the counter's `0 → 1` edge, before it counts
+    /// the bracket.
+    pub fn note_replay_latch(&mut self) {
+        self.replay_latch_found = Some(ReplayLatch {
+            turn_active: self.turn_active,
+            turn_opener: self.turn_opener,
+            jobs: self.open_jobs.keys().cloned().collect(),
+        });
+    }
+
+    /// Put the busy latch back as the outermost replay bracket found it, and
+    /// answer whether anything had to move.
     ///
     /// Replay describes turns and jobs that ended with the session that ran
     /// them, so the entry a bracket closes on must read exactly as it read
@@ -721,15 +749,23 @@ impl LedgerEntry {
     /// `replay_brackets_open == 0` — but a guard list is only complete until
     /// the next wire shape is added, and the incident was one missing entry in
     /// it. So the bracket's own close asserts the invariant rather than
-    /// trusting the guards: whatever is still set is cleared here with a
-    /// `warn!` naming the frame kind that set it ([B01]).
+    /// trusting the guards: whatever a replayed frame moved is put back here
+    /// with a `warn!` naming what moved it ([B01]).
     ///
-    /// This fails in the same direction [`Self::reap_stuck_jobs`] does, at a
-    /// much shorter horizon: an unforeseen replayed shape costs a session that
-    /// reads quiet a moment early, never one wedged busy forever.
-    pub fn clear_replay_residue(&mut self) -> bool {
-        let mut cleared = false;
-        if self.turn_active {
+    /// Put back, not forced quiet. A catch-up asked for during a live turn
+    /// opens its bracket over a latch the live turn set, and that turn's own
+    /// end is still in claude's pipe behind the bracket, so clearing the latch
+    /// would read the session idle for the rest of a turn that is running.
+    /// A job the live session had open before the bracket is kept for the
+    /// same reason; one the bracket added is dropped. A close with no latch
+    /// noted — a stray `replay_complete` after the bracket already closed —
+    /// moves nothing.
+    pub fn restore_replay_latch(&mut self) -> bool {
+        let Some(found) = self.replay_latch_found.take() else {
+            return false;
+        };
+        let mut moved = false;
+        if self.turn_active != found.turn_active || self.turn_opener != found.turn_opener {
             warn!(
                 target: "dev::ledger",
                 event = "replay_residue_cleared",
@@ -740,30 +776,37 @@ impl LedgerEntry {
                     Some(TurnOpener::Prompt) => "user_message",
                     None => "unknown",
                 },
-                "a replayed frame opened a turn whose own replayed end was \
-                 discarded — latch cleared at the bracket's close so the \
-                 session cannot read busy with no turn left to end it",
+                found = found.turn_active,
+                "a replayed frame moved the turn latch — restored at the \
+                 bracket's close to what it read when the bracket opened",
             );
-            self.turn_active = false;
-            self.turn_opener = None;
-            cleared = true;
+            self.turn_active = found.turn_active;
+            self.turn_opener = found.turn_opener;
+            moved = true;
         }
-        if !self.open_jobs.is_empty() {
-            let jobs: Vec<&str> = self.open_jobs.keys().map(String::as_str).collect();
+        let added: Vec<String> = self
+            .open_jobs
+            .keys()
+            .filter(|task| !found.jobs.contains(*task))
+            .cloned()
+            .collect();
+        if !added.is_empty() {
             warn!(
                 target: "dev::ledger",
                 event = "replay_residue_cleared",
                 session_id = %self.tug_session_id,
                 field = "open_jobs",
                 kind = "tool_use",
-                jobs = ?jobs,
+                jobs = ?added,
                 "replayed frames left jobs open whose work died with the \
                  session that ran them — dropped at the bracket's close",
             );
-            self.open_jobs.clear();
-            cleared = true;
+            for task in &added {
+                self.open_jobs.remove(task);
+            }
+            moved = true;
         }
-        cleared
+        moved
     }
 }
 
@@ -849,18 +892,68 @@ mod tests {
             CrashBudget::new(3, Duration::from_secs(60)),
         );
         // An entry replay left alone owes nothing, and says so.
-        assert!(!entry.clear_replay_residue(), "a quiet entry is untouched");
+        entry.note_replay_latch();
+        assert!(!entry.restore_replay_latch(), "a quiet entry is untouched");
 
         // Some unguarded fold latched both facts `is_quiet` reads.
+        entry.note_replay_latch();
         entry.turn_active = true;
         entry.turn_opener = Some(TurnOpener::Wake);
         entry
             .open_jobs
             .insert("t1".to_owned(), bash_job(std::time::Instant::now()));
 
-        assert!(entry.clear_replay_residue(), "residue is reported cleared");
+        assert!(entry.restore_replay_latch(), "residue is reported cleared");
         assert!(entry.is_quiet(), "the bracket closes on a quiet entry");
         assert_eq!(entry.turn_opener, None, "the opener goes with the turn");
+    }
+
+    /// A catch-up asked for mid-turn opens its bracket over the live turn's
+    /// latch, and the live turn's own end is still behind the bracket in
+    /// claude's pipe. So the close puts back what it found: the turn stays
+    /// busy, a job the live session had open stays open, and only what the
+    /// replay itself latched is dropped ([B03]).
+    #[test]
+    fn a_bracket_close_restores_the_live_turn_it_found() {
+        let mut entry = LedgerEntry::new(
+            TugSessionId::new("s1".to_owned()),
+            WorkspaceKey::from_test_str("/proj"),
+            std::path::PathBuf::from("/proj"),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        );
+        let now = std::time::Instant::now();
+        // The live turn: a prompt opened it, and it backgrounded a job.
+        entry.turn_active = true;
+        entry.turn_opener = Some(TurnOpener::Prompt);
+        entry.open_jobs.insert("live".to_owned(), bash_job(now));
+
+        entry.note_replay_latch();
+        // Inside the bracket an unguarded fold moves the opener and opens a
+        // historical job.
+        entry.turn_opener = Some(TurnOpener::Wake);
+        entry.open_jobs.insert("replayed".to_owned(), bash_job(now));
+
+        assert!(entry.restore_replay_latch(), "what replay moved is reported");
+        assert!(entry.turn_active, "the live turn is still running");
+        assert_eq!(entry.turn_opener, Some(TurnOpener::Prompt));
+        assert!(entry.open_jobs.contains_key("live"), "the live job is kept");
+        assert!(
+            !entry.open_jobs.contains_key("replayed"),
+            "the replayed job is dropped"
+        );
+
+        // A bracket that moved nothing over a live turn reports nothing and
+        // leaves the turn alone.
+        entry.note_replay_latch();
+        assert!(!entry.restore_replay_latch());
+        assert!(entry.turn_active);
+
+        // A stray close, with the latch already spent, moves nothing either —
+        // even over a turn opened after the bracket closed.
+        entry.open_jobs.insert("later".to_owned(), bash_job(now));
+        assert!(!entry.restore_replay_latch(), "a stray close is a no-op");
+        assert!(entry.open_jobs.contains_key("later"));
     }
 
     /// The guarantee layer: whatever wire shape the fixtures have not

@@ -283,8 +283,8 @@ describe("mid-turn steering — boundary pickup at tool_result", () => {
 });
 
 describe("mid-turn steering — reload-authoritative placement (JSONL replay)", () => {
-  function addUserMessage(turnKey: string, text: string): CodeSessionEvent {
-    return { type: "add_user_message", turnKey, text, atoms: [] };
+  function addUserMessage(turnKey: string, text: string, submissionId?: string): CodeSessionEvent {
+    return { type: "add_user_message", turnKey, text, atoms: [], ...(submissionId !== undefined ? { submissionId } : {}) };
   }
 
   test("a replayed add_user_message threaded after a mid-turn tool_result appends to the in-flight turn (no new turn opened)", () => {
@@ -331,5 +331,60 @@ describe("mid-turn steering — reload-authoritative placement (JSONL replay)", 
     const t2 = state.scratch.get("t2")!;
     expect(t2.messages.map((m) => m.kind)).toEqual(["user_message"]);
     expect(t2.messages[0].messageKey).toBe("t2-user");
+  });
+
+  test("a submission the bracket carries twice renders once", () => {
+    // A catch-up during a turn: the journal's never-drop synthetic of a
+    // pending row, then the JSONL's own record of the same submission —
+    // here, the message claude absorbed mid-turn. One submission, one row.
+    const { state } = applyAll(fresh(), [
+      { type: "replay_started" },
+      addUserMessage("t1", "opener", "sub-opener"),
+      { type: "content_block_start", msg_id: "m1", block_index: 0, kind: "tool_use", tool_use_id: "tu1", tool_name: "Bash" },
+      { type: "tool_use", msg_id: "m1", tool_use_id: "tu1", tool_name: "Bash", input: {}, seq: 0 },
+      { type: "tool_result", tool_use_id: "tu1", output: "ok", is_error: false },
+      addUserMessage("s1", "steered", "sub-steer"),
+      addUserMessage("s2", "steered", "sub-steer"),
+      // A different submission with the same words is its own row.
+      addUserMessage("s3", "steered", "sub-again"),
+    ]);
+
+    const users = state.scratch
+      .get("t1")!
+      .messages.filter((m): m is UserMessage => m.kind === "user_message");
+    expect(users.map((m) => m.submissionId)).toEqual(["sub-opener", "sub-steer", "sub-again"]);
+    expect(users.map((m) => m.messageKey)).toEqual(["t1-user", "s1-user", "s3-user"]);
+  });
+});
+
+describe("mid-turn steering — the submission id", () => {
+  function submissionIds(effects: ReadonlyArray<Effect>): unknown[] {
+    return sendFrames(effects)
+      .filter((f) => (f.msg as { type?: string }).type === "user_message")
+      .map((f) => (f.msg as { submission_id?: unknown }).submission_id);
+  }
+
+  test("every send carries its turnKey as the submission id, and the message keeps it", () => {
+    // The opener, sent at once.
+    const opened = reduce(fresh(), send("go", "t1"));
+    expect(submissionIds(opened.effects)).toEqual(["t1"]);
+    const opener = opened.state.scratch.get("t1")!.messages[0] as UserMessage;
+    expect(opener.submissionId).toBe("t1");
+
+    // A steered message, sent at the boundary that picks it up.
+    let state = openTurnWithPendingTool("t2");
+    state = reduce(state, send("steer me", "s1")).state;
+    const pickup = reduce(state, { type: "tool_result", tool_use_id: "tu1", output: "ok", is_error: false });
+    expect(submissionIds(pickup.effects)).toEqual(["s1"]);
+    const t2Messages = pickup.state.scratch.get("t2")!.messages;
+    const steered = t2Messages[t2Messages.length - 1] as UserMessage;
+    expect(steered.submissionId).toBe("s1");
+
+    // A queued message, sent at the turn's end.
+    state = reduce(pickup.state, send("after", "s2")).state;
+    const flushed = reduce(state, { type: "turn_complete", msg_id: "m1", result: "success", seq: 0 });
+    expect(submissionIds(flushed.effects)).toEqual(["s2"]);
+    const queued = flushed.state.scratch.get("s2")!.messages[0] as UserMessage;
+    expect(queued.submissionId).toBe("s2");
   });
 });

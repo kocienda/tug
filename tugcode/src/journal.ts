@@ -114,46 +114,47 @@ export interface JournalRow {
 }
 
 /**
- * Build a multiset (text → count) of user-message texts seen in the
- * JSONL bytes. Used by [`runReplay`]'s pending-row injection
- * (mid-turn-replay Step 5.6)
- * to decide which journal rows still need a synthetic
- * `add_user_message` emit (i.e., the rows whose `user_text` does
- * NOT appear as a `user_message` line in JSONL — claude has not yet
- * acknowledged those submissions).
- *
- * Multi-occurrence handling: if claude has written N user_messages
- * with the same text, the count is N; the journal-pass decrements
- * the count once per matched row and emits a synthetic only when
- * the count is exhausted. This handles duplicate-text submissions
- * better than a Set membership check at no extra parse cost.
- *
- * Tool-result entries (also `type: "user"` in JSONL but with
- * `tool_result` content blocks) are skipped — they're not user
- * submissions. Malformed JSON lines are skipped silently (matches
- * the translator's permissiveness).
+ * Whether `value` can be handed to claude as an input message's `uuid` — a
+ * submission id is one only when it is a UUID, which is what claude takes.
  */
-export function extractUserMessageTextCounts(jsonl: string): Map<string, number> {
-  const counts = new Map<string, number>();
+export function isSubmissionId(value: unknown): value is string {
+  return typeof value === "string" && SUBMISSION_ID_PATTERN.test(value);
+}
+
+const SUBMISSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The submission ids claude has written down in the JSONL bytes. Used by
+ * `runReplay`'s pending-row injection to decide which journal rows still
+ * need a synthetic `add_user_message`: a row whose `journal_id` — the
+ * submission's id — is here reached claude, and the JSONL pass renders it.
+ *
+ * tugcode hands claude each submission's id as the input message's `uuid`,
+ * and claude records it in one of two places: the `uuid` of the `user`
+ * entry that opens a turn, or the `source_uuid` of the `queued_command`
+ * attachment that records a message absorbed into a running turn. Both are
+ * collected. Matching by text could never tell the second case from a
+ * submission claude never saw, since an absorbed message has no `user` line
+ * at all — so every catch-up during that turn rendered it twice.
+ *
+ * Malformed JSON lines are skipped silently (matches the translator's
+ * permissiveness).
+ */
+export function extractSubmissionIds(jsonl: string): Set<string> {
+  const ids = new Set<string>();
   for (const rawLine of jsonl.split("\n")) {
     const line = rawLine.trim();
     if (line.length === 0) continue;
     const entry = parseJsonlEntry(line);
-    if (entry?.type !== "user") continue;
-    const content = entry.message?.content;
-    if (!Array.isArray(content)) continue;
-    const textParts: string[] = [];
-    for (const block of content) {
-      if (!isRecord(block)) continue;
-      if (block.type === "text" && typeof block.text === "string") {
-        textParts.push(block.text);
-      }
+    if (entry === null) continue;
+    if (entry.type === "user") {
+      if (typeof entry.uuid === "string" && entry.uuid.length > 0) ids.add(entry.uuid);
+    } else if (entry.type === "attachment" && entry.attachment?.type === "queued_command") {
+      const source = entry.attachment.source_uuid;
+      if (typeof source === "string" && source.length > 0) ids.add(source);
     }
-    if (textParts.length === 0) continue;
-    const text = textParts.join("");
-    counts.set(text, (counts.get(text) ?? 0) + 1);
   }
-  return counts;
+  return ids;
 }
 
 /**

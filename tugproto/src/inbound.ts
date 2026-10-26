@@ -62,6 +62,17 @@ export interface ProtocolInit {
 export interface UserMessage {
   type: "user_message";
   content: ContentBlock[];
+  /**
+   * The submission's one identity, minted by the deck when the user posts
+   * and carried by every copy of the submission after it: tugcast keys the
+   * pending-turn journal row on it (and stamps one here when a sender left
+   * it out), tugcode hands it to claude as the input message's `uuid` — so
+   * the JSONL records it as the user entry's `uuid`, or as the
+   * `queued_command` attachment's `source_uuid` when the message is absorbed
+   * mid-turn — and every `add_user_message` rebuilt from any of those
+   * carries it back as {@link AddUserMessage.submissionId}. A UUID.
+   */
+  submission_id?: string;
 }
 
 /** Approve / deny a pending `can_use_tool` permission request. */

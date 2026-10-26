@@ -492,6 +492,7 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
         "type": "user_message",
         "tug_session_id": session,
         "content": [{ "type": "text", "text": request.prompt }],
+        "submission_id": uuid::Uuid::new_v4().to_string(),
     }));
     (frames, prompt)
 }

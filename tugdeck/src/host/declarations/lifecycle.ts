@@ -291,13 +291,15 @@ export const bodyDestroyToHost = defineToHost<BodyDestroy>({
 
 /**
  * The harness's seam on the host's body clocks, never sent by the product:
- * how long a hidden body keeps its process before the host evicts it, and
- * how long a new page has to say it is ready, ms — null for the host's own
- * constant. The app-tests shorten them through `__tug.bodyDelays`
+ * how long a hidden body waits before the host declares it dormant, how long
+ * it keeps its process before the host evicts it, and how long a new page has
+ * to say it is ready, ms — null for the host's own constant. The app-tests
+ * shorten them through `__tug.bodyDelays`
  * (`test-surface.ts`), which sends this, and the host honours it only under
  * the harness.
  */
 export interface BodyDelays {
+  readonly dormantAfterMs: number | null;
   readonly evictAfterMs: number | null;
   readonly readyDeadlineMs: number | null;
 }
@@ -305,12 +307,12 @@ export interface BodyDelays {
 export const bodyDelaysToHost = defineToHost<BodyDelays>({
   name: "bodyDelays",
   from: "shell",
-  codec: obj({ evictAfterMs: nullable(num), readyDeadlineMs: nullable(num) }),
+  codec: obj({ dormantAfterMs: nullable(num), evictAfterMs: nullable(num), readyDeadlineMs: nullable(num) }),
   samples: [
-    { evictAfterMs: 1_500, readyDeadlineMs: null },
-    { evictAfterMs: null, readyDeadlineMs: 50 },
+    { dormantAfterMs: null, evictAfterMs: 1_500, readyDeadlineMs: null },
+    { dormantAfterMs: 400, evictAfterMs: null, readyDeadlineMs: 50 },
   ],
-  refused: [1_500, { evictAfterMs: "1500", readyDeadlineMs: null }],
+  refused: [1_500, { dormantAfterMs: null, evictAfterMs: "1500", readyDeadlineMs: null }],
 });
 
 /** The card whose body takes the keyboard, or null for the shell. */
@@ -440,22 +442,30 @@ export const bodyStateToPage = defineToPage<BodyStateReport>({
  * sibling behind its pane's active card included), not while the host has
  * hidden it (a parked or folded body). `since` is when it last changed,
  * wall-clock ms, comparable with the page's `Date.now()`.
+ *
+ * `dormant` is the host's declaration that a hidden body has stayed hidden
+ * past the dormant delay, by the host's own clock, which WebKit does not
+ * freeze as it may a hidden page's timers. The host has told tugcast the
+ * same, so the body hears nothing of any session until it is shown and
+ * catches up. Always false while shown.
  */
 export interface BodyVisibility {
   readonly shown: boolean;
   readonly since: number;
+  readonly dormant: boolean;
 }
 
 /** A body is told whether it is shown, on bind and on every change. */
 export const bodyVisibilityToPage = defineToPage<BodyVisibility>({
   member: "onBodyVisibility",
   to: "body",
-  codec: obj({ shown: bool, since: num }),
+  codec: obj({ shown: bool, since: num, dormant: bool }),
   samples: [
-    { shown: true, since: 1_760_000_000_000 },
-    { shown: false, since: 1_760_000_060_000.5 },
+    { shown: true, since: 1_760_000_000_000, dormant: false },
+    { shown: false, since: 1_760_000_060_000.5, dormant: false },
+    { shown: false, since: 1_760_000_060_000.5, dormant: true },
   ],
-  refused: [true, { shown: "yes", since: 0 }, { shown: false }],
+  refused: [true, { shown: "yes", since: 0, dormant: false }, { shown: false }, { shown: false, since: 0 }],
 });
 
 // The host's calls into `window.tugdeck`.

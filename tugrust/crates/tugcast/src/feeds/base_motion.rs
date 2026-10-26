@@ -298,11 +298,14 @@ pub fn compose_replay_notice(
 /// The payload of an injected submission — the shape `parse_tug_session_id` and
 /// `InspectedPayload::from_slice` already read, so the dispatcher's existing
 /// `user_message` intercept journals it exactly as it journals a client's.
+/// It carries its own `submission_id`, as the deck's do, so the dispatcher
+/// forwards it unchanged.
 pub(crate) fn user_message_payload(session: &str, text: &str) -> Vec<u8> {
     serde_json::to_vec(&serde_json::json!({
         "tug_session_id": session,
         "type": "user_message",
         "content": [{ "type": "text", "text": text }],
+        "submission_id": uuid::Uuid::new_v4().to_string(),
     }))
     .expect("a json object of strings serializes")
 }

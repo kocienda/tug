@@ -306,6 +306,10 @@ export function registerSessionControlActions(filter?: SessionControlFilter): vo
       // So a card that is not settled asks tugcode for the turn as it now
       // stands ([B05]): the snapshot fills in what streamed in the gap, and
       // carries the turn's end if the turn finished there.
+      //
+      // A body asleep asks nothing. Its subscription is scoped to nothing,
+      // so the answer would go to nobody, and its reveal's catch-up is the
+      // one ask it makes, sent before its subscription is restored.
       logSessionLifecycle("spawn.rebind_ack", {
         card_id: cardId,
         tug_session_id: tugSessionId,
@@ -314,7 +318,8 @@ export function registerSessionControlActions(filter?: SessionControlFilter): vo
       services?.codeSessionStore.notifyTransportSettled();
       const phase = services?.codeSessionStore.getSnapshot().phase;
       const connection = getConnection();
-      if (services && connection && phase !== "idle" && phase !== "errored") {
+      const asleep = services?.codeSessionStore.isAsleep() ?? false;
+      if (services && connection && !asleep && phase !== "idle" && phase !== "errored") {
         sendRequestInflight(connection, services.tugSessionId);
       }
     } else if (reloadReason !== undefined) {

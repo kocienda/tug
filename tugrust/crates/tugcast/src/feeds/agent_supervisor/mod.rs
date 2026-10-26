@@ -47,7 +47,7 @@ use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
     is_activity_delta, is_background_tasks_changed, is_rate_limit_event, is_session_capabilities,
     is_stop_all_work_done, is_system_metadata, is_task_edge, is_task_progress, is_tool_result,
-    is_tool_use, is_turn_end, is_wake_started,
+    is_replay_complete, is_tool_use, is_turn_end, is_wake_started,
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
@@ -574,6 +574,11 @@ pub struct ListedSession {
     /// a turn count — an orthogonal "how big" signal, not a message proxy.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_size: Option<i64>,
+    /// Whether the session's turn is open, from the supervisor's turn latch
+    /// (`SessionLedger::turn_active`) — the same field every `session_updated`
+    /// push carries, so a listing that replaces the deck's cached row does
+    /// not erase what the last push said. Always false for an external row.
+    pub turn_active: bool,
 }
 
 /// Build the picker's `list_sessions` row union from a ledger snapshot, a
@@ -601,6 +606,7 @@ fn build_listed_union(
     rows: Vec<crate::session_ledger::SessionRow>,
     live: &HashMap<String, crate::terminal_registry::TerminalLiveEntry>,
     scan: Option<crate::external_sessions::ScanOutcome>,
+    turn_active: &dyn Fn(&str) -> bool,
 ) -> Vec<ListedSession> {
     let annotate = |session_id: &str| {
         live.get(session_id).map(|e| TerminalLiveWire {
@@ -610,6 +616,7 @@ fn build_listed_union(
     let mut listed: Vec<ListedSession> = Vec::with_capacity(rows.len());
     for row in rows {
         let terminal_live = annotate(&row.session_id);
+        let turn_active = turn_active(&row.session_id);
         listed.push(ListedSession {
             row,
             origin: "tug",
@@ -617,6 +624,7 @@ fn build_listed_union(
             // Backfilled below from the scan meta when this session is on
             // disk; stays None for live-only ledger rows.
             file_size: None,
+            turn_active,
         });
     }
     if let Some(scan) = scan {
@@ -726,6 +734,7 @@ fn build_listed_union(
                 origin: "external",
                 terminal_live,
                 file_size,
+                turn_active: false,
             });
         }
     }
@@ -1568,6 +1577,29 @@ fn parse_permission_mode_selector(payload: &[u8]) -> Option<String> {
 /// The two spellings of the one door, as a prompt's first token.
 const ARC_DOOR_PREFIXES: [&str; 2] = ["/arc", "/tugplug:arc"];
 
+/// The submission id a `user_message` frame carries, when it is a UUID in
+/// its canonical lowercase hyphenated form — the one form claude takes as an
+/// input message's `uuid` and writes back unchanged. Anything else reads as
+/// absent, and the dispatcher mints one.
+fn submission_id_of(payload: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let id = value.get("submission_id")?.as_str()?;
+    let parsed = uuid::Uuid::parse_str(id).ok()?;
+    let canonical = parsed.hyphenated().to_string();
+    (canonical == id).then_some(canonical)
+}
+
+/// `payload` with its `submission_id` set to `id`, re-serialized; `None` when
+/// the payload is not a JSON object, in which case the caller forwards it
+/// untouched and the row's id rides nowhere else.
+fn with_submission_id(payload: &[u8], id: &str) -> Option<Vec<u8>> {
+    let mut value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    value
+        .as_object_mut()?
+        .insert("submission_id".to_owned(), serde_json::Value::from(id));
+    serde_json::to_vec(&value).ok()
+}
+
 /// `payload` with one `{"type":"text","text":<text>}` block appended to its
 /// `content` array, re-serialized; `None` when the payload does not parse or
 /// has no `content` array, in which case the caller forwards it untouched.
@@ -2166,6 +2198,7 @@ impl AgentSupervisor {
             | A::Relaunch
             | A::CheckAuth
             | A::CheckHostTools
+            | A::BodyDormant
             | A::OfferHostTools
             | A::InstallClaude
             | A::ClaudeDownloadResume
@@ -3191,25 +3224,29 @@ impl AgentSupervisor {
 
         // ── user_message intercept ──────────────────────────────────────────
         //
-        // For inbound `user_message` frames: mint an internal `journal_id`
-        // and persist a pending row to the submission journal, then
-        // forward the frame — **unchanged** unless the line holds landings
-        // its model has not been told, in which case exactly one trailing
-        // `tug:landings` text block is appended *before* the journal write.
-        // The journal text then carries the block too, which is the point:
-        // tugcode decides whether a pending row already reached the JSONL by
-        // comparing the row's text to the JSONL record's concatenated text
-        // blocks, and the two match only if both hold the block. A slash
-        // command carries no block — an extra block could change how claude
-        // parses it — and the landings wait for the next ordinary message.
-        // Order is load-bearing:
+        // For inbound `user_message` frames: persist a pending row to the
+        // submission journal, keyed on the submission's id, then forward
+        // the frame. The id is the `submission_id` the deck minted when the
+        // user posted; a frame that carries none (a sender other than the
+        // deck) gets one minted here and written into the frame, so every
+        // submission has exactly one identity. tugcode hands it to claude as
+        // the input message's `uuid`, claude writes it into the JSONL, and a
+        // replay matches the row to what claude wrote down by it — which
+        // text could never do for a message claude absorbed mid-turn.
+        //
+        // The frame is otherwise forwarded **unchanged** unless the line
+        // holds landings its model has not been told, in which case exactly
+        // one trailing `tug:landings` text block is appended *before* the
+        // journal write, so the never-drop synthetic of a row claude never
+        // saw carries the block it was sent with. A slash command carries no
+        // block — an extra block could change how claude parses it — and the
+        // landings wait for the next ordinary message. Order is load-bearing:
         // row-persisted-before-forwarded. A failure before the forward
         // drops the inbound frame (the supervisor emits a CONTROL error);
         // a forwarded frame with no row is structurally impossible because
         // the forward only happens after `Ok` from `insert_pending_turn`.
-        // The journal id is internal to tugcast — not surfaced on the
-        // wire, never seen by tugcode (the merger reconciles by
-        // the turn's end, not by id). Other CODE_INPUT types —
+        // The merger still consumes rows by the turn's end, not by id.
+        // Other CODE_INPUT types —
         // `tool_approval`, `interrupt`, `permission_mode`, `model_change`,
         // `session_command`, `stop_task`, `request_replay` — are forwarded
         // unchanged; `model_change` and `permission_mode` are read on the way
@@ -3252,7 +3289,16 @@ impl AgentSupervisor {
                     told = Some((line, last.id));
                 }
             }
-            let journal_id = uuid::Uuid::new_v4().to_string();
+            let journal_id = match submission_id_of(&frame.payload) {
+                Some(id) => id,
+                None => {
+                    let id = uuid::Uuid::new_v4().to_string();
+                    if let Some(bytes) = with_submission_id(&frame.payload, &id) {
+                        frame = Frame::new(FeedId::CODE_INPUT, bytes);
+                    }
+                    id
+                }
+            };
             let now = crate::session_ledger::now_millis();
             let inserted = {
                 let session_id = tug_session_id.as_str().to_owned();
@@ -3282,6 +3328,7 @@ impl AgentSupervisor {
                         // The turn's liveness clock starts here ([B02]).
                         entry.touch_turn();
                     }
+                    publish_turn_latch(&self.sessions_recorder, &entry_arc).await;
                     // A door prompt binds with the keystroke, so the card
                     // reads `ARC` before the door's first tool call rather
                     // than after its last one. Anything else is untouched.
@@ -4342,6 +4389,25 @@ impl AgentSupervisor {
                     // the user's pending journal row.
                     self.process_outbound_frame_journal_gate_at(&id, &frame, seen_at)
                         .await;
+                    // Every frame that can move the turn latch — a turn's end, a
+                    // wake's start, a stop's reap, a replay bracket's close —
+                    // has moved it by now, so the row the shell reads a card's
+                    // phase from is told where it stands. Pushed only when it
+                    // moved, and after the bridge's own turn-end push, so the
+                    // last word a turn's end leaves on the row is that it ended.
+                    if is_turn_end(&frame.payload)
+                        || is_wake_started(&frame.payload)
+                        || is_stop_all_work_done(&frame.payload)
+                        || is_replay_complete(&frame.payload)
+                    {
+                        let entry_arc = {
+                            let ledger = self.ledger.lock().await;
+                            ledger.get(&id).cloned()
+                        };
+                        if let Some(entry_arc) = entry_arc {
+                            publish_turn_latch(&self.sessions_recorder, &entry_arc).await;
+                        }
+                    }
                 }
             }
         }
@@ -4429,6 +4495,11 @@ impl AgentSupervisor {
         match msg_type {
             Some("replay_started") => {
                 let mut entry = entry_arc.lock().await;
+                // The outermost bracket notes the latch it opens over, so its
+                // close can put that back rather than force quiet ([B01]).
+                if entry.replay_brackets_open == 0 {
+                    entry.note_replay_latch();
+                }
                 entry.replay_brackets_open = entry.replay_brackets_open.saturating_add(1);
                 tracing::debug!(
                     target: "dev::ledger",
@@ -4447,9 +4518,9 @@ impl AgentSupervisor {
                     depth = entry.replay_brackets_open,
                 );
                 // The outermost bracket has closed: everything replay
-                // described is history, so the entry owes the invariant it
-                // held before the bracket opened — quiet ([B01]).
-                if entry.replay_brackets_open == 0 && entry.clear_replay_residue() {
+                // described is history, so the entry owes the latch it held
+                // before the bracket opened — a live turn's included ([B01]).
+                if entry.replay_brackets_open == 0 && entry.restore_replay_latch() {
                     // One of the two facts `is_quiet` reads has just moved, so
                     // a stop waiting on the quiet edge is woken from inside
                     // the same guard that moved it ([P05]).
@@ -4536,7 +4607,13 @@ impl AgentSupervisor {
                 return;
             };
             let usage = ledger.usage_for(&claude_session_id).unwrap_or(None);
-            let _ = control_tx.send(build_session_updated_frame(&row, Some(metrics), usage));
+            let turn_active = ledger.turn_active(&claude_session_id);
+            let _ = control_tx.send(build_session_updated_frame(
+                &row,
+                Some(metrics),
+                usage,
+                turn_active,
+            ));
         });
     }
 
@@ -4565,7 +4642,13 @@ impl AgentSupervisor {
                 return;
             };
             let usage = ledger.usage_for(&claude_session_id).unwrap_or(None);
-            let _ = control_tx.send(build_session_updated_frame(&row, Some(metrics), usage));
+            let turn_active = ledger.turn_active(&claude_session_id);
+            let _ = control_tx.send(build_session_updated_frame(
+                &row,
+                Some(metrics),
+                usage,
+                turn_active,
+            ));
         });
     }
 
@@ -4676,6 +4759,7 @@ impl AgentSupervisor {
             }
             entry.input_tx = Some(input_tx.clone());
             entry.replay_brackets_open = 0;
+            entry.replay_latch_found = None;
             entry.cancel.clone()
         };
         // `input_tx` is stashed in the ledger entry; the bridge drains it
@@ -5303,6 +5387,24 @@ pub(crate) fn test_minimal_supervisor_with_recorder_reading(
     (Arc::new(sup), register_rx)
 }
 
+/// Tell the recorder where a session's turn latch stands, under the claude
+/// session id its ledger row is keyed by. The recorder pushes the row when the
+/// latch moved and says nothing when it did not, so a caller at any edge may
+/// call this without knowing whether the edge changed anything. A session with
+/// no claude id yet has no row to carry it.
+pub(crate) async fn publish_turn_latch(
+    sessions_recorder: &Arc<dyn SessionsRecorder>,
+    ledger_entry: &Arc<Mutex<LedgerEntry>>,
+) {
+    let (claude_id, active) = {
+        let entry = ledger_entry.lock().await;
+        (entry.claude_session_id.clone(), entry.turn_active)
+    };
+    if let Some(id) = claude_id {
+        offload_recorder(sessions_recorder, move |r| r.record_turn_latch(&id, active)).await;
+    }
+}
+
 /// Terminal handling for a bridge task that unwound: the same `errored`
 /// ending a spent crash budget gets, with the panic as its reason. A session
 /// `close_session` already closed stays closed and publishes nothing, for the
@@ -5329,6 +5431,7 @@ pub(crate) async fn end_session_after_bridge_panic(
         // The relay that would have closed an open bracket is gone with the
         // task, and nothing will respawn it.
         entry.replay_brackets_open = 0;
+        entry.replay_latch_found = None;
         (already_closed, entry.claude_session_id.clone())
     };
     error!(session = %tug_session_id, "session bridge {panic}; session ended");
@@ -5871,6 +5974,7 @@ mod tests {
             origin: "tug",
             terminal_live: None,
             file_size: Some(10),
+            turn_active: false,
         }
     }
 
@@ -6008,7 +6112,7 @@ mod tests {
             ..Default::default()
         };
 
-        let listed = build_listed_union(Vec::new(), &HashMap::new(), Some(scan));
+        let listed = build_listed_union(Vec::new(), &HashMap::new(), Some(scan), &|_| false);
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].origin, "external");
         assert_eq!(listed[0].row.name.as_deref(), Some("lens-xp"));
@@ -6033,7 +6137,7 @@ mod tests {
             ..Default::default()
         };
 
-        let listed = build_listed_union(Vec::new(), &HashMap::new(), Some(scan));
+        let listed = build_listed_union(Vec::new(), &HashMap::new(), Some(scan), &|_| false);
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].row.name.as_deref(), Some("Some auto title"));
         assert!(!listed[0].row.name_user_set);
@@ -6052,6 +6156,44 @@ mod tests {
             br#"{"card_id":"c1","tug_session_id":"s1","project_dir":"/p","session_mode":"new"}"#;
         let parsed = parse_control_payload_owned(payload).expect("parse");
         assert_eq!(parsed.tag, None);
+    }
+
+    #[test]
+    fn a_listed_row_carries_the_turn_latch_beside_the_row() {
+        let row = |id: &str| crate::session_ledger::SessionRow {
+            session_id: id.to_owned(),
+            workspace_key: "ws".to_owned(),
+            project_dir: "/p".to_owned(),
+            created_at: 0,
+            last_used_at: 1,
+            turn_count: 1,
+            last_user_prompt: Some("hi".to_owned()),
+            state: crate::session_ledger::SessionState::Live,
+            card_id: None,
+            name: None,
+            name_user_set: false,
+            tag: None,
+            private: false,
+            synopsis: None,
+            arc_id: None,
+            arc_name: None,
+            line_id: String::new(),
+            background: false,
+        };
+        let listed = build_listed_union(vec![row("busy"), row("quiet")], &HashMap::new(), None, &|id| {
+            id == "busy"
+        });
+        let wire: Vec<serde_json::Value> = listed
+            .iter()
+            .map(|l| serde_json::to_value(l).expect("json"))
+            .collect();
+        let latch = |id: &str| {
+            wire.iter()
+                .find(|w| w["session_id"] == id)
+                .map(|w| w["turn_active"].clone())
+        };
+        assert_eq!(latch("busy"), Some(serde_json::json!(true)));
+        assert_eq!(latch("quiet"), Some(serde_json::json!(false)));
     }
 
     #[test]
@@ -6076,7 +6218,7 @@ mod tests {
             line_id: String::new(),
             background: false,
         };
-        let frame = build_session_updated_frame(&row, None, None);
+        let frame = build_session_updated_frame(&row, None, None, false);
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
         assert_eq!(body["fields"]["tag"], "azure-heron");
         // The description rides the same push as the callsign, so a written
@@ -6114,7 +6256,7 @@ mod tests {
 
         // No scan-cache row: a null size, and the ledger's own count stands.
         let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, None, None).payload)
+            serde_json::from_slice(&build_session_updated_frame(&row, None, None, false).payload)
                 .expect("json");
         assert!(body["fields"]["file_size"].is_null());
         assert_eq!(body["fields"]["turn_count"], 0);
@@ -6126,7 +6268,7 @@ mod tests {
             turn_count: 7,
         };
         let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, Some(metrics), None).payload)
+            serde_json::from_slice(&build_session_updated_frame(&row, Some(metrics), None, false).payload)
                 .expect("json");
         assert_eq!(body["fields"]["file_size"], 48_192);
         assert_eq!(body["fields"]["turn_count"], 7);
@@ -6158,7 +6300,7 @@ mod tests {
         // A segment with no telemetry says nothing rather than zero — the
         // difference the receipt's empty right-hand state is read off.
         let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, None, None).payload)
+            serde_json::from_slice(&build_session_updated_frame(&row, None, None, false).payload)
                 .expect("json");
         assert!(body["usage"].is_null());
 
@@ -6168,7 +6310,7 @@ mod tests {
             active_ms: 1_391_000,
         };
         let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, None, Some(usage)).payload)
+            serde_json::from_slice(&build_session_updated_frame(&row, None, Some(usage), false).payload)
                 .expect("json");
         assert_eq!(body["usage"]["turns"], 10);
         assert_eq!(body["usage"]["tokens"], 1_885_093);
@@ -7806,6 +7948,137 @@ mod tests {
         let _ = merger_handle.await;
     }
 
+    /// The merger tells the row where the turn latch stands at each of its
+    /// edges, so the shell reads a card's phase off the push: a live
+    /// `turn_complete` pushes the row with `turn_active: false`, a
+    /// `wake_started` pushes it back to true, and a replayed closer inside a
+    /// bracket pushes nothing because the latch did not move.
+    #[tokio::test]
+    async fn the_merger_pushes_the_turn_latch_onto_the_session_row() {
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let (state_tx, _state_rx) = broadcast::channel(64);
+        let (meta_tx, _meta_rx) = broadcast::channel(8);
+        let (code_tx, _code_rx) = broadcast::channel(64);
+        let (control_tx, mut control_rx) = broadcast::channel(128);
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(LedgerSessionsRecorder::with_broadcast(
+            Arc::clone(&ledger),
+            control_tx.clone(),
+        ));
+        let cancel = CancellationToken::new();
+        let (sup, register_rx) = AgentSupervisor::new_with_ledger(
+            SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
+            SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
+            SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
+            SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
+            control_tx,
+            Arc::clone(&recorder),
+            Some(Arc::clone(&ledger)),
+            stall_spawner_factory(),
+            AgentSupervisorConfig::default(),
+            Arc::new(WorkspaceRegistry::new_for_test()),
+            cancel.clone(),
+            SupervisorDeps::default(),
+        );
+        let sup = Arc::new(sup);
+        let merger_handle = tokio::spawn(Arc::clone(&sup).merger_task(register_rx, cancel.clone()));
+
+        let id = TugSessionId::new("sess-latch");
+        let entry_arc = insert_ledger_entry(&sup, &id).await;
+        recorder.record(SessionRecord {
+            session_id: "claude-latch",
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: None,
+        });
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.claude_session_id = Some("claude-latch".to_owned());
+            entry.turn_active = true;
+        }
+        publish_turn_latch(&recorder, &entry_arc).await;
+        assert!(ledger.turn_active("claude-latch"));
+        while control_rx.try_recv().is_ok() {}
+
+        // Another write on the way (the journal's) may push the row before the
+        // latch does, so wait for the push that says what the edge should.
+        let latch_push = |rx: &mut broadcast::Receiver<Frame>, expected: bool| {
+            let mut rx = rx.resubscribe();
+            async move {
+                loop {
+                    let frame = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+                        .await
+                        .expect("a row push carrying the latch")
+                        .expect("recv");
+                    let body: serde_json::Value =
+                        serde_json::from_slice(&frame.payload).expect("json");
+                    if body["action"] == "session_updated"
+                        && body["session_id"] == "claude-latch"
+                        && body["fields"]["turn_active"].as_bool() == Some(expected)
+                    {
+                        return;
+                    }
+                }
+            }
+        };
+
+        let (tx, rx) = mpsc::channel::<Frame>(8);
+        sup.merger_register_tx.send((id.clone(), rx)).await.unwrap();
+
+        let ended = latch_push(&mut control_rx, false);
+        tx.send(Frame::new(
+            FeedId::CODE_OUTPUT,
+            br#"{"tug_session_id":"sess-latch","type":"turn_complete","msg_id":"m","seq":1}"#
+                .to_vec(),
+        ))
+        .await
+        .unwrap();
+        ended.await;
+
+        let woke = latch_push(&mut control_rx, true);
+        tx.send(Frame::new(
+            FeedId::CODE_OUTPUT,
+            br#"{"tug_session_id":"sess-latch","type":"wake_started","session_id":"x"}"#.to_vec(),
+        ))
+        .await
+        .unwrap();
+        woke.await;
+
+        // A replayed closer inside a bracket leaves the latch where it was,
+        // and the row with it. The merger handles a session's frames in
+        // order, so a second frame's broadcast proves the first was handled
+        // to its end, the latch push included.
+        let mut code_rx = sup.code_output.subscribe();
+        let mut quiet_rx = control_rx.resubscribe();
+        entry_arc.lock().await.replay_brackets_open = 1;
+        for payload in [
+            &br#"{"tug_session_id":"sess-latch","type":"turn_complete","msg_id":"old","seq":0}"#[..],
+            &br#"{"tug_session_id":"sess-latch","type":"assistant_text","msg_id":"b","seq":3}"#[..],
+        ] {
+            tx.send(Frame::new(FeedId::CODE_OUTPUT, payload.to_vec()))
+                .await
+                .unwrap();
+        }
+        for _ in 0..2 {
+            tokio::time::timeout(Duration::from_secs(5), code_rx.recv())
+                .await
+                .expect("barrier timeout")
+                .expect("barrier recv err");
+        }
+        assert!(ledger.turn_active("claude-latch"));
+        while let Ok(frame) = quiet_rx.try_recv() {
+            let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
+            assert!(
+                body["action"] != "session_updated" || body["fields"]["turn_active"] == true,
+                "a closer that moved no latch ends no turn on the row"
+            );
+        }
+
+        cancel.cancel();
+        let _ = merger_handle.await;
+    }
+
     /// **The wedge the incident actually saw ([B01]).** A resumed transcript
     /// that carries a wheel wake replays a `wake_started` whose own replayed
     /// `turn_complete` the turn-end branch discards — so the latch used to go
@@ -7892,6 +8165,83 @@ mod tests {
             Some(TurnOpener::Wake),
             "a live wake still opens a wake turn",
         );
+
+        cancel.cancel();
+        let _ = merger_handle.await;
+    }
+
+    /// **A catch-up during a live turn keeps the turn busy ([B03]).** The
+    /// body's reveal asks for a catch-up while the turn it sent is still
+    /// running; the bracket opens over the latch the live turn set, and that
+    /// turn's own end is still behind the bracket in claude's pipe. The close
+    /// puts back what it found, so the session reads busy until the real end
+    /// arrives — which then ends the turn as any live end does.
+    #[tokio::test]
+    async fn a_catch_up_during_a_live_turn_leaves_the_turn_busy_at_the_bracket_close() {
+        let ((sup, _state_rx, _meta_rx, _control_rx), register_rx) =
+            make_supervisor_with_spawner(stall_spawner_factory());
+        let sup = Arc::new(sup);
+        let cancel = CancellationToken::new();
+        let merger_handle = tokio::spawn(Arc::clone(&sup).merger_task(register_rx, cancel.clone()));
+
+        let id = TugSessionId::new("sess-catch-up-live");
+        insert_ledger_entry(&sup, &id).await;
+        let entry_arc = sup.ledger.lock().await.get(&id).cloned().unwrap();
+        // The live turn, as the dispatcher's `user_message` intercept opens it.
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.turn_active = true;
+            entry.turn_opener = Some(TurnOpener::Prompt);
+        }
+
+        let (tx, rx) = mpsc::channel::<Frame>(8);
+        sup.merger_register_tx.send((id.clone(), rx)).await.unwrap();
+
+        let send = |bytes: &'static [u8]| {
+            let tx = tx.clone();
+            async move {
+                tx.send(Frame::new(FeedId::CODE_OUTPUT, bytes.to_vec()))
+                    .await
+                    .unwrap();
+            }
+        };
+
+        // The catch-up, carrying the end of a turn committed earlier in the
+        // transcript.
+        send(br#"{"tug_session_id":"sess-catch-up-live","type":"replay_started","ipc_version":2}"#)
+            .await;
+        send(
+            br#"{"tug_session_id":"sess-catch-up-live","type":"turn_complete","msg_id":"old","seq":0}"#,
+        )
+        .await;
+        send(br#"{"tug_session_id":"sess-catch-up-live","type":"replay_complete","count":1,"ipc_version":2}"#)
+            .await;
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move {
+                let entry = entry_arc.lock().await;
+                entry.replay_brackets_open == 0 && entry.replay_latch_found.is_none()
+            }
+        })
+        .await;
+
+        {
+            let entry = entry_arc.lock().await;
+            assert!(entry.turn_active, "the live turn is still running");
+            assert_eq!(entry.turn_opener, Some(TurnOpener::Prompt));
+        }
+
+        // The live turn's own end, released from the pipe after the bracket.
+        send(
+            br#"{"tug_session_id":"sess-catch-up-live","type":"turn_complete","msg_id":"live","seq":1}"#,
+        )
+        .await;
+        wait_until(|| {
+            let entry_arc = entry_arc.clone();
+            async move { !entry_arc.lock().await.turn_active }
+        })
+        .await;
+        assert_eq!(entry_arc.lock().await.turn_opener, None);
 
         cancel.cancel();
         let _ = merger_handle.await;
@@ -10886,11 +11236,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_one_inserts_journal_row_without_augmenting_frame() {
-        // Step 5.3 invariant: the dispatcher's user_message intercept
-        // mints a journal id, persists the row, and forwards the frame
-        // UNCHANGED (no `tug_turn_id` field stamped onto the wire). The
-        // forwarded frame's bytes equal the input frame's bytes.
+    async fn dispatch_one_keys_journal_row_on_submission_id_without_augmenting_frame() {
+        // The dispatcher's user_message intercept persists the row under
+        // the submission id the frame carries and forwards the frame
+        // UNCHANGED: the forwarded frame's bytes equal the input frame's.
         let (sup, ledger, _rx) = make_supervisor_with_ledger();
         let session_id_str = "sess-dispatch";
         let tug_session_id = TugSessionId::new(session_id_str);
@@ -10907,6 +11256,7 @@ mod tests {
             "type": "user_message",
             "text": "hello",
             "attachments": [],
+            "submission_id": "0f3c1e5a-1b2c-4d5e-8f90-123456789abc",
         });
         let original_payload = serde_json::to_vec(&body).unwrap();
         let frame = Frame::new(FeedId::CODE_INPUT, original_payload.clone());
@@ -10921,6 +11271,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].user_text, "hello");
         assert!(rows[0].user_attachments.is_empty());
+        assert_eq!(rows[0].journal_id, "0f3c1e5a-1b2c-4d5e-8f90-123456789abc");
 
         // Pop the queued frame and assert its payload is byte-identical
         // to the input — the dispatcher does NOT augment the wire.
@@ -10928,8 +11279,50 @@ mod tests {
         let queued = entry.queue.pop().expect("frame queued");
         assert_eq!(
             queued.payload, original_payload,
-            "dispatcher must forward user_message frames unchanged (Step 5.3 wire invariant)",
+            "dispatcher must forward a user_message that carries its id unchanged",
         );
+    }
+
+    #[tokio::test]
+    async fn dispatch_one_mints_the_submission_id_a_frame_lacks_and_writes_it_into_the_frame() {
+        // A sender other than the deck leaves the id out, and a malformed one
+        // reads as absent. Either way the submission still gets exactly one
+        // identity: the row is keyed on a minted UUID and the forwarded frame
+        // carries the same one, so tugcode can hand it to claude.
+        for submitted in [None, Some("not-a-uuid"), Some("0F3C1E5A-1B2C-4D5E-8F90-123456789ABC")] {
+            let (sup, ledger, _rx) = make_supervisor_with_ledger();
+            let session_id_str = "sess-dispatch-mint";
+            let tug_session_id = TugSessionId::new(session_id_str);
+            let entry_arc = insert_ledger_entry(&sup, &tug_session_id).await;
+            seed_session_for_journal_test(&ledger, session_id_str);
+
+            let mut body = serde_json::json!({
+                "tug_session_id": session_id_str,
+                "type": "user_message",
+                "text": "hello",
+                "attachments": [],
+            });
+            if let Some(id) = submitted {
+                body["submission_id"] = serde_json::Value::from(id);
+            }
+            sup.dispatch_one(Frame::new(FeedId::CODE_INPUT, serde_json::to_vec(&body).unwrap()))
+                .await;
+
+            let rows = ledger
+                .list_pending_turns_for_session(session_id_str)
+                .unwrap();
+            assert_eq!(rows.len(), 1, "{submitted:?}");
+            let minted = rows[0].journal_id.clone();
+            assert_ne!(Some(minted.as_str()), submitted, "{submitted:?}");
+            assert!(uuid::Uuid::parse_str(&minted).is_ok(), "{minted}");
+
+            let mut entry = entry_arc.lock().await;
+            let queued = entry.queue.pop().expect("frame queued");
+            let forwarded: serde_json::Value = serde_json::from_slice(&queued.payload).unwrap();
+            let mut expected = body.clone();
+            expected["submission_id"] = serde_json::Value::from(minted.as_str());
+            assert_eq!(forwarded, expected, "{submitted:?}");
+        }
     }
 
     // ── landings ride the next user message ──────────────────────────────────
@@ -10962,6 +11355,7 @@ mod tests {
             "tug_session_id": session,
             "type": "user_message",
             "content": [{"type": "text", "text": text}],
+            "submission_id": uuid::Uuid::new_v4().to_string(),
         }))
         .unwrap()
     }
@@ -11006,8 +11400,9 @@ mod tests {
             blocks[1]
         );
 
-        // The journal holds what the JSONL will: every text block, joined
-        // with no separator — tugcode's pending-row match depends on it.
+        // The journal holds every text block, joined with no separator, so
+        // the never-drop synthetic of a row claude never saw carries the
+        // block the frame went out with.
         let rows = ledger.list_pending_turns_for_session(session).unwrap();
         assert_eq!(rows[0].user_text, blocks.concat());
         assert!(shell.untold_landings(session).unwrap().is_empty());
@@ -11109,6 +11504,7 @@ mod tests {
             "type": "user_message",
             "text": "hello",
             "attachments": [],
+            "submission_id": uuid::Uuid::new_v4().to_string(),
         }))
         .unwrap();
 
@@ -11186,6 +11582,7 @@ mod tests {
                 },
                 {"type": "text", "text": " this"},
             ],
+            "submission_id": uuid::Uuid::new_v4().to_string(),
         });
         let original_payload = serde_json::to_vec(&body).unwrap();
         let frame = Frame::new(FeedId::CODE_INPUT, original_payload.clone());
