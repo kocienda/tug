@@ -1,17 +1,16 @@
 /**
  * _components.ts — what the site's component clips share.
  *
- * The Tug site's "Component system" row shows six of the app's components in
- * motion, and most of them are recorded off the Component Gallery: one
- * gallery card in a one-up, cropped to the sections the clip is about, with
- * the driver pressing the card's own controls natively. Two scenes are
- * recorded off a Session card instead — the tool blocks and the theme sweep
- * want a real transcript behind them — and they share the one stub turn
- * here: a build, a diff and a type check, each a Bash block.
+ * The Tug site's "Component system" row shows three of the app's components
+ * in motion, each recorded off a Session card: the tool blocks and the theme
+ * sweep share the one stub turn here — a build, a diff and a type check,
+ * each a Bash block — and the markdown entry binds to it without prompting.
+ * (The row's other three, the button, the choice group and the confirm
+ * popover, are live ports on the page itself, not clips.)
  *
  * Every driver stamps the element it is about to press with `data-sc-target`
- * and presses that, because the harness clicks a selector and most of what
- * a gallery card offers is addressed by its label text.
+ * and presses that, because the harness clicks a selector and a block's
+ * chevron is addressed by its index.
  */
 
 import { expect } from "bun:test";
@@ -29,36 +28,6 @@ import type { Rect } from "../one-view-fixture";
 export const TARGET = "data-sc-target";
 /** The selector the stamped element answers to. */
 export const TARGET_SEL = `[${TARGET}]`;
-
-/** A one-up deck holding one gallery card, sized for the sections a clip crops to. */
-export function galleryDeck(cardId: string, componentId: string, title: string, size: { width: number; height: number } = { width: 760, height: 960 }): Record<string, unknown> {
-  return {
-    cards: [{ id: cardId, componentId, title, closable: true }],
-    panes: [
-      {
-        id: `${cardId}-pane`,
-        position: { x: 40, y: 40 },
-        size,
-        cardIds: [cardId],
-        activeCardId: cardId,
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: `${cardId}-pane`,
-    imposition: { kind: "one-up", layout: "fit", sidebars: {} },
-    hasFocus: true,
-  };
-}
-
-/** Wait until the gallery card's root (`data-testid`) is in the body. */
-export async function waitForGallery(body: BodyApp, testId: string, timeoutMs = 30_000): Promise<void> {
-  await pollFor(
-    () => body.evalJS<boolean>(`document.querySelector('[data-testid=${JSON.stringify(testId)}]') !== null`).catch(() => false),
-    (ok) => ok,
-    timeoutMs,
-  );
-}
 
 /**
  * Stamp {@link TARGET} on the `index`th element `selector` matches, or on the
@@ -82,50 +51,6 @@ export async function aim(body: BodyApp, selector: string, pick: { index: number
 export async function press(body: BodyApp, selector: string, pick: { index: number } | { text: string }): Promise<void> {
   await aim(body, selector, pick);
   await body.nativeClickAtElement(TARGET_SEL);
-}
-
-/** The attribute {@link sectionRect} stamps on a section, holding its title, so a press can be scoped to it. */
-export const SECTION = "data-sc-section";
-/** The selector for the section titled `title`, once {@link sectionRect} has measured it. */
-export const sectionSel = (title: string): string => `[${SECTION}=${JSON.stringify(title)}]`;
-
-/** The `.cg-section` whose title is `title`, stamped with {@link SECTION}, as a rect in body points; null when absent. */
-export function sectionRect(body: BodyApp, title: string): Promise<Rect | null> {
-  return body.evalJS<Rect | null>(
-    `(function () {
-      var sections = Array.prototype.slice.call(document.querySelectorAll(".cg-section"));
-      var s = sections.find(function (el) { var t = el.querySelector(".cg-section-title"); return t !== null && (t.textContent || "").trim() === ${JSON.stringify(title)}; });
-      if (!s) return null;
-      s.setAttribute(${JSON.stringify(SECTION)}, ${JSON.stringify(title)});
-      var r = s.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width, height: r.height };
-    })()`,
-  );
-}
-
-/** Scroll the section titled `title` to the top of the card's scroller. */
-export async function scrollSectionToTop(body: BodyApp, title: string): Promise<void> {
-  const ok = await body.evalJS<boolean>(
-    `(function () {
-      var sections = Array.prototype.slice.call(document.querySelectorAll(".cg-section"));
-      var s = sections.find(function (el) { var t = el.querySelector(".cg-section-title"); return t !== null && (t.textContent || "").trim() === ${JSON.stringify(title)}; });
-      if (!s) return false;
-      s.scrollIntoView({ block: "start" });
-      return true;
-    })()`,
-  );
-  expect(ok, `a section to scroll to: ${title}`).toBe(true);
-}
-
-/** The sections named, measured, each one expected to be in the card. */
-export async function sectionRects(body: BodyApp, titles: string[]): Promise<Rect[]> {
-  const rects: Rect[] = [];
-  for (const title of titles) {
-    const r = await sectionRect(body, title);
-    expect(r, `the section "${title}" is in the card`).not.toBeNull();
-    rects.push(r!);
-  }
-  return rects;
 }
 
 /** A body rect carried into the window's content points. */
