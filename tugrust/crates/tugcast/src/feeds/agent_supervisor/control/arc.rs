@@ -459,7 +459,7 @@ impl AgentSupervisor {
         }
 
         if terms.halt {
-            let turn_active = entry.lock().await.turn_active;
+            let turn_active = entry.lock().await.turn_active();
             if turn_active {
                 tracing::info!(arc = %arc, "stop halts a running turn");
                 self.dispatch_one(code_input_frame(&serde_json::json!({

@@ -489,9 +489,13 @@ export class SessionLedgerStore extends Subscribable {
       this.notify();
       return;
     }
-    // The listing is its home now, so the detached copy would only be a
-    // second, staler answer to the same question.
-    this.detachedRows.delete(sessionId);
+    // The listing is its home now, and `findRow` answers from it first. The
+    // pushed row is still kept detached, as the latest word on it: a listing
+    // requested before this session had content can settle after this push
+    // and replace the rows without it, and then the detached copy is the one
+    // answer left until the next push. Dropping it left a just-opened turn
+    // with no row at all until the turn ended.
+    this.detachedRows.set(sessionId, row);
     const existingIdx = cached.rows.findIndex((r) => r.session_id === sessionId);
     let nextRows: SessionRow[];
     if (existingIdx >= 0) {

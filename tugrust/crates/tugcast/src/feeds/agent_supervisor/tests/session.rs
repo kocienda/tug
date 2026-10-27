@@ -1070,16 +1070,14 @@ async fn list_card_bindings_reports_is_alive_for_live_sessions() {
     // only trace.
     {
         let mut map = sup.ledger.lock().await;
-        let entry = LedgerEntry {
-            spawn_state: SpawnState::Live,
-            ..LedgerEntry::new(
-                TugSessionId("live".to_string()),
-                WorkspaceKey::from_test_str("ws-1"),
-                std::path::PathBuf::from("/proj/alive"),
-                SessionMode::New,
-                CrashBudget::new(3, std::time::Duration::from_secs(60)),
-            )
-        };
+        let mut entry = LedgerEntry::new(
+            TugSessionId("live".to_string()),
+            WorkspaceKey::from_test_str("ws-1"),
+            std::path::PathBuf::from("/proj/alive"),
+            SessionMode::New,
+            CrashBudget::new(3, std::time::Duration::from_secs(60)),
+        );
+        entry.spawn_state = SpawnState::Live;
         map.insert(
             TugSessionId("live".to_string()),
             std::sync::Arc::new(tokio::sync::Mutex::new(entry)),

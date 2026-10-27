@@ -1181,7 +1181,7 @@ mod tests {
             {
                 let mut entry = entry_arc.lock().await;
                 entry.spawn_state = SpawnState::Spawning;
-                entry.turn_active = turn_active;
+                entry.stage_turn_active(turn_active);
             }
             let ctx = WheelContext {
                 supervisor: Arc::clone(&sup),

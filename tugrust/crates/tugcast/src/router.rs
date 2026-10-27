@@ -1070,8 +1070,13 @@ fn admits_while_dormant(session_feeds: &HashSet<FeedId>, frame: &Frame) -> bool 
 /// The card a `request_replay` wakes: a body's own catch-up ask (`reason:
 /// "catch-up"`), which it sends only on its reveal ([B05]). Any other ask, or
 /// one from a page that is not a body with a card, wakes nothing.
-fn catch_up_wakes_card<'a>(identity: &'a PageIdentity, payload: &serde_json::Value) -> Option<&'a str> {
-    if identity.role != PageRole::Body || payload.get("reason").and_then(|r| r.as_str()) != Some("catch-up") {
+fn catch_up_wakes_card<'a>(
+    identity: &'a PageIdentity,
+    payload: &serde_json::Value,
+) -> Option<&'a str> {
+    if identity.role != PageRole::Body
+        || payload.get("reason").and_then(|r| r.as_str()) != Some("catch-up")
+    {
         return None;
     }
     identity.card_id.as_deref()
@@ -3156,7 +3161,10 @@ mod tests {
         let next = tick + HEARTBEAT_INTERVAL;
         assert!(!liveness.is_stale_unless_vouched(next, false));
         // A body shown and still silent past the window is cut as before.
-        assert!(liveness.is_stale_unless_vouched(tick + HEARTBEAT_TIMEOUT + Duration::from_secs(1), false));
+        assert!(
+            liveness
+                .is_stale_unless_vouched(tick + HEARTBEAT_TIMEOUT + Duration::from_secs(1), false)
+        );
     }
 
     #[test]
@@ -3913,7 +3921,10 @@ mod tests {
             crate::feeds::code::splice_tug_session_id(br#"{"type":"x"}"#, "s-a"),
         );
 
-        assert!(!admits_while_dormant(&feeds, &scoped), "its own session is dropped");
+        assert!(
+            !admits_while_dormant(&feeds, &scoped),
+            "its own session is dropped"
+        );
         assert!(admits_while_dormant(&feeds, &unscoped));
         assert!(admits_while_dormant(&feeds, &other));
     }

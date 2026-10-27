@@ -41,7 +41,8 @@
  * data), with one horizon: a working reading that has heard no sample for
  * {@link WORKING_HORIZON_MS} falls to idle ({@link onHorizon}), and says so
  * in the dev log, so a session whose end the ledger never stamped cannot
- * turn a dot for ever. When the card's body is listening again — awake, or
+ * turn a dot for ever — unless its row's latch still says the turn is open,
+ * which the horizon never contradicts. When the card's body is listening again — awake, or
  * a new page that has published its own facts — this store lets go of the
  * card and its readers answer from the body as before.
  *
@@ -216,9 +217,17 @@ export function onLatch(reading: BodilessReading, latch: boolean, lastUsedAt: nu
 /**
  * The horizon: a working reading whose last sign of work was
  * {@link WORKING_HORIZON_MS} or more ago is idle. Anything else stands.
+ *
+ * `latch` is the row's turn latch ({@link latchOf}). A latch that says the
+ * turn is open is tugcast's own account of the session, and the horizon does
+ * not contradict it: a turn quiet for half an hour with its latch still set is
+ * a long turn, and the latch's own close is what ends it. The horizon stays a
+ * safety net for a row that does not carry the latch, or one whose latch
+ * nothing will ever clear.
  */
-export function onHorizon(reading: BodilessReading, sinceWorkMs: number): BodilessReading {
+export function onHorizon(reading: BodilessReading, sinceWorkMs: number, latch: boolean | null = null): BodilessReading {
   if (!reading.working || sinceWorkMs < WORKING_HORIZON_MS) return reading;
+  if (latch === true) return reading;
   return { ...reading, activity: "idle", working: false };
 }
 
@@ -471,8 +480,11 @@ export class BodilessFactsStore extends Subscribable {
       entry.horizon = null;
       if (this.entries.get(cardId) !== entry) return;
       const since = this.sources.now() - entry.workAt;
-      const next = onHorizon(entry.reading, since);
+      const next = onHorizon(entry.reading, since, latchOf(entry.row));
       if (next === entry.reading) {
+        // Deferred to an open latch: the next check is a full horizon on,
+        // not an immediate one from a clock that has already run out.
+        if (since >= WORKING_HORIZON_MS) entry.workAt = this.sources.now();
         this.armHorizon(cardId, entry);
         return;
       }

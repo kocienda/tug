@@ -10,7 +10,6 @@
 
 #[cfg(target_os = "macos")]
 pub mod apple_event;
-pub mod call_id;
 pub mod changes_schema;
 pub mod claude_home;
 #[cfg(test)]

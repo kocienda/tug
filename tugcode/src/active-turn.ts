@@ -275,6 +275,15 @@ export class ActiveTurn {
    */
   readonly userContent: ReadonlyArray<ContentBlock>;
   /**
+   * The deck-minted submission id this turn's `user_message` carried, when
+   * it was a valid one and so reached claude as the input's `uuid`; `null`
+   * otherwise. The mid-turn snapshot's `add_user_message` carries it as
+   * `submissionId`, the one identity the reducer dedupes the turn's opener
+   * on — so a catch-up that already rendered the JSONL opener for this
+   * submission keeps one user message, not two.
+   */
+  readonly submissionId: string | null;
+  /**
    * Claude's user-prompt-record `uuid` for this turn — the `/rewind`
    * anchor ([#step-7-1]). Captured from the live user-echo event
    * (`--replay-user-messages`) the first time the turn's own submission
@@ -407,10 +416,12 @@ export class ActiveTurn {
   constructor(
     seq: number,
     userContent: ReadonlyArray<ContentBlock>,
+    submissionId: string | null = null,
   ) {
     this.seq = seq;
     this.openerId = `t-${seq}`;
     this.userContent = userContent;
+    this.submissionId = submissionId;
     let resolve: () => void = () => {};
     this.completion = new Promise<void>((r) => {
       resolve = r;

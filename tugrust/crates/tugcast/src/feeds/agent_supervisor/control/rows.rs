@@ -271,14 +271,12 @@ impl AgentSupervisor {
                         // count. The usage lookup rides it for the same reason.
                         let metrics = ledger.scan_metrics_for(&segment.session_id).unwrap_or(None);
                         let usage = ledger.usage_for(&segment.session_id).unwrap_or(None);
-                        let _ = self
-                            .control_tx
-                            .send(build_session_updated_frame(
-                                &row,
-                                metrics,
-                                usage,
-                                ledger.turn_active(&segment.session_id),
-                            ));
+                        let _ = self.control_tx.send(build_session_updated_frame(
+                            &row,
+                            metrics,
+                            usage,
+                            ledger.turn_active(&segment.session_id),
+                        ));
                     }
                 }
                 // Every line the name was taken from is un-taught the same way
@@ -311,14 +309,12 @@ impl AgentSupervisor {
                     if let Ok(Some(row)) = ledger.get(&segment.session_id) {
                         let metrics = ledger.scan_metrics_for(&segment.session_id).unwrap_or(None);
                         let usage = ledger.usage_for(&segment.session_id).unwrap_or(None);
-                        let _ = self
-                            .control_tx
-                            .send(build_session_updated_frame(
-                                &row,
-                                metrics,
-                                usage,
-                                ledger.turn_active(&segment.session_id),
-                            ));
+                        let _ = self.control_tx.send(build_session_updated_frame(
+                            &row,
+                            metrics,
+                            usage,
+                            ledger.turn_active(&segment.session_id),
+                        ));
                     }
                 }
                 let body = serde_json::json!({
@@ -374,14 +370,12 @@ impl AgentSupervisor {
                 if let Ok(Some(row)) = ledger.get(session_id) {
                     let metrics = ledger.scan_metrics_for(session_id).unwrap_or(None);
                     let usage = ledger.usage_for(session_id).unwrap_or(None);
-                    let _ = self
-                        .control_tx
-                        .send(build_session_updated_frame(
-                            &row,
-                            metrics,
-                            usage,
-                            ledger.turn_active(session_id),
-                        ));
+                    let _ = self.control_tx.send(build_session_updated_frame(
+                        &row,
+                        metrics,
+                        usage,
+                        ledger.turn_active(session_id),
+                    ));
                 }
                 let body = serde_json::json!({
                     "action": "set_session_private_ok",

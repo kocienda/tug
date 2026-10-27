@@ -262,8 +262,11 @@ describe("run-capped.sh", () => {
                 { env: shellEnv(), stdout: "pipe", stderr: "pipe" },
             );
             const started = Date.now();
-            while (!existsSync(pidFile) && Date.now() - started < 5_000) await Bun.sleep(20);
-            const grandchild = Number(readFileSync(pidFile, "utf8").trim());
+            // The redirect creates the file before `echo` fills it, so wait
+            // for the pid itself, not the file.
+            const pidOf = () => (existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0);
+            while (pidOf() === 0 && Date.now() - started < 5_000) await Bun.sleep(20);
+            const grandchild = pidOf();
             expect(grandchild).toBeGreaterThan(0);
             proc.kill(signal);
             expect(await proc.exited).toBe(status);

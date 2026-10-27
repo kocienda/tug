@@ -51,52 +51,6 @@ fn stdout(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-/// The same guarantee, with the id read the way a real call's child reads
-/// it: nothing in the environment, and the hook's `# tug-call: <id>` line in
-/// the argv of the shell the run is under, which `tugcore::call_id` walks up
-/// to. The shell is spawned here so the nearest mark is this test's own,
-/// whatever Bash call the test runner itself is under — and given a second
-/// command, since `sh -c` with one simple command execs it in its own place,
-/// argv and mark gone; Claude Code's wrapper is a `&&` chain and persists.
-#[test]
-fn a_run_under_a_marked_shell_records_the_shells_call() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("test_results.db");
-    let script = format!(
-        "# tug-call: toolu_marked\n{} test run --suite rust --kind lines \
-         --item '^(?P<status>PASS|FAIL) (?P<name>\\S+)' -- sh -c \"printf 'PASS fine\\\\n'\" && :",
-        common::tugtool_bin()
-    );
-    let out = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(&script)
-        .current_dir(dir.path())
-        .env_remove("TUG_TOOL_USE_ID")
-        .env_remove("TUG_SESSION_ID")
-        .env_remove("TUG_INSTANCE_ID")
-        .env_remove("TUG_SESSION_INDEX_DB")
-        .env_remove("TUG_REPORT_GAPS_DB")
-        .env("TUG_TEST_RESULTS_DB", &db)
-        .output()
-        .unwrap();
-    assert_eq!(
-        out.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    let out = run(
-        &db,
-        dir.path(),
-        &["test", "last", "--call", "toolu_marked", "--json"],
-    );
-    let report = last_report(&stdout(&out));
-    assert_eq!(report["call"], "toolu_marked");
-    assert_eq!(report["runs"][0]["toolUseId"], "toolu_marked");
-    assert_eq!(report["runs"][0]["verdict"], "PASS");
-}
-
 #[test]
 fn a_recorded_failure_is_named_by_test_last() {
     let dir = tempfile::tempdir().unwrap();

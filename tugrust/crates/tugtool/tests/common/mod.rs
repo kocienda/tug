@@ -30,10 +30,6 @@ pub fn tugtool() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tugtool"));
     cmd.env_remove("TUG_SESSION_ID");
     cmd.env_remove("TUG_INSTANCE_ID");
-    // The Bash call the test runner is under is not the spawned verb's: an
-    // unset id is read from the ancestors' argv (`tugcore::call_id`), and an
-    // empty one is "under no call". A test that wants an id sets its own.
-    cmd.env("TUG_TOOL_USE_ID", "");
     // The session index is **machine-global** — one file for every
     // instance — so an unscrubbed spawn writes rows the user's real
     // instances then resolve as sessions living elsewhere on the machine.

@@ -308,6 +308,10 @@ final class BodyViewController {
         /// The `shown` its page was last told; nil until the page is bound,
         /// and again when a reload binds a new one.
         var toldShown: Bool?
+        /// The `dormant` its page was last told, beside `toldShown` and reset
+        /// with it. Kept so a declaration made while the page could not hear
+        /// reaches it once it can, rather than waiting for a rebind.
+        var toldDormant: Bool?
         /// The time trigger's eviction, armed while the body is hidden and
         /// due `evictAfterMs` after it was hidden.
         var evictDue: DispatchWorkItem?
@@ -677,6 +681,7 @@ final class BodyViewController {
         send(.bodyBind(BodyBind(cardId: cardId, componentId: componentId, intent: intent, facts: window.bodyFacts())), to: body)
         // A page bound afresh has not heard whether it is shown.
         body.toldShown = nil
+        body.toldDormant = nil
         reportVisibility(body)
         // A page bound afresh — a reload, a spare taking a card — has not
         // been told where its pane stands in its view.
@@ -704,6 +709,9 @@ final class BodyViewController {
         notifyShell(BodyStateReport(cardId: cardId, state: .ready, readyMs: readyMs, start: body.warm ? .warm : .cold))
         // A body hidden before it was ready has had its clock running.
         lifecycle.armEviction(body)
+        // And whatever the host declared while its page could not hear is
+        // said now, so tugcast's half and the page's half stand together.
+        tellVisibility(body)
         // Its page has left the lane; the next waiting card's may start.
         lane.drain()
         // The spare this body may have taken is replaced once it has painted.
@@ -799,26 +807,40 @@ final class BodyViewController {
             // answered on a wire that sends it its session again.
             if shown { declareDormant(body, false) }
         }
-        guard let current = body.shown, body.state == .bound || body.life.isLive,
-              body.toldShown != current.value else { return }
-        body.toldShown = current.value
-        send(.bodyVisibility(BodyVisibility(
-            shown: current.value, since: current.since, dormant: body.declaredDormant && !current.value
-        )), to: body)
+        tellVisibility(body)
+    }
+
+    /// Tell a body's page whether it is shown and whether it is dormant, when
+    /// either differs from what it was last told and the page can hear. Every
+    /// change to either goes through here, so the page's half of a dormant
+    /// declaration is said whenever it can be, never only at the moment of it.
+    private func tellVisibility(_ body: Body) {
+        guard let told = visibilityToTell(
+            shown: body.shown,
+            canHear: body.state == .bound || body.life.isLive,
+            declaredDormant: body.declaredDormant,
+            toldShown: body.toldShown,
+            toldDormant: body.toldDormant
+        ) else { return }
+        body.toldShown = told.shown
+        body.toldDormant = told.dormant
+        send(.bodyVisibility(told), to: body)
     }
 
     /// Declare `body` dormant, or withdraw the declaration ([B05]): tugcast
     /// first, which then sends the body nothing of any session and never cuts
     /// its quiet socket, then the page, which sleeps on the host's word even
     /// when WebKit has stopped its own clock. A no-op when nothing changes.
+    ///
+    /// The two halves cannot part: a page that cannot hear yet is told by
+    /// `tellVisibility` the moment it can — at its bind, or at `ready` — from
+    /// the same `declaredDormant` tugcast was told.
     func declareDormant(_ body: Body, _ dormant: Bool) {
         guard body.declaredDormant != dormant, let cardId = body.cardId else { return }
         body.declaredDormant = dormant
         TugLog.info("bodies", "dormant", [TugLog.field("card", cardId), TugLog.field("dormant", dormant ? "yes" : "no")])
         tellTugcast?("body_dormant", ["card_id": cardId, "dormant": dormant])
-        guard dormant, let current = body.shown, !current.value,
-              body.state == .bound || body.life.isLive else { return }
-        send(.bodyVisibility(BodyVisibility(shown: false, since: current.since, dormant: true)), to: body)
+        tellVisibility(body)
     }
 
     /// Say every standing declaration again, for a tugcast that has just

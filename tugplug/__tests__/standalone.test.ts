@@ -184,7 +184,7 @@ describe("the hook script, from the bundle alone", () => {
     expect(specific.permissionDecision).toBeUndefined();
     expect(specific.updatedInput.description).toBe("Run the crate's tests");
     const command: string = specific.updatedInput.command;
-    expect(command.startsWith("# tug-call: toolu_01standalone\n")).toBe(true);
+    expect(command.startsWith("export TUG_TOOL_USE_ID=toolu_01standalone; ")).toBe(true);
     expect(command).toContain(`${join(bundle, "Contents/MacOS/tugtool")} test run --suite rust --kind nextest `);
     expect(command.endsWith(" -- cargo nextest run -p app")).toBe(true);
   });
@@ -202,7 +202,7 @@ describe("the hook script, from the bundle alone", () => {
       tool_use_id: "toolu_01pipe",
     });
     const command: string = decision.hookSpecificOutput.updatedInput.command;
-    expect(command.startsWith("# tug-call: toolu_01pipe\n")).toBe(true);
+    expect(command.startsWith("export TUG_TOOL_USE_ID=toolu_01pipe; ")).toBe(true);
     expect(command.endsWith(" -- cargo nextest run 2>&1 | tail -5")).toBe(true);
   });
 
@@ -221,7 +221,7 @@ describe("the hook script, from the bundle alone", () => {
     const specific = decision.hookSpecificOutput;
     expect(specific.permissionDecision).toBe("allow");
     const command: string = specific.updatedInput.command;
-    expect(command.startsWith("# tug-call: toolu_01probe\ntugtool file probe --patch p.diff -- ")).toBe(true);
+    expect(command.startsWith("export TUG_TOOL_USE_ID=toolu_01probe; tugtool file probe --patch p.diff -- ")).toBe(true);
     expect(command).toContain(`${join(bundle, "Contents/MacOS/tugtool")} test run --suite rust --kind nextest `);
     expect(command.endsWith(" -- cargo nextest run -p app")).toBe(true);
   });
@@ -324,7 +324,7 @@ describe("the hook, on a project that declares its runners", () => {
       tool_use_id: "toolu_01declared",
     });
     const command: string = decision.hookSpecificOutput.updatedInput.command;
-    expect(command.startsWith("# tug-call: toolu_01declared\n")).toBe(true);
+    expect(command.startsWith("export TUG_TOOL_USE_ID=toolu_01declared; ")).toBe(true);
     expect(command).toContain(`${join(bundle, "Contents/MacOS/tugtool")} test run --suite checks --kind cargo-test `);
     expect(command.endsWith(" -- make check")).toBe(true);
   });
@@ -350,13 +350,13 @@ describe("the hook, on a project that declares its runners", () => {
       cwd: declaring,
       tool_use_id: "toolu_01unit",
     });
-    expect(decision.hookSpecificOutput.updatedInput.command).toBe("# tug-call: toolu_01unit\njust app-test at0707.test.ts");
+    expect(decision.hookSpecificOutput.updatedInput.command).toBe("export TUG_TOOL_USE_ID=toolu_01unit; just app-test at0707.test.ts");
   });
 
   test("the same command on the project that declares nothing is not wrapped, and still carries its id", () => {
     const decision = hook({ tool_name: "Bash", tool_input: { command: "make check" }, cwd: project, tool_use_id: "toolu_01x" });
     expect(decision.hookSpecificOutput.permissionDecision).toBeUndefined();
-    expect(decision.hookSpecificOutput.updatedInput.command).toBe("# tug-call: toolu_01x\nmake check");
+    expect(decision.hookSpecificOutput.updatedInput.command).toBe("export TUG_TOOL_USE_ID=toolu_01x; make check");
   });
 
   test("refuses a declared runner behind a here-document as the project's own", () => {
@@ -400,7 +400,7 @@ describe("the hook, on a project that declares its runners", () => {
     expect(r.err).toContain('runner "make check" is kind "junit" and declares item');
     expect(r.err).toContain('belong to kind "lines"');
     const decision = hook({ tool_name: "Bash", tool_input: { command: "make check" }, cwd: refusing, tool_use_id: "toolu_01refused" });
-    expect(decision.hookSpecificOutput.updatedInput.command).toBe("# tug-call: toolu_01refused\nmake check");
+    expect(decision.hookSpecificOutput.updatedInput.command).toBe("export TUG_TOOL_USE_ID=toolu_01refused; make check");
   });
 });
 

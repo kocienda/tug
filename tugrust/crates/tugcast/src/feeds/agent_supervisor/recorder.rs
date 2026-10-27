@@ -965,18 +965,26 @@ mod tests {
             let frame = rx.try_recv().expect("a row push");
             let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
             assert_eq!(body["action"], "session_updated");
-            body["fields"]["turn_active"].as_bool().expect("turn_active is a bool")
+            body["fields"]["turn_active"]
+                .as_bool()
+                .expect("turn_active is a bool")
         };
 
         recorder.record_turn_latch("claude-abc", true);
         assert!(turn_active(&mut rx), "a turn opened");
         recorder.record_turn_latch("claude-abc", true);
-        assert!(rx.try_recv().is_err(), "an edge that moved nothing pushes nothing");
+        assert!(
+            rx.try_recv().is_err(),
+            "an edge that moved nothing pushes nothing"
+        );
 
         // The bridge's turn-end stamp lands while the latch still reads open;
         // the supervisor's close is the push that ends it.
         recorder.record_turn("claude-abc");
-        assert!(turn_active(&mut rx), "the stamp alone does not end the turn");
+        assert!(
+            turn_active(&mut rx),
+            "the stamp alone does not end the turn"
+        );
         recorder.record_turn_latch("claude-abc", false);
         assert!(!turn_active(&mut rx), "the latch's close ends it");
 

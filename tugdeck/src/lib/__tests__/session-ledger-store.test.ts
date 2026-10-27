@@ -375,6 +375,25 @@ describe("SessionLedgerStore", () => {
     store.dispose();
   });
 
+  it("findRow keeps a pushed row a later settle leaves out", () => {
+    // A listing requested before the session had content settles after the
+    // push that put the row in the list. The settle replaces the rows
+    // wholesale, so without the detached copy the row is gone until the next
+    // push — for a just-opened turn, until the turn ends.
+    const { store } = newStore();
+    store.getSnapshot("/proj");
+    publishListSessionsOk({ dir_exists: true, project_dir: "/proj", sessions: [], scanning: true });
+    publishSessionUpdated({
+      session_id: "s1",
+      fields: makeRow({ session_id: "s1", project_dir: "/proj", turn_count: 1, last_user_prompt: "hello" }),
+    });
+    expect(store.getSnapshot("/proj").rows.map((r) => r.session_id)).toEqual(["s1"]);
+    publishListSessionsOk({ dir_exists: true, project_dir: "/proj", sessions: [], scanning: false });
+    expect(store.getSnapshot("/proj").rows).toHaveLength(0);
+    expect(store.findRow("s1")?.last_user_prompt).toBe("hello");
+    store.dispose();
+  });
+
   it("session_updated { removed: true } drops the row", () => {
     const { store } = newStore();
     store.getSnapshot("ws-1");

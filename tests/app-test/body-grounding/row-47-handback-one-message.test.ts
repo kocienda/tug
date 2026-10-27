@@ -11,6 +11,14 @@
  * the card reads the prompt once — at the catch-up, and again once the turn
  * has ended.
  *
+ * The turn streams on the streaming stub, not on tugcode's session: the
+ * snapshot opener under test is the stub's (`openerFields` in
+ * `stub-replay.ts`), and what this row proves is the deck's half — the body
+ * catching up and the reducer keeping one submission one message, counted in
+ * the store. That production's snapshot opener carries the submission's id
+ * is owned by `tugcode/src/__tests__/inflight-turn-snapshot.test.ts`, and the
+ * JSONL-then-snapshot sequence by the reducer's `catch-up.test.ts`.
+ *
  * @family row-47
  * @covers tugdeck/src/body/body-dormancy.ts
  * @covers tugdeck/src/lib/code-session-store/reducer.ts

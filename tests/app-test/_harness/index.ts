@@ -1124,8 +1124,16 @@ export class App {
    * ready deadline. A key left out keeps its last value; `null` puts the
    * constant back. A ready deadline shorter than any real page's load fails
    * every body made while it stands, at that deadline.
+   * `pageDormantAfterMs` sets the pages' clock alone, after `dormantAfterMs`
+   * has set both, so a test can leave the page's clock long and see the
+   * host's dormant declaration arrive by itself.
    */
-  bodyDelays(delays: { dormantAfterMs?: number | null; evictAfterMs?: number | null; readyDeadlineMs?: number | null }): Promise<null> {
+  bodyDelays(delays: {
+    dormantAfterMs?: number | null;
+    pageDormantAfterMs?: number | null;
+    evictAfterMs?: number | null;
+    readyDeadlineMs?: number | null;
+  }): Promise<null> {
     return this.evalJS<null>(`(window.__tug.bodyDelays(${JSON.stringify(delays)}), null)`);
   }
 

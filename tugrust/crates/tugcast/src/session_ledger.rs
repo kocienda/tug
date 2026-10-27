@@ -6397,6 +6397,11 @@ impl SessionLedger {
     /// whole database) and persists it before forwarding the
     /// `user_message` frame to tugcode — that ordering is the durability
     /// guarantee documented in [Never-drop chain audit row 4](#step-5-never-drop).
+    ///
+    /// A `journal_id` already in the table is the same submission sent
+    /// twice, so the second insert is a no-op that returns `Ok`: the row is
+    /// already journaled, and the caller forwards the frame as it would the
+    /// first. Refusing it would drop a prompt the journal already holds.
     pub fn insert_pending_turn(
         &self,
         session_id: &str,
@@ -6410,7 +6415,8 @@ impl SessionLedger {
         conn.execute(
             "INSERT INTO turns (
                 journal_id, session_id, user_text, user_attachments, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(journal_id) DO NOTHING",
             params![journal_id, session_id, user_text, attachments_blob, now],
         )?;
         Ok(())
@@ -15933,6 +15939,19 @@ mod tests {
         assert_eq!(rows[0].session_id, "s1");
         assert_eq!(rows[0].user_text, "hello");
         assert!(rows[0].user_attachments.is_empty());
+    }
+
+    #[test]
+    fn insert_pending_turn_takes_a_duplicate_id_as_already_journaled() {
+        let l = fresh();
+        seed_live(&l, "s1", "ws", "card-1", millis(0));
+        l.insert_pending_turn("s1", "j1", "hello", &[], millis(0))
+            .unwrap();
+        l.insert_pending_turn("s1", "j1", "hello", &[], millis(1))
+            .expect("a resent submission is already journaled, not a failure");
+        let rows = l.list_pending_turns_for_session("s1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].created_at, millis(0));
     }
 
     // ── wheel_prompts: what the wheel put on the wire ────────────────────────

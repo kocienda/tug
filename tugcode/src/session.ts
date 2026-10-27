@@ -444,6 +444,7 @@ export class SessionManager {
    */
   private pendingTurnInputs: Array<{
     content: ReadonlyArray<ContentBlock>;
+    submissionId: string | null;
   }> = [];
   /**
    * True once the stdout drain has observed EOF on claude's stdout.
@@ -2356,6 +2357,7 @@ export class SessionManager {
     this.activeTurn = new ActiveTurn(
       this.nextSeq(),
       pending.content,
+      pending.submissionId,
     );
   }
 
@@ -3240,6 +3242,10 @@ export class SessionManager {
       // bracket), so carry the captured uuid here so the freshly-bound
       // client recovers the anchor for the in-flight turn.
       ...(turn.promptUuid !== null ? { promptUuid: turn.promptUuid } : {}),
+      // The submission's id, the reducer's one dedupe key for an opener: the
+      // JSONL pass of the same catch-up emitted this turn's opener with it,
+      // and without it here the card would render the prompt a second time.
+      ...(turn.submissionId !== null ? { submissionId: turn.submissionId } : {}),
       // Marks this opener as the start of the snapshot, so a card that is
       // already holding this very turn live — and shadowed the bracket
       // rather than entering it — can take what the suppressed window
@@ -3645,6 +3651,9 @@ export class SessionManager {
     // wire shape IS the Anthropic API shape post-Step-5c; no
     // construction step. Per Step 5c.
     const contentBlocks = msg.content;
+    // Only a well-formed id reaches claude as the input's `uuid`, so only
+    // that one can match the JSONL entry claude writes for this turn.
+    const submissionId = isSubmissionId(msg.submission_id) ? msg.submission_id : null;
 
     const userInput = JSON.stringify({
       type: "user",
@@ -3654,7 +3663,7 @@ export class SessionManager {
       // `queued_command`'s `source_uuid` when it absorbs the message into a
       // running turn. That is what lets a replay match the pending-turn
       // journal row (keyed on the same id) to what claude wrote down.
-      ...(isSubmissionId(msg.submission_id) ? { uuid: msg.submission_id } : {}),
+      ...(submissionId !== null ? { uuid: submissionId } : {}),
       message: {
         role: "user",
         content: contentBlocks,
@@ -3695,6 +3704,7 @@ export class SessionManager {
       const turn = new ActiveTurn(
         this.nextSeq(),
         msg.content,
+        submissionId,
       );
       this.activeTurn = turn;
       await written;
@@ -3705,6 +3715,7 @@ export class SessionManager {
     } else {
       this.pendingTurnInputs.push({
         content: msg.content,
+        submissionId,
       });
       await written;
     }

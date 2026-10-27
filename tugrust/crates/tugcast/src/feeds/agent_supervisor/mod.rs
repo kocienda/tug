@@ -45,9 +45,9 @@ use super::agent_bridge::{
 };
 use super::code::{parse_tug_session_id, splice_tug_session_id};
 use super::session_metadata::{
-    is_activity_delta, is_background_tasks_changed, is_rate_limit_event, is_session_capabilities,
-    is_stop_all_work_done, is_system_metadata, is_task_edge, is_task_progress, is_tool_result,
-    is_replay_complete, is_tool_use, is_turn_end, is_wake_started,
+    is_activity_delta, is_background_tasks_changed, is_rate_limit_event, is_replay_complete,
+    is_session_capabilities, is_stop_all_work_done, is_system_metadata, is_task_edge,
+    is_task_progress, is_tool_result, is_tool_use, is_turn_end, is_wake_started,
 };
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
@@ -110,12 +110,17 @@ pub type Ledger = Arc<Mutex<HashMap<TugSessionId, Arc<Mutex<LedgerEntry>>>>>;
 #[derive(Clone, Default)]
 pub struct BusyProbe {
     ledger: Option<Ledger>,
+    /// Where a turn the probe reaps on its way past is recorded, so the row's
+    /// copy of the latch drops with the entry's. `None` only beside a `None`
+    /// ledger, in the default probe.
+    sessions_recorder: Option<Arc<dyn SessionsRecorder>>,
 }
 
 impl BusyProbe {
-    pub fn new(ledger: Ledger) -> Self {
+    pub fn new(ledger: Ledger, sessions_recorder: Arc<dyn SessionsRecorder>) -> Self {
         Self {
             ledger: Some(ledger),
+            sessions_recorder: Some(sessions_recorder),
         }
     }
 
@@ -140,18 +145,23 @@ impl BusyProbe {
         };
         let mut busy = HashSet::new();
         for (id, entry) in entries {
-            let mut entry = entry.lock().await;
+            let mut guard = entry.lock().await;
             // The read point is the reap point: no timer task, just a reader
             // that consults busyness pruning what has gone stale on its way
             // past. This is one of the two — the arc runner's
             // `session_snapshot` takes the same two calls in the same order for
             // the one entry it reads ([B04]).
-            entry.reap_stuck_jobs(std::time::Instant::now());
+            guard.reap_stuck_jobs(std::time::Instant::now());
             // And the turn flag, under the same doctrine ([B02]). Ordered after
             // the jobs so one pass can take a session all the way to quiet.
-            entry.reap_stuck_turn(std::time::Instant::now());
-            if !entry.is_quiet() {
+            let reaped = guard.reap_stuck_turn(std::time::Instant::now());
+            if !guard.is_quiet() {
                 busy.insert(id);
+            }
+            drop(guard);
+            // A dropped latch is told to the row, after the entry is let go.
+            if reaped && let Some(recorder) = &self.sessions_recorder {
+                publish_turn_latch(recorder, &entry).await;
             }
         }
         busy
@@ -1578,15 +1588,20 @@ fn parse_permission_mode_selector(payload: &[u8]) -> Option<String> {
 const ARC_DOOR_PREFIXES: [&str; 2] = ["/arc", "/tugplug:arc"];
 
 /// The submission id a `user_message` frame carries, when it is a UUID in
-/// its canonical lowercase hyphenated form — the one form claude takes as an
-/// input message's `uuid` and writes back unchanged. Anything else reads as
-/// absent, and the dispatcher mints one.
-fn submission_id_of(payload: &[u8]) -> Option<String> {
+/// any spelling, returned in its canonical lowercase hyphenated form — the
+/// one form claude takes as an input message's `uuid` and writes back
+/// unchanged — with whether the frame already spells it that way. A UUID in
+/// another spelling is the same id, so it is lowercased rather than
+/// re-minted: a fresh id would defeat the deck's dedupe, which matches on
+/// the id it minted. Anything that is not a UUID reads as absent, and the
+/// dispatcher mints one.
+fn submission_id_of(payload: &[u8]) -> Option<(String, bool)> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
     let id = value.get("submission_id")?.as_str()?;
     let parsed = uuid::Uuid::parse_str(id).ok()?;
     let canonical = parsed.hyphenated().to_string();
-    (canonical == id).then_some(canonical)
+    let spelled = canonical == id;
+    Some((canonical, spelled))
 }
 
 /// `payload` with its `submission_id` set to `id`, re-serialized; `None` when
@@ -2044,7 +2059,7 @@ impl AgentSupervisor {
         let mut out = Vec::new();
         for entry_arc in entries {
             let entry = entry_arc.lock().await;
-            if !entry.turn_active {
+            if !entry.turn_active() {
                 continue;
             }
             if let (Some(pid), Some(start_time)) = (entry.child_pid, entry.child_start_time) {
@@ -2116,7 +2131,10 @@ impl AgentSupervisor {
     /// supervisor — the changeset recompute, which will not offer an arc for
     /// joining while the session that built it is still working.
     pub fn busy_probe(&self) -> BusyProbe {
-        BusyProbe::new(Arc::clone(&self.ledger))
+        BusyProbe::new(
+            Arc::clone(&self.ledger),
+            Arc::clone(&self.sessions_recorder),
+        )
     }
 
     /// The session ledger behind its async facade: calls through it run on
@@ -3289,16 +3307,11 @@ impl AgentSupervisor {
                     told = Some((line, last.id));
                 }
             }
-            let journal_id = match submission_id_of(&frame.payload) {
-                Some(id) => id,
-                None => {
-                    let id = uuid::Uuid::new_v4().to_string();
-                    if let Some(bytes) = with_submission_id(&frame.payload, &id) {
-                        frame = Frame::new(FeedId::CODE_INPUT, bytes);
-                    }
-                    id
-                }
-            };
+            let (journal_id, spelled) = submission_id_of(&frame.payload)
+                .unwrap_or_else(|| (uuid::Uuid::new_v4().to_string(), false));
+            if !spelled && let Some(bytes) = with_submission_id(&frame.payload, &journal_id) {
+                frame = Frame::new(FeedId::CODE_INPUT, bytes);
+            }
             let now = crate::session_ledger::now_millis();
             let inserted = {
                 let session_id = tug_session_id.as_str().to_owned();
@@ -3321,14 +3334,13 @@ impl AgentSupervisor {
                     //
                     // And it is an *asked* turn ([P02]) — the one kind the arc
                     // runner's quiet-turn horizon may count against a stage.
-                    {
-                        let mut entry = entry_arc.lock().await;
-                        entry.turn_active = true;
+                    write_turn_latch(&self.sessions_recorder, &entry_arc, |entry| {
+                        entry.set_turn_active(true);
                         entry.turn_opener = Some(TurnOpener::Prompt);
                         // The turn's liveness clock starts here ([B02]).
                         entry.touch_turn();
-                    }
-                    publish_turn_latch(&self.sessions_recorder, &entry_arc).await;
+                    })
+                    .await;
                     // A door prompt binds with the keystroke, so the card
                     // reads `ARC` before the door's first tool call rather
                     // than after its last one. Anything else is untouched.
@@ -3908,12 +3920,14 @@ impl AgentSupervisor {
         let Some(entry_arc) = entry_arc else {
             return;
         };
-        let mut entry = entry_arc.lock().await;
-        let closed = entry.open_jobs.len();
-        entry.open_jobs.clear();
-        entry.turn_active = false;
-        entry.quiesced.notify_waiters();
-        drop(entry);
+        let mut closed = 0;
+        write_turn_latch(&self.sessions_recorder, &entry_arc, |entry| {
+            closed = entry.open_jobs.len();
+            entry.open_jobs.clear();
+            entry.set_turn_active(false);
+            entry.quiesced.notify_waiters();
+        })
+        .await;
         tracing::info!(
             target: "dev::ledger",
             event = "stop_all_work_done",
@@ -4203,7 +4217,8 @@ impl AgentSupervisor {
                             ledger.get(&id).cloned()
                         };
                         if let Some(entry_arc) = entry_arc {
-                            let mut entry = entry_arc.lock().await;
+                            let mut ended = false;
+                            write_turn_latch(&self.sessions_recorder, &entry_arc, |entry| {
                             if is_wake_started(&frame.payload) {
                                 // Symmetric with the turn-end branch below
                                 // ([B01]). A replayed `wake_started` describes
@@ -4213,14 +4228,14 @@ impl AgentSupervisor {
                                 // leave the entry busy with no turn left to end
                                 // it, which is the wedge the incident saw.
                                 if entry.replay_brackets_open == 0 {
-                                    entry.turn_active = true;
+                                    entry.set_turn_active(true);
                                     // The harness opened this one, not the
                                     // stage's asker ([P02]).
                                     entry.turn_opener = Some(TurnOpener::Wake);
                                     entry.touch_turn();
                                 }
                             } else if entry.replay_brackets_open == 0 {
-                                entry.turn_active = false;
+                                entry.set_turn_active(false);
                                 entry.turns_ended += 1;
                                 // A foreground call cannot outlive its turn;
                                 // only a background run's command can.
@@ -4251,7 +4266,11 @@ impl AgentSupervisor {
                                 // that moved it ([P05]). It re-checks the
                                 // other fact for itself.
                                 entry.quiesced.notify_waiters();
-                                drop(entry);
+                                ended = true;
+                            }
+                            })
+                            .await;
+                            if ended {
                                 // The session went idle: an arc parked behind it
                                 // because the gate refuses to move a branch
                                 // mid-turn can now be caught up.
@@ -4509,22 +4528,34 @@ impl AgentSupervisor {
                 );
             }
             Some("replay_complete") => {
-                let mut entry = entry_arc.lock().await;
-                entry.replay_brackets_open = entry.replay_brackets_open.saturating_sub(1);
-                tracing::debug!(
-                    target: "dev::ledger",
-                    event = "merger.replay_bracket_close",
-                    session_id = %session_id,
-                    depth = entry.replay_brackets_open,
-                );
-                // The outermost bracket has closed: everything replay
-                // described is history, so the entry owes the latch it held
-                // before the bracket opened — a live turn's included ([B01]).
-                if entry.replay_brackets_open == 0 && entry.restore_replay_latch() {
-                    // One of the two facts `is_quiet` reads has just moved, so
-                    // a stop waiting on the quiet edge is woken from inside
-                    // the same guard that moved it ([P05]).
-                    entry.quiesced.notify_waiters();
+                let restored = {
+                    let mut entry = entry_arc.lock().await;
+                    entry.replay_brackets_open = entry.replay_brackets_open.saturating_sub(1);
+                    tracing::debug!(
+                        target: "dev::ledger",
+                        event = "merger.replay_bracket_close",
+                        session_id = %session_id,
+                        depth = entry.replay_brackets_open,
+                    );
+                    // The outermost bracket has closed: everything replay
+                    // described is history, so the entry owes the latch it
+                    // held before the bracket opened — a live turn's included
+                    // ([B01]).
+                    let restored = entry.replay_brackets_open == 0 && entry.restore_replay_latch();
+                    if restored {
+                        // One of the two facts `is_quiet` reads has just
+                        // moved, so a stop waiting on the quiet edge is woken
+                        // from inside the same guard that moved it ([P05]).
+                        entry.quiesced.notify_waiters();
+                    }
+                    restored
+                };
+                // A latch the close put back is told to the row, after the
+                // entry is let go: a writer inside the bracket published what
+                // it set, and left alone the row keeps that over the latch the
+                // entry now holds.
+                if restored {
+                    publish_turn_latch(&self.sessions_recorder, &entry_arc).await;
                 }
             }
             Some("turn_complete") | Some("turn_cancelled") => {
@@ -5398,7 +5429,7 @@ pub(crate) async fn publish_turn_latch(
 ) {
     let (claude_id, active) = {
         let entry = ledger_entry.lock().await;
-        (entry.claude_session_id.clone(), entry.turn_active)
+        (entry.claude_session_id.clone(), entry.turn_active())
     };
     if let Some(id) = claude_id {
         offload_recorder(sessions_recorder, move |r| r.record_turn_latch(&id, active)).await;
@@ -5417,23 +5448,25 @@ pub(crate) async fn end_session_after_bridge_panic(
     sessions_recorder: &Arc<dyn SessionsRecorder>,
     panic: &str,
 ) {
-    let (already_closed, claude_id) = {
-        let mut entry = ledger_entry.lock().await;
-        let already_closed = entry.spawn_state == SpawnState::Closed;
+    let mut already_closed = false;
+    let mut claude_id = None;
+    write_turn_latch(sessions_recorder, ledger_entry, |entry| {
+        already_closed = entry.spawn_state == SpawnState::Closed;
         if !already_closed {
             entry.spawn_state = SpawnState::Errored;
         }
         entry.input_tx = None;
         entry.child_pid = None;
         entry.child_start_time = None;
-        entry.turn_active = false;
+        entry.set_turn_active(false);
         entry.open_jobs.clear();
         // The relay that would have closed an open bracket is gone with the
         // task, and nothing will respawn it.
         entry.replay_brackets_open = 0;
         entry.replay_latch_found = None;
-        (already_closed, entry.claude_session_id.clone())
-    };
+        claude_id = entry.claude_session_id.clone();
+    })
+    .await;
     error!(session = %tug_session_id, "session bridge {panic}; session ended");
     if let Some(id) = claude_id {
         offload_recorder(sessions_recorder, move |r| r.mark_failed(&id)).await;
@@ -6180,9 +6213,12 @@ mod tests {
             line_id: String::new(),
             background: false,
         };
-        let listed = build_listed_union(vec![row("busy"), row("quiet")], &HashMap::new(), None, &|id| {
-            id == "busy"
-        });
+        let listed = build_listed_union(
+            vec![row("busy"), row("quiet")],
+            &HashMap::new(),
+            None,
+            &|id| id == "busy",
+        );
         let wire: Vec<serde_json::Value> = listed
             .iter()
             .map(|l| serde_json::to_value(l).expect("json"))
@@ -6267,9 +6303,10 @@ mod tests {
             file_size: 48_192,
             turn_count: 7,
         };
-        let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, Some(metrics), None, false).payload)
-                .expect("json");
+        let body: serde_json::Value = serde_json::from_slice(
+            &build_session_updated_frame(&row, Some(metrics), None, false).payload,
+        )
+        .expect("json");
         assert_eq!(body["fields"]["file_size"], 48_192);
         assert_eq!(body["fields"]["turn_count"], 7);
     }
@@ -6309,9 +6346,10 @@ mod tests {
             tokens: 1_885_093,
             active_ms: 1_391_000,
         };
-        let body: serde_json::Value =
-            serde_json::from_slice(&build_session_updated_frame(&row, None, Some(usage), false).payload)
-                .expect("json");
+        let body: serde_json::Value = serde_json::from_slice(
+            &build_session_updated_frame(&row, None, Some(usage), false).payload,
+        )
+        .expect("json");
         assert_eq!(body["usage"]["turns"], 10);
         assert_eq!(body["usage"]["tokens"], 1_885_093);
         assert_eq!(body["usage"]["active_ms"], 1_391_000);
@@ -6958,13 +6996,13 @@ mod tests {
             br#"{"type":"task_updated","session_id":"c","task_id":"t1","status":"completed","ipc_version":2}"#;
 
         // Launched mid-turn.
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
         let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"just app-test","run_in_background":true},"ipc_version":2}"#;
         sup.record_job_launch(&id, launch).await;
         assert!(!sup.apply_job_edge(&id, started).await);
 
         // The model stops speaking. The sweep does not.
-        entry.lock().await.turn_active = false;
+        entry.lock().await.stage_turn_active(false);
         assert!(
             !entry.lock().await.is_quiet(),
             "the turn ended, so a reader that asked only about the turn would \
@@ -7124,7 +7162,7 @@ mod tests {
         };
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard
                 .open_jobs
                 .insert("task-slow".to_string(), bash_job(std::time::Instant::now()));
@@ -7163,14 +7201,14 @@ mod tests {
         };
         let probe = sup.busy_probe();
 
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
         assert_eq!(
             probe.busy_session_ids().await,
             HashSet::from(["sess-probe".to_string()]),
         );
         assert!(BusyProbe::default().busy_session_ids().await.is_empty());
 
-        entry.lock().await.turn_active = false;
+        entry.lock().await.stage_turn_active(false);
         assert!(probe.busy_session_ids().await.is_empty());
     }
 
@@ -7194,7 +7232,7 @@ mod tests {
             let ledger = sup.ledger.lock().await;
             ledger.get(&id).unwrap().clone()
         };
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
 
         let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"just app-test","run_in_background":true},"ipc_version":2}"#;
         sup.record_job_launch(&id, launch).await;
@@ -7331,7 +7369,7 @@ mod tests {
         let started = br#"{"type":"task_started","session_id":"c","task_id":"t1","tool_use_id":"toolu_1","description":"an Agent","task_type":"local_agent","ipc_version":2}"#;
         let wake = br#"{"type":"wake_started","session_id":"c","wake_trigger":{"task_id":"t1","tool_use_id":"toolu_1","status":"completed","summary":"done","output_file":""},"ipc_version":2}"#;
 
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
         let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Agent","tool_use_id":"toolu_1","input":{"prompt":"sweep","run_in_background":true},"ipc_version":2}"#;
         sup.record_job_launch(&id, launch).await;
         assert!(!sup.apply_job_edge(&id, started).await);
@@ -7432,7 +7470,7 @@ mod tests {
 
         // A reap that would have taken the un-ticked job leaves this one.
         let mut guard = entry.lock().await;
-        guard.turn_active = false;
+        guard.stage_turn_active(false);
         guard.reap_stuck_jobs(old + JOB_REAP_HORIZON + Duration::from_millis(500));
         assert_eq!(guard.open_jobs.len(), 1, "a ticked job is alive, not stuck");
     }
@@ -7453,7 +7491,7 @@ mod tests {
             let ledger = sup.ledger.lock().await;
             ledger.get(&id).unwrap().clone()
         };
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
 
         // The foreground Agent call — observed, and rightly not recorded.
         let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Agent","tool_use_id":"toolu_fg","input":{"prompt":"review this"},"ipc_version":2}"#;
@@ -7468,7 +7506,7 @@ mod tests {
 
         // The turn ends with no job held open — the session is quiet, not
         // wedged behind an entry nothing will ever close.
-        entry.lock().await.turn_active = false;
+        entry.lock().await.stage_turn_active(false);
         assert!(entry.lock().await.is_quiet());
     }
 
@@ -7485,7 +7523,7 @@ mod tests {
             let ledger = sup.ledger.lock().await;
             ledger.get(&id).unwrap().clone()
         };
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
 
         let bash_launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_b","input":{"command":"cargo nextest run","run_in_background":true},"ipc_version":2}"#;
         let monitor_launch = br#"{"type":"tool_use","msg_id":"m1","seq":2,"tool_name":"Monitor","tool_use_id":"toolu_m","input":{"command":"tail -f build.log"},"ipc_version":2}"#;
@@ -7519,7 +7557,7 @@ mod tests {
             let ledger = sup.ledger.lock().await;
             ledger.get(&id).unwrap().clone()
         };
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
 
         // The launch alone — no `task_started` at all, which is the shape
         // Risk R02 accepts and this latch is what bounds.
@@ -7527,7 +7565,7 @@ mod tests {
         sup.record_job_launch(&id, launch).await;
 
         // The turn ends. This is the reading the incident got wrong.
-        entry.lock().await.turn_active = false;
+        entry.lock().await.stage_turn_active(false);
         assert!(
             !entry.lock().await.is_quiet(),
             "the launching turn ended, but the work it started has not reported",
@@ -7538,7 +7576,7 @@ mod tests {
         sup.apply_job_edge(&id, wake).await;
         // The wake reopens the turn on the live path; the test drives the
         // fold directly, so it says so itself and then ends that turn.
-        entry.lock().await.turn_active = false;
+        entry.lock().await.stage_turn_active(false);
         assert!(
             entry.lock().await.is_quiet(),
             "the wake retired the latch, so the session is finished",
@@ -7560,7 +7598,7 @@ mod tests {
             let ledger = sup.ledger.lock().await;
             ledger.get(&id).unwrap().clone()
         };
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
 
         let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_1","input":{"command":"just app-test","run_in_background":true},"ipc_version":2}"#;
         sup.record_job_launch(&id, launch).await;
@@ -7583,7 +7621,7 @@ mod tests {
         }
 
         let completed = br#"{"type":"task_updated","session_id":"c","task_id":"t1","status":"completed","ipc_version":2}"#;
-        entry.lock().await.turn_active = false;
+        entry.lock().await.stage_turn_active(false);
         assert!(sup.apply_job_edge(&id, completed).await);
         assert!(entry.lock().await.is_quiet());
     }
@@ -7604,7 +7642,7 @@ mod tests {
             let ledger = sup.ledger.lock().await;
             ledger.get(&id).unwrap().clone()
         };
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
 
         let one = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Bash","tool_use_id":"toolu_a","input":{"command":"a","run_in_background":true},"ipc_version":2}"#;
         let two = br#"{"type":"tool_use","msg_id":"m1","seq":2,"tool_name":"Bash","tool_use_id":"toolu_b","input":{"command":"b","run_in_background":true},"ipc_version":2}"#;
@@ -7637,13 +7675,13 @@ mod tests {
             let ledger = sup.ledger.lock().await;
             ledger.get(&id).unwrap().clone()
         };
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
 
         let launch = br#"{"type":"tool_use","msg_id":"m1","seq":1,"tool_name":"Monitor","tool_use_id":"toolu_m","input":{"command":"tail -f build.log"},"ipc_version":2}"#;
         sup.record_job_launch(&id, launch).await;
 
         let mut entry = entry.lock().await;
-        entry.turn_active = false;
+        entry.stage_turn_active(false);
         assert!(!entry.is_quiet(), "the hold is real while the horizon runs");
 
         let now = std::time::Instant::now();
@@ -7886,7 +7924,7 @@ mod tests {
             let mut entry = entry_arc.lock().await;
             entry.child_pid = Some(4242);
             entry.child_start_time = Some(1_000);
-            entry.turn_active = true;
+            entry.stage_turn_active(true);
         }
         assert_eq!(sup.live_session_processes().await.len(), 1);
 
@@ -7903,7 +7941,7 @@ mod tests {
         .unwrap();
         wait_until(|| {
             let entry_arc = entry_arc.clone();
-            async move { !entry_arc.lock().await.turn_active }
+            async move { !entry_arc.lock().await.turn_active() }
         })
         .await;
         assert!(sup.live_session_processes().await.is_empty());
@@ -7917,7 +7955,7 @@ mod tests {
         .unwrap();
         wait_until(|| {
             let entry_arc = entry_arc.clone();
-            async move { entry_arc.lock().await.turn_active }
+            async move { entry_arc.lock().await.turn_active() }
         })
         .await;
         assert_eq!(sup.live_session_processes().await.len(), 1);
@@ -7940,7 +7978,7 @@ mod tests {
             .expect("bracketed closer timeout")
             .expect("bracketed closer recv err");
         assert!(
-            entry_arc.lock().await.turn_active,
+            entry_arc.lock().await.turn_active(),
             "a bracketed (replayed) turn_complete must not end a live turn"
         );
 
@@ -7995,7 +8033,7 @@ mod tests {
         {
             let mut entry = entry_arc.lock().await;
             entry.claude_session_id = Some("claude-latch".to_owned());
-            entry.turn_active = true;
+            entry.stage_turn_active(true);
         }
         publish_turn_latch(&recorder, &entry_arc).await;
         assert!(ledger.turn_active("claude-latch"));
@@ -8079,6 +8117,118 @@ mod tests {
         let _ = merger_handle.await;
     }
 
+    /// A supervisor over an in-memory ledger whose recorder is the real one,
+    /// with one entry seated on `claude_id` and its row recorded, mid-turn on
+    /// both copies of the latch.
+    async fn latched_supervisor(
+        claude_id: &str,
+    ) -> (
+        Arc<AgentSupervisor>,
+        Arc<SessionLedger>,
+        Arc<Mutex<LedgerEntry>>,
+    ) {
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let (control_tx, _control_rx) = broadcast::channel(128);
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(LedgerSessionsRecorder::with_broadcast(
+            Arc::clone(&ledger),
+            control_tx.clone(),
+        ));
+        let (sup, _register_rx) = AgentSupervisor::new_with_ledger(
+            SessionScopedFeed::new(FeedId::SESSION_STATE, 64, LagPolicy::Warn),
+            SessionScopedFeed::new(FeedId::SESSION_SIDEBAND, 64, LagPolicy::Warn),
+            SessionScopedFeed::new(FeedId::CODE_OUTPUT, 64, LagPolicy::Warn),
+            SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
+            control_tx,
+            Arc::clone(&recorder),
+            Some(Arc::clone(&ledger)),
+            stall_spawner_factory(),
+            AgentSupervisorConfig::default(),
+            Arc::new(WorkspaceRegistry::new_for_test()),
+            CancellationToken::new(),
+            SupervisorDeps::default(),
+        );
+        let sup = Arc::new(sup);
+        let entry_arc = insert_ledger_entry(&sup, &TugSessionId::new("sess-1")).await;
+        recorder.record(SessionRecord {
+            session_id: claude_id,
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: None,
+        });
+        entry_arc.lock().await.claude_session_id = Some(claude_id.to_owned());
+        write_turn_latch(&recorder, &entry_arc, |entry| entry.set_turn_active(true)).await;
+        assert!(
+            ledger.turn_active(claude_id),
+            "the row carries the open turn"
+        );
+        (sup, ledger, entry_arc)
+    }
+
+    /// A turn the busy probe reaps on its way past drops the row's copy of the
+    /// latch with the entry's. Before, the entry read quiet and the row kept
+    /// reading busy, and the next push re-busied a card the deck had idled.
+    #[tokio::test]
+    async fn a_reaped_turn_drops_the_rows_latch_too() {
+        let (sup, ledger, entry_arc) = latched_supervisor("claude-reap").await;
+        // Silent past the horizon, with no claude child under its bridge.
+        entry_arc.lock().await.turn_last_frame_at = Some(
+            std::time::Instant::now()
+                .checked_sub(JOB_REAP_HORIZON + Duration::from_secs(1))
+                .expect("a clock old enough to age a turn"),
+        );
+
+        assert!(sup.busy_probe().busy_session_ids().await.is_empty());
+        assert!(
+            !entry_arc.lock().await.turn_active(),
+            "the reap dropped the entry's latch"
+        );
+        assert!(!ledger.turn_active("claude-reap"), "and the row's with it");
+    }
+
+    /// A `/clear` mid-turn drops the discarded segment's latch on its row. The
+    /// relay's teardown clears the entry's latch later, when the entry no
+    /// longer names the segment, so nothing else would.
+    #[tokio::test]
+    async fn a_clear_mid_turn_drops_the_discarded_rows_latch() {
+        let (sup, ledger, _entry_arc) = latched_supervisor("claude-cleared").await;
+
+        sup.handle_control("reset_session", &reset_payload("card-1", "sess-1"), 10)
+            .await;
+
+        assert!(
+            !ledger.turn_active("claude-cleared"),
+            "the discarded row reads idle"
+        );
+    }
+
+    /// A bracket's close that puts the latch back tells the row too. A stop
+    /// landing inside a catch-up over a live turn drops both copies; the close
+    /// restores the entry's to the turn it opened over, and the row has to
+    /// follow or it reads idle under a session the entry calls busy.
+    #[tokio::test]
+    async fn a_bracket_close_that_restores_the_latch_publishes_it() {
+        let (sup, ledger, entry_arc) = latched_supervisor("claude-bracket").await;
+        let id = TugSessionId::new("sess-1");
+
+        sup.process_outbound_frame_journal_gate(&id, &replay_started_frame())
+            .await;
+        sup.apply_stop_all_work_done(&id).await;
+        assert!(
+            !ledger.turn_active("claude-bracket"),
+            "the stop inside the bracket dropped the row's latch"
+        );
+
+        sup.process_outbound_frame_journal_gate(&id, &replay_complete_frame())
+            .await;
+        assert!(
+            entry_arc.lock().await.turn_active(),
+            "the close put back the latch the bracket opened over"
+        );
+        assert!(ledger.turn_active("claude-bracket"), "and the row reads it");
+    }
+
     /// **The wedge the incident actually saw ([B01]).** A resumed transcript
     /// that carries a wheel wake replays a `wake_started` whose own replayed
     /// `turn_complete` the turn-end branch discards — so the latch used to go
@@ -8157,7 +8307,7 @@ mod tests {
             .await;
         wait_until(|| {
             let entry_arc = entry_arc.clone();
-            async move { entry_arc.lock().await.turn_active }
+            async move { entry_arc.lock().await.turn_active() }
         })
         .await;
         assert_eq!(
@@ -8190,7 +8340,7 @@ mod tests {
         // The live turn, as the dispatcher's `user_message` intercept opens it.
         {
             let mut entry = entry_arc.lock().await;
-            entry.turn_active = true;
+            entry.stage_turn_active(true);
             entry.turn_opener = Some(TurnOpener::Prompt);
         }
 
@@ -8227,7 +8377,7 @@ mod tests {
 
         {
             let entry = entry_arc.lock().await;
-            assert!(entry.turn_active, "the live turn is still running");
+            assert!(entry.turn_active(), "the live turn is still running");
             assert_eq!(entry.turn_opener, Some(TurnOpener::Prompt));
         }
 
@@ -8238,7 +8388,7 @@ mod tests {
         .await;
         wait_until(|| {
             let entry_arc = entry_arc.clone();
-            async move { !entry_arc.lock().await.turn_active }
+            async move { !entry_arc.lock().await.turn_active() }
         })
         .await;
         assert_eq!(entry_arc.lock().await.turn_opener, None);
@@ -8279,7 +8429,7 @@ mod tests {
         .await;
         {
             let entry = entry_arc.lock().await;
-            assert!(entry.turn_active, "the ask opened a turn");
+            assert!(entry.turn_active(), "the ask opened a turn");
             assert_eq!(entry.turn_opener, Some(TurnOpener::Prompt));
         }
 
@@ -8318,7 +8468,7 @@ mod tests {
         .unwrap();
         wait_until(|| {
             let entry_arc = entry_arc.clone();
-            async move { entry_arc.lock().await.turn_active }
+            async move { entry_arc.lock().await.turn_active() }
         })
         .await;
         assert_eq!(
@@ -8713,7 +8863,7 @@ mod tests {
         let entry_arc = sup.ledger.lock().await.get(&id).cloned().unwrap();
         {
             let mut entry = entry_arc.lock().await;
-            entry.turn_active = true;
+            entry.stage_turn_active(true);
             entry.turn_opener = None;
         }
         let (tx, rx) = mpsc::channel::<Frame>(8);
@@ -11289,7 +11439,7 @@ mod tests {
         // reads as absent. Either way the submission still gets exactly one
         // identity: the row is keyed on a minted UUID and the forwarded frame
         // carries the same one, so tugcode can hand it to claude.
-        for submitted in [None, Some("not-a-uuid"), Some("0F3C1E5A-1B2C-4D5E-8F90-123456789ABC")] {
+        for submitted in [None, Some("not-a-uuid")] {
             let (sup, ledger, _rx) = make_supervisor_with_ledger();
             let session_id_str = "sess-dispatch-mint";
             let tug_session_id = TugSessionId::new(session_id_str);
@@ -11305,8 +11455,11 @@ mod tests {
             if let Some(id) = submitted {
                 body["submission_id"] = serde_json::Value::from(id);
             }
-            sup.dispatch_one(Frame::new(FeedId::CODE_INPUT, serde_json::to_vec(&body).unwrap()))
-                .await;
+            sup.dispatch_one(Frame::new(
+                FeedId::CODE_INPUT,
+                serde_json::to_vec(&body).unwrap(),
+            ))
+            .await;
 
             let rows = ledger
                 .list_pending_turns_for_session(session_id_str)
@@ -11322,6 +11475,84 @@ mod tests {
             let mut expected = body.clone();
             expected["submission_id"] = serde_json::Value::from(minted.as_str());
             assert_eq!(forwarded, expected, "{submitted:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_one_lowercases_a_submission_id_spelled_in_capitals() {
+        // An uppercase UUID is the same id, so it is lowercased rather than
+        // re-minted: the row and the forwarded frame carry the deck's id in
+        // the one spelling claude writes back.
+        let (sup, ledger, _rx) = make_supervisor_with_ledger();
+        let session_id_str = "sess-dispatch-case";
+        let tug_session_id = TugSessionId::new(session_id_str);
+        let entry_arc = insert_ledger_entry(&sup, &tug_session_id).await;
+        seed_session_for_journal_test(&ledger, session_id_str);
+
+        let mut body = serde_json::json!({
+            "tug_session_id": session_id_str,
+            "type": "user_message",
+            "text": "hello",
+            "attachments": [],
+            "submission_id": "0F3C1E5A-1B2C-4D5E-8F90-123456789ABC",
+        });
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            serde_json::to_vec(&body).unwrap(),
+        ))
+        .await;
+
+        let lowered = "0f3c1e5a-1b2c-4d5e-8f90-123456789abc";
+        let rows = ledger
+            .list_pending_turns_for_session(session_id_str)
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].journal_id, lowered);
+
+        let mut entry = entry_arc.lock().await;
+        let queued = entry.queue.pop().expect("frame queued");
+        let forwarded: serde_json::Value = serde_json::from_slice(&queued.payload).unwrap();
+        body["submission_id"] = serde_json::Value::from(lowered);
+        assert_eq!(forwarded, body);
+    }
+
+    #[tokio::test]
+    async fn dispatch_one_forwards_a_resent_submission_it_already_journaled() {
+        // The same submission sent twice is already journaled: the second
+        // frame is forwarded like the first rather than refused, and the
+        // journal still holds one row for it.
+        let (sup, ledger, mut control_rx) = make_supervisor_with_ledger();
+        let session_id_str = "sess-dispatch-resend";
+        let tug_session_id = TugSessionId::new(session_id_str);
+        let entry_arc = insert_ledger_entry(&sup, &tug_session_id).await;
+        seed_session_for_journal_test(&ledger, session_id_str);
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "tug_session_id": session_id_str,
+            "type": "user_message",
+            "text": "hello",
+            "attachments": [],
+            "submission_id": "0f3c1e5a-1b2c-4d5e-8f90-123456789abc",
+        }))
+        .unwrap();
+        for _ in 0..2 {
+            sup.dispatch_one(Frame::new(FeedId::CODE_INPUT, payload.clone()))
+                .await;
+        }
+
+        let rows = ledger
+            .list_pending_turns_for_session(session_id_str)
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        let mut entry = entry_arc.lock().await;
+        assert!(entry.queue.pop().is_some(), "first frame forwarded");
+        assert!(entry.queue.pop().is_some(), "resent frame forwarded");
+        while let Ok(frame) = control_rx.try_recv() {
+            assert!(
+                !String::from_utf8_lossy(&frame.payload).contains("ledger_insert_failed"),
+                "no ledger failure for a resend: {:?}",
+                String::from_utf8_lossy(&frame.payload),
+            );
         }
     }
 
@@ -11526,7 +11757,7 @@ mod tests {
         let tug_session_id = TugSessionId::new(session_id_str);
         let entry_arc = insert_ledger_entry(&sup, &tug_session_id).await;
         seed_session_for_journal_test(&ledger, session_id_str);
-        assert!(!entry_arc.lock().await.turn_active);
+        assert!(!entry_arc.lock().await.turn_active());
 
         let payload = crate::feeds::base_motion::user_message_payload(
             session_id_str,
@@ -11541,7 +11772,7 @@ mod tests {
         assert_eq!(rows.len(), 1, "the injection journals a pending turn");
         assert_eq!(rows[0].user_text, "[base-motion replay] the base moved");
         let mut entry = entry_arc.lock().await;
-        assert!(entry.turn_active, "the injection opens a turn");
+        assert!(entry.turn_active(), "the injection opens a turn");
         assert_eq!(
             entry.queue.pop().expect("frame queued").payload,
             payload,

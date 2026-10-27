@@ -449,14 +449,12 @@ impl AgentSupervisor {
         if let Ok(Some(session_row)) = ledger.get(&row.session_id) {
             let metrics = ledger.scan_metrics_for(&row.session_id).unwrap_or(None);
             let usage = ledger.usage_for(&row.session_id).unwrap_or(None);
-            let _ = self
-                .control_tx
-                .send(build_session_updated_frame(
-                    &session_row,
-                    metrics,
-                    usage,
-                    ledger.turn_active(&row.session_id),
-                ));
+            let _ = self.control_tx.send(build_session_updated_frame(
+                &session_row,
+                metrics,
+                usage,
+                ledger.turn_active(&row.session_id),
+            ));
         }
     }
 

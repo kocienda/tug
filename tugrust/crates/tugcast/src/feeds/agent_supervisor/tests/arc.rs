@@ -1100,7 +1100,7 @@ async fn a_stop_on_a_busy_session_interrupts_then_hands_back() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
-    entry.lock().await.turn_active = true;
+    entry.lock().await.stage_turn_active(true);
     answer_the_teardown(&sup, "claude-1");
 
     sup.stop_arc_now(
@@ -1145,7 +1145,7 @@ async fn a_stop_on_an_idle_session_sends_no_interrupt() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
-    entry.lock().await.turn_active = false;
+    entry.lock().await.stage_turn_active(false);
 
     sup.stop_arc_now(
         "claude-1",
@@ -1176,7 +1176,7 @@ async fn an_ask_never_interrupts() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
-    entry.lock().await.turn_active = true;
+    entry.lock().await.stage_turn_active(true);
     answer_the_teardown(&sup, "claude-1");
 
     sup.stop_arc_now(
@@ -1374,7 +1374,7 @@ async fn a_stop_after_a_rotation_interrupts_the_card() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (sup, entry, mut input_rx, _register_rx) = rotated_stop_harness(root, true).await;
-    entry.lock().await.turn_active = true;
+    entry.lock().await.stage_turn_active(true);
     answer_the_teardown(&sup, "card-A");
 
     sup.stop_arc_now(
@@ -1418,7 +1418,7 @@ async fn a_stop_after_a_rotation_delivers_its_receipt_to_the_card() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (sup, entry, mut input_rx, _register_rx) = rotated_stop_harness(root, true).await;
-    entry.lock().await.turn_active = true;
+    entry.lock().await.stage_turn_active(true);
     let mut control_rx = sup.control_tx.subscribe();
     answer_the_teardown(&sup, "card-A");
 
@@ -1587,7 +1587,7 @@ async fn the_stop_does_not_answer_while_a_job_is_open() {
     let (sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
     {
         let mut guard = entry.lock().await;
-        guard.turn_active = false;
+        guard.stage_turn_active(false);
         guard
             .open_jobs
             .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -1635,7 +1635,7 @@ async fn the_stop_carries_the_open_task_ids() {
     let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
     {
         let mut guard = entry.lock().await;
-        guard.turn_active = false;
+        guard.stage_turn_active(false);
         guard
             .open_jobs
             .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -1674,7 +1674,7 @@ async fn a_stop_all_work_done_empties_the_job_set() {
     let (sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
     {
         let mut guard = entry.lock().await;
-        guard.turn_active = true;
+        guard.stage_turn_active(true);
         for task in ["t1", "t2", "t3"] {
             guard
                 .open_jobs
@@ -1717,7 +1717,7 @@ async fn the_stop_answers_err_at_the_ceiling() {
     )
     .unwrap();
     // Never quiet: the turn does not end and nothing answers the teardown.
-    entry.lock().await.turn_active = true;
+    entry.lock().await.stage_turn_active(true);
 
     assert_eq!(
         spawn_stop(&sup, root, "claude-1", true).await.unwrap(),
@@ -1748,7 +1748,7 @@ async fn the_arc_stop_line_is_the_last_thing_the_stop_writes() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
-    entry.lock().await.turn_active = false;
+    entry.lock().await.stage_turn_active(false);
 
     spawn_stop(&sup, root, "claude-1", true)
         .await
@@ -1785,7 +1785,7 @@ async fn a_missed_notify_degrades_to_a_late_err() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (_sup, entry, _input_rx, _register_rx) = stop_harness(root, true).await;
-    entry.lock().await.turn_active = true;
+    entry.lock().await.stage_turn_active(true);
 
     let waiting = tokio::spawn({
         let entry = Arc::clone(&entry);
@@ -1793,7 +1793,7 @@ async fn a_missed_notify_degrades_to_a_late_err() {
     });
     tokio::time::sleep(Duration::from_millis(100)).await;
     // Quiet, and silent about it — the one failure this wait is allowed.
-    entry.lock().await.turn_active = false;
+    entry.lock().await.stage_turn_active(false);
 
     assert!(
         !waiting.await.unwrap(),
@@ -1810,7 +1810,7 @@ async fn an_ask_quiesces_without_interrupting() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (sup, entry, mut input_rx, _register_rx) = stop_harness(root, true).await;
-    entry.lock().await.turn_active = false;
+    entry.lock().await.stage_turn_active(false);
 
     sup.stop_arc_now(
         "claude-1",

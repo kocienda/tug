@@ -295,11 +295,9 @@ pub static PROBES: &[ProbeRecord] = &[
             ProbeMsg::UserMessage {
                 text: "Write a 500-word essay about the history of the printing press.",
             },
-            // 30 s to the first token: a 15 s wait lost test-18 to a slow
-            // API on 2026-10-26 with nothing wrong on either side.
             ProbeMsg::WaitForEvent {
                 event_type: "assistant_text",
-                max_secs: 30,
+                max_secs: 15,
             },
             ProbeMsg::Sleep { millis: 500 },
             ProbeMsg::Interrupt,
@@ -352,7 +350,7 @@ pub static PROBES: &[ProbeRecord] = &[
             },
             ProbeMsg::WaitForEvent {
                 event_type: "control_request_forward",
-                max_secs: 30,
+                max_secs: 20,
             },
             ProbeMsg::ToolApproval {
                 decision: "deny",
@@ -427,7 +425,7 @@ pub static PROBES: &[ProbeRecord] = &[
             },
             ProbeMsg::WaitForEvent {
                 event_type: "control_request_forward",
-                max_secs: 30,
+                max_secs: 20,
             },
             ProbeMsg::ToolApproval {
                 decision: "deny",
@@ -506,7 +504,7 @@ pub static PROBES: &[ProbeRecord] = &[
             },
             ProbeMsg::WaitForEvent {
                 event_type: "assistant_text",
-                max_secs: 30,
+                max_secs: 15,
             },
             ProbeMsg::Sleep { millis: 500 },
             ProbeMsg::UserMessage {
@@ -615,7 +613,7 @@ pub static PROBES: &[ProbeRecord] = &[
             },
             ProbeMsg::WaitForEvent {
                 event_type: "assistant_text",
-                max_secs: 30,
+                max_secs: 15,
             },
             ProbeMsg::Sleep { millis: 300 },
             ProbeMsg::UserMessage {
@@ -701,16 +699,10 @@ pub static PROBES: &[ProbeRecord] = &[
         skip_reason: None,
     },
     // --- Test 22: Subagent spawn (Agent tool) ---
-    // The agent is pointed at its Grep tool: left to choose, it sometimes
-    // reaches for a shell search the default permission mode asks about,
-    // and nothing in this harness answers a subagent's `can_use_tool`, so
-    // the probe heartbeat to its timeout (2.1.285 and 2.1.311 both). The
-    // spawn, its tool use and its result are what the probe is for; the
-    // search's tool is not.
     ProbeRecord {
         name: "test-22-subagent-spawn",
         input_script: &[ProbeMsg::UserMessage {
-            text: "Use an Explore agent to find where the string 'FeedId::CODE_INPUT' appears in the tugrust workspace. Tell it to use its Grep tool, not a shell command. Report just the file paths.",
+            text: "Use an Explore agent to find where the string 'FeedId::CODE_INPUT' appears in the tugrust workspace. Report just the file paths.",
         }],
         required_events: &[
             "system_metadata",

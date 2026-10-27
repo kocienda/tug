@@ -31,7 +31,7 @@ use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 
 use super::agent_supervisor::{
     LedgerEntry, SessionRecord, SessionsRecorder, SpawnState, build_session_state_frame,
-    offload_recorder, publish_turn_latch,
+    offload_recorder, publish_turn_latch, write_turn_latch,
 };
 use super::attribution::{
     CMD_ORIGIN, CommandClaims, DeclaredPromotions, InspectedReplayBatch, InspectedToolResult,
@@ -892,8 +892,7 @@ pub async fn run_session_bridge(
         // attributing a subtree to a dead process, and drop any in-flight
         // turn flag (a crash mid-turn never sends `turn_complete`). A retry
         // re-captures on the next spawn above.
-        {
-            let mut entry = ledger_entry.lock().await;
+        write_turn_latch(&sessions_recorder, &ledger_entry, |entry| {
             entry.child_pid = None;
             entry.child_start_time = None;
             // Stamped here and cleared at the next spawn above, so the gap is
@@ -902,7 +901,7 @@ pub async fn run_session_bridge(
             // it standing, which is the whole of what tells a session that is
             // coming back from one that is not.
             entry.child_gone_at = Some(std::time::Instant::now());
-            entry.turn_active = false;
+            entry.set_turn_active(false);
             // No relay, no bracket. The in-band close above settles the
             // count for a merger still working through its queue; this
             // settles it for one that had already counted the open, and for
@@ -918,8 +917,8 @@ pub async fn run_session_bridge(
             entry.open_jobs.clear();
             // And no call it was running can report any more.
             entry.open_runs.clear();
-        }
-        publish_turn_latch(&sessions_recorder, &ledger_entry).await;
+        })
+        .await;
 
         match outcome {
             RelayOutcome::Cancelled => {
@@ -4691,13 +4690,19 @@ mod tests {
             &[&stage, &init_line("stage-1")],
             |entry| {
                 entry.claude_session_id = Some("root".to_string());
-                entry.turn_active = true;
+                entry.stage_turn_active(true);
             },
         )
         .await;
 
-        assert!(!sessions.turn_active("root"), "the retired segment has no turn open");
-        assert!(sessions.turn_active("stage-1"), "the turn is the new segment's");
+        assert!(
+            !sessions.turn_active("root"),
+            "the retired segment has no turn open"
+        );
+        assert!(
+            sessions.turn_active("stage-1"),
+            "the turn is the new segment's"
+        );
     }
 
     #[tokio::test]

@@ -150,9 +150,15 @@ pub enum ReportGapsError {
     SchemaTooNew { on_disk: i64, supported: i64 },
 }
 
+/// The hook's prefix on every readable Bash call: `export TUG_TOOL_USE_ID=<id>; `
+/// (`tugtool hook pre-tool-use`). Every reader of a call's command — this
+/// record's head, the deck's block — reads past it, so the head and the
+/// header show what the model wrote.
+pub const CALL_ID_EXPORT: &str = "export TUG_TOOL_USE_ID=";
+
 /// The head of a command: its first two words, read past the hook's call-id
-/// mark (`# tug-call: <id>`, `crate::call_id`), a leading `cd <dir> &&` and
-/// environment assignments, so a marked `cd tugrust && cargo nextest run` and
+/// export, a leading `cd <dir> &&` and environment assignments, so
+/// `export TUG_TOOL_USE_ID=x; cd tugrust && cargo nextest run` and
 /// `RUST_LOG=x cargo nextest run` both group under `cargo nextest`, and
 /// `just app-test x.test.ts` under `just app-test`.
 pub fn command_head(command: &str) -> String {
@@ -164,9 +170,14 @@ pub fn command_head(command: &str) -> String {
 }
 
 /// Every word of a command past what [`command_head`] reads past: the hook's
-/// call mark, a leading `cd <dir> &&` and environment assignments.
+/// call-id export, a leading `cd <dir> &&` and environment assignments.
 pub fn command_words(command: &str) -> Vec<&str> {
-    let mut rest = crate::call_id::past_call_mark(command.trim()).trim();
+    let mut rest = command.trim();
+    if rest.starts_with(CALL_ID_EXPORT)
+        && let Some((_, tail)) = rest.split_once(';')
+    {
+        rest = tail.trim();
+    }
     while let Some(after) = rest.strip_prefix("cd ")
         && let Some((_, tail)) = after.split_once("&&")
     {
@@ -406,11 +417,11 @@ mod tests {
     fn the_head_reads_past_cd_and_assignments() {
         assert_eq!(command_head("cargo nextest run -p x"), "cargo nextest");
         assert_eq!(
-            command_head("# tug-call: toolu_01A\ncd tugrust && cargo nextest run"),
+            command_head("export TUG_TOOL_USE_ID=toolu_01A; cd tugrust && cargo nextest run"),
             "cargo nextest"
         );
         assert_eq!(
-            command_head("# tug-call: toolu_01A\njust app-test at0707.test.ts"),
+            command_head("export TUG_TOOL_USE_ID=toolu_01A; just app-test at0707.test.ts"),
             "just app-test"
         );
         assert_eq!(

@@ -137,6 +137,12 @@ const SUBMISSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
  * submission claude never saw, since an absorbed message has no `user` line
  * at all — so every catch-up during that turn rendered it twice.
  *
+ * Every `queued_command` counts here, whatever its `commandMode`, while
+ * `handleQueuedCommandEntry` in `replay.ts` renders only prompt-mode ones.
+ * The asymmetry is deliberate: an id claude recorded is a submission claude
+ * saw, so its pending row must not be re-emitted even when replay shows
+ * nothing for it.
+ *
  * Malformed JSON lines are skipped silently (matches the translator's
  * permissiveness).
  */

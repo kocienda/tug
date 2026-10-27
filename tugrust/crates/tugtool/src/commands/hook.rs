@@ -14,23 +14,17 @@
 //!
 //! One answer is not a permission decision at all. Every Bash call this
 //! reading can place a command in is rewritten, through the hook's
-//! `updatedInput`, to open with a `# tug-call: <id>` line — a comment, which
-//! the shell ignores and Claude Code's permission check reads past, and which
-//! rides into the argv of the shell Claude Code spawns for the call, where a
-//! recipe, a nested `just`, a probe's child and `tugtool report` itself read
-//! it back (`tugcore::call_id`) and so report to the block they run under,
-//! exactly. It was an `export TUG_TOOL_USE_ID=<id>;` until Claude Code
-//! 2.1.311 began judging permission on the rewritten command, which made
-//! every tagged call ask; a comment is the one carrier a permission check is
-//! transparent to. And a runner the model types — one tugtool knows, or one
-//! the project declares in `.tugtool/config.toml` (`tugtool report runners`
-//! lists them) — is wrapped where it stands, bare or inside a `tugtool file
-//! probe … --`, to run inside `tugtool test run`, so the block gets the
-//! report panel without anybody remembering to wire it. The rewrite carries
-//! no `permissionDecision` of its own: Claude Code judges the rewritten
-//! command exactly as it would have judged the bare one (an approved prefix
-//! is allowed and rewritten in one answer), and the deck's Bash block elides
-//! the mark, so the header shows what the model typed.
+//! `updatedInput`, to open with `export TUG_TOOL_USE_ID=<id>; ` — so a recipe,
+//! a nested `just`, a probe's child and `tugtool report` itself all report to
+//! the block they run under, exactly. And a runner the model types — one
+//! tugtool knows, or one the project declares in `.tugtool/config.toml`
+//! (`tugtool report runners` lists them) — is wrapped where it stands, bare or
+//! inside a `tugtool file probe … --`, to run inside `tugtool test run`, so
+//! the block gets the report panel without anybody remembering to wire it.
+//! The rewrite carries no `permissionDecision` of its own: Claude Code judges
+//! the rewritten command exactly as it would have judged the bare one (an
+//! approved prefix is allowed and rewritten in one answer), and the deck's
+//! Bash block elides the export, so the header shows what the model typed.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -44,7 +38,7 @@ use crate::runners::{self, RunnerAction, RunnerSpec, SuiteRule, kind_name};
 
 use super::file::gate_decision;
 use tugchanges_core::shell_ops::{ParseOutcome, parse_shell_ops};
-use tugcore::call_id::{CALL_MARK, call_mark};
+use tugcore::report_gaps::CALL_ID_EXPORT;
 
 #[derive(Subcommand)]
 pub enum HookCommands {
@@ -52,7 +46,7 @@ pub enum HookCommands {
     /// print the decision. Auto-approves the plugin's own skills and the
     /// read-only Bash prefixes; denies a Bash command whose file operations
     /// the change ledger cannot read; gives every readable Bash command its
-    /// call id (a leading `# tug-call: <id>` line) and rewrites each test runner
+    /// call id (`export TUG_TOOL_USE_ID=<id>; `) and rewrites each test runner
     /// in it — wherever it stands as a command of its own, a pipeline's head
     /// and a probe's inner command included — to run inside `tugtool test
     /// run`; says nothing otherwise.
@@ -410,12 +404,11 @@ fn probe_inner(words: &[(usize, &str)]) -> Option<usize> {
 /// names it: a fixed name, or the directory the run is in — the last
 /// `cd <dir>` before it, else the call's own.
 ///
-/// Every readable line — a runner in it or not — opens with a
-/// `# tug-call: <id>` line when the call has a plain id and the line does not
-/// already, so a row that reports itself ([`RunnerAction::ExportId`]) needs
-/// nothing more, and the id reaches a probe's child and a recipe's every step
-/// through the argv of the shell that runs the call. A line with no id to
-/// carry and no runner is left alone.
+/// Every readable line — a runner in it or not — opens with
+/// `export TUG_TOOL_USE_ID=<id>; ` when the call has a plain id and the line
+/// does not already, so a row that reports itself ([`RunnerAction::ExportId`])
+/// needs nothing more, and the id reaches a probe's child and a recipe's every
+/// step. A line with no id to carry and no runner is left alone.
 pub(crate) fn rewrite_command(
     command: &str,
     cwd: Option<&str>,
@@ -447,18 +440,18 @@ pub(crate) fn rewrite_command(
         ));
         inserts.push((at, wrap));
     }
-    let mark = id
-        .filter(|_| !command.trim_start().starts_with(CALL_MARK))
-        .map(call_mark);
-    if inserts.is_empty() && mark.is_none() {
+    let export = id
+        .filter(|_| !command.trim_start().starts_with(CALL_ID_EXPORT))
+        .map(|id| format!("{CALL_ID_EXPORT}{id}; "));
+    if inserts.is_empty() && export.is_none() {
         return None;
     }
     let mut out = command.to_string();
     for (at, text) in inserts.into_iter().rev() {
         out.insert_str(at, &text);
     }
-    if let Some(mark) = mark {
-        out.insert_str(0, &mark);
+    if let Some(export) = export {
+        out.insert_str(0, &export);
     }
     Some(out)
 }
@@ -1546,7 +1539,7 @@ mod tests {
     // ── The test-runner wrap ──────────────────────────────────────────────
 
     const TUGTOOL: &str = "/Applications/Tug.app/Contents/MacOS/tugtool";
-    const MARK: &str = "# tug-call: toolu_01A\n";
+    const EXPORT: &str = "export TUG_TOOL_USE_ID=toolu_01A; ";
 
     fn wrap(command: &str) -> Option<String> {
         rewrite_command(
@@ -1563,7 +1556,7 @@ mod tests {
         assert_eq!(
             wrap("cargo nextest run -p tugtool -- --nocapture").as_deref(),
             Some(
-                "# tug-call: toolu_01A\n/Applications/Tug.app/Contents/MacOS/tugtool test run \
+                "export TUG_TOOL_USE_ID=toolu_01A; /Applications/Tug.app/Contents/MacOS/tugtool test run \
                  --suite rust --kind nextest --label 'cargo nextest run' --needle 'cargo nextest run' \
                  -- cargo nextest run -p tugtool -- --nocapture"
             )
@@ -1571,7 +1564,7 @@ mod tests {
         assert_eq!(
             wrap("cargo test").as_deref(),
             Some(
-                "# tug-call: toolu_01A\n/Applications/Tug.app/Contents/MacOS/tugtool test run \
+                "export TUG_TOOL_USE_ID=toolu_01A; /Applications/Tug.app/Contents/MacOS/tugtool test run \
                  --suite rust --kind cargo-test --label 'cargo test' --needle 'cargo test' -- cargo test"
             )
         );
@@ -1598,7 +1591,7 @@ mod tests {
             ("ctest --output-on-failure", "ctest"),
         ] {
             let wrapped = wrap(command).unwrap_or_else(|| panic!("{command} is a runner"));
-            assert!(wrapped.starts_with(MARK), "{command}: {wrapped}");
+            assert!(wrapped.starts_with(EXPORT), "{command}: {wrapped}");
             assert!(
                 wrapped.contains(&format!(" --suite proj --kind {kind} ")),
                 "{command}: {wrapped}"
@@ -1611,11 +1604,11 @@ mod tests {
         // id and nothing else.
         assert_eq!(
             wrap("node a.mjs").as_deref(),
-            Some("# tug-call: toolu_01A\nnode a.mjs")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; node a.mjs")
         );
         assert_eq!(
             wrap("swift build").as_deref(),
-            Some("# tug-call: toolu_01A\nswift build")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; swift build")
         );
     }
 
@@ -1624,7 +1617,7 @@ mod tests {
         assert_eq!(
             wrap("cd tugdeck && bun test src/lib").as_deref(),
             Some(
-                "# tug-call: toolu_01A\ncd tugdeck && /Applications/Tug.app/Contents/MacOS/tugtool \
+                "export TUG_TOOL_USE_ID=toolu_01A; cd tugdeck && /Applications/Tug.app/Contents/MacOS/tugtool \
                  test run --suite tugdeck --kind bun --label 'bun test' --needle 'bun test' -- bun test src/lib"
             )
         );
@@ -1651,45 +1644,45 @@ mod tests {
             // A filter on the output: the pipe and the filter stand as typed.
             (
                 "cargo nextest run 2>&1 | tail -5".to_string(),
-                format!("{MARK}{nextest}cargo nextest run 2>&1 | tail -5"),
+                format!("{EXPORT}{nextest}cargo nextest run 2>&1 | tail -5"),
             ),
             (
                 "cargo nextest run && echo ok".into(),
-                format!("{MARK}{nextest}cargo nextest run && echo ok"),
+                format!("{EXPORT}{nextest}cargo nextest run && echo ok"),
             ),
             (
                 "cargo test; echo done".into(),
-                format!("{MARK}{cargo}cargo test; echo done"),
+                format!("{EXPORT}{cargo}cargo test; echo done"),
             ),
             (
                 "cargo nextest run > out.txt".into(),
-                format!("{MARK}{nextest}cargo nextest run > out.txt"),
+                format!("{EXPORT}{nextest}cargo nextest run > out.txt"),
             ),
             // An assignment stays in front, so it still reaches the runner.
             (
                 "RUST_LOG=debug cargo test".into(),
-                format!("{MARK}RUST_LOG=debug {cargo}cargo test"),
+                format!("{EXPORT}RUST_LOG=debug {cargo}cargo test"),
             ),
             (
                 "cd a && cd b && cargo test".into(),
-                format!("{MARK}cd a && cd b && {cargo}cargo test"),
+                format!("{EXPORT}cd a && cd b && {cargo}cargo test"),
             ),
             (
                 "(cd tugrust && cargo test)".into(),
-                format!("{MARK}(cd tugrust && {cargo}cargo test)"),
+                format!("{EXPORT}(cd tugrust && {cargo}cargo test)"),
             ),
             // The shapes a session reaches for, verbatim but for the wrap.
             (
                 "(grep -c x a && just test-tugdeck || (cd tugdeck && bun test)) | tail -12".into(),
                 format!(
-                    "{MARK}(grep -c x a && just test-tugdeck || (cd tugdeck && {W} --suite tugdeck --kind bun \
+                    "{EXPORT}(grep -c x a && just test-tugdeck || (cd tugdeck && {W} --suite tugdeck --kind bun \
                      --label 'bun test' --needle 'bun test' -- bun test)) | tail -12"
                 ),
             ),
             (
                 "cargo nextest run -p a 2>&1 | tail -3; cargo test -p b | grep FAILED".into(),
                 format!(
-                    "{MARK}{nextest}cargo nextest run -p a 2>&1 | tail -3; {cargo}cargo test -p b | grep FAILED"
+                    "{EXPORT}{nextest}cargo nextest run -p a 2>&1 | tail -3; {cargo}cargo test -p b | grep FAILED"
                 ),
             ),
         ] {
@@ -1712,7 +1705,11 @@ mod tests {
             "for c in a b; do cargo test -p $c; done",
             "FOO=\"a b\" cargo test",
         ] {
-            assert_eq!(wrap(command), Some(format!("{MARK}{command}")), "{command}");
+            assert_eq!(
+                wrap(command),
+                Some(format!("{EXPORT}{command}")),
+                "{command}"
+            );
         }
         // Unreadable: nothing in the line is placed, so nothing is touched.
         for command in [
@@ -1733,19 +1730,19 @@ mod tests {
         assert_eq!(
             wrap("tugtool test run --suite rust --kind nextest -- cargo nextest run").as_deref(),
             Some(
-                "# tug-call: toolu_01A\ntugtool test run --suite rust --kind nextest -- cargo nextest run"
+                "export TUG_TOOL_USE_ID=toolu_01A; tugtool test run --suite rust --kind nextest -- cargo nextest run"
             )
         );
         assert_eq!(
             wrap("just test-rust").as_deref(),
-            Some("# tug-call: toolu_01A\njust test-rust")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; just test-rust")
         );
     }
 
     #[test]
     fn without_a_call_id_the_wrap_still_happens_and_carries_none() {
         let out = rewrite_command("bun test", None, None, TUGTOOL, &runners::built_in()).unwrap();
-        assert!(!out.contains("tug-call"), "{out}");
+        assert!(!out.contains("TUG_TOOL_USE_ID"), "{out}");
         assert!(out.starts_with(TUGTOOL), "{out}");
         // An id that is not a plain word is not put in a shell's environment.
         let out = rewrite_command(
@@ -1756,7 +1753,7 @@ mod tests {
             &runners::built_in(),
         )
         .unwrap();
-        assert!(!out.contains("tug-call"), "{out}");
+        assert!(!out.contains("TUG_TOOL_USE_ID"), "{out}");
     }
 
     #[test]
@@ -1805,7 +1802,7 @@ mod tests {
         assert_eq!(
             rewritten_in(&dir, "cd sub && make check -j4 | tail -3").as_deref(),
             Some(
-                "# tug-call: toolu_01A\ncd sub && /Applications/Tug.app/Contents/MacOS/tugtool \
+                "export TUG_TOOL_USE_ID=toolu_01A; cd sub && /Applications/Tug.app/Contents/MacOS/tugtool \
                  test run --suite checks --kind cargo-test --label checks --needle 'make check' \
                  -- make check -j4 | tail -3"
             )
@@ -1835,7 +1832,7 @@ mod tests {
         assert_eq!(
             rewritten_in(&dir, "make check").as_deref(),
             Some(
-                "# tug-call: toolu_01A\n/Applications/Tug.app/Contents/MacOS/tugtool \
+                "export TUG_TOOL_USE_ID=toolu_01A; /Applications/Tug.app/Contents/MacOS/tugtool \
                  test run --suite check --kind lines \
                  --item '^(?P<status>PASS|FAIL): (?P<name>[^ '\\'']+)' \
                  --total '^running (?P<total>\\d+) checks' --stream stdout --unit check \
@@ -1851,7 +1848,7 @@ mod tests {
         );
         assert_eq!(
             rewritten_in(&dir, "make check").as_deref(),
-            Some("# tug-call: toolu_01A\nmake check")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; make check")
         );
     }
 
@@ -1862,26 +1859,26 @@ mod tests {
         );
         assert_eq!(
             rewritten_in(&dir, "just app-test at0707.test.ts").as_deref(),
-            Some("# tug-call: toolu_01A\njust app-test at0707.test.ts")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; just app-test at0707.test.ts")
         );
         assert_eq!(
             rewritten_in(&dir, "FOO=1 just app-test 2>&1 | tail -20").as_deref(),
-            Some("# tug-call: toolu_01A\nFOO=1 just app-test 2>&1 | tail -20")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; FOO=1 just app-test 2>&1 | tail -20")
         );
         // A neighbouring recipe is not the declared one; like every readable
         // call it carries the id, and nothing marks it a runner.
         assert_eq!(
             rewritten_in(&dir, "just app-test-build").as_deref(),
-            Some("# tug-call: toolu_01A\njust app-test-build")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; just app-test-build")
         );
         // An id the model set inline stands nearest the command, and wins
-        // there; the mark stands in front of it for everything else.
+        // there; the export stands in front of it for everything else.
         assert_eq!(
             rewritten_in(&dir, "TUG_TOOL_USE_ID=x just app-test").as_deref(),
-            Some("# tug-call: toolu_01A\nTUG_TOOL_USE_ID=x just app-test")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; TUG_TOOL_USE_ID=x just app-test")
         );
 
-        // Without a plain id there is nothing to mark, so nothing changes.
+        // Without a plain id there is nothing to export, so nothing changes.
         let runners = runners::for_cwd(dir.path().to_str());
         for id in [None, Some("x; rm -rf /")] {
             assert_eq!(
@@ -1897,7 +1894,7 @@ mod tests {
             project_declaring("[[tugtool.report.runner]]\nmatch = \"bun test\"\nunit = \"file\"\n");
         assert_eq!(
             rewritten_in(&dir, "bun test src").as_deref(),
-            Some("# tug-call: toolu_01A\nbun test src")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; bun test src")
         );
     }
 
@@ -1936,7 +1933,7 @@ mod tests {
             input["command"]
                 .as_str()
                 .unwrap()
-                .starts_with("# tug-call: toolu_01A\n")
+                .starts_with("export TUG_TOOL_USE_ID=toolu_01A; ")
         );
 
         // Rendered, it is `updatedInput` alone: no permission decision.
@@ -1977,14 +1974,14 @@ mod tests {
     fn every_readable_call_carries_its_id_once_and_an_unreadable_one_does_not() {
         assert_eq!(
             wrap("cargo fmt --check 2>&1 | tail -3").as_deref(),
-            Some("# tug-call: toolu_01A\ncargo fmt --check 2>&1 | tail -3")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; cargo fmt --check 2>&1 | tail -3")
         );
         assert_eq!(
             wrap("cd tugdeck && bunx eslint .").as_deref(),
-            Some("# tug-call: toolu_01A\ncd tugdeck && bunx eslint .")
+            Some("export TUG_TOOL_USE_ID=toolu_01A; cd tugdeck && bunx eslint .")
         );
         // Already carried: nothing to add.
-        assert_eq!(wrap("# tug-call: toolu_01A\ncargo fmt"), None);
+        assert_eq!(wrap("export TUG_TOOL_USE_ID=toolu_01A; cargo fmt"), None);
         // Unreadable: the ladder cannot place a command, so nothing is touched.
         assert_eq!(wrap("cat <<EOF | sh\ncargo fmt\nEOF"), None);
         assert_eq!(wrap("x=$(cargo fmt)"), None);
@@ -2265,7 +2262,7 @@ mod tests {
         assert_eq!(
             wrap("tugtool file probe --patch p.diff -- cargo nextest run -p x").as_deref(),
             Some(
-                "# tug-call: toolu_01A\ntugtool file probe --patch p.diff -- \
+                "export TUG_TOOL_USE_ID=toolu_01A; tugtool file probe --patch p.diff -- \
                  /Applications/Tug.app/Contents/MacOS/tugtool test run --suite rust --kind nextest \
                  --label 'cargo nextest run' --needle 'cargo nextest run' -- cargo nextest run -p x"
             )
@@ -2277,7 +2274,7 @@ mod tests {
             )
             .as_deref(),
             Some(
-                "# tug-call: toolu_01A\n/Applications/Tug.app/Contents/MacOS/tugtool file probe \
+                "export TUG_TOOL_USE_ID=toolu_01A; /Applications/Tug.app/Contents/MacOS/tugtool file probe \
                  --path a.ts -- RUST_LOG=x /Applications/Tug.app/Contents/MacOS/tugtool test run --suite rust \
                  --kind cargo-test --label 'cargo test' --needle 'cargo test' -- cargo test"
             )
@@ -2285,9 +2282,11 @@ mod tests {
         // A probe around no runner carries the id and nothing else.
         assert_eq!(
             wrap("tugtool file probe --patch p.diff -- cargo fmt").as_deref(),
-            Some("# tug-call: toolu_01A\ntugtool file probe --patch p.diff -- cargo fmt")
+            Some(
+                "export TUG_TOOL_USE_ID=toolu_01A; tugtool file probe --patch p.diff -- cargo fmt"
+            )
         );
-        // A declared unit row inside a probe needs nothing more than the mark,
+        // A declared unit row inside a probe needs nothing more than the export,
         // which the probe hands on to its child.
         let dir = project_declaring(
             "[[tugtool.report.runner]]\nmatch = \"just app-test\"\nunit = \"file\"\n",
@@ -2299,7 +2298,7 @@ mod tests {
             )
             .as_deref(),
             Some(
-                "# tug-call: toolu_01A\ntugtool file probe --patch p.diff -- just app-test at0707.test.ts"
+                "export TUG_TOOL_USE_ID=toolu_01A; tugtool file probe --patch p.diff -- just app-test at0707.test.ts"
             )
         );
     }
@@ -2318,7 +2317,7 @@ mod tests {
                 let command = input["command"].as_str().unwrap();
                 assert!(
                     command.starts_with(
-                        "# tug-call: toolu_01A\ntugtool file probe --patch p.diff -- "
+                        "export TUG_TOOL_USE_ID=toolu_01A; tugtool file probe --patch p.diff -- "
                     ),
                     "{command}"
                 );

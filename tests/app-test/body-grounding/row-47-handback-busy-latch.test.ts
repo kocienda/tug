@@ -25,7 +25,7 @@ import { join } from "node:path";
 
 import { launchTugApp, note } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
-import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory, streamingTranscript } from "../streaming-stub-fixture";
+import { STREAM_PACE_MS, STUB_TRANSCRIPT_DIR_ENV, stubDirectory, streamingTranscript } from "../streaming-stub-fixture";
 import { bodyOf, pollFor, promptPhase, sessionPane, settleFor, waitForBody } from "./_bodies";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -36,6 +36,13 @@ const A = "r47l-a";
 const DORMANT_AFTER_MS = 800;
 /** Words in the turn: long enough to stream well past the catch-up. */
 const WORDS = 280;
+/**
+ * The longest the sampling after the catch-up can run: the whole turn, at the
+ * stub's pace, since the catch-up lands inside it. Launch, spawn, park and
+ * dormancy take about five seconds before it, so the file stays under the
+ * per-file budget even when the turn outlasts the catch-up by all of it.
+ */
+const SAMPLE_CAP_MS = WORDS * STREAM_PACE_MS;
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
 /** How often the latch is read against the body's phase between the catch-up and the turn's end. */
 const SAMPLE_MS = 50;
@@ -105,7 +112,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 47: a hidden card's hand-back",
           const latch = await app.evalJS<boolean | null | undefined>(latchOf(sid));
           samples += 1;
           if (phase === "streaming" && latch !== true) closedEarly.push(Date.now() - caughtAt);
-          if (Date.now() - caughtAt > 15_000) break;
+          if (Date.now() - caughtAt > SAMPLE_CAP_MS) break;
           await Bun.sleep(SAMPLE_MS);
         }
         note(`${samples} samples over ${Date.now() - caughtAt} ms after the catch-up; latch closed while streaming at ${JSON.stringify(closedEarly)}`);

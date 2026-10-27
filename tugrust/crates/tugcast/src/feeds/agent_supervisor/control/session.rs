@@ -417,7 +417,8 @@ impl AgentSupervisor {
         };
 
         // Phase 1 emit: ledger-only preview, scan still pending.
-        let ledger_preview = build_listed_union(rows, &live, None, &|id| ledger_arc.turn_active(id));
+        let ledger_preview =
+            build_listed_union(rows, &live, None, &|id| ledger_arc.turn_active(id));
         Self::send_list_sessions_ok(&control_tx, project_dir, dir_exists, &ledger_preview, true);
 
         // ── Phase 2: the expensive JSONL scan, run off the control loop in
@@ -1185,6 +1186,17 @@ impl AgentSupervisor {
         };
         if !resurrected {
             return;
+        }
+        // The discarded segment's row carries the turn latch too, and nothing
+        // after this block can drop it: the relay's teardown clears the entry's
+        // latch, but by then the entry has no claude id left to record it
+        // under. So a `/clear` mid-turn drops it here, against the id the
+        // block above set aside.
+        if let Some(cleared) = cleared_claude_id.clone() {
+            offload_recorder(&self.sessions_recorder, move |r| {
+                r.record_turn_latch(&cleared, false)
+            })
+            .await;
         }
 
         tracing::info!(

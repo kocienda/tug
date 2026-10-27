@@ -15,6 +15,37 @@ final class BodyStateTests: XCTestCase {
         return state
     }
 
+    // MARK: - What a page is told
+
+    /// A dormant declaration made while the page could not hear reaches it
+    /// the first time it can: the host's half and tugcast's never part.
+    func testADeclarationThePageCouldNotHearIsSaidOnceItCan() {
+        let hidden: (value: Bool, since: Double) = (false, 1_000)
+        XCTAssertNil(
+            visibilityToTell(shown: hidden, canHear: false, declaredDormant: true, toldShown: false, toldDormant: false),
+            "nothing reaches a page that cannot hear"
+        )
+        XCTAssertEqual(
+            visibilityToTell(shown: hidden, canHear: true, declaredDormant: true, toldShown: false, toldDormant: false),
+            BodyVisibility(shown: false, since: 1_000, dormant: true),
+            "once it can, it is told it is dormant, though its shown has not moved"
+        )
+        XCTAssertNil(
+            visibilityToTell(shown: hidden, canHear: true, declaredDormant: true, toldShown: false, toldDormant: true),
+            "and told once"
+        )
+    }
+
+    /// Shown again withdraws the declaration, and the page hears both halves
+    /// in one message; a page never shown has nothing to hear.
+    func testShownAgainIsNotDormantAndANeverPlacedPageHearsNothing() {
+        XCTAssertEqual(
+            visibilityToTell(shown: (true, 2_000), canHear: true, declaredDormant: true, toldShown: false, toldDormant: true),
+            BodyVisibility(shown: true, since: 2_000, dormant: false)
+        )
+        XCTAssertNil(visibilityToTell(shown: nil, canHear: true, declaredDormant: true, toldShown: nil, toldDormant: nil))
+    }
+
     // MARK: - The table
 
     func testABodyGoesFromLoadingToReadyByItsMoves() {

@@ -223,13 +223,23 @@ export interface LiveTurnPerf {
  *
  * Fallback `turn-${time}-${random}` shape covers runtimes without
  * `crypto.randomUUID` — uniqueness is per-session, not global.
+ *
+ * The fallback is not a UUID, so tugcode's `isSubmissionId` withholds it
+ * from claude and the submission is matched by tugcast's minted id
+ * instead. That is correct but silent, so the first fallback says so.
  */
 export function mintTurnKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
+  if (!warnedTurnKeyFallback) {
+    warnedTurnKeyFallback = true;
+    console.warn("mintTurnKey: no crypto.randomUUID; turn keys will not ride to claude as submission ids");
+  }
   return `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+let warnedTurnKeyFallback = false;
 
 /**
  * CODE_OUTPUT tags the engine takes apart before admission. Each has a

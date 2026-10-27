@@ -221,7 +221,17 @@ pub struct LedgerEntry {
     /// the relay tears the child down. The activity sampler attributes OS
     /// work only while this is set: The beat measures the session *working*,
     /// not the idle claude process's event-loop heartbeat.
-    pub turn_active: bool,
+    ///
+    /// Private to this module, because the latch has a second copy: the
+    /// session ledger's `turn_latches`, which every `session_updated` row push
+    /// reads. A write that moved this one and not that one leaves the row
+    /// saying busy while [`Self::is_quiet`] says idle, and the next push
+    /// re-busies a card the deck had idled. So a writer outside this module
+    /// goes through [`write_turn_latch`], which records what it wrote; a
+    /// writer inside it ([`Self::reap_stuck_turn`],
+    /// [`Self::restore_replay_latch`]) answers whether the latch moved, and
+    /// its caller publishes. Read it with [`Self::turn_active`].
+    turn_active: bool,
     /// When the turn now in flight last showed it was alive — stamped at the
     /// open, and again at every edge the merger already holds this entry for
     /// (a turn end, a job opening or closing, a `task_progress` heartbeat).
@@ -529,6 +539,18 @@ impl LedgerEntry {
 }
 
 impl LedgerEntry {
+    /// Whether a turn is in flight. See the field for who may write it.
+    pub fn turn_active(&self) -> bool {
+        self.turn_active
+    }
+
+    /// Set the latch with nothing recorded, for a test that stages an entry's
+    /// state. Production writes go through [`write_turn_latch`].
+    #[cfg(test)]
+    pub fn stage_turn_active(&mut self, active: bool) {
+        self.turn_active = active;
+    }
+
     /// Drop every `request_replay` this entry's queue still holds, and say
     /// which went: one entry per dropped replay, carrying the `ask_id` the
     /// card named it with, if any. A replay is queued only while a spawn is
@@ -684,12 +706,18 @@ impl LedgerEntry {
     /// end, because the process whose `turn_complete` would end it is gone.
     ///
     /// `now` is the caller's clock, injected so tests need no real one.
-    pub fn reap_stuck_turn(&mut self, now: std::time::Instant) {
+    ///
+    /// Answers whether it dropped the latch, and a caller that hears `true`
+    /// calls [`publish_turn_latch`] once it has let the entry go: the row's
+    /// copy of the latch is not this one, and left standing it says busy over
+    /// a session [`Self::is_quiet`] calls idle.
+    #[must_use = "a dropped latch is published, or the session row still reads busy"]
+    pub fn reap_stuck_turn(&mut self, now: std::time::Instant) -> bool {
         if !self.turn_active {
-            return;
+            return false;
         }
         if self.child_pid.is_some() && self.child_start_time.is_some() {
-            return;
+            return false;
         }
         // No stamp at all is a turn this process inherited across a restart,
         // or one a path nobody foresaw opened. Either way there is nothing to
@@ -697,10 +725,10 @@ impl LedgerEntry {
         // late, never forever.
         let Some(since) = self.turn_last_frame_at else {
             self.turn_last_frame_at = Some(now);
-            return;
+            return false;
         };
         if now.saturating_duration_since(since) <= JOB_REAP_HORIZON {
-            return;
+            return false;
         }
         warn!(
             target: "dev::ledger",
@@ -719,6 +747,7 @@ impl LedgerEntry {
         self.turn_opener = None;
         self.turn_last_frame_at = None;
         self.quiesced.notify_waiters();
+        true
     }
 
     /// Stamp the turn in flight as alive. A no-op between turns, so a caller
@@ -836,6 +865,57 @@ pub(crate) const JOB_REAP_HORIZON: std::time::Duration = std::time::Duration::fr
 /// to cover that case at all.
 pub(super) const BRIDGE_ORPHAN_SETTLE: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// The one write path for a turn latch from outside this module: it writes the
+/// entry and records the set, so the entry's latch and the session row's copy
+/// of it cannot part.
+///
+/// `edit` runs under the entry's lock with a [`TurnLatchEdit`], the only handle
+/// that can set the latch, and changes whatever else the edge changes in the
+/// same guard and in its own order — a conditional edge (a turn end inside a
+/// replay bracket moves nothing) simply does not set it. The record is made
+/// after the guard is released, by [`publish_turn_latch`], which reads the
+/// latch back and records it under the entry's claude id: two writers racing
+/// each publish what stands when they look, so the last record is the last
+/// write. The recorder pushes the row only when the latch moved, so a caller
+/// need not know whether its edge changed anything.
+pub(crate) async fn write_turn_latch(
+    sessions_recorder: &Arc<dyn SessionsRecorder>,
+    ledger_entry: &Arc<Mutex<LedgerEntry>>,
+    edit: impl FnOnce(&mut TurnLatchEdit<'_>),
+) {
+    {
+        let mut entry = ledger_entry.lock().await;
+        edit(&mut TurnLatchEdit { entry: &mut entry });
+    }
+    publish_turn_latch(sessions_recorder, ledger_entry).await;
+}
+
+/// A ledger entry held by [`write_turn_latch`]: the entry itself, through
+/// `Deref`, plus the one setter for its turn latch. It exists only inside that
+/// function, so a latch set through it is a latch that gets recorded.
+pub(crate) struct TurnLatchEdit<'a> {
+    entry: &'a mut LedgerEntry,
+}
+
+impl TurnLatchEdit<'_> {
+    pub(crate) fn set_turn_active(&mut self, active: bool) {
+        self.entry.turn_active = active;
+    }
+}
+
+impl std::ops::Deref for TurnLatchEdit<'_> {
+    type Target = LedgerEntry;
+    fn deref(&self) -> &LedgerEntry {
+        self.entry
+    }
+}
+
+impl std::ops::DerefMut for TurnLatchEdit<'_> {
+    fn deref_mut(&mut self) -> &mut LedgerEntry {
+        self.entry
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -934,7 +1014,10 @@ mod tests {
         entry.turn_opener = Some(TurnOpener::Wake);
         entry.open_jobs.insert("replayed".to_owned(), bash_job(now));
 
-        assert!(entry.restore_replay_latch(), "what replay moved is reported");
+        assert!(
+            entry.restore_replay_latch(),
+            "what replay moved is reported"
+        );
         assert!(entry.turn_active, "the live turn is still running");
         assert_eq!(entry.turn_opener, Some(TurnOpener::Prompt));
         assert!(entry.open_jobs.contains_key("live"), "the live job is kept");
@@ -1000,10 +1083,13 @@ mod tests {
 
         // Inside the horizon the turn stands. A turn is a turn until it is
         // demonstrably not one.
-        entry.reap_stuck_turn(now + Duration::from_secs(60));
+        assert!(!entry.reap_stuck_turn(now + Duration::from_secs(60)));
         assert!(entry.turn_active, "a fresh turn is work, not a wedge");
 
-        entry.reap_stuck_turn(now + JOB_REAP_HORIZON + Duration::from_secs(1));
+        assert!(
+            entry.reap_stuck_turn(now + JOB_REAP_HORIZON + Duration::from_secs(1)),
+            "a reap says it dropped the latch, so its caller publishes"
+        );
         assert!(!entry.turn_active, "late, never forever");
         assert_eq!(entry.turn_opener, None, "the opener goes with the turn");
         assert!(entry.is_quiet());
@@ -1027,7 +1113,7 @@ mod tests {
         entry.child_pid = Some(63836);
         entry.child_start_time = Some(1_700_000_000);
 
-        entry.reap_stuck_turn(now + JOB_REAP_HORIZON * 20);
+        assert!(!entry.reap_stuck_turn(now + JOB_REAP_HORIZON * 20));
         assert!(
             entry.turn_active,
             "a turn with a claude child under its bridge is never reaped",
@@ -1050,14 +1136,14 @@ mod tests {
         entry.turn_active = true;
         assert_eq!(entry.turn_last_frame_at, None);
 
-        entry.reap_stuck_turn(now);
+        assert!(!entry.reap_stuck_turn(now));
         assert!(
             entry.turn_active,
             "the first sweep clocks it, never reaps it"
         );
         assert_eq!(entry.turn_last_frame_at, Some(now));
 
-        entry.reap_stuck_turn(now + JOB_REAP_HORIZON + Duration::from_secs(1));
+        assert!(entry.reap_stuck_turn(now + JOB_REAP_HORIZON + Duration::from_secs(1)));
         assert!(!entry.turn_active);
     }
 

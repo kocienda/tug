@@ -334,6 +334,72 @@ describe("catchUp — a card mid-turn", () => {
     expect(snap.phase).toBe("idle");
   });
 
+  // A catch-up during a live turn carries the turn's opener twice: the JSONL
+  // pass emits it with the submission id claude recorded, then the mid-turn
+  // snapshot emits it again. The reducer keeps one submission one message,
+  // keyed on `submissionId` alone, so the snapshot's copy carries the id too.
+  function midTurnCatchUp(conn: TestFrameChannel, askId: string | null, snapshotId: string | undefined): void {
+    const id = FIXTURE_IDS.MSG_ID_N(2);
+    const sent = userMessagesOf(conn);
+    const submissionId = sent[sent.length - 1].submission_id as string;
+    const named = askId === null ? {} : { ask_id: askId };
+    emit(conn, { type: "replay_started", ...named });
+    emitTurn(conn, 0);
+    emitTurn(conn, 1);
+    // The dangling turn: the JSONL's opener and what claude streamed so far.
+    emit(conn, { type: "add_user_message", content: [{ type: "text", text: "hi" }], submissionId });
+    emit(conn, { type: "content_block_start", msg_id: id, block_index: 0, kind: "text" });
+    emit(conn, { type: "add_user_message", content: [{ type: "text", text: "hi" }], inflightSnapshot: true, ...(snapshotId === "same" ? { submissionId } : {}) });
+    emit(conn, { type: "content_block_start", msg_id: id, block_index: 0, kind: "text" });
+    emit(conn, { type: "assistant_text", msg_id: id, block_index: 0, seq: 0, rev: 0, text: "so far", is_partial: false, status: "streaming" });
+    emit(conn, { type: "replay_complete", count: 2, firstLoadedTurnIndex: 0, totalTurns: 3, hasOlder: false, ...named });
+    emit(conn, { type: "turn_complete", seq: 1, msg_id: id, result: "success" });
+  }
+
+  const userTexts = (store: CodeSessionStore): string[] =>
+    store
+      .getSnapshot()
+      .transcript.flatMap((t) => t.messages)
+      .filter((m) => m.kind === "user_message")
+      .map((m) => (m as { text: string }).text);
+
+  it("entered: the JSONL opener and the snapshot's, one submission, render one prompt", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.send("hi", []);
+    store.catchUp();
+    expect(store.getSnapshot().catchingUp).toBe(true);
+
+    midTurnCatchUp(conn, lastAsk(conn), "same");
+
+    expect(userTexts(store)).toEqual(["prompt 0", "prompt 1", "hi"]);
+    expect(store.getSnapshot().phase).toBe("idle");
+  });
+
+  it("entered: a snapshot opener without the id is a second prompt", () => {
+    // What production did before the snapshot carried the id. Written down so
+    // the reducer's one identity is the field the snapshot must carry.
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.send("hi", []);
+    store.catchUp();
+
+    midTurnCatchUp(conn, lastAsk(conn), undefined);
+
+    expect(userTexts(store)).toEqual(["prompt 0", "prompt 1", "hi", "hi"]);
+  });
+
+  it("shadowed: a bracket over the card's live turn, not the catch-up's answer, leaves its one prompt", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.send("hi", []);
+
+    midTurnCatchUp(conn, null, "same");
+
+    expect(userTexts(store)).toEqual(["prompt 0", "prompt 1", "hi"]);
+    expect(store.getSnapshot().phase).toBe("idle");
+  });
+
   it("a catch-up that never answers leaves the cycle standing", () => {
     const { store, conn } = makeStore();
     replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });

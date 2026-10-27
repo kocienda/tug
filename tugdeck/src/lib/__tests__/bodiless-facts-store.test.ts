@@ -107,6 +107,13 @@ describe("the derivation", () => {
     expect(onHorizon(idle, 10 * WORKING_HORIZON_MS)).toBe(idle);
   });
 
+  test("the horizon never contradicts an open latch; a closed or unsaid one lets it fall", () => {
+    const working = enterBodiless(facts({ activity: "tool_work", canInterrupt: true }), 1_000, 5_000);
+    expect(onHorizon(working, 10 * WORKING_HORIZON_MS, true)).toBe(working);
+    expect(onHorizon(working, WORKING_HORIZON_MS, false)).toMatchObject({ activity: "idle", working: false });
+    expect(onHorizon(working, WORKING_HORIZON_MS, null)).toMatchObject({ activity: "idle", working: false });
+  });
+
   test("a sample in the tail of a turn that just ended is that turn's, and one after is a new turn", () => {
     const ended = onLedger(enterBodiless(facts({ activity: "streaming" }), 1_000, 5_000), row({ last_used_at: 2_000 }), 6_000);
     expect(onActivity(ended, "text", 6_000 + TURN_TAIL_MS - 1)).toBe(ended);
@@ -411,6 +418,25 @@ describe("the store", () => {
     deck.advance(WORKING_HORIZON_MS / 2);
     expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false });
     expect(ticks() - before).toBe(1);
+    expect(deck.timers.length, "nothing pending once idle").toBe(0);
+  });
+
+  test("a latched turn quiet past the horizon stays working, re-checked a horizon on, until the latch closes", () => {
+    const { deck, store } = setup();
+    deck.rows.set("s1", row({ turn_active: true }));
+    deck.cardFacts.set("a", facts({ activity: "streaming", canInterrupt: true, dormant: true }));
+    deck.changed();
+    expect(store.canInterrupt("a")).toBe(true);
+
+    deck.advance(WORKING_HORIZON_MS);
+    expect(store.canInterrupt("a"), "the open latch outranks the horizon").toBe(true);
+    expect(deck.timers.length, "one check re-armed, not a spin").toBe(1);
+    deck.advance(WORKING_HORIZON_MS - 1);
+    expect(store.canInterrupt("a")).toBe(true);
+
+    deck.rows.set("s1", row({ turn_active: false }));
+    deck.changed();
+    expect(store.bodilessOf("a")).toEqual({ activity: "idle", canInterrupt: false });
     expect(deck.timers.length, "nothing pending once idle").toBe(0);
   });
 

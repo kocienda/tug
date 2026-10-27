@@ -913,7 +913,10 @@ mod tests {
 
         tell(br#"{"action":"body_dormant","card_id":"","dormant":false}"#).await;
         tell(br#"{"action":"body_dormant","card_id":"c1"}"#).await;
-        assert!(pages.dormant_cards().borrow().contains("c1"), "a malformed tell is ignored");
+        assert!(
+            pages.dormant_cards().borrow().contains("c1"),
+            "a malformed tell is ignored"
+        );
 
         tell(br#"{"action":"body_dormant","card_id":"c1","dormant":false}"#).await;
         assert!(!pages.dormant_cards().borrow().contains("c1"));

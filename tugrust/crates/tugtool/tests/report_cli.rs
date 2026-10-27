@@ -121,8 +121,8 @@ fn report(tmp: &Path) -> Command {
     cmd.env("TMPDIR", tmp);
     cmd.env("TUG_DATA_DIR", tmp.join("state"));
     cmd.env_remove("TUG_SESSION_ID");
-    cmd.env("TUG_TOOL_USE_ID", "");
-    cmd.env("CLAUDE_CODE_TOOL_USE_ID", "");
+    cmd.env_remove("TUG_TOOL_USE_ID");
+    cmd.env_remove("CLAUDE_CODE_TOOL_USE_ID");
     cmd.current_dir(tmp);
     cmd.arg("report");
     cmd

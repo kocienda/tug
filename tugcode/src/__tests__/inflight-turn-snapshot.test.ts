@@ -316,3 +316,67 @@ describe("emitInflightTurnFromActiveTurn — per-Message replay-the-stream", () 
     expect(secondCbs[0]).toMatchObject({ msg_id: "msg_idem", block_index: 0, kind: "text" });
   });
 });
+
+describe("the snapshot opener names the submission it renders", () => {
+  // A catch-up during a live turn emits the turn's opener twice: once from
+  // the JSONL, keyed on the user entry's `uuid` (the submission id claude was
+  // handed), and once here. The reducer dedupes openers on `submissionId`
+  // alone, so this copy must carry the same id or the prompt renders twice.
+  const SUBMISSION = "0f3c1e5a-1b2c-4d5e-8f90-123456789abc";
+
+  function managerWithStdin(): SessionManager {
+    const manager = new SessionManager(
+      "/tmp/inflight-submission-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+      crypto.randomUUID(),
+    );
+    (manager as unknown as { claudeProcess: unknown }).claudeProcess = {
+      stdin: { write: () => 0, flush: () => 0 },
+    };
+    return manager;
+  }
+
+  function userMessage(text: string, submissionId: string) {
+    return {
+      type: "user_message" as const,
+      content: [{ type: "text" as const, text }],
+      submission_id: submissionId,
+    };
+  }
+
+  async function snapshotOpener(manager: SessionManager) {
+    const { emitted } = await captureStdout(() => manager.requestInflight());
+    return emitted.find((m) => m.type === "add_user_message") as Record<string, unknown> | undefined;
+  }
+
+  test("a turn opened by its own submit carries the submission id", async () => {
+    const manager = managerWithStdin();
+    // The turn never sees a `result`, so the submit stays in flight; the
+    // snapshot is taken while it is.
+    void manager.handleUserMessage(userMessage("hello", SUBMISSION));
+    await Promise.resolve();
+
+    expect(await snapshotOpener(manager)).toMatchObject({ inflightSnapshot: true, submissionId: SUBMISSION });
+  });
+
+  test("a follow-on turn opened from the queue carries its own submission id", async () => {
+    const manager = managerWithStdin();
+    void manager.handleUserMessage(userMessage("first", crypto.randomUUID()));
+    await Promise.resolve();
+    await manager.handleUserMessage(userMessage("second", SUBMISSION));
+    // The drain opens the queued turn when claude's events for it begin.
+    (manager as unknown as { activeTurn: ActiveTurn | null }).activeTurn = null;
+    (manager as unknown as { openTurnFromPending(): void }).openTurnFromPending();
+
+    expect(await snapshotOpener(manager)).toMatchObject({ submissionId: SUBMISSION });
+  });
+
+  test("an id claude was never handed is never claimed", async () => {
+    const manager = managerWithStdin();
+    void manager.handleUserMessage(userMessage("hello", "turn-lq2x-abc"));
+    await Promise.resolve();
+
+    const opener = await snapshotOpener(manager);
+    expect(opener).toMatchObject({ inflightSnapshot: true });
+    expect(opener?.submissionId).toBeUndefined();
+  });
+});

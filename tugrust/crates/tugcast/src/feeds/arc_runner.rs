@@ -53,7 +53,7 @@ use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 use tugtool_core::config::{ArcConfig, Config};
 use tugtool_core::plan;
 
-use super::agent_supervisor::{AgentSupervisor, SpawnState, TurnOpener};
+use super::agent_supervisor::{AgentSupervisor, SpawnState, TurnOpener, publish_turn_latch};
 use super::arc::{
     ArcAction, ArcFacts, PromptKind, PromptWhy, QUIET_TURN_HORIZON, Rotation, StepLedgerFacts,
     arc_action, stage_autocompact_pct, step_range,
@@ -1850,6 +1850,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     // are the states with nothing left to advance — and so, since W7, is an
     // `Idle` this process watched go `Live` first.
     let entry_arc = entry_arc?;
+    let reaped: bool;
     let (
         live,
         idle,
@@ -1875,7 +1876,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         // Same two calls, same order: jobs first, so one pass can take a
         // session all the way to quiet.
         entry.reap_stuck_jobs(Instant::now());
-        entry.reap_stuck_turn(Instant::now());
+        reaped = entry.reap_stuck_turn(Instant::now());
         let live = match entry.spawn_state {
             // **The two `Idle`s.** A card parked `Idle` used to be
             // indistinguishable from a card whose tugcast had just restarted,
@@ -1922,7 +1923,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
             // rotation on that reading would advance the arc past work still
             // running.
             entry.is_quiet(),
-            entry.turn_active,
+            entry.turn_active(),
             entry.turn_opener,
             entry.turns_ended,
             entry.prompt_turns_ended,
@@ -1943,6 +1944,11 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
                 .collect(),
         )
     };
+    // A latch the reap dropped is told to the row, after the entry is let go,
+    // or the row keeps reading busy over a session this snapshot calls quiet.
+    if reaped {
+        publish_turn_latch(&ctx.supervisor.sessions_recorder, &entry_arc).await;
+    }
     // Only a rotation writes a `stage_label`, at the `session_init` that
     // follows its announcement, so the label is the durable fact that this
     // session was seated by the wheel rather than reached by the deck.
@@ -5029,7 +5035,7 @@ Some context.
         .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
         let state = Arc::new(Mutex::new(HashMap::new()));
 
         sweep(&ctx, &state).await;
@@ -7125,7 +7131,7 @@ Some context.
         let mut entry = entry.lock().await;
         entry.turns_ended = turns;
         entry.prompt_turns_ended = turns;
-        entry.turn_active = false;
+        entry.stage_turn_active(false);
     }
 
     /// Advance the seated session by one **wake**-opened turn end: the
@@ -7394,7 +7400,7 @@ Some context.
         );
 
         // The wake's turn opens. A reading that is not idle settles nothing.
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
         sweep(&ctx, &state).await;
         let map = state.lock().await;
         assert_eq!(map[&demo_key(root)].quiet_since, None);
@@ -7417,7 +7423,7 @@ Some context.
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard
                 .open_jobs
                 .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -7448,7 +7454,7 @@ Some context.
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard
                 .open_jobs
                 .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -7480,7 +7486,7 @@ Some context.
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = settling_state(root);
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
 
         sweep(&ctx, &state).await;
         assert!(
@@ -7493,7 +7499,7 @@ Some context.
         // no longer holding anything.
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard
                 .open_jobs
                 .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -7501,7 +7507,7 @@ Some context.
         sweep(&ctx, &state).await;
         assert!(waiting_for("claude-1").is_some());
 
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
         sweep(&ctx, &state).await;
         assert!(
             waiting_for("claude-1").is_none(),
@@ -7526,7 +7532,7 @@ Some context.
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard.open_jobs.insert(
                 "t1".to_owned(),
                 bash_job(
@@ -7560,7 +7566,7 @@ Some context.
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard
                 .open_jobs
                 .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -7588,7 +7594,7 @@ Some context.
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = true;
+            guard.stage_turn_active(true);
             guard.open_jobs.insert(
                 "t1".to_owned(),
                 bash_job(
@@ -7640,7 +7646,7 @@ Some context.
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard
                 .open_jobs
                 .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -7724,7 +7730,7 @@ Some context.
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard
                 .open_jobs
                 .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -7732,7 +7738,7 @@ Some context.
         sweep(&ctx, &state).await;
         assert!(state.lock().await[&demo_key(root)].boundary_since.is_some());
 
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
         sweep(&ctx, &state).await;
         assert_eq!(
             state.lock().await[&demo_key(root)].boundary_since,
@@ -7756,7 +7762,7 @@ Some context.
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
-            guard.turn_active = false;
+            guard.stage_turn_active(false);
             guard
                 .open_jobs
                 .insert("t1".to_owned(), bash_job(Instant::now()));
@@ -8057,7 +8063,7 @@ Some context.
         // about the re-ask being spent once. This is the changeset recompute
         // landing between the re-ask and the turn that answers it, and
         // `reask_pending` is the only thing standing in its way.
-        entry.lock().await.turn_active = false;
+        entry.lock().await.stage_turn_active(false);
         sweep(&ctx, &state).await;
         assert_eq!(
             state.lock().await[&demo_key(root)].quiet_turns,
@@ -8145,7 +8151,7 @@ Some context.
 
         // The same staleness, now over a turn that is not ending. That is the
         // one shape the clock exists for.
-        entry.lock().await.turn_active = true;
+        entry.lock().await.stage_turn_active(true);
         state
             .lock()
             .await
@@ -9617,7 +9623,7 @@ Some context.
         // The prompt opened a turn, so the next tick would read mid-turn on
         // its own. End it, leaving the moved done count as the only thing
         // that can stop a second prompt.
-        entry.lock().await.turn_active = false;
+        entry.lock().await.stage_turn_active(false);
         sweep(&ctx, &state).await;
 
         assert_eq!(
@@ -9841,7 +9847,7 @@ Some context.
             // compacted context.
             if came_down_mid_turn {
                 set_context(&entry, 30_000).await;
-                entry.lock().await.turn_active = true;
+                entry.lock().await.stage_turn_active(true);
                 sweep(&ctx, &state).await;
             }
 
@@ -10217,7 +10223,7 @@ Some context.
             // boundary is that turn's end.
             let mut entry = entry.lock().await;
             entry.turn_cancelled = false;
-            entry.turn_active = false;
+            entry.stage_turn_active(false);
             entry.turns_ended = 3;
             entry.prompt_turns_ended = 3;
         }
@@ -10429,9 +10435,9 @@ Some context.
 
         let ticks = capturing_ticks(async {
             // Mid-turn: the tick decides nothing, and says so.
-            entry.lock().await.turn_active = true;
+            entry.lock().await.stage_turn_active(true);
             sweep(&ctx, &state).await;
-            entry.lock().await.turn_active = false;
+            entry.lock().await.stage_turn_active(false);
             sweep(&ctx, &state).await;
         })
         .await;
@@ -10570,7 +10576,7 @@ Some context.
             // so the reading it described is gone.
             {
                 let mut entry = entry.lock().await;
-                entry.turn_active = true;
+                entry.stage_turn_active(true);
                 entry.turn_opener = Some(TurnOpener::Wake);
             }
             sweep(&ctx, &state).await;
@@ -10646,7 +10652,7 @@ Some context.
             assert!(closed, "the wake closed the launch it answered");
             {
                 let mut entry = entry.lock().await;
-                entry.turn_active = true;
+                entry.stage_turn_active(true);
                 entry.turn_opener = Some(TurnOpener::Wake);
             }
             sweep(&ctx, &state).await;

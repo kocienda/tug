@@ -315,3 +315,22 @@ final class AnswerOrDeadline<Value> {
         done(value, timedOut)
     }
 }
+
+/// What a body's page is to be told of its visibility, or nil for nothing:
+/// whether it is shown, and whether the host has declared it dormant. Said
+/// only when the page can hear, and only when either half differs from what
+/// it was last told — so a dormant declaration made while the page could not
+/// hear is said the first time it can, from the same `declaredDormant`
+/// tugcast was told, and the two halves of the declaration never part.
+func visibilityToTell(
+    shown: (value: Bool, since: Double)?,
+    canHear: Bool,
+    declaredDormant: Bool,
+    toldShown: Bool?,
+    toldDormant: Bool?
+) -> BodyVisibility? {
+    guard let shown, canHear else { return nil }
+    let dormant = declaredDormant && !shown.value
+    guard toldShown != shown.value || toldDormant != dormant else { return nil }
+    return BodyVisibility(shown: shown.value, since: shown.since, dormant: dormant)
+}

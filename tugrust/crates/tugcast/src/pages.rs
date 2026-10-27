@@ -621,7 +621,10 @@ mod tests {
         let reg = PageRegistry::new();
         let early = reg.dormant_cards();
         assert!(reg.set_card_dormant("c1", true));
-        assert!(!reg.set_card_dormant("c1", true), "a repeat changes nothing");
+        assert!(
+            !reg.set_card_dormant("c1", true),
+            "a repeat changes nothing"
+        );
         assert!(early.borrow().contains("c1"));
 
         // The body's socket goes and a new one comes: the card still sleeps.
@@ -631,6 +634,9 @@ mod tests {
 
         assert!(reg.set_card_dormant("c1", false));
         assert!(!early.borrow().contains("c1"));
-        assert!(!reg.set_card_dormant("c1", false), "withdrawing twice changes nothing");
+        assert!(
+            !reg.set_card_dormant("c1", false),
+            "withdrawing twice changes nothing"
+        );
     }
 }

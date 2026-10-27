@@ -605,8 +605,13 @@ import {
  * every user message a card's store holds, committed and in flight, read
  * from the store rather than the windowed transcript. Additive; major stays
  * `2`.
+ *
+ * `2.57.0`: adds `pageDormantAfterMs` to {@link TugTestSurface.bodyDelays}:
+ * the pages' dormant clock alone, laid over `dormantAfterMs`, so a test can
+ * shorten the host's clock and leave the page's long, and see the host's
+ * declaration arrive by itself. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.56.0" as const;
+export const SURFACE_VERSION = "2.57.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1857,9 +1862,15 @@ export interface TugTestSurface {
    * and how long a hidden body keeps its process and a new page has to say
    * it is ready (the host, through `bodyDelays`). A key left out keeps its
    * last value; `null` puts the constant back (SURFACE_VERSION 2.53.0).
+   *
+   * `pageDormantAfterMs` sets the pages' clock alone, after `dormantAfterMs`
+   * has set both, so `{ dormantAfterMs: 400, pageDormantAfterMs: null }`
+   * shortens the host's clock and leaves every page on its constant
+   * (SURFACE_VERSION 2.57.0).
    */
   bodyDelays(delays: {
     dormantAfterMs?: number | null;
+    pageDormantAfterMs?: number | null;
     evictAfterMs?: number | null;
     readyDeadlineMs?: number | null;
   }): void;
@@ -3619,6 +3630,9 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       if (delays.dormantAfterMs !== undefined) {
         harnessBodyDelays.set({ dormantAfterMs: delays.dormantAfterMs });
         hostBodyDelays.dormantAfterMs = delays.dormantAfterMs;
+      }
+      if (delays.pageDormantAfterMs !== undefined) {
+        harnessBodyDelays.set({ dormantAfterMs: delays.pageDormantAfterMs });
       }
       if (delays.evictAfterMs !== undefined) hostBodyDelays.evictAfterMs = delays.evictAfterMs;
       if (delays.readyDeadlineMs !== undefined) hostBodyDelays.readyDeadlineMs = delays.readyDeadlineMs;
