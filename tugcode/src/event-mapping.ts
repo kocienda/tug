@@ -1128,6 +1128,17 @@ export function routeTopLevelEvent(
       break;
     }
 
+    case "command_lifecycle": {
+      // Per-command queue telemetry claude streams for every inbound
+      // message that carried a uuid (our submission id): `queued`,
+      // `started`, `completed`, `cancelled`, `discarded`, `refused`, keyed
+      // on `command_uuid`. Tug tracks its own submissions and turn
+      // boundaries, so nothing downstream reads these; swallow them so
+      // they don't fall into the `unknown_event` default and raise a
+      // spurious "Unsupported event" banner.
+      break;
+    }
+
     case "tool_progress": {
       // Top-level progress/heartbeat telemetry the engine yields while a
       // long-running tool executes: `bash_progress` / `powershell_progress`

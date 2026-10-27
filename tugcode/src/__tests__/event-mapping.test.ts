@@ -122,6 +122,15 @@ describe("routeTopLevelEvent", () => {
     }
   });
 
+  test("command_lifecycle is swallowed (no unknown_event banner)", () => {
+    for (const state of ["queued", "started", "completed", "cancelled", "discarded", "refused"]) {
+      const event = { type: "command_lifecycle", command_uuid: "c-1", state, session_id: "sess-123" };
+      const result = routeTopLevelEvent(event, baseCtx);
+      expect(result.messages).toHaveLength(0);
+      expect(result.gotResult).toBe(false);
+    }
+  });
+
   test("unrecognized top-level type emits an unknown_event frame", () => {
     const event = { type: "future_telemetry", payload: { foo: 1 } };
     const result = routeTopLevelEvent(event, baseCtx);

@@ -108,6 +108,16 @@ export interface WireControlCancelRequest {
   request_id: string;
 }
 
+/**
+ * `command_lifecycle`: a queued command's progress through Claude's input
+ * queue, keyed on the uuid the inbound message carried (Tug's submission id).
+ */
+export interface WireCommandLifecycle {
+  type: "command_lifecycle";
+  command_uuid: string;
+  state: "queued" | "started" | "completed" | "cancelled" | "discarded" | "refused";
+}
+
 // ---------------------------------------------------------------------------
 // The union
 // ---------------------------------------------------------------------------
@@ -122,7 +132,8 @@ export type ClaudeWireMessage =
   | Open<WireSystemModelRefusalFallback>
   | Open<WireAiTitle>
   | Open<WireKeepAlive>
-  | Open<WireControlCancelRequest>;
+  | Open<WireControlCancelRequest>
+  | Open<WireCommandLifecycle>;
 
 /** The top-level discriminant. */
 export type ClaudeWireType = ClaudeWireMessage["type"];
@@ -181,6 +192,7 @@ const WIRE_TYPES: Record<ClaudeWireType, true> = {
   control_response: true,
   control_cancel_request: true,
   keep_alive: true,
+  command_lifecycle: true,
   "ai-title": true,
 };
 
