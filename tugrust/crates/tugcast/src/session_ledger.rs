@@ -349,6 +349,67 @@ impl std::str::FromStr for SessionState {
     }
 }
 
+/// Which way a paged list walks time. The Operator's `sessions.list` and
+/// `facts.list` take it as their `order` argument; every other reader wants
+/// newest-first and says nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListOrder {
+    Newest,
+    Oldest,
+}
+
+impl ListOrder {
+    /// The SQL direction, for an `ORDER BY` the query composes.
+    fn direction(self) -> &'static str {
+        match self {
+            ListOrder::Newest => "DESC",
+            ListOrder::Oldest => "ASC",
+        }
+    }
+
+    /// The comparison a keyset cursor applies: rows strictly past the cursor
+    /// in this order.
+    fn past(self) -> &'static str {
+        match self {
+            ListOrder::Newest => "<",
+            ListOrder::Oldest => ">",
+        }
+    }
+}
+
+/// Which record a history row came from. The Overview's session surface
+/// reads the union the picker reads — ledger rows, the on-disk scan cache,
+/// and the machine-wide index — and a row says which one knew it, so an
+/// answer can say which ledger the session is recorded in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistorySource {
+    /// A `sessions` row: a session this instance spawned or adopted.
+    Ledger,
+    /// An `external_scan_cache` row: a transcript on disk this instance has
+    /// scanned and never adopted.
+    Scan,
+    /// A `session_index.db` row: a session some instance on this machine
+    /// recorded, which this ledger does not hold.
+    Index,
+}
+
+impl HistorySource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HistorySource::Ledger => "ledger",
+            HistorySource::Scan => "scan",
+            HistorySource::Index => "index",
+        }
+    }
+}
+
+/// Where a fact page left off: the time and the id of its last row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FactCursor {
+    pub at_ms: i64,
+    pub id: i64,
+}
+
 /// One row of the `sessions` table, also the wire shape for the CONTROL
 /// `list_sessions` response and the `session_updated` push.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3754,40 +3815,73 @@ impl SessionLedger {
         rows.into_iter().collect()
     }
 
-    /// Sessions ordered newest-first by `last_used_at`, optionally bounded by
-    /// a `last_used_at` range and narrowed to the live ones. Backs the
-    /// Operator's `sessions.list` verb — "what was I working on last Tuesday".
+    /// Every session this ledger can speak for, with where each came from:
+    /// the `sessions` rows the Operator may see, then the scanned
+    /// transcripts the ledger holds no row for, synthesized the way the
+    /// picker union synthesizes an unadopted session. Backs the Overview's
+    /// session surface — the roster and `sessions.list` — which merges this
+    /// with the machine-wide index and folds the result by line.
     ///
-    /// Failed rows are included: a session that died is still part of the
-    /// history a question can be about, and the `state` travels with the row
-    /// so the answer can say so.
-    pub fn list_sessions_recent(
-        &self,
-        since_ms: Option<i64>,
-        until_ms: Option<i64>,
-        active_only: bool,
-        limit: usize,
-    ) -> Result<Vec<SessionRow>, LedgerError> {
+    /// Unordered and uncapped: the caller orders, scopes, folds and pages in
+    /// memory, because the index half lives in another file and a page over
+    /// a union of two databases cannot be a SQL page. The table is hundreds
+    /// to a few thousand rows on a working machine, well inside a verb's
+    /// time. Private sessions are out, as everywhere the Operator reads
+    /// ([P05]); a scan row the scanner itself excluded is out too.
+    pub fn list_history_rows(&self) -> Result<Vec<(SessionRow, HistorySource)>, LedgerError> {
         let conn = self.db.lock();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED}
-             WHERE (?1 IS NULL OR s.last_used_at >= ?1)
-               AND (?2 IS NULL OR s.last_used_at <= ?2)
-               AND (?3 = 0 OR s.state = 'live')
-               -- The Overview's only reader of this list is the Operator, and a
-               -- private session is out of the channel ([P05]). The chooser and
-               -- the recents surface read their rows elsewhere and still see it.
-               AND s.private = 0
-             ORDER BY s.last_used_at DESC
-             LIMIT ?4"
+        let mut out = Vec::new();
+        let mut held = conn.prepare(&format!(
+            "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED} WHERE s.private = 0"
         ))?;
-        let rows = stmt
-            .query_map(
-                params![since_ms, until_ms, active_only as i64, limit as i64],
-                row_from_query,
-            )?
-            .collect::<Result<Vec<_>, _>>()?;
-        rows.into_iter().collect()
+        for row in held.query_map([], row_from_query)? {
+            out.push((row??, HistorySource::Ledger));
+        }
+        let mut scanned = conn.prepare(&format!(
+            "SELECT {SCAN_COLUMNS} FROM {SCAN_JOINED}
+             WHERE c.excluded = 0
+               AND c.session_id NOT IN (SELECT session_id FROM sessions)"
+        ))?;
+        for row in scanned.query_map([], scan_row_from_query)? {
+            out.push((row?, HistorySource::Scan));
+        }
+        Ok(out)
+    }
+
+    /// Every project directory this ledger has a session or a scanned
+    /// transcript for — the workspace's projects, which is the default scope
+    /// of the Overview's session surface. Stored spelling, which is the
+    /// spelling the machine-wide index carries too.
+    pub fn project_dirs(&self) -> Result<Vec<String>, LedgerError> {
+        let conn = self.db.lock();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT project_dir FROM (
+                 SELECT project_dir FROM sessions
+                 UNION
+                 SELECT project_dir FROM external_scan_cache
+             ) WHERE project_dir != ''",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Where this ledger's session record begins: the oldest `created_at`
+    /// among the sessions the Operator may see, and how many there are.
+    /// Backs the Overview's `HORIZON:` line, so it carries the same privacy
+    /// exclusion `list_history_rows` does — a private session is out of
+    /// the channel, its start date included.
+    pub fn sessions_horizon(&self) -> Result<tugcore::ledger_db::RecordHorizon, LedgerError> {
+        let conn = self.db.lock();
+        Ok(conn.query_row(
+            "SELECT MIN(created_at), COUNT(*) FROM sessions WHERE private = 0",
+            [],
+            |row| {
+                Ok(tugcore::ledger_db::RecordHorizon {
+                    oldest_ms: row.get(0)?,
+                    count: row.get(1)?,
+                })
+            },
+        )?)
     }
 
     /// Look up a single row by session id.
@@ -3865,42 +3959,6 @@ impl SessionLedger {
         &self,
         ids: &[String],
     ) -> Result<Vec<(String, SessionRow)>, LedgerError> {
-        // The scan cache's own columns, projected into the same row shape the
-        // picker union synthesizes for an unadopted session.
-        const SCAN_COLUMNS: &str = "c.session_id, c.project_dir, c.created_at, c.last_used_at,
-                    c.turn_count, c.last_user_prompt, c.name, l.tag, c.line_id";
-        const SCAN_JOINED: &str =
-            "external_scan_cache c LEFT JOIN lines l ON l.line_id = c.line_id";
-        fn scan_row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
-            let project_dir: String = row.get(1)?;
-            Ok(SessionRow {
-                session_id: row.get(0)?,
-                workspace_key: encode_project_dir(&project_dir),
-                project_dir,
-                created_at: row.get(2)?,
-                last_used_at: row.get(3)?,
-                turn_count: row.get(4)?,
-                last_user_prompt: row.get(5)?,
-                state: SessionState::Closed,
-                card_id: None,
-                name: row.get(6)?,
-                name_user_set: false,
-                tag: row.get(7)?,
-                synopsis: None,
-                // An unadopted scan row has no `sessions` row to carry a flag,
-                // and an absent row reads as public everywhere else too.
-                private: false,
-                // Nor a binding: an arc is bound by a live session, and this
-                // row has no session in the ledger at all.
-                arc_id: None,
-                arc_name: None,
-                line_id: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
-                // Nor a background owner: this row's `card_id` is `None`
-                // above, and an unadopted scan row has no `sessions` row to
-                // carry a card at all.
-                background: false,
-            })
-        }
         let conn = self.db.lock();
         let mut exact = conn.prepare(&format!(
             "SELECT {SESSION_COLUMNS} FROM {SESSIONS_JOINED} WHERE s.session_id = ?1 LIMIT 1"
@@ -8380,30 +8438,79 @@ impl SessionLedger {
     /// wake composer. That function keeps its shape because the Observer wake
     /// depends on it; generalizing it in place would risk every wake for a
     /// verb's convenience.
+    ///
+    /// Walked in `order` and resumed past `cursor` when one is given: ties on
+    /// `at_ms` break on `id` in the same direction, so a cursor names exactly
+    /// one row and the page after it is exact.
+    #[allow(clippy::too_many_arguments)]
     pub fn list_facts(
         &self,
         kind: Option<&str>,
         session_id: Option<&str>,
         since_ms: Option<i64>,
         until_ms: Option<i64>,
+        order: ListOrder,
+        cursor: Option<FactCursor>,
         limit: usize,
     ) -> Result<Vec<FactRow>, LedgerError> {
+        let dir = order.direction();
+        let past = order.past();
         let conn = self.db.lock();
-        let mut stmt = conn.prepare(concat!(
+        let mut stmt = conn.prepare(&format!(
             "SELECT id, at_ms, kind, session_id, subject, text, payload
              FROM facts
              WHERE (?1 IS NULL OR kind = ?1)
                AND (?2 IS NULL OR session_id = ?2)
                AND (?3 IS NULL OR at_ms >= ?3)
-               AND (?4 IS NULL OR at_ms <= ?4)",
+               AND (?4 IS NULL OR at_ms <= ?4)
+               AND (?5 IS NULL OR at_ms {past} ?5 OR (at_ms = ?5 AND id {past} ?6))
+               {}
+             ORDER BY at_ms {dir}, id {dir}
+             LIMIT ?7",
             not_private!("facts.session_id"),
-            " ORDER BY at_ms DESC, id DESC
-             LIMIT ?5"
         ))?;
         let rows = stmt.query_map(
-            params![kind, session_id, since_ms, until_ms, limit as i64],
+            params![
+                kind,
+                session_id,
+                since_ms,
+                until_ms,
+                cursor.map(|c| c.at_ms),
+                cursor.map(|c| c.id),
+                limit as i64
+            ],
             fact_from_row,
         )?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Where this ledger's fact record begins, kind by kind: each kind's
+    /// oldest `at_ms` and its row count, kinds in alphabetical order. The
+    /// kinds begin at different times — a session-lifecycle fact is recorded
+    /// from the instance's birth, a shell fact from an earlier build — so one
+    /// oldest row for the table would overstate every other kind's reach.
+    /// Carries the same privacy exclusion the fact verbs do.
+    pub fn facts_horizon_by_kind(
+        &self,
+    ) -> Result<Vec<(String, tugcore::ledger_db::RecordHorizon)>, LedgerError> {
+        let conn = self.db.lock();
+        let mut stmt = conn.prepare(concat!(
+            "SELECT kind, MIN(at_ms), COUNT(*)
+             FROM facts
+             WHERE 1 = 1",
+            not_private!("facts.session_id"),
+            " GROUP BY kind
+             ORDER BY kind ASC"
+        ))?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                tugcore::ledger_db::RecordHorizon {
+                    oldest_ms: row.get(1)?,
+                    count: row.get(2)?,
+                },
+            ))
+        })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
@@ -8807,6 +8914,43 @@ const RESUME_SEGMENT_ORDER: &str = "ORDER BY (s.state = 'live') DESC,
               )) DESC,
               s.created_at DESC,
               s.rowid DESC";
+
+/// The scan cache's own columns, projected into the same row shape the
+/// picker union synthesizes for an unadopted session. Shared by the citation
+/// resolver's fallback and the history union.
+const SCAN_COLUMNS: &str = "c.session_id, c.project_dir, c.created_at, c.last_used_at,
+            c.turn_count, c.last_user_prompt, c.name, l.tag, c.line_id";
+const SCAN_JOINED: &str = "external_scan_cache c LEFT JOIN lines l ON l.line_id = c.line_id";
+
+fn scan_row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
+    let project_dir: String = row.get(1)?;
+    Ok(SessionRow {
+        session_id: row.get(0)?,
+        workspace_key: encode_project_dir(&project_dir),
+        project_dir,
+        created_at: row.get(2)?,
+        last_used_at: row.get(3)?,
+        turn_count: row.get(4)?,
+        last_user_prompt: row.get(5)?,
+        state: SessionState::Closed,
+        card_id: None,
+        name: row.get(6)?,
+        name_user_set: false,
+        tag: row.get(7)?,
+        synopsis: None,
+        // An unadopted scan row has no `sessions` row to carry a flag, and
+        // an absent row reads as public everywhere else too.
+        private: false,
+        // Nor a binding: an arc is bound by a live session, and this row has
+        // no session in the ledger at all.
+        arc_id: None,
+        arc_name: None,
+        line_id: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
+        // Nor a background owner: this row's `card_id` is `None` above, and
+        // an unadopted scan row has no `sessions` row to carry a card at all.
+        background: false,
+    })
+}
 
 fn line_row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<LineRow> {
     Ok(LineRow {
@@ -9349,7 +9493,7 @@ pub fn claude_project_dir(claude_home: &ClaudeHome, project_dir: &str) -> (PathB
 /// canonicalization gateway ([L29], [`resolve_to_claude_form`]), so two
 /// spellings of one directory are one key. Every ledger write of the column
 /// routes through here; an empty value stays empty.
-fn stored_project_dir(project_dir: &str) -> String {
+pub(crate) fn stored_project_dir(project_dir: &str) -> String {
     if project_dir.is_empty() {
         return String::new();
     }
@@ -12365,7 +12509,9 @@ mod tests {
         for i in 0..40 {
             seed_shell(&ledger, base + i, "s1", &format!("cargo build case{i}"));
         }
-        let rows = ledger.list_facts(None, None, None, None, 30).expect("list");
+        let rows = ledger
+            .list_facts(None, None, None, None, ListOrder::Newest, None, 30)
+            .expect("list");
         assert_eq!(rows.len(), 30, "capped at the limit asked for");
         assert_eq!(rows[0].at_ms, base + 39, "the newest fact leads");
         assert!(
@@ -12396,13 +12542,21 @@ mod tests {
             .expect("record");
 
         let by_kind = ledger
-            .list_facts(Some("prompt"), None, None, None, 30)
+            .list_facts(
+                Some("prompt"),
+                None,
+                None,
+                None,
+                ListOrder::Newest,
+                None,
+                30,
+            )
             .expect("list");
         assert_eq!(by_kind.len(), 1);
         assert_eq!(by_kind[0].kind, "prompt");
 
         let by_session = ledger
-            .list_facts(None, Some("s2"), None, None, 30)
+            .list_facts(None, Some("s2"), None, None, ListOrder::Newest, None, 30)
             .expect("list");
         assert!(
             by_session
@@ -12424,15 +12578,39 @@ mod tests {
         // The bounds are inclusive on both ends, which is what makes a
         // since/until pair a window rather than a fencepost puzzle.
         let since = ledger
-            .list_facts(None, None, Some(base + 1_000), None, 30)
+            .list_facts(
+                None,
+                None,
+                Some(base + 1_000),
+                None,
+                ListOrder::Newest,
+                None,
+                30,
+            )
             .expect("list");
         assert_eq!(since.len(), 2, "the since bound admits the row it names");
         let until = ledger
-            .list_facts(None, None, Some(base), Some(base + 1_000), 30)
+            .list_facts(
+                None,
+                None,
+                Some(base),
+                Some(base + 1_000),
+                ListOrder::Newest,
+                None,
+                30,
+            )
             .expect("list");
         assert_eq!(until.len(), 2, "and so does the until bound");
         let bracket = ledger
-            .list_facts(None, None, Some(base + 1_000), Some(base + 1_000), 30)
+            .list_facts(
+                None,
+                None,
+                Some(base + 1_000),
+                Some(base + 1_000),
+                ListOrder::Newest,
+                None,
+                30,
+            )
             .expect("list");
         assert_eq!(bracket.len(), 1);
         assert_eq!(bracket[0].at_ms, base + 1_000);
@@ -12441,7 +12619,15 @@ mod tests {
         // it is a filter value, not a schema key.
         assert!(
             ledger
-                .list_facts(Some("no.such.kind"), None, None, None, 30)
+                .list_facts(
+                    Some("no.such.kind"),
+                    None,
+                    None,
+                    None,
+                    ListOrder::Newest,
+                    None,
+                    30
+                )
                 .expect("list")
                 .is_empty()
         );
@@ -12459,7 +12645,9 @@ mod tests {
             .set_session_private("s2", true)
             .expect("marked private");
 
-        let rows = ledger.list_facts(None, None, None, None, 30).expect("list");
+        let rows = ledger
+            .list_facts(None, None, None, None, ListOrder::Newest, None, 30)
+            .expect("list");
         assert!(
             rows.iter().all(|r| r.session_id.as_deref() != Some("s2")),
             "the new read carries the same in-SQL exclusion as every other"

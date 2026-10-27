@@ -26,6 +26,18 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+/// Where one record begins: the oldest row's time and how many rows there
+/// are. The shape every ledger's horizon read answers in, so the Overview's
+/// `HORIZON:` line can print four sources through one renderer — a ledger
+/// that holds no rows answers with `None` and a count of zero, which is a
+/// different fact from a ledger that could not be read at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RecordHorizon {
+    /// Epoch milliseconds of the oldest row, or `None` when there are none.
+    pub oldest_ms: Option<i64>,
+    pub count: i64,
+}
+
 /// Open (or create) a ledger database with the unified pragma set.
 pub fn open(path: impl AsRef<Path>) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;

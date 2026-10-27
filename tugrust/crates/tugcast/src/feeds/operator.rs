@@ -38,9 +38,11 @@ use tracing::{info, warn};
 
 use crate::feeds::facts_library;
 use crate::feeds::repo_files;
+use crate::prompt_ledger::PromptLedger;
 use crate::search_tokens::{expand_subwords, relax_or, sanitize_fts_query};
 use crate::session_ledger::{
-    FactRow, FactSearchFilter, FactSearchHit, OverviewSearchFilter, SessionLedger, SessionRow,
+    FactCursor, FactRow, FactSearchFilter, FactSearchHit, HistorySource, ListOrder,
+    OverviewSearchFilter, SessionLedger, SessionRow, SessionState,
 };
 use crate::shared_agent::TurnImage;
 use crate::shell_ledger::ShellLedger;
@@ -114,10 +116,19 @@ pub struct OperatorContext {
     /// returns empty exactly as it did before — the degradation is the
     /// default, not the exception.
     pub haiku: Option<Arc<crate::shared_agent::SharedAgentPool>>,
+    /// The machine-wide prompt corpus (`prompt_history.db`), the same handle
+    /// the composer's recall reads through. `None` is a build that could not
+    /// open it, or an instrument that was not pointed at a copy; the horizon
+    /// reads it as unavailable and says so.
+    pub prompt_ledger: Option<Arc<PromptLedger>>,
+    /// The machine-wide session index (`session_index.db`), opened read-only
+    /// at every read the way `tugtool session find` opens it. A file that is
+    /// not there yet is the horizon's unavailable arm, never an error.
+    pub session_index_path: PathBuf,
 }
 
 /// Every verb the Operator may name. The retrieval instructions list the same
-/// thirteen; a test pins the two lists against each other so a verb can never
+/// names; a test pins the two lists against each other so a verb can never
 /// be offered to the model without an executor behind it.
 pub const VERB_NAMES: &[&str] = &[
     "overview.search",
@@ -128,6 +139,7 @@ pub const VERB_NAMES: &[&str] = &[
     "shell.history",
     "sessions.list",
     "session.prompts",
+    "session.transcript",
     "changes.for_session",
     "changes.for_path",
     "git.log",
@@ -167,6 +179,7 @@ async fn dispatch(ctx: &OperatorContext, name: &str, args: &Value) -> Result<Val
         "shell.history" => shell_history(ctx, args),
         "sessions.list" => sessions_list(ctx, args),
         "session.prompts" => session_prompts(ctx, args),
+        "session.transcript" => session_transcript(ctx, args),
         "changes.for_session" => changes_for_session(ctx, args),
         "changes.for_path" => changes_for_path(ctx, args),
         "git.log" => git_log(ctx, args).await,
@@ -680,18 +693,46 @@ fn budget_by_kind(hits: Vec<FactSearchHit>, limit: usize) -> (Vec<FactSearchHit>
 /// question, and it is also mostly shell commands, which is why the
 /// instructions teach aiming the verb rather than only reaching for it.
 fn facts_list(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
-    let facts = ctx
+    let order = list_order_arg(args)?;
+    let cursor = match opt_str(args, "cursor")? {
+        Some(raw) => {
+            let (at_ms, id) = parse_cursor(raw)?;
+            Some(FactCursor {
+                at_ms,
+                id: id.parse::<i64>().map_err(|_| {
+                    "argument \"cursor\" is not one facts.list returned".to_string()
+                })?,
+            })
+        }
+        None => None,
+    };
+    let mut facts = ctx
         .ledger
         .list_facts(
             opt_str(args, "kind")?,
             opt_str(args, "session_id")?,
             opt_i64(args, "since_ms")?,
             opt_i64(args, "until_ms")?,
-            FACTS_LIST_LIMIT,
+            order,
+            cursor,
+            FACTS_LIST_LIMIT + 1,
         )
         .map_err(|err| format!("facts.list: {err}"))?;
+    // One row past the page is the probe: its existence, not its content,
+    // says whether there is a next page.
+    let has_more = facts.len() > FACTS_LIST_LIMIT;
+    facts.truncate(FACTS_LIST_LIMIT);
+    let next_cursor = has_more
+        .then(|| facts.last())
+        .flatten()
+        .map(|last| encode_cursor(last.at_ms, &last.id.to_string()));
     let rows: Vec<Value> = facts.iter().map(fact_json).collect();
-    Ok(json!({ "facts": rows, "count": rows.len() }))
+    Ok(json!({
+        "facts": rows,
+        "count": rows.len(),
+        "order": order_name(order),
+        "next_cursor": next_cursor,
+    }))
 }
 
 fn facts_window(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
@@ -761,53 +802,432 @@ fn shell_history(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     Ok(json!({ "commands": commands, "count": commands.len() }))
 }
 
-fn sessions_list(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
-    let rows = ctx
+/// Which clock a session list is ordered and bracketed by: when the session
+/// was last used, or when it started. "Which session started first" is a
+/// question about `created_at`, and the default ordering cannot answer it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionTimeKey {
+    LastUsed,
+    Started,
+}
+
+impl SessionTimeKey {
+    fn name(self) -> &'static str {
+        match self {
+            SessionTimeKey::LastUsed => "last_used",
+            SessionTimeKey::Started => "started",
+        }
+    }
+
+    fn of(self, row: &SessionRow) -> i64 {
+        match self {
+            SessionTimeKey::LastUsed => row.last_used_at,
+            SessionTimeKey::Started => row.created_at,
+        }
+    }
+}
+
+/// Where a session page left off: the key time and the id of its last row.
+/// A keyset rather than an offset, so a row inserted while the model is
+/// paging never shifts the page it is about to read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SessionCursor {
+    key_ms: i64,
+    session_id: String,
+}
+
+/// How far a session read reaches ([B05]). The workspace is the default:
+/// the asking instance's ledger and the projects it has sessions for. The
+/// machine is the union across every instance, reached on request when a
+/// question names another project or workspace or asks across them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoryScope {
+    Workspace,
+    Machine,
+}
+
+impl HistoryScope {
+    fn name(self) -> &'static str {
+        match self {
+            HistoryScope::Workspace => "workspace",
+            HistoryScope::Machine => "machine",
+        }
+    }
+}
+
+/// One session as the history surface serves it: the row, which record
+/// knew it, the instance that recorded it when that is not this one, and
+/// how many segments the line folded into this row.
+#[derive(Debug, Clone)]
+struct HistoryRow {
+    row: SessionRow,
+    source: HistorySource,
+    instance: Option<String>,
+    segments: usize,
+}
+
+/// Whether a project dir is Tug's own machine activity rather than the
+/// user's work ([B06]): the shared-agent home the Overview's workers run
+/// in, under the data dir or under a `tug-test-data` tree. Half the
+/// transcripts on a working machine are these, and a naive "oldest session"
+/// would name one.
+fn is_tug_noise_project(project_dir: &str) -> bool {
+    let path = Path::new(project_dir);
+    let is_shared_agent = path.components().any(|c| c.as_os_str() == "shared-agent");
+    if !is_shared_agent {
+        return false;
+    }
+    path.starts_with(tugcore::instance::base_data_dir())
+        || path.components().any(|c| c.as_os_str() == "tug-test-data")
+}
+
+/// Whether an instance id names an app-test instance, whose sessions are
+/// the harness's and never the user's ([B06]).
+fn is_apptest_instance(instance: &str) -> bool {
+    instance.starts_with("apptest-")
+}
+
+/// The union the picker sees, as the Overview reads it ([B03]): this
+/// ledger's rows and scanned transcripts, plus the machine-wide index,
+/// de-duplicated by session id with the nearer record winning, Tug's own
+/// activity excluded, scoped, and folded by line.
+///
+/// Folding is what makes a line one row: a line of work that rotated
+/// through three segments is one session to the person who worked it, so
+/// the row is the seat segment — live first, else the most recently used —
+/// carrying the line's whole span, started at its first segment's start
+/// and last used at its last segment's. The segment count travels with it.
+fn history_sessions(ctx: &OperatorContext, scope: HistoryScope) -> Result<Vec<HistoryRow>, String> {
+    let own = ctx
         .ledger
-        .list_sessions_recent(
-            opt_i64(args, "since_ms")?,
-            opt_i64(args, "until_ms")?,
-            opt_bool(args, "active")?.unwrap_or(false),
-            SESSIONS_LIMIT,
-        )
-        .map_err(|err| format!("sessions.list: {err}"))?;
-    let sessions: Vec<Value> = rows
-        .iter()
-        .map(|row| {
-            // The title if it has one, otherwise the last thing the person
-            // asked — either way, what makes the row recognizable.
-            let incipit = row
-                .name
-                .as_deref()
-                .or(row.last_user_prompt.as_deref())
-                .map(|text| truncate(text, INCIPIT_CHARS));
-            json!({
-                "session_id": row.session_id,
-                "incipit": incipit,
-                // The callsign the answer's voice rule asks a session to be
-                // named by, and the standing line saying what it is about —
-                // which is what "which session was the one about X" wants.
-                "tag": row.tag,
-                "synopsis": row.synopsis.as_deref().map(|s| truncate(s, INCIPIT_CHARS)),
-                "project_dir": row.project_dir,
-                "created_at_ms": row.created_at,
-                "last_used_at_ms": row.last_used_at,
-                "turn_count": row.turn_count,
-                "state": row.state.as_str(),
-            })
+        .list_history_rows()
+        .map_err(|err| format!("sessions: {err}"))?;
+    let this_instance = tugcore::instance::instance_id();
+    let private: std::collections::HashSet<String> = ctx
+        .ledger
+        .private_session_ids()
+        .map_err(|err| format!("sessions: {err}"))?
+        .into_iter()
+        .collect();
+
+    // Ledger first, then scan, then index: a session two records know is
+    // served from the one that knows the most about it.
+    let mut by_id: HashMap<String, HistoryRow> = HashMap::new();
+    for (row, source) in own {
+        if is_tug_noise_project(&row.project_dir) {
+            continue;
+        }
+        by_id.entry(row.session_id.clone()).or_insert(HistoryRow {
+            row,
+            source,
+            instance: None,
+            segments: 1,
+        });
+    }
+
+    let workspace_dirs: Vec<String> = match scope {
+        HistoryScope::Machine => Vec::new(),
+        HistoryScope::Workspace => {
+            let mut dirs = ctx
+                .ledger
+                .project_dirs()
+                .map_err(|err| format!("sessions: {err}"))?;
+            dirs.push(crate::session_ledger::stored_project_dir(
+                &ctx.bootstrap_project_dir.to_string_lossy(),
+            ));
+            dirs.iter()
+                .map(|d| d.trim_end_matches('/').to_string())
+                .collect()
+        }
+    };
+    for entry in tugcore::session_index::all_entries(&ctx.session_index_path) {
+        if is_apptest_instance(&entry.instance) || is_tug_noise_project(&entry.project_dir) {
+            continue;
+        }
+        if scope == HistoryScope::Workspace
+            && !workspace_dirs
+                .iter()
+                .any(|d| d == entry.project_dir.trim_end_matches('/'))
+        {
+            continue;
+        }
+        if by_id.contains_key(&entry.session_id) {
+            continue;
+        }
+        // The index carries no privacy flag, and it holds this instance's
+        // own sessions too: a session the ledger arm left out as private
+        // must not walk back in through the index ([P05]).
+        if private.contains(&entry.session_id) {
+            continue;
+        }
+        let instance = match &this_instance {
+            Some(mine) if *mine == entry.instance => None,
+            _ => Some(entry.instance.clone()),
+        };
+        by_id.insert(
+            entry.session_id.clone(),
+            HistoryRow {
+                row: SessionRow {
+                    session_id: entry.session_id,
+                    workspace_key: tugcore::claude_home::encode_project_dir(&entry.project_dir),
+                    project_dir: entry.project_dir,
+                    // The index records when the segment was first seen and
+                    // when its row last moved, which are the start and the
+                    // last use as nearly as a finding record can say.
+                    created_at: entry.created_at_ms,
+                    last_used_at: entry.updated_at_ms,
+                    turn_count: 0,
+                    last_user_prompt: None,
+                    state: SessionState::Closed,
+                    card_id: None,
+                    name: entry.title,
+                    name_user_set: false,
+                    tag: entry.callsign,
+                    synopsis: None,
+                    private: false,
+                    arc_id: None,
+                    arc_name: None,
+                    line_id: entry.line_id,
+                    background: false,
+                },
+                source: HistorySource::Index,
+                instance,
+                segments: 1,
+            },
+        );
+    }
+
+    // Fold by line. A row with no line stands alone.
+    let mut by_line: HashMap<String, HistoryRow> = HashMap::new();
+    let mut alone: Vec<HistoryRow> = Vec::new();
+    for (_, candidate) in by_id {
+        if candidate.row.line_id.is_empty() {
+            alone.push(candidate);
+            continue;
+        }
+        match by_line.entry(candidate.row.line_id.clone()) {
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(candidate);
+            }
+            std::collections::hash_map::Entry::Occupied(mut slot) => {
+                let held = slot.get_mut();
+                let span_start = held.row.created_at.min(candidate.row.created_at);
+                let span_end = held.row.last_used_at.max(candidate.row.last_used_at);
+                let segments = held.segments + candidate.segments;
+                let candidate_seats = match (held.row.state, candidate.row.state) {
+                    (SessionState::Live, _) => false,
+                    (_, SessionState::Live) => true,
+                    _ => candidate.row.last_used_at > held.row.last_used_at,
+                };
+                if candidate_seats {
+                    *held = candidate;
+                }
+                held.row.created_at = span_start;
+                held.row.last_used_at = span_end;
+                held.segments = segments;
+            }
+        }
+    }
+    alone.extend(by_line.into_values());
+    Ok(alone)
+}
+
+fn history_row_json(h: &HistoryRow) -> Value {
+    let row = &h.row;
+    // The title if it has one, otherwise the last thing the person asked —
+    // either way, what makes the row recognizable.
+    let incipit = row
+        .name
+        .as_deref()
+        .or(row.last_user_prompt.as_deref())
+        .map(|text| truncate(text, INCIPIT_CHARS));
+    json!({
+        "session_id": row.session_id,
+        "incipit": incipit,
+        // The callsign the answer's voice rule asks a session to be named
+        // by, and the standing line saying what it is about — which is
+        // what "which session was the one about X" wants.
+        "tag": row.tag,
+        "synopsis": row.synopsis.as_deref().map(|s| truncate(s, INCIPIT_CHARS)),
+        "project_dir": row.project_dir,
+        "created_at_ms": row.created_at,
+        "last_used_at_ms": row.last_used_at,
+        "turn_count": row.turn_count,
+        "state": row.state.as_str(),
+        // Which record knew the session, and — for one another instance
+        // recorded — which instance, so the answer can say where it is.
+        "source": h.source.as_str(),
+        "instance": h.instance,
+        "segments": h.segments,
+    })
+}
+
+/// The roster's rows: the workspace's sessions, newest by last use, capped.
+fn roster_rows(ctx: &OperatorContext) -> Result<Vec<SessionRow>, String> {
+    let mut rows = history_sessions(ctx, HistoryScope::Workspace)?;
+    rows.sort_by(|a, b| {
+        b.row
+            .last_used_at
+            .cmp(&a.row.last_used_at)
+            .then_with(|| b.row.session_id.cmp(&a.row.session_id))
+    });
+    rows.truncate(SESSIONS_ROSTER_LIMIT);
+    Ok(rows.into_iter().map(|h| h.row).collect())
+}
+
+fn sessions_list(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
+    let order = list_order_arg(args)?;
+    let key = match opt_str(args, "by")? {
+        None | Some("last_used") => SessionTimeKey::LastUsed,
+        Some("started") => SessionTimeKey::Started,
+        Some(other) => {
+            return Err(format!(
+                "argument \"by\" must be \"last_used\" or \"started\", not {other:?}"
+            ));
+        }
+    };
+    let scope = match opt_str(args, "scope")? {
+        None | Some("workspace") => HistoryScope::Workspace,
+        Some("machine") => HistoryScope::Machine,
+        Some(other) => {
+            return Err(format!(
+                "argument \"scope\" must be \"workspace\" or \"machine\", not {other:?}"
+            ));
+        }
+    };
+    let cursor = match opt_str(args, "cursor")? {
+        Some(raw) => {
+            let (key_ms, session_id) = parse_cursor(raw)?;
+            Some(SessionCursor { key_ms, session_id })
+        }
+        None => None,
+    };
+    let since_ms = opt_i64(args, "since_ms")?;
+    let until_ms = opt_i64(args, "until_ms")?;
+    let active = opt_bool(args, "active")?.unwrap_or(false);
+
+    let mut rows: Vec<HistoryRow> = history_sessions(ctx, scope)
+        .map_err(|err| format!("sessions.list: {err}"))?
+        .into_iter()
+        .filter(|h| {
+            let at = key.of(&h.row);
+            since_ms.is_none_or(|s| at >= s)
+                && until_ms.is_none_or(|u| at <= u)
+                && (!active || h.row.state == SessionState::Live)
         })
         .collect();
-    Ok(json!({ "sessions": sessions, "count": sessions.len() }))
+    // Ordered by the key, ties broken on the id in the same direction, which
+    // is what makes the cursor name exactly one row.
+    rows.sort_by(|a, b| {
+        let forward = key
+            .of(&a.row)
+            .cmp(&key.of(&b.row))
+            .then_with(|| a.row.session_id.cmp(&b.row.session_id));
+        match order {
+            ListOrder::Newest => forward.reverse(),
+            ListOrder::Oldest => forward,
+        }
+    });
+    let total = rows.len();
+    let start = match &cursor {
+        None => 0,
+        Some(c) => rows
+            .iter()
+            .position(|h| {
+                let at = key.of(&h.row);
+                match order {
+                    ListOrder::Newest => {
+                        at < c.key_ms || (at == c.key_ms && h.row.session_id < c.session_id)
+                    }
+                    ListOrder::Oldest => {
+                        at > c.key_ms || (at == c.key_ms && h.row.session_id > c.session_id)
+                    }
+                }
+            })
+            .unwrap_or(rows.len()),
+    };
+    let end = (start + SESSIONS_LIMIT).min(rows.len());
+    let page = &rows[start..end];
+    let next_cursor = (end < rows.len())
+        .then(|| page.last())
+        .flatten()
+        .map(|last| encode_cursor(key.of(&last.row), &last.row.session_id));
+    let sessions: Vec<Value> = page.iter().map(history_row_json).collect();
+    Ok(json!({
+        "sessions": sessions,
+        "count": sessions.len(),
+        // How many rows the filter matches in all, so a page reads as a
+        // page of a known whole rather than as everything there is.
+        "total": total,
+        "order": order_name(order),
+        "by": key.name(),
+        "scope": scope.name(),
+        "next_cursor": next_cursor,
+    }))
 }
+
+/// The `order` argument the two list verbs share. Newest-first is the
+/// default because it was the only order before there was an argument.
+fn list_order_arg(args: &Value) -> Result<ListOrder, String> {
+    match opt_str(args, "order")? {
+        None | Some("newest") => Ok(ListOrder::Newest),
+        Some("oldest") => Ok(ListOrder::Oldest),
+        Some(other) => Err(format!(
+            "argument \"order\" must be \"newest\" or \"oldest\", not {other:?}"
+        )),
+    }
+}
+
+fn order_name(order: ListOrder) -> &'static str {
+    match order {
+        ListOrder::Newest => "newest",
+        ListOrder::Oldest => "oldest",
+    }
+}
+
+/// A page cursor as the model carries it between rounds: the last row's key
+/// time and its id, joined. Opaque to the model — it copies the string the
+/// previous page returned — and exact to the verb, because a keyset names
+/// one row.
+fn encode_cursor(key_ms: i64, id: &str) -> String {
+    format!("{key_ms}:{id}")
+}
+
+fn parse_cursor(raw: &str) -> Result<(i64, String), String> {
+    let (ms, id) = raw
+        .split_once(':')
+        .ok_or_else(|| "argument \"cursor\" is not one a list verb returned".to_string())?;
+    let key_ms = ms
+        .parse::<i64>()
+        .map_err(|_| "argument \"cursor\" is not one a list verb returned".to_string())?;
+    if id.is_empty() {
+        return Err("argument \"cursor\" is not one a list verb returned".to_string());
+    }
+    Ok((key_ms, id.to_string()))
+}
+
+/// Two records of one prompt, written by different hands, agree this closely
+/// in time. The prompt history stamps a row with the composer's own clock at
+/// send, and the facts library stamps the same prompt when the bridge relays
+/// it, so the two timestamps are never equal and never far apart. Equal text
+/// inside this window is one prompt recorded twice, not two prompts.
+const PROMPT_DEDUPE_WINDOW_MS: i64 = 10_000;
 
 /// What the person asked in one session.
 ///
-/// The prompt history comes from the facts library — every prompt, in full,
-/// permanently — merged with the `turns` journal's still-pending submissions.
-/// A session that predates the library has no `prompt` facts, and for it the
-/// verb falls back to what the ledger alone can say (the session row's single
+/// Two records hold it, and the verb reads both. `prompt_history.db` is the
+/// machine-wide, never-trimmed corpus of everything the user has sent, keyed
+/// by the session id that was live at send — and since a session id rotates,
+/// a line's prompts sit under its earlier ids, which the ledger's own
+/// `session_lineage` table bridges. The facts library is this instance's copy,
+/// written as the bridge relays each prompt; it exists only since the library
+/// did, and only for sessions this instance ran. The history is read first and
+/// the facts second, merged by time and de-duplicated by text and timestamp,
+/// then the `turns` journal's still-pending submissions. A session neither
+/// record knows falls back to what the session row alone can say (its single
 /// `last_user_prompt` snippet) and carries a note saying so, so an answer
-/// built on one remembered prompt does not read as the whole history.
+/// built on one remembered prompt does not read as the whole history. Each
+/// row says which record it came from.
 fn session_prompts(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let session_id = req_str(args, "session_id")?;
     refuse_if_private(ctx, "session.prompts", session_id)?;
@@ -815,8 +1235,15 @@ fn session_prompts(ctx: &OperatorContext, args: &Value) -> Result<Value, String>
     let row = ctx
         .ledger
         .get(session_id)
-        .map_err(|err| format!("session.prompts: {err}"))?
-        .ok_or_else(|| format!("no session {session_id:?} in the ledger"))?;
+        .map_err(|err| format!("session.prompts: {err}"))?;
+    let history = prompt_history_rows(ctx, session_id)?;
+    // A session this ledger never held — one another instance recorded,
+    // which `sessions.list` serves from the index — is still answered when
+    // the machine-wide prompt history knows it. Only a session neither
+    // record knows is a stranger.
+    if row.is_none() && history.is_empty() {
+        return Err(format!("no session {session_id:?} in the ledger"));
+    }
     let facts = ctx
         .ledger
         .list_facts_for_session_since(session_id, Some("prompt"), None, FACTS_PROMPT_LIMIT)
@@ -826,8 +1253,36 @@ fn session_prompts(ctx: &OperatorContext, args: &Value) -> Result<Value, String>
         .list_pending_turns_for_session(session_id)
         .map_err(|err| format!("session.prompts: {err}"))?;
 
+    // (text, at_ms, source), history first so that when the two records hold
+    // the same prompt it is the history's row — the full text, the user's own
+    // clock — that survives the de-duplication.
+    let mut recorded: Vec<(String, i64, &'static str)> = history
+        .into_iter()
+        .map(|(text, at_ms)| (text, at_ms, "prompt_history"))
+        .collect();
+    for fact in &facts {
+        // The full prompt lives in the payload; `text` is the one-line
+        // rendering, which is the wrong thing to answer this question with.
+        let text = serde_json::from_str::<Value>(&fact.payload)
+            .ok()
+            .and_then(|p| p.get("text").and_then(Value::as_str).map(str::to_string));
+        if let Some(text) = text {
+            recorded.push((text, fact.at_ms, "facts"));
+        }
+    }
+    let recorded = merge_prompt_records(recorded);
+    let answered_from = match (
+        recorded.iter().any(|(_, _, s)| *s == "prompt_history"),
+        recorded.iter().any(|(_, _, s)| *s == "facts"),
+    ) {
+        (true, true) => "prompt_history+facts",
+        (true, false) => "prompt_history",
+        (false, true) => "facts",
+        (false, false) => "session_row",
+    };
+
     let mut prompts: Vec<Value> = Vec::new();
-    let mut push = |text: &str, at_ms: i64, pending: bool| {
+    let mut push = |text: &str, at_ms: i64, source: &str, pending: bool| {
         if let Some(needle) = query.as_deref()
             && !text.to_lowercase().contains(needle)
         {
@@ -837,24 +1292,20 @@ fn session_prompts(ctx: &OperatorContext, args: &Value) -> Result<Value, String>
             prompts.push(json!({
                 "text": truncate(text, facts_library::PROMPT_TEXT_CAP),
                 "at_ms": at_ms,
+                "source": source,
                 "pending": pending,
             }));
         }
     };
-    if facts.is_empty() {
-        if let Some(last) = row.last_user_prompt.as_deref() {
-            push(last, row.last_used_at, false);
+    if recorded.is_empty() {
+        if let Some(row) = row.as_ref()
+            && let Some(last) = row.last_user_prompt.as_deref()
+        {
+            push(last, row.last_used_at, "session_row", false);
         }
     } else {
-        for fact in &facts {
-            // The full prompt lives in the payload; `text` is the one-line
-            // rendering, which is the wrong thing to answer this question with.
-            let text = serde_json::from_str::<Value>(&fact.payload)
-                .ok()
-                .and_then(|p| p.get("text").and_then(Value::as_str).map(str::to_string));
-            if let Some(text) = text {
-                push(&text, fact.at_ms, false);
-            }
+        for (text, at_ms, source) in &recorded {
+            push(text, *at_ms, source, false);
         }
     }
     for turn in &pending {
@@ -863,19 +1314,253 @@ fn session_prompts(ctx: &OperatorContext, args: &Value) -> Result<Value, String>
         push(
             tugcore::session_transcript::without_landings_block(&turn.user_text),
             turn.created_at,
+            "pending",
             true,
         );
     }
     let mut out = json!({
         "session_id": session_id,
         "prompts": prompts,
-        "turn_count": row.turn_count,
+        "turn_count": row.as_ref().map(|r| r.turn_count),
+        "answered_from": answered_from,
     });
-    if facts.is_empty() {
+    if recorded.is_empty() {
         out["note"] = json!(
-            "this session predates the facts library: only the last prompt \
-             plus anything still in flight is stored"
+            "neither the prompt history nor the facts library holds this \
+             session's prompts: it predates both, so only the session row's \
+             last prompt plus anything still in flight is here"
         );
+    }
+    Ok(out)
+}
+
+/// The prompt history's rows for a session, oldest first, as `(text, at_ms)`.
+///
+/// Read through the session's recorded lineage — a line's prompts sit under
+/// every id it has answered to, and `session_lineage` is the record of which
+/// ids those were. A session the lineage table has never resolved is read
+/// under its own id alone, which is the one id it is sure to have written
+/// under. No prompt ledger on the context is an empty answer, never an error:
+/// the facts and the session row still have their say.
+fn prompt_history_rows(
+    ctx: &OperatorContext,
+    session_id: &str,
+) -> Result<Vec<(String, i64)>, String> {
+    let Some(ledger) = ctx.prompt_ledger.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let mut lineage = ledger
+        .lineage_of(session_id)
+        .map_err(|err| format!("session.prompts: prompt history: {err}"))?;
+    if lineage.is_empty() {
+        lineage.push(session_id.to_string());
+    }
+    let (rows, _has_more) = ledger
+        .list_page(&lineage, None, FACTS_PROMPT_LIMIT)
+        .map_err(|err| format!("session.prompts: prompt history: {err}"))?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.text, row.submitted_at_ms))
+        .collect())
+}
+
+/// Merge prompt records from both sources into one list, oldest first, with
+/// each prompt counted once.
+///
+/// Two records of one prompt carry the same text — compared after the facts
+/// library's own payload cap, which is what the facts copy was written
+/// through — and timestamps within [`PROMPT_DEDUPE_WINDOW_MS`] of each other.
+/// The first record kept wins, and the caller orders the history ahead of
+/// the facts so that it is the history's row that stands. A stable sort by
+/// time afterwards keeps the history-before-facts order among exact ties.
+fn merge_prompt_records(
+    records: Vec<(String, i64, &'static str)>,
+) -> Vec<(String, i64, &'static str)> {
+    let mut kept: Vec<(String, i64, &'static str)> = Vec::with_capacity(records.len());
+    for (text, at_ms, source) in records {
+        let key = truncate(&text, facts_library::PROMPT_PAYLOAD_CAP);
+        let duplicate = kept.iter().any(|(seen, seen_at, _)| {
+            (seen_at - at_ms).abs() <= PROMPT_DEDUPE_WINDOW_MS
+                && truncate(seen, facts_library::PROMPT_PAYLOAD_CAP) == key
+        });
+        if !duplicate {
+            kept.push((text, at_ms, source));
+        }
+    }
+    kept.sort_by_key(|(_, at_ms, _)| *at_ms);
+    kept
+}
+
+/// Where a session's transcript was found, and what the record that found
+/// it knew.
+struct LocatedTranscript {
+    project_dir: String,
+    callsign: Option<String>,
+    title: Option<String>,
+    /// The JSONL on disk, when Claude Code still has it.
+    path: Option<PathBuf>,
+    /// `ledger` for this instance's own row, `index` for one another
+    /// instance recorded, `projects` for a transcript only the tree knew.
+    source: &'static str,
+    instance: Option<String>,
+    /// The ledger's turn count, when the ledger is what answered — the one
+    /// number that survives a swept transcript.
+    ledger_turns: Option<i64>,
+}
+
+/// Place a session's transcript: this ledger first, then the machine.
+///
+/// The ledger arm reads the row the other session verbs read, so a session
+/// this instance ran is answered without a second lookup and a fixture id
+/// that is no uuid still resolves. Past it, `tugcore::session_finder`'s
+/// machine arms — the session index, then the projects tree — place a
+/// session another instance recorded or one this instance has only scanned.
+/// Tug's own worker and app-test sessions are refused at either arm, as the
+/// roster refuses to list them ([B06]). `None` is a session nothing on the
+/// machine knows.
+fn locate_transcript(
+    ctx: &OperatorContext,
+    session_id: &str,
+) -> Result<Option<LocatedTranscript>, String> {
+    let row = ctx
+        .ledger
+        .get(session_id)
+        .map_err(|err| format!("session.transcript: {err}"))?;
+    if let Some(row) = row {
+        if is_tug_noise_project(&row.project_dir) {
+            return Ok(None);
+        }
+        let (dir, _) =
+            crate::session_ledger::claude_project_dir(ctx.ledger.claude_home(), &row.project_dir);
+        let path = dir.join(format!("{session_id}.jsonl"));
+        return Ok(Some(LocatedTranscript {
+            project_dir: row.project_dir,
+            callsign: row.tag,
+            title: row.name,
+            path: path.is_file().then_some(path),
+            source: "ledger",
+            instance: None,
+            ledger_turns: Some(row.turn_count),
+        }));
+    }
+    let env = tugcore::session_finder::FinderEnv {
+        // The ledger has just missed; the finder's own `here` arm would only
+        // ask it again.
+        sessions_db: None,
+        index_db: ctx.session_index_path.clone(),
+        claude_home: ctx.ledger.claude_home().clone(),
+        instance: tugcore::instance::instance_id().unwrap_or_default(),
+    };
+    match tugcore::session_finder::find_beyond_here(session_id, &env) {
+        tugcore::session_finder::Finding::Found(found) => {
+            if is_tug_noise_project(&found.project_dir)
+                || found.instance.as_deref().is_some_and(is_apptest_instance)
+            {
+                return Ok(None);
+            }
+            Ok(Some(LocatedTranscript {
+                project_dir: found.project_dir,
+                callsign: found.callsign,
+                title: found.title,
+                path: found.transcript,
+                source: if found.instance.is_some() {
+                    "index"
+                } else {
+                    "projects"
+                },
+                instance: found.instance,
+                ledger_turns: None,
+            }))
+        }
+        tugcore::session_finder::Finding::Absent => Ok(None),
+    }
+}
+
+/// The conversation itself: a session's transcript, read from Claude Code's
+/// own JSONL on disk and rendered as numbered turns.
+///
+/// `session_id` plus exactly one of `last` (the newest N turns), `turn` (one
+/// turn by its number) or `grep` (every turn whose text contains it): the
+/// verb reads on request and never a whole transcript by default, because a
+/// transcript runs to megabytes and the answer is one page. The rendering is
+/// capped like `repo.read` — `READ_MAX_LINES` lines, `READ_MAX_BYTES` bytes
+/// — and `turn_count` is always the whole transcript's, so the model knows
+/// what it abridged. A transcript the sweep has taken is a note rather than
+/// an error: the session is real, the ledger's record of it still stands,
+/// and only the conversation's text is gone ([B04], [B07]). Read-only: the
+/// file is opened to read and nothing resumes, touches or writes a session.
+fn session_transcript(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
+    let session_id = req_str(args, "session_id")?;
+    refuse_if_private(ctx, "session.transcript", session_id)?;
+    let last = opt_i64(args, "last")?;
+    let turn = opt_i64(args, "turn")?;
+    let grep = opt_str(args, "grep")?;
+    let selectors = [last.is_some(), turn.is_some(), grep.is_some()]
+        .iter()
+        .filter(|set| **set)
+        .count();
+    if selectors != 1 {
+        return Err(
+            "session.transcript: pass exactly one of last (newest N turns), turn (one turn by \
+             number) or grep (turns containing the text)"
+                .to_string(),
+        );
+    }
+    if last.is_some_and(|n| n < 1) || turn.is_some_and(|n| n < 1) {
+        return Err("session.transcript: last and turn count from 1".to_string());
+    }
+    let Some(located) = locate_transcript(ctx, session_id)? else {
+        return Err(format!("no session {session_id:?} in the ledger"));
+    };
+
+    let mut out = json!({
+        "session_id": session_id,
+        "project_dir": located.project_dir,
+        "callsign": located.callsign,
+        "title": located.title,
+        "source": located.source,
+    });
+    if let Some(instance) = &located.instance {
+        out["instance"] = json!(instance);
+    }
+    let Some(path) = located.path else {
+        out["turn_count"] = json!(located.ledger_turns.unwrap_or(0));
+        out["turns"] = json!([]);
+        out["text"] = json!("");
+        out["truncated"] = json!(false);
+        out["note"] = json!(
+            "this session's transcript is no longer on disk: Claude Code sweeps transcripts \
+             after its cleanup period, and Tug keeps no copy. The session itself is real \
+             and its ledger record — prompts, facts, changes — still stands; only the \
+             conversation's text is gone"
+        );
+        return Ok(out);
+    };
+
+    let transcript = tugcore::session_transcript::read(&path);
+    let (selected, _abridged_from) = tugcore::session_transcript::select(
+        &transcript.turns,
+        turn.map(|n| n as usize),
+        last.map(|n| n as usize),
+        grep,
+    );
+    let rendered = tugcore::session_transcript::render(&selected);
+    let mut text = String::new();
+    let mut truncated = false;
+    for (held, line) in rendered.lines().enumerate() {
+        if held >= READ_MAX_LINES || text.len() + line.len() + 1 > READ_MAX_BYTES {
+            truncated = true;
+            break;
+        }
+        text.push_str(line);
+        text.push('\n');
+    }
+    out["turn_count"] = json!(transcript.turns.len());
+    out["turns"] = json!(selected.iter().map(|t| t.number).collect::<Vec<_>>());
+    out["text"] = json!(text);
+    out["truncated"] = json!(truncated);
+    if let Some(stamp) = transcript.last_timestamp {
+        out["last_timestamp"] = json!(stamp);
     }
     Ok(out)
 }
@@ -991,6 +1676,7 @@ async fn git_log(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let n = opt_i64(args, "n")?
         .unwrap_or(GIT_LOG_DEFAULT_N as i64)
         .clamp(1, GIT_LOG_MAX_N as i64);
+    let order = list_order_arg(args)?;
 
     // `-z` makes every chunk — each commit's record and each changed path —
     // NUL-terminated, so a path with a newline in it is one record rather
@@ -1006,8 +1692,16 @@ async fn git_log(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
         // the paths records of their own.
         format!("--format=%H{GIT_FIELD}%ad{GIT_FIELD}%s"),
         "--name-only".into(),
-        format!("-n{n}"),
     ];
+    match order {
+        // Git applies `-n` before `--reverse`, so "the oldest N" cannot be
+        // asked of git in one breath: the oldest-first walk runs unbounded
+        // and the cap is taken here, over the parsed records. A question
+        // about the first commit to touch a path is answered on the first
+        // row rather than by paging back through the newest thirty at a time.
+        ListOrder::Oldest => argv.push("--reverse".into()),
+        ListOrder::Newest => argv.push(format!("-n{n}")),
+    }
     if let Some(grep) = opt_str(args, "grep")? {
         plain_arg(grep, "grep")?;
         argv.push(format!("--grep={grep}"));
@@ -1064,7 +1758,12 @@ async fn git_log(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     for (commit, paths) in commits.iter_mut().zip(files) {
         commit["files"] = json!(paths);
     }
-    Ok(json!({ "commits": commits, "count": commits.len() }))
+    commits.truncate(n as usize);
+    Ok(json!({
+        "commits": commits,
+        "count": commits.len(),
+        "order": order_name(order),
+    }))
 }
 
 /// Cap a diff at both a line count and a byte count, and say so in the text
@@ -1655,6 +2354,164 @@ fn render_now_line(now_ms: i64) -> String {
     }
 }
 
+/// The label the horizon section opens with, pinned in the job table the way
+/// [`NOW_HEADER`] is: the model is told what the section means before it is
+/// shown one.
+pub const HORIZON_HEADER: &str = "HORIZON (where each record begins):";
+
+/// Where every record the Operator can read begins, one source at a time.
+///
+/// Each source is `None` when its read failed — a ledger that would not
+/// answer, an index file that is not there — and `Some` otherwise, a count of
+/// zero included. The distinction is the whole point: an empty source has an
+/// edge the model can reason against, and an unreadable one has to be named
+/// as such or an empty page past it reads as the work's absence.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HorizonReport {
+    /// This ledger's sessions.
+    pub sessions: Option<tugcore::ledger_db::RecordHorizon>,
+    /// This ledger's facts, kind by kind, kinds in alphabetical order.
+    pub facts: Option<Vec<(String, tugcore::ledger_db::RecordHorizon)>>,
+    /// The machine-wide session index, across every instance.
+    pub index: Option<tugcore::ledger_db::RecordHorizon>,
+    /// The machine-wide prompt corpus.
+    pub prompts: Option<tugcore::ledger_db::RecordHorizon>,
+}
+
+/// Read the horizon through the same opens the verbs use. Every arm degrades
+/// on its own: a source that fails is logged and reads as unavailable, and
+/// the others still answer — the roster's posture, because a horizon read
+/// must never cost a question its answer.
+fn read_horizon(ctx: &OperatorContext) -> HorizonReport {
+    let sessions = match ctx.ledger.sessions_horizon() {
+        Ok(h) => Some(h),
+        Err(err) => {
+            warn!(error = %err, "overview operator: sessions horizon unavailable");
+            None
+        }
+    };
+    let facts = match ctx.ledger.facts_horizon_by_kind() {
+        Ok(h) => Some(h),
+        Err(err) => {
+            warn!(error = %err, "overview operator: facts horizon unavailable");
+            None
+        }
+    };
+    let index = index_horizon(ctx);
+    let prompts = ctx
+        .prompt_ledger
+        .as_ref()
+        .and_then(|pl| match pl.horizon() {
+            Ok(h) => Some(h),
+            Err(err) => {
+                warn!(error = %err, "overview operator: prompt history horizon unavailable");
+                None
+            }
+        });
+    HorizonReport {
+        sessions,
+        facts,
+        index,
+        prompts,
+    }
+}
+
+/// The machine-wide index's reach, counting only the sessions the history
+/// surface would serve: Tug's own worker and app-test sessions are out of
+/// the horizon as they are out of the roster ([B06]), or the oldest row the
+/// line names would be one of them, and a session this ledger holds as
+/// private is out as it is from the ledger's own line ([P05]). The raw
+/// horizon read decides whether the index is readable at all, so an
+/// unreadable index stays `None`.
+fn index_horizon(ctx: &OperatorContext) -> Option<tugcore::ledger_db::RecordHorizon> {
+    let path = &ctx.session_index_path;
+    tugcore::session_index::horizon(path)?;
+    let private: std::collections::HashSet<String> = match ctx.ledger.private_session_ids() {
+        Ok(ids) => ids.into_iter().collect(),
+        Err(err) => {
+            warn!(error = %err, "overview operator: index horizon unavailable");
+            return None;
+        }
+    };
+    let mut reach = tugcore::ledger_db::RecordHorizon::default();
+    for entry in tugcore::session_index::all_entries(path) {
+        if is_apptest_instance(&entry.instance)
+            || is_tug_noise_project(&entry.project_dir)
+            || private.contains(&entry.session_id)
+        {
+            continue;
+        }
+        reach.count += 1;
+        reach.oldest_ms = Some(
+            reach
+                .oldest_ms
+                .map_or(entry.created_at_ms, |o| o.min(entry.created_at_ms)),
+        );
+    }
+    Some(reach)
+}
+
+/// One source's reach as the horizon line spells it: the count, and the
+/// oldest row's time in both units — the epoch number is what an `until_ms`
+/// bracket aimed at the edge is computed from, and the date is what the
+/// answer says.
+fn render_reach(h: &tugcore::ledger_db::RecordHorizon) -> String {
+    match h.oldest_ms {
+        Some(oldest) => format!(
+            "{} rows, oldest {oldest} ({})",
+            h.count,
+            render_date_local(oldest)
+        ),
+        None => "no rows".to_string(),
+    }
+}
+
+/// The horizon as the model reads it, one source to a line, under
+/// [`HORIZON_HEADER`]. Pure over a report already read, so it is testable
+/// without a ledger.
+fn render_horizon(report: &HorizonReport) -> String {
+    const UNAVAILABLE: &str = "(unavailable)";
+    let reach = |h: &Option<tugcore::ledger_db::RecordHorizon>| {
+        h.as_ref()
+            .map_or_else(|| UNAVAILABLE.to_string(), render_reach)
+    };
+    let mut out = String::new();
+    out.push_str(HORIZON_HEADER);
+    out.push('\n');
+    out.push_str("- sessions in this ledger: ");
+    out.push_str(&reach(&report.sessions));
+    out.push('\n');
+    out.push_str("- facts in this ledger, by kind: ");
+    match &report.facts {
+        None => out.push_str(UNAVAILABLE),
+        Some(kinds) if kinds.is_empty() => out.push_str("no rows"),
+        Some(kinds) => {
+            let parts: Vec<String> = kinds
+                .iter()
+                .map(|(kind, h)| format!("{kind} {}", render_reach(h)))
+                .collect();
+            out.push_str(&parts.join("; "));
+        }
+    }
+    out.push('\n');
+    out.push_str("- sessions across the machine (session index, every instance): ");
+    out.push_str(&reach(&report.index));
+    out.push('\n');
+    out.push_str("- prompt history (machine-wide, never trimmed): ");
+    out.push_str(&reach(&report.prompts));
+    out.push('\n');
+    out
+}
+
+/// A timestamp as the horizon spells it — the whole date, because an edge
+/// weeks or months back is recognized by its date and nothing else.
+fn render_date_local(at_ms: i64) -> String {
+    match chrono::Local.timestamp_millis_opt(at_ms).single() {
+        Some(local) => local.format("%b %-d, %Y").to_string(),
+        None => at_ms.to_string(),
+    }
+}
+
 /// The label the roster section opens with, printed by [`render_session_roster`]
 /// and — when the read fails — by the pipeline itself, so the model is never
 /// shown a section under a header it was not told about ([P07]).
@@ -1812,16 +2669,26 @@ fn render_question_files(mentions: &[VerifiedMention]) -> String {
     out
 }
 
+/// What both turns are shown ahead of the question, read once per question:
+/// the horizon and the roster, rendered. One parameter because the two are
+/// one preamble — composed together, ordered together, and never shown to a
+/// turn without the other.
+struct Preamble<'a> {
+    horizon: &'a str,
+    roster: &'a str,
+}
+
 fn compose_retrieve_input(
     now_ms: i64,
     question: &str,
-    roster: &str,
+    preamble: &Preamble<'_>,
     scrollback: &str,
     attached: usize,
     question_files: &str,
 ) -> String {
+    let Preamble { horizon, roster } = preamble;
     format!(
-        "{}\n\n{roster}\nQUESTION:\n{question}\n{}{question_files}\nRECENT OVERVIEW POSTS:\n{scrollback}",
+        "{}\n\n{horizon}\n{roster}\nQUESTION:\n{question}\n{}{question_files}\nRECENT OVERVIEW POSTS:\n{scrollback}",
         render_now_line(now_ms),
         render_attached_line(attached),
     )
@@ -1830,7 +2697,7 @@ fn compose_retrieve_input(
 fn compose_answer_input(
     now_ms: i64,
     question: &str,
-    roster: &str,
+    preamble: &Preamble<'_>,
     scrollback: &str,
     results: &str,
     forced: bool,
@@ -1848,7 +2715,9 @@ fn compose_answer_input(
     }
     out.push_str(&render_now_line(now_ms));
     out.push_str("\n\n");
-    out.push_str(roster);
+    out.push_str(preamble.horizon);
+    out.push('\n');
+    out.push_str(preamble.roster);
     out.push_str("\nQUESTION:\n");
     out.push_str(question);
     out.push('\n');
@@ -2265,15 +3134,21 @@ pub async fn run_question(
     // answer — the wake's "a facts read must never cost a wake" posture
     // ([P02]) — and the degraded line still rides the header the model was
     // told about.
-    let roster = match ctx
-        .ledger
-        .list_sessions_recent(None, None, false, SESSIONS_ROSTER_LIMIT)
-    {
+    let roster = match roster_rows(ctx) {
         Ok(rows) => render_session_roster(&rows),
         Err(err) => {
             warn!(error = %err, "overview operator: session roster unavailable");
             format!("{SESSIONS_HEADER}\n(sessions unavailable)\n")
         }
+    };
+
+    // Read once and shown to both turns beside the roster: the retrieve turn
+    // aims an until_ms at the edge it names, and the answer turn says where
+    // the record begins instead of reading an empty page as absence ([B01]).
+    let horizon = render_horizon(&read_horizon(ctx));
+    let preamble = Preamble {
+        horizon: &horizon,
+        roster: &roster,
     };
 
     // Read once, before the turn that spends it: the outlines are the same
@@ -2287,7 +3162,7 @@ pub async fn run_question(
             compose_retrieve_input(
                 now_ms(),
                 question,
-                &roster,
+                &preamble,
                 &scrollback,
                 images.len(),
                 &question_files,
@@ -2338,7 +3213,7 @@ pub async fn run_question(
                 compose_answer_input(
                     now_ms(),
                     question,
-                    &roster,
+                    &preamble,
                     &scrollback,
                     &rendered,
                     forced,
@@ -2465,6 +3340,7 @@ fn now_ms() -> i64 {
 mod tests {
     use super::*;
     use crate::feeds::facts_library;
+    use crate::session_ledger::ScanCacheRow;
     use crate::session_ledger::SessionLedger;
     use tugcast_core::types::{OverviewPost, OverviewRef, OverviewRefKind};
 
@@ -2525,6 +3401,8 @@ mod tests {
                 bootstrap_project_dir: repo.path().to_path_buf(),
                 attachments_dir: dir.path().join("overview-attachments"),
                 haiku,
+                prompt_ledger: None,
+                session_index_path: dir.path().join("session_index.db"),
             },
             _dir: dir,
             repo,
@@ -2633,6 +3511,342 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["session_id"], "sess-a");
         assert_eq!(rows[0]["incipit"], "why is the brio wash so pale");
+    }
+
+    /// The wall becomes a page: sixty sessions, walked oldest-first by start
+    /// time, reach the oldest row on page one and the end on page two, with
+    /// the total saying so from the first page.
+    #[tokio::test]
+    async fn sessions_list_pages_to_the_oldest_row_by_start_time() {
+        let f = fixture();
+        for i in 0..60 {
+            // Started in order, last used in the reverse, so the two clocks
+            // disagree and the test can tell which one ordered the page.
+            let id = format!("sess-{i:02}");
+            f.ctx
+                .ledger
+                .record_spawn(&id, "ws", "/proj", &id, 1_000 + i, &id, None)
+                .expect("spawn");
+            f.ctx.ledger.record_turn(&id, 100_000 - i).expect("touched");
+        }
+
+        let first = run_verb(
+            &f.ctx,
+            "sessions.list",
+            &json!({"order": "oldest", "by": "started"}),
+        )
+        .await
+        .expect("list ran");
+        assert_eq!(first["total"], 60);
+        assert_eq!(first["count"], SESSIONS_LIMIT);
+        assert_eq!(first["order"], "oldest");
+        assert_eq!(first["by"], "started");
+        let rows = first["sessions"].as_array().unwrap();
+        assert_eq!(
+            rows[0]["session_id"], "sess-00",
+            "the oldest start is first"
+        );
+        assert_eq!(rows[0]["created_at_ms"], 1_000);
+        let cursor = first["next_cursor"]
+            .as_str()
+            .expect("a full page carries a cursor")
+            .to_string();
+
+        let second = run_verb(
+            &f.ctx,
+            "sessions.list",
+            &json!({"order": "oldest", "by": "started", "cursor": cursor}),
+        )
+        .await
+        .expect("list ran");
+        assert_eq!(second["count"], 10);
+        assert_eq!(second["total"], 60);
+        let rows = second["sessions"].as_array().unwrap();
+        assert_eq!(rows[0]["session_id"], "sess-50");
+        assert_eq!(rows[9]["session_id"], "sess-59");
+        assert!(
+            second["next_cursor"].is_null(),
+            "the last page carries no cursor"
+        );
+
+        // The default is what it always was: newest by last use.
+        let default = run_verb(&f.ctx, "sessions.list", &json!({}))
+            .await
+            .expect("list ran");
+        assert_eq!(default["order"], "newest");
+        assert_eq!(default["by"], "last_used");
+        assert_eq!(
+            default["sessions"][0]["session_id"], "sess-00",
+            "sess-00 was used last"
+        );
+
+        // A bracket follows the chosen clock.
+        let bracket = run_verb(
+            &f.ctx,
+            "sessions.list",
+            &json!({"by": "started", "since_ms": 1_055}),
+        )
+        .await
+        .expect("list ran");
+        assert_eq!(bracket["total"], 5);
+        assert_eq!(bracket["count"], 5);
+
+        let bad = run_verb(&f.ctx, "sessions.list", &json!({"cursor": "nonsense"}))
+            .await
+            .expect_err("a cursor the verb did not mint is refused");
+        assert!(bad.contains("cursor"), "{bad}");
+    }
+
+    /// A scan-cache row as the scanner would leave it for an unadopted
+    /// transcript: public, counted, and without a line.
+    fn scan_row(
+        session_id: &str,
+        project_dir: &str,
+        created_at: i64,
+        excluded: bool,
+    ) -> ScanCacheRow {
+        ScanCacheRow {
+            session_id: session_id.into(),
+            project_dir: project_dir.into(),
+            file_size: 1_000,
+            file_mtime: created_at,
+            excluded,
+            turn_count: 3,
+            last_user_prompt: Some("scanned prompt".into()),
+            name: None,
+            created_at,
+            last_used_at: created_at + 10,
+            parse_offset: 0,
+            tail_hash: 0,
+            cwd_checked: false,
+            created_at_found: true,
+            frontier_open: false,
+            frontier_pending_close: false,
+            frontier_pending_close_msg_id: None,
+            frontier_leaf_uuid: None,
+            effective_uuids: None,
+            lineage_ancestors: None,
+            line_id: None,
+        }
+    }
+
+    fn index_entry(
+        uuid: &str,
+        project_dir: &str,
+        instance: &str,
+        created_at_ms: i64,
+    ) -> tugcore::session_index::IndexEntry {
+        tugcore::session_index::IndexEntry {
+            session_id: uuid.into(),
+            line_id: String::new(),
+            callsign: Some(format!("cs-{uuid}")),
+            project_dir: project_dir.into(),
+            project_leaf: String::new(),
+            instance: instance.into(),
+            title: None,
+            created_at_ms,
+            updated_at_ms: created_at_ms + 10,
+        }
+    }
+
+    /// The union the picker sees, read the Overview's way: ledger rows, the
+    /// scan cache and the machine-wide index, one row per session with the
+    /// nearer record winning, Tug's own activity excluded, scoped to the
+    /// workspace by default and widened to the machine on request.
+    #[tokio::test]
+    async fn sessions_list_reads_the_union_scoped_to_the_workspace_and_widens_to_the_machine() {
+        let f = fixture();
+        let ledger = &f.ctx.ledger;
+
+        // A ledger row, and a ledger row the scan cache also knows.
+        ledger
+            .record_spawn("held", "ws", "/proj/alpha", "card-1", 5_000, "held", None)
+            .expect("spawn");
+        ledger
+            .record_spawn(
+                "held-too",
+                "ws",
+                "/proj/alpha",
+                "card-2",
+                6_000,
+                "held-too",
+                None,
+            )
+            .expect("spawn");
+        ledger
+            .upsert_scan_cache(&scan_row("held-too", "/proj/alpha", 6_000, false))
+            .expect("scan");
+        // A scanned transcript the ledger never adopted, and one the scanner
+        // itself excluded.
+        ledger
+            .upsert_scan_cache(&scan_row("scanned", "/proj/alpha", 2_000, false))
+            .expect("scan");
+        ledger
+            .upsert_scan_cache(&scan_row("scan-excluded", "/proj/alpha", 1_500, true))
+            .expect("scan");
+        // Two segments of one line: the row is the seat, the span is the
+        // line's.
+        ledger
+            .record_spawn(
+                "seg-1",
+                "ws",
+                "/proj/alpha",
+                "card-3",
+                3_000,
+                "line-x",
+                None,
+            )
+            .expect("spawn");
+        ledger.mark_closed("seg-1").expect("closed");
+        ledger
+            .record_spawn(
+                "seg-2",
+                "ws",
+                "/proj/alpha",
+                "card-3",
+                4_000,
+                "line-x",
+                None,
+            )
+            .expect("spawn");
+        ledger.record_turn("seg-2", 9_000).expect("turn");
+        ledger.mark_closed("seg-2").expect("closed");
+
+        // A private session: the ledger arm leaves it out, and the index —
+        // which carries no privacy flag — must not bring it back.
+        ledger
+            .record_spawn("secret", "ws", "/proj/alpha", "card-4", 20, "secret", None)
+            .expect("spawn");
+        ledger
+            .set_session_private("secret", true)
+            .expect("marked private");
+
+        // The machine-wide index: a session of this project another instance
+        // recorded, one of another project, one the harness recorded, one in
+        // the shared-agent home, and a duplicate of a ledger row.
+        let index =
+            tugcore::session_index::SessionIndex::open(&f.ctx.session_index_path).expect("index");
+        for entry in [
+            index_entry("idx-alpha", "/proj/alpha", "debug-b", 1_000),
+            index_entry("idx-beta", "/proj/beta", "debug-b", 500),
+            index_entry("idx-apptest", "/proj/alpha", "apptest-1234", 100),
+            index_entry(
+                "idx-noise",
+                &tugcore::instance::base_data_dir()
+                    .join("shared-agent")
+                    .to_string_lossy(),
+                "debug-b",
+                50,
+            ),
+            index_entry("held", "/proj/alpha", "debug-b", 10),
+            index_entry("secret", "/proj/alpha", "debug-b", 5),
+        ] {
+            index.upsert(&entry).expect("indexed");
+        }
+
+        let ids_of = |out: &Value| -> Vec<String> {
+            out["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s["session_id"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let row_of = |out: &Value, id: &str| -> Value {
+            out["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["session_id"] == id)
+                .cloned()
+                .unwrap_or_else(|| panic!("{id} missing from {out}"))
+        };
+
+        let workspace = run_verb(
+            &f.ctx,
+            "sessions.list",
+            &json!({"order": "oldest", "by": "started"}),
+        )
+        .await
+        .expect("list ran");
+        assert_eq!(workspace["scope"], "workspace");
+        assert_eq!(workspace["total"], 5, "{workspace}");
+        assert_eq!(
+            ids_of(&workspace),
+            vec!["idx-alpha", "scanned", "seg-2", "held", "held-too"],
+            "oldest start first, the fold carrying the line's start: {workspace}"
+        );
+        assert_eq!(row_of(&workspace, "held")["source"], "ledger");
+        assert_eq!(
+            row_of(&workspace, "held-too")["source"],
+            "ledger",
+            "a session two records know is served from the nearer one"
+        );
+        let scanned = row_of(&workspace, "scanned");
+        assert_eq!(scanned["source"], "scan");
+        assert_eq!(scanned["incipit"], "scanned prompt");
+        let idx = row_of(&workspace, "idx-alpha");
+        assert_eq!(idx["source"], "index");
+        assert_eq!(idx["instance"], "debug-b");
+        assert_eq!(idx["tag"], "cs-idx-alpha");
+        let line = row_of(&workspace, "seg-2");
+        assert_eq!(line["segments"], 2);
+        assert_eq!(line["created_at_ms"], 3_000, "the line's first start");
+        assert_eq!(line["last_used_at_ms"], 9_000, "the line's last use");
+        assert!(workspace["next_cursor"].is_null());
+
+        let machine = run_verb(
+            &f.ctx,
+            "sessions.list",
+            &json!({"order": "oldest", "by": "started", "scope": "machine"}),
+        )
+        .await
+        .expect("list ran");
+        assert_eq!(machine["scope"], "machine");
+        assert_eq!(machine["total"], 6, "{machine}");
+        assert_eq!(
+            ids_of(&machine)[0],
+            "idx-beta",
+            "the other project's session is reachable on request, and it is the oldest"
+        );
+        for never in [
+            "idx-apptest",
+            "idx-noise",
+            "scan-excluded",
+            "seg-1",
+            "secret",
+        ] {
+            assert!(
+                !ids_of(&machine).contains(&never.to_string()),
+                "{never} must not be served at any scope: {machine}"
+            );
+        }
+
+        // The roster reads the same union at the workspace scope, newest
+        // by last use.
+        let roster = roster_of(&f.ctx);
+        assert!(roster.contains("idx-alpha"), "{roster}");
+        assert!(roster.contains("scanned"), "{roster}");
+        assert!(!roster.contains("idx-beta"), "{roster}");
+        assert!(!roster.contains("seg-1"), "{roster}");
+        assert!(roster.contains("seg-2"), "{roster}");
+        assert!(!roster.contains("secret"), "{roster}");
+
+        // The horizon's machine line counts what the surface would serve:
+        // neither the harness's nor the workers' sessions, nor the private
+        // one, may set its edge.
+        assert_eq!(
+            index_horizon(&f.ctx),
+            Some(tugcore::ledger_db::RecordHorizon {
+                oldest_ms: Some(10),
+                count: 3
+            })
+        );
+
+        let bad = run_verb(&f.ctx, "sessions.list", &json!({"scope": "galaxy"}))
+            .await
+            .expect_err("an unknown scope is refused");
+        assert!(bad.contains("scope"), "{bad}");
     }
 
     #[tokio::test]
@@ -2968,6 +4182,67 @@ mod tests {
         assert_eq!(out["count"], FACTS_LIST_LIMIT);
         assert_eq!(rows[0]["at_ms"], 1_039, "newest first");
         assert!(rows[0]["text"].as_str().unwrap().starts_with("$ "));
+    }
+
+    /// The same forty facts, walked oldest-first: the first page starts at
+    /// the oldest row and the cursor carries the walk to the last one.
+    #[tokio::test]
+    async fn facts_list_pages_oldest_first_through_a_cursor() {
+        let f = fixture();
+        for i in 0..40 {
+            seed_fact(
+                &f.ctx,
+                &facts_library::shell_fact(
+                    1_000 + i,
+                    Some("sess-a"),
+                    &facts_library::ShellFact {
+                        command: &format!("cargo build case{i}"),
+                        route: facts_library::ShellRoute::Claude,
+                        ok: true,
+                        exit_code: None,
+                        cwd: None,
+                    },
+                    None,
+                ),
+            );
+        }
+        let first = run_verb(&f.ctx, "facts.list", &json!({"order": "oldest"}))
+            .await
+            .expect("list ran");
+        assert_eq!(first["count"], FACTS_LIST_LIMIT);
+        assert_eq!(first["order"], "oldest");
+        assert_eq!(first["facts"][0]["at_ms"], 1_000, "oldest first");
+        let cursor = first["next_cursor"]
+            .as_str()
+            .expect("more behind")
+            .to_string();
+
+        let second = run_verb(
+            &f.ctx,
+            "facts.list",
+            &json!({"order": "oldest", "cursor": cursor}),
+        )
+        .await
+        .expect("list ran");
+        assert_eq!(second["count"], 10);
+        assert_eq!(second["facts"][0]["at_ms"], 1_030);
+        assert_eq!(second["facts"][9]["at_ms"], 1_039);
+        assert!(second["next_cursor"].is_null());
+
+        // Newest-first pages the other way from the same cursor grammar.
+        let newest = run_verb(&f.ctx, "facts.list", &json!({}))
+            .await
+            .expect("list ran");
+        let cursor = newest["next_cursor"]
+            .as_str()
+            .expect("more behind")
+            .to_string();
+        let older = run_verb(&f.ctx, "facts.list", &json!({"cursor": cursor}))
+            .await
+            .expect("list ran");
+        assert_eq!(older["count"], 10);
+        assert_eq!(older["facts"][0]["at_ms"], 1_009);
+        assert_eq!(older["facts"][9]["at_ms"], 1_000);
     }
 
     #[tokio::test]
@@ -3453,11 +4728,12 @@ mod tests {
             .await
             .expect("prompts ran");
         assert_eq!(out["prompts"].as_array().unwrap().len(), 1);
+        assert_eq!(out["answered_from"], "session_row");
         assert!(
             out["note"]
                 .as_str()
                 .expect("the note is present")
-                .contains("predates the facts library")
+                .contains("predates both")
         );
     }
 
@@ -3468,6 +4744,257 @@ mod tests {
             .await
             .expect_err("unknown session");
         assert!(err.contains("no session"));
+    }
+
+    // MARK: - session.transcript ([B04])
+
+    /// One JSONL record in the shape Claude Code writes, for a transcript
+    /// fixture on disk.
+    fn transcript_record(role: &str, text: &str) -> String {
+        json!({
+            "type": role,
+            "timestamp": "2026-09-21T10:00:00.000Z",
+            "message": { "role": role, "content": [{ "type": "text", "text": text }] },
+        })
+        .to_string()
+    }
+
+    /// A fixture whose ledger lives on disk under a Claude home of its own,
+    /// so a transcript can be placed where the ledger will look for it.
+    fn fixture_with_claude_home() -> (Fixture, tugcore::claude_home::ClaudeHome) {
+        let mut f = fixture();
+        let home = tugcore::claude_home::ClaudeHome::at(f._dir.path().join("claude"));
+        let ledger =
+            SessionLedger::open_with_claude_home(f._dir.path().join("sessions.db"), home.clone())
+                .expect("ledger on disk");
+        f.ctx.ledger = Arc::new(ledger);
+        (f, home)
+    }
+
+    #[tokio::test]
+    async fn session_transcript_reads_turns_by_last_turn_and_grep_and_always_counts_them() {
+        let (f, home) = fixture_with_claude_home();
+        let project = f.repo.path().to_string_lossy().to_string();
+        f.ctx
+            .ledger
+            .record_spawn("sess-t", "ws", &project, "card-1", 1_000, "sess-t", None)
+            .expect("spawn");
+        let (dir, _) = crate::session_ledger::claude_project_dir(&home, &project);
+        std::fs::create_dir_all(&dir).expect("project dir");
+        let jsonl = [
+            transcript_record("user", "first question"),
+            transcript_record("assistant", "first answer"),
+            transcript_record("user", "second question about the overview"),
+            transcript_record("assistant", "second answer"),
+            transcript_record("user", "third question"),
+            transcript_record("assistant", "third answer"),
+        ]
+        .join("\n");
+        std::fs::write(dir.join("sess-t.jsonl"), jsonl).expect("transcript");
+
+        let out = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-t", "last": 2}),
+        )
+        .await
+        .expect("transcript ran");
+        assert_eq!(out["turn_count"], 3, "the whole transcript's count, always");
+        assert_eq!(out["turns"], json!([2, 3]));
+        assert_eq!(out["source"], "ledger");
+        assert_eq!(out["truncated"], false);
+        let text = out["text"].as_str().unwrap();
+        assert!(text.contains("## Turn 2 — user"));
+        assert!(text.contains("third answer"));
+        assert!(!text.contains("first question"), "last 2 leaves turn 1 out");
+
+        let one = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-t", "turn": 1}),
+        )
+        .await
+        .expect("transcript ran");
+        assert_eq!(one["turns"], json!([1]));
+        assert!(one["text"].as_str().unwrap().contains("first answer"));
+
+        let hit = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-t", "grep": "OVERVIEW"}),
+        )
+        .await
+        .expect("transcript ran");
+        assert_eq!(hit["turns"], json!([2]), "grep is case-insensitive");
+        assert_eq!(hit["turn_count"], 3);
+
+        let err = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-t"}),
+        )
+        .await
+        .expect_err("a selector is required");
+        assert!(err.contains("exactly one of last"));
+    }
+
+    #[tokio::test]
+    async fn session_transcript_answers_a_swept_transcript_with_a_note() {
+        let (f, _home) = fixture_with_claude_home();
+        f.ctx
+            .ledger
+            .record_spawn("sess-s", "ws", "/proj", "card-1", 1_000, "sess-s", None)
+            .expect("spawn");
+        f.ctx
+            .ledger
+            .reconcile_turn_count_from_engine("sess-s", 7)
+            .expect("turn count");
+        let out = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-s", "last": 5}),
+        )
+        .await
+        .expect("a swept transcript is an answer, not an error");
+        assert_eq!(out["turn_count"], 7, "the ledger's count still stands");
+        assert_eq!(out["turns"], json!([]));
+        assert!(
+            out["note"]
+                .as_str()
+                .expect("the note is present")
+                .contains("no longer on disk")
+        );
+
+        let err = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "nope", "last": 5}),
+        )
+        .await
+        .expect_err("unknown session");
+        assert!(err.contains("no session"));
+    }
+
+    #[tokio::test]
+    async fn session_prompts_reads_the_prompt_history_through_the_lineage_and_merges_the_facts() {
+        let mut f = fixture();
+        f.ctx
+            .ledger
+            .record_spawn("sess-c", "ws", "/proj", "card-1", 1_000, "sess-c", None)
+            .expect("spawn");
+        // Two prompts live in the history: one under an ancestor id the
+        // session has since rotated away from, one under the live id. The
+        // facts library has its own copy of the second, stamped a little
+        // later by the bridge's clock, plus a third the history never saw.
+        let prompts = PromptLedger::open_in_memory().expect("prompt ledger");
+        for (sid, at, text, id) in [
+            ("sess-a", 2_000, "first, under the ancestor", "e1"),
+            ("sess-c", 5_000, "second, under the live id", "e2"),
+        ] {
+            prompts
+                .append(&crate::prompt_ledger::NewPromptEntry {
+                    session_id: sid.to_string(),
+                    route: "claude".to_string(),
+                    text: text.to_string(),
+                    atoms_json: "[]".to_string(),
+                    project_path: "/proj".to_string(),
+                    submitted_at_ms: at,
+                    client_entry_id: id.to_string(),
+                })
+                .expect("prompt");
+        }
+        prompts
+            .record_chain(
+                &[
+                    "sess-a".to_string(),
+                    "sess-b".to_string(),
+                    "sess-c".to_string(),
+                ],
+                9_000,
+            )
+            .expect("chain");
+        f.ctx.prompt_ledger = Some(Arc::new(prompts));
+        seed_fact(
+            &f.ctx,
+            &facts_library::prompt_fact(5_400, "sess-c", "second, under the live id"),
+        );
+        seed_fact(
+            &f.ctx,
+            &facts_library::prompt_fact(8_000, "sess-c", "third, facts only"),
+        );
+
+        let out = run_verb(&f.ctx, "session.prompts", &json!({"session_id": "sess-c"}))
+            .await
+            .expect("prompts ran");
+        let rows = out["prompts"].as_array().unwrap();
+        let texts: Vec<&str> = rows.iter().map(|r| r["text"].as_str().unwrap()).collect();
+        assert_eq!(
+            texts,
+            [
+                "first, under the ancestor",
+                "second, under the live id",
+                "third, facts only"
+            ],
+            "history first through the lineage, facts merged, oldest first, the shared prompt once"
+        );
+        assert_eq!(rows[0]["source"], "prompt_history");
+        assert_eq!(
+            rows[1]["source"], "prompt_history",
+            "the history's row wins the duplicate"
+        );
+        assert_eq!(rows[1]["at_ms"], 5_000);
+        assert_eq!(rows[2]["source"], "facts");
+        assert_eq!(out["answered_from"], "prompt_history+facts");
+        assert!(out.get("note").is_none(), "both records answered");
+
+        // A session the lineage never resolved reads under its own id, and a
+        // history-only answer says so.
+        f.ctx
+            .ledger
+            .record_spawn("sess-a", "ws", "/proj", "card-2", 1_000, "sess-a", None)
+            .expect("spawn");
+        let out = run_verb(&f.ctx, "session.prompts", &json!({"session_id": "sess-a"}))
+            .await
+            .expect("prompts ran");
+        assert_eq!(out["prompts"].as_array().unwrap().len(), 1);
+        assert_eq!(out["answered_from"], "prompt_history");
+    }
+
+    /// A session only another instance's ledger holds — `sessions.list`
+    /// serves it from the index — still has its prompts read from the
+    /// machine-wide history rather than refused as unknown.
+    #[tokio::test]
+    async fn session_prompts_answers_a_session_only_the_prompt_history_knows() {
+        let mut f = fixture();
+        let prompts = PromptLedger::open_in_memory().expect("prompt ledger");
+        prompts
+            .append(&crate::prompt_ledger::NewPromptEntry {
+                session_id: "elsewhere".to_string(),
+                route: "claude".to_string(),
+                text: "asked on another instance".to_string(),
+                atoms_json: "[]".to_string(),
+                project_path: "/proj".to_string(),
+                submitted_at_ms: 2_000,
+                client_entry_id: "e1".to_string(),
+            })
+            .expect("prompt");
+        f.ctx.prompt_ledger = Some(Arc::new(prompts));
+
+        let out = run_verb(
+            &f.ctx,
+            "session.prompts",
+            &json!({"session_id": "elsewhere"}),
+        )
+        .await
+        .expect("prompts ran");
+        assert_eq!(out["prompts"][0]["text"], "asked on another instance");
+        assert_eq!(out["answered_from"], "prompt_history");
+        assert!(out["turn_count"].is_null(), "no ledger row, no turn count");
+
+        let err = run_verb(&f.ctx, "session.prompts", &json!({"session_id": "nope"}))
+            .await
+            .expect_err("a session neither record knows");
+        assert!(err.contains("no session"), "{err}");
     }
 
     #[tokio::test]
@@ -3491,6 +5018,27 @@ mod tests {
         // The fixture has two commits; the point is that the clamp made a
         // bounded request rather than that git had thirty to give.
         assert!(out["commits"].as_array().unwrap().len() <= GIT_LOG_MAX_N);
+    }
+
+    /// "Which commit first touched X" is answered on the first row of an
+    /// oldest-first log, capped at `n` after the walk — never by paging
+    /// backwards from the newest.
+    #[tokio::test]
+    async fn git_log_orders_oldest_first_on_request_and_caps_after_the_walk() {
+        let f = fixture();
+        let out = run_verb(&f.ctx, "git.log", &json!({"order": "oldest", "n": 1}))
+            .await
+            .expect("log ran");
+        assert_eq!(out["order"], "oldest");
+        assert_eq!(out["count"], 1);
+        assert_eq!(out["commits"][0]["subject"], "add alpha");
+        assert_eq!(out["commits"][0]["files"][0], "alpha.txt");
+
+        let newest = run_verb(&f.ctx, "git.log", &json!({"n": 1}))
+            .await
+            .expect("log ran");
+        assert_eq!(newest["order"], "newest");
+        assert_eq!(newest["commits"][0]["subject"], "add beta");
     }
 
     #[tokio::test]
@@ -4222,7 +5770,11 @@ mod tests {
             .expect("history ran");
         assert_eq!(history["count"], 0, "shell.history drops its commands");
 
-        for verb in ["session.prompts", "changes.for_session"] {
+        for verb in [
+            "session.prompts",
+            "session.transcript",
+            "changes.for_session",
+        ] {
             let err = run_verb(&f.ctx, verb, &json!({"session_id": "sess-priv"}))
                 .await
                 .unwrap_or_else(|err| json!({ "err": err }));
@@ -4319,6 +5871,8 @@ mod tests {
                     bootstrap_project_dir: repo.path().to_path_buf(),
                     attachments_dir: repo.path().join("overview-attachments"),
                     haiku: None,
+                    prompt_ledger: None,
+                    session_index_path: repo.path().join("session_index.db"),
                 }),
                 pool,
                 overview_tx: tx,
@@ -4957,6 +6511,13 @@ mod tests {
     /// about the machine's timezone database.
     const FIXED_NOW: i64 = 1_786_572_090_962;
 
+    /// The horizon as a fixture with nothing behind it renders it: every
+    /// source unavailable. The composer tests are about section order and
+    /// bytes, not about what the ledger holds.
+    fn no_horizon() -> String {
+        render_horizon(&HorizonReport::default())
+    }
+
     #[test]
     fn the_now_line_carries_both_the_epoch_and_a_clock_a_person_reads() {
         let line = render_now_line(FIXED_NOW);
@@ -4994,7 +6555,10 @@ mod tests {
         let composed = compose_retrieve_input(
             FIXED_NOW,
             "what landed",
-            &roster,
+            &Preamble {
+                horizon: &no_horizon(),
+                roster: &roster,
+            },
             "(the channel is empty)\n",
             0,
             &render_question_files(&[]),
@@ -5002,8 +6566,9 @@ mod tests {
         assert_eq!(
             composed,
             format!(
-                "{}\n\n{roster}\nQUESTION:\nwhat landed\n\nRECENT OVERVIEW POSTS:\n(the channel is empty)\n",
+                "{}\n\n{}\n{roster}\nQUESTION:\nwhat landed\n\nRECENT OVERVIEW POSTS:\n(the channel is empty)\n",
                 render_now_line(FIXED_NOW),
+                no_horizon(),
             ),
         );
         assert!(!composed.contains(QUESTION_FILES_HEADER));
@@ -5109,7 +6674,10 @@ mod tests {
         let retrieve = compose_retrieve_input(
             FIXED_NOW,
             "what landed",
-            &roster,
+            &Preamble {
+                horizon: &no_horizon(),
+                roster: &roster,
+            },
             "(the channel is empty)\n",
             0,
             "",
@@ -5120,7 +6688,10 @@ mod tests {
         let answer = compose_answer_input(
             FIXED_NOW,
             "what landed",
-            &roster,
+            &Preamble {
+                horizon: &no_horizon(),
+                roster: &roster,
+            },
             "(the channel is empty)\n",
             "",
             false,
@@ -5133,7 +6704,10 @@ mod tests {
         let forced = compose_answer_input(
             FIXED_NOW,
             "what landed",
-            &roster,
+            &Preamble {
+                horizon: &no_horizon(),
+                roster: &roster,
+            },
             "(the channel is empty)\n",
             "",
             true,
@@ -5148,11 +6722,7 @@ mod tests {
     /// The roster as the pipeline composes it: rows read back through the same
     /// privacy-excluding ledger call, then rendered.
     fn roster_of(ctx: &OperatorContext) -> String {
-        let rows = ctx
-            .ledger
-            .list_sessions_recent(None, None, false, SESSIONS_ROSTER_LIMIT)
-            .expect("roster read");
-        render_session_roster(&rows)
+        render_session_roster(&roster_rows(ctx).expect("roster read"))
     }
 
     #[test]
@@ -5268,11 +6838,24 @@ mod tests {
     fn the_roster_rides_both_turns_between_the_clock_and_the_question() {
         let roster = render_session_roster(&[]);
         for composed in [
-            compose_retrieve_input(FIXED_NOW, "q", &roster, "(the channel is empty)\n", 0, ""),
+            compose_retrieve_input(
+                FIXED_NOW,
+                "q",
+                &Preamble {
+                    horizon: &no_horizon(),
+                    roster: &roster,
+                },
+                "(the channel is empty)\n",
+                0,
+                "",
+            ),
             compose_answer_input(
                 FIXED_NOW,
                 "q",
-                &roster,
+                &Preamble {
+                    horizon: &no_horizon(),
+                    roster: &roster,
+                },
                 "(the channel is empty)\n",
                 "",
                 false,
@@ -5284,6 +6867,263 @@ mod tests {
             let question = composed.find("QUESTION:").expect("the question");
             assert!(now < sessions && sessions < question, "{composed}");
         }
+    }
+
+    // MARK: - The horizon
+
+    #[test]
+    fn the_horizon_rides_both_turns_between_the_clock_and_the_roster() {
+        let roster = render_session_roster(&[]);
+        for composed in [
+            compose_retrieve_input(
+                FIXED_NOW,
+                "q",
+                &Preamble {
+                    horizon: &no_horizon(),
+                    roster: &roster,
+                },
+                "(the channel is empty)\n",
+                0,
+                "",
+            ),
+            compose_answer_input(
+                FIXED_NOW,
+                "q",
+                &Preamble {
+                    horizon: &no_horizon(),
+                    roster: &roster,
+                },
+                "(the channel is empty)\n",
+                "",
+                false,
+                0,
+            ),
+        ] {
+            let now = composed.find(NOW_HEADER).expect("the clock");
+            let horizon = composed.find(HORIZON_HEADER).expect("the horizon");
+            let sessions = composed.find(SESSIONS_HEADER).expect("the roster");
+            assert!(now < horizon && horizon < sessions, "{composed}");
+        }
+    }
+
+    /// Three states, three spellings: a source that could not be read, one
+    /// with no rows, and one with rows. The model is told what each means,
+    /// so the renderer has to keep them apart.
+    #[test]
+    fn an_unreadable_source_says_unavailable_and_an_empty_one_says_no_rows() {
+        let report = HorizonReport {
+            sessions: None,
+            facts: Some(Vec::new()),
+            index: Some(tugcore::ledger_db::RecordHorizon {
+                oldest_ms: None,
+                count: 0,
+            }),
+            prompts: Some(tugcore::ledger_db::RecordHorizon {
+                oldest_ms: Some(FIXED_NOW),
+                count: 3,
+            }),
+        };
+        let rendered = render_horizon(&report);
+        assert!(rendered.starts_with(HORIZON_HEADER), "{rendered}");
+        assert!(
+            rendered.contains("- sessions in this ledger: (unavailable)\n"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("- facts in this ledger, by kind: no rows\n"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("(session index, every instance): no rows\n"),
+            "{rendered}"
+        );
+        // Both units, like the NOW line: the epoch for an until_ms, the date
+        // for the answer.
+        let prompts = rendered
+            .lines()
+            .find(|l| l.starts_with("- prompt history"))
+            .expect("the prompt line");
+        assert!(prompts.contains("3 rows, oldest"), "{prompts}");
+        assert!(prompts.contains(&FIXED_NOW.to_string()), "{prompts}");
+        assert!(prompts.contains(&render_date_local(FIXED_NOW)), "{prompts}");
+    }
+
+    /// The horizon as the pipeline reads it: every source through the open the
+    /// verbs use, the privacy exclusion carried, kinds told apart, the index
+    /// read off its file and the prompts off the ledger handle.
+    #[tokio::test]
+    async fn the_horizon_reads_every_source_the_verbs_read() {
+        let mut f = fixture();
+
+        // Sessions: the oldest start among the ones the Operator may see. The
+        // private one started earlier and must not move the edge.
+        f.ctx
+            .ledger
+            .record_spawn("sess-old", "ws", "/proj", "card-1", 5_000, "sess-old", None)
+            .expect("spawn");
+        f.ctx
+            .ledger
+            .record_spawn("sess-new", "ws", "/proj", "card-2", 9_000, "sess-new", None)
+            .expect("spawn");
+        f.ctx
+            .ledger
+            .record_spawn(
+                "sess-secret",
+                "ws",
+                "/proj",
+                "card-3",
+                1_000,
+                "sess-secret",
+                None,
+            )
+            .expect("spawn");
+
+        // Facts: two kinds that begin at different times, and a fact of a
+        // session that goes private afterwards — the write-time gate refuses
+        // a private session's fact outright, so the read-time exclusion is
+        // what carries one recorded before the session was marked.
+        for (kind, session, at_ms) in [
+            ("shell", "sess-old", 6_000),
+            ("shell", "sess-new", 9_500),
+            ("commit", "sess-new", 9_800),
+            ("shell", "sess-secret", 1_500),
+        ] {
+            seed_fact(
+                &f.ctx,
+                &crate::session_ledger::NewFact {
+                    at_ms,
+                    kind: kind.to_string(),
+                    session_id: Some(session.to_string()),
+                    subject: None,
+                    text: format!("{kind} at {at_ms}"),
+                    payload: "{}".to_string(),
+                    dedupe_key: None,
+                },
+            );
+        }
+        f.ctx
+            .ledger
+            .set_session_private("sess-secret", true)
+            .expect("marked private");
+
+        // The index: a file at the path the context names, written by the
+        // handle tugcast writes through and read back read-only.
+        let index =
+            tugcore::session_index::SessionIndex::open(&f.ctx.session_index_path).expect("index");
+        for (uuid, created_at_ms) in [("aaaa-1111", 3_000), ("bbbb-2222", 7_000)] {
+            index
+                .upsert(&tugcore::session_index::IndexEntry {
+                    session_id: uuid.to_string(),
+                    line_id: uuid.to_string(),
+                    callsign: None,
+                    project_dir: "/proj".to_string(),
+                    project_leaf: String::new(),
+                    instance: "debug-a".to_string(),
+                    title: None,
+                    created_at_ms,
+                    updated_at_ms: created_at_ms,
+                })
+                .expect("indexed");
+        }
+
+        // The prompt corpus, through the handle the context holds.
+        let prompts = PromptLedger::open_in_memory().expect("prompt ledger");
+        for (at, id) in [(2_000, "e1"), (8_000, "e2")] {
+            prompts
+                .append(&crate::prompt_ledger::NewPromptEntry {
+                    session_id: "sess-old".to_string(),
+                    route: "claude".to_string(),
+                    text: "why".to_string(),
+                    atoms_json: "[]".to_string(),
+                    project_path: "/proj".to_string(),
+                    submitted_at_ms: at,
+                    client_entry_id: id.to_string(),
+                })
+                .expect("prompt");
+        }
+        f.ctx.prompt_ledger = Some(Arc::new(prompts));
+
+        let report = read_horizon(&f.ctx);
+        assert_eq!(
+            report.sessions,
+            Some(tugcore::ledger_db::RecordHorizon {
+                oldest_ms: Some(5_000),
+                count: 2
+            }),
+            "the private session's start is out of the channel: {report:?}"
+        );
+        assert_eq!(
+            report.facts,
+            Some(vec![
+                (
+                    "commit".to_string(),
+                    tugcore::ledger_db::RecordHorizon {
+                        oldest_ms: Some(9_800),
+                        count: 1
+                    }
+                ),
+                // `record_spawn` records the lifecycle fact itself, and the
+                // private session's spawn is out of the channel with the rest.
+                (
+                    "session.spawned".to_string(),
+                    tugcore::ledger_db::RecordHorizon {
+                        oldest_ms: Some(5_000),
+                        count: 2
+                    }
+                ),
+                (
+                    "shell".to_string(),
+                    tugcore::ledger_db::RecordHorizon {
+                        oldest_ms: Some(6_000),
+                        count: 2
+                    }
+                ),
+            ]),
+            "{report:?}"
+        );
+        assert_eq!(
+            report.index,
+            Some(tugcore::ledger_db::RecordHorizon {
+                oldest_ms: Some(3_000),
+                count: 2
+            })
+        );
+        assert_eq!(
+            report.prompts,
+            Some(tugcore::ledger_db::RecordHorizon {
+                oldest_ms: Some(2_000),
+                count: 2
+            })
+        );
+
+        // The rendering names each edge by its date, which is what the
+        // answer is told to say.
+        let rendered = render_horizon(&report);
+        assert!(rendered.contains(&render_date_local(5_000)), "{rendered}");
+        assert!(
+            rendered.contains("commit 1 rows, oldest 9800"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("shell 2 rows, oldest 6000"), "{rendered}");
+    }
+
+    /// The fixture's own state: no index file and no prompt ledger. Both read
+    /// as unavailable, and the ledger halves still answer — one failed source
+    /// never costs the line.
+    #[tokio::test]
+    async fn a_missing_index_and_no_prompt_ledger_read_as_unavailable_not_empty() {
+        let f = fixture();
+        let report = read_horizon(&f.ctx);
+        assert_eq!(report.index, None);
+        assert_eq!(report.prompts, None);
+        assert_eq!(
+            report.sessions,
+            Some(tugcore::ledger_db::RecordHorizon::default())
+        );
+        assert_eq!(report.facts, Some(Vec::new()));
+        let rendered = render_horizon(&report);
+        assert_eq!(rendered.matches("(unavailable)").count(), 2, "{rendered}");
+        assert_eq!(rendered.matches("no rows").count(), 2, "{rendered}");
     }
 
     // MARK: - The assembled turns
@@ -5319,7 +7159,10 @@ mod tests {
         let retrieve = compose_retrieve_input(
             FIXED_NOW,
             "what did I ask yesterday",
-            &roster,
+            &Preamble {
+                horizon: &no_horizon(),
+                roster: &roster,
+            },
             "(the channel is empty)\n",
             0,
             "",
@@ -5347,7 +7190,10 @@ mod tests {
         let answer = compose_answer_input(
             FIXED_NOW,
             "what did I ask yesterday",
-            &roster,
+            &Preamble {
+                horizon: &no_horizon(),
+                roster: &roster,
+            },
             "(the channel is empty)\n",
             "\n--- VERB facts.list {}\n",
             false,
@@ -5370,7 +7216,10 @@ mod tests {
         let forced = compose_answer_input(
             FIXED_NOW,
             "what did I ask yesterday",
-            &roster,
+            &Preamble {
+                horizon: &no_horizon(),
+                roster: &roster,
+            },
             "(the channel is empty)\n",
             "",
             true,
@@ -5462,7 +7311,10 @@ mod tests {
         let input = compose_answer_input(
             FIXED_NOW,
             "which files did that commit touch",
-            &render_session_roster(&[]),
+            &Preamble {
+                horizon: &no_horizon(),
+                roster: &render_session_roster(&[]),
+            },
             "(the channel is empty)\n",
             &rendered,
             true,

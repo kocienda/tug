@@ -133,6 +133,18 @@ pub struct OperatorAskArgs {
     #[arg(long)]
     pub shell_db: Option<PathBuf>,
 
+    /// Prompt history ledger, for the horizon line and `session.prompts`.
+    /// POINT THIS AT A COPY, as with `--db`. Omitted reads as "prompt history
+    /// unavailable", which the horizon says in so many words.
+    #[arg(long)]
+    pub prompt_db: Option<PathBuf>,
+
+    /// Session index, for the horizon's machine-wide session count. Read-only,
+    /// the way `tugtool session find` reads it, so the live index is safe;
+    /// omitted uses the machine's own.
+    #[arg(long)]
+    pub session_index_db: Option<PathBuf>,
+
     /// Model for both Operator jobs, for this run only.
     #[arg(long)]
     pub model: Option<String>,

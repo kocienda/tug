@@ -630,6 +630,11 @@ pub(crate) async fn supervisor(
             // reviewed job table, and nothing spawned until a search actually
             // comes back empty twice.
             haiku: Some(Arc::clone(&haiku_agent)),
+            // The prompt corpus and the session index the horizon line reads:
+            // the same handle the composer's recall holds, and the same
+            // machine-wide path every other read-only index reader opens.
+            prompt_ledger: prompt_ledger.clone(),
+            session_index_path: tugcore::instance::session_index_db_path(),
         }),
         pool: Arc::clone(&overview_agent),
         overview_tx: overview_tx.clone(),

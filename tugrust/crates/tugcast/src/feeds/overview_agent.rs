@@ -387,6 +387,8 @@ You cannot run commands or read files. You name verbs; the system runs them for 
 
 The material below opens with a NOW: line — the current time, first as epoch milliseconds and then as a date and a clock. Verb time arguments are epoch milliseconds — compute them from NOW. \"Yesterday\" is NOW minus 86400000; \"this morning\" is a since_ms a few hours back. Never guess a timestamp; there is one on the page.
 
+After it comes a HORIZON (where each record begins): section — one line per source the verbs read: the sessions in this ledger, its facts kind by kind, the sessions across the whole machine in the session index, and the machine-wide prompt history, each with its row count and its oldest row's time as epoch milliseconds and as a date. It says how far back each verb can possibly reach. An empty result for a time before a source's oldest row is the record's edge, not the work's: nothing older was ever recorded there, so do not spend a round reaching further back than the horizon says, and do not read the empty page as proof that nothing happened. To reach a source's oldest rows, aim an until_ms just past its oldest time. A source marked (unavailable) could not be read this turn — a lookup that failed, not a record that is empty.
+
 After it comes a SESSIONS (newest first): roster — the sessions the questions are usually about, with their callsigns, full ids, states, project dirs, and what each one is. When the question names a session by its project, its callsign, or what it was about, take the id from the roster and pass it straight to a verb: do not spend a verb discovering an id that is already in front of you. Use sessions.list only when you need sessions the roster does not carry — older ones, or a specific time range.
 
 When the asker points at a file, a FILES NAMED BY THE QUESTION (verified to exist): section appears below the question, listing each path with its line count and, for the first two, an outline already run for you. Those paths are checked against the tree — the file is there, spelled exactly that way. Never spend a verb finding a file that is already on that list, and never doubt it exists. The outline is your map: take the line number nearest what was asked and go straight to repo.read around it.
@@ -396,14 +398,15 @@ Available verbs and their arguments:
 - overview.search — query (full-text; supports AND/OR/quoted phrases), and optionally author, session_id, since_ms, until_ms. Finds posts in the channel's whole history.
 - overview.window — post_id, n. The posts either side of a hit, to read the narrative around it.
 - facts.search — query (full-text), and optionally kind, session_id, since_ms, until_ms. The fact base: prompts, session lifecycle, shell commands, test runs, commits. Kinds are prompt, session.spawned, session.resumed, session.closed, session.errored, session.reset, session.renamed, session.compacted, commit, shell, test_run.
-- facts.list — all optional: kind, session_id, since_ms, until_ms. The same fact base, browsed by time instead of searched: the newest 30 matching facts, newest first.
+- facts.list — all optional: kind, session_id, since_ms, until_ms, order (newest or oldest; newest unless said), cursor. The same fact base, browsed by time instead of searched: 30 matching facts a page.
 - facts.window — fact_id, n. What else was happening around a fact.
 - shell.history — optionally session_id, query (substring of the command), since_ms, until_ms. Verbatim command history from the session card's shell route, with an excerpt of each command's output.
-- sessions.list — optionally since_ms, until_ms, active. Sessions with their titles, callsigns, synopses, and times — the roster below, gone deeper and further back.
-- session.prompts — session_id, optionally query. What the person actually asked in that session.
+- sessions.list — optionally since_ms, until_ms, active, order (newest or oldest), by (last_used or started; last_used unless said), cursor, scope (workspace or machine; workspace unless said). Sessions with their titles, callsigns, synopses, and times — the roster below, gone deeper and further back, 50 a page. since_ms and until_ms bracket whichever clock by names. The result carries total, how many sessions match the filter in all, and each row carries source — ledger, scan, or index — saying which record knew it, and instance when another Tug instance recorded it.
+- session.prompts — session_id, optionally query. What the person actually asked in that session, read from the machine-wide prompt history (which reaches back through every id the session has had) merged with this instance's facts; each row says which record it came from, and answered_from says which answered in all.
+- session.transcript — session_id plus exactly one of last (the newest N turns), turn (one turn by number) or grep (turns whose text contains it). The conversation itself, from Claude Code's transcript on disk, rendered as numbered turns with the user's words and the assistant's prose and tool calls. Reach for it when the question is what was SAID or DONE in a session — not just asked — and the facts and prompts have not settled it. turn_count is always the whole transcript's; a transcript Claude Code has swept answers with a note and the ledger's record still stands. It finds sessions other instances recorded too, and every result carries the session's callsign, title and project_dir — so a session id the roster does not carry (one a changes or facts result named) is put a name to with session.transcript and last 1, never left as a bare id.
 - changes.for_session — session_id. Files that session touched, with the operation and how it was proven.
 - changes.for_path — pattern (SQL LIKE, e.g. \"%.css\"), optionally since_ms, until_ms. Which sessions touched matching files, and when.
-- git.log — optionally grep, pickaxe (content search), path, since, until, n, session_id. Commits.
+- git.log — optionally grep, pickaxe (content search), path, since, until, n, order (newest or oldest; newest unless said), session_id. Commits, up to 30 a call. A question about the FIRST commit to touch a path, or the earliest commit about something, is order oldest with the path or grep — its first row is the answer — never a walk backwards through the newest thirty.
 - git.show — sha, optionally path, session_id. One commit's message and diff.
 - repo.grep — pattern, optionally path_scope, session_id. The current state of the tree.
 - repo.ls — pattern (a name fragment, a basename, or a git glob), optionally session_id. Real paths matching that name. Use it when you are unsure a file is spelled the way you think it is.
@@ -417,6 +420,10 @@ Confirm with the cheapest source that actually settles it. A fact result carries
 The facts are ground truth for what was asked, what ran, and what happened: prompts in full, every shell command, test-run verdicts and totals, commits, and session lifecycle. Reach for the fact verbs when the question is about any of those — they settle them directly, without going through prose. shell.history is the verbatim command history when the question is which command ran rather than what a fact says about it.
 
 facts.search answers \"find facts about X\" (best matches first); facts.list answers \"what happened\" (newest first). Reach for facts.list when the question is a time or a session, not a topic. Aim it: with no arguments it returns the newest 30 facts of every kind, which is mostly shell commands — pass a kind, a session_id, or a since_ms/until_ms bracket unless you really do want the last thirty things that happened.
+
+A list is a page, not a wall. sessions.list and facts.list each return a page in the order you asked for, and when more rows lie behind it the result carries a next_cursor: pass it back as cursor, with the same other arguments, to read the next page. A question about the oldest, the earliest, or the first of something is order oldest — sessions.list with order oldest and by started puts the session that started first on the first row of the first page — never a walk backwards from the newest, and never an until_ms guessed to land before the roster. total on a sessions.list result says how many match in all, so you know whether the page is the whole answer.
+
+Sessions are scoped to this workspace unless the question reaches past it. The roster and a bare sessions.list cover this instance's ledger and the projects it has sessions for — every session Tug has recorded for them, on this instance or another, back to the oldest record. When the question names another project or workspace, a session outside this one, or asks across projects or workspaces — \"everywhere\", \"all projects\", \"any workspace\", \"in any project\" — pass scope machine, which widens the same verb to every instance on the machine. Tug's own worker and app-test sessions are never served at either scope.
 
 A search query is AND-ed term by term: \"tooltip colors\" finds only records that contain BOTH words, and a phrase that reads naturally to a person often matches nothing at all. Search with ONE distinctive word and let the results narrow you. When the question names a kind of thing — \"which commit\", \"what did we run\", \"which test failed\" — pass the matching kind, or the page goes to whichever kind happened to say that word the loudest.
 
@@ -467,7 +474,9 @@ The channel's own posts are prose written by the Observer and are good for locat
 
 Wrap exact names in backticks — paths, commit shas, symbols, commands. The answer is rendered as markdown, so `tugdeck/src/main.tsx` reads as the name it is and becomes clickable by being written that way. Backtick every one of them, not the first: a path in backticks and the same path bare are one reference wearing two faces, and the reader has to work out that the difference means nothing.
 
-The material below opens with a NOW: line — the current time, first as epoch milliseconds and then as a date and a clock. Compute reader times from the NOW line: it is what makes \"yesterday\" and \"this morning\" mean anything, and what an at_ms in the results converts against. After it comes a SESSIONS (newest first): roster — the sessions the question is likely about, one to a line: the callsign, the full id, the state, the project dir, and the title. It is what lets you name a session the way the next paragraph requires even when no verb returned that session; the id belongs in the refs.
+The material below opens with a NOW: line — the current time, first as epoch milliseconds and then as a date and a clock. Compute reader times from the NOW line: it is what makes \"yesterday\" and \"this morning\" mean anything, and what an at_ms in the results converts against. After it comes a HORIZON (where each record begins): section — where each source the verbs read begins: its row count and its oldest row's time. Read every empty result against it. An empty page for a time before a source's oldest row is the record's edge, not the work's: say that the record begins there, name the date, and never say that nothing happened. A question about the oldest session, the earliest work, or how far back you can see is answered from this section and the verb results together — name each source's edge by its date, and never present the newest sessions on the roster as the oldest you can see. A source marked (unavailable) is a lookup that failed, and you say so. Then comes a SESSIONS (newest first): roster — the sessions the question is likely about, one to a line: the callsign, the full id, the state, the project dir, and the title. It is what lets you name a session the way the next paragraph requires even when no verb returned that session; the id belongs in the refs.
+
+A sessions.list result whose scope is machine reached across every Tug instance on this machine, and the answer says so: the sessions it names may belong to other projects and other workspaces than the one asking. A row's source says which record knew the session — ledger for this instance's own, scan for a transcript on disk it has not adopted, index for one another instance recorded — and its instance names that instance; say which when it bears on the answer, and never present a session another instance recorded as this workspace's own work.
 
 A SESSION IS AN ATOM, AND THE ANSWER HANDS IT OVER AS ONE. Whenever the answer names a session — the one asked about, or any other it rests on — spell it as `<project>/<callsign>` in backticks, where <project> is the LAST path segment of that session's project dir on the roster line and <callsign> is its callsign exactly as the roster spells it. A roster line reading `- little-thaw 0f3c1e5a-… [closed] /Users/kocienda/src/tug — \"Repair the folded card\"` is written into the answer as `tug/little-thaw`. The app checks that spelling against the ledger and mounts the live session atom in its place — the status dot, the hover, the right-click menu that opens, cites and copies it — which is the thing the reader wants from an answer about a session. Nothing else becomes one: a callsign on its own, a title, a bolded name, or a uuid stays plain text, and a reader handed plain text has to go hunting for the session the answer already found. Write the pair at the point where the sentence names the session, and write it that way each time, not only the first. The title is welcome beside it, in quotes, as the sentence's description; it is never a substitute for the pair. Saying the session is \"linked below\" is not an answer: the refs row is provenance, and a session the question is ABOUT belongs in the sentence as its atom.
 
@@ -479,7 +488,7 @@ Spell a commit sha exactly as the result gives it, in backticks, and let the app
 
 REFS are the clickable provenance on your answer. Include one for each file, commit, plan, brief, or session the answer genuinely rests on. Every target MUST be copied EXACTLY from the results — anything you reconstruct or abbreviate cannot be linked and will be discarded. Ref kinds are: session, file, commit, plan, brief.
 
-Before you write that something could not be looked up, read this list again — it is every verb you may ask for: overview.search, overview.window, facts.search, facts.list, facts.window, shell.history, sessions.list, session.prompts, changes.for_session, changes.for_path, git.log, git.show, repo.grep, repo.ls, repo.read, repo.outline. git.log takes a grep argument, so \"which commit was about X\" is always reachable. If one of them could have answered it, ask for that verb rather than describing the gap — and if this is your last round, name the lookup plainly as the follow-up the reader could ask for, instead of leaving them thinking the system has no way to reach it.
+Before you write that something could not be looked up, read this list again — it is every verb you may ask for: overview.search, overview.window, facts.search, facts.list, facts.window, shell.history, sessions.list, session.prompts, session.transcript, changes.for_session, changes.for_path, git.log, git.show, repo.grep, repo.ls, repo.read, repo.outline. git.log takes a grep argument, so \"which commit was about X\" is always reachable. If one of them could have answered it, ask for that verb rather than describing the gap — and if this is your last round, name the lookup plainly as the follow-up the reader could ask for, instead of leaving them thinking the system has no way to reach it.
 
 NEVER write that something is absent from a file unless a scan of that exact file came back ok with zero rows. A verb that errored did not look, and a verb whose note says its path was repaired looked somewhere else — neither is evidence of absence, and saying \"the term does not appear in that document\" on the strength of one is the worst answer this channel can give, because it is confident and wrong. When a lookup failed, say the lookup failed.
 
@@ -646,6 +655,7 @@ mod tests {
             "overview.window",
             "sessions.list",
             "session.prompts",
+            "session.transcript",
             "changes.for_session",
             "changes.for_path",
             "git.log",
@@ -661,6 +671,15 @@ mod tests {
         // told the line is there composes a since_ms out of nothing.
         assert!(retrieve.contains(crate::feeds::operator::NOW_HEADER));
         assert!(retrieve.contains("Verb time arguments are epoch milliseconds"));
+        // The horizon, under the header the composer prints. The 2026-10-27
+        // answer that named the newest session as the oldest and read two
+        // empty pages as proof nothing older existed was a model that had
+        // never been told where the record ends; this is the half that aims
+        // the retrieval at the edge instead of past it.
+        assert!(retrieve.contains(crate::feeds::operator::HORIZON_HEADER));
+        assert!(retrieve.contains("the record's edge, not the work's"));
+        assert!(retrieve.contains("aim an until_ms just past its oldest time"));
+        assert!(retrieve.contains("(unavailable)"));
         // The roster, under the same header the composer prints. Its whole
         // point is the discovery round it saves, which is what the second
         // clause is for — round two is forced, so a round spent finding an id
@@ -686,6 +705,26 @@ mod tests {
              facts.list answers \"what happened\" (newest first)"
         ));
         assert!(retrieve.contains("pass a kind, a session_id, or a since_ms/until_ms bracket"));
+        // Paging. The wall at fifty rows was what made "which session
+        // started first" unanswerable by construction; the page, its cursor
+        // and the oldest-first order are the arguments that reach it, and
+        // the model has to be told their names to ask for them.
+        assert!(retrieve.contains("A list is a page, not a wall"));
+        assert!(retrieve.contains("order (newest or oldest"));
+        assert!(retrieve.contains("by (last_used or started"));
+        assert!(retrieve.contains("pass it back as cursor"));
+        assert!(retrieve.contains("next_cursor"));
+        assert!(retrieve.contains("The result carries total"));
+        assert!(retrieve.contains("with order oldest and by started"));
+        // Scope. The default is the workspace — the user's words — and the
+        // machine is reached on a cross-project or cross-workspace question;
+        // the model has to be told both the argument and the cue.
+        assert!(retrieve.contains("scope (workspace or machine"));
+        assert!(retrieve.contains("Sessions are scoped to this workspace"));
+        assert!(retrieve.contains("pass scope machine"));
+        assert!(retrieve.contains("asks across projects or workspaces"));
+        assert!(retrieve.contains("each row carries source"));
+        assert!(retrieve.contains("never served at either scope"));
         // The example renderings are quoted from `render_text`'s real output,
         // because FTS matches against exactly those words — a query composed
         // against an imagined format finds nothing.
@@ -773,6 +812,17 @@ mod tests {
         // rides the turn, so the answer job is told about the line too.
         assert!(answer.contains(crate::feeds::operator::NOW_HEADER));
         assert!(answer.contains("Compute reader times from the NOW line"));
+        // …and the horizon, which is what an empty result is read against:
+        // the answering half of the same 2026-10-27 miss, where "nothing
+        // before August" should have been "the record begins on Sep 19".
+        assert!(answer.contains(crate::feeds::operator::HORIZON_HEADER));
+        assert!(answer.contains("the record's edge, not the work's"));
+        assert!(answer.contains("never present the newest sessions on the roster as the oldest"));
+        assert!(answer.contains("(unavailable)"));
+        // A widened read says it widened, and a row's source is what lets the
+        // answer say which ledger knew the session.
+        assert!(answer.contains("whose scope is machine reached across every Tug instance"));
+        assert!(answer.contains("A row's source says which record knew the session"));
         // The voice rule asks for a session's callsign; the roster is what
         // makes that satisfiable when no sessions.list verb ran.
         assert!(answer.contains(crate::feeds::operator::SESSIONS_HEADER));

@@ -312,6 +312,35 @@ pub fn lookup_uuid(path: &Path, uuid: &str) -> Vec<IndexEntry> {
     query(path, &sql, &[&uuid])
 }
 
+/// Every row the index holds, in no particular order — the machine-wide
+/// half of the Overview's session surface, which merges it with the asking
+/// ledger's own rows and scopes it in memory. An unreadable index is an
+/// empty answer, as for every other read here.
+pub fn all_entries(path: &Path) -> Vec<IndexEntry> {
+    let sql = format!("SELECT {INDEX_COLUMNS} FROM session_index");
+    query(path, &sql, &[])
+}
+
+/// Where the machine-wide record begins: the oldest segment's `created_at_ms`
+/// and the row count, read through the same read-only open every other
+/// reader takes. `None` is an index that cannot be read — no file yet, or a
+/// file with no table — which a caller reports as unavailable rather than as
+/// empty; an index with no rows answers `Some` with a count of zero.
+pub fn horizon(path: &Path) -> Option<crate::ledger_db::RecordHorizon> {
+    let conn = open_reader(path)?;
+    conn.query_row(
+        "SELECT MIN(created_at_ms), COUNT(*) FROM session_index",
+        [],
+        |row| {
+            Ok(crate::ledger_db::RecordHorizon {
+                oldest_ms: row.get(0)?,
+                count: row.get(1)?,
+            })
+        },
+    )
+    .ok()
+}
+
 /// Every row whose uuid starts with `prefix` — the short-id arm, which is
 /// ambiguous by construction and so answers with all of them.
 pub fn lookup_prefix(path: &Path, prefix: &str) -> Vec<IndexEntry> {
@@ -395,6 +424,36 @@ mod tests {
         assert_eq!(found[0].project_leaf, "eucit");
         assert_eq!(found[0].callsign.as_deref(), Some("curly-apple"));
         assert_eq!(found[0].instance, "debug-a");
+    }
+
+    #[test]
+    fn the_horizon_is_the_oldest_segment_and_the_count_and_a_missing_index_is_unavailable() {
+        let (_dir, path) = on_disk();
+        assert_eq!(horizon(&path), None, "no file is not an empty index");
+
+        let index = SessionIndex::open(&path).unwrap();
+        assert_eq!(
+            horizon(&path),
+            Some(crate::ledger_db::RecordHorizon {
+                oldest_ms: None,
+                count: 0
+            }),
+            "an index with no rows has no oldest row and says so"
+        );
+
+        let mut older = entry("aaaa1111", "curly-apple", "/u/src/eucit");
+        older.created_at_ms = 500;
+        index.upsert(&older).unwrap();
+        index
+            .upsert(&entry("bbbb2222", "odd-kiln", "/u/src/tug"))
+            .unwrap();
+        assert_eq!(
+            horizon(&path),
+            Some(crate::ledger_db::RecordHorizon {
+                oldest_ms: Some(500),
+                count: 2
+            })
+        );
     }
 
     #[test]

@@ -23,6 +23,7 @@ use tugcore::claude_home::ClaudeHome;
 
 use crate::cli::OperatorAskArgs;
 use crate::feeds::{operator, overview_agent};
+use crate::prompt_ledger::PromptLedger;
 use crate::session_ledger::SessionLedger;
 use crate::shared_agent;
 use crate::shell_ledger::ShellLedger;
@@ -57,6 +58,17 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
         None => None,
     };
 
+    let prompt_ledger = match args.prompt_db.as_deref() {
+        Some(path) => match PromptLedger::open(path) {
+            Ok(ledger) => Some(Arc::new(ledger)),
+            Err(error) => {
+                eprintln!("operator-ask: cannot open {}: {error}", path.display());
+                return 1;
+            }
+        },
+        None => None,
+    };
+
     let ctx = operator::OperatorContext {
         ledger,
         shell_ledger,
@@ -78,6 +90,11 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
             },
             Arc::new(shared_agent::ClaudeAgentWorkerSpawner),
         )),
+        prompt_ledger,
+        session_index_path: args
+            .session_index_db
+            .clone()
+            .unwrap_or_else(tugcore::instance::session_index_db_path),
     };
 
     let model = args

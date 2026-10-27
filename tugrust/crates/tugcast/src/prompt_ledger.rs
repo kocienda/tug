@@ -447,6 +447,24 @@ impl PromptLedger {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// Where the prompt corpus begins: the oldest `submitted_at_ms` and the
+    /// row count, across every session and project on the machine. Backs the
+    /// Overview's `HORIZON:` line; this ledger never trims, so the oldest row
+    /// is the oldest prompt Tug has ever recorded.
+    pub fn horizon(&self) -> Result<tugcore::ledger_db::RecordHorizon, PromptLedgerError> {
+        let conn = self.db.lock();
+        Ok(conn.query_row(
+            "SELECT MIN(submitted_at_ms), COUNT(*) FROM prompt_history",
+            [],
+            |row| {
+                Ok(tugcore::ledger_db::RecordHorizon {
+                    oldest_ms: row.get(0)?,
+                    count: row.get(1)?,
+                })
+            },
+        )?)
+    }
+
     /// Whether a row with this client entry id is present. The migration's
     /// verification step, run before it deletes anything.
     pub fn has_entry(&self, client_entry_id: &str) -> Result<bool, PromptLedgerError> {
