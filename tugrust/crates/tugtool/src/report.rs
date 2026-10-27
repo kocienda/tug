@@ -51,12 +51,20 @@ pub fn read_units(source: &str) -> Option<serde_json::Value> {
     value.is_array().then_some(value)
 }
 
-/// The call this process runs under, when the harness says so — read here so
-/// the day one is exported, attachment is exact with no further change.
+/// The call this process runs under: `TUG_TOOL_USE_ID` when a probe or a
+/// harness exported it, else the id the nearest ancestor shell's command is
+/// marked with (`tugcore::call_id`) — read here so attachment is exact with
+/// no further change. A variable that is set, even to nothing, is the
+/// spawner's word: an empty value says "under no call", which is how a test
+/// run from a Bash call of its own keeps that call's mark out of its rows.
 pub(crate) fn tool_use_id() -> Option<String> {
-    ["TUG_TOOL_USE_ID", "CLAUDE_CODE_TOOL_USE_ID"]
+    let exported = ["TUG_TOOL_USE_ID", "CLAUDE_CODE_TOOL_USE_ID"]
         .iter()
-        .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()))
+        .find_map(|key| std::env::var(key).ok());
+    match exported {
+        Some(id) => Some(id).filter(|v| !v.is_empty()),
+        None => tugcore::call_id::ancestor_call_id(),
+    }
 }
 
 /// The report's fields, without the session — `session_identity` adds that.
@@ -596,7 +604,7 @@ mod tests {
                 // A built-in runner, behind a heredoc the hook could not read.
                 summary(
                     "cargo nextest",
-                    "export TUG_TOOL_USE_ID=t; cd tugrust && cargo nextest run -p x",
+                    "# tug-call: t\ncd tugrust && cargo nextest run -p x",
                     40_000,
                     60_000,
                 ),

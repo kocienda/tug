@@ -412,6 +412,13 @@ fn tokenize(command: &str) -> Vec<Tok> {
                     }
                 }
             }
+            '#' if !started => {
+                // A comment runs to its line's end — the hook's call mark
+                // (`# tug-call: <id>`) among them. The newline is its own arm.
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
             _ => {
                 if matches!(c, '$' | '`' | '*' | '?' | '[' | '{') {
                     literal = false;
@@ -2237,15 +2244,19 @@ mod tests {
         );
     }
 
-    /// The hook gives every readable Bash call its id as a leading `export`,
-    /// and that prefix is a command of its own, so the grammar reads past it
-    /// to the head as it always did.
+    /// The hook gives every readable Bash call its id as a leading comment
+    /// line (`# tug-call: <id>`), and a comment is nothing to the shell, so
+    /// the grammar reads past it to the head as it always did — and past a
+    /// trailing comment too, which is not an operand.
     #[test]
-    fn the_hooks_call_id_export_does_not_hide_the_head() {
+    fn the_hooks_call_mark_does_not_hide_the_head() {
         assert_eq!(
-            ops("export TUG_TOOL_USE_ID=toolu_01A; rm a.ts")[0].path,
+            ops("# tug-call: toolu_01A\nrm a.ts")[0].path,
             PathBuf::from("/repo/a.ts")
         );
-        assert_no_file_ops("export TUG_TOOL_USE_ID=toolu_01A; cd tugrust && cargo nextest run");
+        assert_no_file_ops("# tug-call: toolu_01A\ncd tugrust && cargo nextest run");
+        let trailing = ops("rm a.ts # the old one");
+        assert_eq!(trailing.len(), 1);
+        assert_eq!(trailing[0].path, PathBuf::from("/repo/a.ts"));
     }
 }
