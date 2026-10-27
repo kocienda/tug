@@ -875,7 +875,12 @@ fn compose_for(
                 sha: record.base_head.clone(),
                 paths: record.paths.clone(),
                 round_subject: record.round_subject.clone(),
-                round_index: round_index(&job.repo_dir, &job.base_branch, &job.branch, &record.round),
+                round_index: round_index(
+                    &job.repo_dir,
+                    &job.base_branch,
+                    &job.branch,
+                    &record.round,
+                ),
                 worktree: repo_relative(&job.repo_dir, &job.worktree_abs),
             };
             (text, Some(facts))
@@ -2002,7 +2007,10 @@ mod tests {
         assert_eq!(facts["sha"], base, "the base head, full");
         assert_eq!(facts["rounds"], 1);
         assert_eq!(facts["paths"], serde_json::json!(["f.txt"]));
-        assert!(facts.get("worktree").is_none(), "a replay names no worktree");
+        assert!(
+            facts.get("worktree").is_none(),
+            "a replay names no worktree"
+        );
         assert_eq!(
             opener["text"],
             compose_replay_notice("demo", "main", &base, &["f.txt".to_string()]),

@@ -1270,7 +1270,10 @@ async fn a_clean_squash_run_ends_its_ledger_once_with_a_candidate() {
     let (_, json) = tugarc_core::resolve::read_ledger(&root, "demo").expect("a durable ledger");
     let ledger: tugcast_core::types::ArcJoinLedger = serde_json::from_str(&json).unwrap();
     assert!(ledger.ended_ms.is_some(), "the ended closed it");
-    assert_eq!(serde_json::to_value(&ledger.events).unwrap(), serde_json::Value::from(events));
+    assert_eq!(
+        serde_json::to_value(&ledger.events).unwrap(),
+        serde_json::Value::from(events)
+    );
 
     cancel.cancel();
 }
@@ -1326,7 +1329,10 @@ async fn changeset_join_resolve_again_stamps_the_head_pair_and_runs() {
         }
     }
     let terminal = terminal.expect("a terminal resolve frame");
-    assert_eq!(terminal["action"], "changeset_join_resolve_ok", "{terminal}");
+    assert_eq!(
+        terminal["action"], "changeset_join_resolve_ok",
+        "{terminal}"
+    );
 
     let rev = |r: &str| {
         let out = tugcore::test_fixtures::git::command()

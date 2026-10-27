@@ -356,7 +356,10 @@ pub enum ResolverStreamEvent {
     /// Assistant prose.
     Text(String),
     /// A tool call, with the file or pattern it names when it names one.
-    Tool { name: String, target: Option<String> },
+    Tool {
+        name: String,
+        target: Option<String>,
+    },
 }
 
 impl ResolverStreamEvent {
@@ -2504,9 +2507,7 @@ mod tests {
             .events()
             .into_iter()
             .filter_map(|e| match e.body {
-                ArcJoinLedgerEventBody::Resolver { status, .. } if status != "turn" => {
-                    Some(status)
-                }
+                ArcJoinLedgerEventBody::Resolver { status, .. } if status != "turn" => Some(status),
                 ArcJoinLedgerEventBody::Candidate { sha, .. } => {
                     assert_eq!(sha, candidate, "the ledger's candidate is the anchored one");
                     Some("candidate".to_string())

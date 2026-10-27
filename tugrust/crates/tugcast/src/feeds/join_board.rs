@@ -33,9 +33,8 @@ use tugcore::instance::Paths;
 
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
-    ArcConflictCommit, ArcConflictHistory, ArcJoinBlocker, ArcJoinLedger,
-    ArcJoinLedgerEventBody, ArcJoinOffer, ArcJoinQuestion, ArcJoinReport, ArcJoinState,
-    ArcResolvedBase, ArcResolvedFile,
+    ArcConflictCommit, ArcConflictHistory, ArcJoinBlocker, ArcJoinLedger, ArcJoinLedgerEventBody,
+    ArcJoinOffer, ArcJoinQuestion, ArcJoinReport, ArcJoinState, ArcResolvedBase, ArcResolvedFile,
 };
 
 use tugarc_core::resolve::{self, CandidateStatus};
@@ -935,7 +934,10 @@ mod tests {
         let before = ledger_reads();
         let conflicted = compose(repo);
         assert_eq!(conflicted.phase, "conflicted");
-        assert_eq!(conflicted.ledger.as_ref().map(|l| l.run.as_str()), Some("1"));
+        assert_eq!(
+            conflicted.ledger.as_ref().map(|l| l.run.as_str()),
+            Some("1")
+        );
         let again = compose(repo);
         assert!(again.ledger.is_some());
         assert_eq!(ledger_reads(), before + 1, "an unmoved oid is a cache hit");

@@ -532,7 +532,12 @@ fn resolve_ladder(
 
         // Recorded resolution replayed by rerere.
         if let Some(oid) = rerere_resolved.get(path) {
-            rung(ResolvedBy::Rerere, path, true, "replayed a recorded resolution");
+            rung(
+                ResolvedBy::Rerere,
+                path,
+                true,
+                "replayed a recorded resolution",
+            );
             resolved.push(ResolvedFile {
                 path: path.clone(),
                 by: ResolvedBy::Rerere,
@@ -576,7 +581,12 @@ fn resolve_ladder(
 
         // Rung 4 — structured-merge driver.
         if let Some(bytes) = driver_rung(repo, scratch.path(), path, &loaded) {
-            rung(ResolvedBy::Driver, path, true, "the merge driver resolved it");
+            rung(
+                ResolvedBy::Driver,
+                path,
+                true,
+                "the merge driver resolved it",
+            );
             let oid = hash_blob(repo, &bytes)?;
             resolved.push(ResolvedFile {
                 path: path.clone(),
@@ -606,7 +616,9 @@ fn resolve_ladder(
                 theirs: loaded.theirs.clone(),
                 intent: intent.clone(),
             };
-            tell(observer, || LadderEvent::ScribeStarted { path: path.clone() });
+            tell(observer, || LadderEvent::ScribeStarted {
+                path: path.clone(),
+            });
             let merged = m.merge(&req);
             let declined = match &merged {
                 None => Some("the scribe returned nothing"),
@@ -1110,7 +1122,10 @@ fn salvage_rung(
                 out.insert(path.clone(), oid);
             }
             Err(_) => {
-                declined.insert(path.clone(), "the prior chain's resolution could not be read");
+                declined.insert(
+                    path.clone(),
+                    "the prior chain's resolution could not be read",
+                );
             }
         }
     }
@@ -4296,21 +4311,36 @@ mod tests {
         assert_eq!(
             rungs(&events),
             vec![
-                (ResolvedBy::Replay, None, false, "stopped at \"r1\"".to_string()),
+                (
+                    ResolvedBy::Replay,
+                    None,
+                    false,
+                    "stopped at \"r1\"".to_string()
+                ),
                 (
                     ResolvedBy::Salvage,
                     f.clone(),
                     false,
                     "no prior chain to salvage from".to_string()
                 ),
-                (ResolvedBy::Rerere, f.clone(), false, "no recorded resolution".to_string()),
+                (
+                    ResolvedBy::Rerere,
+                    f.clone(),
+                    false,
+                    "no recorded resolution".to_string()
+                ),
                 (
                     ResolvedBy::MergeFile,
                     f.clone(),
                     false,
                     "conflict blocks remain after a three-way merge".to_string()
                 ),
-                (ResolvedBy::Driver, f.clone(), true, "the merge driver resolved it".to_string()),
+                (
+                    ResolvedBy::Driver,
+                    f.clone(),
+                    true,
+                    "the merge driver resolved it".to_string()
+                ),
             ]
         );
         let base_sha = git_stdout(repo, &["rev-parse", "main"]).unwrap();

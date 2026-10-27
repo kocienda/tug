@@ -191,12 +191,7 @@ pub fn spawn_on_demand_draft(
             owner_kind: owner_kind.to_string(),
             owner_id: owner_id.to_string(),
         };
-        send_state(
-            &deps,
-            &key,
-            "error",
-            Some(&unmatched_owner_detail()),
-        );
+        send_state(&deps, &key, "error", Some(&unmatched_owner_detail()));
         return false;
     };
     let key = entry.key;
