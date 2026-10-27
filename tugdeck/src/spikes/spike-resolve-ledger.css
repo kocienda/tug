@@ -1,0 +1,203 @@
+/* ============================================================================
+   spike-resolve-ledger — a resolve ledger under the arc's register
+   ========================================================================= */
+
+/**
+ * @tug-pairings
+ * | Element                                                                  | Surface                                                  | Role          | Context                        |
+ * |--------------------------------------------------------------------------|----------------------------------------------------------|---------------|--------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest (element-global-text-normal-muted-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .sp-rl-caption, .sp-rl-said    |
+ * | --tug7-element-global-text-normal-default-rest (element-global-text-normal-default-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .sp-rl-notes b                 |
+ */
+
+.sp-rl-caption,
+.sp-rl-notes {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  max-width: 68ch;
+  margin: 0;
+}
+
+.sp-rl-notes {
+  padding-inline-start: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sp-rl-notes b {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.sp-rl-notes code, .sp-rl-caption code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.92em;
+}
+
+/* The lane: the register, then the two sections beneath it, as the shade
+   stacks them. */
+.sp-rl-lane {
+  gap: 14px;
+}
+
+/* The register clips its trailing badge today: the root is `overflow:
+   hidden` and the badge cluster is a float one line tall that the badge
+   overflows. The spike lets the row paint whole, which is the fix in one
+   line. */
+.sp-rl .tug-arc-join-register {
+  overflow: visible;
+}
+
+/* ---- DOCUMENTS: a receipt's file list -------------------------------- */
+
+.sp-rl-docs {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The role is the leading cell's content, at the row's own text size —
+   a reader should never squint at the word that says which document this
+   is. The cell widens to the longer word so both paths start on one column. */
+.sp-rl-docs .arc-fold-cell {
+  width: auto;
+  min-width: 5ch;
+  justify-content: flex-start;
+}
+
+.sp-rl-role {
+  font-size: var(--tug-font-size-xs);
+  letter-spacing: 0.02em;
+}
+
+.sp-rl-docfact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- REPORT: the blocks ------------------------------------------------ */
+
+.sp-rl-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The blocks stack as they do in a transcript entry: no gap of this
+   column's own, the chrome's follower-position stack gap between them. */
+.sp-rl-blocks {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A block's identity is prose here — a sentence about a file, not a command
+   — so it takes the receipt's face the way the commit and join receipts do
+   (`session-commit-receipt-block.css`), riding the header's own line box as
+   inline text. The file inside it is a `<code>` run in the column's mono. */
+.sp-rl-identity {
+  display: block;
+  min-width: 0;
+  font-family: var(--tugx-commit-subject-font, var(--tug-font-family-sans));
+  color: var(--tugx-block-text-color);
+}
+
+.sp-rl-identity code {
+  font-family: var(--tugx-block-code-font);
+}
+
+.sp-rl-sha {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: baseline;
+}
+
+/* Body kinds own their inset. Rows carry their own inline inset (a compact
+   list row's padding plus its indicator gutter — the receipt inset is
+   defined as exactly that), so the body states only the block inset. */
+.sp-rl-rows {
+  display: flex;
+  flex-direction: column;
+  padding-block: var(--tugx-block-receipt-inset-block);
+}
+
+.sp-rl-rows .arc-fold-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.6ch;
+}
+
+.sp-rl-said {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* Prose in a body: the receipt's inset on both axes, so its left edge is
+   the rows' text edge in the block above it. */
+.sp-rl-words {
+  padding: var(--tugx-block-receipt-inset-block) var(--tugx-block-receipt-inset-inline);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tugx-block-text-color-muted);
+  max-width: 72ch;
+}
+
+.sp-rl-words code {
+  font-family: var(--tugx-block-code-font);
+  font-size: 0.92em;
+}
+
+/* The question wizard in a body: the shade's own wrapper class gives it its
+   seat; the inset is the body's. */
+.sp-rl-blocks .session-changes-arc-join-question {
+  padding: 0 var(--tugx-block-receipt-inset-inline) var(--tugx-block-receipt-inset-block);
+}
+
+/* Acts that belong to the whole ledger sit at its lower right, where a
+   dialog's own actions sit. */
+.sp-rl-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: var(--tug-space-sm);
+}
+
+/* ---- The sheets: left-aligned ----------------------------------------- */
+
+/* The inline dialog centres its description and caps it at the options
+   width — right for a permission prompt, wrong for a fact sheet, which is
+   read rather than announced. The one proposed change to the shipped
+   blocker, applied to the real component and to the fold receipt alike:
+   the description starts where the title text starts — the icon sets the
+   left edge, the same content inset the body slot already takes — and
+   runs to the matching margin on the right. The path rows drop their empty
+   leading cell so a file name stands on that edge too, not a gutter past
+   it. */
+.sp-rl .session-changes-arc-join-blocker .tug-inline-dialog-description,
+.sp-rl-sheet .tug-inline-dialog-description {
+  text-align: start;
+  margin-inline: 0;
+  max-width: none;
+  box-sizing: border-box;
+  padding-inline: calc(
+    var(--tugx-idialog-content-inset) + var(--tugx-idialog-content-nudge)
+  );
+}
+
+.sp-rl .session-changes-arc-join-paths .arc-fold-cell {
+  display: none;
+}
+
+.sp-rl .session-changes-arc-join-paths .tug-list-row {
+  --tugx-list-row-padding-inline: 0px;
+  --tugx-list-row-indicator-gutter: 0px;
+}
+
+.sp-rl .tug-inline-dialog {
+  margin-inline: 0;
+  max-width: none;
+}
