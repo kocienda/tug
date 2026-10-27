@@ -44,6 +44,7 @@ import {
   columnOffsetProperty,
 } from "./lib/layout-imposer";
 import { deckTrace, type DeckTraceEvent } from "./deck-trace";
+import { bulletin } from "./components/tugways/tug-bulletin";
 import { labFlags } from "./lib/lab-flags";
 import { listViewProbeForScroller } from "./components/tugways/tug-list-view";
 import { smartScrollForElement } from "./lib/smart-scroll";
@@ -610,8 +611,13 @@ import {
  * the pages' dormant clock alone, laid over `dormantAfterMs`, so a test can
  * shorten the host's clock and leave the page's long, and see the host's
  * declaration arrive by itself. Additive; major stays `2`.
+ *
+ * `2.58.0`: adds {@link TugTestSurface.raiseBulletin}: a deck bulletin
+ * raised from this page as any caller raises one, so a test can see where
+ * it is drawn — in the overlay page wherever the host keeps one — and that
+ * it stands clear of the rails. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.57.0" as const;
+export const SURFACE_VERSION = "2.58.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1125,6 +1131,13 @@ export interface TugTestSurface {
   markDeckTrace(): number;
   clearDeckTrace(): void;
   enableDeckTrace(flag: boolean): void;
+
+  /**
+   * Raise a deck bulletin as any caller does (`bulletin()` in
+   * `tug-bulletin.tsx`), in `tone`, sticky so it stands until read
+   * (SURFACE_VERSION 2.58.0).
+   */
+  raiseBulletin(message: string, tone?: "default" | "success" | "danger" | "caution"): void;
 
   /**
    * Lab flag (SURFACE_VERSION 1.18.0): render session transcripts with
@@ -2871,6 +2884,11 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
 
     clearDeckTrace(): void {
       deckTrace.clear();
+    },
+
+    raiseBulletin(message: string, tone: "default" | "success" | "danger" | "caution" = "default"): void {
+      const raise = tone === "default" ? bulletin : bulletin[tone];
+      raise(message, { sticky: true });
     },
 
     // ---- list-view probes, answered by the page holding the scroller: a

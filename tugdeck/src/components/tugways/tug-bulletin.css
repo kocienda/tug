@@ -182,6 +182,14 @@ body {
   background-color: var(--tug7-surface-control-primary-ghost-action-active);
 }
 
+/* ---- The provider's host — carries the rail insets the Toaster's offset
+   reads (`--tug-bulletin-inset-left/right`, written by `setBulletinInsets`)
+   and takes no box of its own ---- */
+
+.tug-bulletin-host {
+  display: contents;
+}
+
 /* ---- Sonner viewport container — ensure correct z-layering ---- */
 
 [data-sonner-toaster] {

@@ -62,6 +62,7 @@ import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { CardPlacementBeacon } from "./card-placement-beacon";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot } from "@/components/tugways/tug-slot";
+import { setBulletinInsets } from "@/components/tugways/tug-bulletin";
 import { usePaneFocusController } from "./pane-focus-controller";
 import { canvasDeck, canvasDeckEqual } from "./canvas-deck-fields";
 import { useStoreDerived } from "@/lib/use-store-derived";
@@ -97,7 +98,7 @@ import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-reque
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { isBodyKind } from "@/lib/body-handoff";
 import { hostKeepsOverlay } from "@/lib/overlay-shell";
-import { overlayMarginCaps } from "@/bus/declarations/overlay";
+import { overlayBulletinInsets, overlayMarginCaps } from "@/bus/declarations/overlay";
 import { getJotsStore } from "@/lib/jots-store";
 import { jotsNewJot } from "@/bus/declarations/verbs";
 import {
@@ -4847,6 +4848,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   useLayoutEffect(() => {
     if (hostKeepsOverlay()) overlayMarginCaps.set({ left: capLeft, right: capRight });
   }, [capLeft, capRight]);
+
+  // The deck's bulletin stack stands clear of the rails: each side's reach
+  // in from the window edge — its edge inset and its width — or nothing
+  // where no rail stands. The overlay's stack is the one seen wherever the
+  // host keeps one; this page's own stands in a plain browser.
+  const bulletinLeft = railWidthOf("left") > 0 ? RAIL_EDGE_INSET_PX + railWidthOf("left") : 0;
+  const bulletinRight = railWidthOf("right") > 0 ? RAIL_EDGE_INSET_PX + railWidthOf("right") : 0;
+  useLayoutEffect(() => {
+    const insets = { left: bulletinLeft, right: bulletinRight };
+    setBulletinInsets(insets);
+    if (hostKeepsOverlay()) overlayBulletinInsets.set(insets);
+  }, [bulletinLeft, bulletinRight]);
 
   return (
     <ResponderScope>

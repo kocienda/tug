@@ -11,10 +11,14 @@
  *   reach it;
  * - otherwise, the rects of every element marked `data-overlay-claim` that
  *   has an area: the update pill, and any surface the overlay draws for a
- *   card; none at all when it shows nothing.
+ *   card; and every deck bulletin standing in the stack (Sonner's
+ *   `data-sonner-toast`, which no attribute of ours can reach); none at all
+ *   when it shows nothing.
  *
- * Read on a mutation of the page, coalesced to one reading a frame; posted
- * only when it says something new. What was last posted is stamped on the
+ * Read on a mutation of the page, coalesced to one reading a frame, and
+ * again when a transition ends — a bulletin slides in under a transform, so
+ * the reading at its mount sees it mid-flight; posted only when it says
+ * something new. What was last posted is stamped on the
  * document as {@link OVERLAY_CLAIM_STATE_ATTRIBUTE}, after the post: a
  * reader of this page that sees the stamp knows the host has the claim,
  * since the post and the read's reply leave this process on one ordered
@@ -40,11 +44,14 @@ export function overlayClaimKind(claim: OverlayClaim): "all" | "rects" | "none" 
 
 const DIALOGS = '[role="dialog"], [role="alertdialog"]';
 
+/** What the claim is read from: marked surfaces, and the bulletins Sonner draws. */
+const CLAIMED = `[${OVERLAY_CLAIM_ATTRIBUTE}], [data-sonner-toast]`;
+
 /** The claim `doc` stands for now. Reads layout. */
 export function readOverlayClaim(doc: Document): OverlayClaim {
   if (doc.querySelector(DIALOGS) !== null) return { all: true };
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
-  for (const el of doc.querySelectorAll(`[${OVERLAY_CLAIM_ATTRIBUTE}]`)) {
+  for (const el of doc.querySelectorAll(CLAIMED)) {
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;
     // Grown outward to whole points on every edge, so no strip of a surface
@@ -89,9 +96,11 @@ export function installOverlayClaim(
   observer.observe(doc.body, { subtree: true, childList: true, attributes: true });
   const view = doc.defaultView;
   view?.addEventListener("resize", schedule);
+  doc.addEventListener("transitionend", schedule, true);
   read();
   return () => {
     observer.disconnect();
     view?.removeEventListener("resize", schedule);
+    doc.removeEventListener("transitionend", schedule, true);
   };
 }

@@ -50,6 +50,48 @@ describe("the overlay's claim", () => {
     document.body.innerHTML = "";
   });
 
+  test("takes in a deck bulletin, which Sonner draws with no mark of ours", () => {
+    document.body.innerHTML = "";
+    const toast = document.createElement("li");
+    toast.setAttribute("data-sonner-toast", "");
+    toast.getBoundingClientRect = () => ({ x: 900.5, y: 24, width: 400, height: 72.25 }) as DOMRect;
+    document.body.append(toast);
+    // Grown outward to whole points, so the close button at its corner is in.
+    expect(readOverlayClaim(document)).toEqual({ rects: [{ x: 900, y: 24, width: 401, height: 73 }] });
+    document.body.innerHTML = "";
+  });
+
+  test("is read again when a transition ends, where a bulletin slid in comes to rest", async () => {
+    document.body.innerHTML = "";
+    const posted: OverlayClaim[] = [];
+    const release = installOverlayClaim(
+      document,
+      (claim) => posted.push(claim),
+      (step) => {
+        step();
+        return 0;
+      },
+    );
+    try {
+      const toast = document.createElement("li");
+      toast.setAttribute("data-sonner-toast", "");
+      let y = -72;
+      toast.getBoundingClientRect = () => ({ x: 900, y, width: 400, height: 72 }) as DOMRect;
+      document.body.append(toast);
+      await settle();
+      // The reading at the mount sees the toast mid-slide.
+      expect(posted[posted.length - 1]).toEqual({ rects: [{ x: 900, y: -72, width: 400, height: 72 }] });
+      // The slide ends with no mutation of the page: only the transition says so.
+      y = 24;
+      toast.dispatchEvent(new Event("transitionend", { bubbles: true }));
+      expect(posted[posted.length - 1]).toEqual({ rects: [{ x: 900, y: 24, width: 400, height: 72 }] });
+    } finally {
+      release();
+      document.body.innerHTML = "";
+      document.documentElement.removeAttribute(OVERLAY_CLAIM_STATE_ATTRIBUTE);
+    }
+  });
+
   test("is posted when it changes and stamped on the document after the post", async () => {
     document.body.innerHTML = "";
     document.documentElement.removeAttribute(OVERLAY_CLAIM_STATE_ATTRIBUTE);

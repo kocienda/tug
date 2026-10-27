@@ -23,6 +23,7 @@ import type { CardDeck } from "../card-deck";
 import {
   overlayAlert,
   overlayAppModal,
+  overlayBulletin,
   overlayCloseOpenQuickly,
   overlayLiveTurns,
   overlayNetworkPath,
@@ -38,6 +39,7 @@ import { pageBus } from "../bus/page-bus";
 import { postToHost } from "../host/channel";
 import { overlayCreateToHost } from "../host/declarations/overlay";
 import { appModalStore } from "./app-modal-store";
+import { setBulletinRelay } from "../components/tugways/tug-bulletin";
 import { getAppLifecycle } from "./app-lifecycle";
 import { hostCapabilitiesStore } from "./body-handoff";
 import { setConfigureTugOnDemandSink } from "./configure-tug-request-store";
@@ -135,6 +137,23 @@ export function installOverlayShell(deck: CardDeck): () => void {
   releases.push(overlayOpenFirstSession.handle(({ projectDir }) => openFirstSession(deck, projectDir)));
   // The overlay's modals are the app's: the menu reads them here.
   relay(overlayAppModal.subscribe, () => appModalStore.mirror(overlayAppModal.getFor(OVERLAY_CARD_ID)));
+
+  // The deck's bulletins are shown in the overlay's stack: the cards stand
+  // over this page, so one drawn here is covered by any card beneath it.
+  setBulletinRelay((relayed) =>
+    overlayBulletin.dispatch(
+      {
+        tone: relayed.tone,
+        message: relayed.message,
+        description: relayed.description,
+        duration: relayed.duration,
+        sticky: relayed.sticky,
+        okLabel: relayed.okLabel,
+      },
+      { card: OVERLAY_CARD_ID },
+    ),
+  );
+  releases.push(() => setBulletinRelay(null));
 
   // The Tug menu's Configure Tug… opens the overlay's wizard.
   setConfigureTugOnDemandSink(() => overlayOpenConfigure.dispatch({}, { card: OVERLAY_CARD_ID }));

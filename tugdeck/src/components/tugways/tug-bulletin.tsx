@@ -6,6 +6,24 @@
  * wrapping its children and providing context for useTugBulletin().
  * Sonner owns enter/exit animations — CSS handles styling only [L14].
  *
+ * **Where the stack is drawn.** Wherever the host makes body views, every
+ * card stands over the shell's page, so a bulletin the shell drew there was
+ * covered by whatever card stood under it — a sidebar rail most of all,
+ * since the stack sits at the top-right corner a right rail fills ([B08]).
+ * There the shell installs a relay ({@link setBulletinRelay}) and every
+ * deck bulletin is shown in the overlay page above the cards instead
+ * (`overlay.bulletin`); the overlay's own provider shows it with
+ * {@link showBulletinHere}. Only text crosses, so an `action` callback is
+ * dropped there with a warning. Where the host keeps no overlay — a plain
+ * browser — the shell's own provider shows it, as before.
+ *
+ * **The stack evades the rails.** Either page's stack stands clear of any
+ * sidebar rail on its side: the deck canvas publishes each side's rail span
+ * ({@link setBulletinInsets}) and the Toaster's offset adds it to Sonner's
+ * own 24px through a custom property on the provider's host element, so a
+ * rail appearing, closing or changing width moves the stack with no render
+ * ([L06]).
+ *
  * Laws: [L06] appearance via CSS, [L16] pairings declared, [L19] component authoring guide
  */
 
@@ -15,6 +33,7 @@ import React, { createContext, useContext } from "react";
 import { Toaster, toast } from "sonner";
 
 import { BULLETIN_ICONS } from "./bulletin-icons";
+import { tugDevLogStore } from "../../lib/tug-dev-log-store/tug-dev-log-store";
 
 /* ---------------------------------------------------------------------------
  * Helpers
@@ -97,19 +116,87 @@ export function TugBulletinProvider({ position = "top-right", children }: TugBul
     TugBulletinContext.Provider,
     { value: contextValue },
     children,
-    React.createElement(Toaster, {
-      position: mapPosition(position),
-      toastOptions: {
-        className: "tug-bulletin",
-        unstyled: true,
-      },
-      // Every bulletin carries a close affordance — dismissal never waits on
-      // the auto-dismiss timeout.
-      closeButton: true,
-      icons: BULLETIN_ICONS,
-      gap: 8,
-    }),
+    React.createElement(
+      "div",
+      { className: "tug-bulletin-host", ref: registerBulletinHost },
+      React.createElement(Toaster, {
+        position: mapPosition(position),
+        toastOptions: {
+          className: "tug-bulletin",
+          unstyled: true,
+        },
+        // Every bulletin carries a close affordance — dismissal never waits on
+        // the auto-dismiss timeout.
+        closeButton: true,
+        icons: BULLETIN_ICONS,
+        gap: 8,
+        offset: BULLETIN_OFFSET,
+      }),
+    ),
   );
+}
+
+/* ---------------------------------------------------------------------------
+ * Rail insets — the stack stands clear of the sidebar rails
+ * ---------------------------------------------------------------------------*/
+
+/** How far each side's sidebar rail reaches in from the window edge, layout
+ *  px, or 0 where no rail stands. */
+export interface BulletinInsets {
+  left: number;
+  right: number;
+}
+
+/** Sonner's own viewport offset, which every side keeps. */
+const BULLETIN_EDGE_PX = 24;
+
+const INSET_LEFT_PROPERTY = "--tug-bulletin-inset-left";
+const INSET_RIGHT_PROPERTY = "--tug-bulletin-inset-right";
+
+/** Sonner writes these onto its toaster as `--offset-*`; the side ones read
+ *  the rail insets the host element carries, so the stack moves with the
+ *  rails through the DOM alone ([L06]). */
+const BULLETIN_OFFSET = {
+  top: BULLETIN_EDGE_PX,
+  bottom: BULLETIN_EDGE_PX,
+  left: `calc(${BULLETIN_EDGE_PX}px + var(${INSET_LEFT_PROPERTY}, 0px))`,
+  right: `calc(${BULLETIN_EDGE_PX}px + var(${INSET_RIGHT_PROPERTY}, 0px))`,
+};
+
+let bulletinInsets: BulletinInsets = { left: 0, right: 0 };
+const bulletinHosts = new Set<HTMLElement>();
+
+function writeInsets(el: HTMLElement): void {
+  el.style.setProperty(INSET_LEFT_PROPERTY, `${bulletinInsets.left}px`);
+  el.style.setProperty(INSET_RIGHT_PROPERTY, `${bulletinInsets.right}px`);
+}
+
+/** The provider's host element, registered at mount and given the standing
+ *  insets at once, so a stack mounted after the rails were laid out is
+ *  already clear of them. */
+function registerBulletinHost(el: HTMLDivElement | null): void {
+  if (el === null) {
+    for (const host of bulletinHosts) if (!host.isConnected) bulletinHosts.delete(host);
+    return;
+  }
+  bulletinHosts.add(el);
+  writeInsets(el);
+}
+
+/**
+ * Publish how far each side's rail reaches in, so every mounted stack —
+ * and any mounted later — stands clear of it. Written only when a value
+ * changes.
+ */
+export function setBulletinInsets(insets: BulletinInsets): void {
+  if (insets.left === bulletinInsets.left && insets.right === bulletinInsets.right) return;
+  bulletinInsets = { left: insets.left, right: insets.right };
+  for (const host of bulletinHosts) writeInsets(host);
+}
+
+/** The insets last published, for tests. */
+export function getBulletinInsets(): BulletinInsets {
+  return bulletinInsets;
 }
 
 /**
@@ -172,17 +259,94 @@ export interface BulletinOptions {
  * ```
  */
 export function bulletin(message: string, options?: BulletinOptions): void {
-  toast(message, { ...mapOptions(options) });
+  raise("default", message, options);
 }
 
 bulletin.success = (message: string, options?: BulletinOptions): void => {
-  toast.success(message, { ...mapOptions(options) });
+  raise("success", message, options);
 };
 
 bulletin.danger = (message: string, options?: BulletinOptions): void => {
-  toast.error(message, { ...mapOptions(options) });
+  raise("danger", message, options);
 };
 
 bulletin.caution = (message: string, options?: BulletinOptions): void => {
-  toast.warning(message, { ...mapOptions(options) });
+  raise("caution", message, options);
 };
+
+/* ---------------------------------------------------------------------------
+ * The relay — a deck bulletin shown in the overlay page
+ * ---------------------------------------------------------------------------*/
+
+export type BulletinTone = "default" | "success" | "danger" | "caution";
+
+/** A deck bulletin as it crosses to the overlay page: text only. */
+export interface RelayedBulletin {
+  tone: BulletinTone;
+  message: string;
+  description?: string;
+  duration?: number;
+  sticky?: boolean;
+  okLabel?: string;
+}
+
+let bulletinRelay: ((relayed: RelayedBulletin) => void) | null = null;
+
+/**
+ * Send every deck bulletin to `relay` instead of this page's stack, or show
+ * them here again with `null`. The shell installs one wherever the host
+ * keeps an overlay above the cards (`lib/overlay-shell.ts`).
+ */
+export function setBulletinRelay(relay: ((relayed: RelayedBulletin) => void) | null): void {
+  bulletinRelay = relay;
+}
+
+/** What `options` becomes when it crosses: the text and the timing, never
+ *  a callback. A sticky bulletin's OK button is drawn by the far side. */
+export function relayedBulletinOf(
+  tone: BulletinTone,
+  message: string,
+  options?: BulletinOptions,
+): RelayedBulletin {
+  const relayed: RelayedBulletin = { tone, message };
+  if (options?.description !== undefined) relayed.description = options.description;
+  if (options?.duration !== undefined && Number.isFinite(options.duration)) relayed.duration = options.duration;
+  if (options?.sticky === true) relayed.sticky = true;
+  if (options?.okLabel !== undefined) relayed.okLabel = options.okLabel;
+  return relayed;
+}
+
+function raise(tone: BulletinTone, message: string, options?: BulletinOptions): void {
+  if (bulletinRelay === null) {
+    showWithSonner(tone, message, mapOptions(options));
+    return;
+  }
+  if (options?.action !== undefined && options.sticky !== true) {
+    tugDevLogStore.warn("bulletin", "a deck bulletin's action cannot cross to the overlay; shown without it");
+  }
+  bulletinRelay(relayedBulletinOf(tone, message, options));
+}
+
+/** Show a relayed bulletin in this page's stack — the overlay's answer to
+ *  `overlay.bulletin`. Never relays again. */
+export function showBulletinHere(relayed: RelayedBulletin): void {
+  showWithSonner(
+    relayed.tone,
+    relayed.message,
+    mapOptions({
+      description: relayed.description,
+      duration: relayed.duration,
+      sticky: relayed.sticky,
+      okLabel: relayed.okLabel,
+    }),
+  );
+}
+
+function showWithSonner(tone: BulletinTone, message: string, options: Record<string, unknown>): void {
+  switch (tone) {
+    case "success": toast.success(message, options); return;
+    case "danger":  toast.error(message, options); return;
+    case "caution": toast.warning(message, options); return;
+    default:        toast(message, options); return;
+  }
+}

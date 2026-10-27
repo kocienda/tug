@@ -279,6 +279,38 @@ export const overlayOpenConfigure = defineAction({
   codec: empty,
 });
 
+/**
+ * A deck bulletin the shell raised, shown in the overlay's stack above every
+ * card (`tug-bulletin.tsx`). Text only: a callback cannot cross. Held for an
+ * overlay not yet attached, so a bulletin raised during boot is still seen.
+ */
+export const overlayBulletin = defineAction({
+  id: "overlay.bulletin",
+  owner: "card",
+  codec: obj({
+    tone: literal("default", "success", "danger", "caution"),
+    message: str,
+    description: optional(str),
+    duration: optional(num),
+    sticky: optional(bool),
+    okLabel: optional(str),
+  }),
+});
+
+/**
+ * How far each side's sidebar rail reaches in from the window edge, layout
+ * px, or 0 where none stands, so the overlay's bulletin stack stands clear
+ * of the rails. The shell computes it from the rails it lays out and
+ * changes it only at a commit.
+ */
+export const overlayBulletinInsets = defineSharedStore<{ left: number; right: number }>({
+  key: "overlay.bulletinInsets",
+  owner: "shell",
+  scope: overlayOnly,
+  codec: obj({ left: num, right: num }),
+  initial: { left: 0, right: 0 },
+});
+
 /** An alert the shell raises, shown in the overlay; the reply is whether it was confirmed. */
 export const overlayAlert = defineRequest({
   id: "overlay.alert",

@@ -1,8 +1,8 @@
 /**
  * The overlay page's one React tree, rendered once at boot ([L01]).
  *
- * It holds the margin caps over every card, the app-modals and the update
- * notice (`AppGates`), the singleton
+ * It holds the margin caps over every card, the deck's bulletin stack, the
+ * app-modals and the update notice (`AppGates`), the singleton
  * alert the shell's alerts are shown in, Open Quickly and the zoom readout,
  * and the canvas overlay root they all portal into. Nothing in it reads a
  * card's geometry: the one surface that names a card at all reads
@@ -13,7 +13,7 @@
  */
 
 import React, { useLayoutEffect } from "react";
-import { overlayAlert } from "../bus/declarations/overlay";
+import { overlayAlert, overlayBulletin, overlayBulletinInsets } from "../bus/declarations/overlay";
 import { CanvasOverlayRoot } from "../components/chrome/canvas-overlay-root";
 import { OpenQuicklyOverlay } from "../components/chrome/open-quickly-overlay";
 import { ZoomReadout } from "../components/chrome/zoom-readout";
@@ -22,6 +22,7 @@ import { ErrorBoundary } from "../components/chrome/error-boundary";
 import { AppGates } from "../components/tugways/app-gates";
 import { ResponderChainProvider } from "../components/tugways/responder-chain-provider";
 import { TugAlertProvider, useTugAlert } from "../components/tugways/tug-alert";
+import { setBulletinInsets, showBulletinHere, TugBulletinProvider } from "../components/tugways/tug-bulletin";
 import { TugTooltipProvider } from "../components/tugways/tug-tooltip";
 import { TugThemeProvider } from "../contexts/theme-provider";
 import { composeProviders } from "../lib/compose-providers";
@@ -48,6 +49,27 @@ function AlertAnswerer(): null {
   return null;
 }
 
+/**
+ * Show the shell's deck bulletins in this page's stack, above every card,
+ * and keep the stack clear of the rails the shell lays out. Registered in a
+ * layout effect, because a bulletin may already be waiting when the page
+ * mounts ([L03]). The insets reach the stack through the DOM alone
+ * (`setBulletinInsets`), so a rail's change renders nothing here ([L06]).
+ */
+function BulletinAnswerer(): null {
+  useLayoutEffect(() => {
+    const follow = (): void => setBulletinInsets(overlayBulletinInsets.getSnapshot());
+    const releaseInsets = overlayBulletinInsets.subscribe(follow);
+    follow();
+    const releaseBulletins = overlayBulletin.handle((relayed) => showBulletinHere(relayed));
+    return () => {
+      releaseInsets();
+      releaseBulletins();
+    };
+  }, []);
+  return null;
+}
+
 export function renderOverlayRoot(props: { gateDeck: GateDeck }): React.ReactElement {
   return composeProviders(
     [
@@ -56,6 +78,7 @@ export function renderOverlayRoot(props: { gateDeck: GateDeck }): React.ReactEle
       [ErrorBoundary, null],
       [ResponderChainProvider, null],
       [TugAlertProvider, null],
+      [TugBulletinProvider, null],
       [GateDeckContext.Provider, { value: props.gateDeck }],
     ],
     React.createElement(
@@ -64,6 +87,7 @@ export function renderOverlayRoot(props: { gateDeck: GateDeck }): React.ReactEle
       React.createElement(OverlayMarginCaps, {}),
       React.createElement(AppGates, {}),
       React.createElement(AlertAnswerer, {}),
+      React.createElement(BulletinAnswerer, {}),
       React.createElement(CanvasOverlayRoot, {}),
       React.createElement(OpenQuicklyOverlay, {}),
       React.createElement(ZoomReadout, {}),
