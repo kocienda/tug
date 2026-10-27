@@ -202,14 +202,17 @@ describe.skipIf(!SHOULD_RUN)("AT0750: the live hook gives a bare node --test its
         expect(hook.code, hook.err).toBe(0);
         const rewritten: string = JSON.parse(hook.out).hookSpecificOutput.updatedInput.command;
         note(`at0750 the hook's command: ${rewritten}`);
-        expect(rewritten.startsWith(`export TUG_TOOL_USE_ID=${USE_ID}; `), "the call carries its id").toBe(true);
+        expect(rewritten.startsWith(`# tug-call: ${USE_ID}\n`), "the call carries its id").toBe(true);
         expect(rewritten, "the runner runs inside the bundle's own tugtool").toContain(
           `${join(macos, "tugtool")} test run `,
         );
         expect(rewritten.endsWith(` -- ${COMMAND}`), "the runner as typed").toBe(true);
 
-        // The call's shell runs it.
-        const ran = spawn(["/bin/sh", "-c", rewritten], { cwd: project, env: shellEnv });
+        // The call's shell runs it. The run reads its call id from this
+        // shell's argv (`tugcore::call_id`), so the shell has to persist:
+        // `sh -c` with one simple command execs it in its own place, argv and
+        // mark gone, and Claude Code's own wrapper is a `&&` chain.
+        const ran = spawn(["/bin/sh", "-c", `${rewritten} && :`], { cwd: project, env: shellEnv });
         note(`at0750 the run exited ${ran.code}`);
         expect(ran.code, ran.err).toBe(0);
 
