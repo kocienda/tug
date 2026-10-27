@@ -92,6 +92,35 @@ describe("the shell's hold on the Overview draft", () => {
     expect(held()).toBeNull();
   });
 
+  // [L23]: mid-walk the field shows a recalled entry, and the words typed
+  // before walking are only in the walk — so the walk is held, persisted, and
+  // handed to the next body like the draft is.
+  test("a history walk is held with the draft, even over an empty field, and reaches disk", async () => {
+    const disk = memoryDisk();
+    const { overview, held, releaseHold } = await pages(disk);
+    const walk = { cursorId: "entry-7", draft: draft("my unsent words"), edits: {} };
+    forwardOverviewDraft(draft(""), undefined, overview.bus, walk);
+    await bus.flush();
+    expect(held()).toEqual({ draft: null, historyWalk: walk });
+
+    forwardOverviewDraft(draft("recalled, edited"), undefined, overview.bus, walk);
+    await bus.flush();
+    releaseHold();
+    expect(disk.value).toEqual({ draft: draft("recalled, edited"), historyWalk: walk });
+
+    bus.dispose();
+    const relaunched = await pages(disk);
+    const next = bus.body("ov-2", OVERVIEW_CARD_ID);
+    const taken: OverviewComposerDraftState[] = [];
+    takeShellOverviewDraft((h) => taken.push(h), next.bus);
+    await bus.flush();
+    expect(taken[0]?.historyWalk).toEqual(walk);
+    // A walk ends with the first proposal that carries none.
+    forwardOverviewDraft(draft("plain"), undefined, relaunched.overview.bus);
+    await bus.flush();
+    expect(relaunched.held()).toEqual({ draft: draft("plain") });
+  });
+
   test("survives the Overview card's destruction and seeds the next Overview body", async () => {
     const { overview } = await pages();
     forwardOverviewDraft(draft("half a question about ", [IMAGE_ATOM as never]), BYTES, overview.bus);

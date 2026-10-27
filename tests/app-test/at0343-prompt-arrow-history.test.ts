@@ -14,7 +14,9 @@
  *    empty-field release beside it were both compensation for a missing mode,
  *    and both are gone: content is not a factor in who owns an arrow;
  *  - Cmd-Up away from the start is still `cursorDocStart` and leaves the draft
- *    alone; at the start it recalls the previous entry.
+ *    alone; at the start it recalls the previous entry;
+ *  - no step of a Cmd-walk loses typing ([L23]): the draft comes home, and an
+ *    edit typed over a recalled entry comes back when the walk returns to it.
  *
  * Keystrokes are synthetic `keydown`s on the focused element: they travel the
  * identical document-capture pipeline a hardware key does, and CM6's own
@@ -213,6 +215,31 @@ describe.skipIf(!SHOULD_RUN)("at0343 — the composer's plain arrows and Cmd-his
         await pressKey(app, "ArrowUp");
         await new Promise<void>((r) => setTimeout(r, 300));
         expect(await docText(app)).toBe(recalled);
+
+        // [L23] No step of the walk loses typing. Type over the recalled
+        // entry, walk home: the draft comes back. Walk in again: the edit
+        // comes back, not the stored entry.
+        await app.nativeType("edited ");
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent === ${JSON.stringify(`edited ${SUBMITTED}`)}`,
+          { timeoutMs: 5000 },
+        );
+        // Each caret jump settles before the next press reads the boundary,
+        // as the Cmd-Up steps above wait for theirs.
+        await pressKey(app, "ArrowDown", { meta: true }); // to the end
+        await new Promise<void>((r) => setTimeout(r, 300));
+        await pressKey(app, "ArrowDown", { meta: true }); // forward, home
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent === "draft line"`,
+          { timeoutMs: 5000 },
+        );
+        await pressKey(app, "ArrowUp", { meta: true }); // to the start
+        await new Promise<void>((r) => setTimeout(r, 300));
+        await pressKey(app, "ArrowUp", { meta: true }); // back
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent === ${JSON.stringify(`edited ${SUBMITTED}`)}`,
+          { timeoutMs: 5000 },
+        );
       } finally {
         await app.close();
       }

@@ -40,7 +40,7 @@ import type { CardSessionBinding } from "../../lib/card-session-binding-store";
 import { isEditingState, type RestoredAttachmentEntry } from "../../lib/composer-draft-payload";
 import type { DropZone, DropZoneSet } from "../../lib/drop-zones";
 import { OVERVIEW_CARD_ID } from "../../lib/overview-card-id";
-import type { TugTextEditingState } from "../../lib/tug-text-types";
+import type { HistoryWalkState, TugTextEditingState } from "../../lib/tug-text-types";
 import type { OverviewComposerDraftState } from "../../lib/overview-composer-draft";
 import { bool, literal, nullable, obj, opaque, str } from "../codec";
 import { defineRequest } from "../request";
@@ -64,10 +64,15 @@ export const cardBinding = defineSharedStore<CardSessionBinding | null, CardSess
 
 // ---- The Overview's draft ----
 
-/** A change of the composer's draft: the words, and the pictures when they moved. */
+/**
+ * A change of the composer's draft: the words, the pictures when they moved,
+ * and the history walk when one is in progress — absent means none, so a
+ * walk ends with the first patch that carries none ([L23]).
+ */
 export interface OverviewDraftPatch {
   draft: TugTextEditingState | null;
   attachmentBytes?: Record<string, RestoredAttachmentEntry>;
+  historyWalk?: HistoryWalkState;
 }
 
 function isAttachmentBytes(value: unknown): value is Record<string, RestoredAttachmentEntry> {
@@ -80,25 +85,31 @@ const draftPatch = opaque(
   (v: unknown): v is OverviewDraftPatch =>
     isRecord(v) &&
     (v.draft === null || isEditingState(v.draft)) &&
-    (v.attachmentBytes === undefined || isAttachmentBytes(v.attachmentBytes)),
+    (v.attachmentBytes === undefined || isAttachmentBytes(v.attachmentBytes)) &&
+    (v.historyWalk === undefined || isRecord(v.historyWalk)),
   { draft: EMPTY_EDIT },
 );
 
 /**
  * The held draft after `patch`. The words replace the last; the pictures
  * replace theirs when they came, and stand otherwise. A draft with nothing in
- * it lets the hold go.
+ * it lets the hold go — unless a history walk is in progress, because then
+ * the field is showing a recalled entry and the words typed before walking
+ * are in the walk ([L23]).
  */
 export function holdOverviewDraft(
   prev: OverviewComposerDraftState | null,
   patch: OverviewDraftPatch,
 ): OverviewComposerDraftState | null {
-  const draft = patch.draft;
-  if (draft === null || (draft.text.length === 0 && draft.atoms.length === 0)) return null;
+  const empty = patch.draft === null
+    || (patch.draft.text.length === 0 && patch.draft.atoms.length === 0);
+  if (empty && patch.historyWalk === undefined) return null;
+  const draft = empty ? null : patch.draft;
   const attachmentBytes = patch.attachmentBytes ?? prev?.attachmentBytes;
   return {
     draft,
     ...(attachmentBytes !== undefined && Object.keys(attachmentBytes).length > 0 ? { attachmentBytes } : {}),
+    ...(patch.historyWalk !== undefined ? { historyWalk: patch.historyWalk } : {}),
   };
 }
 
@@ -111,7 +122,8 @@ export const overviewDraft = defineSharedStore<OverviewComposerDraftState | null
       (v: unknown): v is OverviewComposerDraftState =>
         isRecord(v) &&
         (v.draft === null || isEditingState(v.draft)) &&
-        (v.attachmentBytes === undefined || isAttachmentBytes(v.attachmentBytes)),
+        (v.attachmentBytes === undefined || isAttachmentBytes(v.attachmentBytes)) &&
+        (v.historyWalk === undefined || isRecord(v.historyWalk)),
       { draft: EMPTY_EDIT },
     ),
   ),

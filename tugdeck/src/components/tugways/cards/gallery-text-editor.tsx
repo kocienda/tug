@@ -264,29 +264,46 @@ const EMPTY_PROVIDER: CompletionProvider = ((_q: string) => []) as CompletionPro
 class CardHistoryProvider implements HistoryProvider {
   private cursor = -1;
   private draft: TugTextEditingState = { text: "", atoms: [], selection: null };
+  /** What the user typed over recalled entries, by index ([L23]). */
+  private edits = new Map<number, TugTextEditingState>();
 
   constructor(private readonly getEntries: () => readonly TugTextEditingState[]) {}
+
+  /** Stash the field into the slot being left, as the session provider does. */
+  private stash(entries: readonly TugTextEditingState[], current: TugTextEditingState): void {
+    if (this.cursor === -1) {
+      this.draft = current;
+    } else if (current.text === entries[this.cursor]?.text) {
+      this.edits.delete(this.cursor);
+    } else {
+      this.edits.set(this.cursor, current);
+    }
+  }
+
+  private serve(entries: readonly TugTextEditingState[]): TugTextEditingState {
+    return this.edits.get(this.cursor) ?? entries[this.cursor]!;
+  }
 
   back(current: TugTextEditingState): TugTextEditingState | null {
     const entries = this.getEntries();
     if (entries.length === 0) return null;
+    if (this.cursor === 0) return null;
+    this.stash(entries, current);
     if (this.cursor === -1) {
-      this.draft = current;
       this.cursor = entries.length - 1;
-    } else if (this.cursor > 0) {
-      this.cursor--;
     } else {
-      return null;
+      this.cursor--;
     }
-    return entries[this.cursor]!;
+    return this.serve(entries);
   }
 
-  forward(): TugTextEditingState | null {
+  forward(current: TugTextEditingState): TugTextEditingState | null {
     const entries = this.getEntries();
     if (this.cursor === -1) return null;
+    this.stash(entries, current);
     if (this.cursor < entries.length - 1) {
       this.cursor++;
-      return entries[this.cursor]!;
+      return this.serve(entries);
     }
     this.cursor = -1;
     return this.draft;
@@ -299,6 +316,7 @@ class CardHistoryProvider implements HistoryProvider {
    * recent — not the historic "draft I navigated away from."
    */
   resetToDraft(draft: TugTextEditingState): void {
+    this.edits.delete(this.cursor);
     this.cursor = -1;
     this.draft = draft;
   }

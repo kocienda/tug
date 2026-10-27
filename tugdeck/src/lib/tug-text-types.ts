@@ -72,12 +72,19 @@ export type DropHandler = (files: FileList) => AtomSegment[];
 /**
  * History provider: navigates through previously submitted entries.
  * The provider manages the stack, cursor, and draft state internally.
+ *
+ * **Nothing typed is lost to a walk ([L23]).** Every step stashes what the
+ * field holds into the slot it leaves — the draft, or the user's edits over
+ * a recalled entry — and serves that stash when the walk returns to it.
  */
 export interface HistoryProvider {
-  /** Navigate backward. Receives the current editor state (saved as draft on first call). */
+  /** Navigate backward. `current` is stashed into the slot being left. */
   back(current: TugTextEditingState): TugTextEditingState | null;
-  /** Navigate forward. Returns the next entry, or the draft when reaching the end. */
-  forward(): TugTextEditingState | null;
+  /**
+   * Navigate forward. `current` is stashed into the slot being left. Returns
+   * the next entry, or the draft when reaching the end.
+   */
+  forward(current: TugTextEditingState): TugTextEditingState | null;
   /**
    * Reset the cursor to the draft slot (the end of the list) and
    * replace the saved draft with `draft`. Called from the submit flow
@@ -86,6 +93,27 @@ export interface HistoryProvider {
    * wherever the user had browsed to before submitting.
    */
   resetToDraft(draft: TugTextEditingState): void;
+  /**
+   * The walk as plain JSON, so a host can carry it through a reload: the
+   * cursor, the stashed draft, and every edited entry. `null` when the walk
+   * holds nothing a fresh provider would not (cursor at the draft, no edits).
+   */
+  captureWalk?(): HistoryWalkState | null;
+  /** Re-seat a walk {@link captureWalk} produced. */
+  restoreWalk?(walk: HistoryWalkState): void;
+}
+
+/**
+ * A history walk's position and everything typed along it. JSON-serializable.
+ *
+ * `cursorId` is the entry the field is showing (`null` = the draft); `draft`
+ * is what the user had typed before walking; `edits` is what they typed over
+ * recalled entries, keyed by entry id.
+ */
+export interface HistoryWalkState {
+  cursorId: string | null;
+  draft: TugTextEditingState;
+  edits: Record<string, TugTextEditingState>;
 }
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,11 @@
  */
 
 import { Subscribable } from "./subscribable";
-import type { HistoryProvider, TugTextEditingState } from "./tug-text-types";
+import type {
+  HistoryProvider,
+  HistoryWalkState,
+  TugTextEditingState,
+} from "./tug-text-types";
 import {
   appendPromptHistory,
   fetchPromptHistoryPage,
@@ -102,20 +106,130 @@ export interface PromptHistorySnapshot {
   totalEntries: number;
 }
 
+// ── HistoryWalk ───────────────────────────────────────────────────────────────
+
+const EMPTY_WALK_DRAFT: TugTextEditingState = { text: "", atoms: [], selection: null };
+
+/**
+ * One walk through a list of history entries: the cursor, the draft, and the
+ * user's edits over recalled entries. Both providers below are this walk over
+ * a different list.
+ *
+ * **Nothing typed is lost to a step ([L23]).** Every step stashes the field's
+ * state into the slot it leaves before serving the next one — the draft when
+ * the cursor is at the draft, an edit keyed by entry id when it rests on a
+ * recalled entry — and a slot with a stash serves the stash. So typing over a
+ * recalled prompt and arrowing away and back brings the typing back, and so
+ * does arrowing all the way home to the draft.
+ */
+class HistoryWalk {
+  /** Entry id the cursor rests on; null = at the draft. */
+  private _cursorId: string | null = null;
+  private _draft: TugTextEditingState = EMPTY_WALK_DRAFT;
+  /** What the user typed over recalled entries, by entry id. */
+  private _edits = new Map<string, TugTextEditingState>();
+
+  /** Entry id the cursor rests on; null = at the draft. */
+  get cursorId(): string | null {
+    return this._cursorId;
+  }
+
+  /** `null` when the list has nowhere older to go from the cursor. */
+  back(
+    entries: readonly HistoryEntry[],
+    current: TugTextEditingState,
+  ): TugTextEditingState | null {
+    const step = stepBack(entries, this._cursorId);
+    if (step === null) return null;
+    this._stash(entries, current);
+    return this._serve(step);
+  }
+
+  forward(
+    entries: readonly HistoryEntry[],
+    current: TugTextEditingState,
+  ): TugTextEditingState | null {
+    if (this._cursorId === null) return null;
+    const step = stepForward(entries, this._cursorId);
+    this._stash(entries, current);
+    if (step === null) {
+      this._cursorId = null;
+      return this._draft;
+    }
+    return this._serve(step);
+  }
+
+  /**
+   * Back to the draft after a submit. The entry the cursor rested on was what
+   * got submitted, so its edit is spent; every other entry's edit is still
+   * typing the user never sent, and stays.
+   */
+  reset(draft: TugTextEditingState): void {
+    if (this._cursorId !== null) this._edits.delete(this._cursorId);
+    this._cursorId = null;
+    this._draft = draft;
+  }
+
+  capture(): HistoryWalkState | null {
+    if (this._cursorId === null && this._edits.size === 0) return null;
+    return {
+      cursorId: this._cursorId,
+      draft: this._draft,
+      edits: Object.fromEntries(this._edits),
+    };
+  }
+
+  restore(walk: HistoryWalkState): void {
+    this._cursorId = walk.cursorId;
+    this._draft = walk.draft;
+    this._edits = new Map(Object.entries(walk.edits));
+  }
+
+  private _stash(entries: readonly HistoryEntry[], current: TugTextEditingState): void {
+    if (this._cursorId === null) {
+      this._draft = current;
+      return;
+    }
+    const entry = entries.find((e) => e.id === this._cursorId);
+    // An entry left as recalled needs no stash — and keeping none means a
+    // later `patchAtomPath` on it is what the next recall serves.
+    if (entry !== undefined && sameContent(current, entry)) {
+      this._edits.delete(this._cursorId);
+    } else {
+      this._edits.set(this._cursorId, current);
+    }
+  }
+
+  private _serve(entry: HistoryEntry): TugTextEditingState {
+    this._cursorId = entry.id;
+    return this._edits.get(entry.id) ?? entryToEditingState(entry);
+  }
+}
+
+/** Whether the field's state is the entry exactly as recalled. */
+function sameContent(state: TugTextEditingState, entry: HistoryEntry): boolean {
+  if (state.text !== entry.text) return false;
+  if (state.atoms.length !== entry.atoms.length) return false;
+  return state.atoms.every((a, i) => {
+    const b = entry.atoms[i];
+    return a.position === b.position
+      && a.type === b.type
+      && a.label === b.label
+      && a.value === b.value;
+  });
+}
+
 // ── SessionHistoryProvider ────────────────────────────────────────────────────
 
 /**
  * Session-scoped HistoryProvider returned by PromptHistoryStore.createProvider().
  *
- * Manages cursor and draft state, same pattern as GalleryHistoryProvider.
- * Returns null from back() when the window can't advance — including the
- * window-edge case, where it first asks the store to page older entries in so
- * the next press can land.
+ * A {@link HistoryWalk} over the session's window. Returns null from back()
+ * when the window can't advance — including the window-edge case, where it
+ * first asks the store to page older entries in so the next press can land.
  */
 class SessionHistoryProvider implements HistoryProvider {
-  /** Entry id the cursor rests on; null = at the draft. */
-  private _cursorId: string | null = null;
-  private _draft: TugTextEditingState = { text: "", atoms: [], selection: null };
+  private readonly _walk = new HistoryWalk();
 
   constructor(
     private readonly _sessionId: string,
@@ -124,34 +238,30 @@ class SessionHistoryProvider implements HistoryProvider {
 
   back(current: TugTextEditingState): TugTextEditingState | null {
     const entries = this._store._getSessionEntries(this._sessionId);
-    const step = stepBack(entries, this._cursorId);
-    if (step === null) {
+    const next = this._walk.back(entries, current);
+    if (next === null) {
       // Either the window is empty or the cursor sits on its oldest entry.
       // Both mean the same thing: page backward, so the next press has
       // somewhere to go.
       this._store._kickExtendOlder(this._sessionId);
-      return null;
     }
-    if (this._cursorId === null) this._draft = current;
-    this._cursorId = step.id;
-    return entryToEditingState(step);
+    return next;
   }
 
-  forward(): TugTextEditingState | null {
-    if (this._cursorId === null) return null;
-    const entries = this._store._getSessionEntries(this._sessionId);
-    const step = stepForward(entries, this._cursorId);
-    if (step === null) {
-      this._cursorId = null;
-      return this._draft;
-    }
-    this._cursorId = step.id;
-    return entryToEditingState(step);
+  forward(current: TugTextEditingState): TugTextEditingState | null {
+    return this._walk.forward(this._store._getSessionEntries(this._sessionId), current);
   }
 
   resetToDraft(draft: TugTextEditingState): void {
-    this._cursorId = null;
-    this._draft = draft;
+    this._walk.reset(draft);
+  }
+
+  captureWalk(): HistoryWalkState | null {
+    return this._walk.capture();
+  }
+
+  restoreWalk(walk: HistoryWalkState): void {
+    this._walk.restore(walk);
   }
 }
 
@@ -198,13 +308,13 @@ function stepForward(
  * holds plenty behind it, so "no entries for this route" has to page backward
  * rather than resolve to a permanent dead end.
  *
- * Cursor and `_draft` are in-memory and per-provider. Callers that
- * create one provider per route and retain the reference across route
- * switches preserve their browsing position for each route.
+ * The walk is in-memory and per-provider. Callers that create one provider
+ * per route and retain the reference across route switches preserve their
+ * browsing position for each route; a host that must survive a reload carries
+ * it through `captureWalk` / `restoreWalk`.
  */
 class RouteHistoryProvider implements HistoryProvider {
-  private _cursorId: string | null = null;
-  private _draft: TugTextEditingState = { text: "", atoms: [], selection: null };
+  private readonly _walk = new HistoryWalk();
 
   constructor(
     private readonly _sessionId: string,
@@ -226,36 +336,33 @@ class RouteHistoryProvider implements HistoryProvider {
       route: this._route,
       entries_for_session: allForSession.length,
       entries_for_route: entries.length,
-      cursor_in: this._cursorId,
+      cursor_in: this._walk.cursorId,
     });
 
-    const step = stepBack(entries, this._cursorId);
-    if (step === null) {
+    const next = this._walk.back(entries, current);
+    if (next === null) {
       // Zero entries for this route in the window is not a dead end either:
       // the window is a suffix of the whole corpus, and this route's entries
       // may all sit behind its top edge.
       this._store._kickExtendOlder(this._sessionId);
-      return null;
     }
-    if (this._cursorId === null) this._draft = current;
-    this._cursorId = step.id;
-    return entryToEditingState(step);
+    return next;
   }
 
-  forward(): TugTextEditingState | null {
-    if (this._cursorId === null) return null;
-    const step = stepForward(this._entries(), this._cursorId);
-    if (step === null) {
-      this._cursorId = null;
-      return this._draft;
-    }
-    this._cursorId = step.id;
-    return entryToEditingState(step);
+  forward(current: TugTextEditingState): TugTextEditingState | null {
+    return this._walk.forward(this._entries(), current);
   }
 
   resetToDraft(draft: TugTextEditingState): void {
-    this._cursorId = null;
-    this._draft = draft;
+    this._walk.reset(draft);
+  }
+
+  captureWalk(): HistoryWalkState | null {
+    return this._walk.capture();
+  }
+
+  restoreWalk(walk: HistoryWalkState): void {
+    this._walk.restore(walk);
   }
 }
 

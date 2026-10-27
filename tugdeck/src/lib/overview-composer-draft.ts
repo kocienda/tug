@@ -38,11 +38,12 @@
 
 import {
   coerceAttachmentBytes,
+  coerceHistoryWalk,
   isEditingState,
   pruneOrphanedImageAtoms,
   type RestoredAttachmentEntry,
 } from "@/lib/composer-draft-payload";
-import type { TugTextEditingState } from "@/lib/tug-text-types";
+import type { HistoryWalkState, TugTextEditingState } from "@/lib/tug-text-types";
 import type { TugbankClient } from "@/lib/tugbank-client";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { capAttachmentBytes } from "@/settings-api";
@@ -65,6 +66,12 @@ export interface OverviewComposerDraftState {
    * ([B09]). Omitted when the composer holds no pictures.
    */
   attachmentBytes?: Record<string, RestoredAttachmentEntry>;
+  /**
+   * The prompt-history walk in progress, when there is one: `draft` is then
+   * the recalled entry on screen, and the words typed before walking are
+   * here. Without it a hidden rail or a relaunch mid-walk lost them ([L23]).
+   */
+  historyWalk?: HistoryWalkState;
 }
 
 /**
@@ -83,7 +90,8 @@ export function coerceOverviewDraftPayload(
     isEditingState(obj.draft) ? obj.draft : null,
     attachmentBytes,
   );
-  return { draft, attachmentBytes };
+  const historyWalk = coerceHistoryWalk(obj.historyWalk, attachmentBytes);
+  return { draft, attachmentBytes, ...(historyWalk !== undefined ? { historyWalk } : {}) };
 }
 
 /** A draft with no words and no pictures is the same as no draft at all. */
@@ -119,18 +127,20 @@ export const overviewDraftHolder = {
  * Hand the composer's draft to the shell's hold, in a body: a proposal to
  * `overview.draft`. `null` (or an empty draft) lets it go. Pass
  * `attachmentBytes` when the pictures moved, so a keystroke does not resend
- * them. A page that is not a body holds the draft itself, in
- * {@link overviewDraftHolder}.
+ * them, and `historyWalk` whenever a walk is in progress. A page that is not
+ * a body holds the draft itself, in {@link overviewDraftHolder}.
  */
 export function forwardOverviewDraft(
   draft: TugTextEditingState | null,
   attachmentBytes?: Record<string, RestoredAttachmentEntry>,
   bus: PageBus | null = installedPageBus(),
+  historyWalk?: HistoryWalkState,
 ): void {
   if (bus?.page.role !== "body") return;
   overviewDraft.on(bus).propose({
     draft: isEmptyDraft(draft) ? null : draft,
     ...(attachmentBytes !== undefined ? { attachmentBytes } : {}),
+    ...(historyWalk !== undefined ? { historyWalk } : {}),
   });
 }
 
@@ -164,13 +174,18 @@ export interface OverviewDraftDisk {
 export interface DurableOverviewDraft {
   draft: TugTextEditingState | null;
   attachmentBytes?: Record<string, unknown>;
+  historyWalk?: HistoryWalkState;
 }
 
 /** What the shell holds, reduced to what is worth writing. */
 export function durableOverviewDraft(held: OverviewComposerDraftState | null): DurableOverviewDraft {
   if (held === null) return { draft: null };
   const capped = capAttachmentBytes(held.attachmentBytes);
-  return capped === null ? { draft: held.draft } : { draft: held.draft, attachmentBytes: capped };
+  return {
+    draft: held.draft,
+    ...(capped !== null ? { attachmentBytes: capped } : {}),
+    ...(held.historyWalk !== undefined ? { historyWalk: held.historyWalk } : {}),
+  };
 }
 
 /**
@@ -245,6 +260,7 @@ export function retellOverviewDraft(bus: PageBus = pageBus()): () => void {
       held.propose({
         draft: value.draft,
         ...(value.attachmentBytes !== undefined ? { attachmentBytes: value.attachmentBytes } : {}),
+        ...(value.historyWalk !== undefined ? { historyWalk: value.historyWalk } : {}),
       });
     },
     { name: "overview.draft:retell" },

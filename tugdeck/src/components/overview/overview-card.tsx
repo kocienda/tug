@@ -157,7 +157,7 @@ import {
   overviewDraftHolder,
   takeShellOverviewDraft,
 } from "@/components/overview/overview-composer-draft";
-import { sharedPromptHistoryStore } from "@/lib/prompt-history-store";
+import { sharedPromptHistoryStore, type PromptHistoryStore } from "@/lib/prompt-history-store";
 import {
   OVERVIEW_CARD_ID,
   OVERVIEW_HISTORY_ROUTE,
@@ -204,7 +204,7 @@ import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selecti
 import { buildSlashCommandLine } from "@/lib/slash-commands";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
-import type { CompletionProvider } from "@/lib/tug-text-types";
+import type { CompletionProvider, HistoryProvider } from "@/lib/tug-text-types";
 import {
   FeedId,
   type OverviewAuthor,
@@ -244,6 +244,24 @@ const AUTHOR_PARTICIPANT: Record<OverviewAuthor, Participant> = {
   operator: "operator",
   user: "user",
 };
+
+let _overviewHistory: { store: PromptHistoryStore; provider: HistoryProvider } | null = null;
+
+/**
+ * The Overview composer's history provider — one per page and store. The
+ * card is single-instance, so a remount is the same composer coming back,
+ * and its walk (the words typed before arrowing into history) comes back
+ * with it ([L23]).
+ */
+function overviewHistoryProvider(store: PromptHistoryStore): HistoryProvider {
+  if (_overviewHistory?.store !== store) {
+    _overviewHistory = {
+      store,
+      provider: store.createRouteProvider(OVERVIEW_CARD_ID, OVERVIEW_HISTORY_ROUTE),
+    };
+  }
+  return _overviewHistory.provider;
+}
 
 /**
  * A post's time, in the reader's locale — {@link formatTranscriptTimestamp},
@@ -1946,12 +1964,11 @@ function OverviewComposer({
   // from one project is worth recalling from another ([B04]).
   const historyStore = sharedPromptHistoryStore();
   useSyncExternalStore(historyStore.subscribe, historyStore.getSnapshot);
+  // One provider per page, not per mount: the walk it holds — the words
+  // typed before arrowing into history — must outlive a remount the way the
+  // draft does ([L23]). Across pages the shell's hold carries it.
   const historyProvider = useMemo(
-    () =>
-      historyStore.createRouteProvider(
-        OVERVIEW_CARD_ID,
-        OVERVIEW_HISTORY_ROUTE,
-      ),
+    () => overviewHistoryProvider(historyStore),
     [historyStore],
   );
 
@@ -2098,9 +2115,12 @@ function OverviewComposer({
   forwardDraftRef.current = () => {
     if (!draftSeededRef.current) return;
     const draft = editorRef.current?.captureState() ?? null;
+    // Mid-walk the field shows a recalled entry; the words typed before
+    // walking are in the walk, so it rides every proposal ([L23]).
+    const walk = historyProvider.captureWalk?.() ?? undefined;
     // An empty draft lets the hold go, pictures and all, so the pictures
     // still owe the next draft that has something in it.
-    if (isEmptyDraft(draft)) {
+    if (isEmptyDraft(draft) && walk === undefined) {
       bytesMovedRef.current = true;
       if (!saidWordsRef.current) return;
       saidWordsRef.current = false;
@@ -2110,7 +2130,7 @@ function OverviewComposer({
     const moved = bytesMovedRef.current;
     bytesMovedRef.current = false;
     saidWordsRef.current = true;
-    forwardOverviewDraft(draft, moved ? bytesStore.snapshot() : undefined);
+    forwardOverviewDraft(draft, moved ? bytesStore.snapshot() : undefined, undefined, walk);
   };
   useEffect(
     () =>
@@ -2162,11 +2182,14 @@ function OverviewComposer({
         bytesStore.restore(restored.attachmentBytes);
         rehydrateDraftAttachments(restored.attachmentBytes, bytesStore);
       }
+      if (restored.historyWalk !== undefined) {
+        historyProvider.restoreWalk?.(restored.historyWalk);
+      }
       if (restored.draft === null) return;
       overviewDraftHolder.set(restored.draft);
       editor.restoreState(restored.draft);
     });
-  }, [bytesStore]);
+  }, [bytesStore, historyProvider]);
 
   const submit = (): void => {
     if (pending) return;

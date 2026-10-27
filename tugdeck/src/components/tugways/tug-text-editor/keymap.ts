@@ -367,10 +367,11 @@ function atForwardBoundary(view: EditorView): boolean {
 }
 
 /**
- * Walk the prompt history one step. `back` saves the current editor
- * state onto the provider's draft slot (on the first call) before
- * serving the most-recent entry; `forward` returns the next-newer
- * entry, or the saved draft when it reaches the end. A `null` result
+ * Walk the prompt history one step. Both directions hand the provider
+ * the current editor state, which it stashes into the slot being left —
+ * the draft, or the user's edits over a recalled entry — so no step ever
+ * discards typing ([L23]). `back` serves the next-older entry; `forward`
+ * the next-newer one, or the saved draft at the end. A `null` result
  * (provider absent, or no entry in that direction) yields the keystroke
  * so the caret can move normally.
  *
@@ -386,9 +387,10 @@ function navHistory(
   direction: "back" | "forward",
 ): boolean {
   if (config.historyProvider === null) return false;
+  const current = captureEditState(view);
   const next = direction === "back"
-    ? config.historyProvider.back(captureEditState(view))
-    : config.historyProvider.forward();
+    ? config.historyProvider.back(current)
+    : config.historyProvider.forward(current);
   if (next === null) return false;
   const caret = direction === "back" ? 0 : next.text.length;
   applyEditState(view, { ...next, selection: { start: caret, end: caret } });

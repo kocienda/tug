@@ -61,10 +61,12 @@ import type {
   CompletionProvider,
   DropHandler,
   HistoryProvider,
+  HistoryWalkState,
   TugTextEditingState,
 } from "@/lib/tug-text-types";
 import {
   coerceAttachmentBytes,
+  coerceHistoryWalk,
   isEditingState,
   pruneOrphanedImageAtoms,
   type RestoredAttachmentEntry,
@@ -355,6 +357,15 @@ interface TugPromptEntryState {
    * [L23](../../tuglaws/tuglaws.md#l23).
    */
   attachmentBytes?: Record<string, RestoredAttachmentEntry>;
+  /**
+   * The history walk in progress, when there is one: the user arrowed into
+   * prompt history, so `draft` above is what the field shows (a recalled
+   * entry, perhaps edited) and the words they had typed before walking live
+   * here. `key` is the provider's cache key, so the walk is re-seated only on
+   * the provider it came from. Without it a reload mid-walk lost the draft
+   * ([L23]).
+   */
+  historyWalk?: { key: string; walk: HistoryWalkState };
 }
 
 /**
@@ -397,7 +408,13 @@ export function coerceRestorePayload(raw: unknown): TugPromptEntryState {
       isEditingState(obj.draft) ? obj.draft : null,
       attachmentBytes,
     );
-    return { route: obj.route, draft, attachmentBytes };
+    const historyWalk = coerceKeyedHistoryWalk(obj.historyWalk, attachmentBytes);
+    return {
+      route: obj.route,
+      draft,
+      attachmentBytes,
+      ...(historyWalk !== undefined ? { historyWalk } : {}),
+    };
   }
 
   // Legacy shape — `currentRoute` + `perRoute`.
@@ -417,6 +434,20 @@ export function coerceRestorePayload(raw: unknown): TugPromptEntryState {
   }
 
   return fallback;
+}
+
+/**
+ * Narrow a saved history walk and the provider key it belongs to.
+ */
+function coerceKeyedHistoryWalk(
+  raw: unknown,
+  attachmentBytes: Record<string, RestoredAttachmentEntry> | undefined,
+): TugPromptEntryState["historyWalk"] {
+  if (raw === null || typeof raw !== "object") return undefined;
+  const { key, walk } = raw as { key?: unknown; walk?: unknown };
+  if (typeof key !== "string") return undefined;
+  const coerced = coerceHistoryWalk(walk, attachmentBytes);
+  return coerced === undefined ? undefined : { key, walk: coerced };
 }
 
 // ---------------------------------------------------------------------------
@@ -2055,19 +2086,29 @@ export const TugPromptEntry = React.forwardRef<
   // session reuses the cached provider (preserving its cursor + draft
   // state).
   const historyProvidersRef = useRef<Record<string, HistoryProvider>>({});
+  // A walk restored from the card's bag before its provider existed — the
+  // session id can arrive after the restore. Seated the moment the provider
+  // with the matching key is created ([L23]).
+  const pendingHistoryWalkRef = useRef<TugPromptEntryState["historyWalk"]>(undefined);
+  const currentHistoryKey = `${snap.tugSessionId}${HISTORY_KEY_SEP}${route}`;
   const currentHistoryProvider = useMemo<HistoryProvider>(() => {
     const sessionId = snap.tugSessionId;
-    const cacheKey = `${sessionId}${HISTORY_KEY_SEP}${route}`;
+    const cacheKey = currentHistoryKey;
     const cached = historyProvidersRef.current[cacheKey];
     if (cached) return cached;
     const fresh = historyStore.createRouteProvider(sessionId, route);
     historyProvidersRef.current[cacheKey] = fresh;
+    const pending = pendingHistoryWalkRef.current;
+    if (pending !== undefined && pending.key === cacheKey) {
+      fresh.restoreWalk?.(pending.walk);
+      pendingHistoryWalkRef.current = undefined;
+    }
     logSessionLifecycle("history.provider_create", {
       session_id: sessionId,
       route,
     });
     return fresh;
-  }, [historyStore, route, snap.tugSessionId]);
+  }, [historyStore, route, snap.tugSessionId, currentHistoryKey]);
 
   // Re-seed the per-card bytes store from stored history attachments so a
   // recalled prompt shows its image previews even after a cold launch — the
@@ -2184,9 +2225,11 @@ export const TugPromptEntry = React.forwardRef<
   // dep (which would churn `performSubmit`'s identity on every route
   // switch). [L07]
   const currentHistoryProviderRef = useRef(currentHistoryProvider);
+  const currentHistoryKeyRef = useRef(currentHistoryKey);
   useLayoutEffect(() => {
     currentHistoryProviderRef.current = currentHistoryProvider;
-  }, [currentHistoryProvider]);
+    currentHistoryKeyRef.current = currentHistoryKey;
+  }, [currentHistoryProvider, currentHistoryKey]);
 
   // Live refs for `onBeforeSubmit` / `onAfterSubmit` so an inline
   // closure passed by the host doesn't churn `performSubmit`'s
@@ -3658,15 +3701,31 @@ export const TugPromptEntry = React.forwardRef<
         }
       }
       lastKnownDraftRef.current = draft;
+      // Mid-walk, `draft` is the recalled entry on screen; the words typed
+      // before walking are in the provider. Carry the walk so a reload keeps
+      // them ([L23]).
+      const walk = currentHistoryProviderRef.current.captureWalk?.() ?? null;
       return {
         route,
         draft,
         attachmentBytes,
+        ...(walk !== null
+          ? { historyWalk: { key: currentHistoryKeyRef.current, walk } }
+          : {}),
       };
     },
     onRestore: (raw, { isActive }) => {
       const restored = coerceRestorePayload(raw);
       lastKnownDraftRef.current = restored.draft;
+      if (restored.historyWalk !== undefined) {
+        const { key, walk } = restored.historyWalk;
+        const provider = historyProvidersRef.current[key];
+        if (provider !== undefined) {
+          provider.restoreWalk?.(walk);
+        } else {
+          pendingHistoryWalkRef.current = restored.historyWalk;
+        }
+      }
       // Rehydrate the bytes-store BEFORE the editor restores its
       // draft so the moment the substrate reads atom-ids back, the
       // corresponding bytes are already there for buildWirePayload

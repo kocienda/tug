@@ -11,7 +11,7 @@
  * @module lib/composer-draft-payload
  */
 
-import type { TugTextEditingState } from "./tug-text-types";
+import type { HistoryWalkState, TugTextEditingState } from "./tug-text-types";
 
 /**
  * One entry as it comes back off the durable bag: either real bytes (the HMR
@@ -124,4 +124,31 @@ export function pruneOrphanedImageAtoms(
           end: shift(draft.selection.end),
         };
   return { ...draft, text, atoms, selection };
+}
+
+/**
+ * Narrow a saved history walk ([L23]), pruning image atoms whose bytes did not
+ * come back exactly as a draft is pruned. `undefined` for anything malformed —
+ * a walk is recoverable state, never a reason to fail the restore.
+ */
+export function coerceHistoryWalk(
+  raw: unknown,
+  attachmentBytes: Record<string, RestoredAttachmentEntry> | undefined,
+): HistoryWalkState | undefined {
+  if (raw === null || typeof raw !== "object") return undefined;
+  const { cursorId, draft, edits } = raw as Partial<Record<keyof HistoryWalkState, unknown>>;
+  if (cursorId !== null && typeof cursorId !== "string") return undefined;
+  if (!isEditingState(draft)) return undefined;
+  if (edits === null || typeof edits !== "object") return undefined;
+  const keptEdits: Record<string, TugTextEditingState> = {};
+  for (const [id, edit] of Object.entries(edits as Record<string, unknown>)) {
+    if (!isEditingState(edit)) continue;
+    const pruned = pruneOrphanedImageAtoms(edit, attachmentBytes);
+    if (pruned !== null) keptEdits[id] = pruned;
+  }
+  return {
+    cursorId,
+    draft: pruneOrphanedImageAtoms(draft, attachmentBytes) ?? draft,
+    edits: keptEdits,
+  };
 }

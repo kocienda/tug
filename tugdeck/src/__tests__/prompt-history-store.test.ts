@@ -295,16 +295,16 @@ describe("PromptHistoryStore.createProvider", () => {
     const provider = store.createProvider(SID);
     const draft = makeState("current draft");
     provider.back(draft);
-    provider.back(draft);
+    provider.back(makeState("second"));
 
-    expect(provider.forward()?.text).toBe("second");
-    expect(provider.forward()?.text).toBe("current draft");
+    expect(provider.forward(makeState("first"))?.text).toBe("second");
+    expect(provider.forward(makeState("second"))?.text).toBe("current draft");
   });
 
   test("forward() returns null when already at the draft position", () => {
     const store = new PromptHistoryStore();
     store.push(makeEntry("sess-x", "something"));
-    expect(store.createProvider("sess-x").forward()).toBeNull();
+    expect(store.createProvider("sess-x").forward(makeState("typed"))).toBeNull();
   });
 
   test("resetToDraft() returns the cursor to the end of the list", () => {
@@ -316,10 +316,77 @@ describe("PromptHistoryStore.createProvider", () => {
 
     const provider = store.createProvider(SID);
     provider.back(makeState("draft"));
-    provider.back(makeState("draft"));
+    provider.back(makeState("third"));
     provider.resetToDraft(EMPTY_STATE);
 
     expect(provider.back(makeState("draft"))?.text).toBe("third");
+  });
+
+  // [L23]: no step of a walk discards typing.
+  describe("a walk never loses typing", () => {
+    function seeded(sid: string): PromptHistoryStore {
+      const store = new PromptHistoryStore();
+      store.push(makeEntry(sid, "first"));
+      store.push(makeEntry(sid, "second"));
+      store.push(makeEntry(sid, "third"));
+      return store;
+    }
+
+    test("the draft survives a walk that edits entries along the way", () => {
+      const provider = seeded("sess-w1").createProvider("sess-w1");
+      expect(provider.back(makeState("my draft"))?.text).toBe("third");
+      expect(provider.back(makeState("third, edited"))?.text).toBe("second");
+      expect(provider.forward(makeState("second"))?.text).toBe("third, edited");
+      expect(provider.forward(makeState("third, edited"))?.text).toBe("my draft");
+    });
+
+    test("typing over a recalled entry comes back when the walk returns to it", () => {
+      const provider = seeded("sess-w2").createProvider("sess-w2");
+      provider.back(EMPTY_STATE);
+      expect(provider.back(makeState("third + more"))?.text).toBe("second");
+      expect(provider.back(makeState("second"))?.text).toBe("first");
+      expect(provider.forward(makeState("first"))?.text).toBe("second");
+      expect(provider.forward(makeState("second"))?.text).toBe("third + more");
+    });
+
+    test("an entry left exactly as recalled serves the stored entry again", () => {
+      const provider = seeded("sess-w3").createProvider("sess-w3");
+      provider.back(EMPTY_STATE);
+      provider.back(makeState("third"));
+      expect(provider.forward(makeState("second"))?.text).toBe("third");
+      expect(provider.captureWalk?.()?.edits).toEqual({});
+    });
+
+    test("a submit spends the submitted entry's edit and keeps the others", () => {
+      const provider = seeded("sess-w4").createProvider("sess-w4");
+      provider.back(EMPTY_STATE);
+      provider.back(makeState("third, unsent"));
+      // On "second", edited, and submitted.
+      provider.resetToDraft(EMPTY_STATE);
+      expect(provider.back(EMPTY_STATE)?.text).toBe("third, unsent");
+      expect(provider.back(makeState("third, unsent"))?.text).toBe("second");
+    });
+
+    test("a captured walk re-seats on a fresh provider — a reload keeps the draft", () => {
+      const store = seeded("sess-w5");
+      const before = store.createRouteProvider("sess-w5", ">");
+      before.back(makeState("my draft"));
+      before.back(makeState("third, edited"));
+      const walk = JSON.parse(JSON.stringify(before.captureWalk?.()));
+
+      const after = store.createRouteProvider("sess-w5", ">");
+      after.restoreWalk?.(walk);
+      expect(after.forward(makeState("second"))?.text).toBe("third, edited");
+      expect(after.forward(makeState("third, edited"))?.text).toBe("my draft");
+    });
+
+    test("a walk at rest captures nothing", () => {
+      const provider = seeded("sess-w6").createRouteProvider("sess-w6", ">");
+      expect(provider.captureWalk?.()).toBeNull();
+      provider.back(makeState("draft"));
+      provider.forward(makeState("third"));
+      expect(provider.captureWalk?.()).toBeNull();
+    });
   });
 
   test("does not return entries from other sessions", () => {

@@ -236,6 +236,31 @@ describe("coerceRestorePayload — new shape", () => {
     });
     expect(result.draft).toBeNull();
   });
+
+  // [L23]: a reload mid-walk keeps the words typed before walking.
+  it("carries a saved history walk with its provider key", () => {
+    const walk = {
+      cursorId: "e-2",
+      draft: { text: "my unsent words", atoms: [], selection: null },
+      edits: { "e-3": { text: "third, edited", atoms: [], selection: null } },
+    };
+    const result = coerceRestorePayload({
+      route: "❯",
+      draft: { text: "second", atoms: [], selection: null },
+      historyWalk: { key: "sess\u001f❯", walk },
+    });
+    expect(result.historyWalk).toEqual({ key: "sess\u001f❯", walk });
+  });
+
+  it("drops a malformed history walk and keeps the draft", () => {
+    const result = coerceRestorePayload({
+      route: "❯",
+      draft: { text: "kept", atoms: [], selection: null },
+      historyWalk: { key: "k", walk: { cursorId: 7, draft: null, edits: {} } },
+    });
+    expect(result.historyWalk).toBeUndefined();
+    expect(result.draft?.text).toBe("kept");
+  });
 });
 
 describe("coerceRestorePayload — legacy `perRoute` migration", () => {
