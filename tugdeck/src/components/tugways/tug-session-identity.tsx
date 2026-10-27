@@ -310,9 +310,13 @@ function SessionArcMarker({
 }
 
 /** One sentence for the arc marker, review state folded in when it paints. */
-function arcMarkerTitle(arc: { name: string; review?: string | null }): string {
+function arcMarkerTitle(arc: {
+  name: string;
+  review?: string | null;
+  taskList?: boolean;
+}): string {
   const lead = `Working on arc ${arc.name}`;
-  return arcReviewPaints(arc.review)
+  return arcReviewPaints(arc.review, arc.taskList)
     ? `${lead} — ${arcReviewTooltip(arc.review!, null)}`
     : lead;
 }

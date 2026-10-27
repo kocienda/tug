@@ -630,6 +630,7 @@ function factFor(m: Moment): ArcSessionFact {
     stage: e.stage ?? null,
     arc: e.arc ?? null,
     review: e.review ?? null,
+    taskList: e.task_list ?? false,
     projectDir: ROOT,
     workspaceKey: ROOT,
     stepCurrent: e.step_current ?? null,

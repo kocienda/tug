@@ -62,6 +62,10 @@ export interface ArcSessionFact {
   readonly arc: ArcRunState | null;
   /** `reviewed` | `stale` | `never-reviewed`, or null when unknown / no plan. */
   readonly review: string | null;
+  /** Whether the plan is a task list the arc wrote for itself rather than a
+   *  devised document — what keeps {@link review} from painting on an arc
+   *  that was never going to be reviewed. */
+  readonly taskList: boolean;
   /** The owning project's directory (`project_dir` from the snapshot). */
   readonly projectDir: string;
   /** The key the project's verb traffic is addressed by (`workspace_key`). */
@@ -162,6 +166,7 @@ export function buildArcSessionIndex(
         stage: entry.stage ?? null,
         arc: entry.arc ?? null,
         review: entry.review ?? null,
+        taskList: entry.task_list ?? false,
         projectDir: project.project_dir,
         workspaceKey: project.workspace_key,
         stepCurrent: entry.step_current ?? null,
@@ -197,6 +202,7 @@ export function buildArcSessionIndex(
         stage: null,
         arc: arc.arc ?? null,
         review: arc.review ?? null,
+        taskList: arc.task_list ?? false,
         projectDir: project.project_dir,
         workspaceKey: project.workspace_key,
         stepCurrent: null,

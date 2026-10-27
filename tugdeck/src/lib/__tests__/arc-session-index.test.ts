@@ -192,6 +192,26 @@ describe("buildArcSessionIndex", () => {
         .stepTitle,
     ).toBe("Wire the feed");
   });
+
+  test("the task-list bit rides the fact, so a self-written plan reads unreviewed quietly", () => {
+    const devised: ArcChangesetEntry = {
+      ...GOLDEN_ARC,
+      bound_session: "sess-a",
+      review: "never-reviewed",
+    };
+    delete devised.task_list;
+    expect(
+      buildArcSessionIndex({ projects: [projectWith([devised])] }).get(
+        "sess-a",
+      )!.taskList,
+    ).toBe(false);
+    const listed: ArcChangesetEntry = { ...devised, task_list: true };
+    expect(
+      buildArcSessionIndex({ projects: [projectWith([listed])] }).get(
+        "sess-a",
+      )!.taskList,
+    ).toBe(true);
+  });
 });
 
 describe("arcSessionIndex", () => {
