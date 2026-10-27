@@ -40,6 +40,13 @@
  *     the command's output folded at its foot. A settled run is a view
  *     the page keeps, not part of the record — a block restored without
  *     one renders its output as it always did.
+ *   - A call that became a background job — a `run_in_background`
+ *     launch, or a foreground call the harness moved to the background
+ *     at its `timeout` instead of killing it — keeps the live reading
+ *     after its result returns: the in-flight dot, the live band with
+ *     the run's latest report, and a header summary saying it is in the
+ *     background. The block reads its job row from the session's JOBS
+ *     ledger (`useJobForToolUse`), and settles when the row ends.
  *   - `status === "ready"` → steady-state render.
  *   - `status === "error"` → chrome paints the error stripe, the
  *     plain-text `tool_result.output` (if any) renders as the inline
@@ -112,6 +119,7 @@ import {
 } from "../../blocks/block-notice";
 import { TugProgressIndicator } from "../../tug-progress-indicator";
 import { useReport, useSettledRun } from "../../blocks/report-context";
+import { useJobForToolUse } from "@/lib/code-session-store/hooks/use-job-for-tool-use";
 import { formatReportLine, type Report } from "@/lib/report-store";
 import { useLiveTick } from "@/lib/live-tick";
 import { stripCallIdPrefix } from "@/lib/call-id-prefix";
@@ -350,6 +358,7 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   status,
   phase,
   caution,
+  session,
   preview = false,
 }) => {
   // The hook opens every readable call with an export of its own id; that is
@@ -376,7 +385,18 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   // A run that named its unit, settled when this call returned. Its panel
   // takes the body, its strip the collapsed band.
   const settledRun = useSettledRun(toolUseId);
-  const settled = !preview && status !== "streaming" && settledRun !== null ? settledRun : null;
+  // The background job this call became, if any: a `run_in_background`
+  // launch, or a foreground call the harness moved to the background at
+  // its `timeout` instead of killing it. Either way the command is still
+  // running after the call returned, so the block keeps the live reading
+  // a running call has — the in-flight dot, the live band with the run's
+  // latest report — until the job's row ends, and only then settles. The
+  // header says which it is, so a block whose result reads "moved to the
+  // background" is not mistaken for a call that finished.
+  const job = useJobForToolUse(session, toolUseId);
+  const jobRunning = job?.status === "running";
+  const live = status === "streaming" || jobRunning;
+  const settled = !preview && !live && settledRun !== null ? settledRun : null;
   const callFailed = isError || status === "error";
   const wallSecs = durationMs !== undefined ? durationMs / 1000 : undefined;
 
@@ -532,7 +552,9 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   const resultSummary: ToolResultSummary | undefined =
     terminalData.interrupted === true
       ? { kind: "text", text: "interrupted" }
-      : undefined;
+      : job !== undefined
+        ? { kind: "text", text: jobRunning ? "in background" : `${job.status} in background` }
+        : undefined;
 
   // Commit receipt reshapes the chrome: the "Git Commit" name + the
   // summary/branch/hash header line (CommitHeaderTarget) replace the raw
@@ -565,11 +587,11 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
       command={command}
       resultSummary={resultSummary}
       status={status}
-      phase={phase}
+      phase={jobRunning ? "in_flight" : phase}
       caution={caution}
       notice={notice}
       liveBand={
-        status === "streaming" && !preview ? (
+        live && !preview ? (
           <BashLiveBand toolUseId={toolUseId} />
         ) : settled !== null ? (
           <div data-slot="bash-report-strip" className="bash-report-strip">

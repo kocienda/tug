@@ -665,6 +665,36 @@ fn schema_path_for_version(version: &str) -> PathBuf {
 // feature documentation in `Cargo.toml`.
 // -----------------------------------------------------------------------
 
+/// The pin on the sentence Claude Code answers a moved Bash call with. The
+/// golden normalizes every result's text to its length, so the fixture holds
+/// none of the words the move recognizer (`tugcore::moved_call`) reads; the
+/// live capture is the one place the two meet. A probe that did not run — a
+/// filter that left it out, a stall the capture already reports as its own
+/// failure — pins nothing.
+#[cfg(feature = "real-claude-tests")]
+fn pin_moved_call_sentence(captures: &[common::catalog::CapturedProbe]) {
+    let Some(probe) = captures
+        .iter()
+        .find(|p| p.name == "test-48-bash-timeout-move")
+    else {
+        return;
+    };
+    if !matches!(probe.status, common::probes::ProbeStatus::Passed) {
+        return;
+    }
+    let recognized = probe
+        .tool_results
+        .iter()
+        .any(|text| tugcore::moved_call::parse_moved_call(text).is_some());
+    assert!(
+        recognized,
+        "test-48-bash-timeout-move: the move recognizer read no task id and output \
+         path off the call's tool_result — the sentence's shape has changed, and a \
+         moved call would go back to the dark card: {:?}",
+        probe.tool_results
+    );
+}
+
 #[cfg(feature = "real-claude-tests")]
 #[tokio::test]
 #[ignore]
@@ -699,6 +729,7 @@ async fn stream_json_catalog_drift_regression() {
     // TUG_STABILITY if explicitly set, otherwise defaults to 1.
     let stability = stability_runs();
     let captures = capture_with_stability(stability, &tmp, &project_dir).await;
+    pin_moved_call_sentence(&captures);
 
     let version =
         extract_version(&captures).expect("no system_metadata version found — aborting per [D11]");

@@ -253,14 +253,19 @@ async fn capture_all_probes() {
                 probe.events.len(),
                 types.join(", ")
             );
-            // Dump the rewind-relevant payloads so a filtered run confirms
-            // semantics (canRewind / newSessionId / fork session id), not just
-            // that the event types appeared.
+            // Dump the payloads whose semantics a filtered run is for, not
+            // just that the event types appeared: the rewind results
+            // (canRewind / newSessionId / fork session id), and a job's
+            // edges with the tool result that may carry its launch.
             for e in &probe.events {
                 match e.get("type").and_then(|v| v.as_str()) {
                     Some("rewind_result")
                     | Some("rewind_preview_result")
-                    | Some("session_init") => {
+                    | Some("session_init")
+                    | Some("tool_result")
+                    | Some("task_started")
+                    | Some("task_updated")
+                    | Some("wake_started") => {
                         println!("      → {e}");
                     }
                     _ => {}
@@ -547,6 +552,7 @@ mod tests {
             status: ProbeStatus::Passed,
             runtime_ms: 0,
             wire: Vec::new(),
+            tool_results: Vec::new(),
         }
     }
 
@@ -751,6 +757,7 @@ mod tests {
                 status: ProbeStatus::Skipped("reason"),
                 runtime_ms: 500,
                 wire: Vec::new(),
+                tool_results: Vec::new(),
             },
         ];
         let manifest = build_manifest("2.1.104", 3, &captures);

@@ -129,7 +129,8 @@ function assertNoUnknownTokens(processed: string, absPath: string): void {
  *
  * The camelCase ids arrived with later captures — the prompt anchor's
  * `promptUuid`, the rewind and fork lineage's `forkPoint` /
- * `newSessionId` / `parentSessionId`, and a bare `uuid` — and keep their
+ * `newSessionId` / `parentSessionId`, the in-place rewind's `session_rewound`
+ * `sessionId`, and a bare `uuid` — and keep their
  * placeholder as-is.
  */
 const KNOWN_UUID_FIELDS: ReadonlySet<string> = new Set([
@@ -144,6 +145,7 @@ const KNOWN_UUID_FIELDS: ReadonlySet<string> = new Set([
   "forkPoint",
   "newSessionId",
   "parentSessionId",
+  "sessionId",
   "uuid",
 ]);
 

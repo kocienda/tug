@@ -18,6 +18,7 @@ import {
   countJobs,
   insertJob,
   isJobLaunch,
+  isMovedForegroundCall,
   isScheduledJobStatus,
   isTerminalJobStatus,
   jobsCellPose,
@@ -30,6 +31,7 @@ import {
   agentTokensForTurn,
   jobsOwnedByTurn,
   parseBackgroundLaunchResult,
+  parseMovedCallResult,
   terminalJobStatusFromWire,
   type JobItem,
 } from "../select-jobs";
@@ -677,5 +679,92 @@ describe("agentTokensForTurn", () => {
       structuredResult: { totalTokens: 999 },
     };
     expect(agentTokensForTurn([bash], [])).toBe(0);
+  });
+});
+
+// The sentence verbatim off the 2.1.311 wire (`test-48-bash-timeout-move`,
+// captured raw through `claude -p --output-format stream-json`): the
+// command's output so far, then the move. The Rust reader in
+// `tugcore::moved_call` is pinned to the same text, and the stream-json
+// drift regression hands it the live capture's sentence.
+const TIMEOUT_MOVE =
+  "MOVE_START\nCommand did not complete within its 3s timeout and was moved to" +
+  " the background (ID: bbr5s08js). Output is being written to:" +
+  " /private/tmp/claude-501/-private-tmp/6204b0e4/tasks/bbr5s08js.output. You" +
+  " will be notified when it completes. If it is still running after 10m in" +
+  " the background, it will be stopped and you will be notified. It is" +
+  " running now: do not start a second copy while it runs. If it is no" +
+  " longer needed, stop it with TaskStop. To check interim output, use Read" +
+  " on that file path.";
+
+describe("parseMovedCallResult", () => {
+  test("reads the task id and output file past the output so far", () => {
+    expect(parseMovedCallResult(TIMEOUT_MOVE)).toEqual({
+      jobId: "bbr5s08js",
+      outputFile: "/private/tmp/claude-501/-private-tmp/6204b0e4/tasks/bbr5s08js.output",
+    });
+  });
+
+  test("every reason the harness moves a call shares the shape", () => {
+    const cap =
+      "Command was moved to the background (ID: b1) after running for 5s." +
+      " Output is being written to: /t/b1.output. You will be notified when it completes.";
+    const message =
+      "Command was moved to the background (ID: b2) so that a message that" +
+      " arrived while it was running can reach you; it was not interrupted." +
+      " Output is being written to: /t/b2.output.";
+    const byHand =
+      "Command was manually backgrounded by user with ID: b3." +
+      " Output is being written to: /t/b3.output.";
+    expect(parseMovedCallResult(cap)).toEqual({ jobId: "b1", outputFile: "/t/b1.output" });
+    expect(parseMovedCallResult(message)).toEqual({ jobId: "b2", outputFile: "/t/b2.output" });
+    expect(parseMovedCallResult(byHand)).toEqual({ jobId: "b3", outputFile: "/t/b3.output" });
+  });
+
+  test("a path the sentence does not close with a period reads as tugcore's does", () => {
+    expect(
+      parseMovedCallResult(
+        "Command was moved to the background (ID: b5). Output is being written to: /t/b5.output\nmore",
+      ),
+    ).toEqual({ jobId: "b5", outputFile: "/t/b5.output" });
+  });
+
+  test("a text-block result reads the same", () => {
+    expect(parseMovedCallResult([{ type: "text", text: TIMEOUT_MOVE }])?.jobId).toBe(
+      "bbr5s08js",
+    );
+  });
+
+  test("an ordinary result, a kill, and a launch echo are not a move", () => {
+    expect(parseMovedCallResult("hello from bash")).toBeUndefined();
+    expect(parseMovedCallResult("Exit code 143\nCommand timed out after 3s")).toBeUndefined();
+    // The `run_in_background` launch echo is `parseBackgroundLaunchResult`'s.
+    expect(parseMovedCallResult(BASH_ECHO)).toBeUndefined();
+    expect(parseBackgroundLaunchResult(TIMEOUT_MOVE)).toBeUndefined();
+    expect(
+      parseMovedCallResult("moved to the background (ID: b4) and nothing about its output"),
+    ).toBeUndefined();
+    expect(parseMovedCallResult(null)).toBeUndefined();
+  });
+});
+
+describe("isMovedForegroundCall", () => {
+  test("a pending foreground Bash call named by a task_started is the move", () => {
+    expect(isMovedForegroundCall("Bash", { command: "sleep 1", timeout: 3000 }, "pending")).toBe(
+      true,
+    );
+    expect(isMovedForegroundCall("bash", null, "pending")).toBe(true);
+  });
+
+  test("a launch, a returned call, and a non-Bash call are not", () => {
+    // A `run_in_background` launch is `isJobLaunch`'s, not the move's.
+    expect(isMovedForegroundCall("Bash", { run_in_background: true }, "pending")).toBe(false);
+    // A call that already returned cannot be moved: its late task_started
+    // is a launch's, or nothing.
+    expect(isMovedForegroundCall("Bash", {}, "done")).toBe(false);
+    expect(isMovedForegroundCall("Bash", {}, "error")).toBe(false);
+    // Only a Bash call is a run the harness moves.
+    expect(isMovedForegroundCall("Agent", { prompt: "…" }, "pending")).toBe(false);
+    expect(isMovedForegroundCall("Monitor", {}, "pending")).toBe(false);
   });
 });

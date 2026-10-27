@@ -198,7 +198,7 @@ pub enum ProbeStatus {
 }
 
 // -----------------------------------------------------------------------
-// Probe table — 45 entries
+// Probe table — 48 entries
 // -----------------------------------------------------------------------
 
 /// The full probe table. Order matches `transport-exploration.md` tests 1–36.
@@ -1607,6 +1607,59 @@ pub static PROBES: &[ProbeRecord] = &[
         )],
         skip_reason: None,
     },
+    // --- Test 48: a foreground Bash call moved to the background ---
+    // A foreground Bash call that outlives its `timeout` is not killed:
+    // Claude Code moves it to a background task and answers the call with
+    // the command's stdout so far and a sentence naming the task id and the
+    // output file. The golden pins that sentence's shape — the move
+    // recognizers on both sides of the wire match it — and the job edges
+    // the move rides: `task_started{local_bash, is_backgrounded}` under the
+    // call's own `tool_use_id`, before its `tool_result`, then
+    // `task_updated{completed}`, as a `run_in_background` launch (test-41).
+    // The terminator is the wake the task's `task_notification` drives, so
+    // the capture spans the move and the job's end. The command must not
+    // begin with `sleep`: Claude Code never moves a call whose first word
+    // is `sleep`, and kills it at the timeout instead.
+    ProbeRecord {
+        name: "test-48-bash-timeout-move",
+        input_script: &[
+            ProbeMsg::UserMessage {
+                text: "Use the Bash tool exactly once, in the foreground (do not set \
+                       run_in_background), with timeout 3000 and the command \
+                       `echo MOVE_START && sleep 15 && echo MOVED_OK`. After the tool \
+                       returns, end your turn immediately with the single word: moved. \
+                       Do not poll, do not read the output file, do not call any other \
+                       tools.",
+            },
+            ProbeMsg::WaitForEvent {
+                event_type: "tool_result",
+                max_secs: 60,
+            },
+            ProbeMsg::WaitForEvent {
+                event_type: "wake_started",
+                max_secs: 60,
+            },
+        ],
+        required_events: &[
+            "system_metadata",
+            "tool_use",
+            "task_started",
+            "tool_result",
+            "turn_complete",
+            "task_updated",
+            "wake_started",
+        ],
+        optional_events: &[
+            "thinking_text",
+            "assistant_text",
+            "cost_update",
+            "session_init",
+        ],
+        prerequisites: &[],
+        timeout_secs: 150,
+        env: &[],
+        skip_reason: None,
+    },
 ];
 
 #[cfg(test)]
@@ -1614,8 +1667,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn probe_table_has_47_entries() {
-        assert_eq!(PROBES.len(), 47, "probe table must contain all 47 probes");
+    fn probe_table_has_48_entries() {
+        assert_eq!(PROBES.len(), 48, "probe table must contain all 48 probes");
     }
 
     #[test]

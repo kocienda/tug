@@ -272,6 +272,11 @@ pub struct CapturedProbe {
     /// JSON line per entry, in arrival order. Empty when the probe never
     /// spawned claude. Written to `v<version>/wire/<probe>.jsonl`.
     pub wire: Vec<String>,
+    /// Every `tool_result`'s output text as the wire carried it, before
+    /// normalization replaced it with its length — what a reader of a
+    /// result's *words* (the moved-call recognizer) is handed, since the
+    /// fixture keeps none of them.
+    pub tool_results: Vec<String>,
 }
 
 /// Shape schema derived from one full capture run. Serializes to
@@ -520,6 +525,7 @@ pub async fn execute_probe(
             status: ProbeStatus::Skipped(reason),
             runtime_ms: 0,
             wire: Vec::new(),
+            tool_results: Vec::new(),
         };
     }
 
@@ -545,6 +551,7 @@ pub async fn execute_probe(
                         status: ProbeStatus::Skipped("tugplug plugin not loaded"),
                         runtime_ms: 0,
                         wire: Vec::new(),
+                        tool_results: Vec::new(),
                     };
                 }
             }
@@ -588,6 +595,7 @@ pub async fn execute_probe(
             status: ProbeStatus::Failed(format!("session never reached pending: {e}")),
             runtime_ms: start.elapsed().as_millis(),
             wire: Vec::new(),
+            tool_results: Vec::new(),
         };
     }
 
@@ -644,6 +652,7 @@ pub async fn execute_probe(
                         ),
                         runtime_ms: start.elapsed().as_millis(),
                         wire: Vec::new(),
+                        tool_results: Vec::new(),
                     };
                 };
                 ws.send_tool_approval(&tug_session_id, rid, decision, None, *message)
@@ -659,6 +668,7 @@ pub async fn execute_probe(
                         ),
                         runtime_ms: start.elapsed().as_millis(),
                         wire: Vec::new(),
+                        tool_results: Vec::new(),
                     };
                 };
                 let mut map = Map::new();
@@ -687,6 +697,7 @@ pub async fn execute_probe(
                         ),
                         runtime_ms: start.elapsed().as_millis(),
                         wire: Vec::new(),
+                        tool_results: Vec::new(),
                     };
                 };
                 ws.send_rewind_preview(&tug_session_id, uuid).await;
@@ -716,6 +727,7 @@ pub async fn execute_probe(
                             status: ProbeStatus::Failed(format!("capture_anchor failed: {e}")),
                             runtime_ms: start.elapsed().as_millis(),
                             wire: Vec::new(),
+                            tool_results: Vec::new(),
                         };
                     }
                 }
@@ -741,6 +753,7 @@ pub async fn execute_probe(
                         status: ProbeStatus::Failed(format!("consume {event_type} failed: {e}")),
                         runtime_ms: start.elapsed().as_millis(),
                         wire: Vec::new(),
+                        tool_results: Vec::new(),
                     };
                 }
             }
@@ -754,6 +767,7 @@ pub async fn execute_probe(
                         ),
                         runtime_ms: start.elapsed().as_millis(),
                         wire: Vec::new(),
+                        tool_results: Vec::new(),
                     };
                 };
                 ws.send_session_rewind(&tug_session_id, uuid, scope, *fork)
@@ -807,6 +821,7 @@ pub async fn execute_probe(
                             )),
                             runtime_ms: start.elapsed().as_millis(),
                             wire: Vec::new(),
+                            tool_results: Vec::new(),
                         };
                     }
                 }
@@ -825,7 +840,7 @@ pub async fn execute_probe(
         Some(ProbeMsg::WaitForEvent { event_type, .. }) => event_type,
         _ => "turn_complete",
     };
-    let events = match ws
+    let (events, tool_results) = match ws
         .collect_code_output_until_partial(
             &tug_session_id,
             terminator,
@@ -834,10 +849,15 @@ pub async fn execute_probe(
         .await
     {
         (mut events, None) => {
+            let tool_results: Vec<String> = events
+                .iter()
+                .filter(|e| event_type_of(e) == Some("tool_result"))
+                .filter_map(|e| e.get("output")?.as_str().map(String::from))
+                .collect();
             for event in events.iter_mut() {
                 normalize_event(event);
             }
-            events
+            (events, tool_results)
         }
         // The partial prefix stays OUT of `events` — a half-captured turn
         // must never reach the fixture writer. It rides in the reason
@@ -861,6 +881,7 @@ pub async fn execute_probe(
                 )),
                 runtime_ms: start.elapsed().as_millis(),
                 wire: Vec::new(),
+                tool_results: Vec::new(),
             };
         }
     };
@@ -892,6 +913,7 @@ pub async fn execute_probe(
         status,
         runtime_ms: start.elapsed().as_millis(),
         wire: Vec::new(),
+        tool_results,
     }
 }
 
@@ -1120,14 +1142,23 @@ pub const TOOL_BODY_FILLER_EVENT_TYPES: &[&str] = &["assistant_text", "content_b
 ///   background-agent lifecycle probe) it is pinned the right way — via
 ///   that probe's `required_events` at capture time — not via the drift
 ///   sequence comparison.
+/// - `tool_input_progress`: tugcode's narration of a tool's argument JSON
+///   as claude streams it in `input_json_delta` fragments, emitted when the
+///   narratable state advances. How the arguments are chunked is the
+///   stream's timing, so a short input may arrive whole and produce none;
+///   one run carries it and the next does not under the same contract.
 /// - `tool_progress`: the engine's heartbeat for a running tool call,
 ///   which tugcode forwards so the deck can tick the running block's
 ///   clock. The engine emits one roughly per second of a tool's run, so
 ///   whether a probe's Bash call runs long enough to produce any — and how
 ///   many — is timing, not protocol. A capture that carries one and a
 ///   capture that does not are the same contract.
-pub const MODEL_OPTIONAL_EVENT_TYPES: &[&str] =
-    &["thinking_text", "task_progress", "tool_progress"];
+pub const MODEL_OPTIONAL_EVENT_TYPES: &[&str] = &[
+    "thinking_text",
+    "task_progress",
+    "tool_input_progress",
+    "tool_progress",
+];
 
 /// Reduce a probe's event-type sequence to its **order-comparison
 /// shape**: drop position-insensitive interstitial events
@@ -1301,11 +1332,19 @@ pub async fn capture_with_stability(
         for run_idx in 0..n {
             let bank = bank_dir.join(format!("probe-{i}-run-{run_idx}.db"));
             let run_start = std::time::Instant::now();
-            let wire_tap = wire_tap_path(&bank);
-            let mut captured = execute_probe(probe, bank, project_dir).await;
-            // The probe's tugcast has dropped by now, so tugcode and claude
-            // are gone and the tap is complete.
-            captured.wire = read_wire_tap(&wire_tap);
+            let mut captured = capture_once(probe, &bank, project_dir).await;
+            // A live claude session stalls now and then — a turn that never
+            // starts, a wait that times out with nothing captured — and a
+            // stalled run read as a shape says every event type vanished,
+            // which is a capture failure posing as protocol drift. So a
+            // failed run is retried once on a fresh bank; a probe that fails
+            // twice is a red with its reason printed.
+            if let ProbeStatus::Failed(reason) = &captured.status {
+                println!("[capture]     reason: {reason}");
+                println!("[capture]     retrying once");
+                let retry_bank = bank_dir.join(format!("probe-{i}-run-{run_idx}-retry.db"));
+                captured = capture_once(probe, &retry_bank, project_dir).await;
+            }
             let tag = match &captured.status {
                 ProbeStatus::Passed => "ok",
                 ProbeStatus::Skipped(_) => "skip",
@@ -1335,6 +1374,7 @@ pub async fn capture_with_stability(
                 status: ProbeStatus::ShapeUnstable(diagnostic),
                 runtime_ms: first.runtime_ms,
                 wire: first.wire,
+                tool_results: first.tool_results,
             },
             None => first,
         };
@@ -1363,6 +1403,21 @@ pub async fn capture_with_stability(
         elapsed = overall_start.elapsed().as_secs(),
     );
     results
+}
+
+/// Run one probe on a fresh tugcast over `bank` and attach the raw wire its
+/// tugcode tapped.
+async fn capture_once(
+    probe: &ProbeRecord,
+    bank: &std::path::Path,
+    project_dir: &std::path::Path,
+) -> CapturedProbe {
+    let wire_tap = wire_tap_path(bank);
+    let mut captured = execute_probe(probe, bank.to_path_buf(), project_dir).await;
+    // The probe's tugcast has dropped by now, so tugcode and claude are gone
+    // and the tap is complete.
+    captured.wire = read_wire_tap(&wire_tap);
+    captured
 }
 
 // -----------------------------------------------------------------------

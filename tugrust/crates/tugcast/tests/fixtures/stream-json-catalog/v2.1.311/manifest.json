@@ -3,73 +3,73 @@
   "claude_version": "2.1.311",
   "probes": [
     {
-      "event_count": 18,
+      "event_count": 17,
       "name": "test-01-basic-round-trip",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 58,
+      "event_count": 54,
       "name": "test-02-longer-response-streaming",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 14,
+      "event_count": 12,
       "name": "test-03-slash-cost",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 13,
+      "event_count": 11,
       "name": "test-04-slash-status",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 46,
+      "event_count": 45,
       "name": "test-05-tool-use-read",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 19,
+      "event_count": 24,
       "name": "test-06-interrupt-mid-stream",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 43,
+      "event_count": 44,
       "name": "test-07-multiple-tool-calls",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 54,
+      "event_count": 75,
       "name": "test-08-tool-error-nonexistent",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 30,
+      "event_count": 28,
       "name": "test-09-bash-auto-approved",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 111,
+      "event_count": 112,
       "name": "test-10-long-streaming-300-words",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 82,
+      "event_count": 54,
       "name": "test-11-permission-deny-roundtrip",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 14,
+      "event_count": 12,
       "name": "test-12-slash-compact-model",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -82,19 +82,19 @@
       "status": "skipped"
     },
     {
-      "event_count": 128,
+      "event_count": 126,
       "name": "test-14-message-during-turn",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 13,
+      "event_count": 11,
       "name": "test-15-slash-btw",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 23,
+      "event_count": 20,
       "name": "test-16-model-change-roundtrip",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -107,13 +107,13 @@
       "status": "skipped"
     },
     {
-      "event_count": 20,
+      "event_count": 17,
       "name": "test-18-message-during-turn-detailed",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 17,
+      "event_count": 15,
       "name": "test-19-slash-compact",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -126,7 +126,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 138,
+      "event_count": 113,
       "name": "test-21-glob-tool",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -138,13 +138,13 @@
       "status": "passed"
     },
     {
-      "event_count": 23,
+      "event_count": 19,
       "name": "test-23-image-attachment",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 50,
+      "event_count": 32,
       "name": "test-24-at-file-references",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -157,55 +157,55 @@
       "status": "skipped"
     },
     {
-      "event_count": 146,
+      "event_count": 178,
       "name": "test-26-slash-arc",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 36,
+      "event_count": 35,
       "name": "test-27-at-file-references-variant",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 17,
+      "event_count": 15,
       "name": "test-28-system-metadata-deep-dive",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 48,
+      "event_count": 40,
       "name": "test-29-tugplug-ping",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 136,
+      "event_count": 194,
       "name": "test-30-tugplug-arc-status",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 14,
+      "event_count": 12,
       "name": "test-31-slash-cost-classification",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 14,
+      "event_count": 12,
       "name": "test-32-slash-compact-classification",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 14,
+      "event_count": 12,
       "name": "test-33-slash-model-classification",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 17,
+      "event_count": 15,
       "name": "test-34-plugin-agent-enumeration",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -218,7 +218,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 13,
+      "event_count": 11,
       "name": "test-36-slash-rewind",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -231,7 +231,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 33,
+      "event_count": 28,
       "name": "test-38-rewind-conversation-fork",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -244,19 +244,19 @@
       "status": "skipped"
     },
     {
-      "event_count": 31,
+      "event_count": 27,
       "name": "test-40-rewind-conversation-in-place",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 31,
+      "event_count": 30,
       "name": "test-41-bg-bash-clean",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 35,
+      "event_count": 36,
       "name": "test-42-bg-agent-progress",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -269,7 +269,7 @@
       "status": "skipped"
     },
     {
-      "event_count": 42,
+      "event_count": 43,
       "name": "test-44-monitor-timeout",
       "runtime_ms": "{{i64}}",
       "status": "passed"
@@ -282,14 +282,20 @@
       "status": "skipped"
     },
     {
-      "event_count": 47,
+      "event_count": 50,
       "name": "test-46-autocompact-pct-override",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     },
     {
-      "event_count": 46,
+      "event_count": 62,
       "name": "test-47-pretooluse-additional-context",
+      "runtime_ms": "{{i64}}",
+      "status": "passed"
+    },
+    {
+      "event_count": 31,
+      "name": "test-48-bash-timeout-move",
       "runtime_ms": "{{i64}}",
       "status": "passed"
     }

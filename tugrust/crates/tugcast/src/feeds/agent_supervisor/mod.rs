@@ -1144,6 +1144,14 @@ impl From<&str> for JobKind {
 /// `launch:<tool_use_id>` and then under the `task_id` it was re-keyed to —
 /// and leaves the map the first time a match finds the job gone. The relay's
 /// teardown clears the map with the jobs.
+///
+/// A foreground run the harness **moves** to the background — a call that
+/// outlived its `timeout`, or was backgrounded to let a message through or
+/// by the user's hand — becomes a background run at the move, under the
+/// `task_id` the move named, and its job opens with it ([B01], [B02]). It is
+/// the one background run the session waited on, so it leaves the map at
+/// its job's end rather than as a match finds it, and its end is recorded
+/// over the whole run ([B03]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenRun {
     /// The command as the call spelled it — what a report's needles match.
@@ -1151,6 +1159,9 @@ pub struct OpenRun {
     /// When the call opened, in epoch ms; the eviction order past the cap.
     pub opened_at_ms: i64,
     pub background: bool,
+    /// Whether the run was launched in the foreground and moved to the
+    /// background by the harness: a backgrounded call the session waited on.
+    pub moved: bool,
     /// The job's `task_id`, once its `task_started` confirmed it.
     pub task_id: Option<String>,
     /// Whether a progress report carrying a `unit` has attached to this call
@@ -1190,6 +1201,7 @@ mod gap_tests {
             command: "cd tugrust && cargo nextest run -p tugtool".into(),
             opened_at_ms,
             background: false,
+            moved: false,
             task_id: None,
             unit_reported,
         }
@@ -1274,6 +1286,7 @@ fn parse_bash_run(payload: &[u8], now_ms: i64) -> Option<(String, OpenRun)> {
             command: command.to_owned(),
             opened_at_ms: now_ms,
             background,
+            moved: false,
             task_id: None,
             unit_reported: false,
         },
@@ -1288,6 +1301,56 @@ fn parse_tool_result_id(payload: &[u8]) -> Option<String> {
     }
     let tool_use_id = value.get("tool_use_id")?.as_str()?;
     (!tool_use_id.is_empty()).then(|| tool_use_id.to_owned())
+}
+
+/// The `tool_use_id` and the task a `tool_result` says its call was **moved**
+/// to — the harness answering a foreground Bash call that outlived its
+/// `timeout`, or was backgrounded to let a message through or by the user,
+/// with the sentence `tugcore::moved_call` reads. `None` for every ordinary
+/// result. This is the second gate beside [`parse_background_launch`]: that
+/// one asks whether a call was *launched* as background work, this one
+/// whether it *became* it ([B01]).
+fn parse_moved_result(payload: &[u8]) -> Option<(String, tugcore::moved_call::MovedCall)> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    if value.get("type")?.as_str()? != "tool_result" {
+        return None;
+    }
+    let tool_use_id = value.get("tool_use_id")?.as_str()?;
+    if tool_use_id.is_empty() {
+        return None;
+    }
+    let text = value.get("output")?.as_str()?;
+    Some((
+        tool_use_id.to_owned(),
+        tugcore::moved_call::parse_moved_call(text)?,
+    ))
+}
+
+/// Fold a call's move into the entry: its run becomes a background run under
+/// `task_id`, marked as moved, and its job opens under that id with the
+/// `bash` kind, stamped `since` ([B02]). Reached from either edge of the move
+/// — the `task_started` the harness sends first, or the `tool_result` that
+/// carries the sentence — and a no-op on the second of the two, so the order
+/// the wire delivers them in does not matter.
+fn rekey_moved_run(
+    entry: &mut LedgerEntry,
+    tool_use_id: &str,
+    task_id: &str,
+    since: std::time::Instant,
+) {
+    if let Some(run) = entry.open_runs.get_mut(tool_use_id) {
+        run.background = true;
+        run.moved = true;
+        run.task_id = Some(task_id.to_owned());
+    }
+    entry
+        .open_jobs
+        .entry(task_id.to_owned())
+        .or_insert(OpenJob {
+            since,
+            kind: JobKind::Bash,
+        });
+    entry.touch_turn();
 }
 
 /// The Spec S03 `report` CODE_OUTPUT payload for `live`, with
@@ -3594,15 +3657,19 @@ impl AgentSupervisor {
         }
     }
 
-    /// A call answered: a foreground run is over. A background run's call
-    /// answers at once while its command keeps going, so it stays, and
+    /// A call answered: a foreground run is over — unless the answer says the
+    /// harness moved the call to the background, in which case the run is
+    /// re-keyed onto the task it became and stays ([B02]). A background run's
+    /// call answers at once while its command keeps going, so it stays, and
     /// leaves when its job does.
     ///
     /// A foreground run that ran long and reported no unit is recorded as a
     /// gap here — the one place its wall time and its silence are both
     /// known. Telemetry: a record that fails is a `warn!` and nothing else.
-    /// A background run's end is its job's, not its call's, and is not
-    /// recorded; the record is for the runs a session waits on.
+    /// A background run's end is its job's, not its call's; a backgrounded
+    /// launch's is not recorded, since the record is for the runs a session
+    /// waits on, and a moved run's is recorded at that end, over the whole
+    /// run ([B03]) — never at the move, which is no gap.
     pub(super) async fn close_run(&self, session_id: &TugSessionId, payload: &[u8]) {
         let Some(tool_use_id) = parse_tool_result_id(payload) else {
             return;
@@ -3622,14 +3689,41 @@ impl AgentSupervisor {
         {
             return;
         }
-        let Some(run) = entry.open_runs.remove(&tool_use_id) else {
+        if let Some((_, moved)) = parse_moved_result(payload) {
+            rekey_moved_run(
+                &mut entry,
+                &tool_use_id,
+                &moved.task_id,
+                std::time::Instant::now(),
+            );
+            tracing::debug!(
+                target: "dev::ledger",
+                event = "call_moved",
+                session_id = %session_id,
+                tool_use_id = %tool_use_id,
+                task_id = %moved.task_id,
+                frame = "tool_result",
+                open_jobs = entry.open_jobs.len(),
+            );
             return;
-        };
-        let Some(gaps) = self.report_gaps.as_ref() else {
+        }
+        let Some(run) = entry.open_runs.remove(&tool_use_id) else {
             return;
         };
         let project_dir = entry.project_dir.to_string_lossy().into_owned();
         drop(entry);
+        self.record_call_end(&run, &project_dir, session_id.as_str());
+    }
+
+    /// Record the end of a call the session waited on: its wall time under
+    /// its head, and the gap it is if it ran long and reported no unit. A
+    /// foreground call ends at its `tool_result`; a moved one at its job's
+    /// end, over the whole run ([B03]). Telemetry: a record that fails is a
+    /// `warn!` and nothing else.
+    fn record_call_end(&self, run: &OpenRun, project_dir: &str, session_id: &str) {
+        let Some(gaps) = self.report_gaps.as_ref() else {
+            return;
+        };
         let now_ms = crate::session_ledger::now_millis();
         // Every foreground call's time, quick or long, so a head's median is
         // its honest one and a quick command that hung reads as stalled.
@@ -3637,7 +3731,7 @@ impl AgentSupervisor {
         if let Err(err) = gaps.time(&head, now_ms - run.opened_at_ms, now_ms) {
             warn!(error = %err, head = %head, "call time not recorded");
         }
-        if let Some(row) = gap_of(&run, now_ms, &project_dir, session_id.as_str())
+        if let Some(row) = gap_of(run, now_ms, project_dir, session_id)
             && let Err(err) = gaps.record(&row)
         {
             warn!(error = %err, head = %row.head, "report gap not recorded");
@@ -3804,6 +3898,9 @@ impl AgentSupervisor {
         if entry.replay_brackets_open != 0 {
             return false;
         }
+        // The moved run a closing edge ends, recorded once the guard is
+        // released ([B03]).
+        let mut ended_run: Option<OpenRun> = None;
         match edge {
             JobEdge::Opened(task) => {
                 // Gated on the launching call ([Q01], resolved by the Step 1
@@ -3827,34 +3924,72 @@ impl AgentSupervisor {
                 let launched = launch_id
                     .as_ref()
                     .and_then(|id| entry.open_jobs.remove(&launch_key(id)));
-                let Some(job) = launched else {
-                    tracing::debug!(
-                        target: "dev::ledger",
-                        event = "job_open_rejected",
-                        session_id = %session_id,
-                        task_id = %task,
-                        "task_started with no observed background launch — \
-                         foreground work, not a job to track",
-                    );
-                    return false;
-                };
-                entry.open_jobs.insert(task.clone(), job);
-                // A background Bash run's progress reports stay attachable
-                // for as long as this job lives, under its new key.
-                if let Some(run) = launch_id.and_then(|id| entry.open_runs.get_mut(&id)) {
-                    run.task_id = Some(task.clone());
+                match launched {
+                    Some(job) => {
+                        entry.open_jobs.insert(task.clone(), job);
+                        // A background Bash run's progress reports stay
+                        // attachable for as long as this job lives, under
+                        // its new key.
+                        if let Some(run) = launch_id.and_then(|id| entry.open_runs.get_mut(&id)) {
+                            run.task_id = Some(task.clone());
+                        }
+                        tracing::debug!(
+                            target: "dev::ledger",
+                            event = "job_opened",
+                            session_id = %session_id,
+                            task_id = %task,
+                            frame = frame_family(payload),
+                            open_jobs = entry.open_jobs.len(),
+                        );
+                    }
+                    None => {
+                        // One unmatched shape is a job after all: a
+                        // `task_started` naming a live *foreground* Bash
+                        // call is the harness moving that call to the
+                        // background, and it arrives before the call's
+                        // `tool_result` carries the sentence ([B01]). The
+                        // run in `open_runs` is the evidence — only a Bash
+                        // call is registered there, and only a foreground
+                        // one can be moved. A backgrounded launch whose job
+                        // was already ended still opens nothing: its run is
+                        // a background run.
+                        let moved = launch_id.as_deref().filter(|id| {
+                            entry.open_runs.get(*id).is_some_and(|run| !run.background)
+                        });
+                        let Some(tool_use_id) = moved else {
+                            tracing::debug!(
+                                target: "dev::ledger",
+                                event = "job_open_rejected",
+                                session_id = %session_id,
+                                task_id = %task,
+                                "task_started with no observed background launch — \
+                                 foreground work, not a job to track",
+                            );
+                            return false;
+                        };
+                        rekey_moved_run(&mut entry, tool_use_id, &task, std::time::Instant::now());
+                        tracing::debug!(
+                            target: "dev::ledger",
+                            event = "call_moved",
+                            session_id = %session_id,
+                            tool_use_id = %tool_use_id,
+                            task_id = %task,
+                            frame = frame_family(payload),
+                            open_jobs = entry.open_jobs.len(),
+                        );
+                    }
                 }
-                tracing::debug!(
-                    target: "dev::ledger",
-                    event = "job_opened",
-                    session_id = %session_id,
-                    task_id = %task,
-                    frame = frame_family(payload),
-                    open_jobs = entry.open_jobs.len(),
-                );
             }
             JobEdge::Closed(task) => {
                 let was_open = entry.open_jobs.remove(&task).is_some();
+                // A moved call's job ending is the end of the run the session
+                // waited on: it leaves the map here, and is recorded below.
+                let moved_id = entry
+                    .open_runs
+                    .iter()
+                    .find(|(_, run)| run.moved && run.task_id.as_deref() == Some(task.as_str()))
+                    .map(|(id, _)| id.clone());
+                ended_run = moved_id.and_then(|id| entry.open_runs.remove(&id));
                 // A wake means the model is speaking again, so the gap every
                 // provisional entry was holding open is over — including the
                 // scheduler's own re-init wake, which names no job at all.
@@ -3888,6 +4023,11 @@ impl AgentSupervisor {
         let quiet = entry.is_quiet();
         if quiet {
             entry.quiesced.notify_waiters();
+        }
+        if let Some(run) = ended_run {
+            let project_dir = entry.project_dir.to_string_lossy().into_owned();
+            drop(entry);
+            self.record_call_end(&run, &project_dir, session_id.as_str());
         }
         quiet
     }
@@ -8774,6 +8914,195 @@ mod tests {
             entry.lock().await.open_runs.is_empty(),
             "a run whose job ended is pruned as it is found"
         );
+    }
+
+    /// The `tool_result` of a call the harness moved to the background: the
+    /// output so far, then the sentence naming the task and its output file.
+    fn moved_result_for(id: &str, task: &str) -> Vec<u8> {
+        let output = format!(
+            "MOVE_START\nCommand did not complete within its 3s timeout and was moved to \
+             the background (ID: {task}). Output is being written to: \
+             /private/tmp/claude-501/x/tasks/{task}.output. You will be notified when it \
+             completes. If it is still running after 10m in the background, it will be \
+             stopped and you will be notified."
+        );
+        serde_json::to_vec(&serde_json::json!({
+            "type": "tool_result",
+            "tool_use_id": id,
+            "output": output,
+            "is_error": false,
+        }))
+        .unwrap()
+    }
+
+    fn task_started_for(id: &str, task: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "type": "task_started", "session_id": "c", "task_id": task, "tool_use_id": id,
+            "description": "a long recipe", "task_type": "local_bash", "ipc_version": 2,
+        }))
+        .unwrap()
+    }
+
+    fn task_completed(task: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "type": "task_updated", "session_id": "c", "task_id": task,
+            "status": "completed", "ipc_version": 2,
+        }))
+        .unwrap()
+    }
+
+    /// A supervisor recording to a gaps ledger of its own, and the ledger.
+    fn supervisor_with_gaps() -> (
+        AgentSupervisor,
+        Arc<tugcore::report_gaps::ReportGaps>,
+        tempfile::TempDir,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let gaps = Arc::new(
+            tugcore::report_gaps::ReportGaps::open(dir.path().join("report_gaps.db")).unwrap(),
+        );
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.set_report_gaps(Arc::clone(&gaps));
+        (sup, gaps, dir)
+    }
+
+    /// A foreground call that outlived its timeout is moved, not ended: its
+    /// result re-keys the run onto the task the sentence names and opens the
+    /// job, a report still reaches its block, the move records no gap, and
+    /// the gap is judged at the job's end over the whole run.
+    #[tokio::test]
+    async fn a_moved_call_is_a_job_and_its_gap_is_judged_at_the_jobs_end() {
+        let (sup, gaps, _dir) = supervisor_with_gaps();
+        let id = TugSessionId::new("sess-moved");
+        let entry = insert_ledger_entry(&sup, &id).await;
+        sup.record_run_open(
+            &id,
+            &bash_use("toolu_M", "just capture-capabilities", false),
+        )
+        .await;
+        // The call has been running well past the gap threshold.
+        entry
+            .lock()
+            .await
+            .open_runs
+            .get_mut("toolu_M")
+            .unwrap()
+            .opened_at_ms -= 25_000;
+
+        sup.close_run(&id, &moved_result_for("toolu_M", "bmoved1"))
+            .await;
+        {
+            let entry = entry.lock().await;
+            let run = &entry.open_runs["toolu_M"];
+            assert!(run.background && run.moved, "{run:?}");
+            assert_eq!(run.task_id.as_deref(), Some("bmoved1"));
+            assert_eq!(entry.open_jobs["bmoved1"].kind, JobKind::Bash);
+            assert!(!entry.is_quiet(), "a moved call holds the session busy");
+        }
+        assert!(
+            gaps.session("sess-moved").is_empty(),
+            "the move is not a gap"
+        );
+        assert_eq!(
+            sup.publish_report("sess-moved", report(&[])).await,
+            Some((true, Some("toolu_M".to_owned()))),
+            "the block keeps reporting across the move"
+        );
+
+        sup.apply_job_edge(&id, &task_completed("bmoved1")).await;
+        {
+            let entry = entry.lock().await;
+            assert!(entry.open_runs.is_empty(), "the run ends with its job");
+            assert!(entry.open_jobs.is_empty());
+            assert!(entry.is_quiet());
+        }
+        let rows = gaps.session("sess-moved");
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].head, "just capture-capabilities");
+        assert!(
+            rows[0].wall_ms >= 25_000,
+            "the gap spans the whole run, not the time to the move: {rows:?}"
+        );
+    }
+
+    /// On the wire the move's `task_started` lands before the call's
+    /// `tool_result`. Naming a live foreground Bash call, it is the move's
+    /// first edge: the job opens there, and the sentence that follows changes
+    /// nothing. A short run records no gap at its end.
+    #[tokio::test]
+    async fn a_task_started_naming_a_live_foreground_call_is_the_move() {
+        let (sup, gaps, _dir) = supervisor_with_gaps();
+        let id = TugSessionId::new("sess-moved-edge");
+        let entry = insert_ledger_entry(&sup, &id).await;
+        sup.record_run_open(&id, &bash_use("toolu_E", "just test", false))
+            .await;
+
+        assert!(
+            !sup.apply_job_edge(&id, &task_started_for("toolu_E", "bm2"))
+                .await,
+            "a job opened: not quiet"
+        );
+        {
+            let entry = entry.lock().await;
+            assert_eq!(entry.open_jobs["bm2"].kind, JobKind::Bash);
+            let run = &entry.open_runs["toolu_E"];
+            assert!(run.background && run.moved, "{run:?}");
+            assert_eq!(run.task_id.as_deref(), Some("bm2"));
+        }
+
+        sup.close_run(&id, &moved_result_for("toolu_E", "bm2"))
+            .await;
+        {
+            let entry = entry.lock().await;
+            assert_eq!(entry.open_jobs.len(), 1, "the sentence re-opens nothing");
+            assert_eq!(entry.open_runs["toolu_E"].task_id.as_deref(), Some("bm2"));
+        }
+        assert_eq!(
+            sup.publish_report("sess-moved-edge", report(&[])).await,
+            Some((true, Some("toolu_E".to_owned())))
+        );
+
+        assert!(sup.apply_job_edge(&id, &task_completed("bm2")).await);
+        assert!(entry.lock().await.open_runs.is_empty());
+        assert!(
+            gaps.session("sess-moved-edge").is_empty(),
+            "a short run is no gap"
+        );
+    }
+
+    /// The move gate reads a *foreground* run. A backgrounded launch whose job
+    /// a step close already ended has a background run, so its late
+    /// `task_started` still opens nothing.
+    #[tokio::test]
+    async fn a_late_task_started_for_an_ended_background_launch_is_not_a_move() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-late", "sess-late"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let id = TugSessionId::new("sess-late");
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger.get(&id).unwrap().clone()
+        };
+        let launch = bash_use("toolu_L", "just app-test", true);
+        sup.record_job_launch(&id, &launch).await;
+        sup.record_run_open(&id, &launch).await;
+        assert_eq!(
+            sup.end_step_jobs("sess-late").await,
+            vec![launch_key("toolu_L")]
+        );
+
+        assert!(
+            !sup.apply_job_edge(&id, &task_started_for("toolu_L", "tl"))
+                .await
+        );
+        let entry = entry.lock().await;
+        assert!(entry.open_jobs.is_empty());
+        assert!(!entry.open_runs["toolu_L"].moved);
     }
 
     #[tokio::test]

@@ -62,7 +62,7 @@ export {
   type TimerSource,
 } from "./render-tracker";
 import type { CardSessionMode } from "@/lib/card-session-binding-store";
-import { taskStartedEvent, taskUpdatedEvent, taskProgressEvent } from "./select-jobs";
+import { taskStartedEvent, taskUpdatedEvent, taskProgressEvent, terminalJobStatusFromWire, parseMovedCallResult } from "./select-jobs";
 import {
   createInitialState,
   isTextOnlyChange,
@@ -571,8 +571,37 @@ export class SessionEngine {
         return true;
       }
       case "tool_result":
-        this.progress({ op: "close", toolUseId: frame.tool_use_id });
+        // A result that says the call was moved to the background does not
+        // close it: the command is still running, its reports keep coming,
+        // and a close here would drop the run its block shows until the next
+        // report arrived — minutes, for a build. A moved call closes below,
+        // at its job's end; the sentence is read here rather than the jobs
+        // ledger because the row may not exist yet when the sentence is the
+        // move's first edge the deck sees.
+        if (parseMovedCallResult(frame.output) === undefined) {
+          this.progress({ op: "close", toolUseId: frame.tool_use_id });
+        }
         return false;
+      case "task_updated":
+      case "wake_started": {
+        // A background job's end closes its call's reports. A moved call —
+        // a foreground call the harness moved to the background at its
+        // `timeout` — was not closed at its result (above), so this is its
+        // one close, and its run settles on the job's last report. A
+        // launch's result closed it once already; its later reports came
+        // back in through the `runningJob` door above, and settle here the
+        // same way.
+        const taskId =
+          frame.type === "task_updated" ? frame.task_id : frame.wake_trigger.task_id;
+        const terminal =
+          frame.type === "wake_started" ||
+          terminalJobStatusFromWire(frame.status) !== undefined;
+        const job = terminal
+          ? this.state.jobs.find((j) => j.jobId === taskId && j.status === "running")
+          : undefined;
+        if (job !== undefined) this.progress({ op: "close", toolUseId: job.toolUseId });
+        return false;
+      }
       default:
         return false;
     }

@@ -143,11 +143,13 @@ import {
   EMPTY_JOBS_LEDGER,
   insertJob,
   isJobLaunch,
+  isMovedForegroundCall,
   jobExistsForParent,
   jobIdForChild,
   jobKindForLaunch,
   markRunningJobsStopped,
   parseBackgroundLaunchResult,
+  parseMovedCallResult,
   terminalJobStatusFromWire,
   type JobItem,
 } from "./select-jobs";
@@ -3761,6 +3763,32 @@ function handleToolResult(
         startedAtMs: now,
         endedAtMs: null,
       });
+    } else if (mutated.toolName.toLowerCase() === "bash") {
+      // The move: a foreground Bash call that outlived its `timeout`
+      // was moved to the background rather than killed, and its result
+      // says so (the second gate, beside `isJobLaunch` — a moved call
+      // was never *launched* as a job, so the input cannot tell). The
+      // row is keyed by the task id the sentence names, which is the id
+      // its `task_updated` and wake carry, and it starts at the call's
+      // own open, since the command has been running since then. The
+      // `task_started` that precedes this result on the wire is the
+      // move's first edge and inserts the same row (`handleTaskStarted`);
+      // `insertJob` composes the two, so this fills the output file in.
+      const moved = parseMovedCallResult(mutated.result);
+      if (moved !== undefined) {
+        jobs = insertJob(jobs, {
+          jobId: moved.jobId,
+          source: "claude",
+          kind: "bash",
+          toolUseId: mutated.toolUseId,
+          description:
+            typeof input?.description === "string" ? input.description : "",
+          outputFile: moved.outputFile,
+          status: "running",
+          startedAtMs: typeof startedAt === "number" ? startedAt : now,
+          endedAtMs: null,
+        });
+      }
     } else if (mutated.toolName.toLowerCase() === "taskstop") {
       // Defensive fold: the wire also confirms a stop via
       // `task_updated{killed}`, but folding the TaskStop call keeps
@@ -7879,10 +7907,24 @@ function handleTaskStarted(
     typeof launching.input === "object" && launching.input !== null
       ? (launching.input as Record<string, unknown>)
       : null;
-  if (!isJobLaunch(launching.toolName, input)) {
+  // Two edges admit a row: a launch, or the move of a live foreground
+  // Bash call. Claude Code emits this frame for a foreground call it
+  // moves to the background at its `timeout`, *before* the call's
+  // `tool_result` carries the move sentence — so a frame naming a Bash
+  // call that is still pending and was not launched as a job is the
+  // move's first edge, and the row opens here at the call's own open.
+  // The sentence on the result is the second edge (`parseMovedCallResult`
+  // in the tool_result fold), which fills the output file in through
+  // `insertJob`; either edge arriving first yields the same row.
+  const isLaunch = isJobLaunch(launching.toolName, input);
+  const isMove =
+    !isLaunch &&
+    isMovedForegroundCall(launching.toolName, input, launching.status);
+  if (!isLaunch && !isMove) {
     return { state, effects: [] };
   }
   const kind = jobKindForLaunch(launching.toolName, event.taskType);
+  const openedAt = state.toolUseStartedAt.get(event.toolUseId);
   const jobs = insertJob(state.jobs, {
     jobId: event.taskId,
     source: "claude",
@@ -7890,7 +7932,7 @@ function handleTaskStarted(
     toolUseId: event.toolUseId,
     description: event.description,
     status: "running",
-    startedAtMs: Date.now(),
+    startedAtMs: isMove && typeof openedAt === "number" ? openedAt : Date.now(),
     endedAtMs: null,
   });
   if (jobs === state.jobs) {
