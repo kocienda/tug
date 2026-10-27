@@ -98,7 +98,9 @@ export const SPIKE_FAMILY = "spike";
 export { spikeComponentId };
 
 /**
- * Every spike on the deck, in the order the index card lists them.
+ * Every spike on the deck, alphabetized by title — the order the index card
+ * lists them and the `+` picker offers them. The sort is done here, so where a
+ * new entry lands in the array below does not matter.
  *
  * To add one: write `spikes/spike-<name>.tsx` exporting `spike: SpikeDef`,
  * then add its `import` above and its entry here.
@@ -116,16 +118,12 @@ export const SPIKES: readonly SpikeDef[] = [
   miniaturePlusSpike,
   timePopupSpike,
   resolveLedgerSpike,
-  // Settled references: these began as spikes and closed into the reference
-  // for their subject. They stay here rather than becoming permanent gallery
-  // furniture, so the graduation path — durable content into tuglaws/, file
-  // deleted — stays visible.
   cardChromeSpike,
   modalHeadersSpike,
   focusLanguageSpike,
   lightChromeSpike,
   askDialogHeightSpike,
-];
+].sort((a, b) => a.title.localeCompare(b.title));
 
 /**
  * Register the Spikes index card and every entry in {@link SPIKES}.

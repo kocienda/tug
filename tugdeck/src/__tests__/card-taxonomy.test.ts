@@ -20,7 +20,7 @@ import {
   type CardRegistration,
 } from "@/card-registry";
 import { registerGalleryCards } from "@/components/tugways/cards/gallery-registrations";
-import { registerSpikeCards } from "@/spikes/spike-registry";
+import { registerSpikeCards, SPIKES } from "@/spikes/spike-registry";
 import { registerFixtureCards } from "@/fixtures/fixture-registrations";
 
 // bun shares module state across test files, so register from scratch.
@@ -120,5 +120,12 @@ describe("card taxonomy", () => {
     expect(home).toBeDefined();
     expect(home?.contentFactory).toBeTypeOf("function");
     expect(home?.defaultMeta.title).toBe("Spikes");
+  });
+
+  test("the spikes index lists its spikes alphabetized by title", () => {
+    // Hunting down an unsorted list for the spike you want is the thing this
+    // pins against; the registry sorts, so array position is never the order.
+    const titles = SPIKES.map((def) => def.title);
+    expect(titles).toEqual([...titles].sort((a, b) => a.localeCompare(b)));
   });
 });

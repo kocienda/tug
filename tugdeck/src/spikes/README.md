@@ -53,7 +53,7 @@ export const SPIKES: readonly SpikeDef[] = [
 ];
 ```
 
-That is the whole registration. The family, the accepted families, the size policy, the category, and the closable flag are answered once in `spike-registry.tsx` for every spike at once. Override `size` on the `SpikeDef` if your spike needs unusual room; set `kbfAtRest: true` only if the spike's subject *is* the focus language.
+Where the entry lands in the array does not matter: the registry sorts `SPIKES` by title, so the index card always lists spikes alphabetically. That is the whole registration. The family, the accepted families, the size policy, the category, and the closable flag are answered once in `spike-registry.tsx` for every spike at once. Override `size` on the `SpikeDef` if your spike needs unusual room; set `kbfAtRest: true` only if the spike's subject *is* the focus language.
 
 `/tugplug:spike-card` does all of the above for you.
 

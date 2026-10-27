@@ -46,7 +46,7 @@ export function spikeComponentId(name: string): string {
   return `spike-${name}`;
 }
 
-/** The index's rows: the `SPIKES` array, in declaration order. */
+/** The index's rows: the `SPIKES` array, alphabetized by title. */
 class SpikeRowsDataSource implements TugListViewDataSource {
   constructor(readonly rows: readonly SpikeDef[]) {}
   numberOfItems(): number {
@@ -93,7 +93,7 @@ const SPIKE_CELL_RENDERERS = { spike: SpikeCell };
 export function SpikeHome({
   spikes,
 }: {
-  /** The registry's `SPIKES`, in declaration order. */
+  /** The registry's `SPIKES`, alphabetized by title. */
   spikes: readonly SpikeDef[];
 }): React.ReactElement {
   // The index's own card, which an opened spike is placed beside.

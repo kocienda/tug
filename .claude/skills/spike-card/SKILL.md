@@ -31,7 +31,7 @@ A sentence is enough — "compare three treatments for the composer's attachment
 
    Give the file a real module docstring stating the question the spike is asking. That question and the `blurb` are the same sentence in two registers.
 
-3. **Register it.** Two lines in `spikes/spike-registry.tsx`: the `import { spike as <name>Spike } from "./spike-<slug>"`, and the entry in the `SPIKES` array. Nothing else — the family, accepted families, size policy, category, and closable flag are answered once there for every spike at once.
+3. **Register it.** Two lines in `spikes/spike-registry.tsx`: the `import { spike as <name>Spike } from "./spike-<slug>"`, and the entry in the `SPIKES` array. Don't hunt for an alphabetical slot — the registry sorts `SPIKES` by title, so the index card lists spikes alphabetically wherever the entry lands. Nothing else — the family, accepted families, size policy, category, and closable flag are answered once there for every spike at once.
 
 4. **Style it.** `spike.css` gives you `.sp-content`, `.sp-section`, `.sp-section-title`. Anything more goes in a sibling `spike-<slug>.css` that the spike imports itself.
 
