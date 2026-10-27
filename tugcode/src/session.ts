@@ -2830,6 +2830,7 @@ export class SessionManager {
       seq: turn.seq,
       rev: lane.rev,
       pendingCompactSummary: turn.pendingCompactSummary,
+      rateLimitInfo: turn.rateLimitInfo ?? undefined,
     };
 
     // Tier 1: route the top-level message type. The turn's last
@@ -2856,6 +2857,9 @@ export class SessionManager {
     // leave it unchanged (`undefined`).
     if (routeResult.pendingCompactSummary !== undefined) {
       turn.pendingCompactSummary = routeResult.pendingCompactSummary;
+    }
+    for (const msg of routeResult.messages) {
+      if (msg.type === "rate_limit_event") turn.rateLimitInfo = msg.rate_limit_info;
     }
 
     // `/rewind` anchor ([#step-7-1]). The live user-echo reveals the

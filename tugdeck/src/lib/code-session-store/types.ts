@@ -18,6 +18,7 @@ import type { CardSessionMode } from "../card-session-binding-store";
 import type { JobItem } from "./select-jobs";
 import type { GoalState } from "./select-goal";
 import type { StageBoundaryFacts } from "./stages";
+import type { AssistantApiError } from "@tugproto/outbound";
 
 export type { CardSessionMode } from "../card-session-binding-store";
 
@@ -181,6 +182,12 @@ export interface AssistantText extends MessageBase {
    *  write to the session's `PropertyStore`, the live copy the markdown view
    *  reads, and bumps no snapshot. */
   text: string;
+  /**
+   * Set when the text is Claude Code's own error message standing in for a
+   * reply (the minting `content_block_start`'s `api_error`). The transcript
+   * draws a `rate_limit` one as the usage-limit notice instead of prose.
+   */
+  apiError?: AssistantApiError;
 }
 
 export interface AssistantThinking extends MessageBase {

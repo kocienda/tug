@@ -17,6 +17,8 @@ import type { RateLimitInfo } from "@/protocol";
 import { formatResetCountdown, rateLimitBannerState,
   USAGE_BULLETIN_IDLE,
   nextUsageBulletin,
+  usageLimitResetLine,
+  usageLimitTitle,
 } from "@/lib/rate-limit";
 
 /** The benign default: allowed quota, overage org-disabled. */
@@ -138,5 +140,54 @@ describe("nextUsageBulletin", () => {
   test("status fallback arms 90 on allowed_warning when utilization is absent", () => {
     const r = nextUsageBulletin(USAGE_BULLETIN_IDLE, info({ status: "allowed_warning" }), NOW);
     expect(r.fire).toEqual({ tone: "caution", message: expect.stringContaining("Usage at 90%") });
+  });
+});
+
+describe("usageLimitTitle", () => {
+  test("names the window the turn was refused against", () => {
+    expect(usageLimitTitle("five_hour")).toBe("Session limit reached");
+    expect(usageLimitTitle("seven_day")).toBe("Weekly limit reached");
+    expect(usageLimitTitle("seven_day_opus")).toBe("Weekly Opus limit reached");
+    expect(usageLimitTitle(undefined)).toBe("Usage limit reached");
+    expect(usageLimitTitle("something_new")).toBe("Usage limit reached");
+  });
+});
+
+describe("usageLimitResetLine", () => {
+  const TZ = "America/Los_Angeles";
+  // 2026-10-27 04:10 UTC = 9:10 PM Oct 26 in Los Angeles.
+  const RESETS = Date.UTC(2026, 9, 27, 4, 10) / 1000;
+
+  test("a reset later the same day reads 'today'", () => {
+    const now = Date.UTC(2026, 9, 27, 2, 53); // 7:53 PM local
+    expect(usageLimitResetLine(RESETS, now, "en-US", TZ)).toBe(
+      "Resets at 9:10 PM today",
+    );
+  });
+
+  test("a reset on the next day reads 'tomorrow'", () => {
+    const now = Date.UTC(2026, 9, 26, 4, 0); // 9:00 PM Oct 25 local
+    expect(usageLimitResetLine(RESETS, now, "en-US", TZ)).toBe(
+      "Resets at 9:10 PM tomorrow",
+    );
+  });
+
+  test("a reset further out names its day", () => {
+    const now = Date.UTC(2026, 9, 24, 18, 0);
+    expect(usageLimitResetLine(RESETS, now, "en-US", TZ)).toBe(
+      "Resets at 9:10 PM on Mon, Oct 26",
+    );
+  });
+
+  test("a reset already past reads in the past tense", () => {
+    const now = Date.UTC(2026, 9, 27, 18, 0);
+    expect(usageLimitResetLine(RESETS, now, "en-US", TZ)).toBe(
+      "Reset at 9:10 PM on Mon, Oct 26",
+    );
+  });
+
+  test("no reset time is no line", () => {
+    expect(usageLimitResetLine(undefined, 0)).toBeNull();
+    expect(usageLimitResetLine(0, 0)).toBeNull();
   });
 });

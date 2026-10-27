@@ -3027,6 +3027,7 @@ function handleContentBlockStart(
         messageKey,
         createdAt: now,
         text: "",
+        ...(event.api_error !== undefined ? { apiError: event.api_error } : {}),
       } satisfies AssistantText;
       break;
     case "thinking":
@@ -3214,13 +3215,8 @@ function handleTextDelta(
     messageKey = existing.messageKey;
     const buffer = event.is_partial ? existing.text + text : text;
     const mutated: Message =
-      kind === "assistant_text"
-        ? {
-            kind: "assistant_text",
-            messageKey: existing.messageKey,
-            createdAt: existing.createdAt,
-            text: buffer,
-          }
+      existing.kind === "assistant_text"
+        ? { ...existing, text: buffer }
         : {
             kind: "assistant_thinking",
             messageKey: existing.messageKey,

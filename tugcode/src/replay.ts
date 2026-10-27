@@ -50,6 +50,7 @@
 //                                    `result` lands.
 
 import type {
+  AssistantApiError,
   AssistantOpener,
   AssistantText,
   ContentBlock,
@@ -241,6 +242,15 @@ export interface JsonlUserEntry extends JsonlEnvelope {
 export interface JsonlAssistantEntry extends JsonlEnvelope {
   type: "assistant";
   message?: JsonlMessage;
+  /**
+   * On a `"<synthetic>"` entry that is Claude Code's own error text standing
+   * in for a reply, the SDK's error class (`"rate_limit"`, …), with
+   * `isApiErrorMessage: true` beside it.
+   */
+  error?: string;
+  isApiErrorMessage?: boolean;
+  /** The error's parameters; on a `rate_limit`, the quota it hit. */
+  apiErrorParams?: { rate_limit_info?: Record<string, unknown> };
 }
 
 /** A `system` record. Skipped, except a `/compact` point. */
@@ -1858,6 +1868,38 @@ function coerceToolResultContent(content: unknown): string {
 }
 
 /**
+ * The error a `"<synthetic>"` assistant entry stands for, when it is Claude
+ * Code's own error text in place of a reply — the live path's tag
+ * (`event-mapping.ts`), read from the JSONL's `error` /
+ * `apiErrorParams.rate_limit_info`. `undefined` on every ordinary entry.
+ */
+export function assistantApiError(
+  entry: JsonlAssistantEntry,
+): AssistantApiError | undefined {
+  if (entry.message?.model !== "<synthetic>") return undefined;
+  if (typeof entry.error !== "string" || entry.error.length === 0) {
+    return undefined;
+  }
+  const info = entry.apiErrorParams?.rate_limit_info;
+  if (!isRecord(info)) return { error: entry.error };
+  return {
+    error: entry.error,
+    rate_limit_info: {
+      status: typeof info.status === "string" ? info.status : "",
+      resetsAt: typeof info.resetsAt === "number" ? info.resetsAt : 0,
+      rateLimitType:
+        typeof info.rateLimitType === "string" ? info.rateLimitType : "",
+      overageStatus:
+        typeof info.overageStatus === "string" ? info.overageStatus : "",
+      ...(typeof info.overageDisabledReason === "string"
+        ? { overageDisabledReason: info.overageDisabledReason }
+        : {}),
+      isUsingOverage: info.isUsingOverage === true,
+    },
+  };
+}
+
+/**
  * Per-entry translator for `assistant` JSONL entries. Emits the
  * entry's content blocks (one `content_block_start` + kind-specific
  * terminal per block, in arrival order) and, on a clean terminal
@@ -1893,6 +1935,7 @@ function handleAssistantEntry(
   const stopReason = entry.message?.stop_reason ?? null;
   const entryMsgId =
     typeof entry.message?.id === "string" ? entry.message.id : "";
+  const apiError = assistantApiError(entry);
 
   const out: OutboundMessage[] = [];
 
@@ -2041,6 +2084,9 @@ function handleAssistantEntry(
             block_index: block.index,
             kind: block.kind,
             timestamp: parseEntryTimestamp(entry),
+            ...(block.kind === "text" && apiError !== undefined
+              ? { api_error: apiError }
+              : {}),
             ipc_version: IPC_VERSION,
           };
     out.push(blockStart);

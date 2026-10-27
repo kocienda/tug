@@ -1452,6 +1452,50 @@ describe("routeTopLevelEvent surfaces messageId from assistant snapshot", () => 
     expect(text.text).toBe("/cost output");
   });
 
+  test("a synthetic rate_limit error tags its text block with the turn's quota", () => {
+    // Claude Code answers a turn refused at the limit with a synthetic
+    // message carrying `error`; the deck draws it as a notice, not prose.
+    const quota = {
+      status: "rejected",
+      resetsAt: 1793074200,
+      rateLimitType: "five_hour",
+      overageStatus: "rejected",
+      isUsingOverage: false,
+    };
+    const event = {
+      type: "assistant",
+      error: "rate_limit",
+      message: {
+        id: "msg_limit",
+        model: "<synthetic>",
+        content: [
+          { type: "text", text: "You've hit your session limit · resets 9:10pm" },
+        ],
+      },
+    };
+    const result = routeTopLevelEvent(event, { ...baseCtx, rateLimitInfo: quota });
+    const start = result.messages.find(
+      (m: any) => m.type === "content_block_start",
+    ) as any;
+    expect(start.api_error).toEqual({ error: "rate_limit", rate_limit_info: quota });
+  });
+
+  test("an ordinary synthetic message carries no api_error", () => {
+    const event = {
+      type: "assistant",
+      message: {
+        id: "msg_cost",
+        model: "<synthetic>",
+        content: [{ type: "text", text: "/cost output" }],
+      },
+    };
+    const result = routeTopLevelEvent(event, baseCtx);
+    const start = result.messages.find(
+      (m: any) => m.type === "content_block_start",
+    ) as any;
+    expect(start.api_error).toBeUndefined();
+  });
+
   test("assistant snapshot without message.id falls back to ctx.msgId", () => {
     const event = {
       type: "assistant",

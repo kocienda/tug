@@ -136,6 +136,52 @@ describe("[D07] reducer message-sequence", () => {
     expect((messages[3] as AssistantText).text).toBe("Done.");
   });
 
+  test("a text block opened with api_error keeps it through its text and the commit", () => {
+    // Claude Code's "you've hit your limit" message is tagged on its minting
+    // `content_block_start`; the transcript draws the notice from the
+    // committed Message, so the tag must survive the text that fills it.
+    const turnKey = "t1";
+    const msgId = "msg_limit";
+    const apiError = {
+      error: "rate_limit",
+      rate_limit_info: {
+        status: "rejected",
+        resetsAt: 1793074200,
+        rateLimitType: "five_hour",
+        overageStatus: "rejected",
+        isUsingOverage: false,
+      },
+    };
+    const { effects } = applyAll(fresh(), [
+      { type: "send", text: "hi", atoms: [], content: [{ type: "text" as const, text: "hi" }], turnKey },
+      {
+        type: "content_block_start",
+        msg_id: msgId,
+        block_index: 0,
+        kind: "text",
+        api_error: apiError,
+      },
+      {
+        type: "assistant_text",
+        msg_id: msgId,
+        block_index: 0,
+        text: "You've hit your session limit · resets 9:10pm",
+        is_partial: false,
+        seq: 0,
+        rev: 0,
+        status: "complete",
+      },
+      { type: "turn_complete", msg_id: msgId, result: "success", seq: 0 },
+    ]);
+
+    const messages = committedMessages(effects);
+    expect(messages).toHaveLength(2);
+    const text = messages[1] as AssistantText;
+    expect(text.kind).toBe("assistant_text");
+    expect(text.text).toBe("You've hit your session limit · resets 9:10pm");
+    expect(text.apiError).toEqual(apiError);
+  });
+
   test("multi-msgId concatenation: events across two msg_ids commit one TurnEntry whose messages span both", () => {
     const turnKey = "t2";
     const { effects } = applyAll(fresh(), [

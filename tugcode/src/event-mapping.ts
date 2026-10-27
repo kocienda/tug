@@ -17,6 +17,7 @@ import type {
   ThinkingText,
   CompactBoundary,
   RateLimitEvent,
+  RateLimitInfo,
   ToolProgress,
   ControlRequestCancel,
   SystemMetadata,
@@ -56,6 +57,12 @@ export interface EventMappingContext {
    * back onto {@link ActiveTurn.pendingCompactSummary} across events.
    */
   pendingCompactSummary?: boolean;
+  /**
+   * The quota the turn's latest `rate_limit_event` reported
+   * ({@link ActiveTurn.rateLimitInfo}). A synthetic `rate_limit` error message
+   * carries none of its own, so its `api_error` tag takes this one.
+   */
+  rateLimitInfo?: RateLimitInfo;
 }
 
 /**
@@ -726,6 +733,18 @@ export function routeTopLevelEvent(
       const effectiveMsgId = messageId ?? ctx.msgId;
       const model = message?.model || "";
       const isSynthetic = model === "<synthetic>";
+      // A synthetic message carrying `error` is Claude Code's own error text
+      // standing in for a reply ("You've hit your session limit · …"). Tag
+      // its text so the deck draws a notice rather than prose.
+      const apiError =
+        isSynthetic && typeof event.error === "string" && event.error.length > 0
+          ? {
+              error: event.error,
+              ...(event.error === "rate_limit" && ctx.rateLimitInfo !== undefined
+                ? { rate_limit_info: ctx.rateLimitInfo }
+                : {}),
+            }
+          : undefined;
       const content = message?.content || [];
 
       // A message that closed on `max_tokens` was cut off at the output
@@ -751,6 +770,7 @@ export function routeTopLevelEvent(
               msg_id: effectiveMsgId,
               block_index: blockIndex,
               kind: "text",
+              ...(apiError !== undefined ? { api_error: apiError } : {}),
               ipc_version: IPC_VERSION,
             });
             messages.push({

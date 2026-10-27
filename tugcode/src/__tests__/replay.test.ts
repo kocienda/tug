@@ -1642,6 +1642,72 @@ describe("translateJsonlSession — batched yields", () => {
 // ---------------------------------------------------------------------------
 
 describe("translateJsonlEntry — direct unit tests", () => {
+  test("a synthetic rate_limit entry tags its text block with the JSONL's quota", () => {
+    // The resume path reads the same tag the live path sends, from the
+    // entry's `error` / `apiErrorParams`, so a reopened session draws the
+    // usage-limit notice too.
+    const ctx = makeTranslateContext();
+    const out = translateJsonlEntry(
+      {
+        type: "assistant",
+        uuid: "a-limit",
+        timestamp: "2026-10-27T02:53:26.448Z",
+        error: "rate_limit",
+        isApiErrorMessage: true,
+        apiErrorParams: {
+          rate_limit_info: {
+            status: "rejected",
+            resetsAt: 1793074200,
+            rateLimitType: "five_hour",
+            overageStatus: "rejected",
+            overageDisabledReason: "org_level_disabled",
+            isUsingOverage: false,
+          },
+        },
+        message: {
+          id: "msg_limit",
+          model: "<synthetic>",
+          role: "assistant",
+          stop_reason: "stop_sequence",
+          content: [
+            { type: "text", text: "You've hit your session limit · resets 9:10pm" },
+          ],
+        },
+      } as JsonlEntry,
+      ctx,
+    );
+    const start = out.find((m) => m.type === "content_block_start");
+    expect(start).toMatchObject({
+      kind: "text",
+      api_error: {
+        error: "rate_limit",
+        rate_limit_info: {
+          status: "rejected",
+          resetsAt: 1793074200,
+          rateLimitType: "five_hour",
+          overageStatus: "rejected",
+          overageDisabledReason: "org_level_disabled",
+          isUsingOverage: false,
+        },
+      },
+    });
+  });
+
+  test("an ordinary assistant entry's text block carries no api_error", () => {
+    const ctx = makeTranslateContext();
+    const out = translateJsonlEntry(
+      assistantEntry({
+        msgId: "msg_plain",
+        stopReason: "end_turn",
+        content: [{ type: "text", text: "hi" }],
+      }),
+      ctx,
+    );
+    const start = out.find((m) => m.type === "content_block_start");
+    expect(start).toBeDefined();
+    expect((start as { api_error?: unknown }).api_error).toBeUndefined();
+  });
+
   test("user entry with text emits add_user_message immediately and opens a turn", () => {
     // Per [D13]'s per-entry direct emission discipline, the user
     // entry IS the opener frame — no cross-entry buffering. The

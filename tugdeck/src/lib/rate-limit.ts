@@ -91,6 +91,68 @@ export function formatResetCountdown(resetsAtSec: number, nowMs: number): string
 }
 
 // ---------------------------------------------------------------------------
+// The usage-limit notice — the transcript's row for a refused turn.
+// ---------------------------------------------------------------------------
+
+/**
+ * The notice's title for the window a turn was refused against. Claude Code
+ * calls the five-hour window the "session" limit, and its own message says
+ * so; the weekly windows name themselves.
+ */
+export function usageLimitTitle(rateLimitType: string | undefined): string {
+  switch (rateLimitType) {
+    case "five_hour":
+      return "Session limit reached";
+    case "seven_day":
+      return "Weekly limit reached";
+    case "seven_day_opus":
+      return "Weekly Opus limit reached";
+    case "seven_day_sonnet":
+      return "Weekly Sonnet limit reached";
+    default:
+      return "Usage limit reached";
+  }
+}
+
+/**
+ * When the window resets, as the notice's line: `"Resets at 9:10 PM today"`,
+ * `"… tomorrow"`, `"… on Thu, Oct 29"`, and once the time has passed,
+ * `"Reset at 9:10 PM on Mon, Oct 26"`. Read against `nowMs` at render; it
+ * does not tick. `null` when the quota carried no reset time.
+ *
+ * `resetsAtSec` is Unix epoch seconds (the wire shape); `nowMs` is
+ * milliseconds. `locale` and `timeZone` exist for tests.
+ */
+export function usageLimitResetLine(
+  resetsAtSec: number | undefined,
+  nowMs: number,
+  locale?: string,
+  timeZone?: string,
+): string | null {
+  if (typeof resetsAtSec !== "number" || resetsAtSec <= 0) return null;
+  const at = new Date(resetsAtSec * 1000);
+  const time = at.toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  });
+  const date = at.toLocaleDateString(locale, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone,
+  });
+  if (at.getTime() <= nowMs) return `Reset at ${time} on ${date}`;
+  const dayKey = (ms: number): string =>
+    new Date(ms).toLocaleDateString("en-CA", { timeZone });
+  if (dayKey(at.getTime()) === dayKey(nowMs)) return `Resets at ${time} today`;
+  if (dayKey(at.getTime()) === dayKey(nowMs + 24 * 60 * 60 * 1000)) {
+    return `Resets at ${time} tomorrow`;
+  }
+  return `Resets at ${time} on ${date}`;
+}
+
+// ---------------------------------------------------------------------------
 // Usage bulletins — the non-blocking replacement for the old banner.
 // ---------------------------------------------------------------------------
 

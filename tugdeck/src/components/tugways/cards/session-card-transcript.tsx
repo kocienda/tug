@@ -196,6 +196,7 @@ import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
 import { SessionCompactionEntry } from "@/components/tugways/cards/session-compaction-entry";
+import { SessionUsageLimitNotice } from "@/components/tugways/cards/session-usage-limit-notice";
 import { SessionBoundary } from "@/components/tugways/cards/session-boundary";
 import {
   RELOCATION_BOUNDARY_EVENT,
@@ -1589,6 +1590,19 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         continue;
       }
       const path = `turn.${turnKey}.message.${message.messageKey}.text`;
+      // Claude Code's own "you've hit your limit" text, standing in for a
+      // reply, draws as a notice rather than prose.
+      if (message.apiError?.error === "rate_limit") {
+        elements.push(
+          <SessionUsageLimitNotice
+            key={message.messageKey}
+            apiError={message.apiError}
+            streamingStore={streamingStore}
+            streamingPath={path}
+          />,
+        );
+        continue;
+      }
       elements.push(
         <StreamedTextGate
           key={message.messageKey}

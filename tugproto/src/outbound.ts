@@ -417,7 +417,27 @@ export interface ContentBlockStartText {
   kind: "text";
   /** @see {@link ContentBlockStartToolUse.timestamp} */
   timestamp?: number;
+  /**
+   * Set when this text is Claude Code's own error message standing in for a
+   * reply (a `"<synthetic>"` assistant message carrying `error`) — e.g.
+   * "You've hit your session limit · resets 9:10pm". The deck renders the
+   * block as a notice instead of prose. Absent on every ordinary reply.
+   */
+  api_error?: AssistantApiError;
   ipc_version: number;
+}
+
+/**
+ * The error a synthetic assistant message stands for. `error` is the SDK's
+ * class (`"rate_limit"`, `"billing_error"`, `"server_error"`, …).
+ * `rate_limit_info` is the quota the error was raised against, when the
+ * source carried it — the resume path reads it from the JSONL entry's
+ * `apiErrorParams`; the live wire does not carry it, and the deck reads the
+ * latest `rate_limit_event` instead.
+ */
+export interface AssistantApiError {
+  error: string;
+  rate_limit_info?: RateLimitInfo;
 }
 
 export interface ContentBlockStartThinking {

@@ -1,0 +1,56 @@
+/* @tug-pairings {
+  --tugx-usage-limit-accent  | --tugx-inline-alert-bg | informational
+  --tugx-usage-limit-icon-fg | --tugx-inline-alert-bg | decorative
+} */
+
+/**
+ * @tug-pairings
+ * | Element                    | Surface                | Role          | Context                                  |
+ * |----------------------------|------------------------|---------------|------------------------------------------|
+ * | --tugx-usage-limit-accent  | --tugx-inline-alert-bg | informational | .session-usage-limit-notice (border)     |
+ * | --tugx-usage-limit-icon-fg | --tugx-inline-alert-bg | decorative    | .session-usage-limit-notice icon (color) |
+ */
+
+/* SessionUsageLimitNotice — a refused turn is a stop, not a reply, so it is
+   louder than a stock inline alert: the caution tone carries a heavy leading
+   bar (the bulletin's accent edge, widened) and tints the icon, which a calm
+   inline alert keeps muted. Appearance only ([L06]). */
+
+body {
+  --tugx-usage-limit-accent:  var(--tug7-element-tone-border-normal-caution-rest);
+  --tugx-usage-limit-icon-fg: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+/* Compounded with the alert's own class: this sheet loads before
+   `tug-inline-alert.css`, whose single-class `border` shorthand would
+   otherwise win on order and erase the bar. */
+.tug-inline-alert.session-usage-limit-notice {
+  /* @tug-renders-on: --tugx-inline-alert-bg */
+  border-left: 4px solid var(--tugx-usage-limit-accent);
+  margin-block: var(--tug-space-xs, 4px);
+}
+
+/* The icon takes the one-line size beside its two lines, and centres on the
+   pair rather than top-aligning to the title, so the space above and below it
+   is even. The two-class selectors outrank the inline alert's own
+   `[data-has-message]` rules. */
+.session-usage-limit-notice .tug-inline-alert-body[data-has-message] {
+  align-items: center;
+}
+
+.session-usage-limit-notice .tug-inline-alert-icon {
+  /* @tug-renders-on: --tugx-inline-alert-bg */
+  color: var(--tugx-usage-limit-icon-fg);
+}
+
+.session-usage-limit-notice .tug-inline-alert-body[data-has-message] .tug-inline-alert-icon {
+  width: var(--tugx-header-icon-one);
+  height: var(--tugx-header-icon-one);
+}
+
+/* Title and reset line sit close: the notice is one statement in two parts,
+   not a heading over a paragraph. */
+.session-usage-limit-notice .tug-inline-alert-message {
+  margin-top: 2px;
+  line-height: 1.3;
+}

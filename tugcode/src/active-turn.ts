@@ -6,6 +6,7 @@ import type {
   ActivityChannel,
   ContentBlock,
   OutboundMessage,
+  RateLimitInfo,
   ToolInputProgress,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
@@ -299,6 +300,12 @@ export class ActiveTurn {
    * and it flips back to `false` (also disarmed at the turn's `result`).
    */
   pendingCompactSummary = false;
+  /**
+   * The quota the turn's latest `rate_limit_event` reported. A turn refused
+   * at the limit reports it just before the synthetic error message, which
+   * carries no quota of its own; the mapper tags that message with this.
+   */
+  rateLimitInfo: RateLimitInfo | null = null;
   /** The MAIN lane's streaming-text revision counter (see {@link LaneState.rev}). */
   get rev(): number {
     return this.laneFor(MAIN_LANE).rev;
