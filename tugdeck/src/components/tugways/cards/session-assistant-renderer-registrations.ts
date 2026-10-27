@@ -40,6 +40,11 @@ import { WebFetchToolBlock } from "./blocks/web-fetch-tool-block";
 import { WebSearchToolBlock } from "./blocks/web-search-tool-block";
 import { WriteToolBlock } from "./blocks/write-tool-block";
 import { NotebookEditToolBlock } from "./blocks/notebook-edit-tool-block";
+import { SendMessageToolBlock } from "./blocks/send-message-tool-block";
+import { ListAgentsToolBlock } from "./blocks/list-agents-tool-block";
+import { ReportFindingsToolBlock } from "./blocks/report-findings-tool-block";
+import { WorkflowToolBlock } from "./blocks/workflow-tool-block";
+import { DesignSyncToolBlock } from "./blocks/design-sync-tool-block";
 import {
   TOOL_ALIASES,
   registerToolBlock,
@@ -122,6 +127,19 @@ const BESPOKE_REGISTRATIONS: ReadonlyArray<
   // `default-intent`; promoted to bespoke at [#step-26].
   ["write", WriteToolBlock],
   ["notebookedit", NotebookEditToolBlock],
+  // Agent messaging — `SendMessage` continues a spawned agent or
+  // writes to another session, and `ListAgents` names the targets.
+  // Both arrived in Claude Code 2.1.241 and wore the `unknown tool`
+  // caution until the 2.1.311 classification landed these wrappers.
+  ["sendmessage", SendMessageToolBlock],
+  ["listagents", ListAgentsToolBlock],
+  // `ReportFindings` is a review's typed output — the findings are
+  // the input, so the wrapper renders them and mounts expanded.
+  ["reportfindings", ReportFindingsToolBlock],
+  // `Workflow` launches a multi-agent script; `DesignSync` drives a
+  // claude.ai design-system project under `/design-sync`.
+  ["workflow", WorkflowToolBlock],
+  ["designsync", DesignSyncToolBlock],
 ];
 
 /**
@@ -131,7 +149,7 @@ const BESPOKE_REGISTRATIONS: ReadonlyArray<
  * `TOOL_BLOCK_REGISTRY` but does not touch this constant).
  *
  * Consumed by the policy-file governance test ([D101]) — the test
- * verifies that the union of bespoke + policy covers the v2.1.148
+ * verifies that the union of bespoke + policy covers the v2.1.311
  * canonical tool set. Exporting a frozen constant lets the test stay
  * deterministic across test files; a runtime `registeredTools()`
  * snapshot is fragile because the dispatch test's `beforeEach` clears

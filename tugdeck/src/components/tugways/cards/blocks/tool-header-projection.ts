@@ -14,7 +14,7 @@
  *  1. **The name** — `.tool-call-header-name`, marked by `BlockStrip` when
  *     `BlockHeader` sets `nameFindable`. Usually the wire tool name; the
  *     verb-composing wrappers (Cron, Worktree, TaskMgmt, RemoteTrigger,
- *     ShareOnboardingGuide) and Bash's commit receipt compose their own,
+ *     ShareOnboardingGuide, DesignSync) and Bash's commit receipt compose their own,
  *     which this module reproduces through the SAME exported helpers.
  *  2. **The target** — the identity element each wrapper marks: the Bash
  *     command, the Grep/Glob pattern, a `TugAtomRef`'s basename, the
@@ -107,6 +107,28 @@ import {
   narrowAgentStructured,
 } from "./task-tool-block";
 import { TaskInlineToolBlock } from "./task-inline-tool-block";
+import {
+  SendMessageToolBlock,
+  composeSendMessageHeaderTarget,
+  narrowSendMessageInput,
+} from "./send-message-tool-block";
+import { ListAgentsToolBlock } from "./list-agents-tool-block";
+import {
+  ReportFindingsToolBlock,
+  narrowReportFindingsInput,
+} from "./report-findings-tool-block";
+import {
+  WorkflowToolBlock,
+  composeWorkflowTarget,
+  narrowWorkflowInput,
+  readWorkflowMeta,
+} from "./workflow-tool-block";
+import {
+  DesignSyncToolBlock,
+  composeDesignSyncTarget,
+  composeDesignSyncToolName,
+  narrowDesignSyncInput,
+} from "./design-sync-tool-block";
 import { WebFetchToolBlock, narrowWebFetchInput } from "./web-fetch-tool-block";
 import { WebSearchToolBlock, narrowWebSearchInput } from "./web-search-tool-block";
 import {
@@ -284,6 +306,36 @@ function projectHeader(
       // A quiet marker line (`TugQuietLine`), not a block header — nothing
       // is marked, so nothing is projected.
       return {};
+    case SendMessageToolBlock:
+      // Recipient and label adjacent in one findable span, like Agent.
+      return {
+        name: "SendMessage",
+        target: composeSendMessageHeaderTarget(
+          narrowSendMessageInput(message.input),
+        ),
+      };
+    case ListAgentsToolBlock:
+      // No input worth a target; the count badge is not projected.
+      return { name: "ListAgents" };
+    case ReportFindingsToolBlock:
+      return {
+        name: "ReportFindings",
+        target: narrowReportFindingsInput(message.input).level,
+      };
+    case WorkflowToolBlock: {
+      const input = narrowWorkflowInput(message.input);
+      return {
+        name: "Workflow",
+        target: composeWorkflowTarget(input, readWorkflowMeta(input.script)),
+      };
+    }
+    case DesignSyncToolBlock: {
+      const input = narrowDesignSyncInput(message.input);
+      return {
+        name: composeDesignSyncToolName(input.method),
+        target: composeDesignSyncTarget(input),
+      };
+    }
     case NullToolBlock:
       // Hidden policy ([D101]) — the call paints no ink at all.
       return {};

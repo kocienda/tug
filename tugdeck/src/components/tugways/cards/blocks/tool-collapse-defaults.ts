@@ -50,6 +50,9 @@ export const EXPANDED_BY_DEFAULT: ReadonlySet<string> = new Set([
   // resolve to the same block, so both open.
   "agent",
   "task",
+  // A review's findings — the call's input IS the report the user reads
+  // and acts on, so it arrives open like the Q&A artifact.
+  "reportfindings",
 ]);
 
 /**

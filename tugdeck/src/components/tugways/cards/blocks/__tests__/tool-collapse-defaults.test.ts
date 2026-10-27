@@ -47,6 +47,7 @@ describe("collapseDefaultFor", () => {
     expect([...EXPANDED_BY_DEFAULT].sort()).toEqual([
       "agent",
       "askuserquestion",
+      "reportfindings",
       "task",
     ]);
   });

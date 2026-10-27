@@ -78,10 +78,11 @@
  *  - (c) Every `default-intent` entry's `rationale` contains
  *    `"Awaiting"` and `"#step-"` (explicit ownership of the planned
  *    bespoke wrapper).
- *  - (d) Every name in `V2_1_148_CANONICAL_TOOL_NAMES` (hardcoded in
- *    the test) is covered by either `TOOL_BLOCK_REGISTRY` or this
- *    policy — so a new tool added to a future Claude Code release
- *    fails CI until it is explicitly classified.
+ *  - (d) Every name in the shipped capture's `tools` array
+ *    (`capabilities/<LATEST>/system-metadata.jsonl`, read by the test)
+ *    is covered by either `TOOL_BLOCK_REGISTRY` or this policy — so a
+ *    new tool in a freshly captured Claude Code release fails CI until
+ *    it is explicitly classified.
  *
  * # Scope — MCP is intentionally excluded
  *

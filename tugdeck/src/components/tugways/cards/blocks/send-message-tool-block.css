@@ -1,0 +1,36 @@
+/*
+ * send-message-tool-block.css — the header's two-part args: the
+ * recipient `<code>` and the row label beside it. Mirrors the Agent
+ * header's type-plus-description layout (`task-tool-block.css`) so
+ * the launch and its follow-up message read as one family.
+ * [L19] scoped to the wrapper's own slot; [L20] no new tokens.
+ */
+
+.send-message-tool-block-args {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.send-message-tool-block-args code + .send-message-tool-block-label {
+  margin-inline-start: var(--tugx-block-header-gap);
+}
+
+.send-message-tool-block-args code {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.send-message-tool-block-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

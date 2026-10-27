@@ -14,7 +14,7 @@
  *      forever-bucket — without it, a vague rationale lets a tool
  *      sit in the default bucket indefinitely with no planned
  *      bespoke wrapper. The test enforces the social contract.
- *  (d) Every name in `V2_1_148_CANONICAL_TOOL_NAMES` (hardcoded here)
+ *  (d) Every name in `CANONICAL_TOOL_NAMES` (read from the shipped capture)
  *      is covered by either the bespoke side (`BESPOKE_TOOL_NAMES`)
  *      or the policy. A new built-in tool added in a future Claude
  *      Code release fails CI until it is explicitly classified —
@@ -45,19 +45,29 @@
  */
 
 import { describe, it, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { TOOL_VISIBILITY_POLICY } from "../session-tool-visibility-policy";
 import { BESPOKE_TOOL_NAMES } from "../session-assistant-renderer-registrations";
 
 // ---------------------------------------------------------------------------
-// Canonical v2.1.148 tool registry
+// Canonical tool registry — the shipped capture's `tools` array
 // ---------------------------------------------------------------------------
 
 /**
- * Hardcoded snapshot of the v2.1.148 built-in tool registry, extracted
- * from `capabilities/2.1.148/system-metadata.jsonl`. Names match the
- * `system_metadata.tools` array exactly — `Task` is the canonical
+ * The built-in tool registry, read from the shipped capture —
+ * `capabilities/<LATEST>/system-metadata.jsonl`, the same file the
+ * app bundles and `system-metadata-fixture.test.ts` pins. Names are
+ * the `system_metadata.tools` array exactly — `Task` is the canonical
  * upstream name (the dispatch aliases it to `agent` internally).
+ *
+ * Read from disk rather than hardcoded: a hand-copied list sat at
+ * v2.1.148 while captures advanced to v2.1.311, and five tools that
+ * arrived in between (`SendMessage`, `ListAgents`, `ReportFindings`,
+ * `Workflow`, `DesignSync`) wore the `unknown tool` caution in the
+ * transcript with nothing failing. Now `just capture-capabilities`
+ * rolling `LATEST` is what makes this test demand a classification.
  *
  * Coverage check (d) asserts every name here is either bespoke
  * (in `BESPOKE_TOOL_NAMES`) or policy-classified. A new tool added
@@ -70,39 +80,36 @@ import { BESPOKE_TOOL_NAMES } from "../session-assistant-renderer-registrations"
  * (`arc/session-assistant-rendering.md` §Open Questions). It is not
  * listed here.
  */
-const V2_1_148_CANONICAL_TOOL_NAMES: ReadonlyArray<string> = [
-  "AskUserQuestion",
-  "Bash",
-  "CronCreate",
-  "CronDelete",
-  "CronList",
-  "Edit",
-  "EnterPlanMode",
-  "EnterWorktree",
-  "ExitPlanMode",
-  "ExitWorktree",
-  "Glob",
-  "Grep",
-  "Monitor",
-  "NotebookEdit",
-  "PushNotification",
-  "Read",
-  "RemoteTrigger",
-  "ScheduleWakeup",
-  "ShareOnboardingGuide",
-  "Skill",
-  "Task",
-  "TaskCreate",
-  "TaskGet",
-  "TaskList",
-  "TaskOutput",
-  "TaskStop",
-  "TaskUpdate",
-  "ToolSearch",
-  "WebFetch",
-  "WebSearch",
-  "Write",
-];
+const CAPABILITIES_ROOT = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "..",
+  "..",
+  "..",
+  "capabilities",
+);
+const LATEST_VERSION = readFileSync(
+  join(CAPABILITIES_ROOT, "LATEST"),
+  "utf-8",
+).trim();
+const CANONICAL_TOOL_NAMES: ReadonlyArray<string> = (() => {
+  const raw = readFileSync(
+    join(CAPABILITIES_ROOT, LATEST_VERSION, "system-metadata.jsonl"),
+    "utf-8",
+  );
+  const firstLine = raw.split("\n").find((line) => line.trim().length > 0);
+  const parsed = JSON.parse(firstLine ?? "{}") as { tools?: unknown };
+  if (!Array.isArray(parsed.tools)) {
+    throw new Error(
+      `capabilities/${LATEST_VERSION}/system-metadata.jsonl has no tools array`,
+    );
+  }
+  return parsed.tools.filter(
+    (name): name is string => typeof name === "string" && !name.startsWith("mcp__"),
+  );
+})();
 
 /**
  * Lowercased aliases the dispatch resolves before registry lookup.
@@ -153,11 +160,15 @@ describe("TOOL_VISIBILITY_POLICY — (c) default-intent ownership", () => {
 });
 
 // ---------------------------------------------------------------------------
-// (d) v2.1.148 canonical coverage
+// (d) canonical coverage of the shipped capture
 // ---------------------------------------------------------------------------
 
-describe("TOOL_VISIBILITY_POLICY — (d) v2.1.148 canonical coverage", () => {
-  for (const canonicalName of V2_1_148_CANONICAL_TOOL_NAMES) {
+describe(`TOOL_VISIBILITY_POLICY — (d) v${LATEST_VERSION} canonical coverage`, () => {
+  it("the shipped capture lists tools at all", () => {
+    expect(CANONICAL_TOOL_NAMES.length).toBeGreaterThan(0);
+  });
+
+  for (const canonicalName of CANONICAL_TOOL_NAMES) {
     it(`${canonicalName}: covered by registry or policy`, () => {
       const lookup = canonicalize(canonicalName);
       const inRegistry = BESPOKE_TOOL_NAMES.has(lookup);

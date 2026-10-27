@@ -144,6 +144,61 @@ describe("toolHeaderParts — per-wrapper header text", () => {
     ).toEqual(["Background Task · get", "#t7"]);
   });
 
+  test("SendMessage projects recipient and label as one adjacent unit", () => {
+    expect(
+      toolHeaderParts(
+        call({
+          toolName: "SendMessage",
+          input: { to: "worker", message: "Re-run the suite.\nThen report.", summary: "re-run suite" },
+        }),
+      ),
+    ).toEqual(["SendMessage", "workerre-run suite"]);
+    expect(
+      toolHeaderParts(
+        call({
+          toolName: "SendMessage",
+          input: { to: "worker", message: "Re-run the suite.\nThen report." },
+        }),
+      ),
+    ).toEqual(["SendMessage", "workerRe-run the suite."]);
+  });
+
+  test("ListAgents projects the name alone", () => {
+    expect(toolHeaderParts(call({ toolName: "ListAgents" }))).toEqual([
+      "ListAgents",
+    ]);
+  });
+
+  test("ReportFindings projects the level as its target", () => {
+    expect(
+      toolHeaderParts(
+        call({ toolName: "ReportFindings", input: { findings: [], level: "high" } }),
+      ),
+    ).toEqual(["ReportFindings", "high"]);
+  });
+
+  test("Workflow projects the script's meta name", () => {
+    expect(
+      toolHeaderParts(
+        call({
+          toolName: "Workflow",
+          input: { script: "export const meta = { name: 'review-changes', description: 'd' }" },
+        }),
+      ),
+    ).toEqual(["Workflow", "review-changes"]);
+  });
+
+  test("DesignSync projects its composed name and the path", () => {
+    expect(
+      toolHeaderParts(
+        call({
+          toolName: "DesignSync",
+          input: { method: "get_file", projectId: "p", path: "c/button.html" },
+        }),
+      ),
+    ).toEqual(["Design Sync · get_file", "c/button.html"]);
+  });
+
   test("a tool with no header target projects the name alone", () => {
     expect(toolHeaderParts(call({ toolName: "AskUserQuestion" }))).toEqual([
       "AskUserQuestion",
