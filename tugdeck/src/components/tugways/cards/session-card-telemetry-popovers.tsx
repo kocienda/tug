@@ -98,6 +98,15 @@ import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { arcVerbs, discardConfirm, type ArcVerbSet } from "@/lib/arc-verbs";
 import { pressArcJoin, sessionEntryKey } from "@/lib/arc-join-press";
 import { useChangesetAll } from "@/lib/changeset-all-store";
+import type { ArcStep, ArcTimeline } from "@/lib/changeset-types";
+import {
+  compactNoteText,
+  computeArcTime,
+  type ArcTimeMark,
+  type ArcTimeReading,
+  type ArcTimeStep,
+  type ArcTimeTurn,
+} from "@/lib/arc-time";
 import { getConnection } from "@/lib/connection-singleton";
 import {
   useChangesetDeleteDocuments,
@@ -453,12 +462,19 @@ function EmptyTranscriptBody(): React.ReactElement {
  * working segment grows. The numbers come from `computeLiveTimeSummary`
  * and `computeTimeComposition`, so a copy of the popup and the popup
  * itself cannot disagree. Footer: COPY.
+ *
+ * On a card bound to an arc whose log has rotated a stage, the popup reads
+ * the arc instead: a stage strip with what is projected, then the stages,
+ * implement's steps as rows barred against the arc's own median, and the
+ * turns as each row's drill-down (`lib/arc-time.ts` places them).
  */
 export function TimePopoverContent({
   transcript,
   turnNumberBase = 0,
   inflight,
   onScrollToRow,
+  arc = null,
+  nowMs,
 }: {
   transcript: ReadonlyArray<TurnEntry>;
   /** `firstLoadedTurnIndex` of the loaded window, so the per-turn
@@ -475,8 +491,33 @@ export function TimePopoverContent({
     messages?: ReadonlyArray<Message>;
   } | null;
   onScrollToRow?: ScrollToRowHandler;
+  /** The card's arc, or null for a card no arc is bound to. */
+  arc?: TimePopoverArc | null;
+  /** The clock an open step's span is read to; defaults to now. */
+  nowMs?: number;
 }): React.ReactElement {
   const inflightMs = inflight === null ? null : inflight.currentTurnActiveMs;
+  if (arc !== null && (arc.timeline.stages ?? []).length > 0) {
+    const reading = computeArcTime({
+      timeline: arc.timeline,
+      ledger: arc.ledger,
+      stopped: arc.stopped,
+      done: arc.done,
+      transcript,
+      inflightMs,
+      nowMs: nowMs ?? Date.now(),
+    });
+    return (
+      <ArcTimeBody
+        reading={reading}
+        stopped={arc.stopped}
+        transcript={transcript}
+        turnNumberBase={turnNumberBase}
+        inflight={inflight}
+        onScrollToRow={onScrollToRow}
+      />
+    );
+  }
   const summary = computeLiveTimeSummary(transcript, inflightMs);
   const composition = computeTimeComposition(transcript, inflightMs);
   const rows = transcript.map((t, i) => (
@@ -682,6 +723,503 @@ function TimeCompositionStrip({
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Time popover — an arc card, by the arc's stages and steps
+// ---------------------------------------------------------------------------
+
+/**
+ * What the TIME popup needs to read an arc card by its own structure: the
+ * log's windows, the plan's rows, and whether the walk is paused or over.
+ * The turns and the clock come in beside it, as they do for the turn log.
+ */
+export interface TimePopoverArc {
+  timeline: ArcTimeline;
+  ledger: readonly ArcStep[];
+  stopped: boolean;
+  done: boolean;
+}
+
+/** `~0h 7m 27s` — a projection says it is one. */
+const approxTime = (ms: number) => `~${formatTimeAlwaysHours(ms)}`;
+
+/** A step's cost as the row shows it: active time, else its wall span. */
+const arcStepCostMs = (s: ArcTimeStep) => (s.activeMs > 0 ? s.activeMs : (s.wallMs ?? 0));
+
+/** A wall span this far past the active time is worth saying. */
+const ARC_WALL_GAP_MS = 30_000;
+
+/** The strip's parts: each stage's time so far, then what is projected. */
+function arcStripParts(reading: ArcTimeReading): { key: string; part: string; label: string; ms: number; projected: boolean }[] {
+  const actual = new Map<string, number>();
+  for (const st of reading.stages) {
+    if (st.upcoming) continue;
+    actual.set(st.stage, (actual.get(st.stage) ?? 0) + st.activeMs);
+  }
+  const parts = [...actual].map(([stage, ms]) => ({ key: stage, part: stage, label: stage, ms, projected: false }));
+  if (reading.projectedTotalMs !== null) {
+    const stepsLeft =
+      reading.pending.reduce((s, p) => s + (p.projectedMs ?? 0), 0) +
+      reading.stages.reduce(
+        (s, st) =>
+          s +
+          st.items.reduce(
+            (t, item) => t + (item.kind === "step" && item.step.state === "open" ? (item.step.projectedMs ?? 0) : 0),
+            0,
+          ),
+        0,
+      );
+    if (stepsLeft > 0) parts.push({ key: "implement-left", part: "implement", label: "implement, to come", ms: stepsLeft, projected: true });
+    for (const st of reading.stages) {
+      if (st.upcoming && st.projectedMs !== null) {
+        parts.push({ key: `${st.stage}-left`, part: st.stage, label: `${st.stage}, to come`, ms: st.projectedMs, projected: true });
+      }
+    }
+  }
+  return parts.filter((p) => p.ms > 0);
+}
+
+/**
+ * Where the arc's time went, by stage — and, while it walks, where the rest
+ * is projected to go. Solid is spent, faint is forecast; the legend says
+ * which is which in words, so the faintness is never the only signal.
+ */
+function ArcTimeStrip({ reading }: { reading: ArcTimeReading }): React.ReactElement | null {
+  const parts = arcStripParts(reading);
+  const whole = parts.reduce((s, p) => s + p.ms, 0);
+  if (whole <= 0) return null;
+  const pct = (ms: number) => (ms / whole) * 100;
+  const projected = reading.projectedTotalMs !== null;
+  return (
+    <div className="session-time-popover-composition" data-slot="session-time-popover-arc-strip">
+      <div
+        className="session-time-popover-strip"
+        role="img"
+        aria-label={`Arc time by stage: ${parts.map((p) => `${p.label} ${formatTimeAlwaysHours(p.ms)}`).join(", ")}`}
+      >
+        {parts.map((p) => (
+          <span
+            key={p.key}
+            className="session-time-popover-strip-seg"
+            data-part={p.part}
+            data-projected={p.projected ? "true" : undefined}
+            style={{ flexBasis: `${pct(p.ms)}%` }}
+          />
+        ))}
+      </div>
+      <div className="session-time-popover-legend">
+        {parts.map((p) => (
+          <React.Fragment key={p.key}>
+            <span className="session-time-popover-legend-label">
+              <span className="session-time-popover-swatch" data-part={p.part} data-projected={p.projected ? "true" : undefined} />
+              {p.label}
+            </span>
+            <span className="session-time-popover-legend-percent">{formatCompositionPercent(p.ms, whole)}</span>
+            <span className="session-time-popover-legend-value">
+              {p.projected ? approxTime(p.ms) : formatTimeAlwaysHours(p.ms)}
+            </span>
+          </React.Fragment>
+        ))}
+        <div className="session-time-popover-legend-divider" />
+        <span className="session-time-popover-legend-label">{projected ? "arc, projected" : "arc, so far"}</span>
+        <span />
+        <span className="session-time-popover-legend-value">
+          {projected ? approxTime(whole) : formatTimeAlwaysHours(whole)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** A step's bar: against twice the median once there is one, else against
+ *  the costliest step. The width is data, like the strip's ([L06]). */
+function ArcStepBar({
+  ms,
+  scaleMs,
+  tone,
+}: {
+  ms: number;
+  scaleMs: number;
+  tone: "default" | "slow" | "live" | "projected";
+}): React.ReactElement {
+  const pct = scaleMs > 0 ? Math.min(100, (ms / scaleMs) * 100) : 0;
+  return (
+    <span className="session-time-arc-bar" data-tone={tone} aria-hidden>
+      <span className="session-time-arc-bar-fill" style={{ inlineSize: `${pct}%` }} />
+    </span>
+  );
+}
+
+/** The ▸/▾ in a row's label cell, or the same width of nothing. */
+function ArcDisclose({
+  open,
+  label,
+  onToggle,
+}: {
+  open: boolean;
+  label: string;
+  onToggle: (() => void) | null;
+}): React.ReactElement {
+  if (onToggle === null) return <span className="session-time-arc-disclose-gap" aria-hidden />;
+  return (
+    <button
+      type="button"
+      className="session-time-arc-disclose"
+      aria-expanded={open}
+      aria-label={label}
+      onClick={onToggle}
+    >
+      {open ? "▾" : "▸"}
+    </button>
+  );
+}
+
+function arcMarkText(mark: ArcTimeMark): string {
+  if (mark.kind === "compact") return `⟳ compacted at ${compactNoteText(mark.note)}`;
+  if (mark.kind === "stop") {
+    const reason = mark.note.split(/\s+/).slice(1).join(" ");
+    return reason === "" ? "■ stopped" : `■ stopped: ${reason}`;
+  }
+  return "▶ resumed";
+}
+
+/** The step row's end-state cell. */
+function ArcStepState({ step, stopped }: { step: ArcTimeStep; stopped: boolean }): React.ReactElement | undefined {
+  if (step.live) return <InflightHint />;
+  if (step.state === "open") {
+    return (
+      <TugBadge emphasis="ghost" role={stopped ? "caution" : undefined} size="sm">
+        {stopped ? "stopped" : "open"}
+      </TugBadge>
+    );
+  }
+  if (step.state === "withdrawn") {
+    return <TugBadge emphasis="ghost" size="sm">withdrawn</TugBadge>;
+  }
+  if (step.commit !== null) {
+    return <span className="session-time-arc-commit">{step.commit.slice(0, 7)}</span>;
+  }
+  return undefined;
+}
+
+function ArcTimeBody({
+  reading,
+  stopped,
+  transcript,
+  turnNumberBase,
+  inflight,
+  onScrollToRow,
+}: {
+  reading: ArcTimeReading;
+  stopped: boolean;
+  transcript: ReadonlyArray<TurnEntry>;
+  turnNumberBase: number;
+  inflight: { currentTurnActiveMs: number; messages?: ReadonlyArray<Message> } | null;
+  onScrollToRow?: ScrollToRowHandler;
+}): React.ReactElement {
+  // Which rows are opened to their turns. Content, not appearance: an open
+  // row renders more rows.
+  const [open, setOpen] = React.useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (key: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const allSteps = reading.stages.flatMap((st) =>
+    st.items.flatMap((i) => (i.kind === "step" ? [i.step] : [])),
+  );
+  const scaleMs =
+    reading.medianStepMs !== null
+      ? reading.medianStepMs * 2
+      : Math.max(1, ...allSteps.map(arcStepCostMs));
+
+  const turnRows = (key: string, turns: readonly ArcTimeTurn[]): React.ReactElement[] =>
+    turns.map((t) =>
+      t.index < 0 ? (
+        <TugPopupListRow
+          key={`${key}-inflight`}
+          label={
+            <span className="session-time-arc-nested">
+              <span className="session-popover-turn-pair" data-slot="session-popover-turn-pair">
+                <TurnNumberButton
+                  address={{ speaker: "user", turn: turnNumberBase + transcript.length + 1 }}
+                  rowIndex={-1}
+                />
+              </span>
+            </span>
+          }
+          preview={<RequestPreview turn={{ messages: inflight?.messages ?? [] }} />}
+          badge={<InflightHint />}
+          value={formatTimeAlwaysHours(t.activeMs)}
+        />
+      ) : (
+        <TugPopupListRow
+          key={`${key}-${transcript[t.index].turnKey}`}
+          label={
+            <span className="session-time-arc-nested">
+              <TurnEntryPair turnIndex={t.index} transcript={transcript} turnNumberBase={turnNumberBase} onScrollToRow={onScrollToRow} />
+            </span>
+          }
+          preview={<RequestPreview turn={transcript[t.index]} />}
+          badge={<TurnEndStateBadge turn={transcript[t.index]} />}
+          value={turnHasTiming(transcript[t.index]) ? formatTimeAlwaysHours(t.activeMs) : "—"}
+        />
+      ),
+    );
+
+  const rows: React.ReactElement[] = [];
+  const stageHeader = (
+    key: string,
+    word: string,
+    meta: string,
+    turns: readonly ArcTimeTurn[],
+    value: string,
+    hint?: string,
+  ) => {
+    const canOpen = turns.length > 0;
+    const isOpen = open.has(key);
+    rows.push(
+      <TugPopupListRow
+        key={key}
+        label={
+          <span className="session-time-arc-label">
+            <ArcDisclose
+              open={isOpen}
+              label={`${isOpen ? "Hide" : "Show"} ${word.toLowerCase()}'s turns`}
+              onToggle={canOpen ? () => toggle(key) : null}
+            />
+            <span className="session-time-arc-stage">{word}</span>
+          </span>
+        }
+        preview={<span className="session-time-arc-meta">{meta}</span>}
+        hint={hint}
+        value={value}
+      />,
+    );
+    if (canOpen && isOpen) rows.push(...turnRows(key, turns));
+  };
+
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  if (reading.before !== null) {
+    stageHeader("before", "BEFORE", plural(reading.before.turns.length, "turn"), reading.before.turns, formatTimeAlwaysHours(reading.before.activeMs), "not the arc's");
+  }
+
+  reading.stages.forEach((st, si) => {
+    const key = `stage-${si}`;
+    const hasSteps = st.items.some((i) => i.kind === "step");
+    if (st.upcoming) {
+      stageHeader(key, st.stage.toUpperCase(), "not started", [], st.projectedMs === null ? "—" : approxTime(st.projectedMs), "as audits here run");
+      return;
+    }
+    const meta = [
+      st.model ?? "default model",
+      hasSteps && reading.stepsTotal !== null
+        ? `${reading.stepsDone} of ${reading.stepsTotal} done`
+        : plural(st.turns.length, "turn"),
+    ].join(" · ");
+    // A stage that walks steps opens step by step, so its header does not
+    // open to every turn at once.
+    stageHeader(key, st.stage.toUpperCase(), meta, hasSteps ? [] : st.turns, formatTimeAlwaysHours(st.activeMs), st.live ? "incl. current" : undefined);
+
+    st.items.forEach((item, ii) => {
+      const itemKey = `${key}-${ii}`;
+      if (item.kind === "step") {
+        const s = item.step;
+        const many = s.turns.length > 1;
+        const isOpen = open.has(itemKey);
+        const cost = arcStepCostMs(s);
+        const tone = s.live ? "live" : s.slow ? "slow" : "default";
+        const wallGap = s.wallMs !== null && s.wallMs - s.activeMs > ARC_WALL_GAP_MS && s.activeMs > 0;
+        const metaParts: string[] = [];
+        if (many) metaParts.push(plural(s.turns.length, "turn"));
+        if (wallGap && s.wallMs !== null) metaParts.push(`wall ${formatTimeAlwaysHours(s.wallMs)}`);
+        if (s.projectedMs !== null && s.projectedMs > 0) metaParts.push(`${approxTime(s.projectedMs)} left at this arc's pace`);
+        const single = !many && s.turns.length === 1 && s.turns[0].index >= 0 ? s.turns[0].index : null;
+        rows.push(
+          <TugPopupListRow
+            key={itemKey}
+            label={
+              <span className="session-time-arc-label session-time-arc-step-n">
+                <ArcDisclose
+                  open={isOpen}
+                  label={`${isOpen ? "Hide" : "Show"} step ${s.n}'s turns`}
+                  onToggle={many ? () => toggle(itemKey) : null}
+                />
+                {s.n}
+              </span>
+            }
+            preview={
+              <span className="session-time-arc-stack">
+                <span className="session-time-arc-title">{s.title ?? `Step ${s.n}`}</span>
+                <ArcStepBar ms={cost} scaleMs={scaleMs} tone={tone} />
+                {single !== null || metaParts.length > 0 ? (
+                  <span className="session-time-arc-meta">
+                    {single !== null ? (
+                      <TurnEntryPair turnIndex={single} transcript={transcript} turnNumberBase={turnNumberBase} onScrollToRow={onScrollToRow} />
+                    ) : null}
+                    {single !== null && metaParts.length > 0 ? " · " : null}
+                    {metaParts.join(" · ")}
+                  </span>
+                ) : null}
+              </span>
+            }
+            badge={<ArcStepState step={s} stopped={stopped} />}
+            value={cost > 0 ? formatTimeAlwaysHours(cost) : "—"}
+          />,
+        );
+        if (many && isOpen) rows.push(...turnRows(itemKey, s.turns));
+        return;
+      }
+      if (item.kind === "mark") {
+        rows.push(
+          <TugPopupListRow
+            key={itemKey}
+            label={<span className="session-time-arc-label"><ArcDisclose open={false} label="" onToggle={null} /></span>}
+            preview={<span className="session-time-arc-mark">{arcMarkText(item.mark)}</span>}
+            value={item.activeMs > 0 ? formatTimeAlwaysHours(item.activeMs) : ""}
+          />,
+        );
+        return;
+      }
+      const isOpen = open.has(itemKey);
+      rows.push(
+        <TugPopupListRow
+          key={itemKey}
+          label={
+            <span className="session-time-arc-label">
+              <ArcDisclose
+                open={isOpen}
+                label={`${isOpen ? "Hide" : "Show"} the turns between steps`}
+                onToggle={() => toggle(itemKey)}
+              />
+            </span>
+          }
+          preview={<span className="session-time-arc-mark">between steps</span>}
+          hint={plural(item.turns.length, "turn")}
+          value={formatTimeAlwaysHours(item.activeMs)}
+        />,
+      );
+      if (isOpen) rows.push(...turnRows(itemKey, item.turns));
+    });
+
+    // The run's steps still to walk, after the stage that walks them.
+    if (hasSteps) {
+      for (const p of reading.pending) {
+        rows.push(
+          <TugPopupListRow
+            key={`pending-${p.n}`}
+            label={
+              <span className="session-time-arc-label session-time-arc-step-n" data-pending="true">
+                <ArcDisclose open={false} label="" onToggle={null} />
+                {p.n}
+              </span>
+            }
+            preview={
+              <span className="session-time-arc-stack" data-pending="true">
+                <span className="session-time-arc-title">{p.title ?? `Step ${p.n}`}</span>
+                {p.projectedMs !== null ? <ArcStepBar ms={p.projectedMs} scaleMs={scaleMs} tone="projected" /> : null}
+              </span>
+            }
+            hint={p.projectedMs !== null ? "projected" : undefined}
+            value={p.projectedMs !== null ? approxTime(p.projectedMs) : "—"}
+          />,
+        );
+      }
+    }
+  });
+
+  const projectionHint =
+    reading.noProjection === "stopped"
+      ? "none while stopped"
+      : reading.noProjection === "done"
+        ? "the arc is done"
+        : reading.noProjection === "too-early"
+          ? "after two steps"
+          : "at this arc's pace";
+  const summary: React.ReactElement[] = [];
+  if (reading.stepsTotal !== null && allSteps.length + reading.pending.length > 0) {
+    summary.push(
+      <TugPopupListRow
+        key="steps"
+        label="steps"
+        hint={
+          reading.medianStepMs !== null
+            ? `median ${formatTimeAlwaysHours(reading.medianStepMs)}${reading.slowestStep !== null ? ` · slowest #${reading.slowestStep}` : ""}`
+            : undefined
+        }
+        value={`${reading.stepsDone}/${reading.stepsTotal}`}
+      />,
+    );
+  }
+  summary.push(
+    <TugPopupListRow
+      key="arc"
+      label="arc"
+      hint={[
+        inflight !== null ? "so far, incl. current" : "so far",
+        ...(turnNumberBase > 0 ? ["loaded turns only"] : []),
+      ].join(" · ")}
+      value={formatTimeAlwaysHours(reading.soFarMs)}
+    />,
+    <TugPopupListRow
+      key="projected"
+      label="projected"
+      hint={projectionHint}
+      value={reading.projectedTotalMs !== null ? approxTime(reading.projectedTotalMs) : "—"}
+    />,
+  );
+
+  const footer = (
+    <TugPopupListFooter>
+      <PopupCopyButton
+        aria-label="Copy the arc's time by stage and step"
+        getText={() => composeArcTimeCopyText(reading)}
+      />
+    </TugPopupListFooter>
+  );
+  return (
+    <TugPopupListFrame kind="log" footer={footer}>
+      <ArcTimeStrip reading={reading} />
+      <TugPopupListGrid rows={rows} summary={summary} empty={<EmptyTranscriptBody />} />
+    </TugPopupListFrame>
+  );
+}
+
+/** The arc's time as tab-separated lines: stages, their steps indented. */
+export function composeArcTimeCopyText(reading: ArcTimeReading): string {
+  const lines: string[] = [];
+  if (reading.before !== null) lines.push(`before\t${formatTimeAlwaysHours(reading.before.activeMs)}`);
+  for (const st of reading.stages) {
+    if (st.upcoming) {
+      lines.push(`${st.stage}\tprojected\t${st.projectedMs === null ? "—" : approxTime(st.projectedMs)}`);
+      continue;
+    }
+    lines.push(`${st.stage}\t${formatTimeAlwaysHours(st.activeMs)}`);
+    for (const item of st.items) {
+      if (item.kind === "step") {
+        const s = item.step;
+        lines.push(`  ${s.n}\t${s.title ?? ""}\t${s.commit?.slice(0, 7) ?? s.state}\t${formatTimeAlwaysHours(arcStepCostMs(s))}`);
+      } else if (item.kind === "mark") {
+        lines.push(`  \t${arcMarkText(item.mark)}\t\t${item.activeMs > 0 ? formatTimeAlwaysHours(item.activeMs) : ""}`);
+      } else {
+        lines.push(`  \tbetween steps\t\t${formatTimeAlwaysHours(item.activeMs)}`);
+      }
+    }
+    if (st.items.some((i) => i.kind === "step")) {
+      for (const p of reading.pending) {
+        lines.push(`  ${p.n}\t${p.title ?? ""}\tpending\t${p.projectedMs === null ? "—" : approxTime(p.projectedMs)}`);
+      }
+    }
+  }
+  if (reading.medianStepMs !== null) lines.push(`median step\t${formatTimeAlwaysHours(reading.medianStepMs)}`);
+  lines.push(`arc so far\t${formatTimeAlwaysHours(reading.soFarMs)}`);
+  if (reading.projectedTotalMs !== null) lines.push(`projected\t${approxTime(reading.projectedTotalMs)}`);
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

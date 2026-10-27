@@ -233,6 +233,167 @@
 }
 
 /* ============================================================================
+   Time popup — an arc card, by stages and steps
+   ========================================================================= */
+
+/* One segment slot per stage, the strip's palette; a projected segment is
+   the same slot, faint, and the legend says "to come" in words beside it. */
+.session-time-popover-strip-seg[data-part="devise"],
+.session-time-popover-swatch[data-part="devise"] {
+  background-color: var(--tugx-arc-gauge-segment-system_prompt-color);
+}
+
+.session-time-popover-strip-seg[data-part="review"],
+.session-time-popover-swatch[data-part="review"] {
+  background-color: var(--tugx-arc-gauge-segment-memory_files-color);
+}
+
+.session-time-popover-strip-seg[data-part="implement"],
+.session-time-popover-swatch[data-part="implement"] {
+  background-color: var(--tugx-arc-gauge-segment-messages-color);
+}
+
+.session-time-popover-strip-seg[data-part="audit"],
+.session-time-popover-swatch[data-part="audit"] {
+  background-color: var(--tugx-arc-gauge-segment-custom_agents-color);
+}
+
+.session-time-popover-strip-seg[data-projected],
+.session-time-popover-swatch[data-projected] {
+  opacity: 0.35;
+}
+
+/* The label cell: a disclosure (or its width of nothing) and then the
+   stage word or the step number. */
+.session-time-arc-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-arc-stage {
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.06em;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* Steps sit one notch in from their stage. */
+.session-time-arc-step-n {
+  padding-inline-start: 8px;
+}
+
+/* A turn opened under a step or a stage sits one notch further in. */
+.session-time-arc-nested {
+  display: inline-block;
+  padding-inline-start: 28px;
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-arc-disclose {
+  appearance: none;
+  inline-size: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  cursor: pointer;
+}
+
+.session-time-arc-disclose:hover,
+.session-time-arc-disclose:focus-visible {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  outline: none;
+}
+
+.session-time-arc-disclose-gap {
+  display: inline-block;
+  inline-size: 12px;
+}
+
+/* The preview cell of a step: title, bar, and a meta line under them. */
+.session-time-arc-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-inline-size: 0;
+}
+
+.session-time-arc-title {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-inline-size: 0;
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-arc-stack[data-pending] .session-time-arc-title,
+.session-time-arc-step-n[data-pending] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-arc-meta,
+.session-time-arc-mark {
+  font-size: 0.6875rem;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-inline-size: 0;
+}
+
+.session-time-arc-mark {
+  font-style: italic;
+}
+
+/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-time-arc-commit {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.6875rem;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* A step's bar: thin, the implement slot's color; slow reads the caution
+   slot, the step in flight the accent slot, a pending step the implement
+   slot faint. The fill's width is data, set inline ([L06]). */
+.session-time-arc-bar {
+  display: block;
+  block-size: 3px;
+  inline-size: 100%;
+  border-radius: 1px;
+  background-color: var(--tug7-surface-field-primary-normal-plain-rest);
+  overflow: hidden;
+}
+
+.session-time-arc-bar-fill {
+  display: block;
+  block-size: 100%;
+  border-radius: 1px;
+  background-color: var(--tugx-arc-gauge-segment-messages-color);
+  transition: inline-size 320ms ease-out;
+}
+
+.session-time-arc-bar[data-tone="slow"] .session-time-arc-bar-fill {
+  background-color: var(--tugx-arc-gauge-segment-skills-color);
+}
+
+.session-time-arc-bar[data-tone="live"] .session-time-arc-bar-fill {
+  background-color: var(--tugx-arc-gauge-segment-system_tools-color);
+}
+
+.session-time-arc-bar[data-tone="projected"] .session-time-arc-bar-fill {
+  opacity: 0.35;
+}
+
+/* ============================================================================
    Context popup body
    ========================================================================= */
 

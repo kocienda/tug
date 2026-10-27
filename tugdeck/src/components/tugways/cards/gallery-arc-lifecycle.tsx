@@ -643,6 +643,7 @@ function factFor(m: Moment): ArcSessionFact {
     documents: e.documents,
     boundSession: e.bound_session ?? "",
     steps: e.steps ?? [],
+    timeline: e.timeline ?? null,
     hasDraft: e.draft !== undefined,
     branch: m.branched ? arcBranchFacts(e) : null,
   };

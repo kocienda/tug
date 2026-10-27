@@ -1015,7 +1015,7 @@ function SpikeTimePopup(): React.ReactElement {
         <h2 className="sp-section-title">F′ · The glance</h2>
         <Proposal
           tag="What the Z2 cell says during an arc"
-          note="Today the cell shows the arc's running total. During implement, the step and its elapsed time answer the question a reader is actually asking."
+          note="Not adopted. The shipped cell shows the turn in flight's clock, which for a one-turn step is the step's clock, and the ARC cell beside it already reads 6/10 — so this chip would only repeat its neighbours. Kept for the record."
         >
           <ArcGlance r={r} />
         </Proposal>

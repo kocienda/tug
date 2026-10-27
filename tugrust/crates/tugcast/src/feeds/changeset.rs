@@ -1428,6 +1428,71 @@ fn arcs_hidden_for(repo_root: &Path) -> bool {
     root == universe
 }
 
+/// The engine's timeline as the wire's, with the project's typical audit
+/// riding beside it — one number for every arc, carried on each so a face that
+/// holds one arc needs nothing else.
+fn wire_timeline(
+    timeline: tugarc_core::timeline::ArcTimeline,
+    typical_audit_ms: Option<u64>,
+) -> tugcast_core::types::ArcTimeline {
+    use tugarc_core::timeline::{MarkKind, StepEnd};
+    use tugcast_core::types as wire;
+    wire::ArcTimeline {
+        stages: timeline
+            .stages
+            .into_iter()
+            .map(|s| wire::ArcTimelineStage {
+                stage: s.stage,
+                at_ms: s.at_ms,
+                model: s.model,
+            })
+            .collect(),
+        steps: timeline
+            .steps
+            .into_iter()
+            .map(|s| wire::ArcTimelineStep {
+                n: s.n,
+                total: s.total,
+                title: s.title,
+                spans: s
+                    .spans
+                    .into_iter()
+                    .map(|span| wire::ArcTimelineSpan {
+                        start_ms: span.start_ms,
+                        end_ms: span.end_ms,
+                    })
+                    .collect(),
+                end: s.end.map(|end| {
+                    match end {
+                        StepEnd::Done => "done",
+                        StepEnd::Withdrawn => "withdrawn",
+                        StepEnd::Reset => "reset",
+                    }
+                    .to_owned()
+                }),
+                commit: s.commit,
+            })
+            .collect(),
+        marks: timeline
+            .marks
+            .into_iter()
+            .map(|m| wire::ArcTimelineMark {
+                kind: match m.kind {
+                    MarkKind::Compact => "compact",
+                    MarkKind::Stop => "stop",
+                    MarkKind::Resume => "resume",
+                }
+                .to_owned(),
+                at_ms: m.at_ms,
+                note: m.note,
+            })
+            .collect(),
+        run_through: timeline.run_through,
+        done_at_ms: timeline.done_at_ms,
+        typical_audit_ms,
+    }
+}
+
 /// The engine's `ArcDocuments` as the wire's — the same six fields, one
 /// crate boundary apart.
 fn arc_documents(documents: tugarc_core::ArcDocuments) -> tugcast_core::types::ArcDocuments {
@@ -1690,6 +1755,9 @@ async fn arc_entries(
         // force: reading them is one eager walk of the whole op log, so per-arc
         // it would be that walk once per arc in the loop below.
         let resolve_receipts = crate::feeds::join_board::standing_resolve_receipts(&root);
+        // Every arc's time from one read of the log, for the same reason: per
+        // arc it would be one whole-log read per arc in the loop below.
+        let mut timelines = tugarc_core::timeline::read_timelines(&Paths::from_env(), &root);
         let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
         crate::feeds::join_board::sweep(&live);
         // The same idea one level down: a workshop is a real checkout on disk,
@@ -1718,7 +1786,11 @@ async fn arc_entries(
                     &held_by_others,
                     &resolve_receipts,
                 );
-                (detail, review, steps, task_list, join)
+                let timeline = timelines
+                    .arcs
+                    .remove(&detail.name)
+                    .map(|t| wire_timeline(t, timelines.typical_audit_ms));
+                (detail, review, steps, task_list, join, timeline)
             })
             .collect::<Vec<_>>()
     })
@@ -1734,7 +1806,7 @@ async fn arc_entries(
     // costs nothing and saves cloning the map into the closure. Dispatched from
     // the async side for the same reason the frame is: a ladder that runs for
     // minutes must never hold a recompute (Spec S06).
-    for (detail, _, _, _, join) in &details {
+    for (detail, _, _, _, join, _) in &details {
         let bound = bound_by_arc.contains_key(&detail.owner_key);
         // An arc whose holder is still working is not finished, whatever its
         // git facts say, so the pilot does not start reconciling it. The
@@ -1760,7 +1832,7 @@ async fn arc_entries(
 
     details
         .into_iter()
-        .map(|(detail, review, steps, task_list, join)| {
+        .map(|(detail, review, steps, task_list, join, timeline)| {
             // Read before the literal, because the literal moves
             // `detail.owner_key` into `owner_id` above the `arc` field. Same
             // `bound_by_arc` lookup the `bound_session` field makes ([P02]).
@@ -1809,6 +1881,7 @@ async fn arc_entries(
                 documents: arc_documents(detail.documents),
                 review,
                 steps,
+                timeline,
                 base: detail.base,
                 rounds: detail.rounds,
                 worktree: detail.worktree_abs,
@@ -4506,6 +4579,7 @@ Some context.
             documents: Default::default(),
             review: None,
             steps: Vec::new(),
+            timeline: None,
             base: "main".to_owned(),
             rounds: 0,
             worktree: String::new(),
@@ -4598,6 +4672,7 @@ Some context.
                     documents: Default::default(),
                     review: None,
                     steps: Vec::new(),
+                    timeline: None,
                     base: "main".to_owned(),
                     rounds: 1,
                     worktree: "/repo/.tug/worktrees/demo".to_owned(),

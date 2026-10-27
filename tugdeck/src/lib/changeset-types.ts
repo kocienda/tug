@@ -161,6 +161,111 @@ export function isArcStep(value: unknown): value is ArcStep {
 }
 
 /**
+ * An arc's current generation in time, as its log recorded it — the windows
+ * the TIME popup places a card's turns inside to say what each stage and step
+ * cost. Every instant is epoch milliseconds.
+ *
+ * Windows only: how much of a window was the machine working and how much was
+ * waiting on the user is the turns' to say (`lib/arc-time.ts` reads both).
+ */
+export interface ArcTimeline {
+  /** Stage rotations, in log order. */
+  stages?: ArcTimelineStage[];
+  /** Steps the log has seen, in step order. */
+  steps?: ArcTimelineStep[];
+  /** Compactions, stops and resumes, in log order. */
+  marks?: ArcTimelineMark[];
+  /** The declared run's final step. */
+  run_through?: number;
+  /** When the arc reached `arc-done`. */
+  done_at_ms?: number;
+  /** The median of this project's most recent finished audits. Absent when
+   *  the log remembers none — and then no audit is projected. */
+  typical_audit_ms?: number;
+}
+
+export interface ArcTimelineStage {
+  /** `devise` | `review` | `implement` | `audit`. */
+  stage: string;
+  at_ms: number;
+  /** Absent for the account default. */
+  model?: string;
+}
+
+export interface ArcTimelineSpan {
+  start_ms: number;
+  /** Absent while the step is open. */
+  end_ms?: number;
+}
+
+export interface ArcTimelineStep {
+  n: number;
+  total: number;
+  title?: string;
+  /** Each open → close; a reopened step has more than one. */
+  spans: ArcTimelineSpan[];
+  /** `done` | `withdrawn` | `reset`; absent while the step is open. */
+  end?: string;
+  /** The round a `step-done` named. */
+  commit?: string;
+}
+
+export interface ArcTimelineMark {
+  /** `compact` | `stop` | `resume`. */
+  kind: string;
+  at_ms: number;
+  /** The log line's note verbatim. */
+  note: string;
+}
+
+const isOptionalString = (v: unknown): boolean => v === undefined || typeof v === "string";
+const isOptionalNumber = (v: unknown): boolean => v === undefined || typeof v === "number";
+
+function isArcTimelineStep(value: unknown): value is ArcTimelineStep {
+  return (
+    isRecord(value) &&
+    typeof value.n === "number" &&
+    typeof value.total === "number" &&
+    isOptionalString(value.title) &&
+    Array.isArray(value.spans) &&
+    value.spans.every(
+      (s) => isRecord(s) && typeof s.start_ms === "number" && isOptionalNumber(s.end_ms),
+    ) &&
+    isOptionalString(value.end) &&
+    isOptionalString(value.commit)
+  );
+}
+
+function isOptionalArcTimeline(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  const arrayOf = (v: unknown, each: (x: unknown) => boolean) =>
+    v === undefined || (Array.isArray(v) && v.every(each));
+  return (
+    arrayOf(
+      value.stages,
+      (s) =>
+        isRecord(s) &&
+        typeof s.stage === "string" &&
+        typeof s.at_ms === "number" &&
+        isOptionalString(s.model),
+    ) &&
+    arrayOf(value.steps, isArcTimelineStep) &&
+    arrayOf(
+      value.marks,
+      (m) =>
+        isRecord(m) &&
+        typeof m.kind === "string" &&
+        typeof m.at_ms === "number" &&
+        typeof m.note === "string",
+    ) &&
+    isOptionalNumber(value.run_through) &&
+    isOptionalNumber(value.done_at_ms) &&
+    isOptionalNumber(value.typical_audit_ms)
+  );
+}
+
+/**
  * What a server-driven arc is doing on one arc, when one is running it.
  *
  * Absent for every hand-driven arc — which is most of them — and from a
@@ -303,6 +408,9 @@ export interface ArcChangesetEntry {
    *  of two different bytes. Absent when the arc records no plan, or when the
    *  file cannot be read or parsed — the same silence `review` keeps. */
   steps?: ArcStep[];
+  /** The arc's stages and steps in time — {@link ArcTimeline}. Absent when
+   *  the log holds no current generation for the arc. */
+  timeline?: ArcTimeline;
   /** The base branch the arc was created from. */
   base: string;
   /** Number of commits on the arc branch past its base. */
@@ -889,6 +997,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       isOptionalArcDocuments(value.documents) &&
       (value.steps === undefined ||
         (Array.isArray(value.steps) && value.steps.every(isArcStep))) &&
+      isOptionalArcTimeline(value.timeline) &&
       (value.base_ahead === undefined ||
         typeof value.base_ahead === "number") &&
       isOptionalStringArray(value.base_overlap) &&

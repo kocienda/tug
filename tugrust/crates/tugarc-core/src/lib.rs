@@ -51,6 +51,10 @@ pub mod surfaces;
 /// against the joined tree, recorded as a fact anchored to two commits.
 pub mod verify;
 
+/// An arc's time as its log recorded it — stage rotations, step spans, and the
+/// marks between them — read for the TIME popup.
+pub mod timeline;
+
 pub use arc::{
     ArcKind, ArcRecord, ArcStage, ArcStageLine, append_arc_done, append_arc_kind, append_arc_note,
     append_arc_plan, append_arc_resume, append_arc_stage, append_arc_start, append_arc_stop,

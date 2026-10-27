@@ -405,6 +405,83 @@ pub struct ArcStep {
     pub status: String,
 }
 
+/// An arc's current generation in time, as its log recorded it — what the
+/// TIME popup places a card's turns inside to say what each stage and step
+/// cost. Every instant is epoch milliseconds, so no face parses a date.
+///
+/// Windows only: how much of a window was work is the turns' to say, and the
+/// deck reads those.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ArcTimeline {
+    /// Stage rotations, in log order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stages: Vec<ArcTimelineStage>,
+    /// Steps the log has seen, in step order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<ArcTimelineStep>,
+    /// Compactions, stops and resumes, in log order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<ArcTimelineMark>,
+    /// The declared run's final step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_through: Option<u32>,
+    /// When the arc reached `arc-done`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done_at_ms: Option<u64>,
+    /// What an audit in this project typically takes: the median of the most
+    /// recent finished ones across every arc the log remembers. Absent when
+    /// it remembers none, which is when a face projects no audit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typical_audit_ms: Option<u64>,
+}
+
+/// One stage rotation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArcTimelineStage {
+    /// `devise` | `review` | `implement` | `audit`.
+    pub stage: String,
+    pub at_ms: u64,
+    /// Absent for the account default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// One step, as far as the log has seen it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArcTimelineStep {
+    pub n: u32,
+    pub total: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Each open → close; a reopened step has more than one, and an open
+    /// step's last span has no end.
+    pub spans: Vec<ArcTimelineSpan>,
+    /// `done` | `withdrawn` | `reset`; absent while the step is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+    /// The round a `step-done` named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+}
+
+/// One open → close of a step.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArcTimelineSpan {
+    pub start_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_ms: Option<u64>,
+}
+
+/// A moment the wheel acted on the arc without opening or closing a step.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArcTimelineMark {
+    /// `compact` | `stop` | `resume`.
+    pub kind: String,
+    pub at_ms: u64,
+    /// The log line's note verbatim.
+    pub note: String,
+}
+
 /// One co-owner named on a shared file's badge.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SharedOwner {
@@ -636,6 +713,10 @@ pub enum ChangesetEntry {
         /// or when it does not parse — the same silence `review` keeps.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         steps: Vec<ArcStep>,
+        /// The arc's stages and steps in time ([`ArcTimeline`]). Absent when
+        /// the log holds no current generation for the arc.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeline: Option<ArcTimeline>,
         /// The base branch the arc was created from.
         base: String,
         /// Number of commits on the arc branch past its base.
@@ -2062,6 +2143,7 @@ mod tests {
             documents: ArcDocuments::default(),
             review: None,
             steps: vec![],
+            timeline: None,
             base: "main".to_string(),
             rounds: 0,
             worktree: "/repo/.tug/worktrees/tugdash__x".to_string(),

@@ -36,6 +36,7 @@ import type {
   ArcRunState,
   ArcDocuments,
   ArcStep,
+  ArcTimeline,
   WorkspacesChangesetSnapshot,
 } from "./changeset-types";
 import { documentArcTrackModel } from "./document-arc-entry";
@@ -114,6 +115,10 @@ export interface ArcSessionFact {
    * wrote.
    */
   readonly steps: readonly ArcStep[];
+  /** The arc's stages and steps in time, or null when the sender sent none —
+   *  which is every documents-only arc, since the log's windows ride only a
+   *  branched entry. What the TIME popup reads an arc card's turns against. */
+  readonly timeline: ArcTimeline | null;
   /** Whether a join message is drafted for the arc — what a Join from a row
    *  would land. Always false for an arc that is documents alone. */
   readonly hasDraft: boolean;
@@ -179,6 +184,7 @@ export function buildArcSessionIndex(
         documents: entry.documents,
         boundSession,
         steps: entry.steps ?? [],
+        timeline: entry.timeline ?? null,
         hasDraft: entry.draft !== undefined,
         branch: arcBranchFacts(entry),
       };
@@ -216,6 +222,7 @@ export function buildArcSessionIndex(
         documents: arc.documents,
         boundSession,
         steps: [],
+        timeline: null,
         hasDraft: false,
         branch: null,
       };

@@ -1579,6 +1579,19 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           : null
       }
       onScrollToRow={onScrollToRow}
+      // The card's arc, read off the same fact the ARC cell reads, so TIME
+      // and ARC never disagree about which arc this card is walking.
+      arc={
+        arcFact?.timeline != null
+          ? {
+              timeline: arcFact.timeline,
+              ledger: arcFact.steps,
+              stopped: arcFact.arc?.stopped !== undefined,
+              done: arcFact.arc?.done === true,
+            }
+          : null
+      }
+      nowMs={tickAt > 0 ? tickAt : undefined}
     />
   );
   const contextPopover = (
