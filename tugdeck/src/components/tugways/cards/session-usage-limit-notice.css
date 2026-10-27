@@ -27,7 +27,9 @@ body {
 .tug-inline-alert.session-usage-limit-notice {
   /* @tug-renders-on: --tugx-inline-alert-bg */
   border-left: 4px solid var(--tugx-usage-limit-accent);
-  margin-block: var(--tug-space-xs, 4px);
+  /* A stop sets itself off from the tool block above it: the extra top margin
+     reads as a break in the turn, not one more row in the run. */
+  margin-block: var(--tug-space-xl, 16px) var(--tug-space-xs, 4px);
 }
 
 /* The icon takes the one-line size beside its two lines, and centres on the
