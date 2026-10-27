@@ -283,6 +283,25 @@ const SPEC_BY_NAME: ReadonlyMap<string, LocalSlashCommandSpec> = new Map(
   LOCAL_SLASH_COMMANDS.map((cmd) => [cmd.name, cmd]),
 );
 
+/**
+ * Claude's own aliases for commands the session card handles locally, mapped
+ * to the local command each one names. Claude's terminal accepts `/new` for
+ * `/clear`, `/continue` for `/resume`, and so on, but the headless catalog
+ * carries none of them, so without this a user who types the alias they know
+ * from the terminal would get the *Unknown command* alert for a command the
+ * card does run. An alias dispatches exactly as its command does — same
+ * surface, same argument rule — and is not offered in the popup, which lists
+ * each command once by its own name.
+ */
+export const LOCAL_SLASH_COMMAND_ALIASES: ReadonlyMap<string, LocalCommandName> =
+  new Map<string, LocalCommandName>([
+    ["allowed-tools", "permissions"],
+    ["continue", "resume"],
+    ["name", "rename"],
+    ["new", "clear"],
+    ["reset", "clear"],
+  ]);
+
 // `/name` optionally followed by whitespace + the rest of the line.
 // The name is a leading word (letters, then word chars / hyphens) — the
 // shape of every local command. Claude's namespaced commands (e.g.
@@ -300,6 +319,9 @@ const COMMAND_LINE = /^\/([a-zA-Z][a-zA-Z0-9-]*)(?:\s+([\s\S]*))?$/;
  * command line — returns `null`, and the caller sends it to claude
  * verbatim.
  *
+ * An alias in {@link LOCAL_SLASH_COMMAND_ALIASES} matches as the command it
+ * names, and the match carries the command's own name.
+ *
  * Pure: no side effects, no allocation beyond the result. The caller is
  * responsible for excluding drafts that carry atoms (a command line is
  * plain text) — this matcher only inspects the string.
@@ -307,7 +329,8 @@ const COMMAND_LINE = /^\/([a-zA-Z][a-zA-Z0-9-]*)(?:\s+([\s\S]*))?$/;
 export function matchLocalSlashCommand(text: string): LocalSlashCommandMatch | null {
   const m = COMMAND_LINE.exec(text.trim());
   if (m === null) return null;
-  const name = m[1];
+  const typed = m[1]!;
+  const name = LOCAL_SLASH_COMMAND_ALIASES.get(typed) ?? typed;
   const args = (m[2] ?? "").trim();
   const spec = SPEC_BY_NAME.get(name);
   if (spec === undefined) return null;

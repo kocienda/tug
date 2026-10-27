@@ -140,7 +140,7 @@ import {
   slashCommandName,
 } from "@/lib/slash-commands";
 import {
-  isHiddenSlashCommand,
+  hiddenSlashCommandLine,
   isUnknownRemoteCommand,
   resolveRemoteCommand,
   canonicalizeBareCommandLine,
@@ -2871,7 +2871,10 @@ export const TugPromptEntry = React.forwardRef<
       // local-command path. A local command was already dispatched above.
       const name = slashCommandName(commandLine);
       if (name !== null) {
-        const hidden = isHiddenSlashCommand(name);
+        // A hidden name, or a supported command carrying a hidden argument
+        // (`/code-review ultra`); `refusedAs` is what the notice names.
+        const refusedAs = hiddenSlashCommandLine(commandLine);
+        const hidden = refusedAs !== null;
         const unknown =
           !hidden &&
           isUnknownRemoteCommand(
@@ -2889,7 +2892,11 @@ export const TugPromptEntry = React.forwardRef<
             ) &&
             manager.sendToTarget(target, {
               action: TUG_ACTIONS.SHOW_SLASH_COMMAND_NOTICE,
-              value: { name, commandLine, reason: hidden ? "unsupported" : "unknown" },
+              value: {
+                name: refusedAs ?? name,
+                commandLine,
+                reason: hidden ? "unsupported" : "unknown",
+              },
               phase: "discrete",
             });
           // A hidden command is always swallowed (never reaches claude). A

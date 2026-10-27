@@ -11,9 +11,12 @@ into three groups, and the popup shows only the first two:
 
 - **Local commands with a Tug surface** — reimplemented graphically in the dev
   card (`/permissions`, `/model`, `/rewind`, `/resume`, `/diff`, `/context`,
-  `/skills`, `/agents`, `/memory`, `/hooks`, …). Typing one opens its surface.
+  `/skills`, `/agents`, `/memory`, `/hooks`, `/compact`, `/usage`, `/logout`, …).
+  Typing one opens its surface, and so does typing claude's alias for one
+  (`/new` or `/reset` for `/clear`, `/continue` for `/resume`, `/name` for
+  `/rename`, `/allowed-tools` for `/permissions`).
 - **Pass-throughs** — commands that expand to a prompt and run a real model turn
-  (`/init`, `/insights`, `/compact`, `/recap`), plus every skill and agent
+  (`/init`, `/insights`, `/recap`, `/goal`), plus every skill and agent
   command. These are sent to `claude` verbatim. A typed command the session card
   doesn't recognize locally is checked against the command catalogue `claude`
   reports for the session: if `claude` knows it, it is passed through; if not,
@@ -40,18 +43,25 @@ is [slash-commands.md](slash-commands.md).
 ### Terminal-only UI flags / view preferences
 `/vim`, `/theme`, `/color`, `/tui`, `/keybindings`, `/terminal-setup`,
 `/chrome`, `/focus`, `/fast`, `/status`, `/statusline`, `/scroll-speed`,
-`/voice` — these render Ink components or set terminal-local UI state; nothing
+`/voice`, `/artifacts`, `/pause-memory` (aliases `/memory-pause`,
+`/toggle-memory`) — these render Ink components or set terminal-local UI state; nothing
 happens over a headless bridge. (`/status` is a no-op specifically because the
 Z4B chrome already shows session status; `/statusline` is the same, the Z4B
 chrome owns ours.)
 
 ### Conversation-structure / automation
-`/branch`, `/plan`, `/autofix-pr`, `/workflows`, `/fork`, `/ultraplan`,
+`/branch`, `/plan`, `/autofix-pr`, `/workflows`, `/fork`, `/subtask`, `/ultraplan`,
 `/ultrareview`, `/schedule` (alias `/routines`) — conversation branching,
-plan mode, PR / workflow orchestration, forked subagents, cloud
+plan mode, PR / workflow orchestration, forked subagents and subagents sent off
+with the full context, cloud
 plan/review, and scheduled cloud routines. Out of conversational-parity
 scope; each is a substantial standalone feature for a future plan, and is
 kept in the hidden registry as a marker for that future work.
+
+`/code-review ultra` is refused for the same reason as `/ultrareview`, which
+claude now calls its deprecated alias. Typed in a git repository, it starts a
+billed cloud review with no confirmation. Plain `/code-review`, a local review,
+passes through; only the `ultra` argument is refused.
 
 (`/tasks` and `/bashes` graduated to Tug-local commands, and they open
 different surfaces: `/tasks` the numbered checklist, `/bashes` the JOBS
@@ -72,31 +82,48 @@ tugcode drives that control-request and renders the answer in a non-modal
 overlay; probe-verified serviced idle AND mid-turn on claude 2.1.204 — see
 [slash-commands.md](slash-commands.md) and `tugcode/probes/btw/FINDINGS.md`.)
 
-### Plugin / advisor / dev-loop config
-`/advisor`, `/plugin`, `/reload-plugins`, `/reload-skills` — plugin and
-dev-loop configuration; a host-app or future-plan concern.
+### Plugin / advisor config
+`/advisor`, `/plugin` (aliases `/plugins`, `/marketplace`), `/cloud-plugins`,
+`/peers` — plugin configuration; a host-app or future-plan concern. (`/peers` is
+claude's alias of `/list-agents`; claude offers the command headless but not the
+alias.)
+
+(`/reload-plugins` and `/reload-skills` graduated out of this group as
+pass-throughs: both reload in place over the bridge on claude 2.1.311. See
+`tugcode/probes/slash-parity/FINDINGS.md`.)
 
 ### Account / auth / subscription / novelty
-`/login`, `/logout`, `/privacy-settings`, `/config` (alias `/settings`),
+`/login`, `/privacy-settings`, `/config` (alias `/settings`),
 `/feedback` (alias `/share`), `/install-github-app`, `/install-slack-app`,
 `/web-setup`, `/setup-bedrock`, `/setup-vertex`, `/upgrade`, `/passes`,
-`/powerup`, `/radio`, `/stickers`, `/sandbox`, `/usage` (aliases `/cost`,
-`/stats`), `/usage-credits`, `/extra-usage`, `/team-onboarding` — account, auth,
+`/powerup`, `/radio`, `/stickers`, `/sandbox`, `/cost` and `/stats` (aliases of
+`/usage`, which opens the card's usage sheet and is reached by that name),
+`/usage-credits`, `/extra-usage`, `/team-onboarding`, `/design-login`,
+`/rate-limit-options` — account, auth,
 settings, provider/host setup, and subscription surfaces that belong to the
-Tug.app host, not the session card.
+Tug.app host, not the session card. (`/logout` is the card's own: it logs out of
+Claude and returns to setup.)
 
 ### Device / cross-app / teleport
 `/ide`, `/desktop` (alias `/app`), `/mobile` (aliases `/ios`, `/android`),
 `/remote-control` (alias `/rc`), `/remote-env`, `/background` (alias `/bg`),
-`/stop`, `/teleport` (alias `/tp`) — cross-app, device, terminal-freeing, and
-background-session commands that aren't the session card's concern. (`/cd` is
+`/stop`, `/teleport` (alias `/tp`), `/daemon`, `/session` (alias `/remote`) —
+cross-app, device, terminal-freeing, background-service and cloud-session
+commands that aren't the session card's concern. (`/cd` is
 the card's own: it moves the card into another directory, carrying the
 conversation.)
 
 ### Diagnostics / info / process control
-`/doctor`, `/release-notes`, `/heapdump`, `/version`, `/quit`, `/exit` — install
-diagnostics, info display, and process control. Closing a card is the session card's
-quit affordance.
+`/doctor`, `/release-notes`, `/heapdump`, `/version`, `/quit`, `/exit`,
+`/install`, `/restart` (alias `/update`) — install diagnostics, info display,
+installing and restarting claude, and process control. Closing a card is the
+session card's quit affordance.
+
+### Disabled or hidden by claude itself
+`/loops`, `/wellbeing` (aliases `/breaks`, `/break-reminder`, `/downtime`),
+`/pro-trial-expired` — claude switches these off or hides them in its own
+command table. Listing them keeps this set a complete account of what claude
+names, and the *"Command not available"* alert is the accurate answer.
 
 ### Out of scope by prior decision
 `/mcp` — MCP is fully out of scope ([Q06]); it returns when MCP is addressed in a

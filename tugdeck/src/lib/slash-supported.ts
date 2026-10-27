@@ -27,7 +27,8 @@
  *   {@link HIDDEN_SLASH_COMMANDS} below.
  *
  * Beside those three tiers, and orthogonal to them, is the **unlisted** set
- * ({@link UNLISTED_SLASH_COMMANDS}): the arc's four stage skills. Unlisted is
+ * ({@link UNLISTED_SLASH_COMMANDS}): the arc's four stage skills and claude's
+ * own internal commands. Unlisted is
  * *presentation only* — it is not a {@link SlashSupport} member and it changes
  * no classification, no submit behavior, and no catalog membership. It says one
  * thing: do not offer this name in the popup. A stage skill is machinery an arc
@@ -49,7 +50,10 @@
  * @module lib/slash-supported
  */
 
-import { LOCAL_SLASH_COMMANDS } from "./slash-commands";
+import {
+  LOCAL_SLASH_COMMANDS,
+  LOCAL_SLASH_COMMAND_ALIASES,
+} from "./slash-commands";
 
 /** How a slash command is treated in the session card. */
 export type SlashSupport = "supported-local" | "pass-through" | "hidden";
@@ -58,11 +62,14 @@ export type SlashSupport = "supported-local" | "pass-through" | "hidden";
  * Every command with a Tug surface — the [D23] registry, by name. Derived
  * from {@link LOCAL_SLASH_COMMANDS} so a command added there (e.g. `/copy`,
  * `/help` in a later sub-step) becomes `supported-local` automatically,
- * without a second edit here.
+ * without a second edit here. Claude's aliases for those commands
+ * ({@link LOCAL_SLASH_COMMAND_ALIASES}) are local too: typed, each dispatches
+ * to its command's surface.
  */
-const SUPPORTED_LOCAL: ReadonlySet<string> = new Set(
-  LOCAL_SLASH_COMMANDS.map((cmd) => cmd.name),
-);
+const SUPPORTED_LOCAL: ReadonlySet<string> = new Set<string>([
+  ...LOCAL_SLASH_COMMANDS.map((cmd) => cmd.name),
+  ...LOCAL_SLASH_COMMAND_ALIASES.keys(),
+]);
 
 /**
  * The known-unsupported set ([D14]): commands hidden from the popup and
@@ -85,11 +92,15 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "terminal-setup",
   "chrome",
   "focus",
-  "fast",
+  "fast", // typed `/fast on` is refused headless, even opted in (slash-parity FINDINGS).
   "status", // typed /status is a no-op — the Z4B chrome already shows it.
   "statusline", // configures the terminal status line; the Z4B chrome owns ours.
   "scroll-speed", // interactive mouse-wheel ruler, terminal-only.
   "voice", // voice-dictation TUI state; nothing to toggle over the bridge.
+  "artifacts", // browses published and shared artifacts in the TUI.
+  "pause-memory", // pauses auto-memory for the session from the TUI.
+  "memory-pause", // alias of /pause-memory.
+  "toggle-memory", // alias of /pause-memory.
 
   // Conversation-structure / automation deferred to a future plan — no
   // surface this pass. Kept here (rather than dropped) as a marker for
@@ -109,16 +120,22 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "autofix-pr",
   "workflows", // workflow-orchestration progress view.
   "fork", // forked-subagent spawn; interactive, no bridge surface yet.
+  "subtask", // subagent sent off with the full context; deferred beside /fork.
   "ultraplan", // cloud plan → browser review → remote exec.
-  "ultrareview", // cloud multi-agent review (/code-review ultra); user-triggered + billed.
+  "ultrareview", // cloud multi-agent review; user-triggered + billed. Its live spelling,
+  // `/code-review ultra`, is refused by argument (HIDDEN_SLASH_ARGUMENTS).
   "schedule", // cloud routines / scheduled agents.
   "routines", // alias of /schedule.
 
-  // Plugin / advisor / dev-loop config — host-app or a future plan.
+  // Plugin / advisor config — host-app or a future plan. (`/reload-plugins`
+  // and `/reload-skills` graduated to pass-throughs: both reload in place over
+  // the bridge on claude 2.1.311, tugcode/probes/slash-parity/FINDINGS.md.)
   "advisor",
   "plugin",
-  "reload-plugins",
-  "reload-skills",
+  "plugins", // alias of /plugin.
+  "marketplace", // alias of /plugin.
+  "cloud-plugins", // whether cloud sessions use this machine's plugins.
+  "peers", // alias of /list-agents; claude catalogs the command headless, not the alias.
 
   // Account / auth / subscription / novelty — the Tug.app host's concern.
   // (`/logout` is now a supported Tug-local command — see LOCAL_SLASH_COMMANDS.
@@ -147,6 +164,8 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "usage-credits",
   "extra-usage",
   "team-onboarding",
+  "design-login", // authorizes design-system access for /design-sync.
+  "rate-limit-options", // usage-limit and upgrade options.
 
   // Device / cross-app / teleport — not the session card's concern.
   "ide",
@@ -163,19 +182,80 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "stop", // stops a background session — none exist over the bridge.
   "teleport",
   "tp", // alias of /teleport.
+  "daemon", // manages claude's background services and routines.
+  "session", // shows a cloud session's URL and QR code.
+  "remote", // alias of /session.
 
   // Diagnostics / info / process control.
-  "doctor",
+  "doctor", // a bundled skill that wanders headless, a prompt per denied call (slash-parity FINDINGS).
   "release-notes",
   "heapdump",
   "version",
   "quit",
   "exit",
+  "install", // installs the native claude build.
+  "restart", // restarts claude, onto a newer build when one is waiting.
+  "update", // alias of /restart.
+
+  // Disabled or hidden by claude itself — the alert is accurate, and listing
+  // them keeps this set a complete account of what claude names.
+  "loops",
+  "wellbeing",
+  "breaks", // alias of /wellbeing.
+  "break-reminder", // alias of /wellbeing.
+  "downtime", // alias of /wellbeing.
+  "pro-trial-expired",
 
   // Out of scope by prior decision.
   "mcp", // MCP fully out of scope ([Q06]).
   "bug", // files feedback to Anthropic — no meaning over the bridge.
 ]);
+
+/**
+ * The acknowledged pass-throughs: claude built-ins somebody has looked at and
+ * decided to send to claude verbatim. Membership changes no behavior — every
+ * name here classifies as `pass-through` exactly as an unknown name would. What
+ * it records is that the decision was made, so the parity test over the
+ * `capabilities/LATEST` capture can require every built-in in it to be exactly
+ * one of local, hidden, or acknowledged, and a capture that brings a built-in
+ * nobody has classified goes red the moment it lands.
+ *
+ * Built-ins only. Skills and agents vary with the capturing account and are
+ * pass-throughs by construction, so they are never listed here.
+ */
+export const ACKNOWLEDGED_PASS_THROUGH_SLASH_COMMANDS: ReadonlySet<string> =
+  new Set<string>([
+    // Established pass-throughs: prompt expansions that run a real turn, and
+    // `/goal`, probe-verified on 2.1.204 (tugcode/probes/goal-loop/FINDINGS.md).
+    "goal",
+    "init",
+    "insights",
+    "recap",
+    "security-review",
+
+    // Probe-verified on 2.1.311 (tugcode/probes/slash-parity/FINDINGS.md).
+    "autocompact",
+    "import",
+    "list-agents",
+    "output-style",
+    "reload-plugins",
+    "reload-skills",
+    "skill-doctor",
+
+    // Unprobed: a wizard-driven setup (`--wizard posture=… --propose |
+    // --apply-file`) that is not meant to be typed by hand. It passes through
+    // so a typed line still reaches claude rather than being swallowed.
+    "auto-mode-setup",
+
+    // Design-tool consent toggles.
+    "design-consent",
+    "design-revoke",
+
+    // Claude-internal, for server-launched sessions only — also unlisted, so
+    // the popup does not offer them (see UNLISTED_SLASH_COMMANDS).
+    "__remote-workflow",
+    "workflow-launch-exec",
+  ]);
 
 /**
  * Classify a command name (without the leading slash). `supported-local` and
@@ -195,25 +275,82 @@ export function isHiddenSlashCommand(name: string): boolean {
 }
 
 /**
- * The arc's stage skills, by leaf name. Each refuses to run outside an arc, so
- * none is a door and none belongs in the popup's vocabulary.
+ * Arguments that hide an otherwise-supported command, keyed by the command's
+ * leaf name. The three tiers classify a *name*, but a command can reach a
+ * hidden surface through one of its arguments: claude now spells its billed
+ * cloud review `/code-review ultra`, with `/ultrareview` a deprecated alias,
+ * and the typed line launches it headless with no confirmation (probe and
+ * binary evidence in tugcode/probes/slash-parity/FINDINGS.md). Plain
+ * `/code-review` is a local review and stays a pass-through; only the argument
+ * is refused, exactly as the alias is.
+ */
+export const HIDDEN_SLASH_ARGUMENTS: ReadonlyMap<string, ReadonlySet<string>> =
+  new Map<string, ReadonlySet<string>>([["code-review", new Set(["ultra"])]]);
+
+/**
+ * Whether a typed command line is refused at submit, and as what. Returns the
+ * invocation to name in the *not available* notice — the command for a hidden
+ * name (`"vim"`), the command and its argument for a hidden argument
+ * (`"code-review ultra"`) — or `null` when the line is not refused.
+ *
+ * A hidden argument is matched as the first argument that is not a flag, case
+ * insensitively, because that is the position claude reads a mode from: in
+ * `/code-review --fix ultra` the mode is still `ultra`.
+ *
+ * Pure.
+ */
+export function hiddenSlashCommandLine(commandLine: string): string | null {
+  const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/.exec(commandLine.trim());
+  if (match === null) return null;
+  const name = match[1]!;
+  if (HIDDEN_SLASH_COMMANDS.has(name)) return name;
+  const refused = HIDDEN_SLASH_ARGUMENTS.get(
+    name.slice(name.lastIndexOf(":") + 1),
+  );
+  if (refused === undefined) return null;
+  const mode = (match[2] ?? "")
+    .split(/\s+/)
+    .find((token) => token.length > 0 && !token.startsWith("-"));
+  if (mode === undefined) return null;
+  const lowered = mode.toLowerCase();
+  return refused.has(lowered) ? `${name} ${lowered}` : null;
+}
+
+/**
+ * Names the popup does not offer, by leaf name, in two groups.
+ *
+ * - **The arc's stage skills.** Each refuses to run outside an arc, so none is a
+ *   door and none belongs in the popup's vocabulary.
+ * - **Claude's internal commands.** Claude marks these hidden in its own
+ *   command table ("server-launched sessions only"), but the handshake carries
+ *   no hidden flag, so they arrive in the catalog by name. Any `__`-prefixed
+ *   name belongs to this group without being listed (see
+ *   {@link isUnlistedSlashCommand}). Unlisting rather than hiding keeps them
+ *   sendable: claude does accept them, so a *not available* alert would lie.
  *
  * Held as leaves rather than as `tugplug:`-qualified names because the catalog
  * reports a plugin skill namespaced and the user types it bare, and the tier is
  * the same fact either way.
  */
 export const UNLISTED_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
+  // The arc's stage skills.
   "arc-devise",
   "arc-review",
   "arc-implement",
   "arc-audit",
+
+  // Claude-internal, for server-launched sessions only.
+  "__remote-workflow",
+  "workflow-launch-exec",
 ]);
 
 /**
  * Whether a command name is unlisted — absent from the popup, and nothing else.
  *
  * Matches on the part after the last `:`, so `tugplug:arc-devise` and the bare
- * `arc-devise` answer alike. A name that is *also* a local command is exempt:
+ * `arc-devise` answer alike, and any leaf beginning `__` is claude-internal and
+ * unlisted whether or not the set names it. A name that is *also* a local
+ * command is exempt:
  * `/arc-review` is both a stage skill's leaf and a card verb ({@link
  * LOCAL_SLASH_COMMANDS}), and the card verb is a door the user does speak. The
  * local provider is not run through the filter today, so the exemption changes
@@ -223,7 +360,7 @@ export const UNLISTED_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
 export function isUnlistedSlashCommand(name: string): boolean {
   if (SUPPORTED_LOCAL.has(name)) return false;
   const leaf = name.slice(name.lastIndexOf(":") + 1);
-  return UNLISTED_SLASH_COMMANDS.has(leaf);
+  return leaf.startsWith("__") || UNLISTED_SLASH_COMMANDS.has(leaf);
 }
 
 /**

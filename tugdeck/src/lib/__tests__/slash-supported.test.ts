@@ -13,10 +13,31 @@ import {
   isUnknownRemoteCommand,
   resolveRemoteCommand,
   canonicalizeBareCommandLine,
+  hiddenSlashCommandLine,
 } from "@/lib/slash-supported";
-import { LOCAL_SLASH_COMMANDS } from "@/lib/slash-commands";
+import {
+  LOCAL_SLASH_COMMANDS,
+  LOCAL_SLASH_COMMAND_ALIASES,
+  matchLocalSlashCommand,
+} from "@/lib/slash-commands";
 
 describe("classifySlashCommand", () => {
+  test("claude's alias for a local command dispatches as that command", () => {
+    // `/new` is what a terminal user types for `/clear`; the card runs it.
+    expect(matchLocalSlashCommand("/new")).toEqual({ name: "clear", args: "" });
+    expect(matchLocalSlashCommand("/reset")).toEqual({ name: "clear", args: "" });
+    expect(matchLocalSlashCommand("/continue amber-fox")).toEqual({
+      name: "resume",
+      args: "amber-fox",
+    });
+    expect(matchLocalSlashCommand("/name Parity work")).toEqual({
+      name: "rename",
+      args: "Parity work",
+    });
+    // The alias keeps its command's argument rule: `/clear` takes none.
+    expect(matchLocalSlashCommand("/new please")).toBeNull();
+  });
+
   test("a registered local command is supported-local", () => {
     for (const cmd of LOCAL_SLASH_COMMANDS) {
       expect(classifySlashCommand(cmd.name)).toBe("supported-local");
@@ -33,8 +54,15 @@ describe("classifySlashCommand", () => {
     expect(unname?.description.length).toBeGreaterThan(0);
   });
 
+  test("the probe graduations hold: the reloads pass through, /fast and /doctor stay hidden", () => {
+    expect(classifySlashCommand("reload-plugins")).toBe("pass-through");
+    expect(classifySlashCommand("reload-skills")).toBe("pass-through");
+    expect(classifySlashCommand("fast")).toBe("hidden");
+    expect(classifySlashCommand("doctor")).toBe("hidden");
+  });
+
   test("a known-unsupported command is hidden", () => {
-    for (const name of ["vim", "theme", "color", "mcp", "bug", "quit", "status"]) {
+    for (const name of ["vim", "theme", "color", "mcp", "bug", "quit", "status", "subtask", "session", "update"]) {
       expect(classifySlashCommand(name)).toBe("hidden");
     }
   });
@@ -115,6 +143,26 @@ describe("isUnlistedSlashCommand", () => {
     expect(isUnlistedSlashCommand("tugplug:arc-review")).toBe(true);
   });
 
+  test("claude's internal commands are unlisted, and any `__` name with them", () => {
+    for (const name of [
+      "__remote-workflow",
+      "workflow-launch-exec",
+      "__some-future-internal",
+    ]) {
+      expect(isUnlistedSlashCommand(name)).toBe(true);
+    }
+  });
+
+  test("an internal command stays sendable — unlisted, not hidden", () => {
+    // Claude accepts these, so the honest treatment is to leave them out of
+    // the popup and let a typed one through rather than alert *not available*.
+    const catalog = ["init", "__remote-workflow", "workflow-launch-exec"];
+    for (const name of ["__remote-workflow", "workflow-launch-exec"]) {
+      expect(classifySlashCommand(name)).toBe("pass-through");
+      expect(isUnknownRemoteCommand(name, catalog)).toBe(false);
+    }
+  });
+
   test("a door, a pass-through and a hidden name are all listed", () => {
     for (const name of ["tugplug:arc", "init", "vim"]) {
       expect(isUnlistedSlashCommand(name)).toBe(false);
@@ -148,6 +196,44 @@ describe("set integrity", () => {
     for (const name of UNLISTED_SLASH_COMMANDS) {
       expect(HIDDEN_SLASH_COMMANDS.has(name)).toBe(false);
     }
+  });
+
+  test("a local alias is local, never hidden, and names a registered command", () => {
+    const names: readonly string[] = LOCAL_SLASH_COMMANDS.map((c) => c.name);
+    for (const [alias, command] of LOCAL_SLASH_COMMAND_ALIASES) {
+      expect(names).not.toContain(alias);
+      expect(names).toContain(command);
+      expect(HIDDEN_SLASH_COMMANDS.has(alias)).toBe(false);
+      expect(classifySlashCommand(alias)).toBe("supported-local");
+    }
+  });
+});
+
+describe("hiddenSlashCommandLine", () => {
+  test("a hidden name is refused as itself", () => {
+    expect(hiddenSlashCommandLine("/vim")).toBe("vim");
+    expect(hiddenSlashCommandLine("/ultrareview 123")).toBe("ultrareview");
+  });
+
+  test("/code-review ultra is refused as the alias it replaced is", () => {
+    // In a git repository the typed line starts claude's billed cloud review
+    // with no confirmation, which is why /ultrareview is hidden.
+    expect(hiddenSlashCommandLine("/code-review ultra")).toBe("code-review ultra");
+    expect(hiddenSlashCommandLine("/code-review ultra 4512")).toBe("code-review ultra");
+    expect(hiddenSlashCommandLine("/code-review --fix ULTRA")).toBe("code-review ultra");
+  });
+
+  test("plain /code-review and other arguments still pass through", () => {
+    for (const line of [
+      "/code-review",
+      "/code-review high",
+      "/code-review --fix",
+      "/code-review ultra-wide layout",
+      "/init",
+    ]) {
+      expect(hiddenSlashCommandLine(line)).toBeNull();
+    }
+    expect(classifySlashCommand("code-review")).toBe("pass-through");
   });
 });
 

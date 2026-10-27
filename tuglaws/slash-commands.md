@@ -30,12 +30,54 @@ The dispatch order lives in `performSubmit` in
 
 1. `matchLocalSlashCommand()` — local registry hit → open the surface, record
    history, clear the draft, return.
-2. `isHiddenSlashCommand()` — hidden → notice, swallow, return.
+2. `hiddenSlashCommandLine()` — a hidden name, or a supported command carrying
+   a hidden argument (`/code-review ultra`, from `HIDDEN_SLASH_ARGUMENTS`) →
+   notice naming the invocation, swallow, return.
 3. `isUnknownRemoteCommand()` — a pass-through name is a *genuine unknown* only
    when the session's catalog is non-empty AND the name resolves to nothing (after
    namespace canonicalization, below). Unknowns get an "Unknown command" alert
    client-side instead of burning a turn.
 4. Otherwise: normal send — the `/name` text reaches claude.
+
+**Every built-in is classified, and a capture enforces it.** Pass-through is the
+default by name, but a claude built-in is never a pass-through by accident:
+`ACKNOWLEDGED_PASS_THROUGH_SLASH_COMMANDS` in `slash-supported.ts` lists the
+built-ins somebody decided to send to claude, and
+`tugdeck/src/lib/__tests__/slash-parity.test.ts` reads the
+`capabilities/LATEST` capture and requires every built-in in it — the names in
+`slash_commands` that the frame's `skills` array does not also carry — to be
+exactly one of local, hidden, or acknowledged. A capture that brings a built-in
+nobody has classified goes red the moment it lands. Acknowledgement changes no
+behavior; it records that the decision was made. Skills and agents vary with the
+capturing account and pass through by construction, so they are exempt.
+
+**A command can be refused by its argument.** The tiers classify a name, and one
+name can reach two surfaces. Claude spells its billed cloud review
+`/code-review ultra` (with `/ultrareview` a deprecated alias), while plain
+`/code-review` is a local review. `HIDDEN_SLASH_ARGUMENTS` in `slash-supported.ts`
+lists the arguments that hide an otherwise-supported command, matched as the
+first argument that is not a flag. At submit, `hiddenSlashCommandLine()` refuses
+the line, and the notice names the invocation (`/code-review ultra`) rather than
+the command. The evidence for the one entry is in
+`tugcode/probes/slash-parity/FINDINGS.md`.
+
+**TUI-only names are reported, not gated.** A command claude leaves out of the
+print-mode catalog never reaches the capture, so the parity test cannot see it.
+`just capture-capabilities` runs `scripts/slash-tui-advisory.ts`, which reads the
+command table out of the installed `claude` binary and prints every name and
+alias that is neither local, hidden, acknowledged, unlisted, nor in the headless
+catalog. It is an advisory and never fails the recipe: the read is over minified
+code and misses any entry whose name is not written as a literal, so a gate on it
+would go red on a minifier change rather than on a new command. Run it alone with
+`bun scripts/slash-tui-advisory.ts [binary]`.
+
+**Claude's aliases for a local command are local.** Claude's terminal accepts
+`/new` and `/reset` for `/clear`, `/continue` for `/resume`, `/name` for
+`/rename`, and `/allowed-tools` for `/permissions`, and the headless catalog
+carries none of them. `LOCAL_SLASH_COMMAND_ALIASES` in `slash-commands.ts` maps
+each to its command, so `matchLocalSlashCommand()` dispatches it to the same
+surface under the same argument rule; the popup lists each command once, by its
+own name. An alias of a hidden command is hidden beside it.
 
 Nothing is ever silently dropped: local commands open a surface, hidden commands
 alert, unknowns alert, pass-throughs run.
@@ -47,8 +89,10 @@ allowlist. If a command reaches tugcode, it reaches claude.
 
 ### The unlisted set is presentation, not a tier {#unlisted}
 
-`UNLISTED_SLASH_COMMANDS` in `slash-supported.ts` holds the arc's four stage
-skills — `arc-devise`, `arc-review`, `arc-implement`, `arc-audit`. It is
+`UNLISTED_SLASH_COMMANDS` in `slash-supported.ts` holds two groups: the arc's
+four stage skills — `arc-devise`, `arc-review`, `arc-implement`, `arc-audit` —
+and claude's own internal commands, `__remote-workflow` and
+`workflow-launch-exec`. It is
 deliberately **not** a fourth row in the table above, because it is not a
 `SlashSupport` member and the classifier never returns it. It says exactly one
 thing: the completion popup does not offer this name. Classification, the
@@ -61,6 +105,14 @@ Each refuses to run outside an arc, so a user reading the popup for a door
 should not have to read past four names that would stop the moment they were
 typed. The door — `/arc` — stays listed, as does every local
 command.
+
+The internal commands are unlisted for the reason a stage skill is. Claude marks
+them hidden in its own command table ("server-launched sessions only"), but the
+handshake carries no hidden flag, so they arrive in the catalog by name and would
+otherwise be offered. They are unlisted rather than hidden because claude does
+accept them: hiding would put a *not available* alert in front of a command that
+works. Any `__`-prefixed leaf is treated as internal whether or not the set names
+it.
 
 `isUnlistedSlashCommand()` matches on the part after the last `:`, so the
 namespaced `tugplug:arc-devise` and the bare `arc-devise` answer alike, and a
@@ -130,9 +182,10 @@ When a Claude Code release adds a command (or an existing hidden one comes up fo
 support), classify it deliberately:
 
 1. **Does it expand to a prompt / run real model turns?** (e.g. `/init`,
-   `/insights`, `/recap`, every skill) → **pass-through**. Do nothing — the safe
-   default already handles it, and the catalog puts it in the popup. Verify with a
-   probe (below) that its output renders sensibly.
+   `/insights`, `/recap`, every skill) → **pass-through**. The safe default
+   already sends it, and the catalog puts it in the popup; a built-in also goes
+   into `ACKNOWLEDGED_PASS_THROUGH_SLASH_COMMANDS`, or the parity test stays red.
+   Verify with a probe (below) that its output renders sensibly.
 2. **Does Tug already have — or want — a graphical equivalent?** (e.g. `/model`,
    `/permissions`, `/context`) → **supported-local**. Reimplement the *surface*,
    not the command: the local registry + surfaces map (recipe below). Use this
@@ -143,6 +196,10 @@ support), classify it deliberately:
    `/vim`, `/theme`, `/login`, `/ide`) → **hidden**. Nothing useful can happen
    over a headless bridge; hide it with the notice rather than letting it burn a
    turn or confuse.
+   A hidden name is intercepted before the catalog is consulted, so never hide a
+   TUI-only name a skill's bare form shares: claude's own `/brief` is a TUI-only
+   toggle, and hiding it would break the bare `/brief` that resolves to
+   `tugplug:brief` (`slash-brief-uniqueness.test.ts` pins that).
 4. **Is it a substantial feature Tug intends to support later?** (e.g. the
    conversation-structure group) → **hidden, as a marker**. The hidden registry
    doubles as the backlog of deliberate deferrals; each entry names its reason.

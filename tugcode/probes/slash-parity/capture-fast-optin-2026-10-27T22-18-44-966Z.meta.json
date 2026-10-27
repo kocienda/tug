@@ -1,0 +1,98 @@
+{
+  "sessionId": "d51eda6e-83d7-4899-8af2-cf9122e5b56d",
+  "capture": "capture-fast-optin-2026-10-27T22-18-44-966Z",
+  "cwd": "/private/tmp/slash-parity-probe",
+  "cwdIsGitRepo": false,
+  "stdoutLines": 12,
+  "settingsJsonChanged": false,
+  "commands": [
+    {
+      "command": "/fast",
+      "closed": true,
+      "events": 3,
+      "inits": [
+        {
+          "fast_mode_state": "off",
+          "output_style": "default"
+        }
+      ],
+      "toolUses": [],
+      "texts": [
+        "Fast mode OFF (this session only)"
+      ],
+      "result": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 0,
+        "total_cost_usd": 0,
+        "result": "Fast mode OFF (this session only)"
+      }
+    },
+    {
+      "command": "/fast on",
+      "closed": true,
+      "events": 3,
+      "inits": [
+        {
+          "fast_mode_state": "off",
+          "output_style": "default"
+        }
+      ],
+      "toolUses": [],
+      "texts": [
+        "Fast mode unavailable: Fast mode is not available in the Agent SDK"
+      ],
+      "result": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 0,
+        "total_cost_usd": 0,
+        "result": "Fast mode unavailable: Fast mode is not available in the Agent SDK"
+      }
+    },
+    {
+      "command": "/fast",
+      "closed": true,
+      "events": 3,
+      "inits": [
+        {
+          "fast_mode_state": "off",
+          "output_style": "default"
+        }
+      ],
+      "toolUses": [],
+      "texts": [
+        "Fast mode unavailable: Fast mode is not available in the Agent SDK"
+      ],
+      "result": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 0,
+        "total_cost_usd": 0,
+        "result": "Fast mode unavailable: Fast mode is not available in the Agent SDK"
+      }
+    },
+    {
+      "command": "/fast off",
+      "closed": true,
+      "events": 3,
+      "inits": [
+        {
+          "fast_mode_state": "off",
+          "output_style": "default"
+        }
+      ],
+      "toolUses": [],
+      "texts": [
+        "Fast mode OFF (this session only)"
+      ],
+      "result": {
+        "subtype": "success",
+        "is_error": false,
+        "num_turns": 0,
+        "total_cost_usd": 0,
+        "result": "Fast mode OFF (this session only)"
+      }
+    }
+  ]
+}

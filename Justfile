@@ -349,6 +349,13 @@ capture-capabilities:
     echo
     echo "---- capabilities/LATEST → $VER ----"
     ls -la "capabilities/$VER/"
+    # TUI-only commands never reach the capture, so the slash parity test cannot
+    # see them; read them out of the installed binary instead. Advisory only —
+    # the read is over minified code and can miss entries, so it never fails the
+    # recipe. It runs here, before the drift leg, so a failed drift still shows it.
+    echo
+    echo "---- TUI-only command advisory ----"
+    bun scripts/slash-tui-advisory.ts "$(command -v claude)" || true
     # Previous baseline = second-newest version dir under capabilities/ in
     # semver order. Used for the stream-json-catalog stat summary.
     PREV_VER="$(ls -d capabilities/*/ 2>/dev/null \
