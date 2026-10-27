@@ -72,6 +72,7 @@ import AppKit
     func showAbout(_ sender: Any?)
     func showConfigureTug(_ sender: Any?)
     func showDevTools(_ sender: Any?)
+    func showHelpDocument(_ sender: NSMenuItem)
     func showKeyboardShortcuts(_ sender: Any?)
     func showSettings(_ sender: Any?)
     func sourceTree(_ sender: Any)
@@ -791,6 +792,15 @@ struct MenuBarBuilder {
         mainMenu.addItem(helpMenuItem)
         let helpMenu = NSMenu(title: "Help")
         helpMenuItem.submenu = helpMenu
+        // The app's two help documents, each opened as a rendered help card.
+        // The represented object is the document's name, which tugcast serves
+        // and the card is keyed by.
+        let tugHelpItem = NSMenuItem(title: "Tug Help", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.tugHelp")
+        tugHelpItem.representedObject = "features"
+        helpMenu.addItem(tugHelpItem)
+        let glossaryItem = NSMenuItem(title: "Glossary", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.glossary")
+        glossaryItem.representedObject = "glossary"
+        helpMenu.addItem(glossaryItem)
         // Keyboard Shortcuts & Commands — the session card's `/help` sheet via
         // run-card-command. Gated by its registry gate on the menuState push.
         let shortcutsItem = NSMenuItem(title: "Keyboard Shortcuts & Commands", action: #selector(MenuBarActions.runCardCommand(_:)), keyEquivalent: "").identified("help.shortcuts")

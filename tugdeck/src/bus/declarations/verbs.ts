@@ -248,6 +248,13 @@ export const textRevealLine = defineAction<{ line: number; endLine?: number; col
   codec: obj({ line: num, endLine: optional(num), columns: optional(opaque(isColumns, [0, 0] as [number, number])) }),
 });
 
+/** An open of the document a help card holds: the passage asked for, scrolled to in its page. */
+export const helpScrollTo = defineAction({
+  id: "help.scrollTo",
+  owner: "card",
+  codec: obj({ anchor: str }),
+});
+
 /** A section the Settings card is to show. Validated against the sections where it is shown. */
 export const settingsReveal = defineAction({
   id: "settings.reveal",

@@ -102,6 +102,9 @@ export function bodyMentionsRef(body: string, ref: OverviewRef): boolean {
   // A session citation is its own surface with its own gesture; the prose
   // naming the session does not make the chip a duplicate.
   if (ref.kind === "session") return false;
+  // Nor does prose naming a help passage: the words are not a link, and the
+  // chip is the only door into the help card at that place.
+  if (ref.kind === "help") return false;
   if (ref.kind === "commit") return mentionsCommit(body, target);
   if (containsToken(body, target)) return true;
   const base = target.split("/").pop() ?? "";

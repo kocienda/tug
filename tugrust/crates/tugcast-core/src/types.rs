@@ -1562,6 +1562,11 @@ pub enum OverviewRefKind {
     /// serialize as `"arc"`.
     #[serde(alias = "dash")]
     Arc,
+    /// A passage of the app's own help: `features` or `glossary`, then
+    /// `#<anchor>` naming a section or an entry — `glossary#split`. Opens the
+    /// help card there. Validated against the bundled documents, never
+    /// against the frames the model saw.
+    Help,
 }
 
 impl OverviewRefKind {
@@ -1575,6 +1580,7 @@ impl OverviewRefKind {
             Self::Plan => "plan",
             Self::Brief => "brief",
             Self::Arc => "arc",
+            Self::Help => "help",
         }
     }
 }
@@ -1759,6 +1765,7 @@ mod tests {
             OverviewRefKind::Plan,
             OverviewRefKind::Brief,
             OverviewRefKind::Arc,
+            OverviewRefKind::Help,
         ] {
             let json = serde_json::to_string(&kind).unwrap();
             assert_eq!(json, format!("\"{}\"", kind.as_str()));

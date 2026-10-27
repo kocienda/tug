@@ -59,6 +59,7 @@ describe("the card kinds every page registers", () => {
       "registerFileViewCard",
       "registerDiffCard",
       "registerCommitCard",
+      "registerHelpCard",
       "registerGalleryCards",
       "registerSpikeCards",
       "registerFixtureCards",

@@ -22,6 +22,7 @@ mod fs_read;
 mod fs_stat;
 mod fs_write;
 mod git_exclude;
+mod help_docs;
 mod host;
 mod ink_backfill;
 mod jots;

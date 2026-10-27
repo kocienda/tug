@@ -239,6 +239,14 @@ commit_check = [
 ]
 commit_check_only = ["*.ts", "*.tsx"]
 
+# The help documents the app bundles. Nothing builds them, but both readers
+# pin them: tugcast's tests hold the Operator's prompt to the glossary's term
+# list, and tugdeck's help tests read the shipped headings and links.
+[[tugtool.arc.surface]]
+name       = "docs"
+paths      = ["docs/"]
+checked_by = ["rust", "deck"]
+
 [[tugtool.arc.surface]]
 name  = "app"
 paths = ["tugapp/"]

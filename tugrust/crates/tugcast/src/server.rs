@@ -2251,6 +2251,7 @@ pub(crate) fn build_app(
         .route("/api/fs/bytes", get(crate::fs_blob::get_fs_bytes))
         .route("/api/fs/mkdir", post(crate::fs_mkdir::post_fs_mkdir))
         .route("/api/fs/stat", post(crate::fs_stat::post_fs_stat))
+        .route("/api/help/{name}", get(crate::help_docs::get_help))
         .route(
             "/api/attachments",
             // Raw file bytes, so the limit is the file size itself.

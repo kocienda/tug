@@ -182,6 +182,29 @@ export function fileTip(facts: FileTipFacts): React.ReactNode {
   );
 }
 
+/** What a help ref's hover says. */
+export interface HelpTipFacts {
+  /** The document's name as the Help menu spells it: "Glossary", "Tug Help". */
+  document: string;
+  /** The passage, in words; absent when the ref names the whole document. */
+  passage?: string;
+}
+
+/**
+ * The help hover: the passage, the document it is in, and where the click
+ * goes — the same two lines the arc tip gives, for the same reason.
+ */
+export function helpTip(facts: HelpTipFacts): React.ReactNode {
+  return (
+    <span className="tugx-tip">
+      <span className="tugx-tip-mono">{facts.passage ?? facts.document}</span>
+      <span className="tugx-tip-meta">
+        {facts.passage === undefined ? "help" : facts.document} — open in a help card
+      </span>
+    </span>
+  );
+}
+
 /** What an arc hover says. */
 export interface ArcTipFacts {
   /** The arc's name — its address everywhere else in the app. */

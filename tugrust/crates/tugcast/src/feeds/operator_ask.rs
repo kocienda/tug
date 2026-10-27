@@ -95,6 +95,10 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
             .session_index_db
             .clone()
             .unwrap_or_else(tugcore::instance::session_index_db_path),
+        // `--docs-dir` names the documents outright; without it, the same
+        // resolver a running instance reads, which from a checkout's debug
+        // build is the checkout's `docs/`.
+        docs_dir: args.docs_dir.clone().or_else(crate::resources::docs_dir),
     };
 
     let model = args
@@ -174,11 +178,20 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
 
     match operator::run_question(&ctx, &pool, &args.question, &[], &mentions, Some(&observer)).await
     {
-        Ok((post, _context)) => {
+        Ok((post, context)) => {
             println!("\nANSWER:\n{}", post.body);
-            if !post.refs.is_empty() {
+            // The refs the feed would keep, through the feed's own check, so
+            // what prints here is what the card would show a chip for.
+            let validated = operator::validate_answer_refs(&ctx, post.refs, &context);
+            if !validated.kept.is_empty() {
                 println!("\nREFS:");
-                for r in &post.refs {
+                for r in &validated.kept {
+                    println!("  {} {}", r.kind.as_str(), r.target);
+                }
+            }
+            if !validated.dropped.is_empty() {
+                println!("\nREFS DROPPED (target not verified):");
+                for r in &validated.dropped {
                     println!("  {} {}", r.kind.as_str(), r.target);
                 }
             }

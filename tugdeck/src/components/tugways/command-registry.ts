@@ -1377,6 +1377,14 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its doors are the Help menu (through `show-card`), a link between the
+    // two help documents, and an Overview help ref — no chord of its own.
+    id: TUG_ACTIONS.OPEN_HELP,
+    title: "Open Help",
+    routing: "registry",
+    internal: true,
+  },
+  {
     // Its door is an Overview post's arc chip — a link, not a menu item or
     // a chord. Distinct from Show Arcs on purpose: a link reveals the rail,
     // where the toggle would take it away from a reader who had it open.

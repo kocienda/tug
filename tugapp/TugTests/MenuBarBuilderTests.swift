@@ -250,6 +250,8 @@ final class MenuBarBuilderTests: XCTestCase {
         "Maker | ---",
         "Maker | Source Tree... | - | sourceTree: | maker.sourceTree",
         "Bar | Help ▸ | - | - | -",
+        "Help | Tug Help | - | showHelpDocument: | help.tugHelp",
+        "Help | Glossary | - | showHelpDocument: | help.glossary",
         "Help | Keyboard Shortcuts & Commands | - | runCardCommand: | help.shortcuts",
         "Help | ---",
         "Help | Project Home | - | openProjectHome: | help.projectHome",

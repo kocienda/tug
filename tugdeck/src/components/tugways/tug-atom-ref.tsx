@@ -77,7 +77,7 @@
 import "./tug-atom-ref.css";
 
 import React from "react";
-import { FileText, GitBranch } from "lucide-react";
+import { BookOpen, FileText, GitBranch } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { fileTip } from "@/components/tugways/entity-tips";
@@ -122,7 +122,12 @@ export type TugAtomRefEntity =
    * Presentational: the host owns the gesture, because where an arc click
    * goes is the host's business rather than the skin's.
    */
-  | { kind: "arc"; name: string };
+  | { kind: "arc"; name: string }
+  /**
+   * A passage of the app's help, by the words its label reads. Presentational
+   * the same way: the host opens the help card.
+   */
+  | { kind: "help"; label: string };
 
 export interface TugAtomRefProps {
   entity: TugAtomRefEntity;
@@ -134,7 +139,7 @@ export interface TugAtomRefProps {
    */
   label?: React.ReactNode;
   /**
-   * Leading glyph. Defaults to `FileText` / `GitBranch` by kind.
+   * Leading glyph. Defaults to `FileText` / `GitBranch` / `BookOpen` by kind.
    */
   icon?: React.ReactNode;
   "data-slot"?: string;
@@ -197,7 +202,11 @@ export function TugAtomRef({
     ? fileAnnotationAttributes(entity as Extract<TugAtomRefEntity, { kind: "file" }>)
     : {};
   const defaultLabel =
-    entity.kind === "file" ? basename(entity.path) : entity.name;
+    entity.kind === "file"
+      ? basename(entity.path)
+      : entity.kind === "arc"
+        ? entity.name
+        : entity.label;
 
   const skin = (
     <span
@@ -207,7 +216,13 @@ export function TugAtomRef({
     >
       <span className="tug-atom-ref-icon" aria-hidden="true">
         {icon ??
-          (entity.kind === "file" ? <FileText /> : <GitBranch />)}
+          (entity.kind === "file" ? (
+            <FileText />
+          ) : entity.kind === "arc" ? (
+            <GitBranch />
+          ) : (
+            <BookOpen />
+          ))}
       </span>
       {/* The name, in an element of its own so the annotation rule can land
           on it. A decoration set on the skin would paint across every inline

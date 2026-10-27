@@ -40,6 +40,8 @@ import { requestSettingsReveal } from "./lib/settings-reveal";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "./lib/settings-sections-pref";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
 import { openCommitInCard } from "@/lib/open-commit-in-card";
+import { openHelpInCard } from "@/lib/open-help-in-card";
+import { isHelpDocName } from "@/lib/help-docs";
 import {
   _resetActionRegistryForTest,
   getRegistryHandler,
@@ -1350,6 +1352,17 @@ function wireActionDispatch(
     if (component === "about") {
       appInfoStore.setFromPayload(payload);
     }
+    // The Help menu's two items: one card per document, so the document is
+    // the key, not the component.
+    if (component === "help") {
+      const doc = payload.document;
+      if (!isHelpDocName(doc)) {
+        console.warn("show-card: help needs a document of features or glossary", payload);
+        return;
+      }
+      openHelpInCard(deckManager, { doc }, originOf(payload));
+      return;
+    }
     if (SINGLETON_CARDS.has(component)) {
       deckManager.showSingletonCard(component);
     } else {
@@ -1407,6 +1420,23 @@ function wireActionDispatch(
             ...(dateIso !== undefined ? { dateIso } : {}),
           };
     openCommitInCard(deckManager, { root, sha }, seeded, originOf(payload));
+  });
+
+  // open-help: raise a help document in its card, at an anchor when one is
+  // named. Dispatched by a link between the two documents and by an Overview
+  // help ref; the Help menu reaches the same opener through show-card.
+  registerAction(TUG_ACTIONS.OPEN_HELP, (payload) => {
+    const doc = payload.doc;
+    if (!isHelpDocName(doc)) {
+      console.warn("open-help: missing or invalid doc", payload);
+      return;
+    }
+    const anchor = payload.anchor;
+    openHelpInCard(
+      deckManager,
+      typeof anchor === "string" && anchor.length > 0 ? { doc, anchor } : { doc },
+      originOf(payload),
+    );
   });
 
 

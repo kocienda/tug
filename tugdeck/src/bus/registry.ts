@@ -120,6 +120,7 @@ import {
   surfaceActivate,
   surfaceDismissed,
   textRevealLine,
+  helpScrollTo,
 } from "./declarations/verbs";
 import type { RoutedAction } from "./routed-action";
 import type { Request } from "./request";
@@ -221,6 +222,7 @@ export const ROUTED_ACTIONS: readonly RoutedAction<any>[] = [
   cardContentAction,
   cardFlash,
   textRevealLine,
+  helpScrollTo,
   settingsReveal,
   jotsNewJot,
   sessionIntent,

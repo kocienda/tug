@@ -1231,6 +1231,16 @@ export const TUG_ACTIONS = {
   //                         handler in `action-dispatch.ts`, which calls
   //                         `openCommitInCard`.
   OPEN_COMMIT:            "open-commit",
+  // OPEN_HELP:              payload — `{ doc: "features" | "glossary" }`,
+  //                         plus an optional `anchor` (a heading or a
+  //                         glossary term to scroll to) and an optional
+  //                         `originCardId`. Open the help document in its
+  //                         help card: an existing card showing the same
+  //                         document is activated; otherwise a new one is
+  //                         created seeded with it. Registry handler in
+  //                         `action-dispatch.ts`, which calls
+  //                         `openHelpInCard`.
+  OPEN_HELP:              "open-help",
   REVEAL_IN_FINDER:       "reveal-in-finder",
   REVEAL_CARD_FILE:       "reveal-card-file",
   SHOW_CARD_SETTINGS:     "show-card-settings",

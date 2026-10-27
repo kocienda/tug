@@ -89,6 +89,15 @@ describe("bodyMentionsRef", () => {
     );
   });
 
+  test("a help ref is never suppressed by the prose", () => {
+    // The prose naming a glossary term is not a link into the help card;
+    // the chip is the only door there.
+    expect(
+      bodyMentionsRef("A split slot holds bands.", { kind: "help", target: "glossary#split" }),
+    ).toBe(false);
+    expect(bodyMentionsRef("See the glossary.", { kind: "help", target: "glossary" })).toBe(false);
+  });
+
   test("an empty target is never a mention", () => {
     expect(bodyMentionsRef("Anything at all.", file(""))).toBe(false);
   });

@@ -635,6 +635,9 @@ pub(crate) async fn supervisor(
             // machine-wide path every other read-only index reader opens.
             prompt_ledger: prompt_ledger.clone(),
             session_index_path: tugcore::instance::session_index_db_path(),
+            // The bundled help documents, through the resolver the help
+            // card's route reads, so the two never read different files.
+            docs_dir: crate::resources::docs_dir(),
         }),
         pool: Arc::clone(&overview_agent),
         overview_tx: overview_tx.clone(),

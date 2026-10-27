@@ -143,7 +143,9 @@ import {
   type AnnotationContext,
 } from "@/lib/annotator/types";
 import { commitResolverFor } from "@/lib/annotator/commit-resolution";
-import { commitTip, arcTip, fileTip } from "@/components/tugways/entity-tips";
+import { commitTip, arcTip, fileTip, helpTip } from "@/components/tugways/entity-tips";
+import { helpDocTitle, helpRefLabel, readHelpRefTarget } from "@/lib/help-docs";
+import { requestHelpCard } from "@/lib/open-help-in-card";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dispatchCommand } from "@/command-dispatch";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
@@ -400,6 +402,8 @@ function RefAtom({
   chipRef: OverviewRef;
   root: OverviewRefRoot | null;
 }): React.ReactElement {
+  // The card a help ref opens from, so the help card lands beside it.
+  const ownerCardId = useCardId();
   // A session ref is a CITATION, and it renders as one: the session atom, the
   // callsign, the same chip every foreign surface shows. The chip owns the
   // whole gesture, including whether to offer it.
@@ -436,6 +440,42 @@ function RefAtom({
           data-tug-focus="refuse"
         >
           <TugAtomRef entity={{ kind: "arc", name: chipRef.target }} />
+        </span>
+      </TugTooltip>
+    );
+  }
+  // A help ref branches before resolution for the arc's reason: its target
+  // names a passage of the bundled help, not a path, so resolving it in the
+  // repo would only find it missing. Its target was checked against the
+  // documents before the post was written; one that does not read as a help
+  // passage stays plain, offering nothing it cannot open.
+  if (chipRef.kind === "help") {
+    const seed = readHelpRefTarget(chipRef.target);
+    if (seed === null) {
+      return <TugAtomRef entity={{ kind: "help", label: chipRef.target }} />;
+    }
+    const label = helpRefLabel(seed);
+    return (
+      <TugTooltip
+        variant="entity"
+        align="start"
+        content={helpTip({
+          document: helpDocTitle(seed.doc, null),
+          ...(seed.anchor === undefined ? {} : { passage: label }),
+        })}
+      >
+        <span
+          // The help card opens at the passage — brought forward and scrolled
+          // when it is already on the deck.
+          onClick={() => {
+            requestHelpCard(seed, ownerCardId);
+          }}
+          data-no-activate=""
+          data-tug-focus="refuse"
+          data-overview-ref-kind="help"
+          data-overview-ref-target={chipRef.target}
+        >
+          <TugAtomRef entity={{ kind: "help", label }} />
         </span>
       </TugTooltip>
     );
@@ -2397,7 +2437,7 @@ function OverviewComposer({
         placeholder={
           pending
             ? "Waiting for an answer…"
-            : "Ask Tug about your work, recent or historical"
+            : "Ask Tug about how the app works or about your projects, recent or historical."
         }
         aria-label="Ask the Operator"
         focusGroup={OVERVIEW_FOCUS_GROUP}

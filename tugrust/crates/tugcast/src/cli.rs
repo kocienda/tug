@@ -159,6 +159,12 @@ pub struct OperatorAskArgs {
     /// would silently measure the unseeded path.
     #[arg(long = "ref", value_name = "PATH")]
     pub refs: Vec<String>,
+
+    /// The help documents the `help` verbs read (`features.md` and
+    /// `glossary.md`). Defaults to what a running instance resolves — the
+    /// bundle's `Resources/docs`, or a checkout's `docs/` in a debug build.
+    #[arg(long)]
+    pub docs_dir: Option<PathBuf>,
 }
 
 /// Flags for `tugcast overview-replay`. Each one overrides a `dev.tugapp.overview`

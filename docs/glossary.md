@@ -10,6 +10,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Arcs (sidebar).** The *sidebar card* that lists every arc in every open project with its lifecycle strip and step progress, and the verbs to run, stop, join, replay or discard it.
 
+**Artifact ladder.** The rungs a piece of work climbs from a prompt to a document a stage can walk: *idea*, *sketch*, *brief*, *plan*. Only the first is required. Most work is only ever an idea, a sketch lives only in the transcript, and a *plain arc* stops at the brief and its *task list*.
+
 **Atom.** The one mark a thing wears everywhere it appears. A file, a commit, a session, an arc or an image is the same atom in a prompt, a transcript, a sidebar row or a receipt. Each kind has one hover tip, one context menu and one copy form, and an atom pastes between Tug windows intact.
 
 **Audit.** The last *stage* of every arc. A fresh session reads the whole diff cold against the *plan* (or *task list*) and the *brief*, fixes what does not match as ordinary *rounds*, verifies the fit against the moving base, writes the *join draft*, and *marks* the arc `audited`. The author never grades its own work.
@@ -30,7 +32,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Canvas.** The single macOS window's working area, on which Tug lays out a *deck* of *cards*. Also the name of the thing the *Layout* card controls.
 
-**Card.** The unit of the *deck*. There are cards for AI sessions, text files, diffs, images, PDFs, commits, settings, keyboard shortcuts and about, and *sidebar cards* for Overview, Arcs, Jots, Workspaces and Layout. Every card has a *masthead* and lives in a *slot* at a width you set.
+**Card.** The unit of the *deck*. There are cards for AI sessions, text files, diffs, images, PDFs, commits, settings, keyboard shortcuts and about, the two *help* documents, and *sidebar cards* for Overview, Arcs, Jots, Workspaces and Layout. Every card has a *masthead* and lives in a *slot* at a width you set.
 
 **Carry.** An option when creating an arc: move the uncommitted work already on the *base* into the new *worktree* and leave the base clean. For the case where you were halfway through a change before deciding it should be an arc.
 
@@ -41,6 +43,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Claim.** A session's link to an edit in the *ledger*. Most claims are written for you as the work happens: a file edit claims its file, a shell command that names its files claims those. In the *Changes* tab, Claim brings a file or hunk into this session and *Disclaim* lets it go. See also *hint*.
 
 **Cold.** Read by a session that did not write it. The *review* stage reads the plan cold, the *audit* reads the diff cold. Cold eyes are why the *wheel* rotates sessions between stages.
+
+**Command picker.** The list of the commands a *session card* understands, opened with ⌘/. Type to filter it and pick one to run. The same commands can be typed into the *composer* with a leading slash.
 
 **Commit card.** A card that opens one commit's full record.
 
@@ -53,6 +57,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Deck.** The set of cards in one *workspace*, arranged on the *canvas* under *imposition*. The deck holds the arrangement, not you.
 
 **Devise.** The first stage of a *planned arc*: a fresh session writes the *plan* from the *brief*.
+
+**Dictation.** Speaking a prompt into a *composer* instead of typing it. ⌘D starts dictation; ⇧⌘D stops it and sends the prompt.
 
 **Diff card.** A card that shows the project diff, inline or side by side, whole or scoped to a path, a range or a commit.
 
@@ -69,6 +75,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Flow.** The other way slots resolve. Flow stands the cards side by side at their full widths and lets the row run past the window's edge. Activating a card slides the row just far enough to bring it into view, with a strip along the bottom drawing the whole arrangement. Flow is for reading.
 
 **Fold.** Collapse a card to its *masthead*. It keeps its slot, its address and its live readings and opens again on one press (⌃⌘Y). In a *split* slot, folding makes a *wall*.
+
+**Help.** Tug's help is two documents, the feature guide and this glossary, each opened as a read-only card from the Help menu: Help ▸ Tug Help and Help ▸ Glossary. A link from one opens the other. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help ▸ Keyboard Shortcuts & Commands opens a session's `/help` sheet, and ⌃⌘K opens the Keyboard Shortcuts card.
 
 **Hint.** What a shell command earns in the *ledger* when it names no files: a note of what git saw change while it ran. A hint never makes a session an owner of a change.
 
@@ -98,13 +106,17 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Masthead.** The strip across the top of every card that names it and carries its controls. A session card's masthead carries the *pulsing dot*, the session's name, its *address* badges, a live activity *sparkline*, and two lines of narration from the *Observer*: what the session is working on and what it is doing right now.
 
-**Observer.** The narrator behind the *Overview*. It digests what each session is doing into sentences as it goes, writes the two narration lines in each masthead, and answers questions about what any session did.
+**Observer.** The narrator behind the *Overview*. It digests what each session is doing into sentences as it goes and writes the two narration lines in each masthead. It only narrates; questions go to the *Operator*.
+
+**Operator.** The voice in the *Overview* that answers questions. Ask it, in the Overview *composer*, how Tug works or what happened in your projects, recent or historical. It looks the answer up rather than recalling it: the sessions, prompts, shell commands, changes and commits Tug has recorded, the project's tree, and the two *help* documents. Each answer links to what it rests on, a session, a file, a commit, a document or a passage of help.
 
 **Orphaned.** Changes that belonged to a session that has since closed. Nothing is lost: the files stay in the tree and any session can *claim* them.
 
-**Overview (sidebar).** The narration channel. One feed reports every session's progress across every project as it happens, each post carrying its session's *atom*, and its *composer* takes questions about what any session did, today or last week.
+**Overview (sidebar).** The narration channel. One feed, written by the *Observer*, reports every session's progress across every project as it happens, each post carrying its session's *atom*. Its *composer* asks the *Operator*, which answers questions about how Tug works and about what any session did, today or last week.
 
 **PDF card.** A card that reads a document page by page, continuous, single or two-up, at any zoom, with the arrow and page keys turning its pages.
+
+**Permission mode.** How much a session's model may do without asking you. Default asks before it edits or runs anything consequential, Accept Edits lets file edits through, Plan has it plan without changing anything, and Auto lets it decide which actions are safe to take on its own. ⌃⌥⌘P cycles those four. Bypass, which asks for nothing, is never in the cycle and is chosen only from the mode chip's sheet.
 
 **Plain arc.** See *kind*.
 

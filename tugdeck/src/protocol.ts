@@ -1010,6 +1010,8 @@ export type OverviewRefKind =
   | "plan"
   | "brief"
   | "arc"
+  // A passage of the app's help: `glossary#split`, `features#stack-and-split`.
+  | "help"
   // Read for life ([F19]): `overview_posts.refs` is stored JSON, so every ref
   // written before the word moved spells this. Nothing writes it any more.
   | "dash";
@@ -1021,6 +1023,7 @@ const OVERVIEW_REF_KINDS: readonly string[] = [
   "plan",
   "brief",
   "arc",
+  "help",
   "dash",
 ];
 

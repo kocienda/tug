@@ -25,6 +25,7 @@ import {
   devtoolsLogEntries,
   focusEnter,
   focusExit,
+  helpScrollTo,
   jotsNewJot,
   sessionAsk,
   sessionIntent,
@@ -47,6 +48,7 @@ import { getJotsStore } from "../lib/jots-store";
 import { requestSettingsReveal } from "../lib/settings-reveal";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../lib/settings-sections-pref";
 import { getOpenTextCard } from "../lib/text-card-open-registry";
+import { scrollOpenHelpCard } from "../lib/open-help-in-card";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { TUG_DEV_LOG_LEVELS, type TugDevLogEntry, type TugDevLogLevel } from "../lib/tug-dev-log-store/types";
 import { parseBodyIntent, type BodyIntent } from "./body-intent";
@@ -131,6 +133,11 @@ export function answerBodyVerbs(bus: PageBus, host: BodyVerbHost): () => void {
     // asked for is revealed in this card's own editor.
     textRevealLine.on(bus).handle(({ line, endLine, columns }) => {
       getOpenTextCard(cardId)?.revealLine(line, endLine, columns);
+    }),
+    // An open of the document this help card holds, from another page: the
+    // passage it asked for is scrolled to in this card.
+    helpScrollTo.on(bus).handle(({ anchor }) => {
+      scrollOpenHelpCard(cardId, anchor);
     }),
     // A reveal the shell parked for the Settings card, now that this page
     // holds it: the card's own consumer takes it.

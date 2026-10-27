@@ -48,6 +48,7 @@ import { registerTextCard } from "@/components/tugways/cards/text-card-registrat
 import { registerFileViewCard } from "@/components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
 import { registerCommitCard } from "@/components/tugways/cards/commit-card";
+import { registerHelpCard } from "@/components/tugways/cards/help-card";
 import { registerGalleryCards } from "@/components/tugways/cards/gallery-registrations";
 import { registerSpikeCards } from "@/spikes/spike-registry";
 import { registerFixtureCards } from "@/fixtures/fixture-registrations";
@@ -86,6 +87,7 @@ beforeAll(() => {
   registerFileViewCard();
   registerDiffCard();
   registerCommitCard();
+  registerHelpCard();
   registerGalleryCards();
   registerSpikeCards();
   registerFixtureCards();
@@ -158,6 +160,12 @@ const DECLARING: readonly DeclaringPin[] = [
     via: "the persisted bag's target, through the card's own coercion",
     bag: { target: { root: "/w/repo", sha: "abcdef0123456789" } },
     title: "Commit abcdef012",
+  },
+  {
+    componentId: "help",
+    via: "the persisted bag's document, through the card's own coercion",
+    bag: { doc: "glossary" },
+    title: "Glossary",
   },
   {
     componentId: "diff",

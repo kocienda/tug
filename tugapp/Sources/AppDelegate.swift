@@ -1142,6 +1142,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ])
     }
 
+    /// Help ▸ Tug Help and Help ▸ Glossary: open the named help document in
+    /// its card. tugdeck keys the card by the document, so a second pick
+    /// brings the open card forward.
+    @objc func showHelpDocument(_ sender: NSMenuItem) {
+        guard let document = sender.representedObject as? String else { return }
+        sendControl("show-card", params: ["component": "help", "document": document])
+    }
+
     /// The running app's icon rendered to a 256px PNG data URL for the
     /// About card. Computed once — the icon never changes within a
     /// process lifetime. Empty string when no icon can be rendered

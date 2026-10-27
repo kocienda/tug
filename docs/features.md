@@ -41,7 +41,7 @@ Every card shows its **address** in its masthead. The first part is the slot num
 
 ### Moving cards
 
-- **By name.** Press the slot badge in a card's masthead and the whole arrangement opens as a picker, a miniature of the deck with every slot drawn. One click sends the card there. From the keyboard, ⌘1 through ⌘9 does the same. ⌥⇧⌘[ and ⌥⇧⌘] nudge a card one slot left or right.
+- **By name.** Press the slot badge in a card's masthead and the whole arrangement opens as a picker, a miniature of the deck with every slot drawn. One click sends the card there. From the keyboard, ⌘1 through ⌘6 does the same. ⌥⇧⌘[ and ⌥⇧⌘] nudge a card one slot left or right.
 - **By hand.** Drag a card by its masthead. Exactly one drop zone lights at a time, the slot it will land in if you let go, and the zone snaps from slot to slot as the pointer crosses the deck. Escape cancels and the card goes home.
 - **Moving yourself.** ⌃⌘1 through ⌃⌘6 go to a slot, bringing it into view under Flow. ⇧⌘[ and ⇧⌘] step to the previous or next card across the deck. ⌥⌘ with an arrow key hands the keyboard to the card to the left, above, right or below.
 
@@ -105,11 +105,11 @@ The composer is at the bottom, where any messaging app puts it. ⌘K focuses it 
 
 ### Model and permission mode
 
-The model menu in the card chooses which Claude model the session runs on. ⌃⌥⌘P cycles the permission mode, which decides how much the model may do without asking. A card on an arc may be running a different model for the current stage; it returns to your own when the stage ends.
+The model menu in the card chooses which Claude model the session runs on. ⌃⌥⌘P cycles the permission mode, which decides how much the model may do without asking: Default asks before it edits or runs anything consequential, Accept Edits lets file edits through, Plan has it plan without changing anything, and Auto lets it decide which actions are safe on its own. Bypass, which asks for nothing, is never in the cycle; choose it from the mode chip's sheet if you mean it. A card on an arc may be running a different model for the current stage; it returns to your own when the stage ends.
 
-### Observer narration and questions
+### Narration and questions
 
-Every session's masthead says what the session is doing. The same narrator, the Observer, posts a digest of each session's progress to the Overview sidebar, and its composer answers questions about what any session did, today or last week.
+Every session's masthead says what the session is doing. The narrator, the **Observer**, writes those lines and posts a digest of each session's progress to the Overview sidebar. It only narrates. Questions go to the **Operator**, in the Overview's composer: ask it how Tug works or what any session did, today or last week. It answers from what Tug has recorded and from this guide and the glossary, and links each answer to what it rests on.
 
 ## Other cards
 
@@ -120,7 +120,7 @@ What a session works with opens beside it, on the same deck, rather than in anot
 - **Image card.** A picture fit to the card, filling it, or at actual size. A click opens it full screen.
 - **PDF card.** A document page by page, continuous, single or two-up, at any zoom. The arrow and page keys turn pages.
 - **Commit card.** One commit's full record: message, trailers, and files with their diffs.
-- **Settings** (⌘,), **Keyboard Shortcuts** (⌃⌘K) and **About** round out the set. Card Settings… in a card's menu holds the per-kind preferences for text, image and PDF cards.
+- **Settings** (⌘,), **Keyboard Shortcuts** (⌃⌘K), **About** and the two **help** cards (this guide and the glossary, from the Help menu) round out the set. Card Settings… in a card's menu holds the per-kind preferences for text, image and PDF cards.
 
 Reveal in Finder is in the File menu for any card backed by a file.
 
@@ -128,7 +128,7 @@ Reveal in Finder is in the File menu for any card backed by a file.
 
 Sidebar cards pin to the **rails** along the window's left and right edges rather than taking a slot. ⌃⌘← and ⌃⌘→ show a rail or hand it the keyboard, ⌃⌘S hides and shows the sidebars, and ⌥⇧⌘S resizes them to fit. Where each sidebar sits is set in the Layout card.
 
-- **Overview.** The narration channel. One feed reports every session's progress across every project as it happens, each post timestamped and carrying its session's atom. Its composer takes questions about what any session did.
+- **Overview.** The narration channel. One feed reports every session's progress across every project as it happens, each post timestamped and carrying its session's atom. Its composer asks the Operator, which answers questions about how Tug works and about what any session did.
 - **Arcs.** Every arc in every open project, with its lifecycle strip, the stage in hand lit, and each step's progress, plus the verbs to run, stop, join, replay or discard it. An arc that has stopped reads as a red cell before you read why. File ▸ Reveal Arcs brings it up.
 - **Jots.** Prompt fragments you find yourself typing again, filterable, ready to drag into any composer. ⌘J makes a new one.
 - **Workspaces.** The map of everything open: every workspace, and under it every card on that workspace's deck, grouped by kind. A session's row shows its name, the line that says what it is for, its latest activity and its state dot, with slot badges for where it sits. The open eye marks the workspace you are in; the others show a closed eye. Click a row to bring its card to the front, filter the list to find a session, drag rows to reorder cards and workspaces, or drop a session on another workspace to move it there.
@@ -223,7 +223,7 @@ The Keyboard Shortcuts card (⌃⌘K) lists everything. The ones that matter mos
 |---|---|
 | ⌘T | New card in the active pane |
 | ⌘W / ⌥⌘W | Close the card, or every card in its stack |
-| ⌘1 … ⌘9 | Move the focused card to slot 1 through 9 |
+| ⌘1 … ⌘6 | Move the focused card to slot 1 through 6 |
 | ⌃⌘1 … ⌃⌘6 | Go to slot 1 through 6 |
 | ⌥⇧⌘[ / ⌥⇧⌘] | Nudge the card one slot left or right |
 | ⇧⌘[ / ⇧⌘] | Previous or next card across the deck |
@@ -259,3 +259,10 @@ The Keyboard Shortcuts card (⌃⌘K) lists everything. The ones that matter mos
 | ⌃⌘K | Keyboard Shortcuts |
 | ⌃⌘F | Enter full screen |
 | ⌥Tab | Cycle the focus mode |
+
+## Getting help
+
+- **Help ▸ Tug Help** opens this guide as a card, and **Help ▸ Glossary** opens the glossary. Links between them open the other card.
+- **Ask the Overview.** The Overview's composer asks the Operator, which answers questions about how the app works from these two documents, as well as questions about your projects, and links to the passage it answered from.
+- **Help ▸ Keyboard Shortcuts & Commands** opens the `/help` sheet in the session card, listing its slash commands.
+- **⌃⌘K** opens the Keyboard Shortcuts card, which lists every chord.
