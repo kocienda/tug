@@ -60,23 +60,31 @@ final class BodyLifecycle {
     /// stands it leaves that much less room for the kept ones.
     static let coverBudgetBytes = 32 << 20
     /// How long a body may stay hidden before it gives up its process, ms:
-    /// fifteen minutes. A dormant body has stopped working but still holds
-    /// its page, and a 500-turn Session body sits at about 550 MB resident,
-    /// dormant or not; after this long hidden it goes, and its card comes
-    /// back as an arrival, at a rebuild of about half a second. A workspace
-    /// glanced away from and back to never pays the rebuild, and one left for
-    /// a quarter of an hour stops holding its memory. Pressure evicts sooner;
-    /// this is the quiet machine's clock.
-    static let evictAfter: Double = 900_000
+    /// two hours. This is the quiet machine's backstop, not its guard: memory
+    /// pressure is the guard, and on a machine that is short a warning takes
+    /// hidden bodies oldest-first and critical takes every non-visible body,
+    /// whatever this clock says. A dormant body has stopped working but still
+    /// holds its page, and a 500-turn Session body sits at about 550 MB
+    /// resident, dormant or not; after this long hidden it goes, and its card
+    /// comes back as an arrival, at a cold rebuild of most of a second. On a
+    /// machine where pressure never speaks the clock is the only trigger that
+    /// fires, so it is set to "left for the afternoon" rather than "glanced
+    /// away during a build": a workspace bounced between all morning keeps
+    /// its pages, and one abandoned for hours stops holding its memory.
+    static let evictAfter: Double = 7_200_000
     /// The clock the time trigger runs to: `evictAfter`, unless the harness
     /// has shortened it (`BodyViewController.setDelays`).
     private(set) var evictAfterMs: Double = BodyLifecycle.evictAfter
     /// How long a body may stay hidden before the host declares it dormant,
-    /// ms: a minute, the page's own `DORMANT_AFTER_MS`. The host's clock is
-    /// the one that decides ([B05]): it knows when it hid the body, and
-    /// WebKit does not suspend it as it may a hidden page's timers, so the
-    /// declaration reaches tugcast before anything can cut the body's wire.
-    static let dormantAfter: Double = 60_000
+    /// ms: five minutes, the page's own `DORMANT_AFTER_MS`, and the two move
+    /// together. Dormancy costs nothing but the memory the page already
+    /// holds, so the delay buys only a reveal without a catch-up: five
+    /// minutes covers a short bounce between workspaces, and a workspace
+    /// left longer sleeps. The host's clock is the one that decides ([B05]):
+    /// it knows when it hid the body, and WebKit does not suspend it as it
+    /// may a hidden page's timers, so the declaration reaches tugcast before
+    /// anything can cut the body's wire.
+    static let dormantAfter: Double = 300_000
     /// The clock the dormant declaration runs to: `dormantAfter`, unless the
     /// harness has shortened it.
     private(set) var dormantAfterMs: Double = BodyLifecycle.dormantAfter

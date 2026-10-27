@@ -38,7 +38,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 const A = "r35-a";
-/** The body's delay before dormancy, shortened from a minute for the row. */
+/** The body's delay before dormancy, shortened from five minutes for the row. */
 const DORMANT_AFTER_MS = 800;
 /** The last words of the turn: present only once the turn's end has reached the page. */
 const MARKER = "dormancy-turn-ends-here";

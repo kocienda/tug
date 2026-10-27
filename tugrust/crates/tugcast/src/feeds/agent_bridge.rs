@@ -4712,7 +4712,11 @@ mod tests {
 
         let entry = entry.lock().await;
         assert_eq!(
-            (entry.turns_ended, entry.prompt_turns_ended, entry.wake_turns_ended),
+            (
+                entry.turns_ended,
+                entry.prompt_turns_ended,
+                entry.wake_turns_ended
+            ),
             (0, 0, 0),
             "a fresh claude has ended no turn of any kind"
         );

@@ -29,17 +29,19 @@ import type { BodyVisibility } from "../host/declarations/lifecycle";
 import { Subscribable } from "./subscribable";
 
 /**
- * How long a body stays hidden before it goes dormant: a minute. A body the
- * host has hidden (a parked workspace's card, a folded pane) keeps its page,
- * but after this long it stops working on behalf of nobody: it empties its
- * session subscription, so tugcast sends it nothing and its ingest worker,
- * hearing nothing, idles with its model kept, and the page catches up when
- * it is shown again. Long enough that a fold and an unfold, or a glance at
- * another workspace, never pay a catch-up; short enough that a workspace left
- * parked stops costing. A constant: the app-tests shorten it through the
- * harness's `bodyDelays` seam, never a preference.
+ * How long a body stays hidden before it goes dormant: five minutes, the
+ * host's own `BodyLifecycle.dormantAfter`, and the two move together. A body
+ * the host has hidden (a parked workspace's card, a folded pane) keeps its
+ * page, but after this long it stops working on behalf of nobody: it empties
+ * its session subscription, so tugcast sends it nothing and its ingest
+ * worker, hearing nothing, idles with its model kept, and the page catches up
+ * when it is shown again. Dormancy costs nothing but the memory the page
+ * already holds, so the delay buys only a reveal without a catch-up: long
+ * enough that a fold and an unfold, or a short bounce between workspaces,
+ * never pay one; a workspace left longer sleeps. A constant: the app-tests
+ * shorten it through the harness's `bodyDelays` seam, never a preference.
  */
-export const DORMANT_AFTER_MS = 60_000;
+export const DORMANT_AFTER_MS = 300_000;
 
 /** What the store says of the page. */
 export interface BodyVisibilitySnapshot {

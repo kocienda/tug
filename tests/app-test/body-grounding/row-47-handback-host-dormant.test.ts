@@ -5,7 +5,7 @@
  * The host's dormant clock is the one WebKit cannot freeze: a hidden page's
  * timers may be suspended, so the page's own clock cannot be what puts it to
  * sleep. Here only the host's delay is shortened and every page keeps its
- * minute-long constant, so whatever puts the body to sleep within seconds is
+ * five-minute constant, so whatever puts the body to sleep within seconds is
  * the host. The Session card's workspace is parked; the host's log says it
  * declared the card dormant — the line written as it tells tugcast — and the
  * page, told by the host, reads dormant though its own clock is nowhere near
@@ -64,7 +64,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 47: a hidden card's hand-back",
         await app.bodyDelays({ dormantAfterMs: HOST_DORMANT_AFTER_MS, pageDormantAfterMs: null, evictAfterMs: EVICT_AFTER_MS });
         expect(declarations(app.tugappLog(), A), "no declaration while the card is shown").toEqual([]);
 
-        // ---- Parked: the host's clock runs, the page's stays a minute off ----
+        // ---- Parked: the host's clock runs, the page's stays minutes off ----
         const home = await app.evalJS<string>(ACTIVE_SPACE);
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
@@ -87,7 +87,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 47: a hidden card's hand-back",
           DECLARED_WITHIN_MS,
         );
         const asleepAt = Date.now() - hiddenAt;
-        note(`the page reads dormant ${asleepAt} ms after the hide, on a page clock of a minute`);
+        note(`the page reads dormant ${asleepAt} ms after the hide, on a page clock of five minutes`);
         expect({ shown: told.shown, dormant: told.dormant }, "the page is hidden and dormant on the host's word").toEqual({ shown: false, dormant: true });
         expect(asleepAt, "well before the page's own clock could have run").toBeLessThan(30_000);
       } finally {

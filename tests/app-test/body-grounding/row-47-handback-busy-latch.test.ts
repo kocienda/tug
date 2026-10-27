@@ -32,7 +32,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 const A = "r47l-a";
-/** The body's delay before dormancy, shortened from a minute for the row. */
+/** The body's delay before dormancy, shortened from five minutes for the row. */
 const DORMANT_AFTER_MS = 800;
 /** Words in the turn: long enough to stream well past the catch-up. */
 const WORDS = 280;

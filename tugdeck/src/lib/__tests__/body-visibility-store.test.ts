@@ -175,8 +175,8 @@ describe("BodyVisibilityStore", () => {
 });
 
 describe("the dormant delay", () => {
-  test("is a minute, and the clock runs to it unless told otherwise", () => {
-    expect(DORMANT_AFTER_MS).toBe(60_000);
+  test("is five minutes, and the clock runs to it unless told otherwise", () => {
+    expect(DORMANT_AFTER_MS).toBe(300_000);
     expect(new BodyVisibilityStore().delayMs).toBe(DORMANT_AFTER_MS);
   });
 });

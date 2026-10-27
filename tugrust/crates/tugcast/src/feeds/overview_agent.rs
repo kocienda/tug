@@ -902,7 +902,10 @@ mod tests {
         assert!(OPERATOR_ANSWER_INSTRUCTIONS.contains("say the documents do not say"));
         // The help ref's target is composed from a result's two fields, and
         // the prompt is where the model learns the spelling.
-        assert!(OPERATOR_ANSWER_INSTRUCTIONS.contains("Ref kinds are: session, file, commit, plan, brief, help."));
+        assert!(
+            OPERATOR_ANSWER_INSTRUCTIONS
+                .contains("Ref kinds are: session, file, commit, plan, brief, help.")
+        );
         assert!(OPERATOR_ANSWER_INSTRUCTIONS.contains("glossary#split"));
     }
 

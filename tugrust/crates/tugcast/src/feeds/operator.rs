@@ -6935,9 +6935,18 @@ mod tests {
         // Kept in the documents' spelling, though no result held the string.
         assert_eq!(
             kept,
-            ["alpha.txt", "glossary#split", "features#stack-and-split", "glossary"]
+            [
+                "alpha.txt",
+                "glossary#split",
+                "features#stack-and-split",
+                "glossary"
+            ]
         );
-        let dropped: Vec<&str> = validated.dropped.iter().map(|r| r.target.as_str()).collect();
+        let dropped: Vec<&str> = validated
+            .dropped
+            .iter()
+            .map(|r| r.target.as_str())
+            .collect();
         assert_eq!(dropped, ["glossary#no-such-term", "readme#intro"]);
 
         let mut bare = fixture();

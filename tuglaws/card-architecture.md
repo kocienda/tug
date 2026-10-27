@@ -39,8 +39,8 @@ A card is always a body, but its page is not always there. What the user can see
 - **Shown**: a pane's active card, its view on screen.
 - **Sibling**: an inactive tab of a shown pane whose page exists, placed at the pane and painting at opacity 0, so choosing the tab is instant.
 - **Hidden**: a page the host has hidden (a parked workspace's card, a folded card), within its dormant delay.
-- **Dormant**: hidden for 60 s. The page empties its session subscription, so its worker hears nothing and idles; its loops still, it keeps its DOM and stores, and on reveal it asks the session for every turn after the last one it holds.
-- **Evicted**: hidden for fifteen minutes, or taken by memory pressure (a warning takes hidden pages oldest-hidden first, one at a time; critical takes every page not shown, the spare with them). The page writes its card's state and the host destroys it; the card's record, seating and session stand, and the reveal is an arrival.
+- **Dormant**: hidden for five minutes. The page empties its session subscription, so its worker hears nothing and idles; its loops still, it keeps its DOM and stores, and on reveal it asks the session for every turn after the last one it holds.
+- **Evicted**: hidden for two hours, or taken by memory pressure (a warning takes hidden pages oldest-hidden first, one at a time; critical takes every page not shown, the spare with them). The page writes its card's state and the host destroys it; the card's record, seating and session stand, and the reveal is an arrival.
 
 **No page is made for a card nobody can see.** A parked workspace's card is not handed off until its workspace is shown, and an inactive tab restored at launch is handed off `unmade`: no page is asked for until the deck first wants it shown. A kind that can veto its own close is the exception, since only its page can answer. A shell reload keeps every page, and the reloaded shell re-adopts them.
 

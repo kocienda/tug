@@ -33,7 +33,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 const A = "r39s-a";
-/** The eviction delay, shortened from fifteen minutes. */
+/** The eviction delay, shortened from two hours. */
 const EVICT_AFTER_MS = 2_000;
 /** How far past the delay the spare is left to age before a card takes it. */
 const AGE_PAST_MS = 1_000;

@@ -29,7 +29,7 @@ const HOME = "r36-home";
 const AWAY = "r36-away";
 const H = "r36-h";
 const W = "r36-w";
-/** The body's delay before dormancy, shortened from a minute for the row. */
+/** The body's delay before dormancy, shortened from five minutes for the row. */
 const DORMANT_AFTER_MS = 800;
 /** How long the row waits, with the home body painted, for a parked body that should never come. */
 const NO_WARM_MS = 2_000;

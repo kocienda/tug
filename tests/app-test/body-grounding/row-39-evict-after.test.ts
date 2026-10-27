@@ -39,7 +39,7 @@ const TEST_TIMEOUT_MS = 60_000;
 
 const A = "r39-a";
 /**
- * The eviction delay, shortened from fifteen minutes for the
+ * The eviction delay, shortened from two hours for the
  * row: long enough for the spare the new workspace's cards took to be made
  * again before the clock falls due.
  */
