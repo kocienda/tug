@@ -2048,6 +2048,18 @@ async fn relay_session_io_tracked(
                                 if let Some(id) = &claude_id {
                                     if entry.claude_session_id.as_deref() != Some(id.as_str()) {
                                         entry.turns_ended = 0;
+                                        // The split counts go with the total
+                                        // ([P02]). `stage_turn_ended` reads
+                                        // `prompt_turns_ended`, so a count
+                                        // carried across a rotation tells the
+                                        // wheel the fresh stage has already
+                                        // answered — and an audit seated a
+                                        // moment ago is stopped as one that
+                                        // ended without marking. The opener
+                                        // stays: the rotation's own prompt
+                                        // wrote it before this init arrived.
+                                        entry.prompt_turns_ended = 0;
+                                        entry.wake_turns_ended = 0;
                                         entry.turn_api_error = false;
                                         // Without this the cancel latches
                                         // across a rotation and the next
@@ -4667,6 +4679,42 @@ mod tests {
             entry.lock().await.context_window_tokens,
             None,
             "a fresh claude starts with no reading"
+        );
+    }
+
+    /// The split turn counts start over with the claude they count. The arc
+    /// runner's `stage_turn_ended` reads `prompt_turns_ended`, so a count the
+    /// retiring stage left behind — or a cancel its teardown emitted after the
+    /// rotation's prompt latched — told the wheel a stage seated a moment ago
+    /// had already answered, and the `app-help` audit was stopped 0.3 s after
+    /// it was seated as one that "ended without marking the arc audited".
+    #[tokio::test]
+    async fn a_session_init_naming_a_fresh_claude_starts_the_turn_counts_over() {
+        let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sessions
+            .record_spawn("root", "ws-test", "/proj", "card-1", 1, "line-1", None)
+            .expect("seed the root");
+
+        let stage = segment_line("rotation", "root", "stage-1", r#","stage":"audit""#);
+        let (entry, _pushed) = drive_segments_with(
+            sessions.clone(),
+            "root",
+            Some("line-1"),
+            &[&stage, &init_line("stage-1")],
+            |entry| {
+                entry.claude_session_id = Some("root".to_string());
+                entry.turns_ended = 10;
+                entry.prompt_turns_ended = 10;
+                entry.wake_turns_ended = 2;
+            },
+        )
+        .await;
+
+        let entry = entry.lock().await;
+        assert_eq!(
+            (entry.turns_ended, entry.prompt_turns_ended, entry.wake_turns_ended),
+            (0, 0, 0),
+            "a fresh claude has ended no turn of any kind"
         );
     }
 

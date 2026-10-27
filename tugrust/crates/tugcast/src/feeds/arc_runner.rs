@@ -3051,12 +3051,18 @@ async fn rotate(
     }
 
     match outcome {
-        Ok(delivery) => info!(
-            arc = %arc.name,
-            stage = rotation.stage.as_str(),
-            ?delivery,
-            "arc rotated a stage",
-        ),
+        Ok(delivery) => {
+            info!(
+                arc = %arc.name,
+                stage = rotation.stage.as_str(),
+                ?delivery,
+                "arc rotated a stage",
+            );
+            // A rotated resume answers the stop row as a reversal does.
+            if resuming {
+                record_resume_receipt(ctx, arc, rotation.stage).await;
+            }
+        }
         Err(refusal) => {
             warn!(
                 arc = %arc.name,
@@ -3377,6 +3383,11 @@ async fn continue_stage(
     ctx.supervisor
         .sessions_recorder
         .record_wheel_prompt(&session, &text);
+    // The stop row's offer is answered by a later receipt for the arc
+    // (Spec S04), and a continued resume is the arc running again as surely
+    // as a reversal is. Without it the stop's Resume button stands over a
+    // stage that is already working.
+    record_resume_receipt(ctx, arc, stage).await;
 
     {
         let mut map = state.lock().await;
@@ -3410,6 +3421,27 @@ async fn continue_stage(
         model = %model,
     );
 }
+
+/// The pick-up receipt a resume the user asked for leaves — by the stop row's
+/// Resume, or `tugtool arc resume` — on either road the runner takes it:
+/// continued on the seated session or rotated onto a fresh one.
+///
+/// The stop receipt is frozen text and its offer is retired only by a later
+/// receipt for the same arc ([`format_arc_pickup_receipt`], Spec S04). A
+/// reversal wrote one; a resume wrote none, so the offer outlived the resume.
+async fn record_resume_receipt(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage) {
+    ctx.supervisor
+        .record_arc_receipt(
+            arc.session.as_str(),
+            &arc.name,
+            &arc.project.to_string_lossy(),
+            &format_arc_pickup_receipt(&arc.name, stage, RESUME_ASKED),
+        )
+        .await;
+}
+
+/// What moved, on a pick-up receipt a resume left: the ask itself.
+const RESUME_ASKED: &str = "a resume asked for it";
 
 /// The receipt a reversal leaves: one row saying the arc is running again, and
 /// which fact said so (Spec S04).
@@ -6123,6 +6155,7 @@ Some context.
         let (ctx, entry, _register_rx) = harness(root).await;
         // Another claude on the card: the record's session is not this one.
         entry.lock().await.claude_session_id = Some("claude-2".to_string());
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
@@ -6137,6 +6170,12 @@ Some context.
         assert_eq!(frames.len(), 2, "one rotation: session_command + prompt");
         let command: serde_json::Value = serde_json::from_slice(&frames[0].payload).unwrap();
         assert_eq!(command["stage"]["name"], "review");
+        // The rotated resume answers the stop row, or its Resume offer stands
+        // over a stage that is running again (Spec S04).
+        assert_eq!(
+            receipts(&mut control_rx),
+            vec!["arc picked back up · demo · in review · a resume asked for it".to_string()],
+        );
     }
 
     #[tokio::test]
@@ -8612,6 +8651,7 @@ Some context.
 
         let (ctx, entry, _register_rx) = harness(root).await;
         set_context(&entry, 100_000).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
         let state = Arc::new(Mutex::new(HashMap::new()));
 
         sweep(&ctx, &state).await;
@@ -8667,6 +8707,12 @@ Some context.
             lines.next(),
             Some("this arc was stopped in implement — implement idle; it is resuming"),
             "and the stage is told what it is resuming from, which `stopped` no longer holds",
+        );
+        // The continue answers the stop row as a reversal does, or the stop's
+        // Resume offer stands over a stage already working again (Spec S04).
+        assert_eq!(
+            receipts(&mut control_rx),
+            vec!["arc picked back up · demo · in implement · a resume asked for it".to_string()],
         );
     }
 
