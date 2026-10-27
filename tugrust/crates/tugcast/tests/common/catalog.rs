@@ -1338,8 +1338,18 @@ pub async fn capture_with_stability(
             },
             None => first,
         };
+        // The line a `tugtool test run --kind lines` wrapper reads as the
+        // probe's item (`capture-capabilities` runs both legs under one), so
+        // it carries the verdict in one of the words that reader knows. A
+        // shape that differs across stability runs is a red.
+        let verdict = match &capture.status {
+            ProbeStatus::Passed => "ok",
+            ProbeStatus::Skipped(_) => "skip",
+            ProbeStatus::Failed(_) => "fail",
+            ProbeStatus::ShapeUnstable(_) => "fail (unstable)",
+        };
         println!(
-            "[capture] [{idx}/{total}] {name} — done in {ms} ms (elapsed {elapsed}s)",
+            "[capture] [{idx}/{total}] {name} — {verdict} in {ms} ms (elapsed {elapsed}s)",
             idx = i + 1,
             total = total_probes,
             name = probe.name,

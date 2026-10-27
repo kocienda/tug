@@ -326,8 +326,23 @@ capture-capabilities:
     # Override with `TUG_STABILITY=N just capture-capabilities` if you
     # specifically want to probe flapping at baseline time.
     STABILITY="${TUG_STABILITY:-1}"
+    # Both legs run every probe against real claude, ~20 min between them, so
+    # each runs under `tugtool test run --kind lines`, which reads the probe
+    # loop's `[capture] [i/N] <probe> — ok|fail|skip` lines: the Bash block
+    # counts the probes and shows a red as it lands, and the run is recorded
+    # so `tugtool test last --failures` names a red probe. With no tugtool
+    # that knows `test run`, the leg runs bare.
+    TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
+    probe_leg() {
+        local suite="$1"; shift
+        if [ -z "$TUGTOOL_BIN" ]; then "$@"; return; fi
+        "$TUGTOOL_BIN" test run --suite "$suite" --kind lines --unit probe \
+            --item '^\[capture\] \[[0-9]+/[0-9]+\] (?P<name>\S+) — (?P<status>ok|fail|skip)\b' \
+            --total '^\[capture\] starting — (?P<total>[0-9]+) probes' \
+            --label "$suite" --needle "just capture-capabilities" -- "$@"
+    }
     echo "---- running capture (TUG_STABILITY=$STABILITY, ~$((STABILITY * 2))-$((STABILITY * 3)) min) ----"
-    (cd tugrust && env -u ANTHROPIC_API_KEY TUG_STABILITY="$STABILITY" TUG_REAL_CLAUDE=1 \
+    (cd tugrust && probe_leg capture env -u ANTHROPIC_API_KEY TUG_STABILITY="$STABILITY" TUG_REAL_CLAUDE=1 \
         cargo nextest run -p tugcast --features real-claude-tests \
         --run-ignored only --no-capture capture_all_probes)
     VER="$(tr -d '[:space:]' < capabilities/LATEST)"
@@ -373,7 +388,7 @@ capture-capabilities:
     # Semantic or Ambiguous findings that require consumer classification
     # before a version bump can land. Capture that distinction here.
     DRIFT_OK=1
-    (cd tugrust && env -u ANTHROPIC_API_KEY TUG_REAL_CLAUDE=1 \
+    (cd tugrust && probe_leg drift env -u ANTHROPIC_API_KEY TUG_REAL_CLAUDE=1 \
         cargo nextest run -p tugcast --features real-claude-tests \
         --run-ignored only --no-capture stream_json_catalog_drift_regression) \
         || DRIFT_OK=0
