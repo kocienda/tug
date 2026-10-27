@@ -12,7 +12,7 @@ export function nextTide(table: Tide[], kind: Tide["kind"], now: Date): Tide | n
   return null;
 }
 
-/** Whether the bar has `draft` metres of water at `tide`. */
+/** Whether the bar has `draft` meters of water at `tide`. */
 export function barIsOpen(tide: Tide, draft: number, margin = 0.5): boolean {
   return tide.height - draft >= margin;
 }

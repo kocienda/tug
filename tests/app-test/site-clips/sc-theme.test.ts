@@ -1,6 +1,6 @@
 /**
  * sc-theme.test.ts — the site's theme clip: one Session card holding still
- * while the theme steps through every theme of its mode and comes home.
+ * while the theme steps through all ten shipped themes and comes home.
  *
  * A site tool, not a test of the app: it stages a scene and records it, and
  * its one assertion is that frames were written. Run by path, once per mode
@@ -9,13 +9,15 @@
  *
  * The scene: one Session card bound to the shared stub turn, run to its end,
  * with the diff block opened so a body with its own colors is on screen.
- * The scene performs the View menu's Next Theme four times — the shipped
- * order walks the dark themes and then the light ones, so a run that starts
- * in Ironclad sees Caravel, Barque, Galleon and Collier, and one that starts
- * in Sloop sees Ketch, Skiff, Kayak and Pinnace — and then picks the mode's
- * own theme from the Theme menu to end where it began. The loop runs from
- * the first step to the home theme held as long as each other, so it cycles
- * through all five without a seam.
+ * The scene performs the View menu's Next Theme nine times — the shipped
+ * order walks the five dark themes and then the five light ones, wrapping,
+ * so a run that starts in Ironclad sees Caravel, Barque, Galleon, Collier,
+ * Sloop, Ketch, Skiff, Kayak and Pinnace, and one that starts in Sloop sees
+ * the light four, then the dark five — and then picks the mode's own theme
+ * from the Theme menu to end where it began. Both modes' clips show all ten
+ * themes; they differ in which one they start and end on. The loop runs
+ * from the first step to the home theme held as long as each other, so it
+ * cycles through all ten without a seam.
  *
  * @visible
  */
@@ -33,12 +35,12 @@ const DISCLOSURE = `${BLOCKS} [data-slot="tool-call-header-disclosure"]`;
 /** The mode's own theme stands this long before the first step. */
 const LEAD_MS = 1_000;
 /** Themes beyond the mode's own, each held this long. */
-const STEPS = 4;
-const HOLD_MS = 1_500;
+const STEPS = 9;
+const HOLD_MS = 1_200;
 
 describe.skipIf(!RUNS)("site clip: theme", () => {
   test(
-    "records one card through every theme of its mode",
+    "records one card through all ten themes",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchForMode("sc-theme", sessionDeck(CARD), stubDir);

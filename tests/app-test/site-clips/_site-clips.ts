@@ -117,6 +117,10 @@ export async function launchForMode(
     env?: Record<string, string>;
     contentSize?: { width: number; height: number };
     spaces?: { id: string; name: string; theme: string; deck: unknown }[];
+    /** Each card's saved state by card id, as the deck restores it at launch: a text card's file, for one. */
+    cardStates?: Record<string, unknown>;
+    /** String settings to seed, as `[domain, key, value]`: how a masthead writes its path, for one. */
+    settings?: readonly (readonly [string, string, string])[];
   } = {},
 ): Promise<App> {
   if (MODE === undefined) throw new Error("site clips: TUG_SITE_CLIPS_MODE must be dark or light");
@@ -136,6 +140,12 @@ export async function launchForMode(
       spaces: [{ id: SPACE_ID, name: "Site", theme: THEME_FOR_MODE[MODE], deck }, ...(extra.spaces ?? [])],
     }),
   );
+  for (const [cardId, bag] of Object.entries(extra.cardStates ?? {})) {
+    tugbankWrite(tugbankPath, "dev.tugapp.deck.cardstate", cardId, "json", JSON.stringify(bag));
+  }
+  for (const [domain, key, value] of extra.settings ?? []) {
+    tugbankWrite(tugbankPath, domain, key, "string", value);
+  }
   const app = await launchTugApp({
     testName: `${testName}-${MODE}`,
     visible: true,

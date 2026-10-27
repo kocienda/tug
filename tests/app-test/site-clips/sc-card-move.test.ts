@@ -9,7 +9,9 @@
  * site variables are set.
  *
  * The scene is `at0747-no-hole-under-cards.test.ts`'s, in a three-up under
- * Fit so every slot is inside the window: three `hello` cards, the front
+ * Flow at Slim width, in a window wide enough that the whole row stands
+ * inside it: the site's placeholders (`_placeholders.ts`) — two Harbor files
+ * with the `picker-keys` Session card between them — the front file
  * dragged over both neighbours and dropped on the first, as that test drags
  * it, then dragged back to where it stood — so the clip ends in the
  * arrangement it began in and loops without a seam. The driver checks that
@@ -22,13 +24,19 @@
 import { describe, expect, test } from "bun:test";
 
 import type { App } from "../_harness";
-import { standUpKind } from "../body-grounding/_kind-bodies";
-import { cardKind, kindPane } from "../body-grounding/_kinds";
+import { kindPane } from "../body-grounding/_kinds";
+import { placeholderCard, placeholderSettings, placeholderStates, standUpPlaceholders, type Placeholder } from "./_placeholders";
 import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene, standIns } from "./_site-clips";
 
 const TEST_TIMEOUT_MS = 110_000;
-const CARDS = ["sc-move-a", "sc-move-b", "sc-move-c"] as const;
-const FRONT = CARDS[2];
+/** The dragged card and the one it drops on are files, since a split slot halves its height and a Session card stands no shorter than 600px. */
+const PLACEHOLDERS = [
+  { id: "sc-move-a", file: "README.md" },
+  { id: "sc-move-b", session: "pickerKeys" },
+  { id: "sc-move-c", file: "tides.ts" },
+] as const satisfies readonly Placeholder[];
+const CARDS = PLACEHOLDERS.map((p) => p.id);
+const FRONT = CARDS[2]!;
 
 /** Rest before the press, the settle after the first drop, and the longer one after the return, which also restores the column it left. */
 const REST_MS = 600;
@@ -40,13 +48,15 @@ const BACK_TOLERANCE_PX = 4;
 const DRAG_STEPS = 24;
 const DRAG_STEP_MS = 30;
 const PRESS_MS = 120;
+/** Wide enough for three Slim cards and their gaps, so the row needs no travel. */
+const WINDOW = { width: 2200, height: 900 };
 
 function deck(): Record<string, unknown> {
   return {
-    cards: CARDS.map((id) => ({ id, componentId: "hello", title: id, closable: true })),
-    panes: CARDS.map((id, slot) => kindPane("hello", id, slot)),
+    cards: PLACEHOLDERS.map(placeholderCard),
+    panes: PLACEHOLDERS.map((p, slot) => kindPane("session" in p ? "session" : "text", p.id, slot)),
     activePaneId: `${FRONT}-pane`,
-    imposition: { kind: "three-up", layout: "fit", sidebars: {} },
+    imposition: { kind: "three-up", layout: "flow", contentWidth: "slim", sidebars: {} },
     hasFocus: true,
   };
 }
@@ -72,10 +82,13 @@ describe.skipIf(!RUNS)("site clip: card move", () => {
   test(
     "records the front card dragged across two neighbours, dropped on the first, and brought back",
     async () => {
-      const app = await launchForMode("sc-card-move", deck());
+      const app = await launchForMode("sc-card-move", deck(), undefined, {
+        contentSize: WINDOW,
+        cardStates: placeholderStates(PLACEHOLDERS),
+        settings: placeholderSettings(),
+      });
       try {
-        const hello = cardKind("hello");
-        for (const id of CARDS) await standUpKind(app, hello, id);
+        await standUpPlaceholders(app, PLACEHOLDERS);
         await Bun.sleep(800);
 
         const rest = await standIns(app);
