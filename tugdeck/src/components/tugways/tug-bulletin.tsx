@@ -33,7 +33,15 @@ import React, { createContext, useContext } from "react";
 import { Toaster, toast } from "sonner";
 
 import { BULLETIN_ICONS } from "./bulletin-icons";
+import {
+  getBulletinRelay,
+  setBulletinRelay,
+  type BulletinTone,
+  type RelayedBulletin,
+} from "../../lib/bulletin-relay";
 import { tugDevLogStore } from "../../lib/tug-dev-log-store/tug-dev-log-store";
+
+export { setBulletinRelay, type BulletinTone, type RelayedBulletin };
 
 /* ---------------------------------------------------------------------------
  * Helpers
@@ -278,29 +286,6 @@ bulletin.caution = (message: string, options?: BulletinOptions): void => {
  * The relay — a deck bulletin shown in the overlay page
  * ---------------------------------------------------------------------------*/
 
-export type BulletinTone = "default" | "success" | "danger" | "caution";
-
-/** A deck bulletin as it crosses to the overlay page: text only. */
-export interface RelayedBulletin {
-  tone: BulletinTone;
-  message: string;
-  description?: string;
-  duration?: number;
-  sticky?: boolean;
-  okLabel?: string;
-}
-
-let bulletinRelay: ((relayed: RelayedBulletin) => void) | null = null;
-
-/**
- * Send every deck bulletin to `relay` instead of this page's stack, or show
- * them here again with `null`. The shell installs one wherever the host
- * keeps an overlay above the cards (`lib/overlay-shell.ts`).
- */
-export function setBulletinRelay(relay: ((relayed: RelayedBulletin) => void) | null): void {
-  bulletinRelay = relay;
-}
-
 /** What `options` becomes when it crosses: the text and the timing, never
  *  a callback. A sticky bulletin's OK button is drawn by the far side. */
 export function relayedBulletinOf(
@@ -317,6 +302,7 @@ export function relayedBulletinOf(
 }
 
 function raise(tone: BulletinTone, message: string, options?: BulletinOptions): void {
+  const bulletinRelay = getBulletinRelay();
   if (bulletinRelay === null) {
     showWithSonner(tone, message, mapOptions(options));
     return;

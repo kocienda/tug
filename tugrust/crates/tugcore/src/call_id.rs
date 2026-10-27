@@ -203,9 +203,13 @@ mod tests {
             "# tug-call: toolu_ancestor\n{} --exact call_id::tests::prints_ancestor_call_id --nocapture --ignored && :",
             exe.display()
         );
+        let home = tempfile::tempdir().unwrap();
         let out = std::process::Command::new("/bin/sh")
             .arg("-c")
             .arg(&script)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", home.path())
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);

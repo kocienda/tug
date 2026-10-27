@@ -2907,7 +2907,10 @@ mod tests {
     #[tokio::test]
     async fn hashed_assets_are_left_cacheable() {
         let response = fetch("/assets/index-abc123.js").await;
-        assert_eq!(response.headers().get(axum::http::header::CACHE_CONTROL), None);
+        assert_eq!(
+            response.headers().get(axum::http::header::CACHE_CONTROL),
+            None
+        );
     }
 
     #[tokio::test]

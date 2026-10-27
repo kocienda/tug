@@ -80,7 +80,9 @@ fn id_after(text: &str, mark: &str, ends: impl Fn(char) -> bool) -> Option<Strin
     let end = rest.find(|c: char| ends(c) || c.is_whitespace())?;
     let id = &rest[..end];
     let plain = !id.is_empty()
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     plain.then(|| id.to_owned())
 }
 

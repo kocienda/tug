@@ -39,7 +39,7 @@ import { pageBus } from "../bus/page-bus";
 import { postToHost } from "../host/channel";
 import { overlayCreateToHost } from "../host/declarations/overlay";
 import { appModalStore } from "./app-modal-store";
-import { setBulletinRelay } from "../components/tugways/tug-bulletin";
+import { setBulletinRelay } from "./bulletin-relay";
 import { getAppLifecycle } from "./app-lifecycle";
 import { hostCapabilitiesStore } from "./body-handoff";
 import { setConfigureTugOnDemandSink } from "./configure-tug-request-store";
