@@ -16,13 +16,6 @@
  * shell's arrival keeps waiting on `card.painted`, so an arriving card
  * arrives whole.
  *
- * **The lid reads as loading.** While the content has not painted the frame
- * wears the deck's progress wave over its lid (`ContentLidWave`), shown from
- * two display frames past the first chrome frame — the frame the page tells
- * the host it has painted — so the wave is up whenever the host first shows
- * the page, matching the face the host drew for it, and a card whose
- * content paints within those frames never draws it.
- *
  * @module body/body-chrome-frame
  */
 
@@ -34,7 +27,6 @@ import { cardPainted } from "../bus/declarations/card";
 import { paneChrome, paneReorderTabs, paneTabDrag, type PaneChromeValue } from "../bus/declarations/pane";
 import { cardDragCoordinator } from "../card-drag-coordinator";
 import { PaneChrome } from "../components/chrome/pane-chrome";
-import { ContentLidWave, LID_WAVE_ATTRIBUTE } from "../components/chrome/content-lid-wave";
 import type { CardTitleBarHandle } from "../components/chrome/card-title-bar";
 import { CardHost } from "../components/chrome/card-host";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
@@ -230,19 +222,11 @@ export function BodyChromeFrame({
     return own === undefined ? undefined : own.masthead !== null;
   });
   const whole = chromeFrameWhole(chrome !== null, shellHoldsMasthead, masthead);
-  // The frame, for the painted report's frame to mark ([L07]: read through a
-  // ref, not the closure the effect was made in).
-  const frameRef = useRef(frameEl);
-  frameRef.current = frameEl;
   useLayoutEffect(() => {
     if (!whole || chromePaintPosted) return;
     chromePaintPosted = true;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        // The lid's wave shows from this frame, the one the host is told
-        // of, so the host never shows the page with its lid bare ([L06]:
-        // an attribute the stylesheet reads).
-        frameRef.current?.setAttribute(LID_WAVE_ATTRIBUTE, "");
         postToHost(paintedToHost, {});
       });
     });
@@ -300,7 +284,6 @@ export function BodyChromeFrame({
               ResponderScope={ResponderScope}
             />
           </ResponderScope>
-          {!contentPainted && !folded ? <ContentLidWave running /> : null}
         </div>
         {/* A pinned rail's shadow into its gutter: the rail's own pixels,
             in the apron beside its inner edge, so it moves with the rail

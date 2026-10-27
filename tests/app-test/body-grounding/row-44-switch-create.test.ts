@@ -19,19 +19,10 @@
  * canvas arms on one arrangement and carries no settle, so no pane moves
  * after the cut.
  *
- * And the faces read as loading: each rail card's stand-in, which the host
- * draws its face from, wears the progress wave's rest pose from the cut,
- * the display list the host draws each face from carries the wave's three
- * bars — the read walks a capped number of the stand-in's elements, and the
- * wave is the last of them — and each rail page marked its frame for the
- * lid's wave at its painted report and took the wave down once its content
- * painted.
- *
  * @family row-44-switch
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx
- * @covers tugdeck/src/components/chrome/content-lid-wave.tsx
  * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugapp/Sources/BodyHandOver.swift
  * @covers tugapp/Sources/BodyFaceHandOver.swift
@@ -87,28 +78,23 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace", () => {
         expect(home?.visible, "the shown workspace's card is a body, shown").toBe(true);
 
         const mark = await app.evalJS<number>("(window.__deckTrace.enable(true), window.__deckTrace.mark())");
-        // The stand-ins standing once the gesture has run, and their wave bars. The control action is
-        // dispatched with no dwell after it, so the read lands while the rail's pages are still being made.
-        let standIns = { faces: -1, bars: -1 };
-        // The faces the host was posted, and how many of each one's boxes are the wave's bars: narrow
-        // boxes around the face's centre, where the wave stands and the chrome draws nothing that narrow.
-        let posted: { cardId: string; bars: number }[] = [];
+        // The stand-ins standing once the gesture has run. The control action is dispatched with no
+        // dwell after it, so the read lands while the rail's pages are still being made.
+        let standIns = { faces: -1 };
+        // The faces the host was posted.
+        let posted: string[] = [];
         const bad = await readGesture(
           app,
           () => app.evalJS<null>(`(window.__tug.dispatchControlAction("new-space"), null)`),
           async () => {
-            standIns = await app.evalJS<{ faces: number; bars: number }>(
-              `({ faces: document.querySelectorAll('[data-body-stand-in]').length,
-                  bars: document.querySelectorAll('[data-body-stand-in] .tug-content-lid-wave .tug-progress-wave-bar').length })`,
+            standIns = await app.evalJS<{ faces: number }>(
+              `({ faces: document.querySelectorAll('[data-body-stand-in]').length })`,
             );
-            posted = await app.evalJS<{ cardId: string; bars: number }[]>(
+            posted = await app.evalJS<string[]>(
               `(window.tugdeck.diag.getBodyPlacement()?.lastPosted?.bodies ?? []).filter(function (b) {
                  return b.face === true && b.faceDraw !== undefined;
                }).map(function (b) {
-                 var cx = b.width / 2, cy = b.height / 2;
-                 return { cardId: b.cardId, bars: b.faceDraw.boxes.filter(function (x) {
-                   return x.rect.width < 8 && Math.abs(x.rect.x + x.rect.width / 2 - cx) < 24 && Math.abs(x.rect.y + x.rect.height / 2 - cy) < 24;
-                 }).length };
+                 return b.cardId;
                })`,
             );
             const active = await app.evalJS<string>(ACTIVE_SPACE);
@@ -139,25 +125,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace", () => {
         const carried = arms.filter((e) => e.outcome === "carried");
         const signatures = new Set(arms.map((e) => e.signature));
 
-        // Each rail page, painted: its frame marked for the lid's wave, and the wave gone with the lid.
-        const railIds = await app.evalJS<string[]>("window.tugdeck.diag.getDeckState().cards.map(function (c) { return c.id; })");
-        const lids: string[] = [];
-        for (const id of railIds) {
-          const lid = await app.body(id).evalJS<{ marked: boolean; waves: number }>(
-            `({ marked: document.querySelector('.body-chrome-frame')?.hasAttribute('data-lid-wave') === true,
-                waves: document.querySelectorAll('.tug-content-lid-wave').length })`,
-          );
-          lids.push(`${id} marked ${lid.marked} waves ${lid.waves}`);
-          if (!lid.marked || lid.waves !== 0) bad.push(`${id}: page lid wave marked ${lid.marked}, ${lid.waves} still mounted after paint`);
-        }
-        note(`row-44-switch-create: ${standIns.faces} stand-ins standing after the gesture, ${standIns.bars} wave bars; page lids ${lids.join("; ")}`);
-        note(`row-44-switch-create: host faces posted ${posted.map((p) => `${p.cardId} bars ${p.bars}`).join("; ") || "none"}`);
+        note(`row-44-switch-create: ${standIns.faces} stand-ins standing after the gesture`);
+        note(`row-44-switch-create: host faces posted ${posted.join("; ") || "none"}`);
 
         expect(bad, "every frame from the cut shows each rail card's chrome, none shows the floor through a pane, and the departing card hands over").toEqual([]);
         expect(standIns.faces, "a rail page is still being made once the gesture has run").toBeGreaterThan(0);
-        expect(standIns.bars, "every standing face wears the wave's three bars at rest").toBe(3 * standIns.faces);
         expect(posted.length, "the host was posted a face for the rail's cards").toBeGreaterThan(0);
-        expect(posted.filter((p) => p.bars !== 3), "every face the host draws carries the wave's three bars").toEqual([]);
         expect(activations.map((e) => e.landing), "the activation commits once, spelled a cut").toEqual(["cut"]);
         expect(rails.map((e) => e.caller), "no rail stands behind the cut as a second commit").toEqual([]);
         expect(carried.length, "no settle carries a pane after the cut").toBe(0);

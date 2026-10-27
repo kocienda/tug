@@ -16,11 +16,8 @@
  *
  * When, and for how long, is `lib/body-stand-in-store.ts`: the chrome with
  * its content box lidded in the pane's surface, as the page's own first
- * frame draws it, wearing the wave's rest pose (`ContentLidWave`), which the
- * page's own lid runs from: a page being made stands a face for a hundred
- * milliseconds and more, so the face reads as loading from its first frame,
- * and the host's face, read from this one, carries the same pose. The
- * shell's page lies beneath every card, so the card's
+ * frame draws it; the host's face is read from this one. The shell's page
+ * lies beneath every card, so the card's
  * view — or the last frame the host stands for a card brought back from an
  * eviction — covers it the moment it shows. It is a picture: it answers no
  * point and takes no focus, so a press reaches the shell's pane as it does
@@ -49,7 +46,6 @@ import { useIsCardFolded } from "@/lib/card-fold";
 import { cardKindName, getRegistration } from "@/card-registry";
 import { chromeCardsKey, chromeModelOf } from "@/body/body-chrome";
 import { PaneChrome, type PaneChromeVerbs } from "./pane-chrome";
-import { ContentLidWave } from "./content-lid-wave";
 
 /** The stand-in presses nothing: it is a picture of the chrome its page will draw. */
 const NO_VERBS: PaneChromeVerbs = {
@@ -169,7 +165,6 @@ function StandInFace({ cardId, componentId }: BodyStandInProps): React.ReactElem
         accessory={null}
         ResponderScope={PassThrough}
       />
-      {folded ? null : <ContentLidWave running={false} />}
     </div>
   );
 }
