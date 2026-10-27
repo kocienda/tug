@@ -2114,6 +2114,34 @@ async fn api_gate(State(auth): State<SharedAuthState>, request: Request, next: N
     }
 }
 
+/// Mark every HTML page `Cache-Control: no-cache`, so a web view revalidates
+/// it on each load instead of trusting a heuristic lifetime.
+///
+/// The deck's pages carry a hashed script name that changes with every build,
+/// and a body loads at a URL that is the same across launches
+/// (`/?body=<cardId>`). With no cache directive, WebKit keeps that page for
+/// a fraction of its `Last-Modified` age and serves it without asking; after
+/// a rebuild the page names a script the dist no longer has, every body
+/// fails its deadline, and the deck sits for a minute per launch. `no-cache`
+/// still lets WebKit store the page: it just asks first, and `ServeDir`
+/// answers `304` through `If-Modified-Since` when nothing changed. The
+/// hashed assets are not touched; their names are their validator.
+async fn html_never_from_cache(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let is_html = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"));
+    if is_html {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache"),
+        );
+    }
+    response
+}
+
 /// CORS answers only the origins the gate and the websocket already accept,
 /// read live from the same [`AuthState`](crate::auth::AuthState) so a dev-port
 /// change reaches all three at once. Credentials ride, so the deck's cookie
@@ -2303,9 +2331,11 @@ pub(crate) fn build_app(
     let dist_path = crate::resources::source_tree().join("tugdeck").join("dist");
     if dist_path.is_dir() {
         let index_html = dist_path.join("index.html");
-        return base.fallback_service(
-            ServeDir::new(&dist_path).not_found_service(ServeFile::new(index_html)),
-        );
+        return base
+            .fallback_service(
+                ServeDir::new(&dist_path).not_found_service(ServeFile::new(index_html)),
+            )
+            .layer(middleware::from_fn(html_never_from_cache));
     } else {
         warn!(
             "dist directory not found at {}, static file serving disabled",
@@ -2833,6 +2863,51 @@ mod tests {
             builder = builder.header(*name, *value);
         }
         builder.body(axum::body::Body::from("{}")).unwrap()
+    }
+
+    // ── HTML is never served from a heuristic cache ──────────────────────
+
+    /// A stand-in for the dist: one HTML page and one hashed asset, both
+    /// behind the layer `build_app` puts over its static fallback.
+    fn pages_app() -> Router {
+        Router::new()
+            .route(
+                "/",
+                get(|| async { ([("content-type", "text/html; charset=utf-8")], "<html>") }),
+            )
+            .route(
+                "/assets/index-abc123.js",
+                get(|| async { ([("content-type", "text/javascript")], "export {}") }),
+            )
+            .layer(middleware::from_fn(html_never_from_cache))
+    }
+
+    async fn fetch(path: &str) -> axum::http::Response<axum::body::Body> {
+        use tower::ServiceExt;
+        let request = axum::http::Request::get(path)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        pages_app().oneshot(request).await.unwrap()
+    }
+
+    /// A body's page is loaded at the same URL every launch, and it names a
+    /// script whose hash changes with every build; left to a heuristic
+    /// lifetime WebKit serves the old page and the body never readies.
+    #[tokio::test]
+    async fn html_pages_say_no_cache() {
+        let response = fetch("/?body=card-1").await;
+        assert_eq!(
+            response.headers().get(axum::http::header::CACHE_CONTROL),
+            Some(&HeaderValue::from_static("no-cache"))
+        );
+    }
+
+    /// A hashed asset is its own validator; it keeps whatever caching the
+    /// file service gives it.
+    #[tokio::test]
+    async fn hashed_assets_are_left_cacheable() {
+        let response = fetch("/assets/index-abc123.js").await;
+        assert_eq!(response.headers().get(axum::http::header::CACHE_CONTROL), None);
     }
 
     #[tokio::test]

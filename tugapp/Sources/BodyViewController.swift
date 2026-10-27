@@ -2,6 +2,18 @@ import AppKit
 import QuartzCore
 import WebKit
 
+/// The request a body or overlay page is loaded with: revalidate, never
+/// trust a cached copy. The page's URL is the same across launches
+/// (`/?body=<cardId>`), and the page names a script by a hash that changes
+/// with every build, so a copy WebKit kept from the previous build names a
+/// script the dist no longer has, the body fails its deadline, and the deck
+/// sits for a minute per launch. tugcast marks the page `no-cache` too, but
+/// a copy cached before that header existed carries no such instruction;
+/// the policy on the request holds whatever the cache remembers.
+func bodyPageRequest(_ url: URL) -> URLRequest {
+    URLRequest(url: url, cachePolicy: .reloadRevalidatingCacheData)
+}
+
 /// The view every body container lives in: flipped, so a container's frame is
 /// the top-left viewport rect the shell measured, filling the window's
 /// container over the shell's web view and beneath the overlay's.
@@ -502,7 +514,7 @@ final class BodyViewController {
         window.placeOverCards(view, above: hostView)
         overlayView = view
         refreshAccessibilityOrder(force: true)
-        view.load(URLRequest(url: url))
+        view.load(bodyPageRequest(url))
     }
 
     /// Whether the overlay takes the pointer at a viewport point.
@@ -664,7 +676,7 @@ final class BodyViewController {
 
         let body = Body(cardId: cardId, webView: webView, container: container)
         bodies.append(body)
-        webView.load(URLRequest(url: url))
+        webView.load(bodyPageRequest(url))
         return body
     }
 
@@ -1575,7 +1587,7 @@ final class BodyViewController {
             if heldKeys { focus(cardId: keyboardCardId) }
             if let origin = window.shellOrigin,
                let url = URL(string: origin + "/?overlay=\(Self.overlayCardId)") {
-                overlayView.load(URLRequest(url: url))
+                overlayView.load(bodyPageRequest(url))
             }
             return true
         }
@@ -1656,7 +1668,7 @@ final class BodyViewController {
         applyVisibility(body)
         notifyShell(BodyStateReport(cardId: cardId, state: .terminated))
         armDeadline(body)
-        body.webView.load(URLRequest(url: url))
+        body.webView.load(bodyPageRequest(url))
     }
 
     // MARK: - Harness

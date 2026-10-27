@@ -1579,8 +1579,17 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// Update the window background color from a CSS hex string (e.g. "#1c1e22").
+    ///
+    /// The title bar follows: a dark canvas gets the dark appearance and a
+    /// light one the light, the way the splash chooses its own, so the
+    /// window's chrome matches the theme inside it rather than the system
+    /// setting. Both the startup color and a theme switch pass through here.
     func updateBackgroundColor(_ hex: String) {
-        self.backgroundColor = NSColor(hexString: hex) ?? NSColor(hexString: MainWindow.defaultBackgroundHex)!
+        let color = NSColor(hexString: hex) ?? NSColor(hexString: MainWindow.defaultBackgroundHex)!
+        self.backgroundColor = color
+        var brightness: CGFloat = 0
+        color.usingColorSpace(.sRGB)?.getHue(nil, saturation: nil, brightness: &brightness, alpha: nil)
+        self.appearance = NSAppearance(named: brightness < 0.5 ? .darkAqua : .aqua)
     }
 
     /// Show or hide a small dev-info overlay in the bottom-left corner of
