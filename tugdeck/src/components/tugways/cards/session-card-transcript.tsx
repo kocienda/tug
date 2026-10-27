@@ -222,6 +222,7 @@ import "./session-arc-receipt-block";
 import { ArcNoteLine } from "./session-arc-note-block";
 import "./session-notice-block";
 import { SessionNoticeLine } from "./session-notice-line";
+import { BaseMotionReceiptBlock } from "./base-motion-receipt-block";
 import { composeShellShareText } from "./shell-exchange-view";
 import { RefsResultBlock } from "./refs-result-block";
 import { composeRefsShareText, refsShareLabel } from "./refs-result-view";
@@ -1525,6 +1526,16 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
         // speak in a `#u` row of their own — see `handleTugNotice`. A quiet
         // line would have made the thing steering the arc read as something
         // the session was quoting.
+        //
+        // A base-motion notice that carries its outcome as facts is drawn as
+        // a receipt instead: the facts are what make it one — the replay or
+        // where it stopped, counted and listed rather than told.
+        if (message.noticeFacts !== undefined) {
+          elements.push(
+            <BaseMotionReceiptBlock key={message.messageKey} facts={message.noticeFacts} />,
+          );
+          continue;
+        }
         elements.push(
           <SessionNoticeLine
             key={message.messageKey}

@@ -7625,6 +7625,10 @@ function handleTurnOpeningNotice(
     ...(typeof event.origin === "string" && event.origin.length > 0
       ? { noticeOrigin: event.origin }
       : {}),
+    // The wheel's prompts open above, never here, so a note that reaches
+    // this point is not the wheel's; its facts, when it carries any, are the
+    // outcome it reports.
+    ...(event.facts !== undefined ? { noticeFacts: event.facts } : {}),
   };
   return {
     state: {

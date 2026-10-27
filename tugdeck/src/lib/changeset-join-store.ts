@@ -3,8 +3,9 @@
  * over the resolution ladder's CONTROL frames (Spec S12, [P31]/[P32]).
  *
  * When the card asks tugcast to resolve a conflicted join, the ladder streams
- * `changeset_join_resolve_delta` frames (per file / rung, with the AI rung's
- * accumulated text) and finishes with `changeset_join_resolve_ok` or `_err`.
+ * `changeset_join_resolve_delta` frames — one ledger event each, every rung's
+ * verdict, the scribe's and the resolver's beats — and finishes with
+ * `changeset_join_resolve_ok` or `_err`.
  * This store keys that live state by `(workspace_key, arc)` and exposes it via
  * `useSyncExternalStore` ([L02]); the card renders a mini-transcript overlay
  * while resolving.
@@ -12,10 +13,14 @@
  * **It holds the run, never the result.** The candidate the ladder builds, what
  * it decided per file and by which rung, and whether anybody has read that, are
  * written into git and reported on the arc's feed entry — so an `_ok` frame is
- * an *end-of-run* signal here and nothing more. That split is what makes the
- * whole overlay disposable: this state can be lost to a dropped socket, a
- * reload, or a relaunch without costing a resolution, because the resolution
- * was never in it.
+ * an *end-of-run* signal here and nothing more. The run's ledger is written
+ * there too, event by event, and rides the entry as `join.ledger`; what this
+ * store holds of it is only the **live tail** — the events this page heard
+ * since the press, ahead of the recompute that carries them, and the
+ * streaming beats that are never kept. That split is what makes the whole
+ * overlay disposable: this state can be lost to a dropped socket, a reload,
+ * or a relaunch without costing a resolution or its account, because neither
+ * was ever only in it.
  *
  * **The client stops guessing at liveness.** There was once a silence clock
  * here — twelve seconds without a frame declared a run lost — and it was
@@ -65,29 +70,26 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
 import type { TugConnection } from "../connection";
-import type { WorkspacesChangesetSnapshot } from "./changeset-types";
+import type {
+  ArcJoinLedgerEventWire,
+  WorkspacesChangesetSnapshot,
+} from "./changeset-types";
 import { FeedId } from "../protocol";
 import { getConnectionLifecycle } from "./connection-lifecycle";
 
 export type ResolvePhase = "idle" | "resolving" | "error";
 
-/** One conflicted file's live resolution progress (from the deltas). */
-export interface FileProgress {
-  path: string;
-  rung: string;
-  status: string;
-  /** The AI rung's accumulated text, when streaming. */
-  text: string;
-  /**
-   * The candidate the resolver rung is working on, when it has one ([P08]).
-   *
-   * Its own field because the resolver has no path: it works over the whole
-   * tree, and its progress is about a commit. The sha used to arrive in `path`,
-   * which put a hash in the face's filename column and made each status of one
-   * run key as a separate file.
-   */
-  candidate?: string;
+/**
+ * The live-only text each stream holds: replaced on every beat, never kept.
+ * The scribe's is the tail of the file it is writing ([P03]).
+ */
+export interface ResolveStream {
+  scribe?: { path: string; text: string };
+  resolver?: { turn: number; text: string; tool?: string };
 }
+
+/** How many lines of the scribe's file a stream holds. */
+export const SCRIBE_STREAM_LINES = 8;
 
 /**
  * The live resolve state for one arc — an overlay, and only an overlay.
@@ -101,8 +103,12 @@ export interface FileProgress {
  */
 export interface ResolveState {
   phase: ResolvePhase;
-  /** Per-file streaming progress while `phase === "resolving"`. */
-  progress: readonly FileProgress[];
+  /** The run the live events belong to, absent before the first delta. */
+  run?: string;
+  /** Kept-kind events received live, in `seq` order. */
+  events: readonly ArcJoinLedgerEventWire[];
+  /** The latest live-only text per stream. */
+  stream: ResolveStream;
   /**
    * Why the last thing the user asked for did not happen.
    *
@@ -130,7 +136,8 @@ export interface ResolveState {
 
 const IDLE: ResolveState = Object.freeze({
   phase: "idle",
-  progress: Object.freeze([]) as readonly FileProgress[],
+  events: Object.freeze([]) as readonly ArcJoinLedgerEventWire[],
+  stream: Object.freeze({}) as ResolveStream,
   error: null,
 });
 
@@ -197,6 +204,60 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === "string");
+}
+
+/** The last `n` lines of `text`. */
+function tailLines(text: string, n: number): string {
+  const lines = text.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines.slice(-n).join("\n");
+}
+
+/**
+ * Fold one delta frame into a cell's ledger (Spec S02).
+ *
+ * A new `run` drops what the cell held of the last one. A kept-kind event is
+ * appended only past the last `seq` held, so a frame that arrives twice draws
+ * once. A streaming beat replaces its stream's slot and is never kept.
+ */
+function foldDelta(
+  prev: ResolveState,
+  body: Record<string, unknown>,
+): Pick<ResolveState, "run" | "events" | "stream"> {
+  const run = typeof body.run === "string" ? body.run : prev.run;
+  const fresh = run !== prev.run;
+  let events = fresh ? [] : prev.events;
+  let stream: ResolveStream = fresh ? {} : prev.stream;
+  const event = body.event;
+  if (
+    isRecord(event) &&
+    typeof event.kind === "string" &&
+    typeof event.seq === "number"
+  ) {
+    const wire = event as unknown as ArcJoinLedgerEventWire;
+    if (wire.kind === "scribe" && wire.status === "streaming") {
+      stream = {
+        ...stream,
+        scribe: {
+          path: wire.path,
+          text: tailLines(wire.text ?? "", SCRIBE_STREAM_LINES),
+        },
+      };
+    } else if (wire.kind === "resolver" && wire.status === "streaming") {
+      stream = {
+        ...stream,
+        resolver: {
+          turn: wire.turn,
+          text: wire.text ?? "",
+          ...(wire.tool !== undefined ? { tool: wire.tool } : {}),
+        },
+      };
+    } else {
+      const last = events.length > 0 ? events[events.length - 1]!.seq : -1;
+      if (wire.seq > last) events = [...events, wire];
+    }
+  }
+  return { ...(run !== undefined ? { run } : {}), events, stream };
 }
 
 export class ChangesetJoinStore extends Subscribable {
@@ -417,26 +478,10 @@ export class ChangesetJoinStore extends Subscribable {
       return;
     }
     if (action === "changeset_join_resolve_delta") {
-      const path = typeof body.path === "string" ? body.path : "";
-      const rung = typeof body.rung === "string" ? body.rung : "";
-      const status = typeof body.status === "string" ? body.status : "";
-      const text = typeof body.text === "string" ? body.text : "";
-      const candidate =
-        typeof body.candidate === "string" ? body.candidate : undefined;
-      const progress = prev.progress.filter((p) => p.path !== path);
       this._set(k, {
         ...prev,
+        ...foldDelta(prev, body),
         phase: "resolving",
-        progress: [
-          ...progress,
-          {
-            path,
-            rung,
-            status,
-            text,
-            ...(candidate !== undefined ? { candidate } : {}),
-          },
-        ],
         error: null,
       });
       return;
@@ -479,7 +524,9 @@ export class ChangesetJoinStore extends Subscribable {
         // decides nothing new, so the sentence names the files instead.
         this._set(k, {
           phase: "error",
-          progress: prev.progress,
+          ...(prev.run !== undefined ? { run: prev.run } : {}),
+          events: prev.events,
+          stream: prev.stream,
           error: `Still conflicting — resolve by hand: ${unresolved.join(", ")}`,
         });
         return;
@@ -538,7 +585,9 @@ export class ChangesetJoinStore extends Subscribable {
       if (next.act !== undefined) {
         next = {
           phase: next.phase,
-          progress: next.progress,
+          ...(next.run !== undefined ? { run: next.run } : {}),
+          events: next.events,
+          stream: next.stream,
           error: next.error,
         };
       }
@@ -569,12 +618,38 @@ export class ChangesetJoinStore extends Subscribable {
     const k = key(workspaceKey, arc);
     this._set(k, {
       phase: "resolving",
-      progress: [],
+      events: [],
+      stream: {},
       error: null,
       act: "resolve",
     });
     this._armDeadline(k, "resolve");
     this._connection.sendControlFrame("changeset_join_resolve", {
+      project_dir: workspaceKey,
+      arc: arc,
+    });
+  }
+
+  /**
+   * Send `changeset_join_resolve_again`: the same run as {@link resolve}, with
+   * the server stamping the join pilot's head-pair mark first.
+   *
+   * It is offered over a ledger whose candidate no longer applies, where the
+   * pilot has already tried this pair and will not try it again on its own;
+   * the press is the user overruling that. Everything on this side is the
+   * ordinary resolve — the same fresh cell, the same act, the same deadline.
+   */
+  resolveAgain(workspaceKey: string, arc: string): void {
+    const k = key(workspaceKey, arc);
+    this._set(k, {
+      phase: "resolving",
+      events: [],
+      stream: {},
+      error: null,
+      act: "resolve",
+    });
+    this._armDeadline(k, "resolve");
+    this._connection.sendControlFrame("changeset_join_resolve_again", {
       project_dir: workspaceKey,
       arc: arc,
     });
@@ -596,7 +671,8 @@ export class ChangesetJoinStore extends Subscribable {
     const k = key(workspaceKey, arc);
     this._set(k, {
       phase: "resolving",
-      progress: [],
+      events: [],
+      stream: {},
       error: null,
       act: "resolve-base",
     });

@@ -41,6 +41,8 @@
  *
  * @covers tugdeck/src/components/tugways/chrome/session-question-dialog.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-resolve-ledger.tsx
+ * @covers tugdeck/src/lib/resolve-ledger.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
  * @covers tugdeck/src/lib/changeset-join-store.ts
@@ -234,6 +236,12 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
         expect(asked, "the question is the resolver's own").toContain(QUESTION_TEXT);
         expect(asked, "and both resolutions are offered").toContain(CHOSEN);
         expect(asked, "including the one not taken").toContain(OTHER);
+        // The question is the Resolver block's body: the ask belongs to the
+        // act that raised it, not to a section of its own.
+        const inResolver = await app.body("A").evalJS<boolean>(
+          `document.querySelector(${JSON.stringify(QUESTION)})?.closest('[data-slot="session-changes-ledger-resolver"]') != null`,
+        );
+        expect(inResolver, "the question renders inside the Resolver block").toBe(true);
         note(`at0442 asked: ${JSON.stringify(QUESTION_TEXT)}`);
 
         // ── The answer goes back ──────────────────────────────────────────

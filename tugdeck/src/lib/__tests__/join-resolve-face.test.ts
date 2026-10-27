@@ -187,10 +187,8 @@ describe("the overlay never outranks what is in git", () => {
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_delta",
       ...K,
-      path: "a.rs",
-      rung: "ai",
-      status: "streaming",
-      text: "merging",
+      run: "100",
+      event: { kind: "scribe", seq: 0, at_ms: 0, path: "a.rs", status: "streaming", text: "merging" },
     });
     expect(face(CONFLICTED, { resolvePhase: phase() }).resolve).toBe("progress");
 

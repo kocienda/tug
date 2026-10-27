@@ -108,6 +108,33 @@ describe("tug_notice — the opener that makes an injected turn visible", () => 
     expect(snap.activeTurn!.messages).toHaveLength(1);
   });
 
+  it("carries a base-motion notice's facts onto its note", () => {
+    const { store, conn } = makeStore();
+    const facts = {
+      kind: "replayed",
+      arc: "demo",
+      base: "main",
+      sha: "abcdef0123456789abcdef0123456789abcdef01",
+      paths: ["src/moved.rs"],
+      rounds: 2,
+    };
+    emit(conn, { type: "tug_notice", origin: "base-motion", text: BODY, facts });
+    const head = store.getSnapshot().activeTurn!.messages[0];
+    expect(head).toMatchObject({ source: "notice", noticeFacts: facts });
+  });
+
+  it("a wheel prompt that somehow carried facts keeps none — its turn has no note", () => {
+    const { store, conn } = makeStore();
+    emit(conn, {
+      type: "tug_notice",
+      origin: "wheel",
+      text: WHEEL_PROMPT,
+      facts: { kind: "replayed", arc: "a", base: "main", sha: "f", paths: [], rounds: 1 },
+    });
+    const messages = store.getSnapshot().activeTurn!.messages;
+    expect(messages.some((m) => "noticeFacts" in m)).toBe(false);
+  });
+
   it("a notice with no body opens nothing", () => {
     const { store, conn } = makeStore();
     emit(conn, { type: "tug_notice", origin: "base-motion", text: "" });

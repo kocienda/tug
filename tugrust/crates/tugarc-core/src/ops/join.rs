@@ -130,7 +130,7 @@ pub struct JoinOutcome {
 }
 
 /// The base-side history of one conflicted path.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ConflictHistory {
     /// The conflicted path, as `conflicts` spells it.
     pub path: String,
@@ -141,7 +141,7 @@ pub struct ConflictHistory {
 }
 
 /// One base commit behind a conflicted path.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ConflictCommit {
     /// Abbreviated hash.
     pub sha: String,
@@ -234,7 +234,7 @@ const ARCHAEOLOGY_CAP: usize = 5;
 /// Any git failure yields no history rather than an error: archaeology is
 /// context for a conflict, and losing it must never cost the caller the
 /// conflict report itself.
-fn conflict_archaeology(
+pub(crate) fn conflict_archaeology(
     repo: &Path,
     base: &str,
     branch: &str,

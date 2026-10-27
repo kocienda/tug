@@ -43,6 +43,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 use tugarc_core::ResolvedBy;
+use tugcast_core::types::ArcJoinLedgerEventBody;
 
 use crate::control::send_control;
 
@@ -344,6 +345,75 @@ pub fn compose_charter(inputs: &CharterInputs) -> String {
 pub struct ResolverTurnRequest {
     pub message: String,
     pub reply: oneshot::Sender<Result<ResolverTurn, String>>,
+    /// Where the turn's own words and tool calls go while it works, when
+    /// somebody is listening. A transport that has none to give ignores it.
+    pub events: Option<mpsc::UnboundedSender<ResolverStreamEvent>>,
+}
+
+/// One thing the resolver said or did mid-turn, read off its stream.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolverStreamEvent {
+    /// Assistant prose.
+    Text(String),
+    /// A tool call, with the file or pattern it names when it names one.
+    Tool { name: String, target: Option<String> },
+}
+
+impl ResolverStreamEvent {
+    /// A tool call as the face reads it: `Read Justfile`.
+    pub fn tool_label(name: &str, target: Option<&str>) -> String {
+        match target {
+            Some(t) => format!("{name} {t}"),
+            None => name.to_string(),
+        }
+    }
+}
+
+/// What one stream-json frame says the resolver is doing.
+///
+/// Only `assistant` frames carry it: each `text` item is prose, each
+/// `tool_use` item a call, named with the basename of the file or pattern it
+/// targets. Every other frame, and any shape this does not recognise, says
+/// nothing — the stream is a view of the work, never a contract on it.
+pub fn resolver_stream_events(value: &serde_json::Value) -> Vec<ResolverStreamEvent> {
+    if value.get("type").and_then(|t| t.as_str()) != Some("assistant") {
+        return Vec::new();
+    }
+    let Some(content) = value
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+    else {
+        return Vec::new();
+    };
+    content
+        .iter()
+        .filter_map(|item| match item.get("type").and_then(|t| t.as_str()) {
+            Some("text") => item
+                .get("text")
+                .and_then(|t| t.as_str())
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| ResolverStreamEvent::Text(t.to_string())),
+            Some("tool_use") => {
+                let name = item.get("name").and_then(|n| n.as_str())?;
+                let input = item.get("input");
+                let target = ["file_path", "path", "pattern"]
+                    .iter()
+                    .find_map(|k| input.and_then(|i| i.get(*k)).and_then(|v| v.as_str()))
+                    .map(|t| {
+                        Path::new(t)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| t.to_string())
+                    });
+                Some(ResolverStreamEvent::Tool {
+                    name: name.to_string(),
+                    target,
+                })
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// What runs a resolver. Production spawns `claude`; tests configure a command.
@@ -386,10 +456,18 @@ impl ResolverRun {
     /// A second ask in one resolve is a charter violation, refused here rather
     /// than in the orchestrator: the rule is the charter's, so it is enforced
     /// where the charter is.
-    pub async fn send(&mut self, message: String) -> Result<ResolverTurn, String> {
+    pub async fn send(
+        &mut self,
+        message: String,
+        events: Option<mpsc::UnboundedSender<ResolverStreamEvent>>,
+    ) -> Result<ResolverTurn, String> {
         let (reply, rx) = oneshot::channel();
         self.tx
-            .send(ResolverTurnRequest { message, reply })
+            .send(ResolverTurnRequest {
+                message,
+                reply,
+                events,
+            })
             .await
             .map_err(|_| "the resolver exited".to_string())?;
         let turn = rx.await.map_err(|_| "the resolver exited".to_string())??;
@@ -490,7 +568,12 @@ async fn drive_claude(
 ) {
     let mut lines = BufReader::new(stdout).lines();
 
-    while let Some(ResolverTurnRequest { message, reply }) = rx.recv().await {
+    while let Some(ResolverTurnRequest {
+        message,
+        reply,
+        events,
+    }) = rx.recv().await
+    {
         let frame = serde_json::json!({
             "type": "user",
             "message": { "role": "user", "content": [{ "type": "text", "text": message }] },
@@ -522,6 +605,13 @@ async fn drive_claude(
                         continue;
                     };
                     if value.get("type").and_then(|t| t.as_str()) != Some("result") {
+                        // Not the turn's end, but possibly what the resolver
+                        // is doing on the way to it: relayed, never waited on.
+                        if let Some(sink) = &events {
+                            for event in resolver_stream_events(&value) {
+                                let _ = sink.send(event);
+                            }
+                        }
                         continue;
                     }
                     if value.get("is_error").and_then(|e| e.as_bool()) == Some(true) {
@@ -609,7 +699,9 @@ async fn drive_stub(
 ) {
     let mut lines = BufReader::new(stdout).lines();
 
-    while let Some(ResolverTurnRequest { message, reply }) = rx.recv().await {
+    // The stub's protocol is one line per terminal turn, so it has nothing to
+    // relay mid-turn: the sink is dropped unused.
+    while let Some(ResolverTurnRequest { message, reply, .. }) = rx.recv().await {
         let line = serde_json::to_string(&serde_json::json!({ "text": message }))
             .expect("resolver turn serializes");
         if stdin
@@ -765,6 +857,8 @@ pub struct ResolverContext {
     /// The real spawn, when this build has one. Absent in any build with no
     /// model wired — including every test that does not script a stub.
     pub production: Option<Arc<dyn JoinResolverSpawner>>,
+    /// The run's ledger, shared with the ladder that ran before this resolver.
+    pub recorder: Arc<crate::feeds::join_ledger::LedgerRecorder>,
 }
 
 /// What the workshop looks like once the ladder's work has been carried into
@@ -875,7 +969,9 @@ async fn finish_join_inner(
     phase: &Phase,
 ) -> Result<(), String> {
     let state = open_workshop(ctx, outcome).await?;
-    emit_resolver_delta(ctx, "working", None);
+    ctx.recorder
+        .record_blocking(resolver_event(0, "started"))
+        .await;
 
     set_phase(phase, "starting the resolver");
     let spawner = {
@@ -905,7 +1001,7 @@ async fn finish_join_inner(
     }
 
     set_phase(phase, "waiting on the resolver");
-    let mut turn = run.send(charter).await?;
+    let mut turn = send_turn(ctx, &mut run, charter, 1).await?;
     checkpoint_turn(ctx).await;
     let mut asked: Option<tugcast_core::types::ArcJoinReportQuestion> = None;
 
@@ -917,14 +1013,22 @@ async fn finish_join_inner(
     if let ResolverTurn::Ask(ask) = &turn {
         set_phase(phase, "waiting on your answer");
         let answer = escalate(ctx, ask).await?;
+        {
+            let mut body = resolver_event(1, "answered");
+            if let ArcJoinLedgerEventBody::Resolver { answer: a, .. } = &mut body {
+                *a = Some(answer.clone());
+            }
+            ctx.recorder.record_blocking(body).await;
+        }
         asked = Some(tugcast_core::types::ArcJoinReportQuestion {
             question: ask.question.clone(),
             answer: answer.clone(),
         });
         set_phase(phase, "waiting on the resolver");
-        turn = run.send(compose_answer_turn(&answer)).await?;
+        turn = send_turn(ctx, &mut run, compose_answer_turn(&answer), 2).await?;
         checkpoint_turn(ctx).await;
     }
+    let turns: u32 = if asked.is_some() { 2 } else { 1 };
 
     let report = match turn {
         ResolverTurn::Report(report) => report,
@@ -950,9 +1054,123 @@ async fn finish_join_inner(
     // joined tree is built now, so a resolve resolves and stops.
     set_phase(phase, "committing the candidate");
     let candidate = commit_candidate(ctx, &state, &report, &baseline).await?;
+    record_candidate(ctx, &candidate, &state.base_branch).await;
     record_report(ctx, &candidate, &report).await?;
+    {
+        let mut body = resolver_event(turns, "reported");
+        if let ArcJoinLedgerEventBody::Resolver { notes, files, .. } = &mut body {
+            *notes = Some(report.notes.clone()).filter(|n| !n.is_empty());
+            *files = report.files.clone();
+        }
+        ctx.recorder.record_blocking(body).await;
+    }
     ctx.bump.notify_one();
     Ok(())
+}
+
+/// The most of a turn's last words the ledger keeps.
+const TURN_TEXT_CAP: usize = 1200;
+
+/// A resolver ledger event with nothing but its turn and status said.
+fn resolver_event(turn: u32, status: &str) -> ArcJoinLedgerEventBody {
+    ArcJoinLedgerEventBody::Resolver {
+        turn,
+        status: status.to_string(),
+        text: None,
+        tool: None,
+        tools: Vec::new(),
+        question: None,
+        answer: None,
+        notes: None,
+        files: Vec::new(),
+    }
+}
+
+/// One resolver turn, relayed to the run's ledger while it works.
+///
+/// Each word and tool call goes out as a live-only beat; when the turn ends,
+/// one kept `turn` event says what it last said and which tools it used. The
+/// beats are the view of a minutes-long turn, the event its record.
+async fn send_turn(
+    ctx: &ResolverContext,
+    run: &mut ResolverRun,
+    message: String,
+    turn: u32,
+) -> Result<ResolverTurn, String> {
+    let (tx, mut rx) = mpsc::unbounded_channel::<ResolverStreamEvent>();
+    let recorder = ctx.recorder.clone();
+    let forwarder = tokio::spawn(async move {
+        let mut last_text: Option<String> = None;
+        let mut tools: Vec<String> = Vec::new();
+        while let Some(event) = rx.recv().await {
+            let mut body = resolver_event(turn, "streaming");
+            if let ArcJoinLedgerEventBody::Resolver { text, tool, .. } = &mut body {
+                match event {
+                    ResolverStreamEvent::Text(t) => {
+                        last_text = Some(t.clone());
+                        *text = Some(t);
+                    }
+                    ResolverStreamEvent::Tool { name, target } => {
+                        let label = ResolverStreamEvent::tool_label(&name, target.as_deref());
+                        tools.push(label.clone());
+                        *tool = Some(label);
+                    }
+                }
+            }
+            recorder.stream(body);
+        }
+        (last_text, tools)
+    });
+    // The sink rides the request and drops when the transport finishes the
+    // turn, which is what lets the forwarder end.
+    let result = run.send(message, Some(tx)).await;
+    let (last_text, tools) = forwarder.await.unwrap_or_default();
+    if result.is_ok() {
+        let mut body = resolver_event(turn, "turn");
+        if let ArcJoinLedgerEventBody::Resolver {
+            text, tools: kept, ..
+        } = &mut body
+        {
+            *text = last_text.map(|t| t.chars().take(TURN_TEXT_CAP).collect());
+            *kept = tools;
+        }
+        ctx.recorder.record_blocking(body).await;
+    }
+    result
+}
+
+/// Record the candidate the resolver anchored, which may stand over the
+/// ladder's or be the only one: the ledger's last `candidate` must name the
+/// commit that stands.
+async fn record_candidate(ctx: &ResolverContext, candidate: &str, base_branch: &str) {
+    let repo = ctx.repo.clone();
+    let arc = ctx.arc.clone();
+    let base_branch = base_branch.to_string();
+    let read = tokio::task::spawn_blocking(move || {
+        let base_sha = tugarc_core::ops::rev_parse(&repo, &base_branch).unwrap_or_default();
+        let files = tugarc_core::resolve::read_resolved_rungs(&repo, &arc);
+        (base_sha, files)
+    })
+    .await;
+    let Ok((base_sha, files)) = read else {
+        return;
+    };
+    ctx.recorder
+        .record_blocking(ArcJoinLedgerEventBody::Candidate {
+            sha: candidate.to_string(),
+            base_sha,
+            files: files
+                .into_iter()
+                .map(|(path, by)| tugcast_core::types::ArcResolvedFile {
+                    path,
+                    resolved_by: by.as_str().to_string(),
+                    diff: None,
+                    added: None,
+                    removed: None,
+                })
+                .collect(),
+        })
+        .await;
 }
 
 /// Commit whatever the turn just did as a checkpoint on the conflict chain.
@@ -1030,7 +1248,13 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
         "options": question.options,
     });
     send_control(&ctx.control_tx, body);
-    emit_resolver_delta(ctx, "asking", None);
+    {
+        let mut body = resolver_event(1, "asked");
+        if let ArcJoinLedgerEventBody::Resolver { question: q, .. } = &mut body {
+            *q = Some(ask.question.clone());
+        }
+        ctx.recorder.record_blocking(body).await;
+    }
     ctx.bump.notify_one();
 
     let answer = tokio::time::timeout(QUESTION_DEADLINE, rx).await;
@@ -1295,28 +1519,6 @@ async fn record_report(
     .map_err(|e| e.to_string())
 }
 
-/// One `changeset_join_resolve_delta` for the resolver rung.
-/// The resolver rung's progress frame ([P08]).
-///
-/// It names a **candidate**, not a path, and says so in the field name. The
-/// resolver works over the whole tree rather than one file at a time, so it has
-/// no path to report; passing the candidate sha through the `path` slot made
-/// the face render a commit hash in its filename column, and made every status
-/// of one run look like a different file to a store that keys progress by path.
-fn emit_resolver_delta(ctx: &ResolverContext, status: &str, candidate: Option<&str>) {
-    let body = serde_json::json!({
-        "action": "changeset_join_resolve_delta",
-        "project_dir": ctx.project_dir,
-        "arc": ctx.arc,
-        "path": "",
-        "candidate": candidate,
-        "rung": "resolver",
-        "status": status,
-        "text": Option::<&str>::None,
-    });
-    send_control(&ctx.control_tx, body);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1456,6 +1658,71 @@ mod tests {
         assert!(validate_report(&report, &["a.txt".to_string()], &["a.txt".to_string()]).is_ok());
     }
 
+    /// Frames as `claude -p --output-format stream-json --verbose` writes them.
+    fn frame(json: &str) -> serde_json::Value {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_text_frame_is_the_resolver_speaking() {
+        let v = frame(
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Reading Justfile at the candidate."}]}}"#,
+        );
+        assert_eq!(
+            resolver_stream_events(&v),
+            vec![ResolverStreamEvent::Text(
+                "Reading Justfile at the candidate.".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn a_read_names_the_file_it_reads() {
+        let v = frame(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/w/ws/Justfile"}}]}}"#,
+        );
+        assert_eq!(
+            resolver_stream_events(&v),
+            vec![ResolverStreamEvent::Tool {
+                name: "Read".to_string(),
+                target: Some("Justfile".to_string())
+            }]
+        );
+    }
+
+    #[test]
+    fn mixed_content_keeps_its_order() {
+        let v = frame(
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Both sides edit the recipe."},{"type":"tool_use","name":"Grep","input":{"pattern":"capture"}},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#,
+        );
+        assert_eq!(
+            resolver_stream_events(&v),
+            vec![
+                ResolverStreamEvent::Text("Both sides edit the recipe.".to_string()),
+                ResolverStreamEvent::Tool {
+                    name: "Grep".to_string(),
+                    target: Some("capture".to_string())
+                },
+                ResolverStreamEvent::Tool {
+                    name: "Bash".to_string(),
+                    target: None
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn system_result_and_malformed_frames_say_nothing() {
+        for json in [
+            r#"{"type":"system","subtype":"init","session_id":"s"}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"{}"}"#,
+            r#"{"type":"assistant","message":"not an object"}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","input":{}}]}}"#,
+        ] {
+            assert!(resolver_stream_events(&frame(json)).is_empty(), "{json}");
+        }
+    }
+
     #[tokio::test]
     async fn the_stub_spawner_round_trips_a_scripted_resolve() {
         let (_temp, spawner) = stub(
@@ -1464,7 +1731,7 @@ mod tests {
         let workshop = tempfile::tempdir().unwrap();
         let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
 
-        let turn = run.send("charter".to_string()).await.unwrap();
+        let turn = run.send("charter".to_string(), None).await.unwrap();
         match turn {
             ResolverTurn::Report(report) => {
                 assert_eq!(report.files[0].path, "a.txt");
@@ -1482,11 +1749,11 @@ mod tests {
         let workshop = tempfile::tempdir().unwrap();
         let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
 
-        match run.send("charter".to_string()).await.unwrap() {
+        match run.send("charter".to_string(), None).await.unwrap() {
             ResolverTurn::Ask(ask) => assert_eq!(ask.question, "which?"),
             other => panic!("expected an ask, got {other:?}"),
         }
-        match run.send("pick a".to_string()).await.unwrap() {
+        match run.send("pick a".to_string(), None).await.unwrap() {
             ResolverTurn::Report(report) => assert_eq!(report.notes, "asked"),
             other => panic!("expected a report, got {other:?}"),
         }
@@ -1501,11 +1768,11 @@ mod tests {
         let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
 
         assert!(matches!(
-            run.send("charter".to_string()).await.unwrap(),
+            run.send("charter".to_string(), None).await.unwrap(),
             ResolverTurn::Ask(_)
         ));
         let err = run
-            .send("pick a".to_string())
+            .send("pick a".to_string(), None)
             .await
             .expect_err("a second ask is a charter violation");
         assert!(err.contains("asked twice"), "{err}");
@@ -1519,7 +1786,7 @@ mod tests {
         let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
 
         let err = run
-            .send("charter".to_string())
+            .send("charter".to_string(), None)
             .await
             .expect_err("prose is not a terminal shape");
         assert!(err.contains("not one JSON object"), "{err}");
@@ -1532,7 +1799,7 @@ mod tests {
         let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
 
         let err = run
-            .send("charter".to_string())
+            .send("charter".to_string(), None)
             .await
             .expect_err("a dead resolver is a failure, never a wait");
         assert!(err.contains("exited"), "{err}");
@@ -1607,6 +1874,11 @@ mod tests {
             arc: "demo".to_string(),
             project_dir: repo.to_string_lossy().to_string(),
             model: Arc::new(|| "model".to_string()),
+            recorder: Arc::new(crate::feeds::join_ledger::LedgerRecorder::new(
+                &repo.to_string_lossy(),
+                "demo",
+                control_tx.clone(),
+            )),
             control_tx,
             bump: Arc::new(tokio::sync::Notify::new()),
             production: None,
@@ -2175,6 +2447,7 @@ mod tests {
             tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         let mut frames = ctx.control_tx.subscribe();
+        let recorder = ctx.recorder.clone();
         let resolve = tokio::spawn(async move { finish_join(&ctx, &outcome).await });
 
         // The question reaches the card as a CONTROL frame…
@@ -2224,6 +2497,29 @@ mod tests {
         let report = tugarc_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
         assert!(report.contains("Which name wins?"), "{report}");
         assert!(report.contains("the arc"), "{report}");
+
+        // The run's ledger carries the resolver's beats in order, and its
+        // candidate names the commit that stands.
+        let beats: Vec<String> = recorder
+            .events()
+            .into_iter()
+            .filter_map(|e| match e.body {
+                ArcJoinLedgerEventBody::Resolver { status, .. } if status != "turn" => {
+                    Some(status)
+                }
+                ArcJoinLedgerEventBody::Candidate { sha, .. } => {
+                    assert_eq!(sha, candidate, "the ledger's candidate is the anchored one");
+                    Some("candidate".to_string())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            beats,
+            vec!["started", "asked", "answered", "candidate", "reported"],
+            "{:?}",
+            recorder.events()
+        );
     }
 
     /// An answer nobody is waiting for is refused, not swallowed — the control

@@ -1,0 +1,50 @@
+/* Base-motion receipt — the replay and the stopped replay, as transcript
+   blocks. Composes the fold's `arc-fold-*` rows (their own stylesheet rides
+   `ArcFoldRow`'s import), so what this file owns is the identity's face and
+   the body's inset, the same two things the resolve ledger's blocks own. */
+
+/* The identity is a sentence about an arc, not a command, so it takes the
+   receipt's face; the arc's name inside it is a `<code>` run in the block's
+   mono. */
+.base-motion-receipt-identity {
+  display: block;
+  min-width: 0;
+  font-family: var(--tugx-commit-subject-font, var(--tug-font-family-sans));
+  color: var(--tugx-block-text-color);
+}
+
+.base-motion-receipt-identity code {
+  font-family: var(--tugx-block-code-font);
+}
+
+.base-motion-receipt-sha {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: baseline;
+}
+
+/* Body kinds own their inset. Rows carry their own inline inset, so the body
+   states only the block inset. */
+.base-motion-receipt-rows {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-block: var(--tugx-block-receipt-inset-block);
+}
+
+.base-motion-receipt-rows .arc-fold-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.6ch;
+}
+
+/* A replay that brought nothing in says so in a line of prose, on the rows'
+   text edge. */
+.base-motion-receipt-words {
+  padding: var(--tugx-block-receipt-inset-block) var(--tugx-block-receipt-inset-inline);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
+  color: var(--tugx-block-text-color-muted);
+}

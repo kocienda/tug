@@ -50,6 +50,7 @@ export const CONTROL_ACTIONS = [
   "landing_receipt",
   "changeset_join",
   "changeset_join_resolve",
+  "changeset_join_resolve_again",
   "changeset_join_resolve_base",
   "changeset_join_resolve_base_undo",
   "changeset_join_question_answer",

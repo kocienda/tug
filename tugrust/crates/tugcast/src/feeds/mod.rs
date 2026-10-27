@@ -33,6 +33,7 @@ pub mod git;
 pub mod git_watch;
 pub mod host_tools;
 pub mod join_board;
+pub mod join_ledger;
 pub mod join_occupancy;
 pub mod join_pilot;
 pub mod join_resolve;

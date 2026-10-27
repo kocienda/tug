@@ -15,6 +15,7 @@ import type { ContentBlock } from "../../protocol";
 import type { PermissionMode, ReplayWindow } from "@tugproto/inbound";
 import type { InterruptReason, TextRef } from "./types";
 import type * as Wire from "@tugproto/outbound";
+import type { BaseMotionNoticeFacts } from "@tugproto/outbound-decoders";
 
 /**
  * A tugcode frame as the store hands it to the reducer, typed from its
@@ -1234,6 +1235,11 @@ export interface TugNoticeEvent {
   standalone?: boolean;
   timestamp?: number;
   tug_session_id?: string;
+  /**
+   * A base-motion notice's outcome as data (Spec S06) — what lets the
+   * transcript draw the replay as a receipt instead of a paragraph.
+   */
+  facts?: BaseMotionNoticeFacts;
   /** Same mint contract as {@link AssistantOpenerEvent.turnKey}. */
   turnKey: string;
   [key: string]: unknown;

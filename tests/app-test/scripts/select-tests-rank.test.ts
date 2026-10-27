@@ -34,7 +34,7 @@ import { copyAppTestTree } from "./copy-app-test-tree";
 
 const REAL_APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const REAL_REPO = resolve(REAL_APP_TEST_DIR, "..", "..");
-const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws", "tugplug"];
+const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws", "tugplug", "tugproto"];
 const FOCUS = "tugdeck/src/components/tugways/focus-manager.ts";
 const COPIED = [FOCUS, "tugdeck/src/test-surface.ts"];
 const MAX_SELECTED = 20;

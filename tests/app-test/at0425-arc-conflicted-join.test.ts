@@ -42,6 +42,8 @@
  *   flips to Leave only on the `bind_arc_ok` broadcast that comes back.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-join.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-resolve-ledger.tsx
+ * @covers tugdeck/src/lib/resolve-ledger.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx

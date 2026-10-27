@@ -7,6 +7,11 @@
  * how its edges read when it is mounted outside a transcript — a rounded strip
  * on a row rather than an edge-to-edge band.
  *
+ * The row paints whole. A clip on the root cut the trailing badge, which
+ * stands taller than the one line the header's summary cluster is laid out
+ * in; the rounded edge is kept instead by the strip itself taking the root's
+ * radius, which reads no token of anybody's.
+ *
  * [L20] — this file references register-scoped tokens only. It must never
  * override, alias, or read `--tugx-toolheader-*`: those are the header's, and
  * reaching into them from here is how one surface's tuning silently becomes
@@ -16,5 +21,9 @@
 .tug-arc-join-register {
   min-width: 0;
   border-radius: var(--tug-radius-md);
-  overflow: hidden;
+  overflow: visible;
+}
+
+.tug-arc-join-register > * {
+  border-radius: inherit;
 }

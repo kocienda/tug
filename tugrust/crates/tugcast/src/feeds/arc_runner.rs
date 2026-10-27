@@ -2688,7 +2688,7 @@ async fn deliver_prompt(
     let session = arc.session.as_str().to_string();
     ctx.supervisor.code_output.publish_tagged(Frame::new(
         FeedId::CODE_OUTPUT,
-        super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text),
+        super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text, None),
     ));
     ctx.supervisor
         .dispatch_one(Frame::new(
@@ -3366,7 +3366,7 @@ async fn continue_stage(
     let session = arc.session.as_str().to_string();
     ctx.supervisor.code_output.publish_tagged(Frame::new(
         FeedId::CODE_OUTPUT,
-        super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text),
+        super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text, None),
     ));
     ctx.supervisor
         .dispatch_one(Frame::new(

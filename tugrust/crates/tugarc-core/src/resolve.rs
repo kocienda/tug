@@ -30,6 +30,10 @@
 //! Every rung's per-file outcome is recorded so callers can report exactly what
 //! happened. Non-content conflicts (delete/modify, binary, mode) short-circuit
 //! straight to unresolved — text tools never guess at structure.
+//!
+//! A caller that wants to watch the ladder work passes a [`ResolveObserver`] to
+//! [`resolve_conflicts_observed`]; each rung's verdict, with the reason a rung
+//! declined, arrives as a [`LadderEvent`] while the ladder runs.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -43,10 +47,10 @@ use tugtool_core::sanitize_branch_name;
 
 use crate::error::ArcError;
 use crate::ops::{
-    arc_base, branch_exists, branch_name, commit_worktree_dirt, config_get, git_output, git_stdout,
-    integrate_message, main_repo_root, worktree_path,
+    ConflictHistory, arc_base, branch_exists, branch_name, commit_worktree_dirt, config_get,
+    conflict_archaeology, git_output, git_stdout, integrate_message, main_repo_root, worktree_path,
 };
-use crate::replay::{ReplayWalk, ReplayedRounds};
+use crate::replay::ReplayWalk;
 
 /// Which rung resolved a file ([P31]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -96,6 +100,61 @@ pub struct FileMergeRequest {
 /// the `tugarc` CLI passes `None`. A `None` return leaves the file unresolved.
 pub trait FileMerger: Send + Sync {
     fn merge(&self, req: &FileMergeRequest) -> Option<Vec<u8>>;
+}
+
+/// What the ladder did, one rung's verdict at a time, for a caller that wants
+/// to show the work as it happens rather than only its result.
+///
+/// Plain data with no knowledge of any wire: tugcast maps it onto its own
+/// ledger event. There is no `Ended` arm — only the caller knows whether a
+/// resolver follows the ladder, so only the caller can say the run is over.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LadderEvent {
+    /// The squash's conflict set, and what the base did to each path. Empty
+    /// `paths` is a clean squash.
+    Probe {
+        paths: Vec<String>,
+        archaeology: Vec<ConflictHistory>,
+    },
+    /// One machine rung's verdict. `path` is `None` for the whole-arc replay.
+    Rung {
+        rung: ResolvedBy,
+        path: Option<String>,
+        resolved: bool,
+        said: String,
+    },
+    /// The AI rung took up a file.
+    ScribeStarted { path: String },
+    /// The AI rung's verdict on a file, decided after the ladder's own marker
+    /// check, so the merger alone could not report it. The counts are the
+    /// merged bytes against the base side's stage, as git counts them.
+    ScribeEnded {
+        path: String,
+        resolved: bool,
+        said: String,
+        added: Option<u32>,
+        removed: Option<u32>,
+    },
+    /// The candidate the run anchored, emitted after the ref is written so an
+    /// observer that sees it can trust the ref exists.
+    Candidate {
+        sha: String,
+        base_sha: String,
+        files: Vec<(String, ResolvedBy)>,
+    },
+}
+
+/// The ladder's watcher. Called on the ladder's own thread, in order.
+pub trait ResolveObserver: Send + Sync {
+    fn ladder(&self, event: LadderEvent);
+}
+
+/// Tell the observer, when there is one. The event is built only then, so an
+/// unwatched ladder pays nothing for the reporting.
+fn tell(observer: Option<&dyn ResolveObserver>, event: impl FnOnce() -> LadderEvent) {
+    if let Some(o) = observer {
+        o.ladder(event());
+    }
 }
 
 /// One file's resolution, for reporting.
@@ -192,7 +251,23 @@ pub fn resolve_conflicts(
     name: &str,
     merger: Option<&dyn FileMerger>,
 ) -> Result<ResolveOutcome, ArcError> {
-    let mut outcome = resolve_ladder(paths, repo, name, merger)?;
+    resolve_conflicts_observed(paths, repo, name, merger, None)
+}
+
+/// [`resolve_conflicts`], with every rung's verdict reported to `observer` as
+/// the ladder reaches it.
+pub fn resolve_conflicts_observed(
+    paths: &Paths,
+    repo: &Path,
+    name: &str,
+    merger: Option<&dyn FileMerger>,
+    observer: Option<&dyn ResolveObserver>,
+) -> Result<ResolveOutcome, ArcError> {
+    // Every run replaces the last one's ledger, observed or not ([P05]): a
+    // CLI resolve records nothing, and leaving the previous run's account
+    // standing would describe a candidate this run did not build.
+    clear_ledger(repo, name);
+    let mut outcome = resolve_ladder(paths, repo, name, merger, observer)?;
 
     // Anchor at one site rather than at each of the ladder's four success
     // exits. The arc head is read here — *after* the ladder's
@@ -221,6 +296,18 @@ pub fn resolve_conflicts(
                     &["config", "--add", &join_resolved_config_key(name), &value],
                 );
             }
+            // Told only now, with the ref written: an observer that sees the
+            // candidate can trust it stands.
+            tell(observer, || LadderEvent::Candidate {
+                sha: candidate.clone(),
+                base_sha: git_stdout(repo, &["rev-parse", &outcome.base_branch])
+                    .unwrap_or_default(),
+                files: outcome
+                    .resolved
+                    .iter()
+                    .map(|r| (r.path.clone(), r.resolved_by))
+                    .collect(),
+            });
         }
         // A partial outcome lands nothing, so any previously anchored candidate
         // is now describing a resolution this run did not reach. Clearing it
@@ -261,6 +348,7 @@ fn resolve_ladder(
     repo: &Path,
     name: &str,
     merger: Option<&dyn FileMerger>,
+    observer: Option<&dyn ResolveObserver>,
 ) -> Result<ResolveOutcome, ArcError> {
     let branch = branch_name(name);
     if !branch_exists(repo, &branch) {
@@ -297,6 +385,10 @@ fn resolve_ladder(
     // and so was audited against nothing.
     let (cand_tree, stages) = merge_tree_stages(repo, &base_branch, &branch)?;
     let preview_conflicts: Vec<String> = stages.keys().cloned().collect();
+    tell(observer, || LadderEvent::Probe {
+        paths: preview_conflicts.clone(),
+        archaeology: conflict_archaeology(repo, &base_branch, &branch, &preview_conflicts),
+    });
 
     if stages.is_empty() {
         // Nothing conflicts — the one-shot squash is clean, so commit its tree
@@ -328,7 +420,27 @@ fn resolve_ladder(
     }
 
     // Rung 1 — replay probe (in-memory per round; git ≥ 2.40).
-    if let Some(replayed) = replay_probe(repo, &base_head, &base_branch, &branch)? {
+    //
+    // Walked directly rather than through `replay_probe`, which collapses the
+    // round that stopped the walk into `None` — and that round is the reason
+    // the rung declined.
+    let replayed = match crate::replay::walk_rounds(repo, &base_head, &base_branch, &branch)? {
+        ReplayWalk::Clean(replayed) => Ok(replayed),
+        ReplayWalk::Conflicted { round_subject, .. } => {
+            Err(format!("stopped at \"{round_subject}\""))
+        }
+        ReplayWalk::Unavailable => Err("replay unavailable (git < 2.40 or no rounds)".to_string()),
+    };
+    tell(observer, || LadderEvent::Rung {
+        rung: ResolvedBy::Replay,
+        path: None,
+        resolved: replayed.is_ok(),
+        said: match &replayed {
+            Ok(_) => "every round replayed clean onto the base".to_string(),
+            Err(why) => why.clone(),
+        },
+    });
+    if let Ok(replayed) = replayed {
         return Ok(ResolveOutcome {
             conflict_record: None,
             shape: JoinShape::Replay,
@@ -369,11 +481,23 @@ fn resolve_ladder(
     // build the map the loop below consults. So salvage is computed as a batch
     // too — a check placed only inside the loop would still pay for rerere's
     // worktree even when every path salvages.
-    let salvaged = salvage_rung(repo, prior_chain.as_ref(), &stages);
-    let rerere_resolved = if salvaged.len() == stages.len() {
+    let (salvaged, salvage_declined) = salvage_rung(repo, prior_chain.as_ref(), &stages);
+    let rerere_ran = salvaged.len() != stages.len();
+    let rerere_resolved = if !rerere_ran {
         BTreeMap::new()
     } else {
         rerere_rung(repo, &base_head, &branch, &stages, &mut warnings)
+    };
+    // Asked once: whether a driver is configured at all is the difference
+    // between two declined reasons, and the answer cannot change mid-loop.
+    let has_driver = observer.is_some() && driver_program(repo).is_some();
+    let rung = |rung: ResolvedBy, path: &str, resolved: bool, said: &str| {
+        tell(observer, || LadderEvent::Rung {
+            rung,
+            path: Some(path.to_string()),
+            resolved,
+            said: said.to_string(),
+        });
     };
 
     let mut resolved: Vec<ResolvedFile> = Vec::new();
@@ -382,6 +506,12 @@ fn resolve_ladder(
     for (path, raw) in &stages {
         // This arc's own prior resolution, replayed on exact stage identity.
         if let Some(oid) = salvaged.get(path) {
+            rung(
+                ResolvedBy::Salvage,
+                path,
+                true,
+                "replayed this arc's own earlier resolution",
+            );
             resolved.push(ResolvedFile {
                 path: path.clone(),
                 by: ResolvedBy::Salvage,
@@ -390,9 +520,19 @@ fn resolve_ladder(
             });
             continue;
         }
+        rung(
+            ResolvedBy::Salvage,
+            path,
+            false,
+            salvage_declined
+                .get(path)
+                .copied()
+                .unwrap_or("stage oids changed since the prior chain"),
+        );
 
         // Recorded resolution replayed by rerere.
         if let Some(oid) = rerere_resolved.get(path) {
+            rung(ResolvedBy::Rerere, path, true, "replayed a recorded resolution");
             resolved.push(ResolvedFile {
                 path: path.clone(),
                 by: ResolvedBy::Rerere,
@@ -401,11 +541,15 @@ fn resolve_ladder(
             });
             continue;
         }
+        if rerere_ran {
+            rung(ResolvedBy::Rerere, path, false, "no recorded resolution");
+        }
 
         // Load the three blobs; non-content conflicts short-circuit.
         let loaded = match raw.load(repo) {
             Some(l) => l,
             None => {
+                rung(ResolvedBy::MergeFile, path, false, "not a content conflict");
                 unresolved.push(path.clone());
                 continue;
             }
@@ -413,6 +557,7 @@ fn resolve_ladder(
 
         // Rung 3 — opportunistic merge-file re-merge.
         if let Some(bytes) = merge_file_rung(scratch.path(), path, &loaded) {
+            rung(ResolvedBy::MergeFile, path, true, "merged clean three ways");
             let oid = hash_blob(repo, &bytes)?;
             resolved.push(ResolvedFile {
                 path: path.clone(),
@@ -422,9 +567,16 @@ fn resolve_ladder(
             });
             continue;
         }
+        rung(
+            ResolvedBy::MergeFile,
+            path,
+            false,
+            "conflict blocks remain after a three-way merge",
+        );
 
         // Rung 4 — structured-merge driver.
         if let Some(bytes) = driver_rung(repo, scratch.path(), path, &loaded) {
+            rung(ResolvedBy::Driver, path, true, "the merge driver resolved it");
             let oid = hash_blob(repo, &bytes)?;
             resolved.push(ResolvedFile {
                 path: path.clone(),
@@ -434,6 +586,16 @@ fn resolve_ladder(
             });
             continue;
         }
+        rung(
+            ResolvedBy::Driver,
+            path,
+            false,
+            if has_driver {
+                "the driver left conflicts"
+            } else {
+                "no merge driver on PATH"
+            },
+        );
 
         // Rung 5 — AI.
         if let Some(m) = merger {
@@ -444,18 +606,46 @@ fn resolve_ladder(
                 theirs: loaded.theirs.clone(),
                 intent: intent.clone(),
             };
-            if let Some(bytes) = m.merge(&req) {
-                if is_clean_merge(&bytes) {
-                    let oid = hash_blob(repo, &bytes)?;
-                    resolved.push(ResolvedFile {
-                        path: path.clone(),
-                        by: ResolvedBy::Ai,
-                        blob_oid: oid,
-                        mode: raw.merged_mode(),
-                    });
-                    continue;
+            tell(observer, || LadderEvent::ScribeStarted { path: path.clone() });
+            let merged = m.merge(&req);
+            let declined = match &merged {
+                None => Some("the scribe returned nothing"),
+                Some(bytes) if !is_clean_merge(bytes) => {
+                    Some("the scribe's merge still has conflict markers")
                 }
+                Some(_) => None,
+            };
+            if let (Some(bytes), None) = (merged, declined) {
+                let oid = hash_blob(repo, &bytes)?;
+                tell(observer, || {
+                    let (added, removed) = raw
+                        .ours
+                        .as_ref()
+                        .and_then(|(_, ours)| blob_numstat(repo, ours, &oid))
+                        .unwrap_or((None, None));
+                    LadderEvent::ScribeEnded {
+                        path: path.clone(),
+                        resolved: true,
+                        said: "merged clean".to_string(),
+                        added,
+                        removed,
+                    }
+                });
+                resolved.push(ResolvedFile {
+                    path: path.clone(),
+                    by: ResolvedBy::Ai,
+                    blob_oid: oid,
+                    mode: raw.merged_mode(),
+                });
+                continue;
             }
+            tell(observer, || LadderEvent::ScribeEnded {
+                path: path.clone(),
+                resolved: false,
+                said: declined.unwrap_or_default().to_string(),
+                added: None,
+                removed: None,
+            });
         }
 
         unresolved.push(path.clone());
@@ -674,16 +864,32 @@ fn resolution_diff(
 ///
 /// The walk itself lives in [`crate::replay`], which needs the same rebuild plus
 /// the detail of *which* round stopped it.
+#[cfg(test)]
 pub(crate) fn replay_probe(
     repo: &Path,
     base_head: &str,
     base_branch: &str,
     branch: &str,
-) -> Result<Option<ReplayedRounds>, ArcError> {
+) -> Result<Option<crate::replay::ReplayedRounds>, ArcError> {
     match crate::replay::walk_rounds(repo, base_head, base_branch, branch)? {
         ReplayWalk::Clean(replayed) => Ok(Some(replayed)),
         ReplayWalk::Conflicted { .. } | ReplayWalk::Unavailable => Ok(None),
     }
+}
+
+/// Lines added and removed going from one blob to another, as git counts them.
+/// `None` when git declines to say, which costs the counts and nothing else.
+fn blob_numstat(repo: &Path, from: &str, to: &str) -> Option<(Option<u32>, Option<u32>)> {
+    let raw = git_stdout(repo, &["diff", "--numstat", from, to]).ok()?;
+    // A blob pair's numstat line names no path, so pad the field `parse_numstat`
+    // expects rather than teaching it a second shape.
+    let line = raw.lines().next()?;
+    let line = if line.split('\t').count() == 2 {
+        format!("{line}\t-")
+    } else {
+        line.to_string()
+    };
+    parse_numstat(&line)
 }
 
 /// Whether `git` here supports `merge-tree --merge-base` (git ≥ 2.40).
@@ -840,17 +1046,22 @@ fn merge_tree_stages(
 /// and rung 2 already covers the driver and AI results the teach-back saw.
 /// Harvesting them here would widen the precondition for no gain.
 ///
-/// Returns `path → resolved blob oid`. A path is salvaged only when it is also
-/// marker-free at the prior tip — a checkpoint that left the block standing
-/// resolved nothing.
+/// Returns `path → resolved blob oid`, and beside it `path → why not` for every
+/// other conflicted path, which is what a watcher is told when salvage
+/// declines. A path is salvaged only when it is also marker-free at the prior
+/// tip — a checkpoint that left the block standing resolved nothing.
 fn salvage_rung(
     repo: &Path,
     prior: Option<&ConflictChain>,
     stages: &BTreeMap<String, RawStages>,
-) -> BTreeMap<String, String> {
+) -> (BTreeMap<String, String>, BTreeMap<String, &'static str>) {
     let mut out = BTreeMap::new();
+    let mut declined: BTreeMap<String, &'static str> = BTreeMap::new();
     let Some(chain) = prior else {
-        return out;
+        for path in stages.keys() {
+            declined.insert(path.clone(), "no prior chain to salvage from");
+        }
+        return (out, declined);
     };
     let same = |recorded: &Option<ConflictStage>, current: &Option<(String, String)>| match (
         recorded, current,
@@ -870,8 +1081,15 @@ fn salvage_rung(
             })
         })
         .collect();
+    // Every path not among the candidates is missing from the chain's record
+    // or has a stage that moved; the two read the same to a watcher.
+    for path in stages.keys() {
+        if !candidates.iter().any(|p| &p.path == path) {
+            declined.insert(path.clone(), "stage oids changed since the prior chain");
+        }
+    }
     if candidates.is_empty() {
-        return out;
+        return (out, declined);
     }
 
     // One batched marker read over the candidates rather than one per path.
@@ -881,13 +1099,22 @@ fn salvage_rung(
             .into_iter()
             .collect();
 
-    for path in paths.iter().filter(|p| !still_conflicted.contains(*p)) {
+    for path in &paths {
+        if still_conflicted.contains(path) {
+            declined.insert(path.clone(), "the prior chain left it unresolved");
+            continue;
+        }
         let oid = git_stdout(repo, &["rev-parse", &format!("{}:{}", chain.tip, path)]);
-        if let Ok(oid) = oid {
-            out.insert(path.clone(), oid);
+        match oid {
+            Ok(oid) => {
+                out.insert(path.clone(), oid);
+            }
+            Err(_) => {
+                declined.insert(path.clone(), "the prior chain's resolution could not be read");
+            }
         }
     }
-    out
+    (out, declined)
 }
 
 /// Replay recorded conflict resolutions ([P31]) in a scratch detached worktree:
@@ -1959,6 +2186,57 @@ pub fn read_lastask(repo: &Path, name: &str, arc_head: &str) -> Option<String> {
 /// into a charter, so it is offered forward exactly once.
 pub fn clear_lastask(repo: &Path, name: &str) {
     let _ = git_output(repo, &["config", "--unset-all", &lastask_config_key(name)]);
+}
+
+/// Where the last resolve run's ledger is pointed from: the oid of a JSON
+/// blob (Spec S04).
+///
+/// Like the report it is a blob rather than a config value, because it holds
+/// model-authored prose. Unlike the report it is anchored to nothing: a
+/// ledger is the account of the last run, whatever that run produced, so it
+/// is replaced when the next run starts rather than demoted when a candidate
+/// goes. That is why it is **not** among [`clear_candidate_marks`]'s keys —
+/// a stale candidate is exactly the moment the ledger of the run that built
+/// it is worth reading — and why it lives under `branch.tugarc/<name>`, which
+/// git removes with the branch when the arc joins or is discarded.
+pub fn ledger_config_key(name: &str) -> String {
+    format!("branch.tugarc/{}.tugjoinledger", name)
+}
+
+/// Store a run's ledger as a blob the config points at, replacing the last.
+pub fn write_ledger(repo: &Path, name: &str, json: &str) -> Result<(), ArcError> {
+    let blob = hash_blob(repo, json.as_bytes())?;
+    let key = ledger_config_key(name);
+    let args = ["config", "--replace-all", &key, &blob];
+    let out = git_output(repo, &args)?;
+    if !out.status.success() {
+        return Err(ArcError::git(
+            format!("failed to record the resolve ledger for {}", name),
+            &args,
+            String::from_utf8_lossy(&out.stderr).trim(),
+        ));
+    }
+    Ok(())
+}
+
+/// The standing ledger's blob oid, without reading the blob — what a reader
+/// that caches by oid checks first.
+pub fn ledger_oid(repo: &Path, name: &str) -> Option<String> {
+    config_get(repo, &ledger_config_key(name))
+}
+
+/// The standing ledger as `(oid, json)`, if one stands and its blob reads.
+pub fn read_ledger(repo: &Path, name: &str) -> Option<(String, String)> {
+    let oid = ledger_oid(repo, name)?;
+    let json = git_stdout(repo, &["cat-file", "blob", &oid]).ok()?;
+    Some((oid, json))
+}
+
+/// Drop the standing ledger — what every ladder run does as it starts, so the
+/// ledger on the arc is always the account of the last run and never a
+/// splice of two.
+pub fn clear_ledger(repo: &Path, name: &str) {
+    let _ = git_output(repo, &["config", "--unset-all", &ledger_config_key(name)]);
 }
 
 /// Clear every mark that describes a candidate, without touching the ref.
@@ -3958,6 +4236,254 @@ mod tests {
         assert_eq!(
             read_question(repo, "demo", head).as_deref(),
             Some(r#"{"question":"which side?"}"#)
+        );
+    }
+
+    // ---- the observer seam ----
+
+    /// Every event the ladder reports, in the order it reported them.
+    #[derive(Default)]
+    struct RecordingObserver(std::sync::Mutex<Vec<LadderEvent>>);
+
+    impl ResolveObserver for RecordingObserver {
+        fn ladder(&self, event: LadderEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+    }
+
+    impl RecordingObserver {
+        fn events(&self) -> Vec<LadderEvent> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    /// `(rung, path, resolved, said)` for every rung event, dropping the rest.
+    fn rungs(events: &[LadderEvent]) -> Vec<(ResolvedBy, Option<String>, bool, String)> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                LadderEvent::Rung {
+                    rung,
+                    path,
+                    resolved,
+                    said,
+                } => Some((*rung, path.clone(), *resolved, said.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_driver_resolved_conflict_reports_every_rung_in_order() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "C\n");
+        git(repo, &["commit", "-am", "main to C"]);
+        stub_driver(repo, "DRIVER\n");
+
+        let seen = RecordingObserver::default();
+        let outcome = resolve_conflicts_observed(&paths, repo, "demo", None, Some(&seen)).unwrap();
+        let candidate = outcome.candidate_commit.expect("the driver resolves it");
+        let events = seen.events();
+
+        assert!(
+            matches!(&events[0], LadderEvent::Probe { paths, .. } if paths == &vec!["f.txt".to_string()]),
+            "the probe comes first: {events:?}"
+        );
+        let f = Some("f.txt".to_string());
+        assert_eq!(
+            rungs(&events),
+            vec![
+                (ResolvedBy::Replay, None, false, "stopped at \"r1\"".to_string()),
+                (
+                    ResolvedBy::Salvage,
+                    f.clone(),
+                    false,
+                    "no prior chain to salvage from".to_string()
+                ),
+                (ResolvedBy::Rerere, f.clone(), false, "no recorded resolution".to_string()),
+                (
+                    ResolvedBy::MergeFile,
+                    f.clone(),
+                    false,
+                    "conflict blocks remain after a three-way merge".to_string()
+                ),
+                (ResolvedBy::Driver, f.clone(), true, "the merge driver resolved it".to_string()),
+            ]
+        );
+        let base_sha = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        assert_eq!(
+            events.last(),
+            Some(&LadderEvent::Candidate {
+                sha: candidate,
+                base_sha,
+                files: vec![("f.txt".to_string(), ResolvedBy::Driver)],
+            }),
+            "and the anchored candidate comes last"
+        );
+    }
+
+    #[test]
+    fn a_clean_replay_reports_the_replay_rung_resolved() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = init(&[("f.txt", "B\n", "r1"), ("f.txt", "C\n", "r2")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "B\n");
+        git(repo, &["commit", "-am", "main advances to B"]);
+
+        let seen = RecordingObserver::default();
+        resolve_conflicts_observed(&paths, repo, "demo", None, Some(&seen)).unwrap();
+        let events = seen.events();
+        assert!(matches!(&events[0], LadderEvent::Probe { paths, .. } if !paths.is_empty()));
+        assert_eq!(
+            rungs(&events),
+            vec![(
+                ResolvedBy::Replay,
+                None,
+                true,
+                "every round replayed clean onto the base".to_string()
+            )]
+        );
+        assert!(matches!(events.last(), Some(LadderEvent::Candidate { .. })));
+        assert_eq!(events.len(), 3, "probe, replay, candidate: {events:?}");
+    }
+
+    #[test]
+    fn a_clean_squash_reports_an_empty_probe_and_its_candidate() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = init(&[("g.txt", "new\n", "r1")]);
+        let repo = temp.path();
+
+        let seen = RecordingObserver::default();
+        resolve_conflicts_observed(&paths, repo, "demo", None, Some(&seen)).unwrap();
+        let events = seen.events();
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert_eq!(
+            events[0],
+            LadderEvent::Probe {
+                paths: Vec::new(),
+                archaeology: Vec::new()
+            }
+        );
+        assert!(matches!(&events[1], LadderEvent::Candidate { files, .. } if files.is_empty()));
+    }
+
+    #[test]
+    fn salvage_says_a_moved_stage_is_why_it_declined() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = init_two_file_conflict();
+        let repo = temp.path();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
+        checkpoint_one(repo, "a.txt", "settled by a person\n");
+        set(repo, "a.txt", "base again\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base rewrites a"]);
+
+        let seen = RecordingObserver::default();
+        resolve_conflicts_observed(&paths, repo, "demo", None, Some(&seen)).unwrap();
+        assert!(
+            rungs(&seen.events()).contains(&(
+                ResolvedBy::Salvage,
+                Some("a.txt".to_string()),
+                false,
+                "stage oids changed since the prior chain".to_string()
+            )),
+            "{:?}",
+            seen.events()
+        );
+    }
+
+    // ---- the durable ledger ----
+
+    #[test]
+    fn a_written_ledger_reads_back_with_its_oid() {
+        let temp = init(&[("g.txt", "new\n", "r1")]);
+        let repo = temp.path();
+        let json = r#"{"run":"1","started_ms":1,"events":[]}"#;
+        write_ledger(repo, "demo", json).unwrap();
+        let (oid, read) = read_ledger(repo, "demo").expect("a ledger stands");
+        assert_eq!(read, json);
+        assert_eq!(ledger_oid(repo, "demo").as_deref(), Some(oid.as_str()));
+    }
+
+    /// A stale candidate is the moment the run that built it is worth reading,
+    /// so dropping the candidate leaves the ledger standing ([P05]).
+    #[test]
+    fn clearing_a_candidate_leaves_the_ledger_standing() {
+        let temp = init(&[("g.txt", "new\n", "r1")]);
+        let repo = temp.path();
+        write_ledger(repo, "demo", "{}").unwrap();
+        clear_candidate(repo, "demo");
+        assert!(read_ledger(repo, "demo").is_some());
+    }
+
+    /// The ledger's key lives under the branch's own config section, so
+    /// deleting the branch — a join or a discard — takes it along.
+    #[test]
+    fn deleting_the_branch_removes_the_ledger() {
+        let temp = init(&[("g.txt", "new\n", "r1")]);
+        let repo = temp.path();
+        write_ledger(repo, "demo", "{}").unwrap();
+        git(repo, &["branch", "-D", "tugarc/demo"]);
+        assert!(read_ledger(repo, "demo").is_none());
+    }
+
+    /// Every run replaces the last one's account, observed or not: a CLI
+    /// resolve records nothing, and must not leave the previous run's ledger
+    /// describing a candidate it did not build.
+    #[test]
+    fn a_second_resolve_clears_the_ledger_the_first_left() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = init(&[("g.txt", "new\n", "r1")]);
+        let repo = temp.path();
+        write_ledger(repo, "demo", r#"{"run":"old"}"#).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
+        assert!(read_ledger(repo, "demo").is_none());
+    }
+
+    #[test]
+    fn a_marker_bearing_scribe_merge_is_reported_declined() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "C\n");
+        git(repo, &["commit", "-am", "main to C"]);
+        struct BadAi;
+        impl FileMerger for BadAi {
+            fn merge(&self, _req: &FileMergeRequest) -> Option<Vec<u8>> {
+                Some(b"<<<<<<< ours\nB\n=======\nC\n>>>>>>> theirs\n".to_vec())
+            }
+        }
+
+        let seen = RecordingObserver::default();
+        resolve_conflicts_observed(&paths, repo, "demo", Some(&BadAi), Some(&seen)).unwrap();
+        let events = seen.events();
+        let at = events
+            .iter()
+            .position(|e| matches!(e, LadderEvent::ScribeStarted { .. }))
+            .expect("the scribe started");
+        assert_eq!(
+            events[at + 1],
+            LadderEvent::ScribeEnded {
+                path: "f.txt".to_string(),
+                resolved: false,
+                said: "the scribe's merge still has conflict markers".to_string(),
+                added: None,
+                removed: None,
+            }
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, LadderEvent::Candidate { .. })),
+            "a partial run anchors no candidate"
         );
     }
 }

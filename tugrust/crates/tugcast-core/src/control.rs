@@ -83,6 +83,7 @@ control_actions! {
     LandingReceipt => "landing_receipt",
     ChangesetJoin => "changeset_join",
     ChangesetJoinResolve => "changeset_join_resolve",
+    ChangesetJoinResolveAgain => "changeset_join_resolve_again",
     ChangesetJoinResolveBase => "changeset_join_resolve_base",
     ChangesetJoinResolveBaseUndo => "changeset_join_resolve_base_undo",
     ChangesetJoinQuestionAnswer => "changeset_join_question_answer",

@@ -32,6 +32,21 @@ const fakeConn = { onFrame: () => () => {}, sendControlFrame: () => {} } as neve
 
 const K = { project_dir: "/p", arc: "demo" };
 
+/** A Spec S02 delta: one ledger event for `K`'s run. */
+function delta(event: Record<string, unknown>, run = "100"): Record<string, unknown> {
+  return { action: "changeset_join_resolve_delta", ...K, run, event: { at_ms: 0, ...event } };
+}
+
+/** A scribe beat; `streaming` carries text and the last kept seq. */
+function scribeDelta(status: string, seq: number, text?: string): Record<string, unknown> {
+  return delta({ kind: "scribe", seq, path: "a.rs", status, ...(text !== undefined ? { text } : {}) });
+}
+
+/** A resolver beat. */
+function resolverDelta(status: string, seq: number): Record<string, unknown> {
+  return delta({ kind: "resolver", seq, turn: 0, status });
+}
+
 beforeEach(() => {
   _resetChangesetJoinStoreForTest();
   // The deadline is a module-level number a test may shorten, so every case
@@ -40,34 +55,17 @@ beforeEach(() => {
 });
 
 describe("changeset join resolve overlay", () => {
-  test("deltas accumulate per file, then ok puts the overlay away", () => {
+  test("deltas fold into the run's ledger, then ok puts the overlay away", () => {
     const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_delta",
-      ...K,
-      path: "a.rs",
-      rung: "ai",
-      status: "trying",
-    });
+    _ingestJoinFrameForTest(scribeDelta("started", 0));
     expect(store.state("/p", "demo").phase).toBe("resolving");
 
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_delta",
-      ...K,
-      path: "a.rs",
-      rung: "ai",
-      status: "streaming",
-      text: "merged so far",
-    });
-    // The per-file progress collapses to one latest entry per path.
+    _ingestJoinFrameForTest(scribeDelta("streaming", 0, "merged so far"));
+    // The kept event is held once; the beat replaces the stream and is not kept.
     const resolving = store.state("/p", "demo");
-    expect(resolving.progress.length).toBe(1);
-    expect(resolving.progress[0]).toMatchObject({
-      path: "a.rs",
-      rung: "ai",
-      status: "streaming",
-      text: "merged so far",
-    });
+    expect(resolving.run).toBe("100");
+    expect(resolving.events.map((e) => e.kind)).toEqual(["scribe"]);
+    expect(resolving.stream.scribe).toEqual({ path: "a.rs", text: "merged so far" });
 
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_ok",
@@ -90,8 +88,57 @@ describe("changeset join resolve overlay", () => {
     // destroy.
     const done = store.state("/p", "demo");
     expect(done.phase).toBe("idle");
-    expect(done.progress).toEqual([]);
+    expect(done.events).toEqual([]);
     expect(done.error).toBeNull();
+  });
+
+  test("events append in seq order, and a seq already held is ignored", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    _ingestJoinFrameForTest(delta({ kind: "probe", seq: 0, paths: ["a.rs"] }));
+    _ingestJoinFrameForTest(
+      delta({ kind: "rung", seq: 1, rung: "replay", outcome: "declined", said: "stopped" }),
+    );
+    // A frame heard twice draws once.
+    _ingestJoinFrameForTest(
+      delta({ kind: "rung", seq: 1, rung: "replay", outcome: "declined", said: "stopped" }),
+    );
+    expect(store.state("/p", "demo").events.map((e) => e.seq)).toEqual([0, 1]);
+  });
+
+  test("a new run drops what the cell held of the last one", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    _ingestJoinFrameForTest(delta({ kind: "probe", seq: 0, paths: ["a.rs"] }, "100"));
+    _ingestJoinFrameForTest(scribeDelta("streaming", 0, "old text"));
+    _ingestJoinFrameForTest(delta({ kind: "probe", seq: 0, paths: ["b.rs"] }, "200"));
+    const st = store.state("/p", "demo");
+    expect(st.run).toBe("200");
+    expect(st.events).toHaveLength(1);
+    expect(st.events[0]).toMatchObject({ kind: "probe", paths: ["b.rs"] });
+    expect(st.stream).toEqual({});
+  });
+
+  test("a scribe stream keeps the last 8 lines of the file being written", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    const text = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+    _ingestJoinFrameForTest(scribeDelta("streaming", 0, text));
+    const tail = store.state("/p", "demo").stream.scribe!.text.split("\n");
+    expect(tail).toHaveLength(8);
+    expect(tail[0]).toBe("line 5");
+    expect(store.state("/p", "demo").events).toEqual([]);
+  });
+
+  test("an ok that leaves files unresolved keeps the run's events", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    _ingestJoinFrameForTest(delta({ kind: "probe", seq: 0, paths: ["a.rs"] }));
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_ok",
+      ...K,
+      resolved: [],
+      unresolved: ["a.rs"],
+    });
+    const st = store.state("/p", "demo");
+    expect(st.phase).toBe("error");
+    expect(st.events.map((e) => e.kind)).toEqual(["probe"]);
   });
 
   test("answering an escalation carries the request id that scopes it", () => {
@@ -154,13 +201,7 @@ describe("changeset join resolve overlay", () => {
 
   test("clear resets to idle; unrelated arcs stay idle", () => {
     const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_delta",
-      ...K,
-      path: "a.rs",
-      rung: "ai",
-      status: "trying",
-    });
+    _ingestJoinFrameForTest(scribeDelta("started", 0));
     expect(store.state("/other", "x").phase).toBe("idle");
     store.clear("/p", "demo");
     expect(store.state("/p", "demo").phase).toBe("idle");
@@ -183,6 +224,43 @@ function liveLifecycle(): ConnectionLifecycle {
   if (live === null) throw new Error("no connection lifecycle to drop");
   return live;
 }
+
+describe("Resolve again (Spec S05)", () => {
+  const settle = (ms: number): Promise<void> =>
+    new Promise((done) => setTimeout(done, ms));
+
+  test("sends its own verb with project_dir and arc, from a fresh resolving cell", () => {
+    const sent: { action: string; body: Record<string, unknown> }[] = [];
+    const conn = {
+      onFrame: () => () => {},
+      sendControlFrame: (action: string, body: Record<string, unknown>) => {
+        sent.push({ action, body });
+      },
+    } as never;
+    const store = attachChangesetJoinStore(conn);
+    _ingestJoinFrameForTest(scribeDelta("started", 0));
+    store.resolveAgain("/p", "demo");
+    expect(sent).toEqual([
+      { action: "changeset_join_resolve_again", body: { project_dir: "/p", arc: "demo" } },
+    ]);
+    const st = store.state("/p", "demo");
+    expect(st.phase).toBe("resolving");
+    expect(st.act).toBe("resolve");
+    expect(st.events).toEqual([]);
+  });
+
+  test("arms the acknowledgement deadline as a first Resolve does", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    const store = attachChangesetJoinStore(fakeConn);
+    store.resolveAgain("/p", "demo");
+
+    await settle(40);
+
+    const state = store.state("/p", "demo");
+    expect(state.phase).toBe("error");
+    expect(state.error).toContain("got no answer");
+  });
+});
 
 describe("a run whose answer never arrives", () => {
   test("the wire dropping mid-ladder fails the run instead of latching it", () => {
@@ -502,15 +580,8 @@ describe("the client does not guess at liveness ([P03])", () => {
     // fact with a sentence naming which one fired.
     const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
-    for (const status of ["working", "verifying", "iterating"]) {
-      _ingestJoinFrameForTest({
-        action: "changeset_join_resolve_delta",
-        ...K,
-        path: "",
-        candidate: "cafe1234",
-        rung: "resolver",
-        status,
-      });
+    for (const [seq, status] of ["started", "asked", "answered"].entries()) {
+      _ingestJoinFrameForTest(resolverDelta(status, seq));
       await settle(30);
       const live = store.state("/p", "demo");
       expect(live.phase).toBe("resolving");
@@ -520,14 +591,7 @@ describe("the client does not guess at liveness ([P03])", () => {
     // And the same for a scribe that has said one thing and gone quiet: it was
     // the one rung the old clock was right about, and it is still not this
     // client's to judge.
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_delta",
-      ...K,
-      path: "a.rs",
-      rung: "ai",
-      status: "streaming",
-      text: "half a merge",
-    });
+    _ingestJoinFrameForTest(scribeDelta("streaming", 2, "half a merge"));
     await settle(60);
     expect(store.state("/p", "demo").phase).toBe("resolving");
   });
@@ -544,24 +608,19 @@ describe("the client does not guess at liveness ([P03])", () => {
     expect(source).not.toContain("if it finished");
   });
 
-  test("the resolver's progress names a candidate, not a path", () => {
+  test("the resolver's beats are one run's events, not one entry per file", () => {
     // The sha used to ride in `path`, which put a commit hash in the face's
     // filename column and made each status of one run key as a separate file.
+    // A beat now names no path at all: it is an event in the run's ledger.
     const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
-    for (const status of ["working", "verifying"]) {
-      _ingestJoinFrameForTest({
-        action: "changeset_join_resolve_delta",
-        ...K,
-        path: "",
-        candidate: "cafe1234",
-        rung: "resolver",
-        status,
-      });
+    for (const [seq, status] of ["started", "asked"].entries()) {
+      _ingestJoinFrameForTest(resolverDelta(status, seq));
     }
-    const progress = store.state("/p", "demo").progress;
-    expect(progress.length).toBe(1);
-    expect(progress[0]).toMatchObject({ path: "", candidate: "cafe1234", status: "verifying" });
+    const events = store.state("/p", "demo").events;
+    expect(events.map((e) => e.kind)).toEqual(["resolver", "resolver"]);
+    expect(events[1]).toMatchObject({ status: "asked" });
+    expect(events.some((e) => "path" in e)).toBe(false);
   });
 });
 
@@ -594,14 +653,7 @@ describe("an admission refusal does not kill the run it was refused for ([P01])"
     // that exists to prevent the damage it used to invite.
     const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_delta",
-      ...K,
-      path: "",
-      candidate: "cafe1234",
-      rung: "resolver",
-      status: "working",
-    });
+    _ingestJoinFrameForTest(resolverDelta("started", 0));
 
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_err",
@@ -796,13 +848,7 @@ describe("the feed settles the overlay ([P02], [P03])", () => {
     const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
 
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_delta",
-      ...K,
-      path: "a.rs",
-      rung: "ai",
-      status: "trying",
-    });
+    _ingestJoinFrameForTest(scribeDelta("started", 0));
 
     await settle(40);
     expect(store.state("/p", "demo").phase).toBe("resolving");
@@ -831,13 +877,7 @@ describe("the feed settles the overlay ([P02], [P03])", () => {
     const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
 
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_delta",
-      ...K,
-      path: "a.rs",
-      rung: "ai",
-      status: "trying",
-    });
+    _ingestJoinFrameForTest(scribeDelta("started", 0));
     store.observeFeed(feed({ phase: "conflicted" }));
 
     expect(store.state("/p", "demo").phase).toBe("resolving");

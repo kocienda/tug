@@ -4730,6 +4730,14 @@ export function SessionCardBody({
           changesController.workspaceKey,
           entry.display_name,
         ),
+      // Run the ladder again over a ledger whose candidate stopped applying.
+      // The pilot has already tried this head pair and will not try it again
+      // unprompted, so this is the one door back in.
+      resolveAgain: (entry) =>
+        getChangesetJoinStore()?.resolveAgain(
+          changesController.workspaceKey,
+          entry.display_name,
+        ),
       // And its reversal, which rides beside the fold's own receipt. The
       // receipt is durable and the undo is the one act that retires it early,
       // so the gesture belongs wherever the receipt is read.

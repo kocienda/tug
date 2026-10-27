@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { copyAppTestTree } from "./copy-app-test-tree";
 
 const REAL_APP_TEST_DIR = resolve(dirname(import.meta.dir));
-const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws", "tugplug"];
+const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws", "tugplug", "tugproto"];
 
 /** The cap the script cuts at, mirrored from `select-tests.ts`. */
 const MAX_SELECTED = 20;

@@ -317,14 +317,55 @@ pub(crate) fn user_message_payload(session: &str, text: &str) -> Vec<u8> {
 /// from the composer echoing its own submission, and an injection has no
 /// composer. Without this frame the agent would start working with no visible
 /// cause.
-pub(crate) fn notice_payload(session: &str, origin: &str, text: &str) -> Vec<u8> {
-    serde_json::to_vec(&serde_json::json!({
+///
+/// `facts` are the outcome as data (Spec S06), for the deck to draw as a
+/// receipt; the text says the same thing in words, and is still what the
+/// agent reads and what a deck that knows no facts renders.
+pub(crate) fn notice_payload(
+    session: &str,
+    origin: &str,
+    text: &str,
+    facts: Option<&NoticeFacts>,
+) -> Vec<u8> {
+    let mut body = serde_json::json!({
         "tug_session_id": session,
         "type": "tug_notice",
         "origin": origin,
         "text": text,
-    }))
-    .expect("a json object of strings serializes")
+    });
+    if let Some(facts) = facts {
+        body["facts"] = serde_json::to_value(facts).expect("notice facts serialize");
+    }
+    serde_json::to_vec(&body).expect("a json object of strings serializes")
+}
+
+/// What a base-motion outcome was, as data (Spec S06): the replay and its
+/// size, or where it stopped and the arc's worktree to finish it in.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub(crate) enum NoticeFacts {
+    Replayed {
+        arc: String,
+        base: String,
+        /// The base head, full.
+        sha: String,
+        /// What the base brought in.
+        paths: Vec<String>,
+        rounds: usize,
+    },
+    ReplayStopped {
+        arc: String,
+        base: String,
+        sha: String,
+        /// The paths that collided.
+        paths: Vec<String>,
+        round_subject: String,
+        /// 1-based, when it could be counted.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        round_index: Option<usize>,
+        /// Repo-relative when it lies under the repo, absolute otherwise.
+        worktree: String,
+    },
 }
 
 /// A notice with **no turn behind it** — Tug telling somebody something, rather
@@ -698,6 +739,7 @@ fn spawn_replay(
                         entry.notified_tip = Some(base_head.clone());
                         speak = Some(Speak::Notice {
                             base_head,
+                            rounds: mapping.len(),
                             // The oldest round, as it stood before the move. Its
                             // merge-base with the base branch is the base tip
                             // the arc used to sit on, which is what makes the
@@ -763,8 +805,8 @@ fn spawn_replay(
         };
 
         if let (Some(speak), Some(session)) = (speak, job.target.as_deref()) {
-            let text = compose_for(&job, &speak, &state);
-            if !inject.send(session, &text).await {
+            let (text, facts) = compose_for(&job, &speak, &state);
+            if !inject.send(session, &text, facts.as_ref()).await {
                 // Nowhere to send after all — take the latch back off so a
                 // later wake can try again rather than staying silent forever.
                 let mut map = state.lock();
@@ -788,16 +830,18 @@ enum Speak {
     /// working tree moved.
     Notice {
         base_head: String,
+        /// How many rounds the replay moved.
+        rounds: usize,
         oldest_round_before: Option<String>,
     },
 }
 
-/// Compose the message this outcome calls for.
+/// Compose the message this outcome calls for, and the same outcome as facts.
 fn compose_for(
     job: &ReplayJob,
     speak: &Speak,
     state: &Arc<Mutex<HashMap<String, ArcState>>>,
-) -> String {
+) -> (String, Option<NoticeFacts>) {
     match speak {
         Speak::Conflict => {
             let record = {
@@ -807,7 +851,7 @@ fn compose_for(
             let Some(record) = record else {
                 // Only reachable if the record were cleared between deciding to
                 // speak and composing, which the lock ordering prevents.
-                return String::new();
+                return (String::new(), None);
             };
             let intent = tugarc_core::resolve_intent(
                 &Paths::from_env(),
@@ -815,7 +859,7 @@ fn compose_for(
                 &job.base_branch,
                 &job.branch,
             );
-            compose_conflict_message(&ConflictMessage {
+            let text = compose_conflict_message(&ConflictMessage {
                 arc: &job.name,
                 base_branch: &job.base_branch,
                 base_head: &record.base_head,
@@ -824,10 +868,21 @@ fn compose_for(
                 paths: &record.paths,
                 intent: &intent,
                 worktree_abs: &job.worktree_abs,
-            })
+            });
+            let facts = NoticeFacts::ReplayStopped {
+                arc: job.name.clone(),
+                base: job.base_branch.clone(),
+                sha: record.base_head.clone(),
+                paths: record.paths.clone(),
+                round_subject: record.round_subject.clone(),
+                round_index: round_index(&job.repo_dir, &job.base_branch, &job.branch, &record.round),
+                worktree: repo_relative(&job.repo_dir, &job.worktree_abs),
+            };
+            (text, Some(facts))
         }
         Speak::Notice {
             base_head,
+            rounds,
             oldest_round_before,
         } => {
             let paths = base_delta_paths(
@@ -835,9 +890,41 @@ fn compose_for(
                 &job.base_branch,
                 oldest_round_before.as_deref(),
             );
-            compose_replay_notice(&job.name, &job.base_branch, base_head, &paths)
+            let text = compose_replay_notice(&job.name, &job.base_branch, base_head, &paths);
+            let facts = NoticeFacts::Replayed {
+                arc: job.name.clone(),
+                base: job.base_branch.clone(),
+                sha: base_head.clone(),
+                paths,
+                rounds: *rounds,
+            };
+            (text, Some(facts))
         }
     }
+}
+
+/// `path` relative to `repo` when it lies under it, else as given — the
+/// receipt names the worktree the way a reader in the checkout would type it.
+fn repo_relative(repo: &Path, path: &str) -> String {
+    Path::new(path)
+        .strip_prefix(repo)
+        .ok()
+        .filter(|rel| !rel.as_os_str().is_empty())
+        .map(|rel| rel.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.to_string())
+}
+
+/// The 1-based position of `round` among the arc's rounds, oldest first, or
+/// `None` when it is not among them — one `rev-list`, read only when a
+/// conflict is being told about.
+fn round_index(repo: &Path, base_branch: &str, branch: &str, round: &str) -> Option<usize> {
+    let mb = merge_base(repo, branch, base_branch);
+    if mb.is_empty() {
+        return None;
+    }
+    let range = format!("{mb}..{branch}");
+    let shas = tugchanges_core::read_paths(repo, &["rev-list", "--reverse", &range]).ok()?;
+    shas.iter().position(|sha| sha == round).map(|i| i + 1)
 }
 
 /// The files the base brought in — what an agent's context may be stale about.
@@ -884,14 +971,14 @@ struct InjectHandles {
 }
 
 impl InjectHandles {
-    async fn send(&self, session: &str, text: &str) -> bool {
+    async fn send(&self, session: &str, text: &str, facts: Option<&NoticeFacts>) -> bool {
         let Some(input_tx) = self.code_input_tx.as_ref() else {
             return false;
         };
         if let Some(output) = self.code_output.as_ref() {
             output.publish_tagged(Frame::new(
                 FeedId::CODE_OUTPUT,
-                notice_payload(session, NOTICE_ORIGIN, text),
+                notice_payload(session, NOTICE_ORIGIN, text, facts),
             ));
         }
         input_tx
@@ -1328,7 +1415,7 @@ mod tests {
         assert_eq!(bulletin["standalone"], true);
 
         let opener: serde_json::Value =
-            serde_json::from_slice(&notice_payload("s1", "base-motion", "hello")).unwrap();
+            serde_json::from_slice(&notice_payload("s1", "base-motion", "hello", None)).unwrap();
         assert!(
             opener.get("standalone").is_none(),
             "an opener carries no flag at all — a turn is coming behind it: {opener}"
@@ -1352,7 +1439,7 @@ mod tests {
         };
 
         let text = conflict_text();
-        assert!(handles.send("sess-1", &text).await);
+        assert!(handles.send("sess-1", &text, None).await);
 
         let opener = out_rx.try_recv().expect("an opener rode out");
         assert_eq!(opener.feed_id, FeedId::CODE_OUTPUT);
@@ -1386,7 +1473,7 @@ mod tests {
             code_input_tx: None,
             code_output: None,
         };
-        assert!(!handles.send("sess-1", "anything").await);
+        assert!(!handles.send("sess-1", "anything", None).await);
     }
 
     // MARK: - The wiring, against real repositories
@@ -1801,6 +1888,18 @@ mod tests {
             format!("[base-motion replay] {}", opener["text"].as_str().unwrap()),
             text
         );
+        // And it carries where the replay stopped as facts (Spec S06): the
+        // round's subject and place, and the worktree to finish it in, named
+        // the way a reader in the checkout would type it.
+        let facts = &opener["facts"];
+        assert_eq!(facts["kind"], "replay-stopped", "{opener}");
+        assert_eq!(facts["arc"], "demo");
+        assert_eq!(facts["base"], "main");
+        assert_eq!(facts["sha"], repo.tip("main"), "the base head, full");
+        assert_eq!(facts["round_subject"], "rewrite f");
+        assert_eq!(facts["round_index"], 2, "the arc's second round");
+        assert_eq!(facts["paths"], serde_json::json!(["f.txt"]));
+        assert_eq!(facts["worktree"], ".tug/worktrees/demo");
 
         // A second wake at the same base tip says nothing more.
         spawn_replay(&ctx, &board, &state, job());
@@ -1854,6 +1953,73 @@ mod tests {
         );
         drop(gh_tx);
         cancel.cancel();
+    }
+
+    /// [P11]'s clean-replay notice carries the replay as facts beside its
+    /// words, and the words are exactly what they were before the facts
+    /// existed — the agent reads the text, the deck draws the facts.
+    #[tokio::test]
+    #[serial]
+    async fn a_clean_replay_notice_carries_the_replay_as_facts() {
+        let repo = repo_with_a_arc();
+        repo.advance_base("B\n");
+
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let bump = Arc::new(Notify::new());
+        let feed =
+            SessionScopedFeed::new(FeedId::CODE_OUTPUT, 16, tugcast_core::lag::LagPolicy::Warn);
+        let mut out_rx = feed.subscribe();
+        let (in_tx, mut in_rx) = mpsc::channel::<Frame>(8);
+        let mut ctx = test_context(&registry, &bump, &cancel);
+        ctx.code_input_tx = Some(in_tx);
+        ctx.code_output = Some(feed);
+        let board = Arc::new(ConflictBoard::default());
+        let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        spawn_replay(
+            &ctx,
+            &board,
+            &state,
+            ReplayJob {
+                target: Some("sess-1".to_string()),
+                notify_on_clean: true,
+                ..demo_job(&repo)
+            },
+        );
+        tokio::time::timeout(Duration::from_secs(5), in_rx.recv())
+            .await
+            .expect("an injection within the timeout")
+            .expect("the channel is open");
+
+        let opener = out_rx.try_recv().expect("an opener");
+        let opener: serde_json::Value = serde_json::from_slice(&opener.payload).unwrap();
+        let base = repo.tip("main");
+        let facts = &opener["facts"];
+        assert_eq!(facts["kind"], "replayed", "{opener}");
+        assert_eq!(facts["arc"], "demo");
+        assert_eq!(facts["base"], "main");
+        assert_eq!(facts["sha"], base, "the base head, full");
+        assert_eq!(facts["rounds"], 1);
+        assert_eq!(facts["paths"], serde_json::json!(["f.txt"]));
+        assert!(facts.get("worktree").is_none(), "a replay names no worktree");
+        assert_eq!(
+            opener["text"],
+            compose_replay_notice("demo", "main", &base, &["f.txt".to_string()]),
+            "the words are unchanged by the facts"
+        );
+        cancel.cancel();
+    }
+
+    #[test]
+    fn a_worktree_under_the_repo_is_named_relative_to_it() {
+        let repo = Path::new("/u/src/tug");
+        assert_eq!(
+            repo_relative(repo, "/u/src/tug/.tug/worktrees/x"),
+            ".tug/worktrees/x"
+        );
+        assert_eq!(repo_relative(repo, "/elsewhere/x"), "/elsewhere/x");
+        assert_eq!(repo_relative(repo, "/u/src/tug"), "/u/src/tug");
     }
 
     /// The in-flight lock, at the seam a second wake actually hits: a replay

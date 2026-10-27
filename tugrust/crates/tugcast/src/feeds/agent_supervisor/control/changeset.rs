@@ -715,6 +715,14 @@ pub(in crate::feeds::agent_supervisor) fn parse_landing_receipt_payload(
     }
 }
 
+/// A resolve run's closing ledger event.
+fn ended(outcome: &str, detail: Option<String>) -> tugcast_core::types::ArcJoinLedgerEventBody {
+    tugcast_core::types::ArcJoinLedgerEventBody::Ended {
+        outcome: outcome.to_string(),
+        detail,
+    }
+}
+
 impl AgentSupervisor {
     pub(in crate::feeds::agent_supervisor) async fn handle_changeset_control(
         &self,
@@ -818,6 +826,17 @@ impl AgentSupervisor {
                 match parse_changeset_join_resolve_payload(payload) {
                     Ok(parsed) => {
                         self.do_changeset_join_resolve(&parsed).await;
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
+                }
+            }
+            // The same run, with the pilot's head-pair mark stamped first
+            // because the user asked for it again ([B07]).
+            ControlAction::ChangesetJoinResolveAgain => {
+                match parse_changeset_join_resolve_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_join_resolve_again(&parsed).await;
                         Ok(())
                     }
                     Err(e) => return ControlOutcome::Error(e),
@@ -2145,6 +2164,46 @@ impl AgentSupervisor {
     /// `changeset_join_resolve_ok {…ResolveOutcome}` /
     /// `changeset_join_resolve_err {detail}`.
     async fn do_changeset_join_resolve(&self, request: &ChangesetJoinResolvePayload) {
+        let Some(occupancy) = self.admit_join_resolve(request).await else {
+            return;
+        };
+        self.run_resolve_ladder(&request.project_dir, &request.arc, occupancy)
+            .await;
+    }
+
+    /// Handle a `changeset_join_resolve_again` CONTROL request ([B07], [P06]):
+    /// the pilot's head-pair re-resolve, run because the user asked.
+    ///
+    /// It is `changeset_join_resolve` with one act between admission and the
+    /// ladder: the pilot mark is stamped with the current `<base>:<head>`
+    /// pair, exactly as the pilot's own dispatch stamps it. The mark is
+    /// written unconditionally — the pilot compares before it writes, and
+    /// this press is the user overruling that comparison — and it is written
+    /// so the run the user started counts as the pilot's for this pair: the
+    /// next recompute sees the pair already claimed and does not start a
+    /// second ladder over the same heads.
+    async fn do_changeset_join_resolve_again(&self, request: &ChangesetJoinResolvePayload) {
+        let Some(occupancy) = self.admit_join_resolve(request).await else {
+            return;
+        };
+        let root = std::path::PathBuf::from(&request.project_dir);
+        let arc = request.arc.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::feeds::join_pilot::stamp_head_pair(&root, &arc)
+        })
+        .await;
+        self.run_resolve_ladder(&request.project_dir, &request.arc, occupancy)
+            .await;
+    }
+
+    /// The admission both resolve verbs share: the project is open and a git
+    /// repository, and the arc is taken through `join_occupancy`. Every
+    /// refusal is broadcast here, so `None` means the caller has nothing left
+    /// to say.
+    async fn admit_join_resolve(
+        &self,
+        request: &ChangesetJoinResolvePayload,
+    ) -> Option<crate::feeds::join_occupancy::JoinOccupancy> {
         let project_dir = request.project_dir.as_str();
         let dir = std::path::Path::new(project_dir);
 
@@ -2155,7 +2214,7 @@ impl AgentSupervisor {
                 &request.arc,
                 "not an open project",
             );
-            return;
+            return None;
         }
         if !crate::feeds::git::is_within_git_worktree(dir).await {
             Self::send_changeset_join_resolve_err(
@@ -2164,7 +2223,7 @@ impl AgentSupervisor {
                 &request.arc,
                 "not a git repository",
             );
-            return;
+            return None;
         }
 
         // Take the arc before anything git-shaped happens (Spec S01). A second
@@ -2177,12 +2236,12 @@ impl AgentSupervisor {
         // the resolver waits for the answer.
         let arc_head = tugarc_core::ops::arc_detail_entry_in(&Paths::from_env(), dir, &request.arc)
             .and_then(|detail| tugarc_core::ops::rev_parse(dir, &detail.branch).ok());
-        let occupancy = match crate::feeds::join_occupancy::acquire(
+        match crate::feeds::join_occupancy::acquire(
             &owner_key,
             crate::feeds::join_occupancy::JoinRunKind::Resolve,
             arc_head,
         ) {
-            Ok(guard) => guard,
+            Ok(guard) => Some(guard),
             Err(detail) => {
                 Self::send_changeset_join_admission_err(
                     &self.control_tx,
@@ -2190,12 +2249,9 @@ impl AgentSupervisor {
                     &request.arc,
                     &detail,
                 );
-                return;
+                None
             }
-        };
-
-        self.run_resolve_ladder(project_dir, &request.arc, occupancy)
-            .await;
+        }
     }
 
     /// The resolution ladder itself, from the scribe rung through the
@@ -2221,6 +2277,15 @@ impl AgentSupervisor {
     ) {
         let dir = std::path::Path::new(project_dir);
 
+        // One recorder for the whole run ([P04]): the ladder's observer, the
+        // scribe's stream and the resolver all write through it, so the run has
+        // one sequence however many threads report into it.
+        let recorder = Arc::new(crate::feeds::join_ledger::LedgerRecorder::new(
+            project_dir,
+            arc_name,
+            self.control_tx.clone(),
+        ));
+
         // Build the AI rung from the scribe context when one is configured;
         // without it the ladder runs its algorithmic rungs only.
         let merger =
@@ -2230,9 +2295,7 @@ impl AgentSupervisor {
                     spawner: scribe.spawner.clone(),
                     model: scribe.model.clone(),
                     handle: tokio::runtime::Handle::current(),
-                    control_tx: self.control_tx.clone(),
-                    project_dir: project_dir.to_string(),
-                    arc: arc_name.to_string(),
+                    recorder: recorder.clone(),
                 });
 
         // The `run` fact is what makes a reload mid-resolve land on a face that
@@ -2241,13 +2304,20 @@ impl AgentSupervisor {
 
         let dir_owned = dir.to_path_buf();
         let arc = arc_name.to_string();
+        let observer = recorder.clone();
         let result = tokio::task::spawn_blocking(move || {
             // Last attempt's refusal stops applying the moment this one starts;
             // leaving it standing would render a running resolve under the
             // sentence that ended the one before it.
             tugarc_core::resolve::clear_stuck(&dir_owned, &arc);
             let merger_ref = merger.as_ref().map(|m| m as &dyn tugarc_core::FileMerger);
-            tugarc_core::resolve_conflicts(&Paths::from_env(), &dir_owned, &arc, merger_ref)
+            tugarc_core::resolve_conflicts_observed(
+                &Paths::from_env(),
+                &dir_owned,
+                &arc,
+                merger_ref,
+                Some(observer.as_ref() as &dyn tugarc_core::ResolveObserver),
+            )
         })
         .await;
 
@@ -2304,6 +2374,7 @@ impl AgentSupervisor {
                             Arc::new(crate::feeds::join_resolver::ClaudeJoinResolverSpawner)
                                 as Arc<dyn crate::feeds::join_resolver::JoinResolverSpawner>
                         }),
+                        recorder: recorder.clone(),
                     };
 
                     // **Detached, and that is not an optimization.** The
@@ -2332,6 +2403,10 @@ impl AgentSupervisor {
                         let _occupancy = occupancy;
                         match crate::feeds::join_resolver::finish_join(&ctx, &outcome_owned).await {
                             Ok(()) => {
+                                // The run's one `ended` when a resolver
+                                // follows the ladder: only here is the run
+                                // over ([P04]).
+                                ctx.recorder.record_blocking(ended("candidate", None)).await;
                                 bump.notify_one();
                                 // The resolver finished what the ladder left,
                                 // so the ladder's `unresolved` list is no
@@ -2351,6 +2426,9 @@ impl AgentSupervisor {
                             }
                             Err(detail) => {
                                 Self::record_join_stuck(&dir_owned, &arc, &detail);
+                                ctx.recorder
+                                    .record_blocking(ended("stuck", Some(detail.clone())))
+                                    .await;
                                 bump.notify_one();
                                 tracing::info!(arc = %arc, detail = %detail, "arc-join: resolver stuck");
                                 Self::send_changeset_join_resolve_err(
@@ -2365,6 +2443,17 @@ impl AgentSupervisor {
                     return;
                 }
 
+                // No resolver follows, so the ladder's end is the run's.
+                recorder
+                    .record_blocking(ended(
+                        if outcome.candidate_commit.is_some() {
+                            "candidate"
+                        } else {
+                            "unresolved"
+                        },
+                        None,
+                    ))
+                    .await;
                 Self::send_changeset_join_resolve_ok(
                     &self.control_tx,
                     project_dir,
@@ -2382,6 +2471,9 @@ impl AgentSupervisor {
             }
             Ok(Err(detail)) => {
                 tracing::info!(arc = %arc_name, detail = %detail, "arc-join: ladder refused");
+                recorder
+                    .record_blocking(ended("error", Some(detail.to_string())))
+                    .await;
                 Self::send_changeset_join_resolve_err(
                     &self.control_tx,
                     project_dir,
@@ -2390,11 +2482,15 @@ impl AgentSupervisor {
                 );
             }
             Err(join_err) => {
+                let detail = format!("resolve task failed: {join_err}");
+                recorder
+                    .record_blocking(ended("error", Some(detail.clone())))
+                    .await;
                 Self::send_changeset_join_resolve_err(
                     &self.control_tx,
                     project_dir,
                     arc_name,
-                    &format!("resolve task failed: {join_err}"),
+                    &detail,
                 );
             }
         }

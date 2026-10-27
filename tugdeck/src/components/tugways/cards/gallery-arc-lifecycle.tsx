@@ -423,7 +423,7 @@ const OTHER = "5d2e9b10-0000-4000-8000-00000000a11c";
 sessionNameStore.setName(OTHER, "ink anchor");
 sessionTagStore.setTag(OTHER, "ink-anchor");
 
-const RESOLVE_IDLE: ResolveState = { phase: "idle", progress: [], error: null };
+const RESOLVE_IDLE: ResolveState = { phase: "idle", events: [], stream: {}, error: null };
 
 /** One shape of blocked join, with the reading its facts earn. */
 interface BlockedCase {
@@ -826,6 +826,7 @@ const NO_JOIN_ACTIONS = {
   aim: () => {},
   answerQuestion: () => {},
   resolveBase: () => {},
+  resolveAgain: () => {},
   undoResolveBase: () => {},
 };
 

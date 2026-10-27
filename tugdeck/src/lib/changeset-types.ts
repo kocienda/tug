@@ -589,6 +589,78 @@ export interface ArcJoinStateWire {
    * is in.
    */
   resolved_base?: ArcResolvedBaseWire;
+  /**
+   * The last resolve run's ledger: every act the ladder, the scribe and the
+   * resolver took, in order. Durable — read back on every recompute — so a
+   * reload draws the same blocks the live run drew. Absent when no run has
+   * recorded one, which is every arc a CLI resolved.
+   */
+  ledger?: ArcJoinLedgerWire;
+}
+
+/** One act of a resolve run, as the ledger records it. */
+export type ArcJoinLedgerEventWire = ArcJoinLedgerEventBody & {
+  /** 0-based, assigned by the recorder; a live-only event carries the last persisted seq. */
+  seq: number;
+  /** Wall clock, ms since the epoch. */
+  at_ms: number;
+};
+
+/** The event's own facts, by kind. */
+export type ArcJoinLedgerEventBody =
+  | {
+      kind: "probe";
+      paths: string[];
+      archaeology?: ArcConflictHistoryWire[];
+    }
+  | {
+      kind: "rung";
+      rung: "replay" | "salvage" | "rerere" | "merge-file" | "driver";
+      path?: string;
+      outcome: "resolved" | "declined";
+      said: string;
+    }
+  | {
+      kind: "scribe";
+      path: string;
+      status: "started" | "streaming" | "resolved" | "declined";
+      text?: string;
+      said?: string;
+      added?: number;
+      removed?: number;
+    }
+  | {
+      kind: "resolver";
+      turn: number;
+      status: "started" | "streaming" | "turn" | "asked" | "answered" | "reported";
+      text?: string;
+      tool?: string;
+      tools?: string[];
+      question?: string;
+      answer?: string;
+      notes?: string;
+      files?: ArcJoinReportFileWire[];
+    }
+  | {
+      kind: "candidate";
+      sha: string;
+      base_sha: string;
+      files: ArcResolvedFileWire[];
+    }
+  | {
+      kind: "ended";
+      outcome: "candidate" | "unresolved" | "stuck" | "error";
+      detail?: string;
+    };
+
+/** A resolve run's durable ledger. */
+export interface ArcJoinLedgerWire {
+  /** The run's id — its start, ms, as a decimal string. */
+  run: string;
+  started_ms: number;
+  /** Absent while the run is still going. */
+  ended_ms?: number;
+  events: ArcJoinLedgerEventWire[];
 }
 
 /** What a fold did, for the receipt the report renders (Spec S02). */
@@ -804,6 +876,16 @@ function isOptionalArcJoinState(
   if (value.stale_note !== undefined && typeof value.stale_note !== "string")
     return false;
   if (value.run !== undefined && typeof value.run !== "string") return false;
+  if (
+    value.ledger !== undefined &&
+    !(
+      isRecord(value.ledger) &&
+      typeof value.ledger.run === "string" &&
+      Array.isArray(value.ledger.events)
+    )
+  ) {
+    return false;
+  }
   if (!isOptionalStringArray(value.conflicts)) return false;
   if (
     value.blockers !== undefined &&

@@ -19,6 +19,7 @@ import type { JobItem } from "./select-jobs";
 import type { GoalState } from "./select-goal";
 import type { StageBoundaryFacts } from "./stages";
 import type { AssistantApiError } from "@tugproto/outbound";
+import type { BaseMotionNoticeFacts } from "@tugproto/outbound-decoders";
 
 export type { CardSessionMode } from "../card-session-binding-store";
 
@@ -225,6 +226,14 @@ export interface SystemNote extends MessageBase {
    * letting the words read as the user's.
    */
   noticeOrigin?: string;
+  /**
+   * On a base-motion `notice`, the outcome the notice reports — the replay
+   * and its size, or where it stopped and how to finish it. The transcript
+   * draws a receipt from these rather than reading `text` back apart, which
+   * is the same reason a stage boundary reads `stageFacts`. Absent on a note
+   * restored by a path that never saw the event, which renders the text.
+   */
+  noticeFacts?: BaseMotionNoticeFacts;
   /**
    * On a `stage`, the facts the rotation carried — which stage, which model,
    * which document, and the step range a continued implement stage walks.

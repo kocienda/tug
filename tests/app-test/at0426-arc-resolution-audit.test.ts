@@ -39,6 +39,8 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
  * @covers tugdeck/src/lib/join-mode-controller.ts
+ * @covers tugrust/crates/tugcast/src/feeds/join_ledger.rs
+ * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -212,6 +214,24 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the resolver audits what the machines deci
         expect(stuck, "the refusal names what went unaccounted for").toContain(FILE);
         expect(stuck, "in the contract's own words").toContain("does not account for");
         note(`at0426 silence refused: ${JSON.stringify(stuck)}`);
+
+        // The run's ledger is durable: a reload draws the same blocks, in the
+        // same order, from the arc's feed entry alone — the page that watched
+        // the run is gone, and so is everything it heard live.
+        const kinds = (): Promise<string[]> =>
+          app.body("A").evalJS<string[]>(
+            `Array.from(document.querySelectorAll(${JSON.stringify(`${row} [data-slot^="session-changes-ledger-"]`)})).map((el) => el.getAttribute("data-slot"))`,
+          );
+        const before = await kinds();
+        expect(before.length, "the run left a ledger").toBeGreaterThan(0);
+        await app.appReload();
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-arc-join-stuck"]`)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+        const after = await kinds();
+        expect(after, "the reload draws the same ledger").toEqual(before);
+        note(`at0426 ledger across reload: ${before.join(", ")}`);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

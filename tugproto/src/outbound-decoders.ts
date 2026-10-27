@@ -273,7 +273,64 @@ export interface TugNotice {
   text?: string;
   standalone?: boolean;
   timestamp?: number;
+  /**
+   * The outcome a base-motion notice reports, as data, for the deck to draw as
+   * a receipt rather than read back out of `text` (Spec S06). Absent on every
+   * other notice.
+   */
+  facts?: BaseMotionNoticeFacts;
 }
+
+/** A clean replay of an arc onto its moved base. */
+export interface BaseMotionReplayedFacts {
+  kind: "replayed";
+  arc: string;
+  base: string;
+  /** The base head, full. */
+  sha: string;
+  /** What the base brought in. */
+  paths: string[];
+  /** How many rounds the replay moved. */
+  rounds: number;
+}
+
+/** A replay that stopped on a conflict, and where to finish it. */
+export interface BaseMotionReplayStoppedFacts {
+  kind: "replay-stopped";
+  arc: string;
+  base: string;
+  sha: string;
+  /** The paths that collided. */
+  paths: string[];
+  round_subject: string;
+  /** 1-based, when the server could count it. */
+  round_index?: number;
+  /** Repo-relative when the worktree lies under the repo. */
+  worktree: string;
+}
+
+export type BaseMotionNoticeFacts = BaseMotionReplayedFacts | BaseMotionReplayStoppedFacts;
+
+const baseMotionNoticeFacts = union(
+  obj({
+    kind: lit("replayed"),
+    arc: str,
+    base: str,
+    sha: str,
+    paths: arr(str),
+    rounds: num,
+  }),
+  obj({
+    kind: lit("replay-stopped"),
+    arc: str,
+    base: str,
+    sha: str,
+    paths: arr(str),
+    round_subject: str,
+    round_index: opt(num),
+    worktree: str,
+  }),
+);
 
 const tugNotice = obj({
   type: lit("tug_notice"),
@@ -282,6 +339,7 @@ const tugNotice = obj({
   text: opt(str),
   standalone: opt(bool),
   timestamp: opt(num),
+  facts: opt(baseMotionNoticeFacts),
 });
 
 // ---------------------------------------------------------------------------

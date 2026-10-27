@@ -47,7 +47,6 @@ import { spike as askDialogHeightSpike } from "./spike-ask-dialog-height";
 import { spike as arcCommandsSpike } from "./spike-arc-commands";
 import { spike as miniaturePlusSpike } from "./spike-miniature-plus";
 import { spike as timePopupSpike } from "./spike-time-popup";
-import { spike as resolveLedgerSpike } from "./spike-resolve-ledger";
 
 /**
  * One design spike. The shape a spike file exports as `spike`.
@@ -117,7 +116,6 @@ export const SPIKES: readonly SpikeDef[] = [
   arcCommandsSpike,
   miniaturePlusSpike,
   timePopupSpike,
-  resolveLedgerSpike,
   cardChromeSpike,
   modalHeadersSpike,
   focusLanguageSpike,

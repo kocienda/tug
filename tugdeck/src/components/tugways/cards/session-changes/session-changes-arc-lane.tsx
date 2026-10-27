@@ -581,6 +581,7 @@ function ArcRow({
           {entry.documents !== undefined ? (
             <SessionChangesArcDocuments
               documents={entry.documents}
+              projectRoot={projectRoot}
               review={entry.review}
               taskList={entry.task_list ?? false}
               steps={
@@ -712,6 +713,7 @@ function DocumentArcRow({
       <div className="session-changes-arc-detail">
         <SessionChangesArcDocuments
           documents={entry.documents}
+          projectRoot={projectRoot}
           review={entry.review}
           taskList={entry.task_list ?? false}
           steps={

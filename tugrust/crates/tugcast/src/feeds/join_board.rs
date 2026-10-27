@@ -33,8 +33,9 @@ use tugcore::instance::Paths;
 
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
-    ArcConflictCommit, ArcConflictHistory, ArcJoinBlocker, ArcJoinOffer, ArcJoinQuestion,
-    ArcJoinReport, ArcJoinState, ArcResolvedBase, ArcResolvedFile,
+    ArcConflictCommit, ArcConflictHistory, ArcJoinBlocker, ArcJoinLedger,
+    ArcJoinLedgerEventBody, ArcJoinOffer, ArcJoinQuestion, ArcJoinReport, ArcJoinState,
+    ArcResolvedBase, ArcResolvedFile,
 };
 
 use tugarc_core::resolve::{self, CandidateStatus};
@@ -215,6 +216,7 @@ pub fn join_state_for(
         let question = standing_question(repo_root, detail);
         let stuck = standing_stuck(repo_root, detail);
         // The probe's answer would not be displayed, so it is not paid for.
+        let ledger = standing_ledger(repo_root, detail, candidate.as_deref());
         return ArcJoinState {
             phase: "blocked".to_string(),
             blockers,
@@ -234,6 +236,9 @@ pub fn join_state_for(
             // left another standing still happened, and the receipt is how the
             // user checks what it did to their base.
             resolved_base: receipts.get(name).cloned(),
+            // And the ledger, for the same reason: what the last run did is a
+            // thing that happened, whatever is blocking the join now.
+            ledger,
         };
     }
 
@@ -276,6 +281,7 @@ pub fn join_state_for(
         None
     };
     let offer = standing_offer(repo_root, detail, withheld.is_none());
+    let ledger = standing_ledger(repo_root, detail, candidate.as_deref());
     offer_receipt(
         detail,
         match (&offer, withheld) {
@@ -300,6 +306,7 @@ pub fn join_state_for(
         run,
         offer,
         resolved_base: receipts.get(name).cloned(),
+        ledger,
     }
 }
 
@@ -537,6 +544,82 @@ fn standing_question(repo_root: &Path, detail: &ArcDetail) -> Option<ArcJoinQues
 fn standing_report(repo_root: &Path, name: &str, candidate: &str) -> Option<ArcJoinReport> {
     let json = resolve::read_report(repo_root, name, candidate)?;
     serde_json::from_str(&json).ok()
+}
+
+/// The last resolve run's ledger, parsed, keyed by `(repo_root, arc)` with
+/// the blob oid it was parsed from (Risk R01).
+type LedgerCache = HashMap<(std::path::PathBuf, String), (String, ArcJoinLedger)>;
+
+fn ledger_cache() -> &'static Mutex<LedgerCache> {
+    static CACHE: OnceLock<Mutex<LedgerCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// How many times a ledger blob has actually been read and parsed — the
+/// cache's evidence, as [`PROBE_RUNS`] is the probe's.
+static LEDGER_READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(test)]
+pub fn ledger_reads() -> u64 {
+    LEDGER_READS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The last resolve run's ledger, as the arc's config points at it.
+///
+/// The board recomposes every arc on every recompute, so the blob is read
+/// only when its oid moved: the pointer is one config read, the same cost the
+/// report already pays, and an unchanged oid is answered from the cache. A
+/// blob that will not parse is logged and reads as no ledger.
+///
+/// **A ledger that contradicts the standing candidate is withheld.** Every
+/// ladder run clears the ledger as it starts, so the run that built the
+/// standing candidate is the run the ledger records — unless something built
+/// a candidate without recording, which would leave the face narrating a run
+/// that did not make what it shows. The check is on the *last* `candidate`
+/// event: the resolver records its own candidate after the ladder's, so an
+/// earlier one naming the ladder's superseded commit is the ordinary shape.
+fn standing_ledger(
+    repo_root: &Path,
+    detail: &ArcDetail,
+    candidate: Option<&str>,
+) -> Option<ArcJoinLedger> {
+    let name = detail.name.as_str();
+    let key = (repo_root.to_path_buf(), name.to_string());
+    let Some(oid) = resolve::ledger_oid(repo_root, name) else {
+        ledger_cache().lock().remove(&key);
+        return None;
+    };
+    let cached = ledger_cache()
+        .lock()
+        .get(&key)
+        .filter(|(at, _)| *at == oid)
+        .map(|(_, ledger)| ledger.clone());
+    let ledger = match cached {
+        Some(ledger) => ledger,
+        None => {
+            LEDGER_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let (oid, json) = resolve::read_ledger(repo_root, name)?;
+            let ledger: ArcJoinLedger = match serde_json::from_str(&json) {
+                Ok(ledger) => ledger,
+                Err(err) => {
+                    tracing::warn!(arc = %name, error = %err, "join-board: unreadable resolve ledger");
+                    return None;
+                }
+            };
+            ledger_cache().lock().insert(key, (oid, ledger.clone()));
+            ledger
+        }
+    };
+    if let Some(standing) = candidate {
+        let last = ledger.events.iter().rev().find_map(|e| match &e.body {
+            ArcJoinLedgerEventBody::Candidate { sha, .. } => Some(sha.as_str()),
+            _ => None,
+        });
+        if last.is_some_and(|sha| sha != standing) {
+            return None;
+        }
+    }
+    Some(ledger)
 }
 
 /// Why the last resolve stopped short, while it still describes the arc head
@@ -826,6 +909,69 @@ mod tests {
         assert_eq!(pinned, heads(repo), "still no sha moved");
         assert!(cleared.blockers.is_empty(), "the refusal lifts");
         assert_eq!(cleared.phase, "conflicted");
+    }
+
+    /// A ledger whose `candidate` events name `shas`, in order.
+    fn ledger_naming(shas: &[&str]) -> String {
+        let events: Vec<serde_json::Value> = shas
+            .iter()
+            .enumerate()
+            .map(|(seq, sha)| {
+                serde_json::json!({
+                    "seq": seq, "at_ms": 0, "kind": "candidate",
+                    "sha": sha, "base_sha": "b", "files": [],
+                })
+            })
+            .collect();
+        serde_json::json!({ "run": "1", "started_ms": 0, "events": events }).to_string()
+    }
+
+    #[test]
+    fn a_written_ledger_rides_both_arms_and_is_read_once_per_oid() {
+        let temp = fixture();
+        let repo = temp.path();
+        tugarc_core::resolve::write_ledger(repo, "demo", &ledger_naming(&[])).unwrap();
+
+        let before = ledger_reads();
+        let conflicted = compose(repo);
+        assert_eq!(conflicted.phase, "conflicted");
+        assert_eq!(conflicted.ledger.as_ref().map(|l| l.run.as_str()), Some("1"));
+        let again = compose(repo);
+        assert!(again.ledger.is_some());
+        assert_eq!(ledger_reads(), before + 1, "an unmoved oid is a cache hit");
+
+        git(repo, &["switch", "-q", "-c", "scratch"]);
+        let blocked = compose(repo);
+        assert_eq!(blocked.phase, "blocked");
+        assert!(blocked.ledger.is_some(), "the blocked arm reports it too");
+
+        // A new write is a new oid, and is read.
+        git(repo, &["switch", "-q", "main"]);
+        tugarc_core::resolve::write_ledger(repo, "demo", &ledger_naming(&["x"])).unwrap();
+        let _ = compose(repo);
+        assert_eq!(ledger_reads(), before + 2);
+    }
+
+    #[test]
+    fn a_ledger_is_kept_only_when_its_last_candidate_is_the_standing_one() {
+        let temp = fixture();
+        let repo = temp.path();
+        let outcome =
+            tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None)
+                .unwrap();
+        let candidate = outcome.candidate_commit.expect("candidate");
+
+        // The ladder's commit, superseded by the resolver's: the ordinary shape.
+        let kept = ledger_naming(&["superseded", &candidate]);
+        tugarc_core::resolve::write_ledger(repo, "demo", &kept).unwrap();
+        assert!(compose(repo).ledger.is_some(), "the last candidate stands");
+
+        // A last candidate the board does not hold: a run that did not build it.
+        let dropped = ledger_naming(&[&candidate, "elsewhere"]);
+        tugarc_core::resolve::write_ledger(repo, "demo", &dropped).unwrap();
+        let state = compose(repo);
+        assert_eq!(state.candidate.as_deref(), Some(candidate.as_str()));
+        assert!(state.ledger.is_none(), "a contradicting ledger is withheld");
     }
 
     #[test]

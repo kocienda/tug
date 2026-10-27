@@ -1159,10 +1159,11 @@ async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
     sup.handle_control("changeset_join_resolve", &payload, 1)
         .await;
 
-    // Drain frames: at least one AI delta, then the terminal ok.
+    // Drain frames: at least one AI delta, then the terminal ok. Every rung
+    // now reports, so the run sends a frame per rung before the scribe's.
     let mut saw_ai_delta = false;
     let mut terminal: Option<serde_json::Value> = None;
-    for _ in 0..20 {
+    for _ in 0..60 {
         let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
             .await
             .expect("a control frame")
@@ -1170,7 +1171,7 @@ async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         match body["action"].as_str() {
             Some("changeset_join_resolve_delta") => {
-                if body["rung"] == "ai" {
+                if body["event"]["kind"] == "scribe" {
                     saw_ai_delta = true;
                 }
             }
@@ -1201,6 +1202,146 @@ async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&show.stdout), "MERGED\n");
+
+    cancel.cancel();
+}
+
+/// A clean squash has an empty audit set, so no resolver follows the ladder
+/// and the supervisor closes the run itself: its last delta is the run's one
+/// `ended`, saying a candidate stands ([P04]).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_clean_squash_run_ends_its_ledger_once_with_a_candidate() {
+    use tugcore::test_fixtures::git::{GitFixture, git};
+
+    let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    GitFixture::init(&root);
+    std::fs::write(root.join("f.txt"), "A\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+    git(&root, &["branch", "tugarc/demo"]);
+    git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
+    git(&root, &["switch", "-q", "tugarc/demo"]);
+    std::fs::write(root.join("g.txt"), "new\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "r1"]);
+    git(&root, &["switch", "-q", "main"]);
+
+    let cancel = CancellationToken::new();
+    let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "changeset_join_resolve",
+        "project_dir": root.to_string_lossy(),
+        "arc": "demo",
+    }))
+    .unwrap();
+    sup.handle_control("changeset_join_resolve", &payload, 1)
+        .await;
+
+    let mut events: Vec<serde_json::Value> = Vec::new();
+    let mut terminal: Option<serde_json::Value> = None;
+    for _ in 0..40 {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        match body["action"].as_str() {
+            Some("changeset_join_resolve_delta") => events.push(body["event"].clone()),
+            Some("changeset_join_resolve_ok") | Some("changeset_join_resolve_err") => {
+                terminal = Some(body);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    let ok = terminal.expect("a terminal resolve frame");
+    assert_eq!(ok["action"], "changeset_join_resolve_ok", "{ok}");
+    let kinds: Vec<&str> = events.iter().filter_map(|e| e["kind"].as_str()).collect();
+    assert_eq!(kinds, vec!["probe", "candidate", "ended"], "{events:?}");
+    let last = events.last().unwrap();
+    assert_eq!(last["outcome"], "candidate");
+    assert_eq!(last["seq"], 2, "the ended is kept, in sequence");
+
+    // And the same run stands durably on the arc, closed, with the same
+    // events the wire carried.
+    let (_, json) = tugarc_core::resolve::read_ledger(&root, "demo").expect("a durable ledger");
+    let ledger: tugcast_core::types::ArcJoinLedger = serde_json::from_str(&json).unwrap();
+    assert!(ledger.ended_ms.is_some(), "the ended closed it");
+    assert_eq!(serde_json::to_value(&ledger.events).unwrap(), serde_json::Value::from(events));
+
+    cancel.cancel();
+}
+
+/// Resolve again stamps the pilot mark with the arc's live head pair before
+/// it runs the ladder, so the run the user asked for is the pilot's run for
+/// that pair ([B07]); the run itself ends on the ordinary terminal frame.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn changeset_join_resolve_again_stamps_the_head_pair_and_runs() {
+    use tugcore::test_fixtures::git::{GitFixture, git};
+
+    let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    GitFixture::init(&root);
+    std::fs::write(root.join("f.txt"), "A\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+    git(&root, &["branch", "tugarc/demo"]);
+    git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
+    git(&root, &["switch", "-q", "tugarc/demo"]);
+    std::fs::write(root.join("g.txt"), "new\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "r1"]);
+    git(&root, &["switch", "-q", "main"]);
+    // A stale mark, as a pilot run over an earlier pair would have left it.
+    tugarc_core::verify::write_pilot_mark(&root, "demo", "old:old").unwrap();
+
+    let cancel = CancellationToken::new();
+    let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "changeset_join_resolve_again",
+        "project_dir": root.to_string_lossy(),
+        "arc": "demo",
+    }))
+    .unwrap();
+    sup.handle_control("changeset_join_resolve_again", &payload, 1)
+        .await;
+
+    let mut terminal: Option<serde_json::Value> = None;
+    for _ in 0..40 {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        if matches!(
+            body["action"].as_str(),
+            Some("changeset_join_resolve_ok") | Some("changeset_join_resolve_err")
+        ) {
+            terminal = Some(body);
+            break;
+        }
+    }
+    let terminal = terminal.expect("a terminal resolve frame");
+    assert_eq!(terminal["action"], "changeset_join_resolve_ok", "{terminal}");
+
+    let rev = |r: &str| {
+        let out = tugcore::test_fixtures::git::command()
+            .current_dir(&root)
+            .args(["rev-parse", r])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let pair = format!("{}:{}", rev("main"), rev("tugarc/demo"));
+    assert_eq!(
+        tugarc_core::verify::read_pilot_mark(&root, "demo").as_deref(),
+        Some(pair.as_str()),
+        "the mark is the live head pair"
+    );
 
     cancel.cancel();
 }

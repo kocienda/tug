@@ -939,6 +939,12 @@ pub struct ArcJoinState {
     /// rather than a state the arc is in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_base: Option<ArcResolvedBase>,
+    /// The last resolve run's ledger, as it was recorded (Spec S04): every act
+    /// the ladder, the scribe and the resolver took, in order. Durable — it
+    /// rides every recompute, so a reload and a second deck draw the same
+    /// ledger the pressing deck watched being written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ledger: Option<ArcJoinLedger>,
 }
 
 /// What a fold did, read back from the op it recorded.
@@ -1140,6 +1146,115 @@ pub struct ArcResolvedFile {
     pub added: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed: Option<u32>,
+}
+
+/// A resolve run's durable ledger (Spec S04): the run's id and clock, and
+/// every event it kept, in `seq` order.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArcJoinLedger {
+    /// The run's id — its start, ms, as a decimal string.
+    pub run: String,
+    pub started_ms: u64,
+    /// Absent while the run is still going.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_ms: Option<u64>,
+    pub events: Vec<ArcJoinLedgerEvent>,
+}
+
+/// One act of a resolve run, as the run's ledger records it and as the
+/// `changeset_join_resolve_delta` frame carries it.
+///
+/// The live frame and the durable record are this one type, so nothing
+/// translates between them. `seq` is assigned by the run's recorder, 0-based;
+/// a live-only event (a `streaming` scribe or resolver beat) carries the last
+/// persisted `seq` rather than advancing it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArcJoinLedgerEvent {
+    pub seq: u32,
+    /// Wall clock, ms since the epoch.
+    pub at_ms: u64,
+    #[serde(flatten)]
+    pub body: ArcJoinLedgerEventBody,
+}
+
+impl ArcJoinLedgerEvent {
+    /// Whether this event is live-only: shown while it streams, never kept.
+    pub fn is_live_only(&self) -> bool {
+        match &self.body {
+            ArcJoinLedgerEventBody::Scribe { status, .. }
+            | ArcJoinLedgerEventBody::Resolver { status, .. } => status == "streaming",
+            _ => false,
+        }
+    }
+}
+
+/// What a ledger event says, by kind.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ArcJoinLedgerEventBody {
+    /// The squash's conflict set and what the base did to each path.
+    Probe {
+        paths: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        archaeology: Vec<ArcConflictHistory>,
+    },
+    /// One machine rung's verdict: `replay` | `salvage` | `rerere` |
+    /// `merge-file` | `driver`. No `path` for the whole-arc replay.
+    Rung {
+        rung: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        /// `resolved` | `declined`.
+        outcome: String,
+        said: String,
+    },
+    /// The AI rung on one file: `started` | `streaming` | `resolved` |
+    /// `declined`. `text` rides only the streaming beats.
+    Scribe {
+        path: String,
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        said: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        added: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        removed: Option<u32>,
+    },
+    /// The resolver's work: `started` | `streaming` | `turn` | `asked` |
+    /// `answered` | `reported`.
+    Resolver {
+        turn: u32,
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tools: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answer: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        notes: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<ArcJoinReportFile>,
+    },
+    /// The candidate the run anchored. Its files carry no diff: the ledger
+    /// says which rung decided each, and the candidate holds the bytes.
+    Candidate {
+        sha: String,
+        base_sha: String,
+        files: Vec<ArcResolvedFile>,
+    },
+    /// The run is over: `candidate` | `unresolved` | `stuck` | `error`.
+    Ended {
+        outcome: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
 }
 
 /// `skip_serializing_if` for a count whose zero means "nothing to say".
@@ -2401,5 +2516,102 @@ mod tests {
             Some("/repo/.tug/arcs/fix-join/plan.md")
         );
         assert!(!documents.is_empty());
+    }
+
+    /// Every ledger kind survives the wire in both directions, flat: `seq`,
+    /// `at_ms` and `kind` sit beside the kind's own fields, as Spec S01 and
+    /// the deck's `ArcJoinLedgerEventWire` read them.
+    #[test]
+    fn ledger_events_round_trip_every_kind() {
+        let bodies = vec![
+            ArcJoinLedgerEventBody::Probe {
+                paths: vec!["Justfile".into()],
+                archaeology: vec![ArcConflictHistory {
+                    path: "Justfile".into(),
+                    commits: vec![ArcConflictCommit {
+                        sha: "f6de104".into(),
+                        subject: "Run capture legs".into(),
+                    }],
+                    total: 1,
+                }],
+            },
+            ArcJoinLedgerEventBody::Rung {
+                rung: "merge-file".into(),
+                path: Some("Justfile".into()),
+                outcome: "declined".into(),
+                said: "conflict blocks remain after a three-way merge".into(),
+            },
+            ArcJoinLedgerEventBody::Scribe {
+                path: "Justfile".into(),
+                status: "resolved".into(),
+                text: None,
+                said: Some("merged clean".into()),
+                added: Some(4),
+                removed: Some(1),
+            },
+            ArcJoinLedgerEventBody::Resolver {
+                turn: 2,
+                status: "reported".into(),
+                text: None,
+                tool: None,
+                tools: vec!["Read Justfile".into()],
+                question: None,
+                answer: None,
+                notes: Some("kept both recipes".into()),
+                files: vec![ArcJoinReportFile {
+                    path: "Justfile".into(),
+                    resolved_by: "ai".into(),
+                    what_each_side_did: String::new(),
+                    reconciliation: "both kept".into(),
+                    audit: Some("kept".into()),
+                }],
+            },
+            ArcJoinLedgerEventBody::Candidate {
+                sha: "9f3c1e2a7".into(),
+                base_sha: "f6de104".into(),
+                files: vec![ArcResolvedFile {
+                    path: "Justfile".into(),
+                    resolved_by: "ai".into(),
+                    diff: None,
+                    added: None,
+                    removed: None,
+                }],
+            },
+            ArcJoinLedgerEventBody::Ended {
+                outcome: "error".into(),
+                detail: Some("resolve task failed".into()),
+            },
+        ];
+        let kinds = ["probe", "rung", "scribe", "resolver", "candidate", "ended"];
+        for (seq, (body, kind)) in bodies.into_iter().zip(kinds).enumerate() {
+            let event = ArcJoinLedgerEvent {
+                seq: seq as u32,
+                at_ms: 1_000 + seq as u64,
+                body,
+            };
+            let json = serde_json::to_value(&event).unwrap();
+            assert_eq!(json["kind"], kind);
+            assert_eq!(json["seq"], seq as u64);
+            let back: ArcJoinLedgerEvent = serde_json::from_value(json).unwrap();
+            assert_eq!(back, event);
+        }
+    }
+
+    #[test]
+    fn only_streaming_beats_are_live_only() {
+        let scribe = |status: &str| ArcJoinLedgerEvent {
+            seq: 0,
+            at_ms: 0,
+            body: ArcJoinLedgerEventBody::Scribe {
+                path: "a".into(),
+                status: status.into(),
+                text: None,
+                said: None,
+                added: None,
+                removed: None,
+            },
+        };
+        assert!(scribe("streaming").is_live_only());
+        assert!(!scribe("started").is_live_only());
     }
 }

@@ -8,9 +8,13 @@
  * the same gesture it always was — and reading one is a click rather than a
  * shell.
  *
- * The row's title is read on the **server**: the card has no filesystem, so a
- * surface that wants to name a document cannot open it to find out. Absent, the
- * role stands in — a document with no heading is still a document.
+ * The strip reads as a commit receipt's file list: each row is a role badge and
+ * a checkout-relative path, and the arc's title stands once, as the section
+ * label's qualifier. Every document in the strip belongs to one arc, so the
+ * title said on every row was the same words twice. The title is read on the
+ * **server** — the card has no filesystem, so a surface that wants to name a
+ * document cannot open it to find out — and an arc with no titled document
+ * shows the bare label.
  *
  * The section mounts its own eyebrow, as the report and brief sections do, so
  * the fold's markup is three self-describing sections in a row and a section
@@ -19,7 +23,8 @@
  * Laws: [L02] every fact arrives as a prop from the view's
  * `useSyncExternalStore` read, and nothing here subscribes; [L06] role and
  * review paint through data attributes and CSS; [L19] the row is `ArcFoldRow`
- * — the fold's one row — rather than hand-rolled chrome; [L23] the open goes
+ * — the fold's one row — and the role is a `TugBadge`, rather than hand-rolled
+ * chrome; [L23] the open goes
  * through the `OPEN_FILE` command, whose handler is the shell's `openFileInCard`,
  * which owns the focus transfer. The command and not `openFileInCard` itself:
  * the shade stands in a Session card's body, whose deck store cannot add a card.
@@ -30,8 +35,9 @@
 import "./session-changes-arc-fold.css";
 
 import React from "react";
-import { FileText, SquareArrowOutUpRight } from "lucide-react";
+import { SquareArrowOutUpRight } from "lucide-react";
 
+import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import {
@@ -39,6 +45,7 @@ import {
   ArcFoldRow,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
 import { arcReviewPaints } from "@/lib/arc-review";
+import { documentDisplayPath } from "@/lib/resolve-ledger";
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
@@ -55,6 +62,8 @@ interface DocumentRow {
 export interface SessionChangesArcDocumentsProps {
   /** The arc's documents, as the wire carries them — absolute paths. */
   documents: ArcDocuments;
+  /** The checkout the paths are shown relative to; absent, they show whole. */
+  projectRoot?: string | undefined;
   /** The plan's review state, when it has one. */
   review?: string | undefined;
   /** True when that plan is a task list — steps a direct arc wrote for
@@ -121,8 +130,14 @@ function documentRows(
   return rows;
 }
 
+/** The arc's title, from whichever document carries one, brief first. */
+function arcTitle(documents: ArcDocuments): string | undefined {
+  return documents.brief_title ?? documents.plan_title ?? documents.tasks_title;
+}
+
 export function SessionChangesArcDocuments({
   documents,
+  projectRoot,
   review,
   taskList = false,
   steps,
@@ -137,6 +152,7 @@ export function SessionChangesArcDocuments({
   };
   const rows = documentRows(documents, review, taskList, steps);
   if (rows.length === 0) return null;
+  const title = arcTitle(documents);
 
   return (
     <div
@@ -144,7 +160,11 @@ export function SessionChangesArcDocuments({
       data-slot="session-changes-arc-documents"
     >
       <TugSectionLabel
-        label={{ name: "documents" }}
+        label={
+          title !== undefined
+            ? { name: "documents", qualifier: title }
+            : { name: "documents" }
+        }
         slot="session-changes-arc-documents-label"
       />
       {rows.map((row) => {
@@ -174,20 +194,29 @@ export function SessionChangesArcDocuments({
               },
             }}
             leading={
-              <ArcFoldCell tone="muted">
-                <FileText size={12} aria-hidden />
+              <ArcFoldCell>
+                <TugBadge
+                  size="sm"
+                  emphasis="ghost"
+                  className="session-arc-document-role"
+                  data-slot="session-arc-document-role"
+                >
+                  {row.role}
+                </TugBadge>
               </ArcFoldCell>
             }
             trailing={
               <>
-                <span
-                  className={
-                    caution ? "arc-fold-fact arc-fold-fact-caution" : "arc-fold-fact"
-                  }
-                  data-slot="session-arc-document-facts"
-                >
-                  {row.facts ?? row.role}
-                </span>
+                {row.facts !== null ? (
+                  <span
+                    className={
+                      caution ? "arc-fold-fact arc-fold-fact-caution" : "arc-fold-fact"
+                    }
+                    data-slot="session-arc-document-facts"
+                  >
+                    {row.facts}
+                  </span>
+                ) : null}
                 {/* The last control on the row is the one that acts on it. */}
                 <TugPushButton
                   size="2xs"
@@ -206,8 +235,8 @@ export function SessionChangesArcDocuments({
               </>
             }
           >
-            <span className="arc-fold-prose" data-slot="session-arc-document-title">
-              {row.title}
+            <span className="arc-fold-path" data-slot="session-arc-document-path">
+              {documentDisplayPath(row.path, projectRoot)}
             </span>
           </ArcFoldRow>
         );

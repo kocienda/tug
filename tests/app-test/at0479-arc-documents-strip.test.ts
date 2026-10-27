@@ -19,6 +19,10 @@
  *    any of them to act on.
  *  - A **live** arc carries the same strip inside its fold, above the rounds.
  *
+ * The strip reads as a commit receipt's file list: a row is a role badge and a
+ * checkout-relative path, and the arc's title stands once, as the section
+ * label's qualifier, rather than on every row.
+ *
  * The plan row's facts come from the server's own reading of the document, so
  * an unreviewed plan two steps long says exactly that — which is the fact a
  * reader would otherwise have opened the file to learn.
@@ -34,6 +38,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
  * @covers tugdeck/src/lib/document-arc-entry.ts
+ * @covers tugdeck/src/lib/resolve-ledger.ts
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
@@ -80,6 +85,7 @@ const LANE = `${SHEET} [data-slot="session-changes-arc-lane"]`;
 const ARC_NAME = "at0479-strip";
 const ROW = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
 const DOCUMENTS = `${ROW} [data-slot="session-arc-document"]`;
+const QUALIFIER = `${ROW} [data-slot="session-changes-arc-documents-label"] .tug-section-label-qualifier`;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -113,8 +119,10 @@ const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 interface DocumentReading {
   role: string | null;
   review: string | null;
-  title: string;
+  path: string;
   facts: string;
+  /** Whether the row says the arc's title — it must not; the label does. */
+  hasTitle: boolean;
 }
 
 const readDocuments = (
@@ -124,34 +132,47 @@ const readDocuments = (
     `Array.from(document.querySelectorAll(${JSON.stringify(DOCUMENTS)})).map((row) => ({
        role: row.getAttribute("data-role"),
        review: row.getAttribute("data-review"),
-       title: (row.querySelector('[data-slot="session-arc-document-title"]')?.textContent ?? "").trim(),
+       path: (row.querySelector('[data-slot="session-arc-document-path"]')?.textContent ?? "").trim(),
        facts: (row.querySelector('[data-slot="session-arc-document-facts"]')?.textContent ?? "").trim(),
+       hasTitle: (row.textContent ?? "").includes(${JSON.stringify(BRIEF_TITLE)}),
      }))`,
   );
 
-/** One row's measured box and the two type sizes inside it. */
+const readQualifier = (
+  app: Awaited<ReturnType<typeof launchTugApp>>,
+): Promise<string> =>
+  app.body("A").evalJS<string>(
+    `(document.querySelector(${JSON.stringify(QUALIFIER)})?.textContent ?? "").trim()`,
+  );
+
+/** One row's measured box and the type sizes inside it. */
 interface DocumentMetric {
   height: number;
-  titleSize: string;
+  roleSize: string;
+  pathSize: string;
+  /** Empty on a row with no facts — the brief has none to state. */
   factsSize: string;
 }
 
 /**
  * The fold's rows are one row — the compact mono `TugListRow` — so every one
- * reports the same height, and the title and the facts on a row are set at the
- * same size. The shipping strip set the title `sm` over `xs` facts, which is
- * what made a row's subordinate fact read against its own title.
+ * reports the same height, and the role, the path and the facts on a row are
+ * set at one size. An earlier strip set the title `sm` over `xs` facts, which
+ * is what made a row's subordinate fact read against its own title; a role
+ * badge at the badge's own smaller size would be the same defect again.
  */
 const readDocumentMetrics = (
   app: Awaited<ReturnType<typeof launchTugApp>>,
 ): Promise<DocumentMetric[]> =>
   app.body("A").evalJS<DocumentMetric[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(DOCUMENTS)})).map((row) => {
-       const title = row.querySelector('[data-slot="session-arc-document-title"]');
+       const role = row.querySelector('[data-slot="session-arc-document-role"]');
+       const path = row.querySelector('[data-slot="session-arc-document-path"]');
        const facts = row.querySelector('[data-slot="session-arc-document-facts"]');
        return {
          height: Math.round(row.getBoundingClientRect().height * 100) / 100,
-         titleSize: title === null ? "" : getComputedStyle(title).fontSize,
+         roleSize: role === null ? "" : getComputedStyle(role).fontSize,
+         pathSize: path === null ? "" : getComputedStyle(path).fontSize,
          factsSize: facts === null ? "" : getComputedStyle(facts).fontSize,
        };
      })`,
@@ -212,9 +233,13 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
         note("at0479 brief only", JSON.stringify(briefOnly));
         expect(briefOnly).toHaveLength(1);
         expect(briefOnly[0]!.role).toBe("brief");
+        // The row names the document by where it lives in the checkout, and
+        // says nothing of the title — that stands once, on the label.
+        expect(briefOnly[0]!.path).toBe(`.tug/arcs/${ARC_NAME}/brief.md`);
+        expect(briefOnly[0]!.hasTitle).toBe(false);
         // The title is the document's own first heading, read on the server —
         // the card has no filesystem to read it with.
-        expect(briefOnly[0]!.title).toBe(BRIEF_TITLE);
+        expect(await readQualifier(app)).toBe(BRIEF_TITLE);
 
         // None of the branch-shaped affordances stand: there is no branch.
         expect(
@@ -270,6 +295,12 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
         const live = await readDocuments(app);
         note("at0479 live arc", JSON.stringify(live));
         expect(live.map((row) => row.role)).toEqual(["brief", "plan"]);
+        expect(live.map((row) => row.path)).toEqual([
+          `.tug/arcs/${ARC_NAME}/brief.md`,
+          `.tug/arcs/${ARC_NAME}/plan.md`,
+        ]);
+        expect(live.every((row) => !row.hasTitle)).toBe(true);
+        expect(await readQualifier(app)).toBe(BRIEF_TITLE);
         expect(live.find((row) => row.role === "plan")!.facts).toBe(
           "never-reviewed · 2 steps",
         );
@@ -280,9 +311,11 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
         expect(metrics).toHaveLength(2);
         expect(metrics[1]!.height).toBe(metrics[0]!.height);
         for (const metric of metrics) {
-          expect(metric.titleSize).not.toBe("");
-          expect(metric.factsSize).toBe(metric.titleSize);
+          expect(metric.pathSize).not.toBe("");
+          expect(metric.roleSize).toBe(metric.pathSize);
         }
+        // The plan states facts; they read at the path's size, not a step under.
+        expect(metrics[1]!.factsSize).toBe(metrics[1]!.pathSize);
         note("at0479 live", (await app.screenshot()).path);
       } finally {
         await app.close();

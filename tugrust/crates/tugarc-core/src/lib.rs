@@ -83,9 +83,10 @@ pub use ops::{
 };
 pub use replay::{REPLAY_PHASES, ReplayOutcome, ReplayedRounds, replay_onto, replay_watched};
 pub use resolve::{
-    FileMergeRequest, FileMerger, FileResolution, JoinShape, RESOLVE_LEASE, RESOLVE_SUBJECT_PREFIX,
-    ResolveLease, ResolveOutcome, ResolvedBy, mark_resolve_begun, mark_resolve_ended,
-    resolve_conflicts, resolve_intent, resolve_lease, resolver_program,
+    FileMergeRequest, FileMerger, FileResolution, JoinShape, LadderEvent, RESOLVE_LEASE,
+    RESOLVE_SUBJECT_PREFIX, ResolveLease, ResolveObserver, ResolveOutcome, ResolvedBy,
+    mark_resolve_begun, mark_resolve_ended, resolve_conflicts, resolve_conflicts_observed,
+    resolve_intent, resolve_lease, resolver_program,
 };
 pub use verify::clear_verification;
 pub use workshop::{Workshop, workshop_branch, workshop_path};

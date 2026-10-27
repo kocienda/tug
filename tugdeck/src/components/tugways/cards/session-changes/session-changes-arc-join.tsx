@@ -7,8 +7,12 @@
  * blocker's act and the one control that performs it, on `TugInlineDialog` —
  * the same primitive `PermissionDialog` and `QuestionDialog` are built from,
  * because a refusal with one act to clear it *is* a dialog and Tug has that
- * vocabulary already; conflicted names the paths; resolved shows what the
- * ladder decided. Every one of them is something to read.
+ * vocabulary already. Everything a resolve did — the probe that found the
+ * conflict, the ladder's rungs, the scribe, the resolver, the audit, the
+ * candidate, and the stale note when the candidate stopped applying — is a
+ * ledger of tool blocks, the transcript's own `BlockChrome`, folded from the
+ * join facts and the run's recorded events by `ledgerBlocks`. Every one of
+ * them is something to read.
  *
  * What deliberately does **not** render here ([D142]):
  *
@@ -32,14 +36,18 @@
  *
  * The face rides **every** row, which is what makes [P08]'s "Undo is in your
  * Changes shade" a true sentence to tell the holder of folded work: their own
- * deck shows the receipt and its Undo, on the row for an arc they never
- * pressed anything on. What stays the fronted row's alone is `aim` — joining
+ * deck shows the receipt, on the row for an arc they never pressed anything
+ * on. A fold is answered rather than merely reported: the receipt is an
+ * inline dialog offering Keep, which accepts the commit and hides the receipt
+ * on this page, and Undo, which takes the commit back off the base. What
+ * stays the fronted row's alone is `aim` — joining
  * is a gesture on this card's own arc — and the join verb's own `error`,
  * which belongs to the hand that made the press.
  *
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
  * [L06] tone paints through `data-outcome` and CSS; [L19] the section
- * composes `TugSectionLabel` rather than hand-rolling an eyebrow, and every
+ * composes `TugSectionLabel` rather than hand-rolling an eyebrow, the ledger
+ * is `BlockChrome` blocks with `BlockNoticeBand` and the wave, and every
  * line of evidence is the fold's one `ArcFoldRow`; [L31] every
  * refusal is on screen — on the control that refuses, or as the blocker's own
  * sentence here.
@@ -50,20 +58,16 @@
 import "./session-changes-arc-fold.css";
 
 import React from "react";
-import { LoaderCircle, TriangleAlert } from "lucide-react";
+import { Check, GitCommitHorizontal, RotateCcw, TriangleAlert } from "lucide-react";
 
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
-import { useMotionHold } from "@/lib/motion-guard";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import {
   ArcFoldCell,
   ArcFoldRow,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
-import {
-  QuestionWizard,
-  type ParsedQuestion,
-} from "@/components/tugways/chrome/session-question-dialog";
+import type { ParsedQuestion } from "@/components/tugways/chrome/session-question-dialog";
 import type {
   ArcChangesetEntry,
   ArcJoinBlockerWire,
@@ -71,6 +75,16 @@ import type {
   ArcJoinStateWire,
 } from "@/lib/changeset-types";
 import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
+import {
+  foldReceiptKeepStore,
+  useFoldReceiptKept,
+} from "@/lib/fold-receipt-keep-store";
+import {
+  foldReceiptText,
+  ledgerBlocks,
+  offersResolveAgain,
+} from "@/lib/resolve-ledger";
+import { ResolveLedgerBlocks } from "@/components/tugways/cards/session-changes/session-changes-resolve-ledger";
 import {
   deriveJoinOutcome,
   type JoinOutcome,
@@ -117,6 +131,13 @@ export interface ArcJoinActions {
    * a receipt cannot un-land a join the receipt has already outlived.
    */
   undoResolveBase: (entry: ArcChangesetEntry) => void;
+  /**
+   * Run the resolve again over a ledger that stands but no longer applies
+   * ([B07]): the candidate went stale, or the last run is recorded with no
+   * candidate left on the arc. The server stamps the pilot's head-pair mark
+   * and runs the same ladder a first Resolve runs.
+   */
+  resolveAgain: (entry: ArcChangesetEntry) => void;
 }
 
 /**
@@ -278,16 +299,23 @@ export function joinQuestionAsParsed(
  * One blocker, as an inline dialog.
  *
  * A refusal with one act to clear it is a dialog, and Tug already has that
- * vocabulary — icon, title, description, trailing actions — in
+ * vocabulary — icon, title, body, trailing actions — in
  * `TugInlineDialog`, where `PermissionDialog` and `QuestionDialog` also live.
  * So this composes it rather than stacking spans into a fourth reading of the
  * same idea. The mapping is the primitive's own: the situation names the title
- * row, the sentence that says what will happen is the description, and the one
- * control sits in `actions` where `Allow` and `Deny` sit.
+ * row, the paths and the sentence that says what will happen are the body, and
+ * the one control sits in `actions` where `Allow` and `Deny` sit.
+ *
+ * The fact sheet rides the body slot, never the description. The primitive
+ * centres a description and caps its width, which is right for a permission
+ * prompt's one line and wrong for a sheet that is read rather than announced;
+ * the body slot is already left-aligned and inset to the title text's edge, so
+ * the sheet takes that edge from the primitive itself and this shade reaches
+ * into none of its tokens ([L20]).
  *
  * `detailIsElsewhere` is true for the blocker the join register already fronts
- * — its sentence is the row's own line, one line above, so the description
- * begins at the remedy instead of repeating it.
+ * — its sentence is the row's own line, one line above, so the sheet begins at
+ * the remedy instead of repeating it.
  *
  * Every remedy the server sends is pressable ([L31]): a blocker either
  * carries an act or carries no remedy at all, so the dialog never renders a
@@ -316,43 +344,12 @@ function BlockerDialog({
       icon={<TriangleAlert />}
       iconRole="caution"
       title={blocker.title}
-      description={
-        <>
-          {/* The files themselves, above the sentence that counts them
-              ([P10]). The sentence can say "these 3 files" only because they
-              are named right here; a count with nothing to check it against
-              is a number the reader has to take on trust, which is not what a
-              fact sheet is for. */}
-          {paths.length > 0 ? (
-            <div
-              className="session-changes-arc-join-paths"
-              data-slot="session-changes-arc-join-paths"
-            >
-              {paths.map((path) => (
-                <ArcFoldRow key={path} leading={<ArcFoldCell />}>
-                  <span className="arc-fold-path">{path}</span>
-                </ArcFoldRow>
-              ))}
-            </div>
-          ) : null}
-          {detailIsElsewhere ? null : (
-            <span className="session-changes-arc-join-detail">
-              {blocker.detail}
-            </span>
-          )}
-          {remedy !== undefined ? (
-            <span className="session-changes-arc-join-act">
-              {remedy.explain}
-            </span>
-          ) : null}
-        </>
-      }
       {...(remedy !== undefined
         ? {
             actions: (
-              /* The remedy is never IN the button: the description carries
-                 it, so the act is weighed before it is pressed, and the
-                 control is always the same word — and always live ([L31]). */
+              /* The remedy is never IN the button: the sheet carries it, so
+                 the act is weighed before it is pressed, and the control is
+                 always the same word — and always live ([L31]). */
               <TugPushButton
                 size="xs"
                 emphasis="primary"
@@ -367,7 +364,33 @@ function BlockerDialog({
             ),
           }
         : {})}
-    />
+    >
+      {/* The files themselves, above the sentence that counts them ([P10]).
+          The sentence can say "these 3 files" only because they are named
+          right here; a count with nothing to check it against is a number the
+          reader has to take on trust, which is not what a fact sheet is for.
+          No leading cell: the path stands on the title text's own edge. */}
+      {paths.length > 0 ? (
+        <div
+          className="session-changes-arc-join-paths"
+          data-slot="session-changes-arc-join-paths"
+        >
+          {paths.map((path) => (
+            <ArcFoldRow key={path}>
+              <span className="arc-fold-path">{path}</span>
+            </ArcFoldRow>
+          ))}
+        </div>
+      ) : null}
+      {detailIsElsewhere ? null : (
+        <span className="session-changes-arc-join-detail">
+          {blocker.detail}
+        </span>
+      )}
+      {remedy !== undefined ? (
+        <span className="session-changes-arc-join-act">{remedy.explain}</span>
+      ) : null}
+    </TugInlineDialog>
   );
 }
 
@@ -378,22 +401,26 @@ export function SessionChangesArcJoin({
   resolve,
   actions,
 }: SessionChangesArcJoinProps): React.ReactElement | null {
-  const conflicts = join?.conflicts ?? [];
-  const archaeology = join?.archaeology ?? [];
   const blockers = join?.blockers ?? [];
-  const resolved = join?.resolved ?? [];
-  const staleNote =
-    typeof join?.stale_note === "string" && join.stale_note !== ""
-      ? join.stale_note
-      : null;
-  const question = join?.question ?? null;
   const stuck =
     typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
-  const report = join?.report ?? null;
   // The fold that stands over this arc, if one does. Durable — read off the
   // entry rather than out of the overlay — so a reload and a second deck show
   // the same receipt as the deck that pressed.
   const resolvedBase = join?.resolved_base ?? null;
+  // A receipt the reader has kept hides on this page ([P07]). The hook runs
+  // on every render, receipt or not, so its order never moves.
+  const receiptKey =
+    resolvedBase !== null ? `${entry.owner_id}|${resolvedBase.seq}` : "";
+  const receiptKept = useFoldReceiptKept(receiptKey);
+  const receipt =
+    resolvedBase !== null && !receiptKept
+      ? {
+          key: receiptKey,
+          base: resolvedBase,
+          text: foldReceiptText(resolvedBase),
+        }
+      : null;
   const reported = reportedBlockers(blockers);
   // One decision, made once ({@link deriveJoinFace}) and rendered here.
   const face = deriveJoinFace({
@@ -402,39 +429,35 @@ export function SessionChangesArcJoin({
     resolveAct: resolve.act,
   });
   const { outcome, resolve: resolveFace } = face;
-  // The resolve spinner runs for the length of a ladder run
-  // (`session-changes-arc-fold.css`), and the motion registry hears it ([D7]).
-  useMotionHold(resolveFace === "progress");
-
-  // What the resolved face actually has to show. `resolved` is the face every
-  // standing candidate wears, and the ordinary clean join reaches it having
-  // resolved nothing and filed no account — so the word is not evidence, and
-  // taking it for evidence put a `report` eyebrow over an empty box on every
-  // arc that merged without a conflict.
-  const resolvedRows = resolveFace === "resolved" && resolved.length > 0;
-  const account =
-    resolveFace === "resolved" &&
-    report !== null &&
-    (report.files.length > 0 ||
-      (report.notes !== undefined && report.notes !== ""));
+  // The resolve's ledger: one block per act, from the join facts and whatever
+  // the run has recorded. One pure decision ({@link ledgerBlocks}); the live
+  // block's wave holds its own motion, so nothing here holds one for it.
+  const blocks = ledgerBlocks({
+    join,
+    durable: join?.ledger ?? null,
+    // The store's run is the ledger's live half: what this page heard of
+    // the run since it started, merged past what the entry already holds.
+    live: resolve,
+    base: entry.base,
+    running: resolveFace === "progress",
+  });
+  // Resolve again rides under the ledger it would redo, and only when that
+  // ledger no longer applies (Spec S05).
+  const again = offersResolveAgain(resolveFace, join);
 
   // A section renders nothing it cannot say. Measured against what will
   // actually render below, never against the outcome word — an arc whose arc
   // has not started derives `blocked` with no blockers to show, and a `report`
   // eyebrow over that silence would be a row of chrome saying nothing.
   const speaks =
-    staleNote !== null ||
+    blocks.length > 0 ||
+    again ||
     outcome === "empty" ||
     reported.length > 0 ||
-    resolveFace === "progress" ||
     resolveFace === "folding" ||
-    resolvedBase !== null ||
-    resolvedRows ||
-    account ||
-    question !== null ||
+    receipt !== null ||
     stuck !== null ||
     resolve.error !== null ||
-    conflicts.length > 0 ||
     error !== null;
   if (!speaks) return null;
 
@@ -448,17 +471,6 @@ export function SessionChangesArcJoin({
         label={{ name: "report" }}
         slot="session-changes-arc-join-label"
       />
-      {/* The server's own sentence for a candidate it has already dropped. It
-          names which side moved, which is the whole of what the reader needs
-          to decide whether to resolve again. */}
-      {staleNote !== null ? (
-        <div
-          className="session-changes-arc-join-note"
-          data-slot="session-changes-arc-join-stale"
-        >
-          {staleNote}
-        </div>
-      ) : null}
       {outcome === "empty" ? (
         <div
           className="session-changes-arc-join-note"
@@ -492,53 +504,90 @@ export function SessionChangesArcJoin({
           not an acceptable way to learn about it. It retires by itself: a join
           lands the arc and the fold stops being the newest thing that happened,
           an undo marks the op reversed. */}
-      {resolvedBase !== null ? (
+      {receipt !== null ? (
         <div
-          className="session-changes-arc-join-note"
+          className="session-changes-arc-join-fold-receipt-frame"
           data-slot="session-changes-arc-join-resolve-receipt"
         >
-          {resolvedBase.commit !== undefined
-            ? `Committed base work as ${resolvedBase.commit.slice(0, 7)} · ${
-                (resolvedBase.folded ?? []).length
-              } ${(resolvedBase.folded ?? []).length === 1 ? "file" : "files"}`
-            : `Dropped ${(resolvedBase.dropped ?? []).length} identical ${
-                (resolvedBase.dropped ?? []).length === 1 ? "file" : "files"
-              }`}
-          {Object.entries(resolvedBase.folded_from ?? {}).map(
-            ([path, holder]) => (
-              <div
-                key={path}
-                className="session-changes-arc-join-detail"
-                data-slot="session-changes-arc-join-resolve-holder"
-              >
-                {path} — work in progress from {holder}
-              </div>
-            ),
-          )}
-          {/* The one act on this face ([P08] is what buys the exception to
-              [D142]'s no-acts rule): a receipt that reports a commit made out
-              of somebody's uncommitted work has to carry the way back, or the
-              report is a notification and not a remedy.
+          <TugInlineDialog
+            className="session-changes-arc-join-fold-receipt"
+            icon={<Check />}
+            iconRole="success"
+            title={receipt.text.title}
+            actions={
+              <>
+                {/* Keep is the reader's acknowledgement, and it is deck-local
+                    ([P07]): the receipt hides on this page, and the fold
+                    stands as it is. */}
+                <TugPushButton
+                  size="xs"
+                  emphasis="primary"
+                  role="action"
+                  data-slot="session-changes-arc-join-keep-resolve-base"
+                  onClick={() => foldReceiptKeepStore.keep(receipt.key)}
+                >
+                  Keep
+                </TugPushButton>
+                {/* The way back ([P08] is what buys the exception to [D142]'s
+                    no-acts rule): a receipt that reports a commit made out of
+                    somebody's uncommitted work has to carry the way back, or
+                    the report is a notification and not a remedy.
 
-              It is disabled while a FOLD is running — the op it would reverse
-              is the one being written — and the act is what the guard reads,
-              not the phase. The two acts share `resolving`, and the ladder is
-              the one that runs *after* a fold: the fold puts the base and the
-              arc on divergent history, which is the collision the resolver
-              exists for. A guard on the phase alone therefore switched the
-              Undo off for the whole of the run that a successful fold
-              provokes, which is precisely when a reader has just been told
-              their work was committed and wants it back. */}
-          <TugPushButton
-            size="xs"
-            emphasis="ghost"
-            role="action"
-            data-slot="session-changes-arc-join-undo-resolve-base"
-            disabled={resolve.phase === "resolving" && resolve.act === "resolve-base"}
-            onClick={() => actions.undoResolveBase(entry)}
+                    It is disabled while a FOLD is running — the op it would
+                    reverse is the one being written — and the act is what the
+                    guard reads, not the phase. The two acts share `resolving`,
+                    and the ladder is the one that runs *after* a fold: the
+                    fold puts the base and the arc on divergent history, which
+                    is the collision the resolver exists for. A guard on the
+                    phase alone therefore switched the Undo off for the whole
+                    of the run that a successful fold provokes, which is
+                    precisely when a reader has just been told their work was
+                    committed and wants it back. */}
+                <TugPushButton
+                  size="xs"
+                  emphasis="outlined"
+                  data-slot="session-changes-arc-join-undo-resolve-base"
+                  disabled={resolve.phase === "resolving" && resolve.act === "resolve-base"}
+                  onClick={() => actions.undoResolveBase(entry)}
+                >
+                  Undo
+                </TugPushButton>
+              </>
+            }
           >
-            Undo
-          </TugPushButton>
+            {/* The fact sheet rides the body slot, never the description, so
+                it reads left-aligned on the title's edge ([P09]). */}
+            {receipt.base.commit !== undefined ? (
+              <span className="arc-fold-sha session-changes-arc-join-fold-sha">
+                <GitCommitHorizontal size={11} aria-hidden />
+                {receipt.base.commit.slice(0, 7)}
+              </span>
+            ) : null}
+            <span className="session-changes-arc-join-fold-sentence">
+              {receipt.text.sentence}
+            </span>
+            {Object.keys(receipt.base.folded_from ?? {}).length > 0 ? (
+              <div className="session-changes-arc-join-paths">
+                {Object.entries(receipt.base.folded_from ?? {}).map(
+                  ([path, holder]) => (
+                    <ArcFoldRow
+                      key={path}
+                      wrapperProps={{
+                        "data-slot": "session-changes-arc-join-resolve-holder",
+                      }}
+                      trailing={
+                        <span className="arc-fold-fact">
+                          work in progress from {holder}
+                        </span>
+                      }
+                    >
+                      <span className="arc-fold-path">{path}</span>
+                    </ArcFoldRow>
+                  ),
+                )}
+              </div>
+            ) : null}
+          </TugInlineDialog>
         </div>
       ) : null}
       {/* A fold in flight, and no second sentence about it. The register is
@@ -561,134 +610,47 @@ export function SessionChangesArcJoin({
             ))}
         </div>
       ) : null}
-      {/* A ladder run says so for its whole duration, whether or not it has
-          anything to stream yet. The rungs below the AI one resolve without
-          emitting a delta, so a run that succeeds algorithmically produces an
-          empty progress list — and an empty list under a Resolve button that
-          just vanished is a press that did nothing. This line is the act's
-          receipt; the list is whatever detail the run happens to have. */}
-      {resolveFace === "progress" ? (
-        <div
-          className="session-changes-arc-join-running"
-          role="status"
-          data-slot="session-changes-arc-join-running"
-        >
-          <LoaderCircle size={12} className="session-changes-arc-join-spin" />
-          Resolving {entry.display_name}…
-        </div>
-      ) : null}
-      {resolveFace === "progress" && resolve.progress.length > 0 ? (
-        <div
-          className="session-changes-arc-join-rungs"
-          data-slot="session-changes-arc-join-progress"
-        >
-          {resolve.progress.map((file) => (
-            <ArcFoldRow
-              key={file.path}
-              wrapperProps={{ "data-status": file.status }}
-              leading={<ArcFoldCell />}
-              trailing={
-                <span className="arc-fold-fact">
-                  {file.rung} · {file.status}
-                </span>
-              }
-            >
-              {/* The resolver rung reports a candidate rather than a file, so
-                  the column names whichever it has. It used to render the sha
-                  as a path, which read as a filename nobody could find. */}
-              <span className="arc-fold-path">
-                {file.path !== "" ? file.path : (file.candidate ?? "")}
-              </span>
-            </ArcFoldRow>
-          ))}
-        </div>
-      ) : null}
-      {resolvedRows ? (
-        <div
-          className="session-changes-arc-join-rungs"
-          data-slot="session-changes-arc-join-resolved"
-        >
-          {resolved.map((file) => (
-            <ArcFoldRow
-              key={file.path}
-              wrapperProps={{ "data-resolved-by": file.resolved_by }}
-              leading={<ArcFoldCell />}
-              trailing={<span className="arc-fold-fact">{file.resolved_by}</span>}
-            >
-              <span className="arc-fold-path">{file.path}</span>
-            </ArcFoldRow>
-          ))}
-        </div>
-      ) : null}
-      {/* Where the review panel stood ([P07]). The human is no longer the
-          auditor of machine text decisions: the resolver read every resolution
-          against the arc's intent and had to account for each one ([P10]).
-          So what shows here is the resolver's account, and nothing else — what
-          the joined tree does was asked at the end of the run, against the
-          tree that will actually land. */}
-      {account ? (
-        <div
-          className="session-changes-arc-join-account"
-          data-slot="session-changes-arc-join-account"
-        >
-          {report !== null && report.files.length > 0 ? (
-            <div
-              className="session-changes-arc-join-report"
-              data-slot="session-changes-arc-join-report"
-            >
-              {report.files.map((file) => (
-                <ArcFoldRow
-                  key={file.path}
-                  wrapperProps={{ "data-audit": file.audit ?? "finished" }}
-                  leading={<ArcFoldCell />}
-                  trailing={
-                    <span className="arc-fold-fact session-changes-arc-join-report-what">
-                      {file.reconciliation}
-                    </span>
-                  }
-                >
-                  <span className="arc-fold-path">{file.path}</span>
-                </ArcFoldRow>
-              ))}
-            </div>
-          ) : null}
-          {report !== null &&
-          report.notes !== undefined &&
-          report.notes !== "" ? (
-            <div className="session-changes-arc-join-note">{report.notes}</div>
-          ) : null}
-        </div>
-      ) : null}
-      {/* The escalation ([P06]). The resolver reconciles from intent and asks
-          only when the two sides want incompatible things — so what mounts
-          here is the question, never a diff. `QuestionWizard` is the shipped
-          surface for exactly this shape, taken through its host seam: the join
-          supplies the transport, the wizard supplies the surface. */}
-      {question !== null ? (
-        <div
-          className="session-changes-arc-join-question"
-          data-slot="session-changes-arc-join-question"
-        >
-          <QuestionWizard
-            requestId={question.request_id}
-            questions={joinQuestionAsParsed(question)}
-            isPending
-            onSubmit={(answers) => {
-              const answer = answers[question.question];
-              if (typeof answer !== "string" || answer === "") return;
-              actions.answerQuestion(entry, question.request_id, answer);
+      {/* The ledger: one block per act of the resolve — the probe that found
+          the conflict, the ladder's rungs, the scribe, the resolver and its
+          question, the audit, the candidate — and the stale note when the
+          candidate stopped applying. A running resolve has exactly one live
+          block, carrying the thinking wave; its press has a receipt from the
+          first frame even before any rung reports. */}
+      {blocks.length > 0 ? (
+        <div className="session-changes-ledger" data-slot="session-changes-ledger">
+          <ResolveLedgerBlocks
+            blocks={blocks}
+            base={entry.base}
+            question={{
+              asParsed: joinQuestionAsParsed,
+              onSubmit: (question, answer) =>
+                actions.answerQuestion(entry, question.request_id, answer),
+              onDecline: (question, response) =>
+                actions.answerQuestion(entry, question.request_id, response),
+              onCancel: (question) =>
+                actions.answerQuestion(
+                  entry,
+                  question.request_id,
+                  QUESTION_DECLINED_TO_CHOOSE,
+                ),
             }}
-            onDecline={(response) =>
-              actions.answerQuestion(entry, question.request_id, response)
-            }
-            onCancel={() =>
-              actions.answerQuestion(
-                entry,
-                question.request_id,
-                QUESTION_DECLINED_TO_CHOOSE,
-              )
-            }
           />
+        </div>
+      ) : null}
+      {again ? (
+        <div className="session-changes-arc-join-acts">
+          <TugPushButton
+            size="xs"
+            emphasis="primary"
+            role="action"
+            subtype="icon-text"
+            icon={<RotateCcw size={12} />}
+            disabled={resolve.phase === "resolving"}
+            onClick={() => actions.resolveAgain(entry)}
+            data-slot="session-changes-arc-join-resolve-again"
+          >
+            Resolve again
+          </TugPushButton>
         </div>
       ) : null}
       {/* Why the last resolve stopped short. Durable and server-written, so
@@ -717,75 +679,6 @@ export function SessionChangesArcJoin({
           role="alert"
         >
           {resolve.error}
-        </div>
-      ) : null}
-      {conflicts.length > 0 ? (
-        <div
-          className="session-changes-arc-join-conflicts"
-          data-slot="session-changes-arc-join-conflicts"
-        >
-          {conflicts.map((path) => {
-            // What the base did to this path while the arc was away. A
-            // conflict names a file and stops; this is the history that
-            // explains it, and it is the difference between "resolve this"
-            // and knowing what you are resolving against.
-            const history = archaeology.find((h) => h.path === path) ?? null;
-            const commits = history?.commits ?? [];
-            const elided =
-              history === null ? 0 : history.total - commits.length;
-            return (
-              <React.Fragment key={path}>
-                {/* One tint for the whole fact ([B07]): the mark, the path and
-                    the sentence all take the tone the lifecycle line's own
-                    danger clause takes, one line above. Two reds for one fact
-                    was the shipping fold's defect. */}
-                <ArcFoldRow
-                  leading={
-                    <ArcFoldCell tone="danger">
-                      <TriangleAlert size={12} aria-hidden />
-                    </ArcFoldCell>
-                  }
-                  trailing={
-                    <span
-                      className="arc-fold-fact arc-fold-fact-danger"
-                      data-slot="session-changes-arc-join-conflict-fact"
-                    >
-                      conflicts with {entry.base}
-                    </span>
-                  }
-                >
-                  <span
-                    className="arc-fold-path arc-fold-path-danger session-changes-arc-join-conflict-path"
-                    data-slot="session-changes-arc-join-conflict-path"
-                  >
-                    {path}
-                  </span>
-                </ArcFoldRow>
-                {history !== null ? (
-                  <div
-                    className="session-changes-arc-join-archaeology"
-                    data-slot="session-changes-arc-join-archaeology"
-                  >
-                    {commits.map((commit) => (
-                      <ArcFoldRow key={commit.sha} leading={<ArcFoldCell />}>
-                        <span className="arc-fold-sha">{commit.sha}</span>
-                        <span className="arc-fold-prose arc-fold-muted">
-                          {commit.subject}
-                        </span>
-                      </ArcFoldRow>
-                    ))}
-                    {elided > 0 ? (
-                      <ArcFoldRow leading={<ArcFoldCell />}>
-                        <span className="arc-fold-prose arc-fold-muted">
-                          +{elided} earlier
-                        </span>
-                      </ArcFoldRow>
-                    ) : null}
-                  </div>
-                ) : null}
-              </React.Fragment>
-            );
-          })}
         </div>
       ) : null}
       {error !== null ? (

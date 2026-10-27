@@ -2249,6 +2249,7 @@ impl AgentSupervisor {
             | A::LandingReceipt
             | A::ChangesetJoin
             | A::ChangesetJoinResolve
+            | A::ChangesetJoinResolveAgain
             | A::ChangesetJoinResolveBase
             | A::ChangesetJoinResolveBaseUndo
             | A::ChangesetJoinQuestionAnswer

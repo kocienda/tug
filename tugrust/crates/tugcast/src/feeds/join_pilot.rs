@@ -218,6 +218,21 @@ async fn run_dispatch(
     }
 }
 
+/// Stamp the pilot mark with the arc's current head pair, unconditionally.
+///
+/// The Resolve again verb's half of the pilot's dispatch: the pilot compares
+/// the pair against the mark before it writes, and a user who presses Resolve
+/// again has overruled that comparison. Writing the mark makes the press the
+/// pilot's run for this pair, so the next recompute does not start a second.
+/// Returns whether a head pair resolved at all.
+pub fn stamp_head_pair(repo_root: &Path, arc: &str) -> bool {
+    let Some((pair, _)) = head_pair(repo_root, arc) else {
+        return false;
+    };
+    let _ = tugarc_core::verify::write_pilot_mark(repo_root, arc, &pair);
+    true
+}
+
 /// `(<base_sha>:<arc_head>, arc_head)` for an arc, or `None` when either side
 /// will not resolve.
 fn head_pair(repo_root: &Path, arc: &str) -> Option<(String, String)> {
@@ -236,6 +251,7 @@ mod tests {
     /// freshly built, conflicted arc arrives in.
     fn bare() -> ArcJoinState {
         ArcJoinState {
+            ledger: None,
             phase: "conflicted".to_string(),
             blockers: Vec::new(),
             conflicts: Vec::new(),

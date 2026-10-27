@@ -223,6 +223,29 @@ describe("decoders the catalog has not captured", () => {
     expect(failPath("tug_notice", { ...opener, standalone: true })).toBeNull();
     expect(failPath("tug_notice", { ...opener, standalone: "yes" })).toBe("$.standalone");
   });
+
+  test("tug_notice: base-motion facts decode when present and are optional", () => {
+    const opener = { tug_session_id: "tug", type: "tug_notice", origin: "base-motion", text: "base moved" };
+    const replayed = { kind: "replayed", arc: "a", base: "main", sha: "f".repeat(40), paths: ["x.rs"], rounds: 2 };
+    const stopped = {
+      kind: "replay-stopped",
+      arc: "a",
+      base: "main",
+      sha: "f".repeat(40),
+      paths: ["x.rs"],
+      round_subject: "rewrite x",
+      round_index: 2,
+      worktree: ".tug/worktrees/a",
+    };
+    expect(failPath("tug_notice", opener)).toBeNull();
+    expect(failPath("tug_notice", { ...opener, facts: replayed })).toBeNull();
+    expect(failPath("tug_notice", { ...opener, facts: stopped })).toBeNull();
+    const { round_index: _omitted, ...noIndex } = stopped;
+    expect(failPath("tug_notice", { ...opener, facts: noIndex })).toBeNull();
+    expect(failPath("tug_notice", { ...opener, facts: { ...replayed, rounds: "2" } })).toBe(
+      "$.facts.rounds",
+    );
+  });
 });
 
 describe("telemetry and display", () => {
