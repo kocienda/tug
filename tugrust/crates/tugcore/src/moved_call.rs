@@ -15,6 +15,10 @@
 //! The match is on shape, not wording: the id in `(ID: <id>)` after the
 //! words that say the call moved, and the path after `Output is being
 //! written to:`. The prose around them has changed before and may again.
+//! What the match does hold to is where the harness puts the sentence: on a
+//! line of its own that begins `Command `, with a plain id. A command whose
+//! output merely *quotes* the sentence — a grep over a log, a test fixture
+//! printed — is not a move, and reading it as one opened a job nothing ends.
 
 /// What a moved call's `tool_result` says the call became.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,9 +41,20 @@ const OUTPUT_MARK: &str = "Output is being written to: ";
 /// Read a moved call off a `tool_result`'s text, or `None` when the text is
 /// an ordinary result — the command's output, an error, a timeout kill.
 ///
-/// The sentence is not anchored at the start: the output the command
-/// produced before the move precedes it.
+/// The sentence is not anchored at the start of the text: the output the
+/// command produced before the move precedes it. It is anchored at the start
+/// of its line, which begins `Command `.
 pub fn parse_moved_call(text: &str) -> Option<MovedCall> {
+    text.lines()
+        .rev()
+        .filter(|line| line.starts_with(SENTENCE_START))
+        .find_map(parse_sentence)
+}
+
+/// Every move the harness words begins its line this way.
+const SENTENCE_START: &str = "Command ";
+
+fn parse_sentence(text: &str) -> Option<MovedCall> {
     let task_id = id_after(text, MOVED_ID_MARK, |c| c == ')')
         .or_else(|| id_after(text, USER_ID_MARK, |c| c == '.' || c.is_whitespace()))?;
     let output_start = text.find(OUTPUT_MARK)? + OUTPUT_MARK.len();
@@ -57,13 +72,16 @@ pub fn parse_moved_call(text: &str) -> Option<MovedCall> {
 }
 
 /// The token after `mark`, up to the first character `ends` admits; `None`
-/// when the mark is absent or nothing follows it.
+/// when the mark is absent, nothing follows it, or the token is not a plain
+/// id (letters, digits, `_`, `-`) — a placeholder like `<id>` is not one.
 fn id_after(text: &str, mark: &str, ends: impl Fn(char) -> bool) -> Option<String> {
     let start = text.find(mark)? + mark.len();
     let rest = &text[start..];
     let end = rest.find(|c: char| ends(c) || c.is_whitespace())?;
     let id = &rest[..end];
-    (!id.is_empty()).then(|| id.to_owned())
+    let plain = !id.is_empty()
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    plain.then(|| id.to_owned())
 }
 
 #[cfg(test)]
@@ -112,6 +130,20 @@ mod tests {
             "Command running in background with ID: b9. Output is being written to: /t/b9.output.",
             "moved to the background (ID: ) Output is being written to: /t/x",
             "moved to the background (ID: b4) and nothing about where its output goes",
+            "Command was moved to the background (ID: <id>). Output is being written to: /t/x.output.",
+        ] {
+            assert_eq!(parse_moved_call(text), None, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn output_that_quotes_the_sentence_is_not_a_move() {
+        for text in [
+            // A grep over a log or a source file: the sentence mid-line.
+            "log.txt:12: Command was moved to the background (ID: b5). Output is being written to: /t/b5.output.",
+            // An indented quote, as a printed fixture or doc carries it.
+            "    let cap = \"Command was moved to the background (ID: b6). Output is being written to: /t/b6.output.\";",
+            "event=\"call_moved\" task_id=b7 moved to the background (ID: b7). Output is being written to: /t/b7.output.",
         ] {
             assert_eq!(parse_moved_call(text), None, "{text:?}");
         }

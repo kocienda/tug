@@ -1506,6 +1506,70 @@ describe("protocol audit: §2e stop_task handler", () => {
     const manager = new SessionManager("/tmp/tugcode-stoptask-noproc-" + Date.now(), crypto.randomUUID());
     expect(() => manager.handleStopTask("task-xyz")).not.toThrow();
   });
+
+  /** A manager whose claude stdin records the stop's `request_id`. */
+  function stoppingManager(tag: string): { manager: SessionManager; requestIds: string[] } {
+    const manager = new SessionManager(`/tmp/tugcode-stoptask-${tag}-` + Date.now(), crypto.randomUUID());
+    const requestIds: string[] = [];
+    (manager as any).claudeProcess = {
+      stdin: {
+        write: (data: unknown) => requestIds.push(JSON.parse(String(data).trim()).request_id),
+        flush: () => {},
+      },
+    };
+    return { manager, requestIds };
+  }
+
+  const ack = (requestId: string) =>
+    JSON.stringify({
+      type: "control_response",
+      response: { subtype: "success", request_id: requestId, response: {} },
+    });
+
+  // claude acks a stop `success` whether or not it had the task — a job
+  // that already ended, or a task id it never ran as one, gets the ack and
+  // no `task_updated` (probed against 2.1.311). Without an ending the deck's
+  // row stays running under a stop button that does nothing.
+  test("a stop claude had nothing to stop for still ends the task", async () => {
+    const { manager, requestIds } = stoppingManager("phantom");
+    const frames = await captureIpcOutput(async () => {
+      manager.handleStopTask("bphantom1");
+      (manager as any).handleClaudeLine(ack(requestIds[0]));
+    });
+    const ended = frames.filter((f: any) => f.type === "task_updated");
+    expect(ended).toHaveLength(1);
+    expect(ended[0]).toMatchObject({ task_id: "bphantom1", status: "killed" });
+  });
+
+  test("a real stop's own task_updated is the only ending", async () => {
+    const { manager, requestIds } = stoppingManager("real");
+    const frames = await captureIpcOutput(async () => {
+      manager.handleStopTask("breal1");
+      (manager as any).handleClaudeLine(
+        JSON.stringify({
+          type: "system",
+          subtype: "task_updated",
+          task_id: "breal1",
+          patch: { status: "killed", end_time: 1 },
+          session_id: "s",
+        }),
+      );
+      (manager as any).handleClaudeLine(ack(requestIds[0]));
+    });
+    const ended = frames.filter((f: any) => f.type === "task_updated");
+    expect(ended).toHaveLength(1);
+    expect(ended[0]).toMatchObject({ task_id: "breal1", status: "killed", end_time: 1 });
+  });
+
+  test("a stop with no claude process ends the task", async () => {
+    const manager = new SessionManager("/tmp/tugcode-stoptask-gone-" + Date.now(), crypto.randomUUID());
+    const frames = await captureIpcOutput(async () => {
+      manager.handleStopTask("bgone1");
+    });
+    expect(frames.filter((f: any) => f.type === "task_updated")).toEqual([
+      expect.objectContaining({ task_id: "bgone1", status: "killed" }),
+    ]);
+  });
 });
 
 describe("protocol audit: §12 cost/usage fields in result", () => {

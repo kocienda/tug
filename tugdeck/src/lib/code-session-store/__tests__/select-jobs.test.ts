@@ -18,7 +18,6 @@ import {
   countJobs,
   insertJob,
   isJobLaunch,
-  isMovedForegroundCall,
   isScheduledJobStatus,
   isTerminalJobStatus,
   jobsCellPose,
@@ -746,25 +745,26 @@ describe("parseMovedCallResult", () => {
     ).toBeUndefined();
     expect(parseMovedCallResult(null)).toBeUndefined();
   });
+
+  test("output that only quotes the sentence is not a move", () => {
+    // A grep over a log or source: the sentence mid-line.
+    expect(
+      parseMovedCallResult(
+        "log.txt:12: Command was moved to the background (ID: b5). Output is being written to: /t/b5.output.",
+      ),
+    ).toBeUndefined();
+    // An indented quote, as a printed fixture carries it.
+    expect(
+      parseMovedCallResult(
+        '    const s = "Command was moved to the background (ID: b6). Output is being written to: /t/b6.output.";',
+      ),
+    ).toBeUndefined();
+    // A placeholder is not an id.
+    expect(
+      parseMovedCallResult(
+        "Command was moved to the background (ID: <id>). Output is being written to: /t/x.output.",
+      ),
+    ).toBeUndefined();
+  });
 });
 
-describe("isMovedForegroundCall", () => {
-  test("a pending foreground Bash call named by a task_started is the move", () => {
-    expect(isMovedForegroundCall("Bash", { command: "sleep 1", timeout: 3000 }, "pending")).toBe(
-      true,
-    );
-    expect(isMovedForegroundCall("bash", null, "pending")).toBe(true);
-  });
-
-  test("a launch, a returned call, and a non-Bash call are not", () => {
-    // A `run_in_background` launch is `isJobLaunch`'s, not the move's.
-    expect(isMovedForegroundCall("Bash", { run_in_background: true }, "pending")).toBe(false);
-    // A call that already returned cannot be moved: its late task_started
-    // is a launch's, or nothing.
-    expect(isMovedForegroundCall("Bash", {}, "done")).toBe(false);
-    expect(isMovedForegroundCall("Bash", {}, "error")).toBe(false);
-    // Only a Bash call is a run the harness moves.
-    expect(isMovedForegroundCall("Agent", { prompt: "…" }, "pending")).toBe(false);
-    expect(isMovedForegroundCall("Monitor", {}, "pending")).toBe(false);
-  });
-});

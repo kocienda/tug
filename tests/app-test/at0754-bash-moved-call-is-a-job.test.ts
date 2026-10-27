@@ -6,10 +6,13 @@
  * Claude Code does not kill a foreground Bash call that outlives its
  * `timeout`; it moves the call to a background task and answers the call
  * at once with the output so far and a sentence naming the task and its
- * output file. On the wire (2.1.311, `test-48-bash-timeout-move`) the move
- * is two edges: a `task_started` naming the call's own `tool_use_id`, then
- * the call's `tool_result` carrying the sentence; the job ends on a
- * `task_updated` after the turn. Before this, the deck read the result as
+ * output file. On the wire (2.1.311, `test-48-bash-timeout-move`) a
+ * `task_started` naming the call's own `tool_use_id` comes first, then the
+ * call's `tool_result` carrying the sentence; the job ends on a
+ * `task_updated` after the turn. Only the sentence is the move: the harness
+ * sends that `task_started` for every foreground call that runs a few
+ * seconds, moved or not, so it alone must list nothing — read as a move, it
+ * left a running row behind every long command. Before this, the deck read the result as
  * a finished call — the block went quiet at the move, and nothing listed
  * the command that was still running.
  *

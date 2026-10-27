@@ -743,6 +743,20 @@ export class SessionManager {
   private pendingSideQuestions = new Map<string, { question: string }>();
 
   /**
+   * In-flight `stop_task` requests, keyed by the control `request_id` they
+   * were sent under, each carrying the task it asks to stop and whether a
+   * terminal `task_updated` for that task has passed since. claude answers
+   * a stop `success` whether or not it had the task — a stop for a job
+   * that already ended, or a task id it never ran as a job, gets the same
+   * ack and no `task_updated` at all — and a real stop's `task_updated`
+   * precedes its ack (v2.1.173-jobs-spike P3). So the ack is where the two
+   * part: an ack with no ending before it means claude had nothing to stop,
+   * and {@link observeStopTask} sends the ending itself, or the deck's row
+   * would stay running under a stop button that does nothing.
+   */
+  private pendingStops = new Map<string, { taskId: string; ended: boolean }>();
+
+  /**
    * `/rewind` and prompt retraction: the verbs, their in-flight
    * `rewind_files` requests, the cached preview read, and the JSONL side of
    * a conversation rewind. The respawn it ends in is the manager's
@@ -2103,6 +2117,12 @@ export class SessionManager {
     // observational: it never consumes the line, and it never throws
     // into the drain.
     this.observeSubagentLifecycle(event);
+    // A `stop_task` ack, caught turn-free like the `initialize` and rewind
+    // responses; the `task_updated` frames it watches for are only observed
+    // and pass on.
+    if (this.pendingStops.size > 0 && this.observeStopTask(event)) {
+      return;
+    }
     // `ai-title`: claude's auto-generated session title. It arrives
     // turn-free and carries no `uuid`, so it must be caught here rather
     // than in the turn dispatchers. Forwarded as `session_title` and
@@ -3971,11 +3991,57 @@ export class SessionManager {
    */
   handleStopTask(taskId: string): void {
     if (!this.claudeProcess) {
+      // No claude, so no job of its is running: say the task ended, or the
+      // row the stop came from stays running.
       console.log("No active claude process for stop_task");
+      this.emitStoppedTask(taskId);
       return;
     }
     const stdin = this.claudeProcess.stdin;
-    sendControlRequest(stdin, generateRequestId(), { subtype: "stop_task", task_id: taskId });
+    const requestId = generateRequestId();
+    this.pendingStops.set(requestId, { taskId, ended: false });
+    sendControlRequest(stdin, requestId, { subtype: "stop_task", task_id: taskId });
+  }
+
+  /**
+   * Watch one claude line on behalf of {@link pendingStops}: a terminal
+   * `task_updated` for a task a stop is pending on marks it ended (and is
+   * not consumed — it is the ending the deck reads), and the stop's ack
+   * settles the request, sending the ending claude did not when it had
+   * nothing to stop. Returns `true` only for the ack, which is consumed.
+   */
+  private observeStopTask(event: Record<string, unknown>): boolean {
+    if (event.type === "system" && event.subtype === "task_updated") {
+      const patch = isRecord(event.patch) ? event.patch : null;
+      const status = patch?.status;
+      if (status === "completed" || status === "failed" || status === "killed" || status === "stopped") {
+        for (const stop of this.pendingStops.values()) {
+          if (stop.taskId === event.task_id) stop.ended = true;
+        }
+      }
+      return false;
+    }
+    const requestId = readControlResponseRequestId(event);
+    if (requestId === null) return false;
+    const stop = this.pendingStops.get(requestId);
+    if (stop === undefined) return false;
+    this.pendingStops.delete(requestId);
+    if (!stop.ended) {
+      this.emitStoppedTask(stop.taskId);
+    }
+    return true;
+  }
+
+  /** Send the terminal `task_updated` for a task claude has no job for. */
+  private emitStoppedTask(taskId: string): void {
+    writeLine({
+      type: "task_updated",
+      session_id: this.sessionId,
+      task_id: taskId,
+      status: "killed",
+      end_time: Date.now(),
+      ipc_version: IPC_VERSION,
+    });
   }
 
   /**

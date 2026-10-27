@@ -1328,10 +1328,9 @@ fn parse_moved_result(payload: &[u8]) -> Option<(String, tugcore::moved_call::Mo
 
 /// Fold a call's move into the entry: its run becomes a background run under
 /// `task_id`, marked as moved, and its job opens under that id with the
-/// `bash` kind, stamped `since` ([B02]). Reached from either edge of the move
-/// — the `task_started` the harness sends first, or the `tool_result` that
-/// carries the sentence — and a no-op on the second of the two, so the order
-/// the wire delivers them in does not matter.
+/// `bash` kind, stamped `since` ([B02]). Reached only from the `tool_result`
+/// that carries the sentence: the `task_started` the harness sends first is
+/// sent for every foreground call that runs a few seconds, moved or not.
 fn rekey_moved_run(
     entry: &mut LedgerEntry,
     tool_use_id: &str,
@@ -3943,40 +3942,24 @@ impl AgentSupervisor {
                         );
                     }
                     None => {
-                        // One unmatched shape is a job after all: a
-                        // `task_started` naming a live *foreground* Bash
-                        // call is the harness moving that call to the
-                        // background, and it arrives before the call's
-                        // `tool_result` carries the sentence ([B01]). The
-                        // run in `open_runs` is the evidence — only a Bash
-                        // call is registered there, and only a foreground
-                        // one can be moved. A backgrounded launch whose job
-                        // was already ended still opens nothing: its run is
-                        // a background run.
-                        let moved = launch_id.as_deref().filter(|id| {
-                            entry.open_runs.get(*id).is_some_and(|run| !run.background)
-                        });
-                        let Some(tool_use_id) = moved else {
-                            tracing::debug!(
-                                target: "dev::ledger",
-                                event = "job_open_rejected",
-                                session_id = %session_id,
-                                task_id = %task,
-                                "task_started with no observed background launch — \
-                                 foreground work, not a job to track",
-                            );
-                            return false;
-                        };
-                        rekey_moved_run(&mut entry, tool_use_id, &task, std::time::Instant::now());
+                        // A `task_started` naming a live *foreground* Bash
+                        // call is not a move. The harness sends one for
+                        // every foreground call that runs a few seconds,
+                        // moved or not, and a call that then finishes in
+                        // the foreground gets no `task_updated` to end it —
+                        // read as a move, it left a job and a busy session
+                        // behind every long command. Only the sentence on
+                        // the call's `tool_result` says the call moved
+                        // ([B01]), and `close_run` reads it there.
                         tracing::debug!(
                             target: "dev::ledger",
-                            event = "call_moved",
+                            event = "job_open_rejected",
                             session_id = %session_id,
-                            tool_use_id = %tool_use_id,
                             task_id = %task,
-                            frame = frame_family(payload),
-                            open_jobs = entry.open_jobs.len(),
+                            "task_started with no observed background launch — \
+                             foreground work, not a job to track",
                         );
+                        return false;
                     }
                 }
             }
@@ -9025,41 +9008,53 @@ mod tests {
         );
     }
 
-    /// On the wire the move's `task_started` lands before the call's
-    /// `tool_result`. Naming a live foreground Bash call, it is the move's
-    /// first edge: the job opens there, and the sentence that follows changes
-    /// nothing. A short run records no gap at its end.
+    /// The harness sends a `task_started` naming a live foreground Bash call
+    /// for every such call that runs a few seconds, moved or not, and one
+    /// that then finishes in the foreground gets no `task_updated`. So the
+    /// frame is not a move: it opens no job and leaves the run foreground,
+    /// and the call's ordinary result ends the run and leaves the session
+    /// quiet. Only the sentence makes the move, after the frame as before.
     #[tokio::test]
-    async fn a_task_started_naming_a_live_foreground_call_is_the_move() {
+    async fn a_task_started_naming_a_live_foreground_call_is_not_a_move() {
         let (sup, gaps, _dir) = supervisor_with_gaps();
         let id = TugSessionId::new("sess-moved-edge");
         let entry = insert_ledger_entry(&sup, &id).await;
         sup.record_run_open(&id, &bash_use("toolu_E", "just test", false))
             .await;
 
-        assert!(
-            !sup.apply_job_edge(&id, &task_started_for("toolu_E", "bm2"))
-                .await,
-            "a job opened: not quiet"
-        );
-        {
-            let entry = entry.lock().await;
-            assert_eq!(entry.open_jobs["bm2"].kind, JobKind::Bash);
-            let run = &entry.open_runs["toolu_E"];
-            assert!(run.background && run.moved, "{run:?}");
-            assert_eq!(run.task_id.as_deref(), Some("bm2"));
-        }
-
-        sup.close_run(&id, &moved_result_for("toolu_E", "bm2"))
+        sup.apply_job_edge(&id, &task_started_for("toolu_E", "bm2"))
             .await;
         {
             let entry = entry.lock().await;
-            assert_eq!(entry.open_jobs.len(), 1, "the sentence re-opens nothing");
-            assert_eq!(entry.open_runs["toolu_E"].task_id.as_deref(), Some("bm2"));
+            assert!(entry.open_jobs.is_empty(), "{:?}", entry.open_jobs.keys());
+            let run = &entry.open_runs["toolu_E"];
+            assert!(!run.background && !run.moved, "{run:?}");
+        }
+        sup.close_run(&id, &tool_result_for("toolu_E")).await;
+        {
+            let entry = entry.lock().await;
+            assert!(entry.open_runs.is_empty(), "the result ends the run");
+            assert!(entry.open_jobs.is_empty());
+            assert!(entry.is_quiet(), "nothing holds the session busy");
+        }
+
+        // The same frame before a real move: the sentence opens the job.
+        sup.record_run_open(&id, &bash_use("toolu_F", "just test", false))
+            .await;
+        sup.apply_job_edge(&id, &task_started_for("toolu_F", "bm2"))
+            .await;
+        sup.close_run(&id, &moved_result_for("toolu_F", "bm2"))
+            .await;
+        {
+            let entry = entry.lock().await;
+            assert_eq!(entry.open_jobs["bm2"].kind, JobKind::Bash);
+            let run = &entry.open_runs["toolu_F"];
+            assert!(run.background && run.moved, "{run:?}");
+            assert_eq!(run.task_id.as_deref(), Some("bm2"));
         }
         assert_eq!(
             sup.publish_report("sess-moved-edge", report(&[])).await,
-            Some((true, Some("toolu_E".to_owned())))
+            Some((true, Some("toolu_F".to_owned())))
         );
 
         assert!(sup.apply_job_edge(&id, &task_completed("bm2")).await);

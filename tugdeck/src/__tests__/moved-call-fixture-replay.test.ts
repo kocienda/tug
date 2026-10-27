@@ -17,10 +17,12 @@
  * capture's sentence so a wording change surfaces as drift.
  *
  * What is asserted is the deck's half of the facility: the JOBS row
- * opens on the first edge at the call's own open, the second edge fills
- * its output file in without a second row, the call's reports keep
- * attaching after its result closed the call, and the row — and the
- * run its block shows — end when the job does.
+ * opens on the result's sentence at the call's own open, and never on the
+ * `task_started` before it — the harness sends that frame for every
+ * foreground call that runs a few seconds, moved or not, and one that
+ * finishes in the foreground is ended by nothing. The call's reports keep
+ * attaching after its result closed the call, and the row — and the run
+ * its block shows — end when the job does.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -173,11 +175,33 @@ function wakeStarted(conn: TestFrameChannel): void {
 }
 
 describe("a moved Bash call is a job", () => {
-  it("opens the JOBS row on task_started, at the call's own open, before the result lands", () => {
+  it("a task_started on a pending foreground call opens no row", () => {
+    const { store, conn } = makeStore();
+    openCall(store, conn);
+    taskStarted(conn);
+    expect(store.getSnapshot().jobs).toHaveLength(0);
+
+    // The live shape: the call then finishes in the foreground, and no
+    // `task_updated` ever names its task. Nothing may be left running.
+    emit(conn, {
+      type: "tool_result",
+      is_error: false,
+      tool_use_id: TOOL_USE_ID,
+      output: "MOVE_START\nMOVED_OK",
+      ipc_version: IPC_VERSION,
+    });
+    turnComplete(conn);
+    expect(store.getSnapshot().jobs).toHaveLength(0);
+  });
+
+  it("the result's sentence opens the row at the call's own open", () => {
     const { store, conn } = makeStore();
     const before = Date.now();
     openCall(store, conn);
+    const opened = Date.now();
     taskStarted(conn);
+    movedResult(conn);
+    turnComplete(conn);
 
     const ledger = store.getSnapshot().jobs;
     expect(ledger).toHaveLength(1);
@@ -187,28 +211,11 @@ describe("a moved Bash call is a job", () => {
     expect(row.kind).toBe("bash");
     expect(row.status).toBe("running");
     expect(row.description).toBe(DESCRIPTION);
+    expect(row.outputFile).toBe(OUTPUT_FILE);
     // The command has been running since the call opened, not since the
     // harness said so.
     expect(row.startedAtMs).toBeGreaterThanOrEqual(before);
-    expect(row.startedAtMs).toBeLessThanOrEqual(Date.now());
-    // The first edge carries no output file; the sentence does.
-    expect(row.outputFile).toBeUndefined();
-  });
-
-  it("the result's sentence fills the same row in, and the call reads done", () => {
-    const { store, conn } = makeStore();
-    openCall(store, conn);
-    taskStarted(conn);
-    const opened = store.getSnapshot().jobs[0].startedAtMs;
-    movedResult(conn);
-    turnComplete(conn);
-
-    const ledger = store.getSnapshot().jobs;
-    expect(ledger).toHaveLength(1);
-    expect(ledger[0].jobId).toBe(TASK_ID);
-    expect(ledger[0].status).toBe("running");
-    expect(ledger[0].outputFile).toBe(OUTPUT_FILE);
-    expect(ledger[0].startedAtMs).toBe(opened);
+    expect(row.startedAtMs).toBeLessThanOrEqual(opened);
 
     // The call itself returned — its block shows the sentence — and the
     // turn ended with the job still running.

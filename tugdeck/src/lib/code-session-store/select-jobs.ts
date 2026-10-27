@@ -295,33 +295,6 @@ export function isJobLaunch(
 }
 
 /**
- * The ledger's second insert gate, beside {@link isJobLaunch}: was this
- * call *moved* to the background after it was launched in the
- * foreground? Claude Code moves a foreground Bash call that outlives
- * its `timeout` (and one a queued message has to get past, one a
- * subagent's cap stops, one the user backgrounds by hand) instead of
- * killing it, and the only tell is the call's own `tool_result`. A
- * moved call is background work from that moment, so it belongs in
- * JOBS as a launch does — but `isJobLaunch` reads the *input*, which
- * says nothing about it, so the move has its own gate that reads the
- * result ({@link parseMovedCallResult}). Only a Bash call can be moved:
- * a `task_started` naming a Bash call that is still pending — no
- * result yet — and was not launched as a job is the move's first edge,
- * and this is that reading.
- */
-export function isMovedForegroundCall(
-  toolName: string,
-  input: Record<string, unknown> | null,
-  status: ToolUseMessage["status"],
-): boolean {
-  return (
-    toolName.toLowerCase() === "bash" &&
-    status === "pending" &&
-    !isJobLaunch(toolName, input)
-  );
-}
-
-/**
  * Kind for a launch, from the launching tool's name first. The frame's
  * `task_type` cannot discriminate monitors — a watcher's script reports
  * `"local_bash"` (captured in `test-monitor-lifecycle-raw.jsonl`) — so
@@ -412,8 +385,11 @@ export interface MovedCallEcho {
  * the harness gives ends that way: the timeout, a subagent's cap, a
  * message queued mid-call) or `backgrounded by user with ID: <id>`, and
  * `Output is being written to: <path>`. The sentence is not anchored at
- * the start — the output the command produced before the move precedes
- * it. The same reader lives Rust-side in `tugcore::moved_call`, and the
+ * the start of the text — the output the command produced before the move
+ * precedes it — but it is anchored at the start of its line, which begins
+ * `Command `, and its id is a plain one: output that merely *quotes* the
+ * sentence (a grep over a log, a printed fixture) is not a move. The same
+ * reader lives Rust-side in `tugcore::moved_call`, and the
  * stream-json drift regression pins it to the live wire; this side is
  * pinned to the verbatim sentence read off that wire.
  *
@@ -426,10 +402,21 @@ export function parseMovedCallResult(
 ): MovedCallEcho | undefined {
   const text = launchEchoText(result);
   if (text === undefined) return undefined;
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].startsWith("Command ")) continue;
+    const moved = parseMovedSentence(lines[i]);
+    if (moved !== undefined) return moved;
+  }
+  return undefined;
+}
+
+/** One line of a result read as the move sentence, or `undefined`. */
+function parseMovedSentence(text: string): MovedCallEcho | undefined {
   const id =
-    /moved to the background \(ID: ([^)\s]+)/.exec(text)?.[1] ??
+    /moved to the background \(ID: ([^)\s]+)\)/.exec(text)?.[1] ??
     /backgrounded by user with ID: ([^.\s]+)/.exec(text)?.[1];
-  if (id === undefined) return undefined;
+  if (id === undefined || !/^[A-Za-z0-9_-]+$/.test(id)) return undefined;
   // The path is the token after the mark, less the sentence's closing
   // period, so `…/tasks/<id>.output.` keeps its `.output` extension — the
   // same reading as `tugcore::moved_call`, so the two sides never disagree
