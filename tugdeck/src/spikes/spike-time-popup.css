@@ -295,3 +295,143 @@
 .sp-tp-twin-log {
   border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
 }
+
+/* ---------------------------------------------------------------------------
+ * F — the arc. Stage strip colors borrow the arc gauge's segment slots, one
+ * per stage; a projected segment is the same slot, faint. The log is taller
+ * than the turn log because an arc has more rows that matter at once.
+ * ---------------------------------------------------------------------------*/
+
+.sp-tp-strip-seg[data-part="devise"],
+.sp-tp-swatch[data-part="devise"] {
+  background-color: var(--tugx-arc-gauge-segment-system_prompt-color);
+}
+
+.sp-tp-strip-seg[data-part="review"],
+.sp-tp-swatch[data-part="review"] {
+  background-color: var(--tugx-arc-gauge-segment-skills-color);
+}
+
+.sp-tp-strip-seg[data-part="implement"],
+.sp-tp-swatch[data-part="implement"] {
+  background-color: var(--tugx-arc-gauge-segment-messages-color);
+}
+
+.sp-tp-strip-seg[data-part="audit"],
+.sp-tp-swatch[data-part="audit"] {
+  background-color: var(--tugx-arc-gauge-segment-custom_agents-color);
+}
+
+.sp-tp-strip-seg[data-projected],
+.sp-tp-swatch[data-projected] {
+  opacity: 0.35;
+}
+
+.sp-tp-placard .sp-tp-arc-log .tug-popup-list-grid-scroller {
+  max-block-size: 380px;
+}
+
+.sp-tp-stage {
+  font-size: 0.6875rem;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-tp-stage-meta,
+.sp-tp-step-meta,
+.sp-tp-mark {
+  font-size: 0.6875rem;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-tp-mark {
+  font-style: italic;
+}
+
+.sp-tp-stepnum {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding-inline-start: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sp-tp-stepnum[data-pending],
+.sp-tp-preview-stack[data-pending] .sp-tp-preview-text {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-tp-disclose {
+  inline-size: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  cursor: pointer;
+}
+
+.sp-tp-disclose:hover {
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-tp-disclose-gap {
+  display: inline-block;
+  inline-size: 12px;
+}
+
+.sp-tp-nested {
+  display: inline-block;
+  padding-inline-start: 28px;
+}
+
+.sp-tp-step-addr {
+  font-size: 0.6875rem;
+}
+
+.sp-tp-commit {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.6875rem;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-tp-rowbar[data-projected] .sp-tp-rowbar-fill {
+  opacity: 0.35;
+}
+
+/* F′ — the Z2 cell, restated as a pair of mono chips. */
+
+.sp-tp-glance-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sp-tp-glance {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: var(--tug-radius-sm);
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sp-tp-glance-key {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  letter-spacing: 0.08em;
+}
+
+.sp-tp-glance-value {
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-tp-glance-vs {
+  font-size: 0.75rem;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

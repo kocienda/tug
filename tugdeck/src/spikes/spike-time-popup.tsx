@@ -32,6 +32,11 @@
  *      long?" with caution past the average and danger near the record.
  *   E. **The CONTEXT twin.** D's dial on the left, A's summary and C's
  *      legend on the right, B's log below — one object, like CONTEXT.
+ *   F. **The arc.** A card bound to an arc reads its time by the arc's
+ *      structure: a stage strip with its projection, then devise / review /
+ *      implement / audit, with implement's steps as rows barred against the
+ *      arc's own median and turns as the drill-down. F′ is the Z2 cell's
+ *      glance during implement: `6/10 · 0:02:14`.
  *
  * Nothing here ships. The dial reuses `TugArcGauge`; the strip and row
  * bars are plain token-painted divs because no `Tug*` primitive draws a
@@ -217,10 +222,21 @@ function liveText(ms: number): string {
  * Row bars (B) — a thin bar under the preview, sized against the longest turn
  * ---------------------------------------------------------------------------*/
 
-function RowBar({ ms, max, tone }: { ms: number; max: number; tone: "default" | "caution" | "danger" | "live" }): React.ReactElement {
+function RowBar({
+  ms,
+  max,
+  tone,
+  projected,
+}: {
+  ms: number;
+  max: number;
+  tone: "default" | "caution" | "danger" | "live";
+  /** F's pending steps: the bar is a forecast, drawn faint. */
+  projected?: boolean;
+}): React.ReactElement {
   const pct = max > 0 ? Math.min(100, (ms / max) * 100) : 0;
   return (
-    <span className="sp-tp-rowbar" data-tone={tone} aria-hidden>
+    <span className="sp-tp-rowbar" data-tone={tone} data-projected={projected ? "true" : undefined} aria-hidden>
       <span className="sp-tp-rowbar-fill" style={{ width: `${pct}%` }} />
     </span>
   );
@@ -478,6 +494,430 @@ function ProposalE({ r }: { r: Readings }): React.ReactElement {
 }
 
 /* ---------------------------------------------------------------------------
+ * F — the arc. A card bound to an arc reads its time by the arc's own
+ * structure: stages, then steps, with turns as the drill-down.
+ *
+ * The mock is `resolve-ledger-rollout` as its arc log read on 2026-10-27,
+ * with step 6 in flight: real titles, real shas, real start → done spans.
+ * Turn active times are invented a few seconds under each span, and step 4's
+ * second turn — a question answered — is invented to show a step that took
+ * two. The audit projection is the last arc's audit, `moved-call-is-a-job`.
+ * ---------------------------------------------------------------------------*/
+
+interface ArcTurn {
+  n: number;
+  preview: string;
+  end: TurnEndReason;
+  activeMs: number;
+}
+
+interface ArcStep {
+  n: number;
+  title: string;
+  /** The step's commit — absent until it lands. */
+  commit?: string;
+  /** `step-start` → `step-done` on the arc log. */
+  wallMs?: number;
+  turns: readonly ArcTurn[];
+  /** A compaction the wheel ran at the boundary after this step. */
+  compactAfter?: { note: string; ms: number };
+}
+
+const ARC_STEP_TOTAL = 10;
+
+const ARC_DEVISE: readonly ArcTurn[] = [
+  { n: 1, preview: "/tugplug:arc-devise a plan for .tug/arcs/resolve-ledger-rollout/brief.md…", end: "complete", activeMs: 15 * MIN + 21 * SEC },
+];
+const ARC_REVIEW: readonly ArcTurn[] = [
+  { n: 2, preview: "/tugplug:arc-review resolve-ledger-rollout", end: "complete", activeMs: 11 * MIN + 2 * SEC },
+];
+
+const ARC_STEPS: readonly ArcStep[] = [
+  { n: 1, title: "Sheets, register and DOCUMENTS", commit: "315f607", wallMs: 7 * MIN + 48 * SEC,
+    turns: [{ n: 3, preview: "resolve-ledger-rollout implement step 1 and end the turn…", end: "complete", activeMs: 7 * MIN + 41 * SEC }] },
+  { n: 2, title: "The fold receipt, answered", commit: "c58caa0", wallMs: 6 * MIN + 20 * SEC,
+    turns: [{ n: 4, preview: "resolve-ledger-rollout implement step 2 and end the turn…", end: "complete", activeMs: 6 * MIN + 14 * SEC }] },
+  { n: 3, title: "REPORT as a ledger of blocks", commit: "1415922", wallMs: 7 * MIN + 32 * SEC,
+    turns: [{ n: 5, preview: "resolve-ledger-rollout implement step 3 and end the turn…", end: "complete", activeMs: 7 * MIN + 27 * SEC }],
+    compactAfter: { note: "compacted at 397k > 300k", ms: 1 * MIN + 6 * SEC } },
+  { n: 4, title: "Every rung reports", commit: "f6c778d", wallMs: 14 * MIN + 2 * SEC,
+    turns: [
+      { n: 6, preview: "resolve-ledger-rollout implement step 4 and end the turn…", end: "complete", activeMs: 9 * MIN + 20 * SEC },
+      { n: 7, preview: "Split the call — keep the gate strict.", end: "complete", activeMs: 3 * MIN + 24 * SEC },
+    ] },
+  { n: 5, title: "The resolver's stream is relayed", commit: "86ce45a", wallMs: 7 * MIN + 7 * SEC,
+    turns: [{ n: 8, preview: "resolve-ledger-rollout implement step 5 and end the turn…", end: "complete", activeMs: 7 * MIN + 2 * SEC }],
+    compactAfter: { note: "compacted at 382k > 300k", ms: 1 * MIN + 5 * SEC } },
+];
+
+const ARC_CURRENT = { n: 6, title: "Resolve again", turn: 9, preview: "resolve-ledger-rollout implement step 6 and end the turn…", baseMs: 2 * MIN + 14 * SEC };
+
+const ARC_PENDING: readonly { n: number; title: string }[] = [
+  { n: 7, title: "The durable ledger" },
+  { n: 8, title: "The base-motion receipt" },
+  { n: 9, title: "Migrate the spike's CSS and delete the spike" },
+  { n: 10, title: "Integration Checkpoint" },
+];
+
+/** The last arc's audit, start → `arc-done`, as the only history the mock has. */
+const LAST_AUDIT_MS = 19 * MIN + 42 * SEC;
+
+const sumActive = (turns: readonly ArcTurn[]) => turns.reduce((s, t) => s + t.activeMs, 0);
+const stepActive = (s: ArcStep) => sumActive(s.turns);
+
+function median(xs: readonly number[]): number {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
+}
+
+interface ArcReadings {
+  running: boolean;
+  /** Elapsed of the step in flight (frozen when the arc is stopped). */
+  currentMs: number;
+  deviseMs: number;
+  reviewMs: number;
+  /** Steps, compactions and the step in flight. */
+  implementMs: number;
+  medianStepMs: number;
+  slowest: ArcStep;
+  /** What is left of the step in flight, at the median. */
+  currentLeftMs: number;
+  pendingMs: number;
+  auditMs: number;
+  soFarMs: number;
+  waitingMs: number;
+}
+
+function arcReadings(r: Readings): ArcReadings {
+  const running = r.inflight;
+  const currentMs = ARC_CURRENT.baseMs + r.currentMs;
+  const medianStepMs = median(ARC_STEPS.map(stepActive));
+  const implementMs =
+    ARC_STEPS.reduce((s, st) => s + stepActive(st) + (st.compactAfter?.ms ?? 0), 0) + currentMs;
+  const deviseMs = sumActive(ARC_DEVISE);
+  const reviewMs = sumActive(ARC_REVIEW);
+  return {
+    running,
+    currentMs,
+    deviseMs,
+    reviewMs,
+    implementMs,
+    medianStepMs,
+    slowest: ARC_STEPS.reduce((a, b) => (stepActive(b) > stepActive(a) ? b : a)),
+    currentLeftMs: running ? Math.max(0, medianStepMs - currentMs) : 0,
+    pendingMs: running ? ARC_PENDING.length * medianStepMs : 0,
+    auditMs: running ? LAST_AUDIT_MS : 0,
+    soFarMs: deviseMs + reviewMs + implementMs,
+    waitingMs: ARC_STEPS.reduce((s, st) => s + Math.max(0, (st.wallMs ?? 0) - stepActive(st)), 0),
+  };
+}
+
+/** `~0:07:32` — a projection says it is one. */
+const approx = (ms: number) => `~${formatTimeAlwaysHours(ms)}`;
+
+/** The step bar: against twice the arc's median, caution past 1.5×. */
+function StepBar({ ms, a, tone }: { ms: number; a: ArcReadings; tone?: "live" | "projected" }): React.ReactElement {
+  const max = Math.max(1, a.medianStepMs * 2);
+  const t = tone ?? (ms > a.medianStepMs * 1.5 ? "caution" : "default");
+  return <RowBar ms={ms} max={max} tone={t === "projected" ? "default" : t} projected={t === "projected"} />;
+}
+
+function StageLabel({ children }: { children: React.ReactNode }): React.ReactElement {
+  return <span className="sp-tp-stage">{children}</span>;
+}
+
+function TurnAddr({ n }: { n: number }): React.ReactElement {
+  return (
+    <span className="sp-tp-pair">
+      <span className="sp-tp-addr">#u{n}</span>
+      <span className="sp-tp-pair-sep" aria-hidden>/</span>
+      <span className="sp-tp-addr">#a{n}</span>
+    </span>
+  );
+}
+
+function ArcTurnRow({ t, nested }: { t: ArcTurn; nested?: boolean }): React.ReactElement {
+  return (
+    <TugPopupListRow
+      label={<span className={nested ? "sp-tp-nested" : undefined}><TurnAddr n={t.n} /></span>}
+      preview={<span className="sp-tp-preview-text">{t.preview}</span>}
+      badge={<EndBadge t={{ n: t.n, preview: t.preview, end: t.end, activeMs: t.activeMs, awaitingMs: 0, downtimeMs: 0 }} />}
+      value={formatTimeAlwaysHours(t.activeMs)}
+    />
+  );
+}
+
+function Commit({ sha }: { sha: string }): React.ReactElement {
+  return <span className="sp-tp-commit">{sha}</span>;
+}
+
+function arcRows(
+  a: ArcReadings,
+  open: ReadonlySet<number>,
+  toggle: (n: number) => void,
+): React.ReactElement[] {
+  const rows: React.ReactElement[] = [];
+  const stageRow = (id: string, label: string, meta: string, value: string, hint?: string) =>
+    rows.push(
+      <TugPopupListRow
+        key={`stage-${id}`}
+        label={<StageLabel>{label}</StageLabel>}
+        preview={<span className="sp-tp-stage-meta">{meta}</span>}
+        hint={hint}
+        value={value}
+      />,
+    );
+
+  stageRow("devise", "DEVISE", "opus · 1 turn", formatTimeAlwaysHours(a.deviseMs));
+  stageRow("review", "REVIEW", "opus · 1 round", formatTimeAlwaysHours(a.reviewMs));
+  stageRow(
+    "implement",
+    "IMPLEMENT",
+    `opus · ${ARC_STEPS.length} of ${ARC_STEP_TOTAL} done`,
+    formatTimeAlwaysHours(a.implementMs),
+    a.running ? "incl. current" : undefined,
+  );
+
+  for (const s of ARC_STEPS) {
+    const active = stepActive(s);
+    const many = s.turns.length > 1;
+    const isOpen = open.has(s.n);
+    const waited = (s.wallMs ?? active) - active;
+    const meta = many
+      ? `${s.turns.length} turns · wall ${formatTimeAlwaysHours(s.wallMs ?? active)}${waited > 30 * SEC ? ` · ${formatTimeAlwaysHours(waited)} on you` : ""}`
+      : null;
+    rows.push(
+      <TugPopupListRow
+        key={`step-${s.n}`}
+        label={
+          <span className="sp-tp-stepnum">
+            {many ? (
+              <button
+                type="button"
+                className="sp-tp-disclose"
+                aria-expanded={isOpen}
+                aria-label={`${isOpen ? "Hide" : "Show"} step ${s.n}'s turns`}
+                onClick={() => toggle(s.n)}
+              >
+                {isOpen ? "▾" : "▸"}
+              </button>
+            ) : (
+              <span className="sp-tp-disclose-gap" aria-hidden />
+            )}
+            {s.n}
+          </span>
+        }
+        preview={
+          <span className="sp-tp-preview-stack">
+            <span className="sp-tp-preview-text">
+              {s.title}
+              {!many ? <span className="sp-tp-step-addr"> <TurnAddr n={s.turns[0].n} /></span> : null}
+            </span>
+            <StepBar ms={active} a={a} />
+            {meta !== null ? <span className="sp-tp-step-meta">{meta}</span> : null}
+          </span>
+        }
+        badge={s.commit !== undefined ? <Commit sha={s.commit} /> : undefined}
+        value={formatTimeAlwaysHours(active)}
+      />,
+    );
+    if (many && isOpen) {
+      for (const t of s.turns) rows.push(<ArcTurnRow key={`turn-${t.n}`} t={t} nested />);
+    }
+    if (s.compactAfter !== undefined) {
+      rows.push(
+        <TugPopupListRow
+          key={`compact-${s.n}`}
+          label=""
+          preview={<span className="sp-tp-mark">⟳ {s.compactAfter.note}</span>}
+          value={formatTimeAlwaysHours(s.compactAfter.ms)}
+        />,
+      );
+    }
+  }
+
+  rows.push(
+    <TugPopupListRow
+      key="step-current"
+      label={<span className="sp-tp-stepnum"><span className="sp-tp-disclose-gap" aria-hidden />{ARC_CURRENT.n}</span>}
+      preview={
+        <span className="sp-tp-preview-stack">
+          <span className="sp-tp-preview-text">
+            {ARC_CURRENT.title}
+            <span className="sp-tp-step-addr"> <span className="sp-tp-pair"><span className="sp-tp-addr">#u{ARC_CURRENT.turn}</span></span></span>
+          </span>
+          <StepBar ms={a.currentMs} a={a} tone={a.running ? "live" : undefined} />
+          {a.running && a.currentLeftMs > 0 ? (
+            <span className="sp-tp-step-meta">{approx(a.currentLeftMs)} left at the median</span>
+          ) : null}
+        </span>
+      }
+      badge={
+        a.running ? (
+          <LiveBadge />
+        ) : (
+          <TugBadge emphasis="ghost" role="caution" size="sm">stopped</TugBadge>
+        )
+      }
+      value={formatTimeAlwaysHours(a.currentMs)}
+    />,
+  );
+
+  for (const p of ARC_PENDING) {
+    rows.push(
+      <TugPopupListRow
+        key={`step-${p.n}`}
+        label={<span className="sp-tp-stepnum" data-pending="true"><span className="sp-tp-disclose-gap" aria-hidden />{p.n}</span>}
+        preview={
+          <span className="sp-tp-preview-stack" data-pending="true">
+            <span className="sp-tp-preview-text">{p.title}</span>
+            {a.running ? <StepBar ms={a.medianStepMs} a={a} tone="projected" /> : null}
+          </span>
+        }
+        hint={a.running ? "projected" : undefined}
+        value={a.running ? approx(a.medianStepMs) : "—"}
+      />,
+    );
+  }
+
+  stageRow(
+    "audit",
+    "AUDIT",
+    "not started",
+    a.running ? approx(a.auditMs) : "—",
+    a.running ? "as last audit" : undefined,
+  );
+  return rows;
+}
+
+function arcSummary(a: ArcReadings): React.ReactElement[] {
+  const rows = [
+    <TugPopupListRow
+      key="steps"
+      label="steps"
+      hint={`median ${formatTimeAlwaysHours(a.medianStepMs)} · slowest #${a.slowest.n}`}
+      value={`${ARC_STEPS.length}/${ARC_STEP_TOTAL}`}
+    />,
+    <TugPopupListRow
+      key="sofar"
+      label="arc"
+      hint={a.running ? "so far, incl. current" : "so far"}
+      value={formatTimeAlwaysHours(a.soFarMs)}
+    />,
+    <TugPopupListRow
+      key="waiting"
+      label="waiting on you"
+      hint="inside steps"
+      value={formatTimeAlwaysHours(a.waitingMs)}
+    />,
+  ];
+  rows.push(
+    a.running ? (
+      <TugPopupListRow
+        key="projected"
+        label="projected"
+        hint="at this arc's pace"
+        value={approx(a.soFarMs + a.currentLeftMs + a.pendingMs + a.auditMs)}
+      />
+    ) : (
+      <TugPopupListRow key="projected" label="projected" hint="none while stopped" value="—" />
+    ),
+  );
+  return rows;
+}
+
+/** Stage strip: actual time solid, projected time faint, one legend row per stage. */
+function StageStrip({ a }: { a: ArcReadings }): React.ReactElement {
+  const parts: { id: string; label: string; ms: number; projected?: boolean }[] = [
+    { id: "devise", label: "devise", ms: a.deviseMs },
+    { id: "review", label: "review", ms: a.reviewMs },
+    { id: "implement", label: "implement", ms: a.implementMs },
+    { id: "implement", label: "implement, to come", ms: a.currentLeftMs + a.pendingMs, projected: true },
+    { id: "audit", label: "audit, to come", ms: a.auditMs, projected: true },
+  ];
+  const whole = parts.reduce((s, p) => s + p.ms, 0);
+  const pct = (ms: number) => (whole > 0 ? (ms / whole) * 100 : 0);
+  const shown = parts.filter((p) => p.ms > 0);
+  return (
+    <div className="sp-tp-comp">
+      <div className="sp-tp-strip" role="img" aria-label="Arc time by stage, with what is projected">
+        {shown.map((p) => (
+          <span
+            key={p.label}
+            className="sp-tp-strip-seg"
+            data-part={p.id}
+            data-projected={p.projected ? "true" : undefined}
+            style={{ flexBasis: `${pct(p.ms)}%` }}
+          />
+        ))}
+      </div>
+      <div className="sp-tp-legend">
+        {shown.map((p) => (
+          <React.Fragment key={p.label}>
+            <span className="sp-tp-legend-label">
+              <span className="sp-tp-swatch" data-part={p.id} data-projected={p.projected ? "true" : undefined} />
+              {p.label}
+            </span>
+            <span className="sp-tp-legend-pct">{pct(p.ms).toFixed(1)}%</span>
+            <span className="sp-tp-legend-value">{p.projected ? approx(p.ms) : formatTimeAlwaysHours(p.ms)}</span>
+          </React.Fragment>
+        ))}
+        <div className="sp-tp-legend-divider" />
+        <span className="sp-tp-legend-label">{a.running ? "arc, projected" : "arc, so far"}</span>
+        <span />
+        <span className="sp-tp-legend-value">{a.running ? approx(whole) : formatTimeAlwaysHours(whole)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ProposalF({ r }: { r: Readings }): React.ReactElement {
+  const a = arcReadings(r);
+  // Step 4 opens by default: it is the one step that took two turns, and the
+  // drill-down is what is being shown.
+  const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set([4]));
+  const toggle = (n: number) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
+  return (
+    <Placard>
+      <TugPopupListFrame kind="log">
+        <StageStrip a={a} />
+        <div className="sp-tp-arc-log">
+          <TugPopupListGrid rows={arcRows(a, open, toggle)} summary={arcSummary(a)} />
+        </div>
+      </TugPopupListFrame>
+    </Placard>
+  );
+}
+
+/** F′ — the Z2 cell, today's session total beside an arc's glance. */
+function ArcGlance({ r }: { r: Readings }): React.ReactElement {
+  const a = arcReadings(r);
+  return (
+    <div className="sp-tp-glance-row">
+      <span className="sp-tp-glance">
+        <span className="sp-tp-glance-key">TIME</span>
+        <span className="sp-tp-glance-value">{formatTimeAlwaysHours(a.soFarMs)}</span>
+      </span>
+      <span className="sp-tp-glance-vs">vs</span>
+      <span className="sp-tp-glance" data-live={a.running ? "true" : undefined}>
+        <span className="sp-tp-glance-key">TIME</span>
+        <span className="sp-tp-glance-value">
+          {ARC_CURRENT.n}/{ARC_STEP_TOTAL} · {formatTimeAlwaysHours(a.currentMs)}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
  * The spike
  * ---------------------------------------------------------------------------*/
 
@@ -560,6 +1000,26 @@ function SpikeTimePopup(): React.ReactElement {
           <ProposalE r={r} />
         </Proposal>
       </section>
+
+      <section className="sp-section">
+        <h2 className="sp-section-title">F · The arc</h2>
+        <Proposal
+          tag="Stages, then steps; turns are the drill-down"
+          note="resolve-ledger-rollout as its arc log read today, step 6 in flight. Each step is a row: its active time, its commit, and a bar against twice the arc's median step, tinted caution past 1.5×, so step 4 stands out. A step that took more than one turn opens to its turns and says how much of its wall clock was waiting on you. Compactions sit inline as marks with their cost. Pending steps and the audit are projections, faint and marked ~. Parked, the arc reads as stopped and projects nothing."
+        >
+          <ProposalF r={r} />
+        </Proposal>
+      </section>
+
+      <section className="sp-section">
+        <h2 className="sp-section-title">F′ · The glance</h2>
+        <Proposal
+          tag="What the Z2 cell says during an arc"
+          note="Today the cell shows the arc's running total. During implement, the step and its elapsed time answer the question a reader is actually asking."
+        >
+          <ArcGlance r={r} />
+        </Proposal>
+      </section>
     </div>
   );
 }
@@ -567,7 +1027,7 @@ function SpikeTimePopup(): React.ReactElement {
 export const spike: SpikeDef = {
   name: "time-popup",
   title: "Time Popup",
-  blurb: "Five treatments that make the Z2 TIME popup tick everywhere and give it a picture",
+  blurb: "Treatments that make the Z2 TIME popup tick everywhere, give it a picture, and read an arc by its stages and steps",
   icon: "Timer",
   size: { min: { width: 560, height: 420 }, preferred: { width: 760, height: 900 } },
   component: () => <SpikeTimePopup />,
