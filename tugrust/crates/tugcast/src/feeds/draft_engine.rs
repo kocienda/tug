@@ -195,7 +195,7 @@ pub fn spawn_on_demand_draft(
             &deps,
             &key,
             "error",
-            Some(&unmatched_owner_detail(owner_id)),
+            Some(&unmatched_owner_detail()),
         );
         return false;
     };
@@ -694,14 +694,16 @@ async fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// The sentence the shade shows when a draft request named an owner the
-/// aggregate has no entry for. It says the scribe was never reached — the
-/// generation did not fail, it never started — and it names the id, because
-/// the id is the whole of what went wrong and a reader with it in hand can
-/// tell a rotated card from a genuinely empty changeset.
-pub(crate) fn unmatched_owner_detail(owner_id: &str) -> String {
-    format!(
-        "Couldn't reach the scribe: no changeset is filed under this card's session ({owner_id})."
-    )
+/// aggregate has no entry for. The usual cause is a session that has not
+/// changed any files of its own — the working tree's edits are unattributed
+/// or claimed elsewhere — so it says that in the user's terms and names the
+/// way out: claim the files. The owner id stays out of the sentence; the
+/// `warn!` at the call site carries it for anyone telling a rotated card
+/// from a genuinely empty changeset.
+pub(crate) fn unmatched_owner_detail() -> String {
+    "This session hasn't changed any files yet, so there's nothing to describe. \
+     Claim the changes you want to commit, then try Auto-Message again."
+        .to_string()
 }
 
 fn send_state(deps: &EngineDeps, key: &EntryKey, state: &str, detail: Option<&str>) {

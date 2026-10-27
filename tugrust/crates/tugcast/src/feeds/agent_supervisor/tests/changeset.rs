@@ -2275,11 +2275,11 @@ async fn changeset_draft_request_nothing_to_generate_replies_error() {
     let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
     assert_eq!(body["action"], "changeset_draft_state");
     assert_eq!(body["state"], "error");
-    // The detail names the owner that could not be placed, which is the
-    // whole of what a rotated card needs to see ([B04]).
+    // The detail says why there is nothing to draft and what to do about it,
+    // and the reply is still addressed to the owner the client asked under.
     assert_eq!(
         body["detail"],
-        crate::feeds::draft_engine::unmatched_owner_detail("s1")
+        crate::feeds::draft_engine::unmatched_owner_detail()
     );
     assert_eq!(body["owner_id"], "s1");
 }
