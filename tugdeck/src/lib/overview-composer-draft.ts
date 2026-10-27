@@ -3,30 +3,35 @@
  * and the moment they come back to it — across a rail hidden and shown, and
  * across a relaunch.
  *
- * **Why there are two homes rather than one.** The Session card's prompt entry
- * needs only the framework's per-card bag: its card lives as long as the
- * session does, so `useCardStatePreservation` carries a draft across every
- * transition the entry sees. The Overview's rail does not work that way.
- * Hiding it (⌃⌘O, the Window menu, the card's own close) runs
- * `hideSidebarPane`, which closes the pane and **destroys the card**, and
- * showing it again mints a fresh `crypto.randomUUID()` card id — so the bag,
- * which is keyed by card id, is written under an id nothing will ever ask for
- * again. That is the answer to the arc's open question ([F07]): the rail does
- * unmount on hide, and the framework's channel alone cannot carry a draft
- * across one.
+ * **Why the draft is not the card's.** The Session card's prompt entry needs
+ * only the framework's per-card bag: its card lives as long as the session
+ * does, so `useCardStatePreservation` carries a draft across every transition
+ * the entry sees. The Overview's rail does not work that way. Hiding it (⌃⌘O,
+ * the Window menu, the card's own close) runs `hideSidebarPane`, which closes
+ * the pane and **destroys the card**, and showing it again mints a fresh
+ * `crypto.randomUUID()` card id ([F07]). And every workspace has an Overview
+ * card of its own, while the draft is one: the user's half-asked question to
+ * the Overview, whichever space they asked it from.
  *
- * So the draft has two homes and each covers what the other cannot:
+ * A per-card bag got that wrong in the way the user saw: a draft carried into
+ * every space's Overview landed in every space's bag, and clearing it cleared
+ * only the bag of the card it was cleared in. On the next launch whichever
+ * stale bag restored first brought the draft back, and the shell's hold
+ * spread it to the rest — an atom the user had deleted, standing in the
+ * prompt again after every relaunch.
  *
- * - This module-level holder — app-scoped, like the composer's bytes store and
- *   its completion provider — survives the unmount, which is what a hide is.
- *   It does not survive a relaunch, because nothing in the renderer does.
- * - The `useCardStatePreservation` bag, written by the composer around this
- *   holder, is persisted through tugbank and is what survives a relaunch. On a
- *   relaunch the rail's card id comes back off the saved layout unchanged, so
- *   the bag is found.
+ * So the draft has one home, the shell's (`overview.draft`), which outlives
+ * every card and is app-wide as the draft is. A body's composer proposes each
+ * change of its words and pictures there ({@link forwardOverviewDraft}), and
+ * the next Overview body's composer takes it on mount
+ * ({@link takeShellOverviewDraft}). The shell writes what it holds to one
+ * tugbank key ({@link OVERVIEW_DRAFT_DOMAIN}) and seeds itself from that key
+ * at launch ({@link holdOverviewDraftInShell}), so a relaunch is one more
+ * mount taking what the shell holds, and a let-go is a let-go everywhere.
  *
- * The composer seeds the holder on restore and reads it on mount, so which of
- * the two answered is never a question the field has to ask.
+ * The pictures persist as references, the shape `capAttachmentBytes` reduces
+ * them to — a path to the original and no image data — and the composer that
+ * takes them reads the bytes back.
  *
  * @module lib/overview-composer-draft
  */
@@ -38,6 +43,9 @@ import {
   type RestoredAttachmentEntry,
 } from "@/lib/composer-draft-payload";
 import type { TugTextEditingState } from "@/lib/tug-text-types";
+import type { TugbankClient } from "@/lib/tugbank-client";
+import { getTugbankClient } from "@/lib/tugbank-singleton";
+import { capAttachmentBytes } from "@/settings-api";
 import { installedPageBus, pageBus, type PageBus } from "@/bus/page-bus";
 import { holdOverviewDraft, overviewDraft } from "@/bus/declarations/relays";
 
@@ -127,13 +135,100 @@ export function forwardOverviewDraft(
 }
 
 /**
- * The shell's hold on the Overview draft: apply each body's proposal, the
- * words replacing the last and the pictures standing until they move
- * (`holdOverviewDraft`). Returns the release.
+ * Where the shell keeps the draft across a relaunch: one key, app-wide, the
+ * way the draft is. Never a card's bag — see the module doc for what a
+ * per-card home did.
  */
-export function holdOverviewDraftInShell(bus: PageBus = pageBus()): () => void {
+export const OVERVIEW_DRAFT_DOMAIN = "dev.tugapp.overview";
+/** The one key in {@link OVERVIEW_DRAFT_DOMAIN}. */
+export const OVERVIEW_DRAFT_KEY = "draft";
+
+/**
+ * How long the words wait to be written after they change. A let-go is never
+ * kept waiting: it is written the moment it lands, because it is the write
+ * a relaunch must not miss.
+ */
+const DRAFT_WRITE_DELAY_MS = 250;
+
+/** The shell's reach into tugbank for the draft, so a test can stand in for it. */
+export interface OverviewDraftDisk {
+  read(): unknown;
+  write(value: DurableOverviewDraft): void;
+}
+
+/**
+ * The draft as it rests on disk: the words in full and the pictures as
+ * references. A let-go rests as `{ draft: null }` rather than as nothing,
+ * because tugbank's `json` kind carries no bare `null`.
+ */
+export interface DurableOverviewDraft {
+  draft: TugTextEditingState | null;
+  attachmentBytes?: Record<string, unknown>;
+}
+
+/** What the shell holds, reduced to what is worth writing. */
+export function durableOverviewDraft(held: OverviewComposerDraftState | null): DurableOverviewDraft {
+  if (held === null) return { draft: null };
+  const capped = capAttachmentBytes(held.attachmentBytes);
+  return capped === null ? { draft: held.draft } : { draft: held.draft, attachmentBytes: capped };
+}
+
+/**
+ * The tugbank disk for the shell's hold, or null when there is no client or
+ * the run is a test that does not persist — test mode reads and writes no
+ * deck state of its own unless it asked to ([D02]).
+ */
+export function tugbankOverviewDraftDisk(
+  client: TugbankClient | null = getTugbankClient(),
+): OverviewDraftDisk | null {
+  if (client === null) return null;
+  if (typeof window !== "undefined" && window.__tugTestMode === true && window.__tugPersistInTestMode !== true) {
+    return null;
+  }
+  return {
+    read: () => client.getValue(OVERVIEW_DRAFT_DOMAIN, OVERVIEW_DRAFT_KEY),
+    write: (value) =>
+      client.put(OVERVIEW_DRAFT_DOMAIN, OVERVIEW_DRAFT_KEY, { kind: "json", value }, "overview-draft"),
+  };
+}
+
+/**
+ * The shell's hold on the Overview draft: seeded from `disk` at install,
+ * then each body's proposal applied, the words replacing the last and the
+ * pictures standing until they move (`holdOverviewDraft`), and what it holds
+ * written back — a let-go at once, words a moment later. Returns the
+ * release, which writes anything still waiting.
+ */
+export function holdOverviewDraftInShell(
+  bus: PageBus = pageBus(),
+  disk: OverviewDraftDisk | null = tugbankOverviewDraftDisk(),
+): () => void {
   const held = overviewDraft.on(bus);
-  return held.onProposal((patch) => held.update((prev) => holdOverviewDraft(prev, patch)));
+  if (disk !== null) {
+    const seeded = holdOverviewDraft(null, coerceOverviewDraftPayload(disk.read()));
+    if (seeded !== null) held.set(seeded);
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const write = (): void => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    disk?.write(durableOverviewDraft(held.getSnapshot()));
+  };
+  const flush = (): void => {
+    if (timer !== null) write();
+  };
+  const release = held.onProposal((patch) => {
+    held.update((prev) => holdOverviewDraft(prev, patch));
+    if (disk === null) return;
+    if (held.getSnapshot() === null) write();
+    else if (timer === null) timer = setTimeout(write, DRAFT_WRITE_DELAY_MS);
+  });
+  if (typeof window !== "undefined") window.addEventListener("pagehide", flush);
+  return () => {
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", flush);
+    flush();
+    release();
+  };
 }
 
 /**

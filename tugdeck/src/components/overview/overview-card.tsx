@@ -150,14 +150,12 @@ import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
 import { overviewInsertTarget } from "@/components/overview/overview-insert-target";
 import { useComposerDrop } from "@/components/tugways/use-composer-drop";
-import { useCardStatePreservation } from "@/components/tugways/use-card-state-preservation";
 import {
   coerceOverviewDraftPayload,
   forwardOverviewDraft,
   isEmptyDraft,
   overviewDraftHolder,
   takeShellOverviewDraft,
-  type OverviewComposerDraftState,
 } from "@/components/overview/overview-composer-draft";
 import { sharedPromptHistoryStore } from "@/lib/prompt-history-store";
 import {
@@ -2082,8 +2080,8 @@ function OverviewComposer({
 
   // Whether the held draft has been taken up yet. Until it has, an empty
   // field is not evidence the user discarded anything — it is a composer
-  // that has not yet been handed what it is holding — so a save that fires
-  // in that window must forward the holder rather than capture over it.
+  // that has not yet been handed what it is holding — so nothing is
+  // forwarded in that window.
   const draftSeededRef = useRef(false);
 
   // The app-scoped half of the draft's home is the shell's: this module's
@@ -2126,68 +2124,28 @@ function OverviewComposer({
   // ── Draft preservation ───────────────────────────────────────────────────
   //
   // The user's words are theirs, and a composer that loses them because a rail
-  // was put away is a defect ([B09]). Two channels carry them, because one
-  // cannot: the app-scoped holder survives the unmount that hiding the rail
-  // performs — `hideSidebarPane` closes the pane and destroys the card, and
-  // showing it again mints a fresh card id ([F07], measured) — and the bag
-  // this hook writes is what survives a relaunch, where the rail's card id
-  // comes back off the saved layout unchanged. `overview-composer-draft.ts`
-  // is where that division is written down.
+  // was put away or the app quit is a defect ([B09]). They are not the card's
+  // to keep: hiding the rail destroys the card ([F07], measured), every
+  // workspace has an Overview card of its own, and the draft is one. So the
+  // card registers no state preservation at all — a per-card bag is how a
+  // deleted draft came back from another space's card on every relaunch —
+  // and the shell holds the draft and persists it (`overview.draft`;
+  // `overview-composer-draft.ts` is where that is written down). The
+  // substrate stays `preserveState={false}` below for the same reason.
   //
-  // This composer is the sole preserver for the card's compound: the
-  // substrate stays `preserveState={false}` below, so there is no competing
-  // registration.
-  useCardStatePreservation<OverviewComposerDraftState>({
-    onSave: () => {
-      // No live substrate — the card is on its way out — means the holder is
-      // the last word on what was typed rather than a reason to write `null`
-      // over a good draft.
-      if (draftSeededRef.current) {
-        overviewDraftHolder.set(
-          editorRef.current?.captureState() ?? overviewDraftHolder.get(),
-        );
-      }
-      // The pictures ride along with the words. Across a relaunch these
-      // arrive back as bare references — `capDurableCardState` persists no
-      // image data — and rehydration on restore is what makes them bytes
-      // again. Omitted when empty so the persisted payload stays small.
-      const bytesSnap = bytesStore.snapshot();
-      const attachmentBytes =
-        Object.keys(bytesSnap).length > 0 ? bytesSnap : undefined;
-      return { draft: overviewDraftHolder.get(), attachmentBytes };
-    },
-    onRestore: (raw) => {
-      // A holder with something in it is this session's own draft, which is
-      // always fresher than a bag written before the app last quit.
-      if (overviewDraftHolder.get() !== null) return;
-      const restored = coerceOverviewDraftPayload(raw);
-      if (restored.attachmentBytes !== undefined) {
-        // Bytes first, so the substrate reads its atom ids back to bytes that
-        // are already there. Then the read-back for every entry that arrived
-        // as a bare reference — fire and forget, exactly as the Session
-        // entry's restore does it, and strictly after the prune inside
-        // `coerceOverviewDraftPayload` has decided which atoms survive.
-        bytesStore.restore(restored.attachmentBytes);
-        rehydrateDraftAttachments(restored.attachmentBytes, bytesStore);
-      }
-      if (restored.draft === null) return;
-      overviewDraftHolder.set(restored.draft);
-      editorRef.current?.restoreState(restored.draft);
-    },
-  });
-
-  // The other half of the holder's job: a composer arriving on a rail the user
-  // just showed again mounts with the draft they left in it.
+  // A composer arriving on a rail the user just showed again, or on a
+  // relaunch, mounts with the draft they left in it.
   //
   // A passive effect rather than a layout one, and that is the whole of why
   // it works: `restoreEditState` refuses a view whose `contentDOM` is not
   // connected yet, and during the mount commit — where a layout effect runs —
   // it is not. After the paint it is, so the restore takes.
   //
-  // In a body the page is the card's, so the draft a hidden rail left is the
-  // shell's (`overview.draft`), and its snapshot may reach this page after the
-  // mount. It is taken when it comes, unless the field has words of its own
-  // by then: a relaunch's bag, or the user's typing.
+  // In a body the page is the card's, so the draft is the shell's, and its
+  // snapshot may reach this page after the mount. It is taken when it comes,
+  // unless the field has words of its own by then: the user's typing. Across
+  // a relaunch its pictures arrive as references, and the read-back below is
+  // what makes them bytes again.
   useEffect(() => {
     const held = overviewDraftHolder.get();
     draftSeededRef.current = true;

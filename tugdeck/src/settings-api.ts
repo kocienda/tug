@@ -82,7 +82,7 @@ const GUARD_ASKS_DOMAIN = "dev.tugapp.deck.guardasks";
  * to carry. See {@link capDurableCardState}'s docblock for why the shape is
  * exactly this.
  */
-function capAttachmentBytes(value: unknown): Record<string, unknown> | null {
+export function capAttachmentBytes(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object") return null;
   const out: Record<string, unknown> = {};
   let any = false;

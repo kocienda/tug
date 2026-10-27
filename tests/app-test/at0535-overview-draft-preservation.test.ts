@@ -12,12 +12,13 @@
  * The two are not the same loss and are not fixed by one mechanism, which is
  * what this test's shape is about. **Hiding the rail destroys the card** —
  * `hideSidebarPane` closes the pane, and showing it again mints a fresh
- * `crypto.randomUUID()` card id — so the framework's per-card bag, keyed by
- * card id, is written under an id nothing will ever ask for again. That is the
- * arc's open question answered by measurement rather than inference ([F07]),
- * and it is why the draft has two homes: an app-scoped holder that survives
- * the unmount, and the `useCardStatePreservation` bag that survives the
- * process. Test 1 pins the first, test 2 the second.
+ * `crypto.randomUUID()` card id ([F07], measured) — and every workspace has
+ * an Overview card of its own, so the draft is not any card's. The shell
+ * holds it (`overview.draft`), which survives the unmount, and writes it to
+ * one app-wide tugbank key (`dev.tugapp.overview/draft`), which survives the
+ * process. Test 1 pins the first, test 2 the second. A per-card bag was the
+ * second home once, and it brought a deleted draft back from another space's
+ * card on every relaunch.
  *
  * Both carry a picture as well as words, because the picture is the harder
  * half: the atom is a chip in the document, its bytes are in the composer's
@@ -32,9 +33,9 @@
  *     something else), and the words, the chip, and a thumbnail with real
  *     pixels must all come back.
  *  2. **Quit and relaunch.** The same draft, a graceful quit onto a temp
- *     tugbank, and a second process seeded from the deck state and the bag
- *     that landed on disk. The chip has to survive the orphan prune — it does
- *     because its entry carries a path — and its bytes have to arrive back
+ *     tugbank, and a second process seeded from the deck state, whose shell
+ *     reads the draft back off that tugbank. The chip has to survive the
+ *     orphan prune — it does because its entry carries a path — and its bytes have to arrive back
  *     through the real `/api/fs/blob` read, which is what makes the recalled
  *     picture sendable rather than a reserved slot.
  *
@@ -166,13 +167,14 @@ interface DiskEntry {
   path?: unknown;
 }
 
-/** The card-state bag this test reads. */
-interface RawBag {
-  content?: {
-    draft?: { text?: unknown; atoms?: unknown[] };
-    attachmentBytes?: Record<string, DiskEntry>;
-  };
+/** The shell's durable draft, as this test reads it. */
+interface RawDraft {
+  draft?: { text?: unknown; atoms?: unknown[] } | null;
+  attachmentBytes?: Record<string, DiskEntry>;
 }
+
+const DRAFT_DOMAIN = "dev.tugapp.overview";
+const DRAFT_KEY = "draft";
 
 describe.skipIf(!SHOULD_RUN)(
   "at0535 — the Overview composer keeps its draft",
@@ -251,24 +253,20 @@ describe.skipIf(!SHOULD_RUN)(
             expect(cardId).not.toBe("");
 
             // The upload of the ORIGINAL runs in the background and its
-            // stored path is what the durable bag carries — the downsampled
+            // stored path is what the durable draft carries — the downsampled
             // bytes are far too large to persist. Waiting for it is the one
             // wait the relaunch story needs; quitting before it lands would
             // persist an atom with no route back to its picture.
-            // The save is the shell's deck; the bag is the card's own, in
-            // its body — so each poll asks the shell to save, then reads
-            // the body's bag.
+            // The draft is the shell's, and so is the tugbank client it is
+            // written through: each poll reads the shell's cache.
             {
               const budget = enforcedTimeout(25_000);
               const deadline = Date.now() + budget;
               for (;;) {
-                await appA.evalJS<boolean>(
-                  `(window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState(), true)`,
-                );
-                const landed = await kindBody(appA, "overview").evalJS<boolean>(
+                const landed = await appA.evalJS<boolean>(
                   `(function(){
-                    var bag = window.__tug.getCardStateBag(${JSON.stringify(cardId)});
-                    var bytes = bag && bag.content ? bag.content.attachmentBytes : null;
+                    var tagged = window.__tug.getTugbankValue(${JSON.stringify(DRAFT_DOMAIN)}, ${JSON.stringify(DRAFT_KEY)});
+                    var bytes = tagged && tagged.value ? tagged.value.attachmentBytes : null;
                     if (!bytes) return false;
                     var ids = Object.keys(bytes);
                     if (ids.length !== 1) return false;
@@ -278,7 +276,7 @@ describe.skipIf(!SHOULD_RUN)(
                 );
                 if (landed) break;
                 if (Date.now() >= deadline) {
-                  throw new Error(`the original's stored path did not land in the card's bag within ${budget} ms`);
+                  throw new Error(`the original's stored path did not land in the durable draft within ${budget} ms`);
                 }
                 await Bun.sleep(50);
               }
@@ -290,21 +288,17 @@ describe.skipIf(!SHOULD_RUN)(
           }
 
           // ── Disk: the words in full, the picture as a reference ────────
-          const onDisk = tugbankRead<RawBag>(
-            tugbankPath,
-            "dev.tugapp.deck.cardstate",
-            cardId,
-          );
+          const onDisk = tugbankRead<RawDraft>(tugbankPath, DRAFT_DOMAIN, DRAFT_KEY);
           expect(
             onDisk,
-            "expected the Overview card's bag on tugbank disk",
+            "expected the Overview draft on tugbank disk",
           ).not.toBeNull();
-          const bag = onDisk?.value as RawBag | undefined;
-          note("durable draft text", JSON.stringify(bag?.content?.draft?.text));
-          expect(String(bag?.content?.draft?.text ?? "")).toContain(
+          const saved = onDisk?.value as RawDraft | undefined;
+          note("durable draft text", JSON.stringify(saved?.draft?.text));
+          expect(String(saved?.draft?.text ?? "")).toContain(
             DRAFT.trim(),
           );
-          const bytes = bag?.content?.attachmentBytes;
+          const bytes = saved?.attachmentBytes;
           const ids = Object.keys(bytes ?? {});
           expect(ids).toHaveLength(1);
           const entry = bytes![ids[0]!]!;
@@ -325,13 +319,11 @@ describe.skipIf(!SHOULD_RUN)(
               persistInTestMode: true,
             });
             try {
-              // Test-mode boot ignores tugbank layout reads, so the rail and
-              // its bag are fed back the way at0413 feeds a session's.
+              // Test-mode boot ignores tugbank layout reads, so the rail is
+              // fed back the way at0413 feeds a session's. The draft is not
+              // fed: the shell read it off the tugbank at boot.
               await appB.seedDeckState({
                 state: deckState as never,
-                cardStates: {
-                  [cardId]: onDisk!.value as Record<string, unknown>,
-                },
                 focusCardId: cardId,
               });
 
