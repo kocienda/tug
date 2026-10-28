@@ -129,7 +129,9 @@ import { cardServicesStore } from "./card-services-store";
 import { pickerNoticeStore } from "./picker-notice-store";
 import { subscribeToListCardBindingsOk } from "./session-ledger-events";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
-import { handOffToBody, isBodyCard } from "./body-handoff";
+import { handOffToBody, isBodyCard, isDeferredBody } from "./body-handoff";
+import { bodyCardsStore } from "./body-cards-store";
+import { restoreGateRoster } from "./restore-gate-roster";
 import { page } from "../bus/page";
 import { FeedId } from "../protocol";
 import type { CardBinding } from "../protocol";
@@ -864,6 +866,9 @@ export function restoreSessions(
     // the wire orders rows newest-first by `last_used_at`, so the
     // first match per card_id wins.
     const fired = new Set<string>();
+    // The shown cards whose page this pass makes, for the restore gate's
+    // total (`restore-gate-roster.ts`).
+    const shown: string[] = [];
     for (const binding of bindings) {
       if (!isCardBinding(binding)) continue;
       if (!sessionCardIds.has(binding.card_id)) continue;
@@ -919,14 +924,17 @@ export function restoreSessions(
       const isAlive = binding.is_alive === true;
       const hasJsonl = binding.has_jsonl === true;
       if (hasJsonl || binding.turn_count > 0 || isAlive) {
-        fireRestore(
-          binding.card_id,
-          binding.session_id,
-          binding.project_dir,
-          connection,
-          cardReason,
-          { title: null, turnCount: binding.turn_count },
+        const made = restoreMakesShownPage(binding.card_id, () =>
+          fireRestore(
+            binding.card_id,
+            binding.session_id,
+            binding.project_dir,
+            connection,
+            cardReason,
+            { title: null, turnCount: binding.turn_count },
+          ),
         );
+        if (made) shown.push(binding.card_id);
         resumedCount += 1;
       } else {
         // Card was bound to a project but no turn ever happened and
@@ -962,6 +970,7 @@ export function restoreSessions(
         unlistedCount += 1;
       }
     }
+    restoreGateRoster.expect(shown);
     if (resumedCount > 0 || freshCount > 0 || rebindCount > 0 || unlistedCount > 0) {
       logSessionLifecycle("restore.fired_resume_spawns", {
         card_count: sessionCardIds.size,
@@ -984,6 +993,22 @@ export function restoreSessions(
   // publishes onto `listCardBindingsOkBus`, which the subscription
   // above consumes.
   connection.sendControlFrame("list_card_bindings", {});
+}
+
+/**
+ * Run `fire` — a `fireRestore` — and say whether it made a shown body page
+ * for `cardId`: the card had no page before, and afterwards is a body card
+ * its shell did not defer. Those are the cards a restore pass names for the
+ * restore gate's total. A deferred card is not shown and does not restore
+ * until it is; a card whose page already existed is handed its resume over
+ * the page bus and has painted before its body can say its restore is still
+ * to come, so it is counted when it holds instead. In a body page there are
+ * no body cards, so the body's own pass names nothing.
+ */
+function restoreMakesShownPage(cardId: string, fire: () => void): boolean {
+  const hadPage = bodyCardsStore.has(cardId);
+  fire();
+  return !hadPage && isBodyCard(cardId) && !isDeferredBody(cardId);
 }
 
 /**
@@ -1019,6 +1044,7 @@ export function restoreSpaceSessions(
   const unanswered = new Set<string>();
   let resumedCount = 0;
   let freshCount = 0;
+  const shown: string[] = [];
 
   for (const card of spaceDeck.cards) {
     if (card.componentId !== SESSION_COMPONENT_ID) continue;
@@ -1038,16 +1064,20 @@ export function restoreSpaceSessions(
     // eventually disagree, and the disagreement would be a card crash-looping
     // on a `--session-id` collision.
     if (row.has_jsonl === true || row.turn_count > 0 || row.is_alive === true) {
-      fireRestore(cardId, row.session_id, row.project_dir, connection, "restore-open", {
-        title: null,
-        turnCount: row.turn_count,
-      });
+      const made = restoreMakesShownPage(cardId, () =>
+        fireRestore(cardId, row.session_id, row.project_dir, connection, "restore-open", {
+          title: null,
+          turnCount: row.turn_count,
+        }),
+      );
+      if (made) shown.push(cardId);
       resumedCount += 1;
     } else {
       fireFreshSpawn(cardId, row.session_id, row.project_dir, connection, "restore-open");
       freshCount += 1;
     }
   }
+  restoreGateRoster.expect(shown);
 
   // Logged unconditionally, unlike the boot pass's line. A switch that fired
   // NOTHING is the interesting case here — it is what a card stranded on its

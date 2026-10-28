@@ -32,8 +32,8 @@ export const overlayRestoreGate = defineSharedStore({
   key: "overlay.restoreGate",
   owner: "shell",
   scope: overlayOnly,
-  codec: obj({ open: bool, cards: num, turnsLoaded: num, turnsTarget: num }),
-  initial: { open: false, cards: 0, turnsLoaded: 0, turnsTarget: 0 },
+  codec: obj({ open: bool, sessionsDone: num, sessionsTotal: num }),
+  initial: { open: false, sessionsDone: 0, sessionsTotal: 0 },
 });
 
 const updateSnapshot = opaque(

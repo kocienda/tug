@@ -35,6 +35,7 @@ import {
   cardKbfPaint,
   cardRestoreHold,
   type CardFactsValue,
+  type RestoreHoldState,
 } from "../bus/declarations/card";
 import { cardActivate } from "../bus/declarations/verbs";
 import { chordCaptureState } from "../lib/chord-capture-state";
@@ -77,8 +78,8 @@ export interface BodyPublisherSources {
   readHold(): { reason: string; admitsFold: boolean } | null;
   /** Whether a chord capture is armed in the card. */
   readCaptureArmed(): boolean;
-  /** The card's cold restore while the restore gate holds it, or null. */
-  readRestoreHold(): { turnsLoaded: number; turnsTarget: number } | null;
+  /** The card's cold restore as the restore gate counts it, or null. */
+  readRestoreHold(): RestoreHoldState | null;
   /** The card's content reading, for a rail card, or null. */
   readContent(): { content: number; shown: number } | null;
   /** Whether the page paints keyboard-focus mode, or null before its focus engine stands. */
@@ -132,15 +133,31 @@ export class BodyPublisher {
 /**
  * The card's cold restore, for the shell's restore gate (`restore-gate-store.ts`),
  * which holds the app-modal for a body card as it did for a shell-hosted one
- * ([B29] of the bodies migration): the turns loaded and asked for, for as
- * long as `deriveRestoreGateHold` holds the card — the replay window and the
- * reveal behind it — and null otherwise, so a turn outside a restore moves
- * nothing. The silence deadline is the card's own store's, so a stalled
- * replay errors the card here and the hold goes with the next publish.
+ * ([B29] of the bodies migration), and counts it among the sessions it is
+ * restoring.
+ *
+ * `"holding"` for as long as `deriveRestoreGateHold` holds the card — the
+ * replay window and the reveal behind it. `"waiting"` while the card's
+ * restore is still to come: its resume is in the restore registry, or its
+ * resume binding has landed and the preflight has not opened yet (two
+ * subscribers of one binding store, so a publish can fall between them).
+ * Null otherwise — after the reveal, on an error, for a fresh session — so
+ * the shell can tell a session still to come from one whose wait has ended
+ * without ever holding. The silence deadline is the card's own store's, so
+ * a stalled replay errors the card here and the hold goes with the next
+ * publish.
  */
-export function readRestoreHold(snapshot: CodeSessionSnapshot | null): { turnsLoaded: number; turnsTarget: number } | null {
-  if (snapshot === null || !deriveRestoreGateHold(snapshot)) return null;
-  return { turnsLoaded: snapshot.transcript.length, turnsTarget: snapshot.restoreWindowTurns };
+export function readRestoreHold(
+  snapshot: CodeSessionSnapshot | null,
+  restoreInFlight: boolean,
+): RestoreHoldState | null {
+  if (snapshot !== null && deriveRestoreGateHold(snapshot)) return "holding";
+  if (snapshot !== null && snapshot.lastError !== null) return null;
+  if (restoreInFlight) return "waiting";
+  if (snapshot !== null && snapshot.sessionMode === "resume" && !snapshot.replayEverCompleted) {
+    return "waiting";
+  }
+  return null;
 }
 
 /**
@@ -235,7 +252,11 @@ export function installBodyPublisher(
         return hold === null ? null : { reason: hold.reason, admitsFold: hold.admitsFold === true };
       },
       readCaptureArmed: () => chordCaptureState.isArmed(),
-      readRestoreHold: () => readRestoreHold(cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot() ?? null),
+      readRestoreHold: () =>
+        readRestoreHold(
+          cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot() ?? null,
+          sessionRestoreRegistry.has(cardId),
+        ),
       // The card's content height and what its scroller shows, for the
       // shell's Resize Sidebars to Fit, which cannot read this page.
       readContent: () => (options.watchContent === true ? readPageContent() : null),

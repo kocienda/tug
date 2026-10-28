@@ -314,13 +314,16 @@ export const cardPainted = defineSharedStore<boolean>({
   initial: false,
 });
 
-/** The card's cold restore while the restore gate holds it: the turns loaded and asked for. */
-export const cardRestoreHold = defineSharedStore<{ turnsLoaded: number; turnsTarget: number } | null>({
+/** A body's cold restore as the restore gate counts it: still to come, or holding the gate. */
+export type RestoreHoldState = "waiting" | "holding";
+
+/** The card's cold restore as the restore gate counts it: still to come, holding, or nothing. */
+export const cardRestoreHold = defineSharedStore<RestoreHoldState | null>({
   key: "card.restoreHold",
   owner: "card",
   scope: { card: true },
   clearOnDetach: true,
-  codec: nullable(obj({ turnsLoaded: num, turnsTarget: num })),
+  codec: nullable(literal("waiting", "holding")),
   initial: null,
 });
 

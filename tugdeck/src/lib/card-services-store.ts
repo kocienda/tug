@@ -1044,10 +1044,10 @@ class CardServicesStore {
    * composer's staged attachments. Handing out the one thing asked for
    * keeps that caller from growing a reach it never needed.
    */
-  forEachCodeSessionStore = (fn: (store: CodeSessionStore) => void): void => {
+  forEachCodeSessionStore = (fn: (store: CodeSessionStore, cardId: string) => void): void => {
     this._ensureInitialized();
-    for (const services of this._services.values()) {
-      fn(services.codeSessionStore);
+    for (const [cardId, services] of this._services) {
+      fn(services.codeSessionStore, cardId);
     }
   };
 

@@ -39,6 +39,17 @@
  * hold every other card behind a modal with no way out — which, with no
  * dismiss, is the only way out there is.
  *
+ * ## What it says
+ *
+ * One count, of sessions: "2 of 5 sessions" beside a bar over the same
+ * numbers, under the title "Restoring sessions". The total is fixed when
+ * the round opens and the count only rises (`restore-gate-store.ts`), so
+ * the bar fills in steps, one per session whose wait has ended — the
+ * truth about the work. Before the first session finishes the bar runs
+ * indeterminate with no count, by the progress indicator's own rule that
+ * a bar never sits at a literal 0. A round of one session shows a spinner
+ * and no count, since "0 of 1" says nothing. The title carries no number.
+ *
  * @module components/tugways/tug-restore-gate
  */
 
@@ -46,7 +57,7 @@ import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { useRef, type ReactElement } from "react";
 
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
-import { useRestoreGate } from "@/lib/restore-gate-store";
+import { useRestoreGate, type RestoreGateSnapshot } from "@/lib/restore-gate-store";
 import { useVersionGateOpen } from "@/lib/macos-support";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import "./tug-alert.css";
@@ -58,26 +69,20 @@ export function TugRestoreGate(): ReactElement {
   const overlayRoot = useCanvasOverlay();
   const open = gate.open && !versionGateOpen;
 
-  // Determinate where the windows are known, indeterminate where they
-  // are not: a restore whose target has not landed yet would otherwise
-  // paint a full bar over an empty transcript. The readout is the same
-  // turns metric the per-card load bar counts, summed across the cards
-  // being waited on (`tuglaws/turn-metric.md`).
-  const determinate = gate.turnsTarget > 0;
-  const value = Math.min(gate.turnsLoaded, gate.turnsTarget);
-
   // Radix keeps Content mounted through its close animation, and by then the
-  // store has already fallen to zero cards — so the last frame a user sees
-  // read "Restoring 0 sessions", which is a sentence about nothing. Hold the
-  // last count the gate was actually open for and render that on the way out.
-  // A ref, not state: this must not schedule a render of its own, and the
-  // value is only ever read during one the store already caused.
-  const lastCards = useRef(0);
-  if (gate.cards > 0) lastCards.current = gate.cards;
-  const subjectCards = gate.cards > 0 ? gate.cards : lastCards.current;
+  // store has already fallen closed — so the last frame a user sees would
+  // read "0 of 0 sessions", a sentence about nothing. Hold the last snapshot
+  // the gate was actually open for and render that on the way out. A ref,
+  // not state: this must not schedule a render of its own, and the value is
+  // only ever read during one the store already caused.
+  const lastOpen = useRef<RestoreGateSnapshot | null>(null);
+  if (gate.open) lastOpen.current = gate;
+  const shown = gate.open ? gate : (lastOpen.current ?? gate);
 
-  const subject =
-    subjectCards === 1 ? "1 session" : `${subjectCards} sessions`;
+  const total = shown.sessionsTotal;
+  const done = Math.min(shown.sessionsDone, total);
+  const single = total <= 1;
+  const title = single ? "Restoring session" : "Restoring sessions";
 
   return (
     <AlertDialog.Root open={open}>
@@ -86,6 +91,8 @@ export function TugRestoreGate(): ReactElement {
         <AlertDialog.Content
           className="tug-alert-content tug-restore-gate"
           data-slot="tug-restore-gate"
+          data-sessions-done={done}
+          data-sessions-total={total}
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
           {/* In-jail key sink ([P13]): AlertDialog.Content's FocusScope is
@@ -101,28 +108,34 @@ export function TugRestoreGate(): ReactElement {
           <div className="tug-alert-body" data-has-message="true">
             <div className="tug-alert-text">
               <AlertDialog.Title className="tug-alert-title">
-                Restoring {subject}
+                {title}
               </AlertDialog.Title>
               <AlertDialog.Description className="tug-alert-message" asChild>
                 <div>
                   <p>Tug is rebuilding your transcripts. Just a moment.</p>
-                  <TugProgressIndicator
-                    variant="bar"
-                    size={8}
-                    role="action"
-                    state="running"
-                    className="tug-restore-gate-bar"
-                    aria-label={`Restoring ${subject}`}
-                    {...(determinate
-                      ? {
-                          value,
-                          max: gate.turnsTarget,
-                          showValue: true,
-                          formatValue: (v: number, m: number) =>
-                            `${v.toLocaleString()} of ${m.toLocaleString()} turns`,
-                        }
-                      : {})}
-                  />
+                  {single ? (
+                    <TugProgressIndicator
+                      variant="spinner"
+                      role="action"
+                      state="running"
+                      aria-label={title}
+                    />
+                  ) : (
+                    <TugProgressIndicator
+                      variant="bar"
+                      size={8}
+                      role="action"
+                      state="running"
+                      className="tug-restore-gate-bar"
+                      aria-label={title}
+                      value={done}
+                      max={total}
+                      showValue
+                      formatValue={(v: number, m: number) =>
+                        `${v.toLocaleString()} of ${m.toLocaleString()} sessions`
+                      }
+                    />
+                  )}
                 </div>
               </AlertDialog.Description>
             </div>

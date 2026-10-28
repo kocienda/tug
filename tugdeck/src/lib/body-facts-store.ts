@@ -32,6 +32,7 @@ import {
   NO_CARD_HOLDS,
   type CardFactsValue,
   type CardHoldsValue,
+  type RestoreHoldState,
 } from "../bus/declarations/card";
 import { Subscribable } from "./subscribable";
 
@@ -105,11 +106,11 @@ export class BodyFactsStore extends Subscribable {
   compacted = (cardId: string): boolean => this.get(cardId).facts?.compacted === true;
 
   /**
-   * The card's cold restore as its body last said (`card.restoreHold`): the
-   * turns loaded and asked for while the restore gate holds it, or null when
-   * it holds nothing.
+   * The card's cold restore as its body last said (`card.restoreHold`):
+   * `"waiting"` while its restore is still to come, `"holding"` while the
+   * restore gate holds it, or null when neither.
    */
-  restoreHoldOf = (cardId: string): { turnsLoaded: number; turnsTarget: number } | null => {
+  restoreHoldOf = (cardId: string): RestoreHoldState | null => {
     const bus = this.bus();
     return bus === null ? null : cardRestoreHold.on(bus).getFor(cardId);
   };
