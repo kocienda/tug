@@ -18,8 +18,14 @@
  * without an anchor) opens that document's card; anything else navigates as
  * any link in the deck does.
  *
+ * Find: ⌘F opens the shared {@link TugFindBar} docked under the document, ⌘G
+ * and ⇧⌘G step through the matches, and ⌘E searches for the selection. The
+ * engine searches the rendered document's own text
+ * (`document-find-engine.ts`), and its session lives as long as the bar.
+ *
  * Laws: [L03] the link listener is registered in a layout effect, live before
- *       the first click; [L06] appearance via `help-card.css`; [L07] the
+ *       the first click; [L11] the find commands arrive through the card's
+ *       content responder; [L06] appearance via `help-card.css`; [L07] the
  *       registry's scroll handler reads the rendered root through a ref.
  *       The fetched markdown is local data (`useState`), not external state,
  *       so [L02] has nothing to carry.
@@ -29,7 +35,7 @@
 
 import "./help-card.css";
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { registerCard } from "@/card-registry";
 import type { CardIdentityFacts } from "@/card-registry";
@@ -38,6 +44,13 @@ import { cardTitleStore } from "@/lib/card-title-store";
 import { CONTENT_WIDTH_COMFY_PX } from "@/lib/layout-imposer";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useCardStatePreservation } from "@/components/tugways/use-card-state-preservation";
+import { TugFindBar, type TugFindBarHandle } from "@/components/tugways/tug-find-bar";
+import { documentFindEngine } from "@/components/tugways/document-find-engine";
+import { useResponder } from "@/components/tugways/use-responder";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { FindSession } from "@/lib/find-session";
+import { getTugbankClient } from "@/lib/tugbank-singleton";
+import { readFindOptions, putFindOptions } from "@/settings-api";
 import {
   fetchHelpDoc,
   helpAnchorSlug,
@@ -82,6 +95,36 @@ function parkedHelpIdentity(cardId: string): CardIdentityFacts | null {
   return seed === null ? null : helpIdentityOf(seed.doc);
 }
 
+/**
+ * The help card's find bar: the shared {@link TugFindBar} over a session of
+ * the card's, which the bar's lifetime bounds — dismissing the bar ends the
+ * search.
+ */
+const HelpCardFindBar = React.forwardRef<
+  TugFindBarHandle,
+  {
+    session: FindSession;
+    frameRef: React.RefObject<HTMLElement | null>;
+    initialQuery: string;
+    onClose: () => void;
+  }
+>(function HelpCardFindBar({ session, frameRef, initialQuery, onClose }, ref) {
+  useEffect(() => () => session.clear(), [session]);
+  return (
+    <TugFindBar
+      ref={ref}
+      session={session}
+      onClose={onClose}
+      cardRootRef={frameRef}
+      initialQuery={initialQuery}
+      placeholder="Find in help"
+      className="help-card-find-bar"
+      dataSlot="help-card-find-bar"
+      inputTestId="help-card-find-input"
+    />
+  );
+});
+
 type Loaded =
   | { phase: "loading" }
   | { phase: "ready"; markdown: string }
@@ -93,6 +136,82 @@ export function HelpCardContent({ cardId }: { cardId: string }): React.ReactElem
   const rootRef = useRef<HTMLDivElement | null>(null);
   // The anchor still to be honored once the document is on the page.
   const pendingAnchorRef = useRef<string | null>(null);
+
+  // ---- Find ----
+  // The bar mounts while `findOpen`; its ref answers "is it up?" (React
+  // nulls it on unmount). ⌘E's seed waits in a ref for the bar it opens.
+  const [findOpen, setFindOpen] = useState(false);
+  const findBarRef = useRef<TugFindBarHandle | null>(null);
+  const findSeedRef = useRef("");
+  const frameRef = useRef<HTMLDivElement | null>(null);
+
+  // One session for the card, made on the first ⌘F: options seed from, and
+  // persist to, the deck-wide find preference, and the engine searches the
+  // rendered document. The bar clears it when it goes.
+  const findSessionRef = useRef<FindSession | null>(null);
+  const findSession = useCallback((): FindSession => {
+    if (findSessionRef.current === null) {
+      const client = getTugbankClient();
+      const seeded = client ? readFindOptions(client) : null;
+      const session = new FindSession(seeded ?? undefined, { onOptionsChanged: putFindOptions });
+      session.setDelegate(
+        documentFindEngine({
+          root: () =>
+            rootRef.current?.querySelector<HTMLElement>('[data-slot="tug-markdown-block"]') ?? null,
+          scroller: () => rootRef.current,
+        }),
+      );
+      findSessionRef.current = session;
+    }
+    return findSessionRef.current;
+  }, []);
+
+  const openFind = useCallback((seed: string | null) => {
+    const bar = findBarRef.current;
+    if (bar !== null) {
+      if (seed === null) bar.focusQuery();
+      else bar.setQuery(seed);
+      return;
+    }
+    findSeedRef.current = seed ?? "";
+    setFindOpen(true);
+  }, []);
+
+  const closeFind = useCallback(() => setFindOpen(false), []);
+
+  // The card's content responder: key-card dispatch starts here wherever
+  // focus sits, so ⌘F reaches it from the document, from the bar, or from a
+  // card nobody has clicked into. ⌘G / ⇧⌘G step the open bar's session;
+  // the bar's own responder answers them first when it holds the keyboard.
+  const { ResponderScope, responderRef } = useResponder({
+    id: `${cardId}-card-content`,
+    kind: "card-content",
+    actions: {
+      [TUG_ACTIONS.FIND]: () => openFind(null),
+      [TUG_ACTIONS.FIND_SELECTION]: () => {
+        const root = rootRef.current;
+        const sel = window.getSelection();
+        if (root === null || sel === null || sel.rangeCount === 0) return;
+        if (!sel.getRangeAt(0).intersectsNode(root)) return;
+        const query = sel.toString().trim();
+        if (query !== "") openFind(query);
+      },
+      [TUG_ACTIONS.FIND_NEXT]: () => {
+        if (findBarRef.current !== null) findSession().next();
+      },
+      [TUG_ACTIONS.FIND_PREVIOUS]: () => {
+        if (findBarRef.current !== null) findSession().previous();
+      },
+    },
+  });
+
+  const setFrame = useCallback(
+    (el: HTMLDivElement | null) => {
+      frameRef.current = el;
+      (responderRef as (node: Element | null) => void)(el);
+    },
+    [responderRef],
+  );
 
   useCardStatePreservation<HelpCardSeed | undefined>({
     // Only the document persists; an anchor is a one-time scroll.
@@ -196,29 +315,44 @@ export function HelpCardContent({ cardId }: { cardId: string }): React.ReactElem
   }, [cardId, doc]);
 
   return (
-    // `data-tug-scroll-key` puts this scroller on the region-preservation
-    // seam, so its position survives a cross-mount and a width change.
-    <div
-      ref={rootRef}
-      data-slot="help-card"
-      data-help-doc={doc ?? undefined}
-      className="help-card"
-      data-tug-scroll-key="help-card"
-    >
-      {loaded.phase === "error" ? (
-        <p className="help-card-notice" role="alert">
-          {loaded.message}
-        </p>
-      ) : markdown === null ? (
-        <p className="help-card-notice" role="status">
-          Reading help…
-        </p>
-      ) : (
-        // Keyed on the document so a different text remounts the block, which
-        // renders its text once ([#md-block-api]'s mount-once contract).
-        <TugMarkdownBlock key={doc ?? ""} initialText={markdown} className="help-card-body" />
-      )}
-    </div>
+    <ResponderScope>
+      {/* The frame stacks the document over the find bar, so the bar docks
+          below the scroller rather than scrolling away with the text. */}
+      <div ref={setFrame} className="help-card-frame" data-slot="help-card-frame">
+        {/* `data-tug-scroll-key` puts this scroller on the region-preservation
+            seam, so its position survives a cross-mount and a width change. */}
+        <div
+          ref={rootRef}
+          data-slot="help-card"
+          data-help-doc={doc ?? undefined}
+          className="help-card"
+          data-tug-scroll-key="help-card"
+        >
+          {loaded.phase === "error" ? (
+            <p className="help-card-notice" role="alert">
+              {loaded.message}
+            </p>
+          ) : markdown === null ? (
+            <p className="help-card-notice" role="status">
+              Reading help…
+            </p>
+          ) : (
+            // Keyed on the document so a different text remounts the block, which
+            // renders its text once ([#md-block-api]'s mount-once contract).
+            <TugMarkdownBlock key={doc ?? ""} initialText={markdown} className="help-card-body" />
+          )}
+        </div>
+        {findOpen ? (
+          <HelpCardFindBar
+            ref={findBarRef}
+            session={findSession()}
+            frameRef={frameRef}
+            initialQuery={findSeedRef.current}
+            onClose={closeFind}
+          />
+        ) : null}
+      </div>
+    </ResponderScope>
   );
 }
 

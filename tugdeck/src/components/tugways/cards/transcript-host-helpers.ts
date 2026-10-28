@@ -49,6 +49,7 @@ import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import type { ActionHandlerResult } from "@/components/tugways/responder-chain";
 import { useResponder } from "@/components/tugways/use-responder";
 import { useTextSurfaceContextMenu } from "@/components/tugways/use-text-surface-context-menu";
+import { ReadOnlyTextHostContext } from "@/components/tugways/use-read-only-text-surface";
 import { useAnnotationMenu } from "@/components/tugways/use-annotation-menu";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { SessionMetadataStore, SlashCommandInfo } from "@/lib/session-metadata-store";
@@ -477,7 +478,7 @@ export function useTranscriptCellMenu({
   }, []);
 
   const responderId = useId();
-  const { ResponderScope, responderRef } = useResponder({
+  const { ResponderScope: CellScope, responderRef } = useResponder({
     id: responderId,
     actions: {
       ...annotation.actions,
@@ -485,6 +486,22 @@ export function useTranscriptCellMenu({
       [TUG_ACTIONS.SELECT_ALL]: handleSelectAll,
     },
   });
+
+  // The cell owns Select All, Copy and the menu for every markdown block
+  // inside it, so its scope tells them to stand aside rather than register a
+  // document responder each (`TugMarkdownBlock`). Built once, as `CellScope`
+  // is, so the subtree never remounts.
+  const scopeRef = useRef<React.FC<{ children: React.ReactNode }> | null>(null);
+  if (scopeRef.current === null) {
+    scopeRef.current = function ResponderScope({ children }: { children: React.ReactNode }) {
+      return React.createElement(
+        CellScope,
+        null,
+        React.createElement(ReadOnlyTextHostContext.Provider, { value: true }, children),
+      );
+    };
+  }
+  const ResponderScope = scopeRef.current;
 
   // The shared hook owns menuState, the contextmenu pipeline, and
   // the menu render. We feed it the adapter (read live from the ref
@@ -536,9 +553,12 @@ export function useTranscriptCellMenu({
     // target — DOM focus (the prompt entry's caret) survives a click on
     // transcript content. First-responder promotion of this cell rides the
     // chain's pointerdown promoter, which needs no focusable element, so
-    // ⌘A and the right-click menu route to this entry. ⌘C does NOT — it is
-    // a menu key equivalent AppKit performs natively — which is why the
-    // cell carries `onCopy` as well.
+    // the right-click menu routes to this entry, and so does ⌘A: Select All
+    // is chain-routed (`routing: "first-responder"`), so the key funnel and
+    // Edit ▸ Select All both reach this cell's handler while the composer
+    // keeps DOM focus. ⌘C does NOT — Copy is performed natively by AppKit
+    // against the document selection — which is why the cell carries
+    // `onCopy` as well.
     cellProps: {
       ref: responderRef as (node: Element | null) => void,
       onContextMenu: handleContextMenu,

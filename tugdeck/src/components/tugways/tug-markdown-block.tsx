@@ -58,6 +58,14 @@
  *      leaves the DOM alone until the first render lands, and `null`
  *      parses on the page, as a restored row always has.
  *
+ * Outside a host that owns its text's selection (a transcript or Overview
+ * cell, which say so through `ReadOnlyTextHostContext`), the block is a
+ * read-only document of its own and carries the shared selection behaviour
+ * of {@link useReadOnlyTextSurface}: Select All and Copy, the text-surface
+ * context menu, selection extension, and the `user-select: text` opt-in, so
+ * a consumer such as the help card has nothing to remember. Inside such a
+ * host it stands aside, and the host's verbs apply.
+ *
  * Both modes write sanitized HTML directly to the DOM — there is no
  * React state for the rendered content per [L06]. The only React
  * state is the container element ref.
@@ -115,6 +123,10 @@ import {
 import { createStreamingFlush } from "@/lib/markdown/streaming-flush";
 import { chooseRenderedBlocks, isRenderedStreaming, renderedPathFor } from "@/lib/markdown/rendered-record";
 import { highlightPendingFences, type FenceHighlightOptions } from "@/lib/markdown/enhance-fenced-code";
+import {
+  ReadOnlyTextHostContext,
+  useReadOnlyTextSurface,
+} from "@/components/tugways/use-read-only-text-surface";
 
 /**
  * Hand a freshly annotated container to `onAnnotated`, and — unless React is
@@ -251,7 +263,38 @@ export interface TugMarkdownBlockProps {
   onAnnotated?: (container: HTMLElement) => void;
 }
 
-export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
+/**
+ * A read-only document, or a block inside a host that owns its selection.
+ * The host context never changes under a mounted block, so which of the two
+ * it is holds for the block's life.
+ */
+export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = (props) => {
+  const hosted = React.useContext(ReadOnlyTextHostContext);
+  return hosted ? <MarkdownBlockBody {...props} /> : <DocumentMarkdownBlock {...props} />;
+};
+
+/** A block that is its own document: the shared read-only selection behaviour. */
+function DocumentMarkdownBlock(props: TugMarkdownBlockProps): React.ReactElement {
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const { ResponderScope, responderRef, menu } = useReadOnlyTextSurface(rootRef);
+  const elementRef = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      rootRef.current = el;
+      responderRef(el);
+    },
+    [responderRef],
+  );
+  return (
+    <ResponderScope>
+      <MarkdownBlockBody {...props} elementRef={elementRef} />
+      {menu}
+    </ResponderScope>
+  );
+}
+
+const MarkdownBlockBody: React.FC<
+  TugMarkdownBlockProps & { elementRef?: (el: HTMLDivElement | null) => void }
+> = ({
   initialText,
   streamingStore,
   streamingPath = DEFAULT_STREAMING_PATH,
@@ -259,8 +302,16 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
   findable = false,
   annotation: annotationProp,
   onAnnotated,
+  elementRef,
 }) => {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const setContainer = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      containerRef.current = el;
+      elementRef?.(el);
+    },
+    [elementRef],
+  );
   // Live-ref'd so a consumer may pass a fresh closure every render without
   // re-running the annotation effect below ([L07]).
   const onAnnotatedRef = React.useRef(onAnnotated);
@@ -489,7 +540,7 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
 
   return (
     <div
-      ref={containerRef}
+      ref={setContainer}
       data-slot="tug-markdown-block"
       data-tugx-findable={findable ? "" : undefined}
       className={

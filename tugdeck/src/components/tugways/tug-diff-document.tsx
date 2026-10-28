@@ -52,6 +52,7 @@ import { fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 import { DiffBlock } from "@/components/tugways/body-kinds/diff-block";
+import { ReadOnlyTextSurface } from "@/components/tugways/use-read-only-text-surface";
 import {
   useDiffViewMode,
   writeDiffViewMode,
@@ -223,12 +224,16 @@ function FileBody({
     );
   }
   return (
-    <DiffBlock
-      data={{ source: "unified", text: file.unified, filePath: file.path }}
-      suppressHeader
-      viewMode={viewMode}
-      className="tug-diff-document-file-diff"
-    />
+    // A file's hunks are a read-only document: ⌘A selects them, the text
+    // menu copies, and a range made here extends from the keyboard.
+    <ReadOnlyTextSurface>
+      <DiffBlock
+        data={{ source: "unified", text: file.unified, filePath: file.path }}
+        suppressHeader
+        viewMode={viewMode}
+        className="tug-diff-document-file-diff"
+      />
+    </ReadOnlyTextSurface>
   );
 }
 

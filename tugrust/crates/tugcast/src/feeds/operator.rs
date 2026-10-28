@@ -6756,6 +6756,7 @@ mod tests {
             .collect();
         assert!(terms.contains(&"Split"));
         assert!(terms.contains(&"Operator"));
+        assert!(terms.contains(&"Find"));
         let changes = out["glossary"]
             .as_array()
             .unwrap()

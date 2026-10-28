@@ -150,6 +150,7 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dispatchCommand } from "@/command-dispatch";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
+import { attachSelectionExtension } from "@/components/tugways/selection-extension";
 import { overviewInsertTarget } from "@/components/overview/overview-insert-target";
 import { useComposerDrop } from "@/components/tugways/use-composer-drop";
 import {
@@ -1410,6 +1411,15 @@ export function OverviewContent({
   // because the Overview target offers no `insertCommand` and the Overview
   // protocol has no commands to run.
   useAnnotationClicks(scrollRef, { insertTarget: overviewInsertTarget() });
+
+  // A selection made in a post extends as the transcript's does: ⇧-click and
+  // the ⇧-arrow family, whatever holds DOM focus. [L03] — live before the
+  // first press it services.
+  useLayoutEffect(() => {
+    const root = scrollRef.current;
+    if (root === null) return;
+    return attachSelectionExtension(root);
+  }, []);
 
   const onScroll = (): void => {
     const el = scrollRef.current;

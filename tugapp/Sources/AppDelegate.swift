@@ -1580,7 +1580,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func performSelectAll(_ sender: Any?) {
-        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: sender)
+        // A native text field (a panel's, a sheet's) is AppKit's to select
+        // in. Anywhere else the deck's responder chain answers, so a
+        // read-only surface the reader is in selects its own content rather
+        // than whatever holds DOM focus — the same route the ⌘A chord takes.
+        if NSApp.keyWindow?.firstResponder is NSText {
+            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: sender)
+        } else {
+            sendControl("select-all")
+        }
     }
 
     /// `TUGAPP_NATIVE_EVENT_MODE=pid`: the harness drives the app without

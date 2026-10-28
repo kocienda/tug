@@ -70,6 +70,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Dot.** See *pulsing dot*.
 
+**Find.** Search the document in front of you: a session's transcript, a *Text card*'s file, or a help card. ⌘F opens the find bar at the bottom of the card, and the matches highlight as you type, with the count beside the field and Case, Word and Grep toggles that are one setting across the deck. ⌘G and ⇧⌘G step to the next and previous match, ⌘E searches for the selected text, and Escape closes the bar.
+
 **Fit.** One of the two ways *slots* resolve across the window. Fit spreads the slots so every card is inside the window at once; when cards are wider than the window, neighbors overlap and the front one wins. Fit is for monitoring. See *Flow*.
 
 **Flow.** The other way slots resolve. Flow stands the cards side by side at their full widths and lets the row run past the window's edge. Activating a card slides the row just far enough to bring it into view, with a strip along the bottom drawing the whole arrangement. Flow is for reading.

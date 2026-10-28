@@ -231,7 +231,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌘8 | `move-to-slot:8` | Move Card to Slot 8 | JS, global |
 | ⌘9 | `move-to-slot:9` | Move Card to Slot 9 | JS, global |
 | ⌘= | `zoom-in` | Zoom In | JS, global |
-| ⌘A | `select-all` | Select All | menu bar (AppKit's own) |
+| ⌘A | `select-all` | Select All | JS, global |
 | ⌘C | `copy` | Copy | menu bar (AppKit's own) |
 | ⌘D | `toggle-dictation` | Start Dictation | menu bar (swept) |
 | ⌘E | `find-selection` | Use Selection for Find | JS, global |
@@ -314,7 +314,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `edit.pasteAsQuote` | `paste-as-quote` | first responder | registry gate |
 | `edit.quoteLines` | `quote-lines` | first responder | registry gate |
 | `edit.redo` | `redo` | first responder | host tier |
-| `edit.selectAll` | `select-all` | AppKit performs it | registry gate |
+| `edit.selectAll` | `select-all` | first responder | registry gate |
 | `edit.undo` | `undo` | first responder | host tier |
 | `edit.unquoteLines` | `unquote-lines` | first responder | registry gate |
 | `edit.useSelectionForFind` | `find-selection` | first responder | registry gate |
@@ -516,9 +516,11 @@ The one selection it leaves alone is a ranged one the user made that reaches *pa
 
 ## The clipboard exception — native re-dispatch, not a round-trip
 
-The clipboard Edit items (Cut / Copy / Paste / Delete / Select All) do **not** round-trip through a control frame. A control frame is async and leaves the JS clipboard call outside the user gesture, which the browser blocks; and WebKit's native `copy:` / `cut:` / `paste:` already drive the system pasteboard correctly. So each item targets a thin AppDelegate wrapper (`performCopy:` etc.) that re-dispatches its native AppKit selector to the first responder synchronously. Routing through the wrapper — rather than binding the item straight to `copy:` — is what puts **enablement** under the registry gate while leaving the action byte-identical to AppKit's own.
+The clipboard Edit items (Cut / Copy / Paste / Delete) do **not** round-trip through a control frame. A control frame is async and leaves the JS clipboard call outside the user gesture, which the browser blocks; and WebKit's native `copy:` / `cut:` / `paste:` already drive the system pasteboard correctly. So each item targets a thin AppDelegate wrapper (`performCopy:` etc.) that re-dispatches its native AppKit selector to the first responder synchronously. Routing through the wrapper — rather than binding the item straight to `copy:` — is what puts **enablement** under the registry gate while leaving the action byte-identical to AppKit's own.
 
-Those five commands appear in the registry with `routing: "native"` and in `NATIVE_LOCKED`: the mechanism could rebind them, the policy says no.
+Those four commands appear in the registry with `routing: "native"` and in `NATIVE_LOCKED`: the mechanism could rebind them, the policy says no.
+
+**Select All is not one of them.** It touches no clipboard, so nothing ties it to the user gesture, and AppKit's `selectAll:` can only select inside whatever holds DOM focus — which, after a click in the transcript, is still the composer. So Select All is `routing: "first-responder"`: the ⌘A chord dispatches it from the key funnel, and `performSelectAll:` sends the `select-all` control, so a read-only surface answers for its own content and every editing field answers through its own handler. A native text field (a panel's, a sheet's) is the one case the wrapper still hands to AppKit. It stays in `NATIVE_LOCKED`: lockedness is the binding policy, not the route.
 
 ## The identifier namespace
 

@@ -17,12 +17,13 @@
  * @module components/tugways/cards/about-card
  */
 
-import React, { useLayoutEffect } from "react";
+import React, { useCallback, useLayoutEffect, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Ship } from "lucide-react";
 import { registerCard } from "@/card-registry";
 import { appInfoStore } from "@/lib/app-info-store";
 import { cardTitleStore } from "@/lib/card-title-store";
+import { useReadOnlyTextSurface } from "@/components/tugways/use-read-only-text-surface";
 import "./about-card.css";
 
 const PLACEHOLDER = "—";
@@ -61,33 +62,48 @@ export function AboutCardContent({ cardId }: { cardId: string }) {
     return () => cardTitleStore.clear(cardId);
   }, [cardId, name]);
 
+  // The version and commit are read and copied from: the card is a
+  // read-only document, with Select All, Copy, the text menu and extension.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const { ResponderScope, responderRef, menu } = useReadOnlyTextSurface(rootRef);
+  const setRoot = useCallback(
+    (el: HTMLDivElement | null) => {
+      rootRef.current = el;
+      responderRef(el);
+    },
+    [responderRef],
+  );
+
   return (
-    <div className="about-card" data-testid="about-card">
-      {info?.icon ? (
-        <img
-          className="about-card-icon-image"
-          src={info.icon}
-          alt=""
-          aria-hidden="true"
-          data-testid="about-card-icon"
-        />
-      ) : (
-        <div className="about-card-icon" aria-hidden="true">
-          <Ship size={40} strokeWidth={1.5} />
-        </div>
-      )}
-      <h1 className="about-card-name">{name}</h1>
-      <p className="about-card-version" data-testid="about-card-version">
-        Version {version} ({build})
-      </p>
-      <p className="about-card-detail">
-        {profile} · {branch}
-      </p>
-      <p className="about-card-detail about-card-commit">
-        {shortCommit(info?.commit)}
-      </p>
-      <p className="about-card-copyright">{copyright}</p>
-    </div>
+    <ResponderScope>
+      <div ref={setRoot} className="about-card" data-testid="about-card">
+        {info?.icon ? (
+          <img
+            className="about-card-icon-image"
+            src={info.icon}
+            alt=""
+            aria-hidden="true"
+            data-testid="about-card-icon"
+          />
+        ) : (
+          <div className="about-card-icon" aria-hidden="true">
+            <Ship size={40} strokeWidth={1.5} />
+          </div>
+        )}
+        <h1 className="about-card-name">{name}</h1>
+        <p className="about-card-version" data-testid="about-card-version">
+          Version {version} ({build})
+        </p>
+        <p className="about-card-detail">
+          {profile} · {branch}
+        </p>
+        <p className="about-card-detail about-card-commit">
+          {shortCommit(info?.commit)}
+        </p>
+        <p className="about-card-copyright">{copyright}</p>
+      </div>
+      {menu}
+    </ResponderScope>
   );
 }
 

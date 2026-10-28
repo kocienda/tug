@@ -156,6 +156,7 @@ import React, {
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
+import { ReadOnlyTextHostContext } from "@/components/tugways/use-read-only-text-surface";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import {
   clearFilterMarks,
@@ -601,7 +602,9 @@ function ProseRun({
     [],
   );
   return (
-    <>
+    // A session row is chrome, pressed and dragged as a whole: its sentence
+    // is not a document to select in, so the block stands aside.
+    <ReadOnlyTextHostContext.Provider value={true}>
       <TugMarkdownBlock
         key={text}
         initialText={text}
@@ -609,7 +612,7 @@ function ProseRun({
         onAnnotated={onMarked}
       />
       {portals}
-    </>
+    </ReadOnlyTextHostContext.Provider>
   );
 }
 

@@ -311,6 +311,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   undo: "command",
   redo: "command",
   "copy-as-plain-text": "command",
+  "select-all": "command",
   "paste-as-quote": "command",
   "paste-as-plain-text": "command",
   "make-uppercase": "command",

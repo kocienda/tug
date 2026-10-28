@@ -183,7 +183,7 @@ export function dispatchCommand(
 
   if (entry.routing === "native") {
     // AppKit performs these; the entry exists so the keymap UI can show
-    // Hide, Quit, Minimize and the NSText five rather than leaving them
+    // Hide, Quit, Minimize and the NSText four rather than leaving them
     // as commands the user cannot find.
     console.warn(`dispatchCommand: ${id} is performed natively and is not JS-routable`);
     notifyCommandObservers(id, false);

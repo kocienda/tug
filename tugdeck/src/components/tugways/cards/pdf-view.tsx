@@ -632,6 +632,22 @@ export function PdfView({
       [TUG_ACTIONS.ZOOM_TO_FIT]: (event: ActionEvent) => {
         applyZoom(event.value === "width" ? "fit-width" : "fit-page");
       },
+      // ⌘A is chain-routed, so the surface answers it: the text layers of
+      // the pages in the DOM, which are the pages the viewport can see. The
+      // selection lands after the menu blink ([L11]); the root is sampled
+      // now ([L07]).
+      [TUG_ACTIONS.SELECT_ALL]: () => {
+        const scroller = scrollerRef.current;
+        if (scroller === null) return;
+        return () => {
+          const sel = window.getSelection();
+          if (sel === null) return;
+          const range = window.document.createRange();
+          range.selectNodeContents(scroller);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        };
+      },
     },
   });
 

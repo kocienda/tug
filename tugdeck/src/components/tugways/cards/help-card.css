@@ -2,11 +2,22 @@
    which owns its own type scale and block styling ([L20]); this file styles
    only the card's scroller, its reading margins and the notice states. */
 
-.help-card {
+/* The frame stacks the scrolling document over the find bar, which docks at
+   the bottom when it is open. */
+.help-card-frame {
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
+}
+
+.help-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  /* The positioning context the find landing flash is placed in. */
+  position: relative;
   /* height:100% + padding must resolve inside the pane's content box, or the
      card overflows the pane's own scroller by exactly its padding and paints
      a second scrollbar beside this one. */
@@ -17,18 +28,8 @@
 
 .help-card-body {
   min-width: 0;
-  /* The document is read and copied from. The pane content sets
-     user-select: none for card chrome, so the body opts back in. */
-  user-select: text;
-  -webkit-user-select: text;
-  cursor: text;
-  /* Read-only: no caret for a collapsed selection to paint. */
-  caret-color: transparent;
-}
-
-/* An explicit cursor on the body inherits past the UA's link hand. */
-.help-card-body a[href] {
-  cursor: pointer;
+  /* The document is read and copied from: `TugMarkdownBlock` carries the
+     read-only text opt-in (`use-read-only-text-surface.css`) itself. */
 }
 
 /* Single centered notice for the loading and error states. */

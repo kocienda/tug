@@ -1,0 +1,15 @@
+/* @tug-pairings: none — reuses the find paint token family (transcript-find.css). */
+
+/* document-find — the Custom-Highlight paint for Find over a read-only
+ * document (`document-find-engine.ts`): every match, and the active one,
+ * coloured by the same tokens every find surface resolves through [L17].
+ * [L06] appearance-only. */
+
+::highlight(document-find-match) {
+  background-color: var(--tugx-find-match-bg);
+}
+
+::highlight(document-find-active) {
+  background-color: var(--tugx-find-active-bg);
+  color: var(--tugx-find-active-text);
+}

@@ -1567,7 +1567,15 @@ export const COMMANDS: readonly CommandEntry[] = [
   {
     id: TUG_ACTIONS.SELECT_ALL,
     title: "Select All",
-    routing: "native",
+    // Chain-routed, unlike its four clipboard neighbours: a read-only
+    // surface (a transcript entry, a help document) answers Select All for
+    // its own content, and AppKit's `selectAll:` could only reach whatever
+    // held DOM focus — the composer, when the reader had clicked the
+    // transcript. Every editing field registers its own handler, so they
+    // keep the behaviour they had. The menu item takes this route too
+    // (`performSelectAll` sends the control), so the menu and the chord
+    // cannot disagree.
+    routing: "first-responder",
     menuItemId: "edit.selectAll",
     bindings: [
       chord({ key: "KeyA", meta: true, label: "a" }, { preventDefault: true }),

@@ -16,7 +16,6 @@
   text-align: center;
   color: var(--tug7-element-global-text-normal-default-rest);
   font-family: var(--tug-font-family-sans);
-  user-select: text;
 }
 
 .about-card-icon {

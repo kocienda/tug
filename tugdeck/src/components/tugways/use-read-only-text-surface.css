@@ -1,0 +1,23 @@
+/* @tug-pairings: none — selection opt-in only; paints no surface of its own. */
+
+/**
+ * use-read-only-text-surface.css — the `user-select: text` opt-in every
+ * read-only document carries ([L06]).
+ *
+ * A card's pane content sets `user-select: none` for chrome, so a document
+ * opts back in. `useReadOnlyTextSurface` stamps the attribute on the
+ * surface's root; nothing else needs to remember it.
+ */
+
+[data-tug-read-only-text] {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  /* Read-only: no caret for a collapsed selection to paint. */
+  caret-color: transparent;
+}
+
+/* An explicit cursor on the document inherits past the UA's link hand. */
+[data-tug-read-only-text] a[href] {
+  cursor: pointer;
+}

@@ -1,8 +1,8 @@
 /**
  * The Edit-menu enablement guard.
  *
- * Cut / Copy / Paste / Delete / Select All are `routing: "native"`. The
- * chord pipeline passes them through untouched
+ * Cut / Copy / Paste / Delete are `routing: "native"`. The chord pipeline
+ * passes them through untouched
  * (`responder-chain-provider`: natively-routed commands `return` before the
  * chain), and AppKit performs them as the `NSText` selectors against the
  * document selection (`AppDelegate.performCopy` → `NSApp.sendAction`). They
@@ -62,6 +62,9 @@ const SELECTION_SURFACES: ReadonlySet<string> = new Set([
   "components/tugways/tug-text-card-editor.tsx",
   "components/tugways/tug-text-editor.tsx",
   "components/tugways/use-text-input-responder.tsx",
+  // Every read-only document outside the transcript: the markdown block, the
+  // About card, a diff document's files.
+  "components/tugways/use-read-only-text-surface.tsx",
 ]);
 
 /** Every `.ts`/`.tsx` module under `src`, excluding tests. */

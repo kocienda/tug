@@ -76,7 +76,9 @@ Read it top to bottom. Your prompts, the model's replies, and each shell command
 
 When the model needs an answer or a permission, it asks in the transcript, with its options and Cancel and Submit buttons, and you answer there. The status row reads Awaiting and the dot turns yellow until you do.
 
-⌃⌘[ and ⌃⌘] move between turns; ⌃⇧⌘[ and ⌃⇧⌘] jump to the first and last. ⌘F finds in the transcript, ⌘G and ⇧⌘G step through matches, and ⌘E uses the selection for find.
+⌃⌘[ and ⌃⌘] move between turns; ⌃⇧⌘[ and ⌃⇧⌘] jump to the first and last.
+
+**Find.** ⌘F opens a find bar under the transcript. Matches highlight as you type, the bar counts them ("3 of 12"), and the current one is brought into view. ⌘G and ⇧⌘G step to the next and previous match, Return and ⇧Return do the same from the field, and Escape closes the bar. ⌘E searches for whatever you have selected. Case, Word and Grep narrow the search, and they are one setting across the deck. The same bar finds in a Text card's file and in a help card, so this guide and the glossary can be searched too.
 
 ### The status row
 

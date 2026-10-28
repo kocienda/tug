@@ -32,6 +32,20 @@
  * `pointerdown` tracking still arms, and its clamp path (`Selection.extend`)
  * moves the extent while leaving the base pinned. Points that do not resolve
  * inside the root are left to the guard to clamp.
+ *
+ * ## Keyboard extension
+ *
+ * The selection-extending chords (⇧ with an arrow, ⇧⌥ and ⇧⌘ with an arrow,
+ * ⇧Home/End, ⇧Page Up/Down) move the extent of a ranged selection inside the
+ * root, through `Selection.modify("extend", …)`, whatever holds DOM focus.
+ * Nothing in a read-only surface is focusable, so after a drag there DOM
+ * focus is on `<body>` or in an editor elsewhere, and the deck's key-view
+ * delegate would hand the key to that editor — the composer, in a Session
+ * card — which moves its own caret and the reader's selection is lost. The
+ * listener is on `window` in the capture phase, ahead of every document-level
+ * key stage, and it consumes only a chord it acted on. DOM focus is never
+ * moved, so an unshifted key or a printable still reaches the editor exactly
+ * as before.
  */
 
 import { caretPositionFromPointCompat } from "./selection-guard";
@@ -194,6 +208,81 @@ export function granularityForClickCount(count: number): SelectionGranularity {
   return "character";
 }
 
+// ---------------------------------------------------------------------------
+// Keyboard extension
+// ---------------------------------------------------------------------------
+
+/** The `Selection.modify` granularities a keyboard extension uses. */
+export type ModifyGranularity =
+  | "character"
+  | "word"
+  | "line"
+  | "lineboundary"
+  | "paragraphboundary"
+  | "documentboundary";
+
+/**
+ * How a selection-extending chord moves the extent: one `Selection.modify`
+ * step, or a page, which `modify` has no granularity for.
+ */
+export type KeyboardExtension =
+  | { readonly kind: "modify"; readonly direction: ExpandDirection; readonly granularity: ModifyGranularity }
+  | { readonly kind: "page"; readonly direction: ExpandDirection };
+
+/** The modifier state of a keydown, as a chord reads it. */
+export interface ChordKeys {
+  readonly key: string;
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+  readonly metaKey: boolean;
+  readonly ctrlKey: boolean;
+}
+
+/**
+ * The extension a chord asks for, by the macOS text-system's reading of it,
+ * or `null` when the chord extends nothing: no ⇧, a ⌃, or a key that is not
+ * an arrow, Home/End or Page Up/Down.
+ *
+ * ⌥ widens a horizontal step to a word and a vertical one to a paragraph's
+ * edge; ⌘ widens a horizontal step to the line's edge and a vertical one to
+ * the document's. ⇧Home and ⇧End reach the document's edges, as they do in a
+ * Cocoa text view. ⌘ wins over ⌥ when both are held.
+ */
+export function keyboardExtensionFor(chord: ChordKeys): KeyboardExtension | null {
+  if (!chord.shiftKey || chord.ctrlKey) return null;
+  const { altKey, metaKey } = chord;
+  switch (chord.key) {
+    case "ArrowLeft":
+    case "ArrowRight":
+      return {
+        kind: "modify",
+        direction: chord.key === "ArrowLeft" ? "backward" : "forward",
+        granularity: metaKey ? "lineboundary" : altKey ? "word" : "character",
+      };
+    case "ArrowUp":
+    case "ArrowDown":
+      return {
+        kind: "modify",
+        direction: chord.key === "ArrowUp" ? "backward" : "forward",
+        granularity: metaKey ? "documentboundary" : altKey ? "paragraphboundary" : "line",
+      };
+    case "Home":
+    case "End":
+      if (altKey || metaKey) return null;
+      return {
+        kind: "modify",
+        direction: chord.key === "Home" ? "backward" : "forward",
+        granularity: "documentboundary",
+      };
+    case "PageUp":
+    case "PageDown":
+      if (altKey || metaKey) return null;
+      return { kind: "page", direction: chord.key === "PageUp" ? "backward" : "forward" };
+    default:
+      return null;
+  }
+}
+
 /** Granularity ordering, so a shift-double-click can only raise the unit. */
 const GRANULARITY_RANK: Record<SelectionGranularity, number> = {
   character: 0,
@@ -318,12 +407,14 @@ export class SelectionExtender {
   private readonly onMouseDown: (e: MouseEvent) => void;
   private readonly onMouseMove: (e: MouseEvent) => void;
   private readonly onMouseUp: () => void;
+  private readonly onKeyDown: (e: KeyboardEvent) => void;
 
   constructor(root: HTMLElement) {
     this.root = root;
     this.onMouseDown = this.handleMouseDown.bind(this);
     this.onMouseMove = this.handleMouseMove.bind(this);
     this.onMouseUp = this.handleMouseUp.bind(this);
+    this.onKeyDown = this.handleKeyDown.bind(this);
   }
 
   attach(): void {
@@ -333,12 +424,18 @@ export class SelectionExtender {
     document.addEventListener("mousedown", this.onMouseDown, { capture: true });
     document.addEventListener("mousemove", this.onMouseMove, { capture: true });
     document.addEventListener("mouseup", this.onMouseUp, { capture: true });
+    // `window`, not `document`: the deck's key stages are document-level
+    // capture listeners, and every one of them — the key funnel, the
+    // key-view delegate that hands a key to the composer — must come after
+    // a chord this extender takes.
+    window.addEventListener("keydown", this.onKeyDown, { capture: true });
   }
 
   detach(): void {
     document.removeEventListener("mousedown", this.onMouseDown, { capture: true });
     document.removeEventListener("mousemove", this.onMouseMove, { capture: true });
     document.removeEventListener("mouseup", this.onMouseUp, { capture: true });
+    window.removeEventListener("keydown", this.onKeyDown, { capture: true });
     this.extending = false;
     this.base = null;
   }
@@ -452,6 +549,76 @@ export class SelectionExtender {
 
   private handleMouseUp(): void {
     this.extending = false;
+  }
+
+  /**
+   * Extend a ranged selection inside the root by a selection-extending chord.
+   *
+   * Declines — leaving the key to whoever would have had it — unless the
+   * selection is a range with both ends in the root and DOM focus is not
+   * inside the root (a focused control there owns its own keys). The base is
+   * the selection's anchor, which every gesture this controller or the
+   * browser made leaves at the fixed end, so `modify("extend", …)` moves only
+   * the extent. An extent the step carried out of the root is pinned to the
+   * root's edge on that side: past the transcript's last row is the
+   * composer, which is not part of the reader's selection.
+   */
+  private handleKeyDown(event: KeyboardEvent): void {
+    if (event.defaultPrevented || event.isComposing) return;
+    const extension = keyboardExtensionFor(event);
+    if (extension === null) return;
+    const sel = window.getSelection();
+    if (
+      sel === null ||
+      sel.rangeCount === 0 ||
+      sel.isCollapsed ||
+      sel.anchorNode === null ||
+      sel.focusNode === null ||
+      !this.root.contains(sel.anchorNode) ||
+      !this.root.contains(sel.focusNode)
+    ) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && this.root.contains(active)) return;
+
+    if (extension.kind === "modify") {
+      sel.modify("extend", extension.direction, extension.granularity);
+    } else {
+      this.extendByPage(sel, extension.direction);
+    }
+    if (sel.focusNode === null || !this.root.contains(sel.focusNode)) {
+      const edge = edgeTextPosition(
+        this.root,
+        extension.direction === "forward" ? "last" : "first",
+      );
+      if (edge !== null) sel.extend(edge.node, edge.offset);
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  /**
+   * Move the extent one visible page: the position a page height above or
+   * below the extent's caret, hit-tested inside the root, or the root's edge
+   * when that point falls outside it.
+   */
+  private extendByPage(sel: Selection, direction: ExpandDirection): void {
+    const focus = sel.focusNode;
+    if (focus === null) return;
+    const caret = document.createRange();
+    caret.setStart(focus, sel.focusOffset);
+    caret.collapse(true);
+    const at = caret.getBoundingClientRect();
+    const bounds = this.root.getBoundingClientRect();
+    const page = Math.min(bounds.height, window.innerHeight);
+    const y = direction === "forward" ? at.top + page : at.top - page;
+    const hit =
+      y > Math.max(bounds.top, 0) && y < Math.min(bounds.bottom, window.innerHeight)
+        ? pointInRoot(at.left, y, this.root)
+        : null;
+    const target = hit ?? edgeTextPosition(this.root, direction === "forward" ? "last" : "first");
+    if (target !== null) sel.extend(target.node, target.offset);
   }
 }
 
