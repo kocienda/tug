@@ -114,7 +114,9 @@ pub fn live_siblings(repo_root: &Path, name: &str) -> Result<Vec<String>, ArcErr
     Ok(siblings)
 }
 
-/// The paths `tip` changed since `merge_base`, a rename at its destination.
+/// The paths `tip` changed since `merge_base` — a rename or a copy at both
+/// its paths, because the other arc may have changed the file under the old
+/// name, and that is a crossing the merge will meet at the new one.
 fn changed_since(repo: &Path, merge_base: &str, tip: &str) -> Result<BTreeSet<String>, ArcError> {
     let range = format!("{merge_base}..{tip}");
     let args = ["diff", "--name-status", "-M", &range];
@@ -125,9 +127,25 @@ fn changed_since(repo: &Path, merge_base: &str, tip: &str) -> Result<BTreeSet<St
             e.to_string(),
         )
     })?;
-    Ok(crate::ops::name_status_paths(&records)
-        .into_iter()
-        .collect())
+    // The records are the door's: the status letter is its own record, and
+    // one path follows it, or two in `old`, `new` order for `R` and `C`.
+    let mut paths = BTreeSet::new();
+    let mut i = 0;
+    while i < records.len() {
+        let two = matches!(records[i].chars().next(), Some('R' | 'C'));
+        i += 1;
+        let take = if two { 2 } else { 1 };
+        paths.extend(
+            records
+                .iter()
+                .skip(i)
+                .take(take)
+                .filter(|p| !p.is_empty())
+                .cloned(),
+        );
+        i += take;
+    }
+    Ok(paths)
 }
 
 /// Probe one pair: `None` when the two arcs share no changed path, which is
@@ -147,10 +165,11 @@ pub fn probe_pair(
     if overlap.is_empty() {
         return Ok(None);
     }
-    let conflicts: Vec<String> = crate::resolve::conflicted_paths(&repo, &ours, &theirs)?
-        .into_iter()
-        .filter(|path| overlap.contains(path))
-        .collect();
+    // Every conflicted path is a crossing conflict, not only those in the
+    // overlap by name: a merge conflicts only where both sides touched a
+    // file, and a rename puts that conflict at the new name while the
+    // overlap holds the old one.
+    let conflicts = crate::resolve::conflicted_paths(&repo, &ours, &theirs)?;
     Ok(Some(Crossing {
         sibling: sibling.to_string(),
         fresh: overlap.clone(),
@@ -498,6 +517,33 @@ mod tests {
         git(repo, &["branch", "tugarc/c", "other"]);
         git(repo, &["config", "branch.tugarc/c.tugbase", "other"]);
         assert_eq!(live_siblings(repo, "a").unwrap(), vec!["b".to_string()]);
+    }
+
+    /// A rename on one side and an edit of the old name on the other is a
+    /// crossing, found by the old name, and its conflict stands at the new one.
+    #[test]
+    fn a_rename_crosses_an_edit_of_the_old_name() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = two_arcs();
+        let repo = temp.path();
+        git(repo, &["switch", "-q", "tugarc/a"]);
+        git(repo, &["mv", "f.txt", "h.txt"]);
+        set(repo, "h.txt", &edit_line(5, "a five"));
+        git(repo, &["commit", "-qam", "a renames and edits"]);
+        git(repo, &["switch", "-q", "main"]);
+        round(repo, "b", "f.txt", &edit_line(5, "b five"));
+
+        let found = probe_crossings(&paths, repo, "b").unwrap();
+        assert_eq!(
+            found,
+            vec![Crossing {
+                sibling: "a".to_string(),
+                overlap: vec!["f.txt".to_string()],
+                conflicts: vec!["h.txt".to_string()],
+                fresh: vec!["f.txt".to_string()],
+            }]
+        );
     }
 
     /// Disjoint paths: no crossing, and `merge-tree` is never asked.
