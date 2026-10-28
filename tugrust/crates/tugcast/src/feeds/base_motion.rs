@@ -427,6 +427,93 @@ pub fn conflict_paths_for(owner_key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+// MARK: - Crossing notices
+
+/// The origin a crossing notice is attributed to in the transcript.
+const CROSSING_ORIGIN: &str = "crossing";
+
+/// One notice waiting for its arc's session to be quiet enough to hear it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingNotice {
+    repo: PathBuf,
+    arc: String,
+    text: String,
+}
+
+/// The crossing notices not yet spoken, and the wake that asks the engine to
+/// speak them.
+///
+/// A crossing is found by the round probe, but its notice goes out through
+/// this engine's injection, under the same gate a replay notice meets: a
+/// session mid-turn is never interrupted, and is told when its turn ends —
+/// the turn-end wake already brings the engine back to every open project.
+#[derive(Default)]
+struct CrossingNotices {
+    pending: Mutex<Vec<PendingNotice>>,
+    wake: Notify,
+}
+
+impl CrossingNotices {
+    fn queue(&self, repo: &Path, arc: &str, text: &str) {
+        self.pending.lock().push(PendingNotice {
+            repo: repo.to_path_buf(),
+            arc: arc.to_string(),
+            text: text.to_string(),
+        });
+        self.wake.notify_one();
+    }
+
+    /// What to tell `arc`'s session now. A quiet session takes every notice
+    /// waiting for it; a busy one leaves them waiting; an arc with no session
+    /// bound has nobody to tell, and its notices are dropped rather than
+    /// saved for a session that may never come.
+    fn take_for(&self, repo: &Path, arc: &str, session: Option<&BoundSession>) -> Vec<String> {
+        if session.is_some_and(|s| s.busy) {
+            return Vec::new();
+        }
+        let mut pending = self.pending.lock();
+        let (mine, rest): (Vec<_>, Vec<_>) = pending
+            .drain(..)
+            .partition(|notice| notice.repo == repo && notice.arc == arc);
+        *pending = rest;
+        match session {
+            Some(_) => mine.into_iter().map(|notice| notice.text).collect(),
+            None => Vec::new(),
+        }
+    }
+}
+
+/// Speak whatever crossing notices `arc`'s session can hear now, as one
+/// turn however many are waiting: a second turn queued behind the first is
+/// one more the agent never asked for.
+async fn speak_crossings(
+    notices: &CrossingNotices,
+    inject: &InjectHandles,
+    repo: &Path,
+    arc: &str,
+    session: Option<&BoundSession>,
+) {
+    let waiting = notices.take_for(repo, arc, session);
+    let Some(target) = session.filter(|_| !waiting.is_empty()) else {
+        return;
+    };
+    let text = waiting.join("\n");
+    let submission = format!("[crossing] {text}");
+    inject
+        .send_as(&target.id, CROSSING_ORIGIN, &text, &submission, None)
+        .await;
+}
+
+fn crossing_notices() -> &'static CrossingNotices {
+    static NOTICES: OnceLock<CrossingNotices> = OnceLock::new();
+    NOTICES.get_or_init(CrossingNotices::default)
+}
+
+/// Tell `arc`'s session about a crossing, as soon as it is quiet.
+pub fn queue_crossing_notice(repo: &Path, arc: &str, text: &str) {
+    crossing_notices().queue(repo, arc, text);
+}
+
 // MARK: - The engine
 
 /// Why the engine woke. Both arms run the same evaluation; the difference is
@@ -508,6 +595,7 @@ pub async fn run_base_motion_engine(
                 Some(_) => Wake::TurnComplete,
                 None => continue,
             },
+            _ = crossing_notices().wake.notified() => Wake::All,
         };
         evaluate(&ctx, &board, &state, wake).await;
     }
@@ -574,6 +662,19 @@ async fn evaluate_workspace(
         let detail = &reading.detail;
         let owner_key = detail.owner_key.clone();
         let session = bound_session(&ctx.supervisor_ledger, &bound_by_arc, &owner_key).await;
+
+        let inject = InjectHandles {
+            code_input_tx: ctx.code_input_tx.clone(),
+            code_output: ctx.code_output.clone(),
+        };
+        speak_crossings(
+            crossing_notices(),
+            &inject,
+            &repo_dir,
+            &detail.name,
+            session.as_ref(),
+        )
+        .await;
 
         let (in_flight, conflicted, notified) = {
             let map = state.lock();
@@ -977,19 +1078,33 @@ struct InjectHandles {
 
 impl InjectHandles {
     async fn send(&self, session: &str, text: &str, facts: Option<&NoticeFacts>) -> bool {
+        self.send_as(session, NOTICE_ORIGIN, text, &submission_text(text), facts)
+            .await
+    }
+
+    /// The row under `origin` saying `text`, then the turn the agent reads,
+    /// which says `submission`.
+    async fn send_as(
+        &self,
+        session: &str,
+        origin: &str,
+        text: &str,
+        submission: &str,
+        facts: Option<&NoticeFacts>,
+    ) -> bool {
         let Some(input_tx) = self.code_input_tx.as_ref() else {
             return false;
         };
         if let Some(output) = self.code_output.as_ref() {
             output.publish_tagged(Frame::new(
                 FeedId::CODE_OUTPUT,
-                notice_payload(session, NOTICE_ORIGIN, text, facts),
+                notice_payload(session, origin, text, facts),
             ));
         }
         input_tx
             .send(Frame::new(
                 FeedId::CODE_INPUT,
-                user_message_payload(session, &submission_text(text)),
+                user_message_payload(session, submission),
             ))
             .await
             .is_ok()
@@ -1428,6 +1543,53 @@ mod tests {
     }
 
     // MARK: - Injection
+
+    /// A crossing notice waits out a busy session, is spoken once as one turn
+    /// when the session is quiet, and is not spoken again; an arc with nobody
+    /// bound drops its notice.
+    #[tokio::test]
+    async fn a_crossing_notice_is_spoken_once_when_its_session_is_quiet() {
+        let feed =
+            SessionScopedFeed::new(FeedId::CODE_OUTPUT, 16, tugcast_core::lag::LagPolicy::Warn);
+        let mut out_rx = feed.subscribe();
+        let (in_tx, mut in_rx) = mpsc::channel::<Frame>(8);
+        let inject = InjectHandles {
+            code_input_tx: Some(in_tx),
+            code_output: Some(feed),
+        };
+        let notices = CrossingNotices::default();
+        let repo = Path::new("/repo");
+        notices.queue(repo, "a", "Arc \"b\" changed f.txt");
+        notices.queue(repo, "b", "Arc \"a\" changed f.txt");
+
+        speak_crossings(&notices, &inject, repo, "a", Some(&busy("sess-a"))).await;
+        assert!(
+            in_rx.try_recv().is_err(),
+            "a busy session is not interrupted"
+        );
+
+        speak_crossings(&notices, &inject, repo, "a", Some(&idle("sess-a"))).await;
+        let opener: serde_json::Value =
+            serde_json::from_slice(&out_rx.try_recv().unwrap().payload).unwrap();
+        assert_eq!(opener["origin"], CROSSING_ORIGIN);
+        assert_eq!(opener["tug_session_id"], "sess-a");
+        let body: serde_json::Value =
+            serde_json::from_slice(&in_rx.try_recv().unwrap().payload).unwrap();
+        assert_eq!(
+            body["content"][0]["text"],
+            "[crossing] Arc \"b\" changed f.txt"
+        );
+
+        speak_crossings(&notices, &inject, repo, "a", Some(&idle("sess-a"))).await;
+        assert!(in_rx.try_recv().is_err(), "a notice is spoken once");
+
+        speak_crossings(&notices, &inject, repo, "b", None).await;
+        speak_crossings(&notices, &inject, repo, "b", Some(&idle("sess-b"))).await;
+        assert!(
+            in_rx.try_recv().is_err(),
+            "an arc with nobody bound drops it"
+        );
+    }
 
     /// [P10]: no injected turn reaches a client unannounced. The opener and the
     /// submission carry the same body, and the opener goes first — it is the

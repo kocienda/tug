@@ -29,18 +29,22 @@ pub struct ScribeFileMerger {
     pub spawner: Arc<dyn ScribeSpawner>,
     pub model: Arc<dyn Fn() -> String + Send + Sync>,
     pub handle: Handle,
-    pub recorder: Arc<LedgerRecorder>,
+    /// Where the stream goes. A merge with no join run to land in — a
+    /// crossing settled between two live arcs — streams nowhere.
+    pub recorder: Option<Arc<LedgerRecorder>>,
 }
 
 impl FileMerger for ScribeFileMerger {
     fn merge(&self, req: &FileMergeRequest) -> Option<Vec<u8>> {
+        // The ladder declines a file over the one-shot cap before it asks; a
+        // prompt that will not compose is the same decline, said again here.
         let prompt = scribe::compose_file_merge_prompt(
             &req.path,
             req.base.as_deref(),
             req.ours.as_deref().unwrap_or_default(),
             req.theirs.as_deref().unwrap_or_default(),
             &req.intent,
-        );
+        )?;
         let model = (self.model)();
         let spawner = self.spawner.clone();
         let recorder = self.recorder.clone();
@@ -51,6 +55,9 @@ impl FileMerger for ScribeFileMerger {
         // text as live-only beats: the spawner hands over the whole file so far
         // on every beat, and the card draws only its last lines.
         let result = self.handle.block_on(async move {
+            let Some(recorder) = recorder else {
+                return spawner.run(model, prompt, None).await;
+            };
             let (tx, mut rx) = mpsc::unbounded_channel::<String>();
             let fwd = tokio::spawn(async move {
                 while let Some(acc) = rx.recv().await {

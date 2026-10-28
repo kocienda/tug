@@ -30,6 +30,7 @@ use std::time::Duration;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
+use tugarc_core::exceeds_one_shot_cap;
 
 use crate::feeds::claude_auth::claude_command;
 
@@ -330,33 +331,26 @@ pub fn compose_draft_prompt_unattributed(
 // AI file-merge prompt ([P32])
 // ---------------------------------------------------------------------------
 
-/// A conflicted file's three versions each truncate here — a giant file still
-/// fits the model context.
-const MERGE_VERSION_TRUNCATE_CHARS: usize = 60_000;
-
-fn merge_version(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
-    if text.chars().count() <= MERGE_VERSION_TRUNCATE_CHARS {
-        return text.into_owned();
-    }
-    let mut out: String = text.chars().take(MERGE_VERSION_TRUNCATE_CHARS).collect();
-    out.push_str("\n[truncated]");
-    out
-}
-
 /// Compose the AI file-merge prompt ([P32]): the three versions of one
 /// conflicted file (BASE ancestor / OURS target branch / THEIRS incoming arc)
 /// plus the arc's intent, asking for the merged body with **no conflict
 /// markers** and no surrounding prose or fences. The ladder validates the reply
 /// is marker-free before accepting it — a bad reply just leaves the file
 /// unresolved.
+///
+/// `None` when any version is over the one-shot cap: the scribe is asked for
+/// a whole file, so it is shown whole files or nothing, never a cut one.
 pub fn compose_file_merge_prompt(
     path: &str,
     base: Option<&[u8]>,
     ours: &[u8],
     theirs: &[u8],
     intent: &str,
-) -> String {
+) -> Option<String> {
+    let base = base.unwrap_or(b"(file did not exist in the ancestor)");
+    if [base, ours, theirs].into_iter().any(exceeds_one_shot_cap) {
+        return None;
+    }
     let mut p = format!(
         "You are resolving a git merge conflict in the file `{path}`. Below are \
          three versions: the common ancestor (BASE), the target branch's version \
@@ -372,15 +366,13 @@ pub fn compose_file_merge_prompt(
         p.push('\n');
     }
     p.push_str("\n===== BASE =====\n");
-    p.push_str(&merge_version(
-        base.unwrap_or(b"(file did not exist in the ancestor)"),
-    ));
+    p.push_str(&String::from_utf8_lossy(base));
     p.push_str("\n===== OURS =====\n");
-    p.push_str(&merge_version(ours));
+    p.push_str(&String::from_utf8_lossy(ours));
     p.push_str("\n===== THEIRS =====\n");
-    p.push_str(&merge_version(theirs));
+    p.push_str(&String::from_utf8_lossy(theirs));
     p.push('\n');
-    p
+    Some(p)
 }
 
 // ---------------------------------------------------------------------------
@@ -619,6 +611,7 @@ pub fn prompt_from_jsonl_line(line: &str, since_ms: i64, max_chars: usize) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tugarc_core::ONE_SHOT_MERGE_CAP_CHARS;
 
     /// Fake spawner: records the request, optionally scripts streamed deltas,
     /// returns a canned result.
@@ -785,7 +778,8 @@ mod tests {
             b"OURS-BODY",
             b"THEIRS-BODY",
             "rewrite the tokenizer",
-        );
+        )
+        .unwrap();
         assert!(p.contains("src/parser.rs"), "names the file");
         assert!(p.contains("BASE-BODY") && p.contains("OURS-BODY") && p.contains("THEIRS-BODY"));
         assert!(p.contains("rewrite the tokenizer"), "carries intent");
@@ -794,8 +788,31 @@ mod tests {
         assert!(p.contains("NO conflict markers"));
 
         // An add/add conflict (no ancestor) still composes.
-        let no_base = compose_file_merge_prompt("f", None, b"O", b"T", "");
+        let no_base = compose_file_merge_prompt("f", None, b"O", b"T", "").unwrap();
         assert!(no_base.contains("did not exist"));
+    }
+
+    /// A version over the one-shot cap is never cut to fit: the scribe is
+    /// asked for a whole file, so the prompt is not composed at all. At the
+    /// cap exactly it still composes, whole.
+    #[test]
+    fn file_merge_prompt_declines_a_version_over_the_cap() {
+        let over = "x".repeat(ONE_SHOT_MERGE_CAP_CHARS + 1);
+        for (base, ours, theirs) in [
+            (over.as_bytes(), b"O".as_slice(), b"T".as_slice()),
+            (b"B".as_slice(), over.as_bytes(), b"T".as_slice()),
+            (b"B".as_slice(), b"O".as_slice(), over.as_bytes()),
+        ] {
+            assert_eq!(
+                compose_file_merge_prompt("big.rs", Some(base), ours, theirs, ""),
+                None
+            );
+        }
+
+        let at_cap = "y".repeat(ONE_SHOT_MERGE_CAP_CHARS);
+        let p = compose_file_merge_prompt("big.rs", None, at_cap.as_bytes(), b"T", "").unwrap();
+        assert!(p.contains(&at_cap), "the whole version rides the prompt");
+        assert!(!p.contains("[truncated]"));
     }
 
     /// A slash command persists as a `<command-name>` envelope. It opens a

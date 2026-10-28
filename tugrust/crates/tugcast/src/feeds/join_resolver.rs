@@ -889,6 +889,25 @@ struct WorkshopState {
     ladder_tree: String,
     intent: String,
     base_branch: String,
+    /// The base head the workshop's tree was merged against — the ladder's,
+    /// carried across the task boundary so the candidate is parented and
+    /// anchored on it rather than on whatever the base is by then.
+    base_head: String,
+    /// The arc head the ladder reconciled — the other half of the pair the
+    /// workshop's tree is a merge of, re-read before the candidate is anchored.
+    arc_head: String,
+}
+
+/// How a resolve that did not fail ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Finished {
+    /// A candidate stands, anchored on the pair the ladder reconciled.
+    Anchored,
+    /// A head moved while the resolver worked, so its tree is a merge of a
+    /// pair that no longer stands: nothing was anchored, and the sentence says
+    /// which side moved. Not a failure — the new pair is new work for the
+    /// pilot, and no refusal is recorded against the arc.
+    Superseded(String),
 }
 
 /// Finish a conflicted join with the resolver.
@@ -901,7 +920,7 @@ struct WorkshopState {
 pub async fn finish_join(
     ctx: &ResolverContext,
     outcome: &tugarc_core::ResolveOutcome,
-) -> Result<(), String> {
+) -> Result<Finished, String> {
     let phase: Phase = Arc::new(Mutex::new("opening the workshop"));
     let result =
         match tokio::time::timeout(RESOLVE_DEADLINE, finish_join_inner(ctx, outcome, &phase)).await
@@ -970,7 +989,7 @@ async fn finish_join_inner(
     ctx: &ResolverContext,
     outcome: &tugarc_core::ResolveOutcome,
     phase: &Phase,
-) -> Result<(), String> {
+) -> Result<Finished, String> {
     let state = open_workshop(ctx, outcome).await?;
     ctx.recorder
         .record_blocking(resolver_event(0, "started"))
@@ -1056,7 +1075,14 @@ async fn finish_join_inner(
     // to ship without checking again anyway. The run's ending is where the
     // joined tree is built now, so a resolve resolves and stops.
     set_phase(phase, "committing the candidate");
-    let candidate = commit_candidate(ctx, &state, &report, &baseline).await?;
+    let candidate = match commit_candidate(ctx, &state, &report, &baseline).await? {
+        Committed::Anchored(candidate) => candidate,
+        Committed::Superseded(reason) => {
+            tracing::info!(arc = %ctx.arc, reason = %reason, "arc-join: resolver result superseded");
+            ctx.bump.notify_one();
+            return Ok(Finished::Superseded(reason));
+        }
+    };
     record_candidate(ctx, &candidate, &state.base_branch).await;
     record_report(ctx, &candidate, &report).await?;
     {
@@ -1068,7 +1094,7 @@ async fn finish_join_inner(
         ctx.recorder.record_blocking(body).await;
     }
     ctx.bump.notify_one();
-    Ok(())
+    Ok(Finished::Anchored)
 }
 
 /// The most of a turn's last words the ledger keeps.
@@ -1334,6 +1360,8 @@ async fn open_workshop(
     let repo = ctx.repo.clone();
     let arc = ctx.arc.clone();
     let base_branch = outcome.base_branch.clone();
+    let base_head = outcome.base_head.clone();
+    let ladder_arc_head = outcome.arc_head.clone();
     let staged_tree = outcome.staged_tree.clone();
     let ladder_resolved: Vec<(String, ResolvedBy)> = outcome
         .resolved
@@ -1359,7 +1387,7 @@ async fn open_workshop(
 
     tokio::task::spawn_blocking(move || {
         let workshop = match &inherited_candidate {
-            Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha)
+            Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha, &base_head)
                 .map_err(|e| e.to_string())?,
             None => match tugarc_core::resolve::valid_conflict(&repo, &arc) {
                 // Something is still unresolved, so the ladder parked a
@@ -1383,8 +1411,10 @@ async fn open_workshop(
                 // edge case: a squash the machines finish completely reaches
                 // the resolver as an audit with nothing left to merge.
                 None => match &squash_candidate {
-                    Some(sha) => tugarc_core::Workshop::open_candidate(&repo, &arc, sha)
-                        .map_err(|e| e.to_string())?,
+                    Some(sha) => {
+                        tugarc_core::Workshop::open_candidate(&repo, &arc, sha, &base_head)
+                            .map_err(|e| e.to_string())?
+                    }
                     None => {
                         return Err(format!(
                             "the ladder left neither a conflict nor a candidate for '{arc}'"
@@ -1416,23 +1446,54 @@ async fn open_workshop(
             base_branch,
             inherited_candidate,
             ladder_tree,
+            base_head: workshop.base_head().to_string(),
+            arc_head: ladder_arc_head,
         })
     })
     .await
     .map_err(|e| format!("workshop task failed: {e}"))?
 }
 
+/// Examine a candidate the ladder anchored with no resolver to follow it: open
+/// it in the workshop and run the exam [`commit_candidate`] runs. `None` when
+/// the offer may stand; the failure otherwise. A candidate that cannot be
+/// opened or examined is not offered either — an exam that did not run is not
+/// a green one.
+pub fn examine_ladder_candidate(
+    repo: &std::path::Path,
+    arc: &str,
+    candidate: &str,
+    base_head: &str,
+) -> Option<String> {
+    let workshop = match tugarc_core::Workshop::open_candidate(repo, arc, candidate, base_head) {
+        Ok(workshop) => workshop,
+        Err(e) => return Some(format!("could not open the candidate to examine it: {e}")),
+    };
+    tugarc_core::surfaces::examine_candidate(workshop.path(), base_head)
+        .unwrap_or_else(|e| Some(format!("could not examine the candidate: {e}")))
+}
+
+/// What [`commit_candidate`] did with the resolver's tree.
+enum Committed {
+    /// The candidate it committed and anchored.
+    Anchored(String),
+    /// Nothing was anchored: a head moved, and the sentence says which.
+    Superseded(String),
+}
+
 /// Validate what the resolver produced and commit it as the candidate.
 ///
-/// Three refusals, and each is a different lie the flow must not let past: a
-/// file still carrying markers, an index still holding stages, and a report
-/// that does not account for every path in the resolution set ([P10]).
+/// Five refusals, and each is a different lie the flow must not let past: a
+/// file still carrying markers, an index still holding stages, a report that
+/// does not account for every path in the resolution set ([P10]), a finished
+/// file that rewrote text git had already merged, and a tree that fails the
+/// checks of the surfaces it touches.
 async fn commit_candidate(
     ctx: &ResolverContext,
     state: &WorkshopState,
     report: &ResolverReport,
     baseline: &str,
-) -> Result<String, String> {
+) -> Result<Committed, String> {
     let repo = ctx.repo.clone();
     let arc = ctx.arc.clone();
     let resolution_set = state.resolution_set.clone();
@@ -1444,11 +1505,14 @@ async fn commit_candidate(
         .collect();
     let rung_resolved = state.rung_resolved.clone();
     let inherited = state.inherited_candidate.clone();
+    let base_head = state.base_head.clone();
+    let arc_head = state.arc_head.clone();
+    let base_branch = state.base_branch.clone();
     let report_for_validation = report.clone();
 
     tokio::task::spawn_blocking(move || {
-        let workshop =
-            tugarc_core::Workshop::open_existing(&repo, &arc).map_err(|e| e.to_string())?;
+        let workshop = tugarc_core::Workshop::open_existing_on(&repo, &arc, &base_head)
+            .map_err(|e| e.to_string())?;
         // What the resolver changed can only be read from the tree it left, so
         // the report is validated here rather than before the task — against
         // the machine's decisions *and* the resolver's own edits.
@@ -1456,6 +1520,39 @@ async fn commit_candidate(
             .touched_since(&baseline)
             .map_err(|e| e.to_string())?;
         validate_report(&report_for_validation, &resolution_set, &touched)?;
+        // A file the resolver finished is held to the AI rung's bar: it may
+        // rewrite only the regions git could not merge. Read from the
+        // checkout, before anything is committed, so a refusal leaves no
+        // inert commit behind.
+        let finished: Vec<String> = resolution_set
+            .iter()
+            .filter(|p| touched.contains(p))
+            .cloned()
+            .collect();
+        let root = workshop.path().to_path_buf();
+        let rewritten = tugarc_core::resolve::paths_rewritten_outside_conflicts(
+            &repo,
+            &base_head,
+            &arc_head,
+            &finished,
+            |path| std::fs::read(root.join(path)).ok(),
+        )
+        .map_err(|e| e.to_string())?;
+        if !rewritten.is_empty() {
+            return Err(format!(
+                "the resolver rewrote lines outside the conflicts in {}",
+                rewritten.join(", ")
+            ));
+        }
+        // The candidate is built before it is offered: the declared checks of
+        // the surfaces it touches run over this checkout, once. Red, and it
+        // is withheld with the failure as the stuck line; nothing goes back
+        // to the resolver.
+        if let Some(red) = tugarc_core::surfaces::examine_candidate(workshop.path(), &base_head)
+            .map_err(|e| e.to_string())?
+        {
+            return Err(red);
+        }
         let branch = format!("tugarc/{}", arc);
         // The candidate is an intermediate — the join composes the message the
         // base actually keeps — so it names no session of its own.
@@ -1476,8 +1573,17 @@ async fn commit_candidate(
                 .commit(&format!("{message}\n\nResolved for the join."))
                 .map_err(|e| e.to_string())?,
         };
-        let arc_head = tugarc_core::ops::rev_parse(&repo, &branch).map_err(|e| e.to_string())?;
-        tugarc_core::resolve::anchor_candidate(&repo, &arc, &candidate, &arc_head)
+        // The pair is re-read at the last moment before anchoring. A resolver
+        // turn can take minutes, and a head that moved in the meantime makes
+        // this tree a merge of a pair that no longer stands — the commit above
+        // is parented on the ladder's base, so it is inert, and nothing points
+        // at it once this returns.
+        if let Some(reason) =
+            tugarc_core::resolve::heads_moved(&repo, &arc, &base_branch, &base_head, &arc_head)
+        {
+            return Ok(Committed::Superseded(reason));
+        }
+        tugarc_core::resolve::anchor_candidate(&repo, &arc, &candidate, &base_head, &arc_head)
             .map_err(|e| e.to_string())?;
 
         // Which rung a path ends up credited to: the resolver for anything it
@@ -1498,7 +1604,7 @@ async fn commit_candidate(
             };
             tugarc_core::resolve::record_resolved_rung(&repo, &arc, path, rung);
         }
-        Ok(candidate)
+        Ok(Committed::Anchored(candidate))
     })
     .await
     .map_err(|e| format!("candidate task failed: {e}"))?

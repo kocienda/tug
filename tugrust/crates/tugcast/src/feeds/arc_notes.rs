@@ -181,8 +181,73 @@ async fn sweep(ctx: &ArcNotesContext, floor: &str, cursors: &mut HashMap<PathBuf
                 continue;
             }
             announce_line(ctx, &root, &line).await;
+            probe_on_round(ctx, &root, &line).await;
         }
     }
+}
+
+/// Probe the arc a round line names against its live siblings.
+///
+/// A round is the moment an arc's paths change, so it is the moment a
+/// crossing can appear — and the record is the trigger for the same reasons it
+/// is the card's: a hand-run `arc commit` probes exactly as a stage's does.
+/// The probe records what it finds in the arc log itself; those lines are not
+/// rounds, so they wake this observer and probe nothing.
+///
+/// A crossing conflict is settled on a task of its own, so a settle that
+/// spends minutes in a model never holds the next line back.
+async fn probe_on_round(ctx: &ArcNotesContext, root: &Path, line: &str) {
+    let Some((_timestamp, arc, marker, note)) = tugarc_core::log::split_log_line(line) else {
+        return;
+    };
+    if !is_round(marker, note) {
+        return;
+    }
+    let repo = root.to_path_buf();
+    let arc = arc.to_string();
+    let probed = arc.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let found = tugarc_core::crossing::probe_crossings(
+            &tugcore::instance::Paths::from_env(),
+            &repo,
+            &arc,
+        )?;
+        // A path that first crosses is news to both arcs' sessions; the
+        // notices are composed here, beside the git they read.
+        let notices: Vec<_> = found
+            .iter()
+            .filter_map(|crossing| {
+                tugarc_core::crossing::crossing_notices(&repo, &arc, crossing).ok()
+            })
+            .flatten()
+            .collect();
+        Ok::<_, tugarc_core::ArcError>((found, notices))
+    })
+    .await;
+    match result {
+        Ok(Ok((found, notices))) => {
+            debug!(arc = %probed, crossings = found.len(), "crossing probe");
+            for notice in notices {
+                super::base_motion::queue_crossing_notice(root, &notice.arc, &notice.text);
+            }
+            for crossing in found.into_iter().filter(|c| !c.conflicts.is_empty()) {
+                super::crossing_settle::settle_in_background(
+                    super::crossing_settle::SettleContext::from_supervisor(&ctx.supervisor),
+                    root.to_path_buf(),
+                    probed.clone(),
+                    crossing.sibling,
+                );
+            }
+        }
+        Ok(Err(err)) => warn!(arc = %probed, error = %err, "crossing probe failed"),
+        Err(err) => warn!(arc = %probed, error = %err, "crossing probe task failed"),
+    }
+}
+
+/// Whether a line records a round: its marker is the round's short sha, and
+/// it is not a teardown, whose marker is a sha too.
+fn is_round(marker: &str, note: &str) -> bool {
+    !tugarc_core::log::is_terminal(marker, note) && is_short_sha(marker)
 }
 
 /// Whether an arc log line was written after this observer started.
@@ -494,6 +559,15 @@ mod tests {
         assert_eq!(note_for_line("demo", "999353ca1", "joined"), None);
         assert_eq!(note_for_line("demo", "999353ca1", "joined via card"), None);
         assert_eq!(note_for_line("demo", "discarded", "via card"), None);
+    }
+
+    #[test]
+    fn only_a_round_wakes_the_crossing_probe() {
+        assert!(is_round("63de5762a", "Step 2: the probe"));
+        assert!(!is_round("999353ca1", "joined"), "a join is a teardown");
+        assert!(!is_round("crossing", "b · overlaps f.txt"));
+        assert!(!is_round("crossing-conflict", "b · conflicts f.txt"));
+        assert!(!is_round("-", ""), "a commit that found nothing");
     }
 
     #[test]

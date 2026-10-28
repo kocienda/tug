@@ -594,17 +594,8 @@ pub(crate) fn resolve_parked_conflict(repo: &Path, name: &str) -> (String, Strin
     // which arc head it was resolved against is what makes the join see
     // it, and both are the resolver's job in the live flow.
     let candidate = ws.commit("resolved").expect("the candidate commits");
-    crate::resolve::write_candidate_ref(repo, name, &candidate).unwrap();
     let arc_head = git_stdout(repo, &["rev-parse", &branch_name(name)]).unwrap();
-    git_output(
-        repo,
-        &[
-            "config",
-            &crate::resolve::join_source_config_key(name),
-            &arc_head,
-        ],
-    )
-    .unwrap();
+    crate::resolve::anchor_candidate(repo, name, &candidate, ws.base_head(), &arc_head).unwrap();
     (tip, candidate)
 }
 

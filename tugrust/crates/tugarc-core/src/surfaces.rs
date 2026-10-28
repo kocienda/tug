@@ -14,7 +14,7 @@
 
 use serde::Serialize;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use tugcore::instance::Paths;
 use tugtool_core::config::{Config, Surface};
 
@@ -373,6 +373,7 @@ pub enum VerifyEvent<'a> {
 fn run_plans(
     worktree: &Path,
     plans: Vec<SurfacePlan>,
+    quiet: bool,
     wrap: &dyn Fn(&str) -> String,
     verdict: &mut dyn FnMut(&str) -> Option<ChildVerdict>,
     watch: &mut dyn FnMut(VerifyEvent<'_>),
@@ -416,11 +417,14 @@ fn run_plans(
                 });
                 continue;
             }
-            let status = Command::new("sh")
-                .arg("-c")
+            let mut cmd = Command::new("sh");
+            cmd.arg("-c")
                 .arg(wrap(&planned.command))
-                .current_dir(worktree)
-                .status();
+                .current_dir(worktree);
+            if quiet {
+                cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            }
+            let status = cmd.status();
             let exit_code = match status {
                 Ok(s) => s.code().unwrap_or(-1),
                 Err(_) => -1,
@@ -601,7 +605,14 @@ pub fn verify_watched(
             claimed_unchecked: 0,
         },
         Resolution::Planned(plans) => {
-            let results = run_plans(&worktree, plans, hooks.wrap, hooks.verdict, hooks.watch);
+            let results = run_plans(
+                &worktree,
+                plans,
+                false,
+                hooks.wrap,
+                hooks.verdict,
+                hooks.watch,
+            );
             let checked = results.iter().filter(|r| !r.commands.is_empty()).count();
             let claimed_unchecked = results.iter().filter(|r| r.commands.is_empty()).count();
             let reds: Vec<&SurfaceResult> = results.iter().filter(|r| r.red).collect();
@@ -613,31 +624,10 @@ pub fn verify_watched(
                     claimed_unchecked
                 )
             } else {
-                let first: Vec<String> = reds
-                    .iter()
-                    .filter_map(|surface| {
-                        surface
-                            .commands
-                            .iter()
-                            .find(|c| c.exit_code.is_some_and(|code| code != 0))
-                            .map(|c| {
-                                format!(
-                                    "{}: `{}` (exit {}){}",
-                                    surface.name,
-                                    c.command,
-                                    c.exit_code.unwrap_or(-1),
-                                    c.title
-                                        .as_deref()
-                                        .map(|t| format!(" · first red {t}"))
-                                        .unwrap_or_default()
-                                )
-                            })
-                    })
-                    .collect();
                 format!(
                     "TUG-VERIFY-RECEIPT: red {} surfaces · {}",
                     reds.len(),
-                    first.join(" · ")
+                    first_reds(&reds).join(" · ")
                 )
             };
             if reds.is_empty() {
@@ -668,6 +658,94 @@ pub fn verify_watched(
             }
         }
     })
+}
+
+/// Each red surface's first failing check, as a report names it.
+fn first_reds(reds: &[&SurfaceResult]) -> Vec<String> {
+    reds.iter()
+        .filter_map(|surface| {
+            surface
+                .commands
+                .iter()
+                .find(|c| c.exit_code.is_some_and(|code| code != 0))
+                .map(|c| {
+                    format!(
+                        "{}: `{}` (exit {}){}",
+                        surface.name,
+                        c.command,
+                        c.exit_code.unwrap_or(-1),
+                        c.title
+                            .as_deref()
+                            .map(|t| format!(" · first red {t}"))
+                            .unwrap_or_default()
+                    )
+                })
+        })
+        .collect()
+}
+
+// --- the candidate's exam ----------------------------------------------------
+
+/// Examine a join candidate before it is offered: run the declared checks of
+/// every surface the candidate touches, over `worktree` — the checkout that
+/// holds the candidate's tree — against `base_head`. `None` when the offer may
+/// stand; the failure, as one sentence, when it may not.
+///
+/// One verdict and no repair loop: a red withholds the offer and says why,
+/// and nothing is sent back to be fixed. The checks are the surface-scoped
+/// ones a verify runs, not the whole fast lane, so a join stays short. The
+/// table is the candidate's own, read from the checkout. A path no surface
+/// claims is not checked here — the arc's own verify is what refuses an
+/// unclaimed path — and a project that declares no surfaces has nothing to
+/// examine. The checks' output is not kept; the sentence names the surface,
+/// the check and its exit.
+pub fn examine_candidate(worktree: &Path, base_head: &str) -> Result<Option<String>, ArcError> {
+    // Stage the checkout so the diff below reads its whole tree, untracked
+    // files included, exactly as a commit of it would.
+    let add = crate::ops::git_output(worktree, &["add", "-A"])?;
+    if !add.status.success() {
+        return Err(ArcError::git(
+            "git add -A failed in the candidate's checkout",
+            &["add", "-A"],
+            String::from_utf8_lossy(&add.stderr).to_string(),
+        ));
+    }
+    let args = ["diff", "--cached", "--name-status", "-M", base_head];
+    let records = tugchanges_core::listing(worktree, &args).map_err(|e| {
+        ArcError::git(
+            format!("git diff --cached {base_head} failed"),
+            &args,
+            e.to_string(),
+        )
+    })?;
+    let touched = crate::ops::name_status_paths(&records);
+    let config =
+        Config::load_from_project(worktree).map_err(|e| ArcError::Refused(e.to_string()))?;
+    let surfaces = config.tugtool.arc.surfaces;
+    let claimed: Vec<String> = touched
+        .into_iter()
+        .filter(|path| claiming_surface(&surfaces, path).is_some())
+        .collect();
+    let Resolution::Planned(plans) = plan_verification(&surfaces, base_head, "HEAD", &claimed)
+    else {
+        return Ok(None);
+    };
+    let results = run_plans(
+        worktree,
+        plans,
+        true,
+        &|command| command.to_string(),
+        &mut |_| None,
+        &mut |_| {},
+    );
+    let reds: Vec<&SurfaceResult> = results.iter().filter(|r| r.red).collect();
+    if reds.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "the candidate failed its checks: {}",
+        first_reds(&reds).join(" · ")
+    )))
 }
 
 /// A sha as a report shows it.
@@ -983,6 +1061,49 @@ mod fit_tests {
         "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"true\"]\n";
     const RED: &str =
         "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"false\"]\n";
+
+    /// The candidate's exam runs the touched surfaces' checks over the
+    /// checkout it is handed, against the base: green lets the offer stand,
+    /// red names the surface and the check.
+    #[test]
+    fn the_exam_withholds_a_red_candidate_and_passes_a_green_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        // The check reads the checkout, so it passes only where the candidate's
+        // tree is actually laid out.
+        let green = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\n\
+                     check = [\"test -f src/a.rs\"]\n";
+        let worktree = project(&root, green, &[("src/a.rs", "fn a() {}\n")]);
+        assert_eq!(examine_candidate(&worktree, "main").unwrap(), None);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let worktree = project(&root, RED, &[("src/a.rs", "fn a() {}\n")]);
+        let red = examine_candidate(&worktree, "main")
+            .unwrap()
+            .expect("withheld");
+        assert!(red.contains("src: `false` (exit 1)"), "{red}");
+    }
+
+    /// Only the surfaces the candidate touches are examined: a red check on an
+    /// untouched surface does not run, and a path nobody claims is left to
+    /// the arc's own verify.
+    #[test]
+    fn the_exam_runs_only_the_touched_surfaces() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"true\"]\n\
+                      [[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = [\"false\"]\n";
+        let worktree = project(
+            &root,
+            config,
+            &[("src/a.rs", "fn a() {}\n"), ("loose.txt", "x\n")],
+        );
+        assert_eq!(examine_candidate(&worktree, "main").unwrap(), None);
+    }
 
     /// The wrapper runs in place of the declared text and the report still
     /// reads the declaration: a `false` wrapped to `true` is a green surface

@@ -96,6 +96,33 @@ pub struct FileMergeRequest {
     pub intent: String,
 }
 
+/// The most characters any one side of a conflicted file may carry into the
+/// AI rung's one-shot merge. A file over it is declined, never cut: a model
+/// asked to write a whole file and shown part of one writes the part it saw,
+/// so the rung leaves such a file unresolved for the multi-turn resolver,
+/// which works the hunks in a checkout. Not raised: a bigger cap is only a
+/// bigger file on the far side of it.
+pub const ONE_SHOT_MERGE_CAP_CHARS: usize = 60_000;
+
+/// What the AI rung says when it declines a file over the cap.
+pub const TOO_LARGE_FOR_ONE_SHOT: &str = "too large for a one-shot merge";
+
+impl FileMergeRequest {
+    /// Whether any of the three sides is over [`ONE_SHOT_MERGE_CAP_CHARS`].
+    pub fn exceeds_one_shot_cap(&self) -> bool {
+        [&self.base, &self.ours, &self.theirs]
+            .into_iter()
+            .flatten()
+            .any(|bytes| exceeds_one_shot_cap(bytes))
+    }
+}
+
+/// Whether one side of a conflicted file is over [`ONE_SHOT_MERGE_CAP_CHARS`],
+/// counted in characters as the prompt carries it.
+pub fn exceeds_one_shot_cap(bytes: &[u8]) -> bool {
+    String::from_utf8_lossy(bytes).chars().count() > ONE_SHOT_MERGE_CAP_CHARS
+}
+
 /// The AI rung's seam ([P32]). tugcast implements it with the scribe sidecar;
 /// the `tugarc` CLI passes `None`. A `None` return leaves the file unresolved.
 pub trait FileMerger: Send + Sync {
@@ -205,6 +232,26 @@ pub struct ResolveOutcome {
     pub unresolved: Vec<String>,
     pub candidate_commit: Option<String>,
     pub base_branch: String,
+    /// The base head this run reconciled against, read once at the ladder's
+    /// start. A candidate is a merge onto exactly this commit, so it is what
+    /// [`anchor_candidate`] records and what every landing compares against:
+    /// a tree built on one base head says nothing about the merge onto another.
+    ///
+    /// Never serialized: the card is told the base through the candidate event.
+    #[serde(skip)]
+    pub base_head: String,
+    /// The arc head this run reconciled, read with [`Self::base_head`] after
+    /// the ladder's dirt-committing preamble. The two are the pair the
+    /// candidate is a merge of; every rung merges these shas, never the branch
+    /// names, so a head that moves mid-run cannot slip into the tree.
+    #[serde(skip)]
+    pub arc_head: String,
+    /// Why this run's result was dropped rather than anchored: a head moved
+    /// while the ladder ran, so what it built is a merge of a pair that no
+    /// longer stands. Present only on that arm, which anchors no candidate,
+    /// records no conflict and states no refusal — the new pair is new work,
+    /// and reconciling it is the pilot's ordinary path.
+    pub superseded: Option<String>,
     pub warnings: Vec<String>,
     /// The tree holding the ladder's own resolutions — built whether or not
     /// every file resolved, because a *partial* ladder run is exactly when
@@ -269,26 +316,33 @@ pub fn resolve_conflicts_observed(
     clear_ledger(repo, name);
     let mut outcome = resolve_ladder(paths, repo, name, merger, observer)?;
 
+    // A run whose heads moved under it built a merge of a pair that no longer
+    // stands, and anchoring that is how a stale tree comes to look current.
+    // The result is dropped whole: no candidate, no conflict chain — both
+    // would describe the old pair — and no refusal, because nothing went
+    // wrong. Whatever stood before is stale against the new pair too, and the
+    // board demotes it between runs, the ordinary way.
+    if let Some(reason) = heads_moved(
+        repo,
+        name,
+        &outcome.base_branch,
+        &outcome.base_head,
+        &outcome.arc_head,
+    ) {
+        outcome.candidate_commit = None;
+        outcome.conflict_record = None;
+        outcome.superseded = Some(reason);
+        return Ok(outcome);
+    }
+
     // Anchor at one site rather than at each of the ladder's four success
-    // exits. The arc head is read here — *after* the ladder's
-    // `commit_worktree_dirt` preamble, which commits the arc worktree's dirt
-    // and so moves the arc head as part of resolving. Recording the
-    // pre-preamble head would mark every candidate stale the moment it was
-    // built.
+    // exits, on the pair the ladder read *after* its `commit_worktree_dirt`
+    // preamble, which commits the arc worktree's dirt and so moves the arc
+    // head as part of resolving. Recording the pre-preamble head would mark
+    // every candidate stale the moment it was built.
     match &outcome.candidate_commit {
         Some(candidate) => {
-            let arc_head = git_stdout(repo, &["rev-parse", &branch_name(name)])?;
-            write_candidate_ref(repo, name, candidate)?;
-            clear_candidate_marks(repo, name);
-            let _ = git_output(
-                repo,
-                &[
-                    "config",
-                    "--replace-all",
-                    &join_source_config_key(name),
-                    &arc_head,
-                ],
-            );
+            anchor_candidate(repo, name, candidate, &outcome.base_head, &outcome.arc_head)?;
             for r in &outcome.resolved {
                 let value = format!("{}\t{}", r.path, r.resolved_by.as_str());
                 let _ = git_output(
@@ -300,8 +354,7 @@ pub fn resolve_conflicts_observed(
             // candidate can trust it stands.
             tell(observer, || LadderEvent::Candidate {
                 sha: candidate.clone(),
-                base_sha: git_stdout(repo, &["rev-parse", &outcome.base_branch])
-                    .unwrap_or_default(),
+                base_sha: outcome.base_head.clone(),
                 files: outcome
                     .resolved
                     .iter()
@@ -340,6 +393,43 @@ pub fn resolve_conflicts_observed(
     Ok(outcome)
 }
 
+/// Whether the arc's head pair still reads `(base_head, arc_head)`, or the
+/// sentence saying which side moved.
+///
+/// Asked at the end of every run that might anchor a candidate — the ladder's
+/// and the resolver's — because a run reads its pair once at the start and
+/// can take minutes. `None` when both heads still stand; an unreadable head
+/// counts as moved, since nothing can be said to describe it.
+pub fn heads_moved(
+    repo: &Path,
+    name: &str,
+    base_branch: &str,
+    base_head: &str,
+    arc_head: &str,
+) -> Option<String> {
+    let base_now = git_stdout(repo, &["rev-parse", base_branch]).ok();
+    if base_now.as_deref() != Some(base_head) {
+        return Some(format!(
+            "{base_branch} moved from {} to {} while the run was resolving",
+            short_sha(base_head),
+            base_now.as_deref().map(short_sha).unwrap_or("nothing"),
+        ));
+    }
+    let arc_now = git_stdout(repo, &["rev-parse", &branch_name(name)]).ok();
+    if arc_now.as_deref() != Some(arc_head) {
+        return Some(format!(
+            "the arc moved from {} to {} while the run was resolving",
+            short_sha(arc_head),
+            arc_now.as_deref().map(short_sha).unwrap_or("nothing"),
+        ));
+    }
+    None
+}
+
+fn short_sha(sha: &str) -> &str {
+    sha.get(..9).unwrap_or(sha)
+}
+
 /// The ladder proper. Wrapped by [`resolve_conflicts`], which anchors whatever
 /// candidate this returns; the split exists so the anchoring happens once
 /// instead of at each of the four success exits below.
@@ -376,6 +466,7 @@ fn resolve_ladder(
     commit_worktree_dirt(&worktree, name)?;
 
     let base_head = git_stdout(repo, &["rev-parse", &base_branch])?;
+    let arc_head = git_stdout(repo, &["rev-parse", &branch])?;
 
     // The squash conflict set: candidate tree (markers baked in) + per-path
     // stage blobs. Computed **before** the replay probe, because it is what
@@ -383,7 +474,7 @@ fn resolve_ladder(
     // and that is the audit's subject no matter which rung ends up settling
     // them. A replay exit that skipped this computed no conflict set at all,
     // and so was audited against nothing.
-    let (cand_tree, stages) = merge_tree_stages(repo, &base_branch, &branch)?;
+    let (cand_tree, stages) = merge_tree_stages(repo, &base_head, &arc_head)?;
     let preview_conflicts: Vec<String> = stages.keys().cloned().collect();
     tell(observer, || LadderEvent::Probe {
         paths: preview_conflicts.clone(),
@@ -413,6 +504,9 @@ fn resolve_ladder(
             unresolved: Vec::new(),
             candidate_commit: Some(candidate),
             base_branch,
+            base_head: base_head.clone(),
+            arc_head: arc_head.clone(),
+            superseded: None,
             warnings,
             staged_tree: Some(cand_tree),
             preview_conflicts,
@@ -424,7 +518,7 @@ fn resolve_ladder(
     // Walked directly rather than through `replay_probe`, which collapses the
     // round that stopped the walk into `None` — and that round is the reason
     // the rung declined.
-    let replayed = match crate::replay::walk_rounds(repo, &base_head, &base_branch, &branch)? {
+    let replayed = match crate::replay::walk_rounds(repo, &base_head, &base_head, &arc_head)? {
         ReplayWalk::Clean(replayed) => Ok(replayed),
         ReplayWalk::Conflicted { round_subject, .. } => {
             Err(format!("stopped at \"{round_subject}\""))
@@ -460,6 +554,9 @@ fn resolve_ladder(
             unresolved: Vec::new(),
             candidate_commit: Some(replayed.head),
             base_branch,
+            base_head: base_head.clone(),
+            arc_head: arc_head.clone(),
+            superseded: None,
             warnings,
             staged_tree: None,
             preview_conflicts,
@@ -486,7 +583,7 @@ fn resolve_ladder(
     let rerere_resolved = if !rerere_ran {
         BTreeMap::new()
     } else {
-        rerere_rung(repo, &base_head, &branch, &stages, &mut warnings)
+        rerere_rung(repo, &base_head, &arc_head, &stages, &mut warnings)
     };
     // Asked once: whether a driver is configured at all is the difference
     // between two declined reasons, and the answer cannot change mid-loop.
@@ -616,17 +713,16 @@ fn resolve_ladder(
                 theirs: loaded.theirs.clone(),
                 intent: intent.clone(),
             };
+            if req.exceeds_one_shot_cap() {
+                rung(ResolvedBy::Ai, path, false, TOO_LARGE_FOR_ONE_SHOT);
+                unresolved.push(path.clone());
+                continue;
+            }
             tell(observer, || LadderEvent::ScribeStarted {
                 path: path.clone(),
             });
             let merged = m.merge(&req);
-            let declined = match &merged {
-                None => Some("the scribe returned nothing"),
-                Some(bytes) if !is_clean_merge(bytes) => {
-                    Some("the scribe's merge still has conflict markers")
-                }
-                Some(_) => None,
-            };
+            let declined = scribe_declined(scratch.path(), path, &loaded, merged.as_deref());
             if let (Some(bytes), None) = (merged, declined) {
                 let oid = hash_blob(repo, &bytes)?;
                 tell(observer, || {
@@ -670,7 +766,7 @@ fn resolve_ladder(
         .filter(|r| matches!(r.by, ResolvedBy::Driver | ResolvedBy::Ai))
         .collect();
     if !taught.is_empty() {
-        record_rerere(repo, &base_head, &branch, &taught, &mut warnings);
+        record_rerere(repo, &base_head, &arc_head, &taught, &mut warnings);
     }
 
     // The ladder's work, as a tree, on both arms. On the complete arm it
@@ -697,7 +793,6 @@ fn resolve_ladder(
             ));
         }
 
-        let arc_head = git_stdout(repo, &["rev-parse", &branch])?;
         let record = conflict_record(repo, &base_head, &arc_head, &stages, &unresolved, &resolved);
         return Ok(ResolveOutcome {
             conflict_record: Some(record),
@@ -706,6 +801,9 @@ fn resolve_ladder(
             unresolved,
             candidate_commit: None,
             base_branch,
+            base_head: base_head.clone(),
+            arc_head: arc_head.clone(),
+            superseded: None,
             warnings,
             staged_tree: Some(staged_tree),
             preview_conflicts,
@@ -727,6 +825,9 @@ fn resolve_ladder(
         unresolved: Vec::new(),
         candidate_commit: Some(candidate),
         base_branch,
+        base_head: base_head.clone(),
+        arc_head: arc_head.clone(),
+        superseded: None,
         warnings,
         staged_tree: Some(staged_tree),
         preview_conflicts,
@@ -1033,6 +1134,17 @@ fn merge_tree_stages(
     Ok((tree, map))
 }
 
+/// The paths a merge of `ours` and `theirs` leaves conflicted, in path order.
+/// Reads objects only — no checkout, no ref moved.
+pub(crate) fn conflicted_paths(
+    repo: &Path,
+    ours: &str,
+    theirs: &str,
+) -> Result<Vec<String>, ArcError> {
+    let (_, stages) = merge_tree_stages(repo, ours, theirs)?;
+    Ok(stages.into_keys().collect())
+}
+
 // ---------------------------------------------------------------------------
 // Rung 2 — rerere (scratch worktree)
 // ---------------------------------------------------------------------------
@@ -1296,6 +1408,198 @@ impl Drop for ScratchWorktree {
 }
 
 // ---------------------------------------------------------------------------
+// The pair ladder — a crossing between two live arcs
+// ---------------------------------------------------------------------------
+
+/// What the pair ladder settled for a merge of two arc tips.
+#[derive(Debug, Clone, Default)]
+pub struct PairResolution {
+    /// Each path a rung settled, and which rung.
+    pub resolved: Vec<(String, ResolvedBy)>,
+    /// The paths no rung settled, in path order.
+    pub unresolved: Vec<String>,
+    pub warnings: Vec<String>,
+    /// The merge tree with every settled path patched in; the unresolved
+    /// paths still carry their markers. `None` only when nothing conflicted.
+    pub staged_tree: Option<String>,
+}
+
+/// Run the per-file rungs over a merge of `ours` and `theirs`, and teach the
+/// shared rerere cache every resolution it did not already hold.
+///
+/// The join ladder's rungs from rerere down, over a pair of arc tips rather
+/// than an arc and its base. Neither tip moves and nothing is committed: the
+/// cache is the only thing written, so the join that later meets the same
+/// hunks replays them through rung 2. Replay, salvage and the candidate
+/// belong to a join and have no meaning between two live arcs. Every rung
+/// that settles a path teaches it, the three-way merge included, because the
+/// join's own three-way merge runs against a different base and may not
+/// settle the same hunk.
+pub fn resolve_pair(
+    repo: &Path,
+    ours: &str,
+    theirs: &str,
+    merger: Option<&dyn FileMerger>,
+    intent: &str,
+) -> Result<PairResolution, ArcError> {
+    let (cand_tree, stages) = merge_tree_stages(repo, ours, theirs)?;
+    if stages.is_empty() {
+        return Ok(PairResolution::default());
+    }
+    let scratch = tempfile::tempdir()
+        .map_err(|e| ArcError::io("resolve pair: tempdir", std::env::temp_dir(), e))?;
+    let mut warnings = Vec::new();
+    let replayed = rerere_rung(repo, ours, theirs, &stages, &mut warnings);
+
+    let mut resolved: Vec<ResolvedFile> = Vec::new();
+    let mut unresolved = Vec::new();
+    for (path, raw) in &stages {
+        let mut settle = |by: ResolvedBy, blob_oid: String| {
+            resolved.push(ResolvedFile {
+                path: path.clone(),
+                by,
+                blob_oid,
+                mode: raw.merged_mode(),
+            });
+        };
+        if let Some(oid) = replayed.get(path) {
+            settle(ResolvedBy::Rerere, oid.clone());
+            continue;
+        }
+        let Some(loaded) = raw.load(repo) else {
+            unresolved.push(path.clone());
+            continue;
+        };
+        let merged = merge_file_rung(scratch.path(), path, &loaded)
+            .map(|bytes| (ResolvedBy::MergeFile, bytes))
+            .or_else(|| {
+                driver_rung(repo, scratch.path(), path, &loaded)
+                    .map(|bytes| (ResolvedBy::Driver, bytes))
+            })
+            .or_else(|| {
+                let req = FileMergeRequest {
+                    path: path.clone(),
+                    base: loaded.base.clone(),
+                    ours: loaded.ours.clone(),
+                    theirs: loaded.theirs.clone(),
+                    intent: intent.to_string(),
+                };
+                if req.exceeds_one_shot_cap() {
+                    return None;
+                }
+                let bytes = merger?.merge(&req);
+                match scribe_declined(scratch.path(), path, &loaded, bytes.as_deref()) {
+                    None => bytes.map(|bytes| (ResolvedBy::Ai, bytes)),
+                    Some(_) => None,
+                }
+            });
+        match merged {
+            Some((by, bytes)) => settle(by, hash_blob(repo, &bytes)?),
+            None => unresolved.push(path.clone()),
+        }
+    }
+
+    let taught: Vec<&ResolvedFile> = resolved
+        .iter()
+        .filter(|r| r.by != ResolvedBy::Rerere)
+        .collect();
+    if !taught.is_empty() {
+        record_rerere(repo, ours, theirs, &taught, &mut warnings);
+    }
+    let staged_tree = patch_tree(repo, scratch.path(), &cand_tree, &resolved)?;
+    Ok(PairResolution {
+        resolved: resolved.into_iter().map(|r| (r.path, r.by)).collect(),
+        unresolved,
+        warnings,
+        staged_tree: Some(staged_tree),
+    })
+}
+
+/// A checkout of a merge of two arc tips, for the resolver to finish what the
+/// pair ladder could not.
+///
+/// A detached scratch worktree at `ours` with `theirs` merged in and left
+/// uncommitted, so rerere has recorded every conflict's preimage, and with
+/// the ladder's settled paths written over their markers. Removed on drop;
+/// nothing in it is ever committed, and no ref moves.
+pub struct PairCheckout {
+    scratch: ScratchWorktree,
+    ours: String,
+    theirs: String,
+}
+
+impl PairCheckout {
+    pub fn open(
+        repo: &Path,
+        ours: &str,
+        theirs: &str,
+        settled: &PairResolution,
+    ) -> Result<Self, ArcError> {
+        ensure_rerere_config(repo);
+        let scratch = ScratchWorktree::open(repo, ours)?;
+        // A conflicting merge is the point; its exit status says nothing.
+        let _ = git_output(scratch.path(), &["merge", "--no-commit", "--no-ff", theirs]);
+        if let Some(tree) = &settled.staged_tree {
+            for (path, _) in &settled.resolved {
+                let bytes = git_output(repo, &["cat-file", "blob", &format!("{tree}:{path}")])?;
+                std::fs::write(scratch.path().join(path), &bytes.stdout).map_err(|e| {
+                    ArcError::io("pair checkout: write", scratch.path().join(path), e)
+                })?;
+            }
+        }
+        Ok(Self {
+            scratch,
+            ours: ours.to_string(),
+            theirs: theirs.to_string(),
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        self.scratch.path()
+    }
+
+    /// Teach the cache the files the resolver finished, or say why not.
+    ///
+    /// Held to the bar every machine merge meets: a finished file must be
+    /// marker-free and keep every clean segment of the pair's merge. A
+    /// refusal teaches nothing, so a bad resolution never reaches a join.
+    pub fn teach(&self, repo: &Path, finished: &[String]) -> Result<(), String> {
+        let read = |path: &str| std::fs::read(self.path().join(path)).ok();
+        let marked: Vec<String> = finished
+            .iter()
+            .filter(|path| read(path).is_none_or(|bytes| !is_clean_merge(&bytes)))
+            .cloned()
+            .collect();
+        if !marked.is_empty() {
+            return Err(format!(
+                "the resolver left conflicts in {}",
+                marked.join(", ")
+            ));
+        }
+        let rewritten =
+            paths_rewritten_outside_conflicts(repo, &self.ours, &self.theirs, finished, read)
+                .map_err(|e| e.to_string())?;
+        if !rewritten.is_empty() {
+            return Err(format!(
+                "the resolver rewrote lines outside the conflicts in {}",
+                rewritten.join(", ")
+            ));
+        }
+        let mut add = vec!["add", "--"];
+        add.extend(finished.iter().map(String::as_str));
+        let _ = git_output(self.path(), &add);
+        let out = git_output(self.path(), &["rerere"]).map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(format!(
+                "rerere would not record the resolution: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Rung 3 — merge-file
 // ---------------------------------------------------------------------------
 
@@ -1331,6 +1635,151 @@ fn merge_file_rung(scratch: &Path, path: &str, loaded: &LoadedStages) -> Option<
     } else {
         None
     }
+}
+
+// ---------------------------------------------------------------------------
+// The clean-segment check
+// ---------------------------------------------------------------------------
+
+/// The stretches of `git merge-file`'s marker output that lie between its
+/// conflict blocks — everything git merged by itself — in order, empty
+/// stretches dropped. `None` when `merge-file` could not run.
+///
+/// The default `merge` style, not the rung's `--zdiff3`: zdiff3 lifts lines
+/// both sides share out of a block, and a merge that keeps both sides may
+/// legitimately place those lines differently. The default is the least a
+/// correct merge must keep.
+fn clean_segments(
+    scratch: &Path,
+    path: &str,
+    base: Option<&[u8]>,
+    ours: &[u8],
+    theirs: &[u8],
+) -> Option<Vec<Vec<u8>>> {
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("txt");
+    let ours_f = write_scratch(scratch, "c-ours", ext, ours)?;
+    let base_f = write_scratch(scratch, "c-base", ext, base.unwrap_or_default())?;
+    let theirs_f = write_scratch(scratch, "c-theirs", ext, theirs)?;
+    let out = tugcore::git_command()
+        .args(["-c", "diff.algorithm=histogram", "merge-file", "-p"])
+        .arg(&ours_f)
+        .arg(&base_f)
+        .arg(&theirs_f)
+        .output()
+        .ok()?;
+    // The exit status is the number of conflicts, capped at 127; anything
+    // past that, or a signal, is merge-file failing.
+    match out.status.code() {
+        Some(0..=127) => Some(split_clean_segments(&out.stdout)),
+        _ => None,
+    }
+}
+
+/// Split marker output at its conflict blocks. Inside a block only the
+/// closer is looked for, so a block side carrying a setext `=======` cannot
+/// end the block early.
+fn split_clean_segments(text: &[u8]) -> Vec<Vec<u8>> {
+    let mut segments = Vec::new();
+    let mut current = Vec::new();
+    let mut in_block = false;
+    for line in text.split_inclusive(|&b| b == b'\n') {
+        let bare = line.strip_suffix(b"\n").unwrap_or(line);
+        let bare = bare.strip_suffix(b"\r").unwrap_or(bare);
+        let kind = std::str::from_utf8(bare).ok().and_then(marker_kind);
+        match (in_block, kind) {
+            (false, Some(MarkerKind::Ours)) => {
+                in_block = true;
+                segments.push(std::mem::take(&mut current));
+            }
+            (false, _) => current.extend_from_slice(line),
+            (true, Some(MarkerKind::Theirs)) => in_block = false,
+            (true, _) => {}
+        }
+    }
+    segments.push(current);
+    segments.retain(|s| !s.is_empty());
+    segments
+}
+
+/// Whether `merged` carries every segment, verbatim and in order.
+fn keeps_segments(merged: &[u8], segments: &[Vec<u8>]) -> bool {
+    let mut from = 0;
+    for segment in segments {
+        match merged[from..]
+            .windows(segment.len())
+            .position(|w| w == segment.as_slice())
+        {
+            Some(at) => from += at + segment.len(),
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Whether a merge of three versions left alone everything git merged by
+/// itself: every clean stretch of `merge-file`'s marker output appears in
+/// `merged`, verbatim and in order. A merge may rewrite only the conflicted
+/// regions, so prose fails at once, and so does a reply that reformats text
+/// it was not asked to touch. Fails closed when the check cannot run.
+fn keeps_clean_segments(scratch: &Path, path: &str, loaded: &LoadedStages, merged: &[u8]) -> bool {
+    let (Some(ours), Some(theirs)) = (loaded.ours.as_deref(), loaded.theirs.as_deref()) else {
+        return false;
+    };
+    clean_segments(scratch, path, loaded.base.as_deref(), ours, theirs)
+        .is_some_and(|segments| keeps_segments(merged, &segments))
+}
+
+/// Why a scribe's reply is not a merge, or `None` when it is one: present,
+/// marker-free, and keeping every clean segment.
+fn scribe_declined(
+    scratch: &Path,
+    path: &str,
+    loaded: &LoadedStages,
+    merged: Option<&[u8]>,
+) -> Option<&'static str> {
+    match merged {
+        None => Some("the scribe returned nothing"),
+        Some(bytes) if !is_clean_merge(bytes) => {
+            Some("the scribe's merge still has conflict markers")
+        }
+        Some(bytes) if !keeps_clean_segments(scratch, path, loaded, bytes) => {
+            Some("the scribe's merge rewrote lines outside the conflicts")
+        }
+        Some(_) => None,
+    }
+}
+
+/// Which of `paths` a finished merge rewrote outside the conflicts of
+/// `base_head` × `arc_head`, reading each finished file through `read`.
+///
+/// The resolver's half of the clean-segment check: a file it finished is held
+/// to the same bar as the AI rung's reply. A path the pair does not conflict
+/// on as text is not checked; a finished file `read` cannot find is checked
+/// as empty, so deleting a conflicted file fails whenever git merged any of it.
+pub fn paths_rewritten_outside_conflicts(
+    repo: &Path,
+    base_head: &str,
+    arc_head: &str,
+    paths: &[String],
+    read: impl Fn(&str) -> Option<Vec<u8>>,
+) -> Result<Vec<String>, ArcError> {
+    let (_, stages) = merge_tree_stages(repo, base_head, arc_head)?;
+    let scratch = tempfile::tempdir()
+        .map_err(|e| ArcError::io("resolve: tempdir", std::env::temp_dir(), e))?;
+    let mut rewritten = Vec::new();
+    for path in paths {
+        let Some(loaded) = stages.get(path).and_then(|raw| raw.load(repo)) else {
+            continue;
+        };
+        let merged = read(path).unwrap_or_default();
+        if !keeps_clean_segments(scratch.path(), path, &loaded, &merged) {
+            rewritten.push(path.clone());
+        }
+    }
+    Ok(rewritten)
 }
 
 // ---------------------------------------------------------------------------
@@ -1889,6 +2338,22 @@ pub fn join_source_config_key(name: &str) -> String {
     format!("branch.tugarc/{}.tugjoinsource", name)
 }
 
+/// The base head the candidate was built against — the other half of the
+/// `(base_head, arc_head)` pair a candidate describes.
+///
+/// Recorded rather than read off the candidate's parentage, for two reasons:
+/// the replay shape parents onto its previous round, and a workshop that
+/// re-commits a tree can give it any parent at all. Ancestry was the test once,
+/// and a stale tree re-parented onto the moved base passed it by construction.
+pub fn join_base_config_key(name: &str) -> String {
+    format!("branch.tugarc/{}.tugjoinbase", name)
+}
+
+/// The base head the standing candidate was built against, if one is recorded.
+pub fn read_candidate_base(repo: &Path, name: &str) -> Option<String> {
+    config_get(repo, &join_base_config_key(name))
+}
+
 /// Which rung resolved each path, multi-valued as `<path>\t<rung>`.
 ///
 /// The candidate commit records the resolved *bytes* and never the provenance
@@ -2005,31 +2470,27 @@ pub struct CandidateDiff {
     pub removed: Option<u32>,
 }
 
-/// Anchor a candidate somebody other than the ladder built, with the arc head
-/// it was built against.
+/// Anchor a candidate with the base head and arc head it was built against.
 ///
-/// The ladder does this inline at its own success arm; the resolver needs the
-/// same act from the workshop, and doing it through one function is what keeps
-/// the ref, the source mark, and the cleared stale marks moving together. A
-/// half-written set is how a superseded candidate ends up blessed by the marks
-/// of the one before it.
+/// The ladder and the resolver both anchor through here, and doing it through
+/// one function is what keeps the ref, the recorded pair, and the cleared stale
+/// marks moving together. A half-written set is how a superseded candidate ends
+/// up blessed by the marks of the one before it.
 pub fn anchor_candidate(
     repo: &Path,
     name: &str,
     candidate: &str,
+    base_head: &str,
     arc_head: &str,
 ) -> Result<(), ArcError> {
     write_candidate_ref(repo, name, candidate)?;
     clear_candidate_marks(repo, name);
-    let _ = git_output(
-        repo,
-        &[
-            "config",
-            "--replace-all",
-            &join_source_config_key(name),
-            arc_head,
-        ],
-    );
+    for (key, value) in [
+        (join_base_config_key(name), base_head),
+        (join_source_config_key(name), arc_head),
+    ] {
+        let _ = git_output(repo, &["config", "--replace-all", &key, value]);
+    }
     Ok(())
 }
 
@@ -2258,6 +2719,7 @@ pub fn clear_ledger(repo: &Path, name: &str) {
 fn clear_candidate_marks(repo: &Path, name: &str) {
     for key in [
         join_source_config_key(name),
+        join_base_config_key(name),
         join_resolved_config_key(name),
         report_config_key(name),
     ] {
@@ -2692,12 +3154,14 @@ pub fn candidate_status_in(repo: &Path, name: &str) -> Result<CandidateStatus, A
 
 /// Verify the anchored candidate against the current base and arc heads.
 ///
-/// **Ancestry, not parenthood.** The squash shape builds its candidate directly
-/// on the base head, but the replay shape returns the tip of a chain of replayed
-/// rounds whose parent is the previous round — so a parent-equality test would
-/// call every multi-round replay candidate stale. Ancestry is also the test
-/// [`crate::ops::join_in`] applies before it lands a candidate, which is what
-/// keeps this verdict and the join's verdict from ever disagreeing.
+/// **The recorded pair, not the candidate's ancestry.** A candidate is valid
+/// exactly when the base head it was built against is the base head now, and
+/// the arc head likewise. Ancestry is the wrong question: a tree merged against
+/// an older base, committed with the moved base as its parent, descends from
+/// the current base without its tree ever having seen it — so the test passed
+/// for precisely the stale candidate it existed to refuse. The same
+/// equality is what [`crate::ops::join_in`] applies before it lands, which
+/// keeps this verdict and the join's from ever disagreeing.
 pub fn candidate_status(repo: &Path, name: &str, base_branch: &str) -> CandidateStatus {
     let candidate = match read_candidate(repo, name) {
         Some(c) => c,
@@ -2708,13 +3172,7 @@ pub fn candidate_status(repo: &Path, name: &str, base_branch: &str) -> Candidate
         Ok(h) => h,
         Err(_) => return CandidateStatus::None,
     };
-    let ancestor = git_output(
-        repo,
-        &["merge-base", "--is-ancestor", &base_head, &candidate],
-    )
-    .map(|o| o.status.success())
-    .unwrap_or(false);
-    if !ancestor {
+    if read_candidate_base(repo, name).as_deref() != Some(base_head.as_str()) {
         return CandidateStatus::Stale(format!(
             "{} moved since this was resolved — resolve again",
             base_branch
@@ -2943,7 +3401,7 @@ mod tests {
 
         let arc_head = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
         let candidate = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-        anchor_candidate(repo, "demo", &candidate, &arc_head).unwrap();
+        anchor_candidate(repo, "demo", &candidate, &candidate, &arc_head).unwrap();
 
         assert!(
             resolve_lease(repo, "demo", SystemTime::now()).is_none(),
@@ -3969,6 +4427,248 @@ mod tests {
         assert_eq!(bad.unresolved, vec!["f.txt".to_string()]);
     }
 
+    /// The three sides of `operator_ask.rs` in the incident's merge of
+    /// `36c6d58b7` (ours) and `dd7a54de2` (theirs): one conflict, where each
+    /// side added fields to the same struct literal, and the right answer is
+    /// to keep both.
+    const ASK_BASE: &str = include_str!("../tests/fixtures/operator-ask/base.rs.fixture");
+    const ASK_OURS: &str = include_str!("../tests/fixtures/operator-ask/ours.rs.fixture");
+    const ASK_THEIRS: &str = include_str!("../tests/fixtures/operator-ask/theirs.rs.fixture");
+
+    /// What the scribe wrote in the incident, in place of a merged file.
+    const ASK_PROSE: &str = "I can't produce a safe merge of this file: the versions I was \
+                             given are incomplete, so I'm outputting no merged file.\n";
+
+    fn ask_stages() -> LoadedStages {
+        LoadedStages {
+            base: Some(ASK_BASE.as_bytes().to_vec()),
+            ours: Some(ASK_OURS.as_bytes().to_vec()),
+            theirs: Some(ASK_THEIRS.as_bytes().to_vec()),
+        }
+    }
+
+    /// The fixture merged by keeping both sides: `merge-file`'s own marker
+    /// output with the marker lines taken out.
+    fn ask_keep_both(scratch: &Path) -> String {
+        let ours = write_scratch(scratch, "k-ours", "rs", ASK_OURS.as_bytes()).unwrap();
+        let base = write_scratch(scratch, "k-base", "rs", ASK_BASE.as_bytes()).unwrap();
+        let theirs = write_scratch(scratch, "k-theirs", "rs", ASK_THEIRS.as_bytes()).unwrap();
+        let out = tugcore::git_command()
+            .args(["merge-file", "-p"])
+            .arg(&ours)
+            .arg(&base)
+            .arg(&theirs)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "the fixture has one conflict");
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .split_inclusive('\n')
+            .filter(|line| marker_kind(line.trim_end_matches('\n')).is_none())
+            .collect()
+    }
+
+    #[test]
+    fn a_merge_may_rewrite_only_the_conflicted_regions() {
+        let scratch = tempfile::tempdir().unwrap();
+        let stages = ask_stages();
+        let keep_both = ask_keep_both(scratch.path());
+        assert!(keep_both.contains("prompt_ledger,") && keep_both.contains("docs_dir:"));
+
+        assert!(
+            keeps_clean_segments(scratch.path(), "ask.rs", &stages, keep_both.as_bytes()),
+            "keeping both sides of the one conflict passes"
+        );
+        assert!(
+            !keeps_clean_segments(scratch.path(), "ask.rs", &stages, ASK_PROSE.as_bytes()),
+            "prose in place of the file fails"
+        );
+        // Text git merged by itself is not the model's to touch: one clean
+        // line re-indented is a rewrite outside the conflict.
+        let reformatted = keep_both.replacen("    let model = args\n", "  let model = args\n", 1);
+        assert_ne!(reformatted, keep_both);
+        assert!(!keeps_clean_segments(
+            scratch.path(),
+            "ask.rs",
+            &stages,
+            reformatted.as_bytes()
+        ));
+        // Either side alone drops what the other added outside the conflict,
+        // which git had merged cleanly.
+        assert!(!keeps_clean_segments(
+            scratch.path(),
+            "ask.rs",
+            &stages,
+            ASK_OURS.as_bytes()
+        ));
+    }
+
+    /// A repo whose `main` and `tugarc/demo` conflict as the incident's
+    /// `operator_ask.rs` did, at `ask.rs`.
+    fn ask_repo() -> tempfile::TempDir {
+        let temp = init(&[]);
+        let repo = temp.path();
+        set(repo, "ask.rs", ASK_BASE);
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "ask base"]);
+        git(repo, &["branch", "-f", "tugarc/demo", "main"]);
+        git(repo, &["switch", "-q", "tugarc/demo"]);
+        set(repo, "ask.rs", ASK_THEIRS);
+        git(repo, &["commit", "-am", "declare the docs surface"]);
+        git(repo, &["switch", "-q", "main"]);
+        set(repo, "ask.rs", ASK_OURS);
+        git(repo, &["commit", "-am", "reset turn counts"]);
+        temp
+    }
+
+    /// The incident's AI reply, replayed: a scribe that answers in prose
+    /// carries no conflict marker, and is still not a merge. The rung
+    /// declines it and the file stays unresolved; a scribe that keeps both
+    /// sides over the same three versions is accepted.
+    #[test]
+    fn a_scribe_that_answers_in_prose_is_not_a_merge() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+
+        struct Prose;
+        impl FileMerger for Prose {
+            fn merge(&self, _req: &FileMergeRequest) -> Option<Vec<u8>> {
+                Some(ASK_PROSE.as_bytes().to_vec())
+            }
+        }
+        let temp = ask_repo();
+        let seen = RecordingObserver::default();
+        let outcome =
+            resolve_conflicts_observed(&paths, temp.path(), "demo", Some(&Prose), Some(&seen))
+                .unwrap();
+        assert!(outcome.candidate_commit.is_none());
+        assert_eq!(outcome.unresolved, vec!["ask.rs".to_string()]);
+        assert!(
+            seen.events().iter().any(|e| matches!(
+                e,
+                LadderEvent::ScribeEnded { resolved: false, said, .. }
+                    if said == "the scribe's merge rewrote lines outside the conflicts"
+            )),
+            "the decline says why: {:?}",
+            seen.events()
+        );
+
+        let scratch = tempfile::tempdir().unwrap();
+        let keep_both = ask_keep_both(scratch.path());
+        struct KeepsBoth(String);
+        impl FileMerger for KeepsBoth {
+            fn merge(&self, _req: &FileMergeRequest) -> Option<Vec<u8>> {
+                Some(self.0.as_bytes().to_vec())
+            }
+        }
+        let temp = ask_repo();
+        let outcome =
+            resolve_conflicts(&paths, temp.path(), "demo", Some(&KeepsBoth(keep_both))).unwrap();
+        assert_eq!(outcome.resolved.len(), 1);
+        assert_eq!(outcome.resolved[0].resolved_by, ResolvedBy::Ai);
+        assert!(outcome.candidate_commit.is_some());
+    }
+
+    /// A finished file is held to the same bar through the resolver's door:
+    /// read from wherever it was finished, checked against the pair's own
+    /// conflict.
+    #[test]
+    fn a_finished_file_that_rewrites_clean_text_is_named() {
+        let temp = ask_repo();
+        let repo = temp.path();
+        let base = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        let arc = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+        let keep_both = ask_keep_both(scratch.path());
+        let files = vec!["ask.rs".to_string(), "f.txt".to_string()];
+
+        let good = paths_rewritten_outside_conflicts(repo, &base, &arc, &files, |_| {
+            Some(keep_both.as_bytes().to_vec())
+        })
+        .unwrap();
+        assert!(
+            good.is_empty(),
+            "keep-both passes, and f.txt is no conflict"
+        );
+
+        let prose = paths_rewritten_outside_conflicts(repo, &base, &arc, &files, |_| {
+            Some(ASK_PROSE.as_bytes().to_vec())
+        })
+        .unwrap();
+        assert_eq!(prose, vec!["ask.rs".to_string()]);
+    }
+
+    /// A base that moves while the ladder runs leaves nothing anchored: the
+    /// merge it built is of a pair that no longer stands. No conflict is
+    /// parked and no refusal recorded, and the next run reconciles the new
+    /// pair and anchors on it.
+    #[test]
+    fn a_base_that_moves_mid_run_anchors_nothing() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path().to_path_buf();
+        set(&repo, "f.txt", "C\n");
+        git(&repo, &["commit", "-am", "main to C"]);
+        let before = git_stdout(&repo, &["rev-parse", "main"]).unwrap();
+
+        // The scribe answers well — and while it does, somebody commits to the
+        // base, exactly as the user's own commit landed mid-ladder.
+        struct MovesTheBase(std::path::PathBuf);
+        impl FileMerger for MovesTheBase {
+            fn merge(&self, _req: &FileMergeRequest) -> Option<Vec<u8>> {
+                set(&self.0, "user.txt", "the user's work\n");
+                git(&self.0, &["add", "user.txt"]);
+                git(&self.0, &["commit", "-m", "user commit"]);
+                Some(b"B and C\n".to_vec())
+            }
+        }
+        let outcome =
+            resolve_conflicts(&paths, &repo, "demo", Some(&MovesTheBase(repo.clone()))).unwrap();
+        let moved = git_stdout(&repo, &["rev-parse", "main"]).unwrap();
+        assert_ne!(moved, before, "the base really moved mid-run");
+
+        assert_eq!(outcome.base_head, before, "the run reconciled the old pair");
+        let reason = outcome
+            .superseded
+            .as_deref()
+            .expect("the result is dropped");
+        assert!(reason.contains("main moved"), "{reason}");
+        assert!(outcome.candidate_commit.is_none());
+        assert!(
+            read_candidate(&repo, "demo").is_none(),
+            "nothing is anchored"
+        );
+        assert!(
+            read_conflict(&repo, "demo").is_none(),
+            "no conflict is parked"
+        );
+        let arc_head = git_stdout(&repo, &["rev-parse", "tugarc/demo"]).unwrap();
+        assert!(
+            read_stuck(&repo, "demo", &arc_head).is_none(),
+            "no refusal is recorded"
+        );
+
+        // The next run is the ordinary path on the new pair.
+        struct Merges;
+        impl FileMerger for Merges {
+            fn merge(&self, _req: &FileMergeRequest) -> Option<Vec<u8>> {
+                Some(b"B and C\n".to_vec())
+            }
+        }
+        let again = resolve_conflicts(&paths, &repo, "demo", Some(&Merges)).unwrap();
+        assert!(again.superseded.is_none());
+        let candidate = again.candidate_commit.expect("the new pair reconciles");
+        assert_eq!(
+            read_candidate_base(&repo, "demo").as_deref(),
+            Some(moved.as_str())
+        );
+        assert_eq!(
+            candidate_status(&repo, "demo", "main"),
+            CandidateStatus::Valid(candidate)
+        );
+    }
+
     #[test]
     fn rerere_replays_a_recorded_resolution() {
         let _state = tempfile::TempDir::new().unwrap();
@@ -4286,6 +4986,52 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// A file over the one-shot cap never reaches the scribe: the AI rung
+    /// declines it by name and leaves it for the multi-turn resolver, rather
+    /// than show a model asked for a whole file a part of one.
+    #[test]
+    fn a_file_over_the_cap_is_declined_without_asking_the_scribe() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path();
+        let big = format!("{}\n", "C".repeat(ONE_SHOT_MERGE_CAP_CHARS));
+        set(repo, "f.txt", &big);
+        git(repo, &["commit", "-am", "main to a big C"]);
+
+        struct Counts(std::sync::atomic::AtomicUsize);
+        impl FileMerger for Counts {
+            fn merge(&self, _req: &FileMergeRequest) -> Option<Vec<u8>> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Some(b"AI-MERGED\n".to_vec())
+            }
+        }
+        let scribe = Counts(std::sync::atomic::AtomicUsize::new(0));
+        let seen = RecordingObserver::default();
+        let outcome =
+            resolve_conflicts_observed(&paths, repo, "demo", Some(&scribe), Some(&seen)).unwrap();
+
+        assert_eq!(scribe.0.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(outcome.candidate_commit.is_none());
+        assert_eq!(outcome.unresolved, vec!["f.txt".to_string()]);
+        let events = seen.events();
+        assert_eq!(
+            rungs(&events).last(),
+            Some(&(
+                ResolvedBy::Ai,
+                Some("f.txt".to_string()),
+                false,
+                TOO_LARGE_FOR_ONE_SHOT.to_string()
+            ))
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, LadderEvent::ScribeStarted { .. })),
+            "the scribe is never started: {events:?}"
+        );
     }
 
     #[test]

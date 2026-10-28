@@ -18,6 +18,7 @@ pub mod claude_auth;
 pub mod claude_download;
 pub mod claude_usage;
 pub mod code;
+pub mod crossing_settle;
 pub mod deck_seatings;
 pub mod defaults;
 pub mod digest_bridge;

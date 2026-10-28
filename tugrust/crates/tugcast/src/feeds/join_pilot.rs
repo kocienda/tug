@@ -440,6 +440,126 @@ mod tests {
         );
     }
 
+    /// A run whose base moved mid-ladder anchors nothing and states no
+    /// refusal, so the pilot's ordinary path takes the new pair: the mark
+    /// claimed for the old pair no longer matches, the next dispatch runs and
+    /// re-marks, and the one after it is bounded by that mark.
+    #[tokio::test]
+    async fn a_superseded_run_hands_the_new_pair_to_the_pilot() {
+        use std::sync::atomic::AtomicBool;
+        use tugarc_core::{FileMergeRequest, FileMerger};
+
+        let (_dir, root) = repo_with_arc("moved");
+        git(&root, &["config", "branch.tugarc/moved.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugarc/moved"]);
+        std::fs::write(root.join("a.txt"), "arc\n").unwrap();
+        git(&root, &["commit", "-qam", "arc edits a"]);
+        git(&root, &["switch", "-q", "main"]);
+        std::fs::write(root.join("a.txt"), "main\n").unwrap();
+        git(&root, &["commit", "-qam", "main edits a"]);
+
+        /// Merges well, and the first time it is asked, commits to the base
+        /// while it does — the user's own commit landing mid-ladder.
+        struct MovesTheBaseOnce {
+            root: PathBuf,
+            moved: AtomicBool,
+        }
+        impl FileMerger for MovesTheBaseOnce {
+            fn merge(&self, _req: &FileMergeRequest) -> Option<Vec<u8>> {
+                if !self.moved.swap(true, Ordering::SeqCst) {
+                    std::fs::write(self.root.join("user.txt"), "the user's work\n").unwrap();
+                    git(&self.root, &["add", "user.txt"]);
+                    git(&self.root, &["commit", "-qm", "user commit"]);
+                }
+                Some(b"arc and main\n".to_vec())
+            }
+        }
+        struct LadderRunner {
+            root: PathBuf,
+            merger: Arc<MovesTheBaseOnce>,
+            state: tempfile::TempDir,
+            runs: Arc<AtomicUsize>,
+            superseded: Arc<AtomicUsize>,
+        }
+        #[async_trait]
+        impl PilotRunner for LadderRunner {
+            async fn reconcile(&self, _project_dir: &str, arc: &str, occupancy: JoinOccupancy) {
+                self.runs.fetch_add(1, Ordering::SeqCst);
+                let outcome = tugarc_core::resolve_conflicts(
+                    &Paths::under(self.state.path()),
+                    &self.root,
+                    arc,
+                    Some(self.merger.as_ref() as &dyn FileMerger),
+                )
+                .unwrap();
+                if outcome.superseded.is_some() {
+                    self.superseded.fetch_add(1, Ordering::SeqCst);
+                }
+                drop(occupancy);
+            }
+        }
+        let runner = LadderRunner {
+            root: root.clone(),
+            merger: Arc::new(MovesTheBaseOnce {
+                root: root.clone(),
+                moved: AtomicBool::new(false),
+            }),
+            state: tempfile::tempdir().unwrap(),
+            runs: Arc::new(AtomicUsize::new(0)),
+            superseded: Arc::new(AtomicUsize::new(0)),
+        };
+        let dispatch = || {
+            run_dispatch(
+                &runner,
+                root.clone(),
+                "moved".to_string(),
+                PilotAction::Reconcile,
+            )
+        };
+
+        let old_pair = head_pair(&root, "moved").unwrap().0;
+        dispatch().await;
+        assert_eq!(runner.runs.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            runner.superseded.load(Ordering::SeqCst),
+            1,
+            "the base moved under it"
+        );
+        assert!(tugarc_core::resolve::read_candidate(&root, "moved").is_none());
+        let arc_head = tugarc_core::ops::rev_parse(&root, "tugarc/moved").unwrap();
+        assert!(
+            tugarc_core::resolve::read_stuck(&root, "moved", &arc_head).is_none(),
+            "a superseded run states no refusal, so nothing holds the pilot back"
+        );
+        assert_eq!(
+            tugarc_core::verify::read_pilot_mark(&root, "moved").as_deref(),
+            Some(old_pair.as_str())
+        );
+
+        dispatch().await;
+        let new_pair = head_pair(&root, "moved").unwrap().0;
+        assert_ne!(new_pair, old_pair);
+        assert_eq!(
+            runner.runs.load(Ordering::SeqCst),
+            2,
+            "the new pair is reconciled"
+        );
+        assert_eq!(
+            tugarc_core::verify::read_pilot_mark(&root, "moved").as_deref(),
+            Some(new_pair.as_str()),
+            "and the pilot re-marked on it"
+        );
+        let base_now = tugarc_core::ops::rev_parse(&root, "main").unwrap();
+        assert_eq!(
+            tugarc_core::resolve::read_candidate_base(&root, "moved").as_deref(),
+            Some(base_now.as_str()),
+            "the candidate stands on the new base"
+        );
+
+        dispatch().await;
+        assert_eq!(runner.runs.load(Ordering::SeqCst), 2, "the mark bounds it");
+    }
+
     /// An arc somebody else holds is left alone — busy is not an error, and
     /// the next recompute reconsiders.
     #[tokio::test]

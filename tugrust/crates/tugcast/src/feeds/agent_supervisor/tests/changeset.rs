@@ -1278,6 +1278,105 @@ async fn a_clean_squash_run_ends_its_ledger_once_with_a_candidate() {
     cancel.cancel();
 }
 
+/// A clean squash whose base declares `check` for the arc's one new file, run
+/// to its terminal frame. The candidate's exam reads the surface table from
+/// the candidate's own tree, so it is committed on the base.
+async fn run_clean_squash_with_check(
+    check: &str,
+) -> (tempfile::TempDir, std::path::PathBuf, serde_json::Value) {
+    use tugcore::test_fixtures::git::{GitFixture, git};
+
+    let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    GitFixture::init(&root);
+    std::fs::write(root.join("f.txt"), "A\n").unwrap();
+    std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+    std::fs::write(
+        root.join(".tugtool/config.toml"),
+        format!(
+            "[[tugtool.arc.surface]]\nname = \"g\"\npaths = [\"g.txt\"]\ncheck = [\"{check}\"]\n"
+        ),
+    )
+    .unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+    git(&root, &["branch", "tugarc/demo"]);
+    git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
+    git(&root, &["switch", "-q", "tugarc/demo"]);
+    std::fs::write(root.join("g.txt"), "new\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "r1"]);
+    git(&root, &["switch", "-q", "main"]);
+
+    let cancel = CancellationToken::new();
+    let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "changeset_join_resolve",
+        "project_dir": root.to_string_lossy(),
+        "arc": "demo",
+    }))
+    .unwrap();
+    sup.handle_control("changeset_join_resolve", &payload, 1)
+        .await;
+
+    let mut terminal: Option<serde_json::Value> = None;
+    for _ in 0..40 {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        if matches!(
+            body["action"].as_str(),
+            Some("changeset_join_resolve_ok") | Some("changeset_join_resolve_err")
+        ) {
+            terminal = Some(body);
+            break;
+        }
+    }
+    cancel.cancel();
+    (dir, root, terminal.expect("a terminal resolve frame"))
+}
+
+/// A candidate is built before it is offered: a red check on a surface it
+/// touches withholds it — no candidate stands, and the stuck line names the
+/// surface and the check.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_candidate_that_fails_its_checks_is_withheld() {
+    let (_dir, root, terminal) = run_clean_squash_with_check("false").await;
+    assert_eq!(
+        terminal["action"], "changeset_join_resolve_err",
+        "{terminal}"
+    );
+    assert!(
+        terminal["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("the candidate failed its checks: g: `false` (exit 1)")),
+        "{terminal}"
+    );
+    assert_eq!(tugarc_core::resolve::read_candidate(&root, "demo"), None);
+    let arc_head = tugarc_core::ops::rev_parse(&root, "tugarc/demo").unwrap();
+    let stuck = tugarc_core::resolve::read_stuck(&root, "demo", &arc_head).expect("a stuck line");
+    assert!(stuck.contains("g: `false`"), "{stuck}");
+}
+
+/// The same candidate under a green check stands, and the check ran over the
+/// candidate's own tree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_candidate_that_passes_its_checks_is_offered() {
+    let (_dir, root, terminal) = run_clean_squash_with_check("test -f g.txt").await;
+    assert_eq!(
+        terminal["action"], "changeset_join_resolve_ok",
+        "{terminal}"
+    );
+    let candidate = terminal["candidate_commit"].as_str().expect("a candidate");
+    assert_eq!(
+        tugarc_core::resolve::read_candidate(&root, "demo").as_deref(),
+        Some(candidate)
+    );
+}
+
 /// Resolve again stamps the pilot mark with the arc's live head pair before
 /// it runs the ladder, so the run the user asked for is the pilot's run for
 /// that pair ([B07]); the run itself ends on the ordinary terminal frame.

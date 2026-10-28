@@ -47,6 +47,10 @@ pub mod doctor;
 /// runner behind `tugtool arc verify`.
 pub mod surfaces;
 
+/// Crossings: live arcs on one base that touch the same paths, probed against
+/// each other on every round.
+pub mod crossing;
+
 /// Join verification — the project's own declared build and test commands run
 /// against the joined tree, recorded as a fact anchored to two commits.
 pub mod verify;
@@ -83,10 +87,11 @@ pub use ops::{
 };
 pub use replay::{REPLAY_PHASES, ReplayOutcome, ReplayedRounds, replay_onto, replay_watched};
 pub use resolve::{
-    FileMergeRequest, FileMerger, FileResolution, JoinShape, LadderEvent, RESOLVE_LEASE,
-    RESOLVE_SUBJECT_PREFIX, ResolveLease, ResolveObserver, ResolveOutcome, ResolvedBy,
-    mark_resolve_begun, mark_resolve_ended, resolve_conflicts, resolve_conflicts_observed,
-    resolve_intent, resolve_lease, resolver_program,
+    FileMergeRequest, FileMerger, FileResolution, JoinShape, LadderEvent, ONE_SHOT_MERGE_CAP_CHARS,
+    RESOLVE_LEASE, RESOLVE_SUBJECT_PREFIX, ResolveLease, ResolveObserver, ResolveOutcome,
+    ResolvedBy, TOO_LARGE_FOR_ONE_SHOT, exceeds_one_shot_cap, mark_resolve_begun,
+    mark_resolve_ended, resolve_conflicts, resolve_conflicts_observed, resolve_intent,
+    resolve_lease, resolver_program,
 };
 pub use verify::clear_verification;
 pub use workshop::{Workshop, workshop_branch, workshop_path};

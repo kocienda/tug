@@ -2295,7 +2295,7 @@ impl AgentSupervisor {
                     spawner: scribe.spawner.clone(),
                     model: scribe.model.clone(),
                     handle: tokio::runtime::Handle::current(),
-                    recorder: recorder.clone(),
+                    recorder: Some(recorder.clone()),
                 });
 
         // The `run` fact is what makes a reload mid-resolve land on a face that
@@ -2339,6 +2339,28 @@ impl AgentSupervisor {
                     candidate = outcome.candidate_commit.as_deref().unwrap_or("-"),
                     "arc-join: ladder ran"
                 );
+
+                // A head moved while the ladder ran, so what it built is a
+                // merge of a pair that no longer stands and nothing was
+                // anchored. The run ends here without a refusal: the hold is
+                // let go *before* the recompute is told, so the pilot's
+                // ordinary path — keyed on the new pair, bounded by its mark —
+                // finds the arc free and reconciles it again.
+                if let Some(reason) = outcome.superseded.clone() {
+                    tracing::info!(arc = %arc_name, reason = %reason, "arc-join: ladder result superseded");
+                    recorder
+                        .record_blocking(ended("superseded", Some(reason)))
+                        .await;
+                    drop(occupancy);
+                    self.registry.changeset_all_bump().notify_one();
+                    Self::send_changeset_join_resolve_ok(
+                        &self.control_tx,
+                        project_dir,
+                        arc_name,
+                        &outcome,
+                    );
+                    return;
+                }
 
                 // The resolver finishes what the ladder left **and audits what
                 // it decided** ([P10]) — so it runs whenever the machine
@@ -2400,9 +2422,25 @@ impl AgentSupervisor {
                         // handler: the resolve is only over when the detached
                         // task is, and it releases on every exit including a
                         // panic.
-                        let _occupancy = occupancy;
+                        let held = occupancy;
                         match crate::feeds::join_resolver::finish_join(&ctx, &outcome_owned).await {
-                            Ok(()) => {
+                            // Superseded mid-resolve: nothing anchored, no
+                            // refusal, and the hold released before the
+                            // recompute so the pilot can take the new pair.
+                            Ok(crate::feeds::join_resolver::Finished::Superseded(reason)) => {
+                                ctx.recorder
+                                    .record_blocking(ended("superseded", Some(reason)))
+                                    .await;
+                                drop(held);
+                                bump.notify_one();
+                                Self::send_changeset_join_resolve_ok(
+                                    &control_tx,
+                                    &project_dir_owned,
+                                    &arc,
+                                    &outcome_owned,
+                                );
+                            }
+                            Ok(crate::feeds::join_resolver::Finished::Anchored) => {
                                 // The run's one `ended` when a resolver
                                 // follows the ladder: only here is the run
                                 // over ([P04]).
@@ -2444,6 +2482,37 @@ impl AgentSupervisor {
                 }
 
                 // No resolver follows, so the ladder's end is the run's.
+                // Its candidate is built before it is offered, over the
+                // workshop, and a red withdraws it and says why.
+                if let Some(candidate) = outcome.candidate_commit.clone() {
+                    let repo = dir.to_path_buf();
+                    let arc = arc_name.to_string();
+                    let base_head = outcome.base_head.clone();
+                    let exam = tokio::task::spawn_blocking(move || {
+                        crate::feeds::join_resolver::examine_ladder_candidate(
+                            &repo, &arc, &candidate, &base_head,
+                        )
+                    })
+                    .await
+                    .unwrap_or_else(|e| Some(format!("exam task failed: {e}")));
+                    if let Some(detail) = exam {
+                        tugarc_core::resolve::clear_candidate(dir, arc_name);
+                        Self::record_join_stuck(dir, arc_name, &detail);
+                        recorder
+                            .record_blocking(ended("stuck", Some(detail.clone())))
+                            .await;
+                        drop(occupancy);
+                        self.registry.changeset_all_bump().notify_one();
+                        tracing::info!(arc = %arc_name, detail = %detail, "arc-join: candidate withheld");
+                        Self::send_changeset_join_resolve_err(
+                            &self.control_tx,
+                            project_dir,
+                            arc_name,
+                            &detail,
+                        );
+                        return;
+                    }
+                }
                 recorder
                     .record_blocking(ended(
                         if outcome.candidate_commit.is_some() {

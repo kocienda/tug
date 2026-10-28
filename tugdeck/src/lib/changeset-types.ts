@@ -649,7 +649,8 @@ export type ArcJoinLedgerEventBody =
     }
   | {
       kind: "ended";
-      outcome: "candidate" | "unresolved" | "stuck" | "error";
+      /** `superseded`: a head moved mid-run, so nothing was anchored. */
+      outcome: "candidate" | "unresolved" | "stuck" | "error" | "superseded";
       detail?: string;
     };
 

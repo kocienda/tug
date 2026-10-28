@@ -267,6 +267,7 @@ fn discard_inner(
     // A loose ref outlives the branch config it was written beside, so the
     // candidate is dropped explicitly here too.
     crate::resolve::clear_candidate(&repo_root, name);
+    crate::crossing::forget_crossings(&repo_root, name);
     crate::workshop::remove(&repo_root, name, &mut warnings);
 
     // Delete the branch (warn on failure).

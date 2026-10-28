@@ -1438,6 +1438,7 @@ fn teardown_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
         }
     }
     crate::resolve::clear_candidate(repo, &op.arc);
+    crate::crossing::forget_crossings(repo, &op.arc);
 }
 
 /// Put the base branch back, then rebuild the arc the join tore down.

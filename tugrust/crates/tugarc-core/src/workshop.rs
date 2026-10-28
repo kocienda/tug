@@ -72,8 +72,13 @@ pub struct Workshop {
     name: String,
     path: PathBuf,
     branch: String,
-    /// The base head the workshop was reset to when it opened — the parent a
-    /// candidate commit takes, matching the ladder's own candidate shape.
+    /// The base head the tree in this workshop was merged against — the parent
+    /// a candidate commit takes, matching the ladder's own candidate shape.
+    ///
+    /// **Handed in, never read fresh** wherever a candidate can come of it. A
+    /// workshop that read the base at open and committed onto it re-parented a
+    /// tree merged against an older base onto the moved one, and the landing's
+    /// staleness test then passed by construction.
     base_head: String,
 }
 
@@ -121,7 +126,7 @@ impl Workshop {
                  since it was written; resolve again"
             )));
         }
-        let ws = Self::ensure(&repo_root, name)?;
+        let ws = Self::ensure(&repo_root, name, chain.record.base_head.clone())?;
         ws.reset_to(&chain.tip)?;
         Ok(ws)
     }
@@ -133,14 +138,35 @@ impl Workshop {
     /// cold; this one is the opposite promise, and exists because the resolver's
     /// edits live in the worktree between the turn that made them and the
     /// commit that captures them.
+    ///
+    /// Its base is the current base head, which is right for parking and for
+    /// checkpoints and wrong for a candidate; a caller that will
+    /// [`Self::commit`] opens with [`Self::open_existing_on`] instead.
     pub fn open_existing(repo: &Path, name: &str) -> Result<Self, ArcError> {
-        Self::ensure(repo, name)
+        let base_head = current_base_head(repo, name)?;
+        Self::ensure(repo, name, base_head)
+    }
+
+    /// [`Self::open_existing`], for a caller that will commit the tree it finds:
+    /// `base_head` is the base the tree was merged against, and the candidate
+    /// is parented on it.
+    pub fn open_existing_on(repo: &Path, name: &str, base_head: &str) -> Result<Self, ArcError> {
+        Self::ensure(repo, name, base_head.to_string())
     }
 
     /// Reset the workshop to an existing candidate, so commands can run against
     /// the tree a join would produce.
-    pub fn open_candidate(repo: &Path, name: &str, sha: &str) -> Result<Self, ArcError> {
-        let ws = Self::ensure(repo, name)?;
+    ///
+    /// `base_head` is the base the candidate was built against — the ladder's,
+    /// never a fresh read — so a tree re-committed here stays exactly as stale
+    /// as the candidate it came from.
+    pub fn open_candidate(
+        repo: &Path,
+        name: &str,
+        sha: &str,
+        base_head: &str,
+    ) -> Result<Self, ArcError> {
+        let ws = Self::ensure(repo, name, base_head.to_string())?;
         ws.reset_to(sha)?;
         Ok(ws)
     }
@@ -182,8 +208,8 @@ impl Workshop {
     }
 
     /// Write the workshop's working tree as a candidate commit parented on the
-    /// base head — the same shape the ladder's candidate has, so
-    /// [`crate::ops::join_in`] lands it unchanged.
+    /// base head it was merged against — the same shape the ladder's candidate
+    /// has, so [`crate::ops::join_in`] lands it unchanged.
     ///
     /// **Refuses a tree that still carries conflict markers**, and that is the
     /// check that matters rather than the index's.
@@ -350,7 +376,7 @@ impl Workshop {
     // -- internals ----------------------------------------------------------
 
     /// The workshop, created and hydrated if it is not already there.
-    fn ensure(repo: &Path, name: &str) -> Result<Self, ArcError> {
+    fn ensure(repo: &Path, name: &str, base_head: String) -> Result<Self, ArcError> {
         let repo_root = main_repo_root(repo);
 
         // A workshop belongs to an arc. When the arc is gone — joined, or
@@ -381,8 +407,6 @@ impl Workshop {
             }
         }
         let branch = workshop_branch(name);
-        let base = arc_base(&repo_root, name)?;
-        let base_head = git_stdout(&repo_root, &["rev-parse", &base])?;
 
         let ws = Self {
             repo: repo_root.clone(),
@@ -550,6 +574,14 @@ pub fn remove(repo: &Path, name: &str, warnings: &mut Vec<String>) {
     if path.exists() {
         warnings.push(format!("Failed to remove workshop: {}", path.display()));
     }
+}
+
+/// The arc's base head as it stands now — for the openers whose tree no
+/// candidate will be committed from.
+fn current_base_head(repo: &Path, name: &str) -> Result<String, ArcError> {
+    let repo_root = main_repo_root(repo);
+    let base = arc_base(&repo_root, name)?;
+    git_stdout(&repo_root, &["rev-parse", &base])
 }
 
 /// Ensure `.tug/` is ignored, per clone, before a workshop is put there.

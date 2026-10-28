@@ -54,7 +54,8 @@ pub struct JoinOptions {
     /// Land a pre-built candidate commit from the resolution ladder ([P31])
     /// instead of merging the arc branch: the candidate supplies the resolved
     /// **bytes**, `strategy` still decides the **shape**, and the normal
-    /// recorded teardown follows. Staleness-guarded by ancestry, the same test
+    /// recorded teardown follows. It must be the arc's anchored candidate, and
+    /// it lands only on the base head that candidate recorded — the same test
     /// [`crate::resolve::candidate_status`] applies.
     ///
     /// The candidate's own internal shape — one commit on the base, or a chain
@@ -2389,6 +2390,38 @@ fn clear_stranded_join(
     Ok(())
 }
 
+/// Hold the host-wide gate for joins into `base_branch` until the returned
+/// file is dropped — closing the descriptor releases the lock.
+///
+/// An `flock` on a file in the repository's common git dir, one per base: the
+/// lock dies with the process that held it, so there is no stale state to
+/// recover, and every worktree of the checkout — every tugcast, every CLI join
+/// — reaches the same inode. Joins are short, so a second one waits rather than
+/// being refused.
+fn join_gate(repo_root: &Path, base_branch: &str) -> Result<std::fs::File, ArcError> {
+    let common = git_stdout(repo_root, &["rev-parse", "--git-common-dir"])?;
+    let common = repo_root.join(common);
+    let path = common.join(format!(
+        "tug-join-{}.lock",
+        tugtool_core::worktree::sanitize_branch_name(base_branch)
+    ));
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .map_err(|e| ArcError::io("cannot open the join gate", &path, e))?;
+    // SAFETY: `file.as_raw_fd()` is a valid fd for the lifetime of `file`;
+    // `flock` records the lock in the kernel and retains nothing.
+    let ret = unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX) };
+    if ret != 0 {
+        let e = std::io::Error::last_os_error();
+        return Err(ArcError::io("cannot take the join gate", &path, e));
+    }
+    Ok(file)
+}
+
 /// What an integrate did: it landed a commit on the base, or it hit conflicts
 /// and left the base exactly as it found it.
 ///
@@ -2418,23 +2451,35 @@ fn integrate_join(
     base_branch: &str,
     opts: &JoinOptions,
 ) -> Result<Integration, ArcError> {
+    // Every integrate moves the base, so every one holds the base's gate, and
+    // the staleness comparison below runs inside it: two joins comparing first
+    // and landing second is the same lost update the comparison exists to
+    // refuse, one process apart.
+    let _gate = join_gate(repo_root, base_branch)?;
+
     // Land a pre-built candidate from the resolution ladder ([P31]) instead of
     // merging the arc branch. The candidate is the resolved bytes; `strategy`
     // still decides the shape, and the recorded teardown is the same one.
     if let Some(candidate) = opts.candidate.clone() {
-        // Staleness, stated rather than inferred. This used to ride on
-        // `merge --ff-only` failing, which conflated two different facts: a
-        // base that moved past the candidate, and a strategy that declines to
-        // fast-forward. Asking ancestry directly is the same test
-        // `resolve::candidate_status` applies, so the join's verdict and the
-        // face's verdict cannot disagree — and it leaves the landing free to be
-        // whatever the caller asked for.
+        // **A compare-and-swap on the base the candidate was built against.**
+        // The candidate's tree is a merge onto one specific base head, and it
+        // lands only on that head: the recorded base must be the base now.
+        // Ancestry is not enough — a tree merged against an older base and
+        // re-parented onto the moved one descends from it by construction, and
+        // landing that reverts whatever the base gained in between. This is
+        // the same equality `resolve::candidate_status` applies, so the join's
+        // verdict and the face's cannot disagree. The landing's own
+        // `merge --ff-only` onto a commit parented on this head closes the
+        // window against a base moved by something that holds no gate.
         let base_head = git_stdout(repo_root, &["rev-parse", base_branch])?;
-        let current = git_output(
-            repo_root,
-            &["merge-base", "--is-ancestor", &base_head, &candidate],
-        )?;
-        if !current.status.success() {
+        if crate::resolve::read_candidate(repo_root, name).as_deref() != Some(candidate.as_str()) {
+            return Err(ArcError::Refused(format!(
+                "stale candidate: {} is not the standing candidate for '{}'; re-resolve and try again",
+                candidate, name
+            )));
+        }
+        let built_on = crate::resolve::read_candidate_base(repo_root, name);
+        if built_on.as_deref() != Some(base_head.as_str()) {
             return Err(ArcError::Refused(format!(
                 "stale candidate: base '{}' advanced since the conflicts were resolved; re-resolve and try again",
                 base_branch
@@ -2460,8 +2505,8 @@ fn integrate_join(
             opts.session_id.as_deref(),
         );
         let commit_hash = match opts.strategy {
-            // The candidate is a descendant of the base head, so its tree *is*
-            // the join's result; the commit built on it is what the draft was
+            // The candidate was built on the base head, so its tree *is* the
+            // join's result; the commit built on it is what the draft was
             // written for — one parent for a squash, the candidate as the
             // second for a merge.
             JoinStrategy::Squash | JoinStrategy::Merge => {
@@ -2632,6 +2677,7 @@ fn finish_join_teardown(
         // not — so the candidate is dropped explicitly, on every join path,
         // rather than being left to outlive the arc it described.
         crate::resolve::clear_candidate(repo_root, name);
+        crate::crossing::forget_crossings(repo_root, name);
         // The workshop outlives every resolve on purpose; it does not outlive
         // the arc. A `tugworkshop/*` ref standing past its arc is a leak.
         crate::workshop::remove(repo_root, name, &mut warnings);
@@ -3406,6 +3452,97 @@ mod tests {
         assert!(branch_present(repo, "tugarc/cand"));
     }
 
+    /// A candidate merged against one base and re-committed onto the moved one
+    /// is stale, though it descends from the base it would land on. That is the
+    /// lost update a resolver's re-commit used to produce: the tree never saw
+    /// the base's new commit, so landing it reverts that commit. The face's
+    /// guard and the join's both refuse it, and a workshop opened on the
+    /// candidate keeps parenting on the base the ladder ran against.
+    #[test]
+    fn a_candidate_reparented_onto_a_moved_base_is_refused() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        let home = temp.path().join("state");
+        init_git_repo(repo);
+        let paths = redirect_state_dir(&home);
+        fs::write(repo.join("f.txt"), "A\n").unwrap();
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "seed f"]);
+
+        create_in(&paths, repo, "cand", None, false, None).unwrap();
+        let worktree = repo.join(".tug/worktrees/cand");
+        fs::write(worktree.join("f.txt"), "B\n").unwrap();
+        commit_in(&paths, repo, "cand", "r1", None, None).unwrap();
+
+        let outcome = crate::resolve::resolve_conflicts(&paths, repo, "cand", None).unwrap();
+        let candidate = outcome.candidate_commit.clone().expect("candidate");
+        let built_on = outcome.base_head.clone();
+        assert_eq!(
+            crate::resolve::read_candidate_base(repo, "cand").as_deref(),
+            Some(built_on.as_str()),
+            "the candidate records the base it was built on"
+        );
+
+        // The user's own commit lands while the candidate stands.
+        fs::write(repo.join("user.txt"), "the user's work\n").unwrap();
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "user commit"]);
+        let moved = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+
+        // A workshop opened on the candidate parents on the ladder's base, so
+        // whatever it commits stays visibly stale.
+        let ws =
+            crate::workshop::Workshop::open_candidate(repo, "cand", &candidate, &built_on).unwrap();
+        fs::write(ws.path().join("f.txt"), "B, audited\n").unwrap();
+        let recommitted = ws.commit("resolved").unwrap();
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", &format!("{recommitted}^")]).unwrap(),
+            built_on,
+            "the workshop never re-parents onto the moved base"
+        );
+
+        // The shape of the incident: the stale tree, parented on the moved
+        // base, anchored with the base it was really merged against.
+        let tree = git_stdout(repo, &["rev-parse", &format!("{candidate}^{{tree}}")]).unwrap();
+        let reparented = crate::resolve::commit_tree(repo, &tree, &moved, "re-parented").unwrap();
+        assert!(
+            git_output(repo, &["merge-base", "--is-ancestor", &moved, &reparented])
+                .unwrap()
+                .status
+                .success(),
+            "ancestry alone would have called this current"
+        );
+        let arc_head = git_stdout(repo, &["rev-parse", "tugarc/cand"]).unwrap();
+        crate::resolve::anchor_candidate(repo, "cand", &reparented, &built_on, &arc_head).unwrap();
+
+        assert!(
+            matches!(
+                crate::resolve::candidate_status(repo, "cand", "main"),
+                crate::resolve::CandidateStatus::Stale(_)
+            ),
+            "the face's guard calls it stale"
+        );
+        let err = join_in(
+            &paths,
+            repo,
+            "cand",
+            JoinOptions {
+                candidate: Some(reparented),
+                ..mechanics()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("stale candidate"), "got: {err}");
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+            moved,
+            "the base is untouched"
+        );
+        assert!(repo.join("user.txt").exists(), "the user's commit survives");
+        assert!(worktree.exists(), "worktree intact after refusal");
+    }
+
     /// Intersection preflight ([P14]): base dirt blocks a join only when it
     /// touches a file the arc also changed; disjoint base dirt joins fine.
     #[test]
@@ -3999,17 +4136,9 @@ mod tests {
             ws.checkpoint("resolve code.rs").unwrap();
             let tip = crate::resolve::read_conflict(repo, "arc").unwrap().tip;
             let candidate = ws.commit("resolved").unwrap();
-            crate::resolve::write_candidate_ref(repo, "arc", &candidate).unwrap();
             let arc_head = git_stdout(repo, &["rev-parse", "tugarc/arc"]).unwrap();
-            git_output(
-                repo,
-                &[
-                    "config",
-                    &crate::resolve::join_source_config_key("arc"),
-                    &arc_head,
-                ],
-            )
-            .unwrap();
+            crate::resolve::anchor_candidate(repo, "arc", &candidate, ws.base_head(), &arc_head)
+                .unwrap();
             (tip, candidate)
         };
         let arc_tip = git_stdout(repo, &["rev-parse", "tugarc/arc"]).unwrap();
@@ -5153,6 +5282,7 @@ mod tests {
 
         let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
         let candidate = git_stdout(&repo, &["rev-parse", "tugarc/cand"]).unwrap();
+        crate::resolve::anchor_candidate(&repo, "cand", &candidate, &before, &candidate).unwrap();
         let rounds = git_stdout(&repo, &["rev-list", "--count", "main..tugarc/cand"]).unwrap();
         assert_eq!(rounds, "2", "the candidate really is a chain");
 
@@ -5196,6 +5326,7 @@ mod tests {
 
         let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
         let candidate = git_stdout(&repo, &["rev-parse", "tugarc/candrb"]).unwrap();
+        crate::resolve::anchor_candidate(&repo, "candrb", &candidate, &before, &candidate).unwrap();
         join_in(
             &paths,
             &repo,
