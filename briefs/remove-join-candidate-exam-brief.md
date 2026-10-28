@@ -1,6 +1,6 @@
 # Remove the join candidate exam
 
-**Purpose:** A verified-green arc sat stuck in the Changes shade for twenty minutes because the join re-ran the arc's verify table over its candidate, behind the machine-wide app-test gate, and lost to batch contention every time. The join gate is reconcile-clean and nothing else, as two standing decisions already say, and the exam that contradicts them comes out.
+**Purpose:** A verified-green arc sat stuck in the Changes shade for twenty minutes because the join re-ran the arc's verify table over its candidate, behind the machine-wide app-test gate, and lost to batch contention every time. The join gate is reconcile-clean and nothing else, as two standing decisions already say, and the exam that contradicts them comes out. The audit stage is where the tests run and the differences are resolved, and what the audit found must be visible in the Changes shade before the join is pressed.
 
 ---
 
@@ -9,6 +9,8 @@
 On 2026-10-28 the arc `restore-gate-session-count` was audited and verified green: `tugtool arc verify` passed and `tugtool arc replay` reported Current. Pressing join in the Changes shade did not land it. The join pilot built a squash candidate in `.tug/workshops/restore-gate-session-count` and ran the candidate's touched surfaces' checks over it. For the `deck` surface that is `just test-ts` plus `just app-test-changed {paths}`, a 24-file app-test batch behind the machine-wide gate. It came back red four times in a row, each press in the shade clearing the stuck line, re-running the ladder, re-examining and going red again. The exam keeps none of the checks' output, so the stuck line could only name the surface and the first failing command. The arc was finally landed by hand with `tugtool arc join` as `38077a114`, which runs no exam.
 
 The user's framing: "the audit is where the decks are cleared, not the moment the user presses join." The same mechanism then stood in the way of joining `arc-crossing-lab`, the arc that was built to study crossings.
+
+The sibling session that built `arc-crossing-lab` reviewed the landed join work and named the same fault first: the doctrine and the exam disagree, the CLI join bypasses both, and "a red fast lane on `main` silently kills the offer for every deck arc with no face saying why beyond a log line". The user's call on it: the join gate is reconcile-clean; the auditing step runs the tests and does the hard work so the join can proceed; "but I *must* be able to see it". The same review found a one-at-a-time guard missing on the composed settle and asked for that ten-line fix to be folded in here.
 
 ---
 
@@ -36,6 +38,10 @@ The user's framing: "the audit is where the decks are cleared, not the moment th
 
 **[F11] Nothing else names the exam** — the deck renders a `stuck` ending generically from its `detail` (`tugdeck/src/lib/changeset-types.ts`), no app-test references the exam, and no law outside `design-decisions.md` mentions it. `briefs/arc-crossing-lab-brief.md:77` lists "narrowing the exam" as a non-goal, which this work makes moot. **(verified)**
 
+**[F12] The verify fact reaches the deck but no surface shows it before the join** — `tugtool arc verify` writes a `verified <head> onto <base>` arc-log line, `ops/show.rs:721` resolves it against the live tips into a fit fact with a `current` flag, and the changeset feed puts it on the arc detail wire as `fit` (`tugdeck/src/lib/changeset-types.ts:441`, whose comment says "It says; it gates nothing"). The only deck reader is the join receipt row after landing (`tugdeck/src/lib/join-receipt.ts:76` parses the `fit: verified … onto …` line the join writes). The arc-join face in the Changes shade (`session-changes-arc-join.tsx`) reads `blockers`, `candidate`, `ledger`, `resolved_base`, `run` and `stuck`, and nothing about the fit. So before the join nothing in the shade says whether the arc was verified, on which head, onto which base, or whether that pair still stands. **(verified)**
+
+**[F13] The composed settle has no one-at-a-time guard** — `settle_in_background` (`tugrust/crates/tugcast/src/feeds/crossing_settle.rs:88`) keys a static map on the repo and the unordered pair, records a second request as an "again" flag and loops once more when the running settle ends. `compose_in_background` (line 162) spawns unconditionally. `arc_notes.rs:272` fires it for every pair of conflicting siblings on every round where any crossing is due, so two rounds in quick succession run two composes of one triple at once, each able to call the scribe. The cache is idempotent, so it is a cost leak and not a correctness fault. **(verified)**
+
 ---
 
 ## Decisions {#decisions}
@@ -51,6 +57,11 @@ The user's framing: "the audit is where the decks are cleared, not the moment th
 **[B05] The lab's comments are reworded and `red_docs` is retired or repurposed; no scenario act changes.** The lab's surfaces exist for `tugtool arc verify` to run, which is what its `verified` markers read ([F10]). A planted red surface is only meaningful as a verify red, so `red_docs` either becomes that or goes.
 
 **[B06] The work does not touch `resolve.rs` or anything under crossings.** The crossing engine, the replay, the torture bench, base-motion, the settle task and the lab's executor, probe and instance modules are the sibling arc's territory and this brief's files do not overlap with them ([F09]).
+The one exception is [B08]'s guard in `crossing_settle.rs`, which the sibling session asked for and which touches no engine code.
+
+**[B07] The verify state is shown in the Changes shade before the join, so the audit's all-clear is something the user can see.** The arc-join face renders the fit fact that already rides the wire ([F12]): verified at which head onto which base, and whether that pair is current. Three readings, each a sentence: verified and current; verified but stale, naming what moved; never verified. It says and it gates nothing, which is D149's accepted cost and the comment the wire already carries. A refusal that still happens at the join keeps the stuck line, which the face already renders. Together these are the visibility the user asked for: a green audit is visible before the press, and a refusal is visible with its reason. Whether the sentence also names the arc-log line's age is the implementer's call.
+
+**[B08] `compose_in_background` gets the same one-at-a-time guard the pair settle has.** Key it on the repo, the arc and the two siblings, record a second request as the "again" flag, and loop once more when the running compose ends, exactly as `settle_in_background` does ([F13]). This is the one touch under crossings this brief allows, because it is a ten-line change to a task wrapper, not to the engine, and the sibling session asked for it to ride the next arc that touches the file.
 
 ---
 
@@ -61,6 +72,8 @@ The user's framing: "the audit is where the decks are cleared, not the moment th
 - **Changing the crossing engine, the replay or the settle task.** Out of scope and the sibling arc's domain ([F09]).
 - **Changing `tugtool arc verify` or the surface table.** The verify is the all-clear and is right where it is.
 - **Fixing the app-test contention that made the exams red.** The reds in [F01] are the batch-contention shape this checkout already documents; the exam is wrong at the join whether or not those files are flaky.
+- **Gating the join on the fit fact.** A stale or absent verify is shown, never enforced; a join refused on it would be the join-time verification D149 rejected, wearing a cheaper face. The user reads the sentence and decides.
+- **Running the exam from `tugtool arc join` to make the two doors agree.** The sibling session offered this as the other way to resolve the disagreement. The user chose the gate as reconcile-clean, so the doors agree by neither running an exam.
 
 ---
 
@@ -70,5 +83,7 @@ An arc. The shape is one deletion with its record:
 
 - Remove `examine_candidate` and its tests from `surfaces.rs`; remove `examine_ladder_candidate` and the call in `commit_candidate` from `join_resolver.rs`; remove the exam block from `control/changeset.rs`. Rename the green tugcast test and delete the red one and the two `surfaces.rs` tests.
 - Reword the `tugarclab` comments and retire or repurpose `red_docs`.
+- Render the fit fact on the arc-join face in the Changes shade, with the three readings in [B07], and pin it with an app-test over a seeded arc detail.
+- Add the one-at-a-time guard to `compose_in_background` in `crossing_settle.rs`, keyed on the triple, with a test beside the pair settle's.
 - Write D224 in `tuglaws/design-decisions.md`, and strike the moot non-goal in `briefs/arc-crossing-lab-brief.md` or leave it as history with a note.
 - Verify with clippy under `-D warnings` and nextest over `tugarc-core` and the tugcast join, pilot, board and changeset tests, plus `just test-standalone`. The live proof is a real arc joined from the Changes shade on this checkout with the candidate offered as soon as the ladder anchors it.
