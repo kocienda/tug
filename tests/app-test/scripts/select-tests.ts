@@ -411,7 +411,11 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // drive turns, replay and respawn end to end through all of them. Raised
     // in place, which trips the refinance rule until it is committed, for the
     // reason the `tug-text-editor/` entry below gives.
-    "tugcode/": 92,
+    //
+    // 92 → 42 when `isSource` stopped counting `tugcode/probes/`: the
+    // slash-parity captures (`66946039a`) had pushed it to 104 without a line
+    // of the bridge changing. Debt paid down, not refinanced.
+    "tugcode/": 42,
 
     // Cards and editors, where the directory genuinely IS the unit — the card is what the
     // test drives, and naming one module inside it would be the narrower fiction.
@@ -687,7 +691,7 @@ function matches(pattern: string, path: string): boolean {
  * Whether a changed path is a SOURCE — something the app runs, whose edit could have
  * changed what a test observes. Only a source resolves through anybody's `@covers`.
  *
- * Four kinds of path are not, and each is excluded for its own reason:
+ * Five kinds of path are not, and each is excluded for its own reason:
  *
  *   - `__tests__` subtrees and `*.test.ts` files — a `bun:test` unit file is not something
  *     the app runs, so editing one cannot change app behaviour. They were selecting
@@ -702,6 +706,10 @@ function matches(pattern: string, path: string): boolean {
  *     changing an EXISTING accessor's semantics could break a caller now not selected.
  *     `tsc` catches the shape, and such a change is deliberate work on the harness, where
  *     naming the affected test is the natural gesture.
+ *   - `tugcode/probes/` — research scripts and the captures they wrote, run by hand
+ *     against `claude` to settle a question about its wire. None is bundled into the
+ *     bridge binary, so editing one cannot change what a test observes. Counted as
+ *     sources they had widened the `tugcode/` subtree by every capture checked in.
  *
  * This is the SELECTION side only. CORE_TIER_TRIGGERS still reads the whole changed list,
  * so a `tests/app-test/_harness/` edit still raises CORE TIER ADVISED — that advisory
@@ -712,6 +720,7 @@ function isSource(path: string): boolean {
     if (path.endsWith(".test.ts")) return false;
     if (matches("tests/app-test/", path)) return false;
     if (path === "tugdeck/src/test-surface.ts") return false;
+    if (path.startsWith("tugcode/probes/")) return false;
     return true;
 }
 
