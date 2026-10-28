@@ -1,12 +1,12 @@
 # Tug: An IDE for AI coding
 
-Tug is a full-featured Integrated Development Environment (IDE) built from scratch to improve the experience of AI-assisted software development. It is a macOS app and uses Claude Code for the AI contribution. All prompts, AI responses, shell commands, file edits, git history, and in-flight work are integrated together, with excellent typography, rich text input, and content display along with tools to visualize, track, and manage the work. Tug is open source, distributed under the MIT license.
+Tug is a full-featured Integrated Development Environment (IDE) built from scratch to improve the experience of AI-assisted software development. It is a macOS app and uses Claude Code for the AI. All prompts, AI responses, shell commands, file edits, git history, and in-flight work are integrated together, with excellent typography, rich text input, and content display along with tools to visualize, track, and manage the work. Tug is open source, distributed under the MIT license.
 
 I’ve made everything just like I want it. My hope is that the things I chose to please myself might also please you too.
 
 ## Download
 
-> Tug is alpha software: expect rough edges and frequent changes.
+> Tug is beta software: expect rough edges and frequent changes.
 
 **[Download Tug for macOS](https://github.com/kocienda/tug/releases/latest/download/Tug.dmg)**: the latest release, as a disk image.
 
@@ -39,5 +39,5 @@ An Apple Developer ID certificate is optional for building and running Tug. It i
 
 ## Learn more
 
-- [What is Tug](https://kocienda.com/tug/what-is-tug)
+- [More about Tug](https://kocienda.com/tug)
 - [Read the journal](https://kocienda.com/tug/journal)
