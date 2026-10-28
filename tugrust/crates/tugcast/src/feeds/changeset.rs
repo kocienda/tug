@@ -1898,6 +1898,8 @@ async fn arc_entries(
                     head: f.head,
                     base: f.base,
                     current: f.current,
+                    head_moved: f.head_moved,
+                    base_moved: f.base_moved,
                 }),
             }
         })
@@ -5404,6 +5406,8 @@ Some context.
             head: "3f0a1c9e2b7d4f6a".to_string(),
             base: "91c4de70f2a3b5c7".to_string(),
             current: true,
+            head_moved: false,
+            base_moved: false,
         };
         let record = arc_record();
         let summary = format_join_summary(&JoinSummary {
@@ -5824,6 +5828,8 @@ Some context.
             head: "3f0a1c9e2b7d4f6a".to_string(),
             base: "91c4de70f2a3b5c7".to_string(),
             current: true,
+            head_moved: false,
+            base_moved: false,
         };
         let s = join_summary(
             "0123456789abcdef",
@@ -5851,6 +5857,8 @@ Some context.
             head: "3f0a1c9e2b7d4f6a".to_string(),
             base: "91c4de70f2a3b5c7".to_string(),
             current: false,
+            head_moved: false,
+            base_moved: true,
         };
         let s = join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
         assert_eq!(
@@ -5869,6 +5877,8 @@ Some context.
             head: "3f0a1c9e2b7d4f6a".to_string(),
             base: "91c4de70f2a3b5c7".to_string(),
             current: true,
+            head_moved: false,
+            base_moved: false,
         };
         let files = [file_stat("src/a.rs", "modified", Some(1), Some(0))];
 
@@ -5925,6 +5935,8 @@ Some context.
             head: "3f0a1c9e2b7d4f6a".to_string(),
             base: "91c4de70f2a3b5c7".to_string(),
             current: true,
+            head_moved: false,
+            base_moved: false,
         };
         let record = arc_record();
         let s = format_join_summary(&JoinSummary {

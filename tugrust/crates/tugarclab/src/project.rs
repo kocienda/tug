@@ -42,7 +42,7 @@ pub fn git(root: &Path, args: &[&str]) -> Result<String, String> {
 pub fn config_toml(surfaces: &[Surface]) -> String {
     let mut out = String::from(
         "# Written by the arc crossing lab for one run. The surfaces are the\n\
-         # scenario's; an exam runs their checks against a join candidate.\n\
+         # scenario's; `tugtool arc verify` runs their checks over an arc.\n\
          [tugtool.arc]\n",
     );
     for surface in surfaces {
@@ -101,7 +101,7 @@ impl LabProject {
         std::fs::write(config_dir.join("config.toml"), config_toml(surfaces))
             .map_err(|e| format!("writing config.toml: {e}"))?;
         // A docs/ directory for the docs surface to claim, so a round that
-        // touches it is one the exam checks.
+        // touches it is one `tugtool arc verify` checks.
         std::fs::create_dir_all(root.join("docs")).map_err(|e| format!("creating docs/: {e}"))?;
         std::fs::write(root.join("docs").join("README.md"), "# lab\n")
             .map_err(|e| format!("writing docs/README.md: {e}"))?;

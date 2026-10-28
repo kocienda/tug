@@ -247,7 +247,7 @@ interface Draft extends Omit<LedgerBlock, "phase" | "status" | "live"> {
   liveText?: string;
   /** A resolver asking a question it has had no answer to. */
   awaiting?: boolean;
-  /** A candidate the run then took back — withheld by its exam, or
+  /** A candidate the run then took back — withheld by a stuck ending, or
    *  superseded by a head that moved — drawn as the failure it is. */
   withdrawn?: boolean;
 }
@@ -546,9 +546,10 @@ function candidateDraft(
   // ledger to say otherwise, a candidate that names no resolved file is not
   // evidence of anything, and a receipt over an empty list would say so.
   if (event === undefined && files.length === 0) return null;
-  // The ladder tells the ledger "candidate" the moment it anchors, and the
-  // exam or a moved head can take it back afterwards; the run's ending says
-  // so, and a row still reading "anchored" above a stuck line would be a
+  // The ladder tells the ledger "candidate" the moment it anchors, and a
+  // moved head (or, in a ledger recorded before the join stopped examining
+  // candidates, a stuck ending) can take it back afterwards; the run's ending
+  // says so, and a row still reading "anchored" above a stuck line would be a
   // candidate the face vouches for and nothing else does.
   const ending =
     event !== undefined

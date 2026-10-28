@@ -841,6 +841,12 @@ pub struct ArcFit {
     /// Whether both endpoints still stand. Derived on every recompute, never
     /// stored.
     pub current: bool,
+    /// The arc branch has moved past `head` since the verify.
+    #[serde(default)]
+    pub head_moved: bool,
+    /// The base branch has moved past `base` since the verify.
+    #[serde(default)]
+    pub base_moved: bool,
 }
 
 /// The join pipeline's state for one arc — the single durable source every

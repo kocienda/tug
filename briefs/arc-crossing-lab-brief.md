@@ -74,7 +74,7 @@ Two things are wanted. A driver that sets up a lab project, cuts arcs, seats ses
 - **A tugtool verb.** The lab does not ship. It is a workspace dev crate and a `just` recipe.
 - **Replacing the bench.** The bench stays the fast layer and the unit verdict. The lab is the slow layer, run once per scenario as a verdict, never as the loop to iterate in.
 - **An app-test.** The app-test harness drives a `Tug-debug.app` subprocess behind the machine-wide gate; this work targets the user's release instance by design.
-- **Narrowing the exam.** The exam runs the touched surfaces' declared checks. A faster exam table is separate work.
+- **Narrowing the exam.** The exam runs the touched surfaces' declared checks. A faster exam table is separate work. *(Moot since [D224]: the join-time exam is removed, not narrowed — the join gate is reconcile-clean alone, and the lab's surfaces are there for `tugtool arc verify`.)*
 - **Keeping sessions by default.** A run's sessions are trashed unless `--keep` is passed.
 
 ---

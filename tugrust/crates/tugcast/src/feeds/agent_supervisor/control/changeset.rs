@@ -2482,37 +2482,8 @@ impl AgentSupervisor {
                 }
 
                 // No resolver follows, so the ladder's end is the run's.
-                // Its candidate is built before it is offered, over the
-                // workshop, and a red withdraws it and says why.
-                if let Some(candidate) = outcome.candidate_commit.clone() {
-                    let repo = dir.to_path_buf();
-                    let arc = arc_name.to_string();
-                    let base_head = outcome.base_head.clone();
-                    let exam = tokio::task::spawn_blocking(move || {
-                        crate::feeds::join_resolver::examine_ladder_candidate(
-                            &repo, &arc, &candidate, &base_head,
-                        )
-                    })
-                    .await
-                    .unwrap_or_else(|e| Some(format!("exam task failed: {e}")));
-                    if let Some(detail) = exam {
-                        tugarc_core::resolve::clear_candidate(dir, arc_name);
-                        Self::record_join_stuck(dir, arc_name, &detail);
-                        recorder
-                            .record_blocking(ended("stuck", Some(detail.clone())))
-                            .await;
-                        drop(occupancy);
-                        self.registry.changeset_all_bump().notify_one();
-                        tracing::info!(arc = %arc_name, detail = %detail, "arc-join: candidate withheld");
-                        Self::send_changeset_join_resolve_err(
-                            &self.control_tx,
-                            project_dir,
-                            arc_name,
-                            &detail,
-                        );
-                        return;
-                    }
-                }
+                // Its anchored candidate is offered at once: the join gate is
+                // reconcile-clean alone, and no check runs over it here.
                 recorder
                     .record_blocking(ended(
                         if outcome.candidate_commit.is_some() {

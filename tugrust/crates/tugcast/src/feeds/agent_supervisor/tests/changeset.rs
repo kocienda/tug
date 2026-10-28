@@ -1278,12 +1278,11 @@ async fn a_clean_squash_run_ends_its_ledger_once_with_a_candidate() {
     cancel.cancel();
 }
 
-/// A clean squash whose base declares `check` for the arc's one new file, run
-/// to its terminal frame. The candidate's exam reads the surface table from
-/// the candidate's own tree, so it is committed on the base.
-async fn run_clean_squash_with_check(
-    check: &str,
-) -> (tempfile::TempDir, std::path::PathBuf, serde_json::Value) {
+/// A clean squash is offered the moment the ladder anchors it: the run ends on
+/// `changeset_join_resolve_ok` carrying the candidate, and the candidate it
+/// names is the one standing. Nothing runs over it first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_clean_squash_is_offered_at_once() {
     use tugcore::test_fixtures::git::{GitFixture, git};
 
     let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
@@ -1291,14 +1290,6 @@ async fn run_clean_squash_with_check(
     let root = dir.path().canonicalize().unwrap();
     GitFixture::init(&root);
     std::fs::write(root.join("f.txt"), "A\n").unwrap();
-    std::fs::create_dir_all(root.join(".tugtool")).unwrap();
-    std::fs::write(
-        root.join(".tugtool/config.toml"),
-        format!(
-            "[[tugtool.arc.surface]]\nname = \"g\"\npaths = [\"g.txt\"]\ncheck = [\"{check}\"]\n"
-        ),
-    )
-    .unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
     git(&root, &["branch", "tugarc/demo"]);
@@ -1336,36 +1327,7 @@ async fn run_clean_squash_with_check(
         }
     }
     cancel.cancel();
-    (dir, root, terminal.expect("a terminal resolve frame"))
-}
-
-/// A candidate is built before it is offered: a red check on a surface it
-/// touches withholds it — no candidate stands, and the stuck line names the
-/// surface and the check.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_candidate_that_fails_its_checks_is_withheld() {
-    let (_dir, root, terminal) = run_clean_squash_with_check("false").await;
-    assert_eq!(
-        terminal["action"], "changeset_join_resolve_err",
-        "{terminal}"
-    );
-    assert!(
-        terminal["detail"]
-            .as_str()
-            .is_some_and(|d| d.contains("the candidate failed its checks: g: `false` (exit 1)")),
-        "{terminal}"
-    );
-    assert_eq!(tugarc_core::resolve::read_candidate(&root, "demo"), None);
-    let arc_head = tugarc_core::ops::rev_parse(&root, "tugarc/demo").unwrap();
-    let stuck = tugarc_core::resolve::read_stuck(&root, "demo", &arc_head).expect("a stuck line");
-    assert!(stuck.contains("g: `false`"), "{stuck}");
-}
-
-/// The same candidate under a green check stands, and the check ran over the
-/// candidate's own tree.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_candidate_that_passes_its_checks_is_offered() {
-    let (_dir, root, terminal) = run_clean_squash_with_check("test -f g.txt").await;
+    let terminal = terminal.expect("a terminal resolve frame");
     assert_eq!(
         terminal["action"], "changeset_join_resolve_ok",
         "{terminal}"

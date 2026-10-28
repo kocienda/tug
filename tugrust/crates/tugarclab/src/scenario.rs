@@ -12,7 +12,7 @@ use crate::probe::Probe;
 pub use tugarc_core::torture::{Edit, edit, lines};
 
 /// A surface the lab project declares in its `.tugtool/config.toml`, so the
-/// arc's exam has something to check — and something to plant red.
+/// arc's `tugtool arc verify` has something to check.
 pub struct Surface {
     pub name: &'static str,
     pub paths: &'static [&'static str],
@@ -66,23 +66,13 @@ fn ten_lines() -> Vec<(&'static str, String)> {
 }
 
 /// The one surface every lab project declares: a `docs/` surface whose check
-/// is `true`, so an exam has a surface to run and nothing to fail on until a
-/// scenario plants a red one.
+/// is `true`, so `tugtool arc verify` has a surface to run and nothing to fail
+/// on.
 fn green_docs() -> Vec<Surface> {
     vec![Surface {
         name: "docs",
         paths: &["docs/"],
         check: &["true"],
-    }]
-}
-
-/// The same surface planted red, so a round that touches `docs/` is one the
-/// exam withholds a candidate over — the shape the 2026-10-28 run had.
-fn red_docs() -> Vec<Surface> {
-    vec![Surface {
-        name: "docs",
-        paths: &["docs/"],
-        check: &["sh -c 'exit 1'"],
     }]
 }
 
@@ -260,14 +250,13 @@ fn say_smoke() -> LabScenario {
 /// replay must recall the settle: the arc log says `replayed` with the path
 /// recalled, and the second arc's session is never handed a
 /// `[base-motion replay]` turn over a hunk the machine already knew. The
-/// `docs` surface is planted red and the second arc touches it, so what the
-/// exam later withholds is the planted red and nothing else.
+/// second arc also touches `docs/`, so its verify has a claimed path to run.
 fn scenario_zero() -> LabScenario {
     LabScenario {
         name: "scenario_zero",
         why: "a shared hunk settles, a lands, b's replay recalls the settle",
         files: ten_lines(),
-        surfaces: red_docs(),
+        surfaces: green_docs(),
         acts: vec![
             Act::Arc("ra"),
             Act::Arc("rb"),
@@ -434,8 +423,8 @@ fn round_mid_settle() -> LabScenario {
 /// line five; the lab lands `ra` the instant the crossing is seen, without
 /// waiting for the settle to teach, so the land and the settle race. The sibling
 /// must not be stranded: the base takes the landing, and base-motion replays
-/// `rb` onto it and runs its exam — the arc log records `rb verified` on the
-/// landed base, whichever order the race resolves in. (That the replay *recalls*
+/// `rb` onto it and its session verifies it — the arc log records `rb verified`
+/// on the landed base, whichever order the race resolves in. (That the replay *recalls*
 /// the resolution rather than meeting the hunk fresh is the sequential path's
 /// proof, pinned by `scenario_zero` and `base_moves_twice`; here the point is
 /// that a join mid-settle leaves a consistent record, not a half-replayed arc.)
@@ -558,7 +547,7 @@ fn discard_mid_crossing() -> LabScenario {
 /// line five; `rb`'s session is handed a turn, and while it is mid-turn `ra`
 /// lands, so base-motion's replay notice for `rb` arrives against a session that
 /// is already busy. The notice must not be lost or double-injected: `rb` is
-/// still replayed onto the landed base and its exam runs — the arc log records
+/// still replayed onto the landed base and its verify runs — the arc log records
 /// `rb verified`, and the handed turn is in its transcript.
 fn notice_mid_turn() -> LabScenario {
     LabScenario {

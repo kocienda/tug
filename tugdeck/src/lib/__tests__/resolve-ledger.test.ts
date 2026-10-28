@@ -351,7 +351,7 @@ describe("ledgerBlocks and mergeLedgerEvents, over recorded events", () => {
     expect(resolver.phase).toBe("success");
   });
 
-  test("a candidate the exam withheld is drawn withdrawn, not anchored", () => {
+  test("a candidate the run took back is drawn withdrawn, not anchored", () => {
     const events = [
       { seq: 0, at_ms: 0, kind: "candidate" as const, sha: "a4e2bedb7", base_sha: "cb35b41", files: [] },
       { seq: 1, at_ms: 1, kind: "ended" as const, outcome: "stuck" as const, detail: "the candidate failed its checks: docs: `false` (exit 1)" },

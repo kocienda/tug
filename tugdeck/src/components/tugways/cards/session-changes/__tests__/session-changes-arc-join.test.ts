@@ -1,6 +1,7 @@
 /**
- * The landing face's two pure decisions: which blockers the report speaks
- * about, and what the disabled Join affordance says instead of being silent.
+ * The landing face's pure decisions: which blockers the report speaks about,
+ * what the disabled Join affordance says instead of being silent, and the
+ * fit sentence the report opens on.
  *
  * The outcome derivation itself is proved next door in
  * `join-mode-controller.test.ts` — the component reads it, it does not own it.
@@ -13,6 +14,7 @@ import {
   deriveResolveFace,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
+import { arcFitSentence } from "@/lib/arc-fit";
 import type {
   ArcJoinBlockerWire,
 } from "@/lib/changeset-types";
@@ -111,5 +113,53 @@ describe("deriveResolveFace", () => {
     expect(deriveResolveFace("conflicted", "idle", "cafe1234", null)).toBe(
       "resolved",
     );
+  });
+});
+
+describe("arcFitSentence", () => {
+  const HEAD = "3f0a1c9e2b7d4f6a";
+  const BASE = "91c4de70f2a3b5c7";
+
+  it("says never verified when no verify has passed", () => {
+    expect(arcFitSentence(undefined)).toEqual({
+      reading: "never",
+      text: "Not verified — no verify has passed on this arc.",
+    });
+  });
+
+  it("names the pair and says it stands when both endpoints are current", () => {
+    expect(
+      arcFitSentence({ head: HEAD, base: BASE, current: true }),
+    ).toEqual({
+      reading: "current",
+      text: "Verified at 3f0a1c9 onto 91c4de7, and both still stand.",
+    });
+  });
+
+  it("names which endpoint moved when the verify is stale", () => {
+    const stale = { head: HEAD, base: BASE, current: false };
+    expect(arcFitSentence({ ...stale, head_moved: true }).text).toBe(
+      "Verified at 3f0a1c9 onto 91c4de7, but the arc has moved since.",
+    );
+    expect(arcFitSentence({ ...stale, base_moved: true }).text).toBe(
+      "Verified at 3f0a1c9 onto 91c4de7, but the base has moved since.",
+    );
+    expect(
+      arcFitSentence({ ...stale, head_moved: true, base_moved: true }).text,
+    ).toBe(
+      "Verified at 3f0a1c9 onto 91c4de7, but the arc and the base have both moved since.",
+    );
+    expect(arcFitSentence({ ...stale, head_moved: true }).reading).toBe(
+      "stale",
+    );
+  });
+
+  it("still reads stale when the server names no endpoint", () => {
+    expect(
+      arcFitSentence({ head: HEAD, base: BASE, current: false }),
+    ).toEqual({
+      reading: "stale",
+      text: "Verified at 3f0a1c9 onto 91c4de7, but that pair no longer stands.",
+    });
   });
 });

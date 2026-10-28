@@ -78,27 +78,73 @@ pub struct Settled {
     pub resolver: Option<Result<(), String>>,
 }
 
-/// The pairs settling now, each with whether a round asked for another pass.
-fn settling() -> &'static Mutex<HashMap<String, bool>> {
-    static SETTLING: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
-    SETTLING.get_or_init(|| Mutex::new(HashMap::new()))
+/// One background task per key at a time. A request for a key already running
+/// is recorded as "again" rather than spawned, and the running task loops once
+/// more when it ends, so a burst of requests costs at most one extra pass.
+#[derive(Default)]
+struct OneAtATime(Mutex<HashMap<String, bool>>);
+
+impl OneAtATime {
+    /// Whether the caller should start a task for `key`. `false` means one is
+    /// running, and it has been asked to go again.
+    fn admit(&self, key: &str) -> bool {
+        let mut running = self.0.lock();
+        if let Some(again) = running.get_mut(key) {
+            *again = true;
+            return false;
+        }
+        running.insert(key.to_string(), false);
+        true
+    }
+
+    /// Called as the running task for `key` ends a pass: `true` when a request
+    /// arrived meanwhile and it should pass once more, `false` when it is done
+    /// and the key is released.
+    fn again(&self, key: &str) -> bool {
+        let mut running = self.0.lock();
+        if running.get(key) == Some(&true) {
+            running.insert(key.to_string(), false);
+            return true;
+        }
+        running.remove(key);
+        false
+    }
+}
+
+/// The pairs settling now.
+fn settling() -> &'static OneAtATime {
+    static SETTLING: OnceLock<OneAtATime> = OnceLock::new();
+    SETTLING.get_or_init(OneAtATime::default)
+}
+
+/// The triples composing now.
+fn composing() -> &'static OneAtATime {
+    static COMPOSING: OnceLock<OneAtATime> = OnceLock::new();
+    COMPOSING.get_or_init(OneAtATime::default)
+}
+
+/// Two arcs in a fixed order, so a key does not depend on which one asked.
+fn ordered<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
+    if a <= b { (a, b) } else { (b, a) }
+}
+
+/// A pair settle's key: the repo and the unordered pair.
+fn pair_key(repo: &Path, name: &str, sibling: &str) -> String {
+    let (lo, hi) = ordered(name, sibling);
+    format!("{}\n{lo}\n{hi}", repo.display())
+}
+
+/// A compose's key: the repo, the arc composed, and its unordered siblings.
+fn compose_key(repo: &Path, name: &str, sib_a: &str, sib_b: &str) -> String {
+    let (lo, hi) = ordered(sib_a, sib_b);
+    format!("{}\n{name}\n{lo}\n{hi}", repo.display())
 }
 
 /// Settle the crossing between `name` and `sibling` on a task of its own.
 pub fn settle_in_background(ctx: SettleContext, repo: PathBuf, name: String, sibling: String) {
-    let (lo, hi) = if name <= sibling {
-        (&name, &sibling)
-    } else {
-        (&sibling, &name)
-    };
-    let key = format!("{}\n{lo}\n{hi}", repo.display());
-    {
-        let mut pairs = settling().lock();
-        if let Some(again) = pairs.get_mut(&key) {
-            *again = true;
-            return;
-        }
-        pairs.insert(key.clone(), false);
+    let key = pair_key(&repo, &name, &sibling);
+    if !settling().admit(&key) {
+        return;
     }
     tokio::spawn(async move {
         loop {
@@ -118,13 +164,9 @@ pub fn settle_in_background(ctx: SettleContext, repo: PathBuf, name: String, sib
                     warn!(arc = %name, sibling = %sibling, error = %err, "crossing settle failed")
                 }
             }
-            let mut pairs = settling().lock();
-            if pairs.get(&key) == Some(&true) {
-                pairs.insert(key.clone(), false);
-                continue;
+            if !settling().again(&key) {
+                break;
             }
-            pairs.remove(&key);
-            break;
         }
     });
 }
@@ -159,6 +201,8 @@ fn record_decline(ctx: &SettleContext, repo: &Path, name: &str, sibling: &str, s
 /// third arc's join meets once the siblings have merged, so the settle of a
 /// third arc also settles it against the siblings' merged hunk, teaching that
 /// preimage now. Best-effort: a compose that cannot run is logged, never fatal.
+/// One compose per triple at a time, as one settle per pair: a round that asks
+/// again while one runs gets one more pass when it ends, never a second scribe.
 pub fn compose_in_background(
     ctx: SettleContext,
     repo: PathBuf,
@@ -166,46 +210,61 @@ pub fn compose_in_background(
     sib_a: String,
     sib_b: String,
 ) {
+    let key = compose_key(&repo, &name, &sib_a, &sib_b);
+    if !composing().admit(&key) {
+        return;
+    }
     tokio::spawn(async move {
-        let merger = ctx.scribe.as_ref().map(|spawner| ScribeFileMerger {
-            spawner: spawner.clone(),
-            model: ctx.model.clone(),
-            handle: tokio::runtime::Handle::current(),
-            recorder: None,
-        });
-        let result = {
-            let paths = ctx.paths.clone();
-            let (name, sib_a, sib_b) = (name.clone(), sib_a.clone(), sib_b.clone());
-            tokio::task::spawn_blocking(move || {
-                tugarc_core::crossing::settle_composed(
-                    &paths,
-                    &repo,
-                    &name,
-                    &sib_a,
-                    &sib_b,
-                    merger.as_ref().map(|m| m as &dyn FileMerger),
-                )
-                .map_err(|e| e.to_string())
-            })
-            .await
-        };
-        match result {
-            Ok(Ok(Some(settled))) => info!(
-                arc = %name,
-                siblings = %format!("{sib_a}·{sib_b}"),
-                resolved = settled.resolved.len(),
-                left = settled.unresolved.len(),
-                "crossing composed",
-            ),
-            Ok(Ok(None)) => {}
-            Ok(Err(err)) => {
-                warn!(arc = %name, siblings = %format!("{sib_a}·{sib_b}"), error = %err, "crossing compose failed")
-            }
-            Err(err) => {
-                warn!(arc = %name, error = %err, "crossing compose task failed")
+        loop {
+            compose_once(&ctx, &repo, &name, &sib_a, &sib_b).await;
+            if !composing().again(&key) {
+                break;
             }
         }
     });
+}
+
+/// One compose of `name` against its two siblings' merged hunk.
+async fn compose_once(ctx: &SettleContext, repo: &Path, name: &str, sib_a: &str, sib_b: &str) {
+    let merger = ctx.scribe.as_ref().map(|spawner| ScribeFileMerger {
+        spawner: spawner.clone(),
+        model: ctx.model.clone(),
+        handle: tokio::runtime::Handle::current(),
+        recorder: None,
+    });
+    let result = {
+        let paths = ctx.paths.clone();
+        let repo = repo.to_path_buf();
+        let (name, sib_a, sib_b) = (name.to_string(), sib_a.to_string(), sib_b.to_string());
+        tokio::task::spawn_blocking(move || {
+            tugarc_core::crossing::settle_composed(
+                &paths,
+                &repo,
+                &name,
+                &sib_a,
+                &sib_b,
+                merger.as_ref().map(|m| m as &dyn FileMerger),
+            )
+            .map_err(|e| e.to_string())
+        })
+        .await
+    };
+    match result {
+        Ok(Ok(Some(settled))) => info!(
+            arc = %name,
+            siblings = %format!("{sib_a}·{sib_b}"),
+            resolved = settled.resolved.len(),
+            left = settled.unresolved.len(),
+            "crossing composed",
+        ),
+        Ok(Ok(None)) => {}
+        Ok(Err(err)) => {
+            warn!(arc = %name, siblings = %format!("{sib_a}·{sib_b}"), error = %err, "crossing compose failed")
+        }
+        Err(err) => {
+            warn!(arc = %name, error = %err, "crossing compose task failed")
+        }
+    }
 }
 
 /// One settle: the pair ladder, then the resolver over whatever it left.
@@ -423,6 +482,45 @@ mod tests {
             model: Arc::new(|| "haiku".to_string()),
             production: None,
         }
+    }
+
+    /// One task per key: a second request while one runs is recorded rather
+    /// than started, buys exactly one more pass, and the key is free again
+    /// once the task ends. The pair settle and the composed settle both run
+    /// under this.
+    #[test]
+    fn a_key_runs_one_at_a_time_and_a_second_request_buys_one_more_pass() {
+        let guard = OneAtATime::default();
+        assert!(guard.admit("k"), "the first request starts a task");
+        assert!(
+            !guard.admit("k"),
+            "a second request while it runs starts none"
+        );
+        assert!(!guard.admit("k"), "nor does a third");
+        assert!(guard.admit("other"), "another key is not held up");
+        assert!(guard.again("k"), "the requests meanwhile buy one more pass");
+        assert!(!guard.again("k"), "and only one");
+        assert!(guard.admit("k"), "an ended task frees its key");
+    }
+
+    /// A compose is keyed on the repo, the arc and both siblings, the siblings
+    /// in either order; a pair settle on the unordered pair.
+    #[test]
+    fn a_compose_is_keyed_on_the_triple_with_its_siblings_unordered() {
+        let repo = Path::new("/r");
+        assert_eq!(
+            compose_key(repo, "c", "a", "b"),
+            compose_key(repo, "c", "b", "a")
+        );
+        assert_ne!(
+            compose_key(repo, "c", "a", "b"),
+            compose_key(repo, "a", "c", "b")
+        );
+        assert_ne!(
+            compose_key(repo, "c", "a", "b"),
+            compose_key(Path::new("/s"), "c", "a", "b")
+        );
+        assert_eq!(pair_key(repo, "a", "b"), pair_key(repo, "b", "a"));
     }
 
     /// No rung settles the crossing, so the resolver does, and its finished

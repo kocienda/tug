@@ -728,12 +728,14 @@ pub(crate) fn fit_fact(
     let (head, base) = crate::log::parse_verified_note(note)?;
     let live_head = git_stdout(repo, &["rev-parse", branch]).ok();
     let live_base = git_stdout(repo, &["rev-parse", base_branch]).ok();
-    let current =
-        live_head.as_deref() == Some(head.as_str()) && live_base.as_deref() == Some(base.as_str());
+    let head_moved = live_head.as_deref() != Some(head.as_str());
+    let base_moved = live_base.as_deref() != Some(base.as_str());
     Some(FitFact {
         head,
         base,
-        current,
+        current: !head_moved && !base_moved,
+        head_moved,
+        base_moved,
     })
 }
 /// One arc's lifecycle readout (Spec S05) — the machine-readable answer to

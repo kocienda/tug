@@ -684,70 +684,6 @@ fn first_reds(reds: &[&SurfaceResult]) -> Vec<String> {
         .collect()
 }
 
-// --- the candidate's exam ----------------------------------------------------
-
-/// Examine a join candidate before it is offered: run the declared checks of
-/// every surface the candidate touches, over `worktree` — the checkout that
-/// holds the candidate's tree — against `base_head`. `None` when the offer may
-/// stand; the failure, as one sentence, when it may not.
-///
-/// One verdict and no repair loop: a red withholds the offer and says why,
-/// and nothing is sent back to be fixed. The checks are the surface-scoped
-/// ones a verify runs, not the whole fast lane, so a join stays short. The
-/// table is the candidate's own, read from the checkout. A path no surface
-/// claims is not checked here — the arc's own verify is what refuses an
-/// unclaimed path — and a project that declares no surfaces has nothing to
-/// examine. The checks' output is not kept; the sentence names the surface,
-/// the check and its exit.
-pub fn examine_candidate(worktree: &Path, base_head: &str) -> Result<Option<String>, ArcError> {
-    // Stage the checkout so the diff below reads its whole tree, untracked
-    // files included, exactly as a commit of it would.
-    let add = crate::ops::git_output(worktree, &["add", "-A"])?;
-    if !add.status.success() {
-        return Err(ArcError::git(
-            "git add -A failed in the candidate's checkout",
-            &["add", "-A"],
-            String::from_utf8_lossy(&add.stderr).to_string(),
-        ));
-    }
-    let args = ["diff", "--cached", "--name-status", "-M", base_head];
-    let records = tugchanges_core::listing(worktree, &args).map_err(|e| {
-        ArcError::git(
-            format!("git diff --cached {base_head} failed"),
-            &args,
-            e.to_string(),
-        )
-    })?;
-    let touched = crate::ops::name_status_paths(&records);
-    let config =
-        Config::load_from_project(worktree).map_err(|e| ArcError::Refused(e.to_string()))?;
-    let surfaces = config.tugtool.arc.surfaces;
-    let claimed: Vec<String> = touched
-        .into_iter()
-        .filter(|path| claiming_surface(&surfaces, path).is_some())
-        .collect();
-    let Resolution::Planned(plans) = plan_verification(&surfaces, base_head, "HEAD", &claimed)
-    else {
-        return Ok(None);
-    };
-    let results = run_plans(
-        worktree,
-        plans,
-        true,
-        &|command| command.to_string(),
-        &mut |_| None,
-        &mut |_| {},
-    );
-    let reds: Vec<&SurfaceResult> = results.iter().filter(|r| r.red).collect();
-    if reds.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(format!(
-        "the candidate failed its checks: {}",
-        first_reds(&reds).join(" · ")
-    )))
-}
-
 /// A sha as a report shows it.
 fn short(sha: &str) -> String {
     sha.chars().take(10).collect()
@@ -1062,49 +998,6 @@ mod fit_tests {
     const RED: &str =
         "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"false\"]\n";
 
-    /// The candidate's exam runs the touched surfaces' checks over the
-    /// checkout it is handed, against the base: green lets the offer stand,
-    /// red names the surface and the check.
-    #[test]
-    fn the_exam_withholds_a_red_candidate_and_passes_a_green_one() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().join("repo");
-        std::fs::create_dir_all(&root).unwrap();
-        // The check reads the checkout, so it passes only where the candidate's
-        // tree is actually laid out.
-        let green = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\n\
-                     check = [\"test -f src/a.rs\"]\n";
-        let worktree = project(&root, green, &[("src/a.rs", "fn a() {}\n")]);
-        assert_eq!(examine_candidate(&worktree, "main").unwrap(), None);
-
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().join("repo");
-        std::fs::create_dir_all(&root).unwrap();
-        let worktree = project(&root, RED, &[("src/a.rs", "fn a() {}\n")]);
-        let red = examine_candidate(&worktree, "main")
-            .unwrap()
-            .expect("withheld");
-        assert!(red.contains("src: `false` (exit 1)"), "{red}");
-    }
-
-    /// Only the surfaces the candidate touches are examined: a red check on an
-    /// untouched surface does not run, and a path nobody claims is left to
-    /// the arc's own verify.
-    #[test]
-    fn the_exam_runs_only_the_touched_surfaces() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().join("repo");
-        std::fs::create_dir_all(&root).unwrap();
-        let config = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"true\"]\n\
-                      [[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = [\"false\"]\n";
-        let worktree = project(
-            &root,
-            config,
-            &[("src/a.rs", "fn a() {}\n"), ("loose.txt", "x\n")],
-        );
-        assert_eq!(examine_candidate(&worktree, "main").unwrap(), None);
-    }
-
     /// The wrapper runs in place of the declared text and the report still
     /// reads the declaration: a `false` wrapped to `true` is a green surface
     /// whose command is `false`.
@@ -1415,6 +1308,8 @@ mod fit_tests {
             !after_base.current,
             "a base that moved makes the verified tree no longer the tree a join would land"
         );
+        // And it says which endpoint moved, so a face can name it.
+        assert!(after_base.base_moved && !after_base.head_moved);
 
         // And a round on the arc, with the recorded base back in place.
         git(&root, &["reset", "--hard", "HEAD~1"]);
@@ -1428,13 +1323,12 @@ mod fit_tests {
         std::fs::write(worktree.join("src/b.rs"), "b\n").unwrap();
         git(&worktree, &["add", "-A"]);
         git(&worktree, &["commit", "-m", "another round"]);
-        assert!(
-            !crate::ops::status_in(&paths, &root, "demo")
-                .unwrap()
-                .fit
-                .unwrap()
-                .current
-        );
+        let after_round = crate::ops::status_in(&paths, &root, "demo")
+            .unwrap()
+            .fit
+            .unwrap();
+        assert!(!after_round.current);
+        assert!(after_round.head_moved && !after_round.base_moved);
     }
 
     #[test]

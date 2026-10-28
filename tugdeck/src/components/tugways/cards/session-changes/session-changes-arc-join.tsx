@@ -28,8 +28,11 @@
  *   report begins at what that line does not carry: the remedy, and any
  *   blocker past the first.
  *
- * With nothing to report the section renders nothing at all — a `report`
- * eyebrow over silence would be a row of chrome saying nothing.
+ * The report always opens on the arc's **fit**: what the last green verify
+ * said about the tree a join would land — verified and current, verified but
+ * stale naming what moved, or never verified. The join gate is reconcile-clean
+ * alone, so this sentence is how the audit's all-clear is seen before the
+ * press. It says; it gates nothing.
  *
  * Every value here is read from the arc's server-owned join block, so the
  * face and the join gate answer the same question from the same bytes.
@@ -84,6 +87,7 @@ import {
   ledgerBlocks,
   offersResolveAgain,
 } from "@/lib/resolve-ledger";
+import { arcFitSentence } from "@/lib/arc-fit";
 import { ResolveLedgerBlocks } from "@/components/tugways/cards/session-changes/session-changes-resolve-ledger";
 import {
   deriveJoinOutcome,
@@ -400,7 +404,7 @@ export function SessionChangesArcJoin({
   error,
   resolve,
   actions,
-}: SessionChangesArcJoinProps): React.ReactElement | null {
+}: SessionChangesArcJoinProps): React.ReactElement {
   const blockers = join?.blockers ?? [];
   const stuck =
     typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
@@ -445,21 +449,9 @@ export function SessionChangesArcJoin({
   // ledger no longer applies (Spec S05).
   const again = offersResolveAgain(resolveFace, join);
 
-  // A section renders nothing it cannot say. Measured against what will
-  // actually render below, never against the outcome word — an arc whose arc
-  // has not started derives `blocked` with no blockers to show, and a `report`
-  // eyebrow over that silence would be a row of chrome saying nothing.
-  const speaks =
-    blocks.length > 0 ||
-    again ||
-    outcome === "empty" ||
-    reported.length > 0 ||
-    resolveFace === "folding" ||
-    receipt !== null ||
-    stuck !== null ||
-    resolve.error !== null ||
-    error !== null;
-  if (!speaks) return null;
+  // The fit always has something to say — "not verified" is a reading too —
+  // so the section always renders, and opens on it.
+  const fit = arcFitSentence(entry.fit);
 
   return (
     <div
@@ -471,6 +463,13 @@ export function SessionChangesArcJoin({
         label={{ name: "report" }}
         slot="session-changes-arc-join-label"
       />
+      <div
+        className="session-changes-arc-join-note"
+        data-slot="session-changes-arc-join-fit"
+        data-fit={fit.reading}
+      >
+        {fit.text}
+      </div>
       {outcome === "empty" ? (
         <div
           className="session-changes-arc-join-note"

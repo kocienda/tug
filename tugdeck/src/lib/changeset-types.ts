@@ -437,8 +437,10 @@ export interface ArcChangesetEntry {
   last_replay?: string;
   /** What the last green verify said about the tree a join would land: the
    *  head, the base it was verified onto, and whether both still stand.
-   *  Absent when nothing has verified this arc. It says; it gates nothing. */
-  fit?: { head: string; base: string; current: boolean };
+   *  `head_moved` and `base_moved` say which endpoint no longer stands when
+   *  `current` is false. Absent when nothing has verified this arc. It says;
+   *  it gates nothing. */
+  fit?: ArcFitWire;
   /** Paths the last replay attempt stopped on, when it conflicted. */
   replay_conflict_paths?: string[];
   /**
@@ -450,6 +452,17 @@ export interface ArcChangesetEntry {
    * older server, which reads as *nothing to say*.
    */
   join?: ArcJoinStateWire;
+}
+
+/** An arc's fit fact — {@link ArcChangesetEntry.fit}. */
+export interface ArcFitWire {
+  head: string;
+  base: string;
+  current: boolean;
+  /** The arc branch has moved past `head` since the verify. */
+  head_moved?: boolean;
+  /** The base branch has moved past `base` since the verify. */
+  base_moved?: boolean;
 }
 
 /** One reason a join would be refused right now. */
@@ -854,13 +867,15 @@ function isOptionalArcRunState(
  *  without the base it was verified onto cannot name a tree. */
 function isOptionalArcFit(
   value: unknown,
-): value is { head: string; base: string; current: boolean } | undefined {
+): value is ArcFitWire | undefined {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
   return (
     typeof value.head === "string" &&
     typeof value.base === "string" &&
-    typeof value.current === "boolean"
+    typeof value.current === "boolean" &&
+    (value.head_moved === undefined || typeof value.head_moved === "boolean") &&
+    (value.base_moved === undefined || typeof value.base_moved === "boolean")
   );
 }
 

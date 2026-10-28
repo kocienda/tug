@@ -1454,25 +1454,6 @@ async fn open_workshop(
     .map_err(|e| format!("workshop task failed: {e}"))?
 }
 
-/// Examine a candidate the ladder anchored with no resolver to follow it: open
-/// it in the workshop and run the exam [`commit_candidate`] runs. `None` when
-/// the offer may stand; the failure otherwise. A candidate that cannot be
-/// opened or examined is not offered either — an exam that did not run is not
-/// a green one.
-pub fn examine_ladder_candidate(
-    repo: &std::path::Path,
-    arc: &str,
-    candidate: &str,
-    base_head: &str,
-) -> Option<String> {
-    let workshop = match tugarc_core::Workshop::open_candidate(repo, arc, candidate, base_head) {
-        Ok(workshop) => workshop,
-        Err(e) => return Some(format!("could not open the candidate to examine it: {e}")),
-    };
-    tugarc_core::surfaces::examine_candidate(workshop.path(), base_head)
-        .unwrap_or_else(|e| Some(format!("could not examine the candidate: {e}")))
-}
-
 /// What [`commit_candidate`] did with the resolver's tree.
 enum Committed {
     /// The candidate it committed and anchored.
@@ -1483,11 +1464,12 @@ enum Committed {
 
 /// Validate what the resolver produced and commit it as the candidate.
 ///
-/// Five refusals, and each is a different lie the flow must not let past: a
+/// Four refusals, and each is a different lie the flow must not let past: a
 /// file still carrying markers, an index still holding stages, a report that
-/// does not account for every path in the resolution set ([P10]), a finished
-/// file that rewrote text git had already merged, and a tree that fails the
-/// checks of the surfaces it touches.
+/// does not account for every path in the resolution set ([P10]), and a
+/// finished file that rewrote text git had already merged. No check runs over
+/// the tree: the join gate is reconcile-clean alone, and the arc's own verify
+/// is what read the work.
 async fn commit_candidate(
     ctx: &ResolverContext,
     state: &WorkshopState,
@@ -1543,15 +1525,6 @@ async fn commit_candidate(
                 "the resolver rewrote lines outside the conflicts in {}",
                 rewritten.join(", ")
             ));
-        }
-        // The candidate is built before it is offered: the declared checks of
-        // the surfaces it touches run over this checkout, once. Red, and it
-        // is withheld with the failure as the stuck line; nothing goes back
-        // to the resolver.
-        if let Some(red) = tugarc_core::surfaces::examine_candidate(workshop.path(), &base_head)
-            .map_err(|e| e.to_string())?
-        {
-            return Err(red);
         }
         let branch = format!("tugarc/{}", arc);
         // The candidate is an intermediate — the join composes the message the

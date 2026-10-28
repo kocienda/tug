@@ -365,6 +365,14 @@ pub struct FitFact {
     /// `base` is the base branch's tip. Derived at read time from one
     /// `rev-parse` each; nothing about the staleness is stored.
     pub current: bool,
+    /// The arc branch's tip is no longer `head`: a round landed, or a replay
+    /// rewrote the branch, after the verify. Derived with `current`.
+    #[serde(default)]
+    pub head_moved: bool,
+    /// The base branch's tip is no longer `base`: the base moved after the
+    /// verify. Derived with `current`.
+    #[serde(default)]
+    pub base_moved: bool,
 }
 
 /// The head/base pair a `verified` note names, if it names one.
