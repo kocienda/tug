@@ -37,7 +37,14 @@
  *
  * The selection-extending chords (⇧ with an arrow, ⇧⌥ and ⇧⌘ with an arrow,
  * ⇧Home/End, ⇧Page Up/Down) move the extent of a ranged selection inside the
- * root, through `Selection.modify("extend", …)`, whatever holds DOM focus.
+ * root, whatever holds DOM focus, and only the extent: the base stays where
+ * the selection began, and the extent may cross it — a selection shrinks
+ * onto its base, collapses there, and grows out the other side, as in a
+ * Cocoa text view. `Selection.modify("extend", …)` cannot be trusted with
+ * that: WebKit treats a mouse-made selection as having no direction and
+ * moves whichever end faces the arrow, so the first ⇧← after a forward drag
+ * grew the selection from its base. So the extender steps a caret from the
+ * extent with `modify("move", …)` and sets base-to-extent itself.
  * Nothing in a read-only surface is focusable, so after a drag there DOM
  * focus is on `<body>` or in an editor elsewhere, and the deck's key-view
  * delegate would hand the key to that editor — the composer, in a Session
@@ -283,6 +290,29 @@ export function keyboardExtensionFor(chord: ChordKeys): KeyboardExtension | null
   }
 }
 
+/** What a keyboard extension leaves for the next chord to continue from. */
+interface KeyedSelection {
+  readonly base: SelectionPoint;
+  readonly extent: SelectionPoint;
+  /** The column a run of vertical steps holds to, or `null` outside one. */
+  readonly goalX: number | null;
+}
+
+/** The caret rectangle at `point`, or `null` where it lays out nothing. */
+function caretRect(point: SelectionPoint): DOMRect | null {
+  const range = document.createRange();
+  try {
+    range.setStart(point.node, point.offset);
+  } catch {
+    return null;
+  }
+  range.collapse(true);
+  const rects = range.getClientRects();
+  if (rects.length > 0) return rects[0];
+  const box = range.getBoundingClientRect();
+  return box.width === 0 && box.height === 0 && box.top === 0 && box.left === 0 ? null : box;
+}
+
 /** Granularity ordering, so a shift-double-click can only raise the unit. */
 const GRANULARITY_RANK: Record<SelectionGranularity, number> = {
   character: 0,
@@ -404,6 +434,14 @@ export class SelectionExtender {
   /** True between a shifted press and its mouseup. */
   private extending = false;
 
+  /**
+   * The selection the last chord set: its base, its extent, and the column a
+   * run of vertical steps holds to. The next chord continues from it while
+   * the live selection is still the one it set — including when the extent
+   * has come back onto the base and the selection is a caret.
+   */
+  private keyed: KeyedSelection | null = null;
+
   private readonly onMouseDown: (e: MouseEvent) => void;
   private readonly onMouseMove: (e: MouseEvent) => void;
   private readonly onMouseUp: () => void;
@@ -438,6 +476,7 @@ export class SelectionExtender {
     window.removeEventListener("keydown", this.onKeyDown, { capture: true });
     this.extending = false;
     this.base = null;
+    this.keyed = null;
   }
 
   /**
@@ -502,6 +541,8 @@ export class SelectionExtender {
     const hit = pointInRoot(event.clientX, event.clientY, this.root);
     if (hit === null) return;
 
+    // Any press in the root starts a selection the keyboard did not make.
+    this.keyed = null;
     if (!event.shiftKey) {
       // Unshifted press: the browser places the selection. Record what it
       // established so a later shifted press can pivot on it.
@@ -552,73 +593,141 @@ export class SelectionExtender {
   }
 
   /**
-   * Extend a ranged selection inside the root by a selection-extending chord.
+   * Move the extent of a read-only selection by a selection-extending chord.
    *
    * Declines — leaving the key to whoever would have had it — unless the
-   * selection is a range with both ends in the root and DOM focus is not
-   * inside the root (a focused control there owns its own keys). The base is
-   * the selection's anchor, which every gesture this controller or the
-   * browser made leaves at the fixed end, so `modify("extend", …)` moves only
-   * the extent. An extent the step carried out of the root is pinned to the
-   * root's edge on that side: past the transcript's last row is the
-   * composer, which is not part of the reader's selection.
+   * selection lies in the root (a range with both ends there, or the one the
+   * last chord set, which may have collapsed onto its base) and DOM focus is
+   * not inside the root (a focused control there owns its own keys).
+   *
+   * The base is the selection's anchor, which a drag, a press and a chord all
+   * leave at the fixed end, and it is never moved: a caret takes the step
+   * from the extent, and the selection is set from the base to wherever the
+   * caret landed, on either side of the base. An extent the step carried out
+   * of the root is pinned to the root's edge on that side: past the
+   * transcript's last row is the composer, which is not part of the reader's
+   * selection.
    */
   private handleKeyDown(event: KeyboardEvent): void {
     if (event.defaultPrevented || event.isComposing) return;
     const extension = keyboardExtensionFor(event);
     if (extension === null) return;
     const sel = window.getSelection();
-    if (
-      sel === null ||
-      sel.rangeCount === 0 ||
-      sel.isCollapsed ||
-      sel.anchorNode === null ||
-      sel.focusNode === null ||
-      !this.root.contains(sel.anchorNode) ||
-      !this.root.contains(sel.focusNode)
-    ) {
-      return;
-    }
+    if (sel === null || sel.rangeCount === 0) return;
     const active = document.activeElement;
     if (active !== null && active !== document.body && this.root.contains(active)) return;
+    const ends = this.keyboardEnds(sel);
+    if (ends === null) return;
 
-    if (extension.kind === "modify") {
-      sel.modify("extend", extension.direction, extension.granularity);
-    } else {
-      this.extendByPage(sel, extension.direction);
+    // A run of vertical steps holds the column it started in, as a text view
+    // does; any other step lets it go.
+    const vertical = extension.kind === "page" || extension.granularity === "line";
+    const goalX = vertical ? (ends.goalX ?? caretRect(ends.extent)?.left ?? null) : null;
+
+    const stepped =
+      extension.kind === "modify"
+        ? this.stepByModify(sel, ends.extent, extension.direction, extension.granularity, goalX)
+        : this.stepByPage(ends.extent, extension.direction, goalX);
+    const extent =
+      stepped !== null && this.root.contains(stepped.node)
+        ? stepped
+        : edgeTextPosition(this.root, extension.direction === "forward" ? "last" : "first");
+    try {
+      const to = extent ?? ends.extent;
+      sel.setBaseAndExtent(ends.base.node, ends.base.offset, to.node, to.offset);
+    } catch {
+      // Offsets can fall out of range when content re-renders between
+      // chords. The next press re-reads the live DOM.
+      this.keyed = null;
+      return;
     }
-    if (sel.focusNode === null || !this.root.contains(sel.focusNode)) {
-      const edge = edgeTextPosition(
-        this.root,
-        extension.direction === "forward" ? "last" : "first",
-      );
-      if (edge !== null) sel.extend(edge.node, edge.offset);
-    }
+    // Kept as WebKit reports it back, so the next chord recognizes it.
+    this.keyed =
+      sel.anchorNode !== null && sel.focusNode !== null
+        ? {
+            base: { node: sel.anchorNode, offset: sel.anchorOffset },
+            extent: { node: sel.focusNode, offset: sel.focusOffset },
+            goalX,
+          }
+        : null;
     event.preventDefault();
     event.stopImmediatePropagation();
   }
 
   /**
-   * Move the extent one visible page: the position a page height above or
-   * below the extent's caret, hit-tested inside the root, or the root's edge
-   * when that point falls outside it.
+   * The base and extent a chord works from: the selection the last chord
+   * set, while the live selection is still exactly that one — a caret
+   * included, which is what a selection is when its extent has come back
+   * onto its base — and otherwise a range in the root, anchor and focus.
    */
-  private extendByPage(sel: Selection, direction: ExpandDirection): void {
-    const focus = sel.focusNode;
-    if (focus === null) return;
-    const caret = document.createRange();
-    caret.setStart(focus, sel.focusOffset);
-    caret.collapse(true);
-    const at = caret.getBoundingClientRect();
+  private keyboardEnds(sel: Selection): KeyedSelection | null {
+    const { anchorNode, focusNode } = sel;
+    if (anchorNode === null || focusNode === null) return null;
+    if (!this.root.contains(anchorNode) || !this.root.contains(focusNode)) return null;
+    const keyed = this.keyed;
+    if (
+      keyed !== null &&
+      keyed.base.node === anchorNode &&
+      keyed.base.offset === sel.anchorOffset &&
+      keyed.extent.node === focusNode &&
+      keyed.extent.offset === sel.focusOffset
+    ) {
+      return keyed;
+    }
+    this.keyed = null;
+    if (sel.isCollapsed) return null;
+    return {
+      base: { node: anchorNode, offset: sel.anchorOffset },
+      extent: { node: focusNode, offset: sel.focusOffset },
+      goalX: null,
+    };
+  }
+
+  /**
+   * Where one `Selection.modify` step takes a caret placed at `from`. A
+   * vertical step is put back on the run's column, which `modify` loses: it
+   * starts each step from the caret's own column, and a short line pulls
+   * that in.
+   */
+  private stepByModify(
+    sel: Selection,
+    from: SelectionPoint,
+    direction: ExpandDirection,
+    granularity: ModifyGranularity,
+    goalX: number | null,
+  ): SelectionPoint | null {
+    try {
+      sel.collapse(from.node, from.offset);
+    } catch {
+      return null;
+    }
+    sel.modify("move", direction, granularity);
+    if (sel.focusNode === null) return null;
+    const moved: SelectionPoint = { node: sel.focusNode, offset: sel.focusOffset };
+    if (granularity !== "line" || goalX === null || !this.root.contains(moved.node)) return moved;
+    const rect = caretRect(moved);
+    if (rect === null) return moved;
+    return pointInRoot(goalX, rect.top + rect.height / 2, this.root) ?? moved;
+  }
+
+  /**
+   * Where a page step takes the extent: the position a page height above or
+   * below it, at the run's column, hit-tested inside the root — or `null`
+   * when that point falls outside the root, which pins the extent to the
+   * root's edge.
+   */
+  private stepByPage(
+    from: SelectionPoint,
+    direction: ExpandDirection,
+    goalX: number | null,
+  ): SelectionPoint | null {
+    const at = caretRect(from);
+    if (at === null) return null;
     const bounds = this.root.getBoundingClientRect();
     const page = Math.min(bounds.height, window.innerHeight);
     const y = direction === "forward" ? at.top + page : at.top - page;
-    const hit =
-      y > Math.max(bounds.top, 0) && y < Math.min(bounds.bottom, window.innerHeight)
-        ? pointInRoot(at.left, y, this.root)
-        : null;
-    const target = hit ?? edgeTextPosition(this.root, direction === "forward" ? "last" : "first");
-    if (target !== null) sel.extend(target.node, target.offset);
+    const inView = y > Math.max(bounds.top, 0) && y < Math.min(bounds.bottom, window.innerHeight);
+    return inView ? pointInRoot(goalX ?? at.left, y, this.root) : null;
   }
 }
 

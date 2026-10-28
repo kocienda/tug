@@ -18,6 +18,10 @@
  *      transcript entry, press ⇧→. The selection is one character longer,
  *      from the same base, and still inside the transcript — the key did not
  *      go to the composer. ⇧⌥→ then extends it by a word.
+ *   1b. **The extent pivots on the base.** Drag again, then ⇧←: the selection
+ *      shrinks from its extent end, the base fixed. Carry on past the base: the
+ *      selection collapses onto it and then grows backward from it, the base
+ *      still fixed; ⇧→ brings it back through to the other side.
  *   2. **⌘A selects the transcript.** Press ⌘A. The selection now covers that
  *      entry — more than the drag did, both ends inside the transcript.
  *   3. **A help document is the same.** Open Help ▸ Tug Help, drag across a
@@ -75,6 +79,8 @@ interface SelectionState {
   text: string;
   /** The base end, as its node's leading text and offset. */
   anchor: string;
+  /** The extent lies before the base in document order. */
+  backward: boolean;
   detail: string;
 }
 
@@ -92,6 +98,13 @@ const READ_SELECTION = `(function(){
     root.contains(sel.anchorNode) && root.contains(sel.focusNode);
   var text = sel.toString();
   var anchor = (sel.anchorNode ? (sel.anchorNode.textContent || "").slice(0, 24) : "") + "@" + sel.anchorOffset;
+  var backward = false;
+  if (!sel.isCollapsed && sel.anchorNode !== null && sel.focusNode !== null) {
+    var order = document.createRange();
+    order.setStart(sel.anchorNode, sel.anchorOffset);
+    order.setEnd(sel.focusNode, sel.focusOffset);
+    backward = order.collapsed;
+  }
   var fr = window.__tug ? window.__tug.getFirstResponderId() : null;
   var frEl = fr ? document.querySelector('[data-responder-id="' + fr + '"]') : null;
   var frWhere = frEl === null ? "none" : root !== null && root.contains(frEl) ? "transcript" :
@@ -102,7 +115,9 @@ const READ_SELECTION = `(function(){
     composerFocused: composerFocused,
     text: text,
     anchor: anchor,
+    backward: backward,
     detail: "collapsed=" + sel.isCollapsed + " inTranscript=" + inTranscript +
+      " backward=" + backward + " anchor=" + JSON.stringify(anchor) +
       " composerFocused=" + composerFocused +
       " firstResponder=" + frWhere +
       " active=" + (active ? active.tagName + "." + (active.className || "") : "null") +
@@ -309,6 +324,45 @@ describe.skipIf(!SHOULD_RUN)(
             extended.text.length,
           );
 
+          // ── Leg 1b: the extent pivots on the base. A fresh drag carries no
+          // direction of its own, so ⇧← is the case that shows it: it must
+          // shrink the selection from the extent end, never grow it from the
+          // base. Carried past the base, the selection collapses onto it and
+          // then grows backward from it, and ⇧→ brings it back through. ──
+          const redrag = await dragInTranscript();
+          note(`after the second drag: ${redrag.detail}`);
+          expect(redrag.collapsed, redrag.detail).toBe(false);
+          expect(redrag.backward, redrag.detail).toBe(false);
+          const span = redrag.text.length;
+
+          await app.nativeKey("ArrowLeft", ["shift"]);
+          await settle(GESTURE_SETTLE_MS);
+          const shrunk = await body.evalJS<SelectionState>(READ_SELECTION);
+          note(`after ⇧←: ${shrunk.detail}`);
+          expect(shrunk.anchor, `⇧← moved the base: ${shrunk.detail}`).toBe(redrag.anchor);
+          expect(shrunk.text.length, `⇧← did not shrink by one: ${shrunk.detail}`).toBe(span - 1);
+          expect(redrag.text.startsWith(shrunk.text), shrunk.detail).toBe(true);
+
+          // span − 1 more reach the base; two past it leave two characters
+          // before it.
+          for (let i = 0; i < span + 1; i++) await app.nativeKey("ArrowLeft", ["shift"]);
+          await settle(GESTURE_SETTLE_MS);
+          const crossed = await body.evalJS<SelectionState>(READ_SELECTION);
+          note(`past the base with ⇧←: ${crossed.detail}`);
+          expect(crossed.inTranscript, crossed.detail).toBe(true);
+          expect(crossed.anchor, `crossing moved the base: ${crossed.detail}`).toBe(redrag.anchor);
+          expect(crossed.backward, `the extent did not cross the base: ${crossed.detail}`).toBe(true);
+          expect(crossed.text.length, `⇧← past the base: ${crossed.detail}`).toBe(2);
+
+          for (let i = 0; i < 3; i++) await app.nativeKey("ArrowRight", ["shift"]);
+          await settle(GESTURE_SETTLE_MS);
+          const recrossed = await body.evalJS<SelectionState>(READ_SELECTION);
+          note(`back through with ⇧→: ${recrossed.detail}`);
+          expect(recrossed.anchor, `recrossing moved the base: ${recrossed.detail}`).toBe(redrag.anchor);
+          expect(recrossed.backward, recrossed.detail).toBe(false);
+          expect(recrossed.text.length, `⇧→ back through the base: ${recrossed.detail}`).toBe(1);
+          expect(redrag.text.startsWith(recrossed.text), recrossed.detail).toBe(true);
+
           // ── Leg 2: ⌘A selects the transcript entry, not the composer. ──
           await app.nativeKey("a", ["cmd"]);
           await settle(GESTURE_SETTLE_MS);
@@ -356,6 +410,18 @@ describe.skipIf(!SHOULD_RUN)(
           expect(dragged.collapsed, dragged.detail).toBe(false);
           expect(dragged.inside, dragged.detail).toBe(true);
 
+          // A fresh drag's first ⇧← shrinks it from the extent end; the base
+          // stays where the drag began.
+          await app.nativeKey("ArrowLeft", ["shift"]);
+          await settle(GESTURE_SETTLE_MS);
+          const shrunk = await body.evalJS<DocSelection>(READ_HELP_SELECTION);
+          note(`help, after ⇧←: ${shrunk.detail}`);
+          expect(shrunk.anchor, `⇧← moved the base: ${shrunk.detail}`).toBe(dragged.anchor);
+          expect(shrunk.text.length, `⇧← did not shrink by one: ${shrunk.detail}`).toBe(
+            dragged.text.length - 1,
+          );
+
+          await app.nativeKey("ArrowRight", ["shift"]);
           await app.nativeKey("ArrowRight", ["shift"]);
           await settle(GESTURE_SETTLE_MS);
           const extended = await body.evalJS<DocSelection>(READ_HELP_SELECTION);
