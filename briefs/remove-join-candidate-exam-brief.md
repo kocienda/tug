@@ -1,0 +1,74 @@
+# Remove the join candidate exam
+
+**Purpose:** A verified-green arc sat stuck in the Changes shade for twenty minutes because the join re-ran the arc's verify table over its candidate, behind the machine-wide app-test gate, and lost to batch contention every time. The join gate is reconcile-clean and nothing else, as two standing decisions already say, and the exam that contradicts them comes out.
+
+---
+
+## Purpose {#purpose}
+
+On 2026-10-28 the arc `restore-gate-session-count` was audited and verified green: `tugtool arc verify` passed and `tugtool arc replay` reported Current. Pressing join in the Changes shade did not land it. The join pilot built a squash candidate in `.tug/workshops/restore-gate-session-count` and ran the candidate's touched surfaces' checks over it. For the `deck` surface that is `just test-ts` plus `just app-test-changed {paths}`, a 24-file app-test batch behind the machine-wide gate. It came back red four times in a row, each press in the shade clearing the stuck line, re-running the ladder, re-examining and going red again. The exam keeps none of the checks' output, so the stuck line could only name the surface and the first failing command. The arc was finally landed by hand with `tugtool arc join` as `38077a114`, which runs no exam.
+
+The user's framing: "the audit is where the decks are cleared, not the moment the user presses join." The same mechanism then stood in the way of joining `arc-crossing-lab`, the arc that was built to study crossings.
+
+---
+
+## Evidence {#evidence}
+
+**[F01] The four exams were red on contention, not on the change** — `apptest_results.db` runs 9472–9475 (07:44–07:57, each a `changed` selection of 24 files from the workshop, 41–56 s of app-test wall inside a cycle of roughly three and a half minutes, all FAIL). The reds were `at0560` timing out at 17 s (green alone in run 9471 four minutes earlier), and `at0578`, `at0579`, `at0738`, `at0627` and `row-37` dying at 0–1 s. The arc's own `at0761` also died at 0 s in runs 9473–9475, the same shape. Files that die before their first second are the batch-contention signature this checkout's app-test doctrine already names. **(verified)**
+
+**[F02] The exam runs the verify surface table, in full, at join time** — `examine_candidate` (`tugrust/crates/tugarc-core/src/surfaces.rs:702`) stages the workshop, diffs it against the candidate's recorded base, loads the candidate's own `.tugtool/config.toml`, plans verification for every touched path a surface claims and runs the plans. That is the same table `tugtool arc verify` runs. In this checkout the `deck` surface's checks are `tsc`, `vite build`, `just test-ts` and `just app-test-changed {paths}`; `rust` is a workspace clippy and nextest; `app` is `just test-swift`, `just build-app` and `app-test-changed`. Its doc comment says "The checks' output is not kept". **(verified)**
+
+**[F03] The exam has three sites and one helper** — (1) `examine_candidate` and its two tests `the_exam_withholds_a_red_candidate_and_passes_a_green_one` and `the_exam_runs_only_the_touched_surfaces` in `surfaces.rs` (lines 1069 and 1094). (2) `examine_ladder_candidate` in `tugrust/crates/tugcast/src/feeds/join_resolver.rs:1462`, which opens the candidate in the workshop and calls the exam, and the direct call inside `commit_candidate` at line 1551, between the rewritten-outside-conflicts guard and the workshop commit. (3) The no-resolver branch of the resolve path in `tugrust/crates/tugcast/src/feeds/agent_supervisor/control/changeset.rs` at lines 2484–2510, which spawns the exam over the ladder's anchored candidate and, on a red, clears the candidate, writes the stuck line, ends the run `stuck` and sends `changeset_join_resolve_err`. **(verified)**
+
+**[F04] Two helpers the exam uses have other callers and stay** — `first_reds` (`surfaces.rs:664`) composes the verify receipt at line 630. `Workshop::open_candidate` (`tugrust/crates/tugarc-core/src/workshop.rs:163`) is how the resolver opens an inherited or squash candidate (`join_resolver.rs:1390` and `:1415`) and is exercised by the join test at `ops/join.rs:3495`. `clear_candidate` has ten other callers. **(verified)**
+
+**[F05] Two tugcast tests pin the exam; one of them pins a guarantee that survives** — `tugrust/crates/tugcast/src/feeds/agent_supervisor/tests/changeset.rs` has the fixture `run_clean_squash_with_check` (line 1283) and the tests `a_candidate_that_fails_its_checks_is_withheld` (line 1341) and `a_candidate_that_passes_its_checks_is_offered` (line 1363). The first asserts the design being removed. The second asserts that a clean squash ends on `changeset_join_resolve_ok` with a `candidate_commit` that `read_candidate` returns, which is true with or without an exam. The join pilot's tests pin only the moved-head path (a superseded run writes no stuck line, `join_pilot.rs:531`) and that a question or stuck line stops the pilot (line 315). The join board's quoted sentence "the build verdict went missing before the exam" (`join_board.rs:198` and `:1118`) is history about a mid-run clearing bug and its test is about staleness pinning. **(verified)**
+
+**[F06] The exam contradicts two recorded decisions and the doctrine** — D149 (`tuglaws/design-decisions.md:666`): "The join verifies nothing; the run ends on the tree the join will land … the join gate is reconcile-clean alone", with two rejected shapes named so they are not re-proposed. D151 (line 670): "No declared command is ever run at join time. The join gate remains reconcile-clean alone … and this sentence exists so it cannot be read as one." The doctrine's "The join finishes itself" (`tugplug/doctrine/arc-work-doctrine.md:164`): "The gate is reconcile-clean, and nothing else … No build runs here and no tests run here … A join that re-verified would be re-reading work that was already read, at the one moment the user is waiting." No D-entry records a reversal. The latest entry is D223. **(verified)**
+
+**[F07] The exam came in with `70554cc7a` and that commit already conceded its cost** — the `join-crossings` commit of 2026-10-27 implements [B10] of `briefs/join-crossings-brief.md`, which promised a join "within a couple of minutes" by being surface-scoped rather than the full fast lane. The commit body's paragraph "The candidate is examined before it is offered" says that in this checkout a join touching `tugdeck/` waits on `just test-ts` and a derived app-test selection behind the machine-wide gate, "longer than the couple of minutes the decision assumed", and that narrowing it would be a separate exam table. **(verified)**
+
+**[F08] The incident the exam was answering is stopped by guards that stay** — [B10] answered [F07] of the join-crossings brief, "nothing builds a candidate before it is offered or landed", after a stale tree landed as `5fd264fd2` and reverted `36c6d58b7`. The same commit landed the structural fixes for that: `anchor_candidate` records the `(base_head, arc_head)` pair and `integrate_join` compares it under the base's flock, `heads_moved` re-reads the pair before anchoring and drops a mismatched run as superseded, the scribe never sees a truncated file and must keep every clean segment verbatim, and `paths_rewritten_outside_conflicts` refuses a resolver that edited beyond the conflicts. None of those runs a check. The exam was a third layer over them, and the layer that tests the deliverable is the arc's ending under D149. **(verified)**
+
+**[F09] The sibling arc has joined and its files do not overlap** — `arc-crossing-lab` landed as `772ecec8d`; `.tug/worktrees` is empty and `tugtool arc list` reports no arcs. Its commit touched `tugarc-core/src/{crossing,replay,resolve,torture}.rs`, `tugcast/src/feeds/{base_motion,crossing_settle,arc_notes}.rs`, `agent_supervisor/mod.rs`, `tugcast/src/{server,router}.rs`, `boot/supervisor.rs`, the new `tugarclab` crate and `tugdeck/src/lib/resolve-ledger.ts`. None of [F03]'s files is among them. **(verified)**
+
+**[F10] The lab depends on the exam only in words** — `tugrust/crates/tugarclab/src/scenario.rs` (lines 15, 69–70, 79–80, 263–264) and `project.rs` (lines 45, 104) say the lab project declares a surface "so the exam has something to check". `scenario_zero` declares `red_docs` (check `sh -c 'exit 1'`) and has `rb` touch `docs/README.md`, but no act probes a stuck line or a withheld candidate. The `rb verified` markers that `join_during_settle` and `notice_mid_turn` expect are written by `tugtool arc verify`, which the arc's session runs on base-motion's notice (`base_motion.rs:253`), not by the exam. **(verified)**
+
+**[F11] Nothing else names the exam** — the deck renders a `stuck` ending generically from its `detail` (`tugdeck/src/lib/changeset-types.ts`), no app-test references the exam, and no law outside `design-decisions.md` mentions it. `briefs/arc-crossing-lab-brief.md:77` lists "narrowing the exam" as a non-goal, which this work makes moot. **(verified)**
+
+---
+
+## Decisions {#decisions}
+
+**[B01] The join gate is reconcile-clean and nothing else, as D149 and D151 state; the exam is removed at all three sites.** `examine_candidate` and its two tests go from `surfaces.rs`; `examine_ladder_candidate` and the call inside `commit_candidate` go from `join_resolver.rs`, so the resolver's candidate is committed and anchored as soon as it passes the rewritten-outside-conflicts guard; the exam block goes from `control/changeset.rs`, so the ladder's anchored candidate is offered at once. The all-clear for an arc is the audit stage's `tugtool arc verify`, over the tree the arc produced, with the model present to fix a red. A check at the join re-reads work already read, discards its own output, and does it at the one moment the user is waiting ([F01], [F02], [F06]). Reopening this requires a new decision that supersedes D149 and D151 in the open, which [F07]'s commit did not do.
+
+**[B02] The stuck line stays, for the refusals that remain real.** `write_stuck`, `read_stuck` and `clear_stuck` in `resolve.rs` are untouched, and so are the refusals that still write one: a resolver that rewrote lines outside the conflicts, a candidate the workshop cannot open, a tugcast restart while the resolver waited on a question, a resolver that exhausted its budget. A moved head stays `superseded`, never stuck. The deck's rendering of a stuck ending needs no change ([F11]).
+
+**[B03] The reversal is recorded as D224.** The entry cites D149, D151 and `70554cc7a`, names the 2026-10-28 incident ([F01]), and states that the structural guards from the same commit are what stop the `36c6d58b7` incident and stay ([F08]). It restates that a surface-scoped exam was the shape D151 said could not be read as anything but a reopened join-time verification. The doctrine text already states the rule and is not edited.
+
+**[B04] `first_reds` and `Workshop::open_candidate` stay; the green-exam test is kept under a true name.** Both helpers have callers outside the exam ([F04]). `a_candidate_that_passes_its_checks_is_offered` becomes a test that a clean squash is offered at once, with the surface declaration dropped from its fixture, because the guarantee it asserts does not depend on an exam ([F05]). `a_candidate_that_fails_its_checks_is_withheld` and the two `surfaces.rs` exam tests are deleted with the design; they pinned the mechanism being removed, not a guarantee that survives.
+
+**[B05] The lab's comments are reworded and `red_docs` is retired or repurposed; no scenario act changes.** The lab's surfaces exist for `tugtool arc verify` to run, which is what its `verified` markers read ([F10]). A planted red surface is only meaningful as a verify red, so `red_docs` either becomes that or goes.
+
+**[B06] The work does not touch `resolve.rs` or anything under crossings.** The crossing engine, the replay, the torture bench, base-motion, the settle task and the lab's executor, probe and instance modules are the sibling arc's territory and this brief's files do not overlap with them ([F09]).
+
+---
+
+## Non-goals {#non-goals}
+
+- **A narrower exam table.** `70554cc7a` named this as the alternative. Any exam at the join is the shape D149 and D151 rejected, and a faster one would still re-run checks over bytes the arc's ending already verified.
+- **The exam kept as advisory.** D149 rejected join-time verification "kept as advisory rather than blocking" because it still stands between the finished run and the dialog.
+- **Changing the crossing engine, the replay or the settle task.** Out of scope and the sibling arc's domain ([F09]).
+- **Changing `tugtool arc verify` or the surface table.** The verify is the all-clear and is right where it is.
+- **Fixing the app-test contention that made the exams red.** The reds in [F01] are the batch-contention shape this checkout already documents; the exam is wrong at the join whether or not those files are flaky.
+
+---
+
+## Exit {#exit}
+
+An arc. The shape is one deletion with its record:
+
+- Remove `examine_candidate` and its tests from `surfaces.rs`; remove `examine_ladder_candidate` and the call in `commit_candidate` from `join_resolver.rs`; remove the exam block from `control/changeset.rs`. Rename the green tugcast test and delete the red one and the two `surfaces.rs` tests.
+- Reword the `tugarclab` comments and retire or repurpose `red_docs`.
+- Write D224 in `tuglaws/design-decisions.md`, and strike the moot non-goal in `briefs/arc-crossing-lab-brief.md` or leave it as history with a note.
+- Verify with clippy under `-D warnings` and nextest over `tugarc-core` and the tugcast join, pilot, board and changeset tests, plus `just test-standalone`. The live proof is a real arc joined from the Changes shade on this checkout with the candidate offered as soon as the ladder anchors it.
