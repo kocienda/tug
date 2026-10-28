@@ -680,6 +680,145 @@ async fn closing_a_headless_session_gives_the_workspace_back() {
     );
 }
 
+/// A persisted row for a headless session the stall spawner never gets to
+/// record — what the merger writes once the bridge's `init` arrives.
+fn seed_headless_row(
+    ledger: &crate::session_ledger::SessionLedger,
+    session: &TugSessionId,
+    owner: &str,
+) {
+    seed_live_session(
+        ledger,
+        session.as_str(),
+        &background_card_id(owner),
+        test_project_dir(),
+    );
+}
+
+/// The sweep at the end of a lab run: every session the owner spawned is
+/// closed here and its row trashed, and a neighbouring owner's row is
+/// untouched — the owner's card id is the key, so one run cannot sweep
+/// another's sessions.
+#[tokio::test]
+async fn trashing_an_owners_headless_sessions_sweeps_its_rows_and_no_others() {
+    let (sup, ledger, mut register_rx) = test_minimal_supervisor_reading_its_ledger();
+    tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+    let project_dir = Path::new(test_project_dir());
+
+    let mine_a = sup
+        .spawn_headless_session("arc-lab:run-1", project_dir, None, None)
+        .await
+        .expect("spawn");
+    let mine_b = sup
+        .spawn_headless_session("arc-lab:run-1", project_dir, None, None)
+        .await
+        .expect("spawn");
+    let theirs = sup
+        .spawn_headless_session("arc-lab:run-2", project_dir, None, None)
+        .await
+        .expect("spawn");
+    for (session, owner) in [
+        (&mine_a, "arc-lab:run-1"),
+        (&mine_b, "arc-lab:run-1"),
+        (&theirs, "arc-lab:run-2"),
+    ] {
+        seed_headless_row(&ledger, session, owner);
+    }
+
+    let swept = sup.trash_headless_sessions("arc-lab:run-1").await;
+
+    let mut trashed = swept.trashed.clone();
+    trashed.sort();
+    let mut expected = vec![mine_a.as_str().to_string(), mine_b.as_str().to_string()];
+    expected.sort();
+    assert_eq!(trashed, expected);
+    assert!(swept.kept.is_empty(), "nothing refused: {:?}", swept.kept);
+    assert!(ledger.get(mine_a.as_str()).unwrap().is_none());
+    assert!(ledger.get(mine_b.as_str()).unwrap().is_none());
+    assert!(
+        ledger.get(theirs.as_str()).unwrap().is_some(),
+        "the other run's row is not this sweep's"
+    );
+    let live = sup.ledger.lock().await;
+    assert!(!live.contains_key(&mine_a) && !live.contains_key(&mine_b));
+    assert!(live.contains_key(&theirs), "the other run is still live");
+}
+
+/// A session a card adopted is the user's now: the sweep leaves it live, its
+/// row in place, and says so under `kept` rather than quietly skipping it.
+#[tokio::test]
+async fn trashing_headless_sessions_keeps_one_a_card_adopted() {
+    let (sup, ledger, mut register_rx) = test_minimal_supervisor_reading_its_ledger();
+    tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+
+    let session = sup
+        .spawn_headless_session("arc-lab:run-3", Path::new(test_project_dir()), None, None)
+        .await
+        .expect("spawn");
+    seed_headless_row(&ledger, &session, "arc-lab:run-3");
+    {
+        let entry_arc = sup.ledger.lock().await.get(&session).cloned().unwrap();
+        entry_arc.lock().await.card_id = Some("card-9".to_string());
+    }
+
+    let swept = sup.trash_headless_sessions("arc-lab:run-3").await;
+
+    assert!(swept.trashed.is_empty());
+    assert_eq!(swept.kept.len(), 1);
+    assert_eq!(swept.kept[0].0, session.as_str());
+    assert!(swept.kept[0].1.contains("adopted"), "{}", swept.kept[0].1);
+    assert!(sup.ledger.lock().await.contains_key(&session));
+    assert!(ledger.get(session.as_str()).unwrap().is_some());
+}
+
+/// A row the sweep finds `live` with no entry in this process is a restart's
+/// orphan, and the sweep closes it on its way rather than tripping over the
+/// ledger's live-row refusal.
+#[tokio::test]
+async fn trashing_headless_sessions_closes_a_restarts_orphan_row_first() {
+    let (sup, ledger, _register_rx) = test_minimal_supervisor_reading_its_ledger();
+    seed_live_session(
+        &ledger,
+        "orphan-1",
+        &background_card_id("arc-lab:run-4"),
+        test_project_dir(),
+    );
+
+    let swept = sup.trash_headless_sessions("arc-lab:run-4").await;
+
+    assert_eq!(swept.trashed, vec!["orphan-1".to_string()]);
+    assert!(swept.kept.is_empty(), "{:?}", swept.kept);
+    assert!(ledger.get("orphan-1").unwrap().is_none());
+}
+
+/// A session spawned seconds before the sweep has an entry here and no row
+/// yet — the bridge writes the row when it reports in. The sweep closes it
+/// all the same, because reading rows alone is how the first live lab run
+/// left a headless claude running under a finished run's owner.
+#[tokio::test]
+async fn trashing_headless_sessions_closes_one_with_no_row_yet() {
+    let (sup, ledger, mut register_rx) = test_minimal_supervisor_reading_its_ledger();
+    tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+
+    let session = sup
+        .spawn_headless_session("arc-lab:run-5", Path::new(test_project_dir()), None, None)
+        .await
+        .expect("spawn");
+    assert!(
+        ledger.get(session.as_str()).unwrap().is_none(),
+        "no row yet"
+    );
+
+    let swept = sup.trash_headless_sessions("arc-lab:run-5").await;
+
+    assert_eq!(swept.trashed, vec![session.as_str().to_string()]);
+    assert!(swept.kept.is_empty(), "{:?}", swept.kept);
+    assert!(
+        !sup.ledger.lock().await.contains_key(&session),
+        "closed here"
+    );
+}
+
 /// Records the `--permission-mode` every spawn is handed, then stalls the
 /// way `StallSpawner` does — the test reads the modes off the channel
 /// because the spawn happens in a detached bridge task.

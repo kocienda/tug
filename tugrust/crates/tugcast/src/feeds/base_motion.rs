@@ -1070,10 +1070,12 @@ fn merge_base(repo: &Path, a: &str, b: &str) -> String {
 }
 
 /// The send half of an injection, cloned out of the context so the spawned task
-/// owns it.
-struct InjectHandles {
-    code_input_tx: Option<mpsc::Sender<Frame>>,
-    code_output: Option<SessionScopedFeed>,
+/// owns it. The session API's `say` op builds one too, so a lab's injected
+/// turn takes exactly the path a conflict turn takes: the opener on
+/// CODE_OUTPUT, the submission down the CODE_INPUT queue.
+pub(crate) struct InjectHandles {
+    pub(crate) code_input_tx: Option<mpsc::Sender<Frame>>,
+    pub(crate) code_output: Option<SessionScopedFeed>,
 }
 
 impl InjectHandles {
@@ -1084,7 +1086,7 @@ impl InjectHandles {
 
     /// The row under `origin` saying `text`, then the turn the agent reads,
     /// which says `submission`.
-    async fn send_as(
+    pub(crate) async fn send_as(
         &self,
         session: &str,
         origin: &str,

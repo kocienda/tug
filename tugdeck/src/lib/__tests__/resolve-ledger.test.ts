@@ -351,6 +351,39 @@ describe("ledgerBlocks and mergeLedgerEvents, over recorded events", () => {
     expect(resolver.phase).toBe("success");
   });
 
+  test("a candidate the exam withheld is drawn withdrawn, not anchored", () => {
+    const events = [
+      { seq: 0, at_ms: 0, kind: "candidate" as const, sha: "a4e2bedb7", base_sha: "cb35b41", files: [] },
+      { seq: 1, at_ms: 1, kind: "ended" as const, outcome: "stuck" as const, detail: "the candidate failed its checks: docs: `false` (exit 1)" },
+    ];
+    const durable: ArcJoinLedgerWire = { run: "800", started_ms: 0, ended_ms: 1, events };
+    const candidate = ledgerBlocks({ join: null, durable, live: EMPTY_LIVE, base: "main", running: false }).find(
+      (b) => b.kind === "candidate",
+    )!;
+    expect(candidate.phase).toBe("error");
+    expect(candidate.identity.text).toBe("withheld — the candidate failed its checks: docs: `false` (exit 1)");
+
+    const moved = [
+      events[0]!,
+      { seq: 1, at_ms: 1, kind: "ended" as const, outcome: "superseded" as const, detail: "main moved from cb35b41c4 to 1a2b3c4d5 while the run was resolving" },
+    ];
+    const superseded = ledgerBlocks({ join: null, durable: { ...durable, events: moved }, live: EMPTY_LIVE, base: "main", running: false }).find(
+      (b) => b.kind === "candidate",
+    )!;
+    expect(superseded.phase).toBe("error");
+    expect(superseded.identity.text.startsWith("superseded — main moved")).toBe(true);
+
+    // The ending before the candidate is an earlier run's; this one stands.
+    const stands = ledgerBlocks({
+      join: null,
+      durable: { ...durable, events: [{ ...events[1]!, seq: 0 }, { ...events[0]!, seq: 1 }] },
+      live: EMPTY_LIVE,
+      base: "main",
+      running: false,
+    }).find((b) => b.kind === "candidate")!;
+    expect(stands.phase).toBe("success");
+  });
+
   test("a new run over the last run's ended ledger draws its own live block, not the old account", () => {
     const join = { phase: "conflicted", conflicts: ["Justfile"] } as ArcJoinStateWire;
     // Pressed, and nothing heard of the new run yet: the ended ledger is the

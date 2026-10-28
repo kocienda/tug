@@ -2,9 +2,13 @@
 //! scratch in a tempdir and walked round by round through the probe, the
 //! pair ladder, a landing and the second arc's join — the whole path a real
 //! crossing takes, minus tugcast — with every stand-in for a model written
-//! down. Shared by the `crossing_torture` example, which prints the table,
-//! and the integration test of the same name, which asserts each scenario's
-//! expectation under nextest.
+//! down. One scenario grammar with two executors: the tempdir executor here
+//! ([`Bench`]), which the `crossing_torture` example prints as a table and
+//! the integration test of the same name asserts under nextest, and the
+//! live lab, which walks the same [`scenarios`] against a running instance.
+//!
+//! Compiled only under the `torture` feature, which this crate's own tests
+//! and the lab enable; nothing that ships turns it on.
 //!
 //! What a scenario reports: the crossings the probe saw (clean and
 //! conflicted), what the settles taught the cache, which rung settled each
@@ -13,9 +17,9 @@
 
 use std::path::PathBuf;
 
-use tugarc_core::ResolvedBy;
-use tugarc_core::crossing::{forget_crossings, probe_crossings, settle_crossing};
-use tugarc_core::resolve::{FileMergeRequest, FileMerger, PairCheckout};
+use crate::ResolvedBy;
+use crate::crossing::{forget_crossings, probe_crossings, settle_crossing};
+use crate::resolve::{FileMergeRequest, FileMerger, PairCheckout};
 use tugcore::instance::Paths;
 use tugcore::test_fixtures::git::{GitFixture, git as fixture_git};
 
@@ -134,6 +138,10 @@ pub struct Bench {
     pub resolver: bool,
     pub clean_crossings: usize,
     pub conflict_crossings: usize,
+    /// How many times a round actually ran a settle — gated on the crossing's
+    /// finished-settle record, so a conflict that stands unchanged is counted
+    /// in `conflict_crossings` but adds no settle.
+    pub settle_calls: usize,
     pub settles: Vec<Settle>,
     pub joins: Vec<Join>,
     pub notes: Vec<String>,
@@ -181,6 +189,7 @@ impl Bench {
             resolver,
             clean_crossings: 0,
             conflict_crossings: 0,
+            settle_calls: 0,
             settles: Vec::new(),
             joins: Vec::new(),
             notes: Vec::new(),
@@ -234,7 +243,12 @@ impl Bench {
                 continue;
             }
             self.conflict_crossings += 1;
-            self.settle(arc, &crossing.sibling);
+            // A standing conflict is settled once a settle has finished over
+            // it — the same gate base-motion's watcher uses.
+            if crate::crossing::needs_settle(&self.repo, arc, &crossing) {
+                self.settle_calls += 1;
+                self.settle(arc, &crossing.sibling);
+            }
         }
     }
 
@@ -267,7 +281,21 @@ impl Bench {
             }
             row.resolver = Some(checkout.teach(&self.repo, &settled.unresolved));
         }
+        crate::crossing::mark_settled(&self.repo, &pair).expect("mark settled");
         self.settles.push(row);
+    }
+
+    /// Settle `name` against the merged `sib_a·sib_b`, teaching the three-way
+    /// preimage its later join meets once both siblings have landed — what
+    /// base-motion's composed settle does while all three arcs are live.
+    pub fn compose(&mut self, name: &str, sib_a: &str, sib_b: &str) {
+        let scribe = self.scribe;
+        let merger: Option<&dyn FileMerger> = match scribe {
+            Scribe::None => None,
+            _ => Some(&scribe),
+        };
+        crate::crossing::settle_composed(&self.paths, &self.repo, name, sib_a, sib_b, merger)
+            .expect("compose");
     }
 
     /// Land `arc` as a join does: `main` takes its tree and its branch goes.
@@ -295,11 +323,24 @@ impl Bench {
         forget_crossings(&self.repo, arc);
     }
 
+    /// Move `arc` onto the base the way base-motion does: its branch checked
+    /// out in a worktree for the length of the move, `replay_onto` run over
+    /// it, the worktree gone after so the bench can switch to the branch
+    /// again. The outcome is the engine's own.
+    pub fn replay(&mut self, arc: &str) -> crate::ReplayOutcome {
+        let wt = self.repo.join(".tug").join("worktrees").join(arc);
+        std::fs::create_dir_all(wt.parent().expect("a parent")).expect("worktrees dir");
+        let at = wt.to_string_lossy().into_owned();
+        self.git(&["worktree", "add", "-q", &at, &format!("tugarc/{arc}")]);
+        let outcome = crate::replay_onto(&self.paths, &self.repo, arc).expect("replay");
+        self.git(&["worktree", "remove", "--force", &at]);
+        outcome
+    }
+
     /// Run `arc`'s join ladder with no scribe, so every path it settles is
     /// settled by a rung that needs no model.
     pub fn join(&mut self, arc: &str) -> Join {
-        let outcome =
-            tugarc_core::resolve_conflicts(&self.paths, &self.repo, arc, None).expect("join");
+        let outcome = crate::resolve_conflicts(&self.paths, &self.repo, arc, None).expect("join");
         let blocks = self.blocks(&format!("tugarc/{arc}"));
         let join = Join {
             conflicts: outcome.preview_conflicts.clone(),
@@ -504,6 +545,28 @@ fn a_lands_first() -> Bench {
     b
 }
 
+/// The settle taught the cache while both arcs stood. When `a` lands and the
+/// engine replays `b` onto the moved base, the replay recalls that resolution
+/// rather than standing down on a hunk the machine already knows, and the
+/// join that follows meets no conflict at all.
+fn a_lands_first_then_replay() -> Bench {
+    let mut b = line_five(Scribe::KeepBoth, false);
+    b.land("a");
+    let outcome = b.replay("b");
+    b.expect(
+        matches!(outcome, crate::ReplayOutcome::Replayed { .. }),
+        format!("the replay recalls the settle: {outcome:?}"),
+    );
+    b.expect(
+        b.text("tugarc/b", "f.txt") == kept_both(),
+        "b now carries the kept-both hunk",
+    );
+    let j = b.join("b");
+    b.expect(j.conflicts.is_empty(), "the join after the replay is clean");
+    b.expect_landed(&j, "f.txt", &kept_both());
+    b
+}
+
 fn b_lands_first() -> Bench {
     let mut b = line_five(Scribe::KeepBoth, false);
     b.land("b");
@@ -529,6 +592,46 @@ fn resolver_finishes() -> Bench {
         "rung 2 replays the resolver's file",
     );
     b.expect_landed(&j, "f.txt", &kept_both());
+    b
+}
+
+/// [F03e] A conflict that stands unchanged round after round is settled once,
+/// not on every round. The first round that makes the conflict settles it; a
+/// later round of either arc that leaves the conflicted file untouched runs no
+/// second settle, and so opens no second scratch worktree. A round that does
+/// change the conflict — a new or moved hunk — settles afresh, which the
+/// `second_hunk` rows cover.
+fn standing_conflict_settles_once() -> Bench {
+    let mut b = Bench::new(
+        Scribe::KeepBoth,
+        false,
+        &[("f.txt", &lines(10)), ("g.txt", "g\n")],
+    );
+    b.arc("a");
+    b.arc("b");
+    b.round(
+        "a",
+        &[("f.txt", Edit::Write(edit(&lines(10), 5, "a five")))],
+    );
+    b.round(
+        "b",
+        &[("f.txt", Edit::Write(edit(&lines(10), 5, "b five")))],
+    );
+    b.expect(
+        b.settle_calls == 1,
+        format!("the fresh conflict settled once, not {}", b.settle_calls),
+    );
+    // Another round of a on a different file: the conflicted file's content is
+    // unchanged, so the fingerprint matches and no settle runs.
+    b.round("a", &[("g.txt", Edit::Write("g by a\n".into()))]);
+    b.expect(
+        b.conflict_crossings == 2,
+        format!("the conflict is still detected: {}", b.conflict_crossings),
+    );
+    b.expect(
+        b.settle_calls == 1,
+        format!("a standing conflict does not re-settle: {}", b.settle_calls),
+    );
     b
 }
 
@@ -766,6 +869,54 @@ fn three_arcs() -> Bench {
     b
 }
 
+/// [F03d] The same three arcs, with the composed settle that teaches the
+/// three-way preimage. After `a·b` and the pairwise `c` crossings settle, `c`
+/// is settled against the merged `a·b` hunk; so once `a` lands and `b` replays
+/// onto it, `c`'s join meets a conflict the cache already holds and replays it
+/// through rung 2, where `three_arcs` without the compose leaves it unresolved.
+fn three_arcs_compose() -> Bench {
+    let mut b = line_five(Scribe::KeepBoth, false);
+    b.arc("c");
+    b.round(
+        "c",
+        &[("f.txt", Edit::Write(edit(&lines(10), 5, "c five")))],
+    );
+    // The composed settle: `c` against the merged `a·b`, teaching the preimage
+    // the join below meets.
+    b.compose("c", "a", "b");
+    b.land("a");
+    let jb = b.join("b");
+    let Some(candidate) = jb.candidate.clone() else {
+        b.expect(false, "b's join produced no candidate");
+        return b;
+    };
+    b.land_candidate("b", &candidate);
+    let jc = b.join("c");
+    b.note(format!(
+        "c's join: f.txt {} · blocks {}→{}",
+        jc.rung("f.txt").map_or("unresolved", |r| r.as_str()),
+        jc.blocks.0,
+        jc.blocks.1
+    ));
+    b.expect(
+        jc.rung("f.txt") == Some(ResolvedBy::Rerere),
+        format!(
+            "c's join replays the composed settle, not {:?}",
+            jc.rung("f.txt")
+        ),
+    );
+    if let Some(sha) = &jc.candidate {
+        let landed = b.text(sha, "f.txt");
+        for line in ["a five", "b five", "c five"] {
+            b.expect(
+                landed.contains(line),
+                format!("the composed resolution keeps {line}: {landed:?}"),
+            );
+        }
+    }
+    b
+}
+
 fn discarded_arc_taught_the_cache() -> Bench {
     let mut b = line_five(Scribe::KeepBoth, false);
     b.git(&["branch", "-qD", "tugarc/b"]);
@@ -779,6 +930,83 @@ fn discarded_arc_taught_the_cache() -> Bench {
     let j = b.join("c");
     b.expect(j.rung("f.txt") == Some(ResolvedBy::Rerere), "a·c replays");
     b.expect_landed(&j, "f.txt", &edit(&lines(10), 5, "a five\nc five"));
+    b
+}
+
+/// [B11] A base that moves twice before the arc replays. `a` and `b` share the
+/// hunk at line five and settle; `x` edits line one, disjoint from both. `a`
+/// lands, `x` is replayed onto it and lands in turn, so the base is two commits
+/// ahead of where `b` was cut before base-motion ever replays `b`. The replay
+/// must still recall the a·b settle and carry `x`'s disjoint edit forward — a
+/// base that moved more than once is not one the replay can only walk a step of.
+fn base_moves_twice() -> Bench {
+    let mut b = Bench::new(Scribe::KeepBoth, false, &[("f.txt", &lines(10))]);
+    b.arc("a");
+    b.arc("b");
+    b.arc("x");
+    b.round(
+        "a",
+        &[("f.txt", Edit::Write(edit(&lines(10), 5, "a five")))],
+    );
+    b.round(
+        "b",
+        &[("f.txt", Edit::Write(edit(&lines(10), 5, "b five")))],
+    );
+    b.round("x", &[("f.txt", Edit::Write(edit(&lines(10), 1, "x one")))]);
+    b.land("a");
+    // x is replayed onto a's base so it descends from it, then lands: the base
+    // has now moved twice, and b has still not been replayed.
+    b.replay("x");
+    b.land("x");
+    let outcome = b.replay("b");
+    b.expect(
+        matches!(outcome, crate::ReplayOutcome::Replayed { .. }),
+        format!("the replay over a twice-moved base recalls the settle: {outcome:?}"),
+    );
+    let want = edit(&edit(&lines(10), 1, "x one"), 5, "a five\nb five");
+    b.expect(
+        b.text("tugarc/b", "f.txt") == want,
+        format!(
+            "b carries both the recalled hunk and x's edit: {:?}",
+            b.text("tugarc/b", "f.txt")
+        ),
+    );
+    let j = b.join("b");
+    b.expect(
+        j.conflicts.is_empty(),
+        "the join after the twice-moved replay is clean",
+    );
+    b.expect_landed(&j, "f.txt", &want);
+    b
+}
+
+/// [B11] An arc discarded while its crossing stands, then a new arc of the same
+/// name cut. `a` and `b` share the hunk and settle, teaching the a·b preimage;
+/// `b` is discarded — its branch gone, its standing crossing forgotten — and a
+/// fresh `b` is cut over the same name with a different edit on the same line.
+/// The new `b`'s crossing with `a` must be probed afresh and settled on its own
+/// content, never served the dead arc's stale standing record; so after `a`
+/// lands, the new `b` joins carrying a-five and b-two, the live pair's answer.
+fn discard_then_same_name() -> Bench {
+    let mut b = line_five(Scribe::KeepBoth, false);
+    b.git(&["branch", "-qD", "tugarc/b"]);
+    forget_crossings(&b.repo, "b");
+    b.arc("b");
+    b.round("b", &[("f.txt", Edit::Write(edit(&lines(10), 5, "b two")))]);
+    b.expect(
+        b.conflict_crossings == 2,
+        format!(
+            "the new b's crossing is seen fresh, not the dead one: {} conflict crossings",
+            b.conflict_crossings
+        ),
+    );
+    b.land("a");
+    let j = b.join("b");
+    b.expect(
+        j.rung("f.txt") == Some(ResolvedBy::Rerere),
+        format!("the live pair replays: {:?}", j.rung("f.txt")),
+    );
+    b.expect_landed(&j, "f.txt", &edit(&lines(10), 5, "a five\nb two"));
     b
 }
 
@@ -829,6 +1057,18 @@ fn delete_vs_modify() -> Bench {
             .last()
             .map(|s| (&s.resolved, &s.unresolved, &s.resolver))
     ));
+    // [F03c] A delete-versus-modify is not a content conflict, so rerere can
+    // record no resolution for it; the resolver's finish is reported as taught
+    // nothing rather than silently accepted.
+    b.expect(
+        b.settles.last().is_some_and(
+            |s| matches!(&s.resolver, Some(Err(why)) if why.contains("recorded no resolution")),
+        ),
+        format!(
+            "teach reports the unrecordable finish: {:?}",
+            b.settles.last().map(|s| &s.resolver)
+        ),
+    );
     b.land("a");
     let j = b.join("b");
     b.note(format!(
@@ -1037,8 +1277,10 @@ pub fn scenarios() -> Vec<Scenario> {
         disjoint => "no shared path: no probe, clean join",
         clean_overlap => "same file, far lines: a clean crossing, clean join",
         a_lands_first => "one hunk, keep-both scribe; a lands, b replays",
+        a_lands_first_then_replay => "the same; base-motion's replay recalls the settle",
         b_lands_first => "the same, landed the other way round",
         resolver_finishes => "no scribe; the resolver stand-in teaches, b replays",
+        standing_conflict_settles_once => "a standing conflict settles once, not every round",
         prose_scribe => "a scribe answering in prose teaches nothing",
         ours_only_scribe => "a scribe returning its own side teaches nothing",
         reformatting_scribe => "a scribe re-indenting a clean line teaches nothing",
@@ -1053,7 +1295,10 @@ pub fn scenarios() -> Vec<Scenario> {
         second_hunk_5 => "… 5 lines below it",
         conflict_goes_away_and_returns => "b reverts, then re-edits the same line",
         three_arcs => "a, b, c on one hunk; c's join meets a·b's merged hunk",
+        three_arcs_compose => "the same, with the composed settle; c's join replays",
         discarded_arc_taught_the_cache => "b taught a·b then was discarded; c joins after a",
+        base_moves_twice => "a and x land before b replays; the twice-moved replay recalls",
+        discard_then_same_name => "b discarded while its crossing stands, a new b cut over the name",
         rename_vs_edit => "a renames and edits, b edits the old path",
         delete_vs_modify => "a deletes, b edits",
         add_add => "both add the same new file",

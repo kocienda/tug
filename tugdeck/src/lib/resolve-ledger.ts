@@ -247,6 +247,9 @@ interface Draft extends Omit<LedgerBlock, "phase" | "status" | "live"> {
   liveText?: string;
   /** A resolver asking a question it has had no answer to. */
   awaiting?: boolean;
+  /** A candidate the run then took back — withheld by its exam, or
+   *  superseded by a head that moved — drawn as the failure it is. */
+  withdrawn?: boolean;
 }
 
 function probeDraft(
@@ -543,17 +546,37 @@ function candidateDraft(
   // ledger to say otherwise, a candidate that names no resolved file is not
   // evidence of anything, and a receipt over an empty list would say so.
   if (event === undefined && files.length === 0) return null;
+  // The ladder tells the ledger "candidate" the moment it anchors, and the
+  // exam or a moved head can take it back afterwards; the run's ending says
+  // so, and a row still reading "anchored" above a stuck line would be a
+  // candidate the face vouches for and nothing else does.
+  const ending =
+    event !== undefined
+      ? [...events]
+          .reverse()
+          .find(
+            (e): e is EventOf<"ended"> =>
+              e.kind === "ended" && e.seq > event.seq,
+          )
+      : undefined;
+  const withdrawn =
+    ending !== undefined && (ending.outcome === "stuck" || ending.outcome === "superseded");
   const summary: ToolResultSummary[] = [
     { kind: "count", count: files.length, noun: "file" },
   ];
   if (durable?.ended_ms !== undefined) {
     summary.push({ kind: "text", text: `${duration(durable.started_ms, durable.ended_ms)} in all` });
   }
+  const text = withdrawn
+    ? `${ending.outcome === "stuck" ? "withheld" : "superseded"}${
+        ending.detail !== undefined && ending.detail !== "" ? ` — ${ending.detail}` : ""
+      }`
+    : `anchored on ${base} — Join lands it as one commit`;
   return {
     key: "candidate",
     kind: "candidate",
     toolName: "Candidate",
-    identity: { sha, text: `anchored on ${base} — Join lands it as one commit` },
+    identity: { sha, text },
     summary,
     variant: "receipt",
     body: {
@@ -561,6 +584,7 @@ function candidateDraft(
       files: files.map((f) => ({ path: f.path, fact: f.resolved_by })),
     },
     open: false,
+    ...(withdrawn ? { withdrawn: true } : {}),
   };
 }
 
@@ -628,8 +652,9 @@ export function ledgerBlocks(input: LedgerInput): LedgerBlock[] {
   }
 
   const blocks: LedgerBlock[] = drafts.map((draft, i) => {
-    const { open: _open, liveText, awaiting, ...rest } = draft;
+    const { open: _open, liveText, awaiting, withdrawn, ...rest } = draft;
     if (awaiting === true) return { ...rest, phase: "awaiting", status: "ready" };
+    if (withdrawn === true) return { ...rest, phase: "error", status: "error" };
     if (i === liveIndex) {
       return {
         ...rest,

@@ -320,6 +320,12 @@ pub struct FeedRouter {
     /// has built them. `POST /api/session` parks into these; the drain task
     /// spawned beside the arc engine empties them on the turn-end tick.
     pub(crate) wheel: Option<Arc<crate::wheel::WheelState>>,
+    /// The CODE_INPUT queue the dispatcher reads, once `boot` has built it.
+    /// `POST /api/session`'s `say` op sends an injected turn down it, the
+    /// same queue base-motion's conflict turn takes, so a lab's submission
+    /// and a client's stay in one order and there is no second path into a
+    /// session.
+    pub(crate) code_input_tx: Option<mpsc::Sender<Frame>>,
     /// Which page is on each connection. `boot` replaces the default with
     /// the one registry it shares with every per-page service.
     pub(crate) pages: Arc<PageRegistry>,
@@ -373,6 +379,7 @@ impl FeedRouter {
             host_link: crate::control::HostLink::default(),
             shared_agent: None,
             wheel: None,
+            code_input_tx: None,
             pages: Arc::new(PageRegistry::new()),
         }
     }

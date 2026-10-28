@@ -51,6 +51,12 @@ pub mod surfaces;
 /// each other on every round.
 pub mod crossing;
 
+/// The crossing torture bench's scenario grammar and its tempdir executor,
+/// shared by the bench test, the `crossing_torture` example and the live lab.
+/// Behind the `torture` feature, so it rides no shipped binary.
+#[cfg(feature = "torture")]
+pub mod torture;
+
 /// Join verification — the project's own declared build and test commands run
 /// against the joined tree, recorded as a fact anchored to two commits.
 pub mod verify;

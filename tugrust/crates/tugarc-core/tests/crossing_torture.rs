@@ -1,9 +1,8 @@
 //! The crossing torture bench as a verdict: every scenario in
-//! `tests/torture/crossing.rs` runs under nextest and its expectations must
+//! `tugarc_core::torture` runs under nextest and its expectations must
 //! hold. The `crossing_torture` example prints the same scenarios as a table.
 
-#[path = "torture/crossing.rs"]
-mod torture;
+use tugarc_core::torture;
 
 fn run(name: &str) {
     let scenario = torture::scenarios()
@@ -35,8 +34,10 @@ scenario_tests![
     disjoint,
     clean_overlap,
     a_lands_first,
+    a_lands_first_then_replay,
     b_lands_first,
     resolver_finishes,
+    standing_conflict_settles_once,
     prose_scribe,
     ours_only_scribe,
     reformatting_scribe,
@@ -51,7 +52,10 @@ scenario_tests![
     second_hunk_5,
     conflict_goes_away_and_returns,
     three_arcs,
+    three_arcs_compose,
     discarded_arc_taught_the_cache,
+    base_moves_twice,
+    discard_then_same_name,
     rename_vs_edit,
     delete_vs_modify,
     add_add,
@@ -71,8 +75,10 @@ fn every_scenario_has_a_test() {
         "disjoint",
         "clean_overlap",
         "a_lands_first",
+        "a_lands_first_then_replay",
         "b_lands_first",
         "resolver_finishes",
+        "standing_conflict_settles_once",
         "prose_scribe",
         "ours_only_scribe",
         "reformatting_scribe",
@@ -87,7 +93,10 @@ fn every_scenario_has_a_test() {
         "second_hunk_5",
         "conflict_goes_away_and_returns",
         "three_arcs",
+        "three_arcs_compose",
         "discarded_arc_taught_the_cache",
+        "base_moves_twice",
+        "discard_then_same_name",
         "rename_vs_edit",
         "delete_vs_modify",
         "add_add",

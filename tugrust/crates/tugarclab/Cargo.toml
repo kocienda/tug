@@ -1,0 +1,25 @@
+[package]
+name = "tugarclab"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The live arc crossing lab — a dev binary that torture-tests the join and crossing code against a running Tug instance"
+publish = false
+
+[[bin]]
+name = "tugarclab"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+serde_json = { workspace = true }
+# The scenario grammar is the bench's, behind its feature.
+tugarc-core = { workspace = true, features = ["torture"] }
+tugcore = { workspace = true }
+tugtool-core = { workspace = true }
+ureq = { version = "3", features = ["json"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+toml = { workspace = true }

@@ -95,6 +95,14 @@ pub use spawn_state::*;
 /// the entry's mutable fields.
 pub type Ledger = Arc<Mutex<HashMap<TugSessionId, Arc<Mutex<LedgerEntry>>>>>;
 
+/// What a headless sweep did: the sessions it trashed, and the ones it left
+/// with the reason each stayed.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct TrashedHeadless {
+    pub(crate) trashed: Vec<String>,
+    pub(crate) kept: Vec<(String, String)>,
+}
+
 /// A read of which sessions are still working, handed to the readers that are
 /// not on the supervisor's own call graph.
 ///
@@ -2310,7 +2318,6 @@ impl AgentSupervisor {
     /// `background_session` owns both the minting and the recognising, so a
     /// reader downstream can tell a session held by a background owner from
     /// one held by a card a user could be sent to.
-    #[cfg_attr(not(test), allow(dead_code))] // no background spawner ships yet
     pub(crate) async fn spawn_headless_session(
         &self,
         owner: &str,
@@ -2437,7 +2444,6 @@ impl AgentSupervisor {
     /// The guard is here rather than in `do_close_session` on purpose: the
     /// user's own close of the adopted card goes through that path and must
     /// still work.
-    #[cfg_attr(not(test), allow(dead_code))] // no background spawner ships yet
     pub(crate) async fn close_headless_session(&self, owner: &str, tug_session_id: &TugSessionId) {
         let card_id = background_card_id(owner);
         let held_by = {
@@ -2461,6 +2467,119 @@ impl AgentSupervisor {
             return;
         }
         self.do_close_session(&card_id, tug_session_id).await;
+    }
+
+    /// Trash every session `owner` spawned headless: close the ones still
+    /// live here, then drop their persisted rows through the same `trash`
+    /// the picker's gesture takes, with the same `session_updated` push.
+    ///
+    /// The rows are found by the owner's card id, `background:<owner>`,
+    /// which the ledger keeps on a closed row too, so a run whose tugcast
+    /// restarted in the middle is still swept by name. A row that is `live`
+    /// once its entry is gone from here — a restart's orphan — is closed
+    /// first; a row whose live entry a card has adopted is left alone —
+    /// `close_headless_session` refuses it, and the refusal is reported under
+    /// `kept` rather than swallowed.
+    ///
+    /// The sessions are found in both places this process keeps them: the
+    /// persisted rows, and the in-memory entries under the owner's card id —
+    /// because a session spawned seconds ago has an entry and no row yet (the
+    /// bridge writes the row when it reports in), and a sweep that read only
+    /// rows left exactly that session running.
+    pub(crate) async fn trash_headless_sessions(&self, owner: &str) -> TrashedHeadless {
+        let mut outcome = TrashedHeadless::default();
+        let card_id = background_card_id(owner);
+        let mut ids: Vec<String> = Vec::new();
+        {
+            let held = self.ledger.lock().await;
+            for (id, entry_arc) in held.iter() {
+                if entry_arc.lock().await.card_id.as_deref() == Some(card_id.as_str()) {
+                    ids.push(id.as_str().to_string());
+                }
+            }
+        }
+        let Some(ledger) = self.session_ledger.clone() else {
+            // No persisted ledger: close what is held here and say so.
+            for session_id in ids {
+                let tug_session_id = TugSessionId::new(session_id.clone());
+                self.close_headless_session(owner, &tug_session_id).await;
+                if self.ledger.lock().await.contains_key(&tug_session_id) {
+                    outcome
+                        .kept
+                        .push((session_id, "held by a card that adopted it".to_string()));
+                } else {
+                    outcome.trashed.push(session_id);
+                }
+            }
+            return outcome;
+        };
+        let rows = {
+            let ledger = Arc::clone(&ledger);
+            let card_id = card_id.clone();
+            tokio::task::spawn_blocking(move || {
+                ledger
+                    .list_with_card_id()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|row| row.card_id.as_deref() == Some(card_id.as_str()))
+                    .map(|row| row.session_id)
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default()
+        };
+        for row in rows {
+            if !ids.contains(&row) {
+                ids.push(row);
+            }
+        }
+        for session_id in ids {
+            let tug_session_id = TugSessionId::new(session_id.clone());
+            let live_here = self.ledger.lock().await.contains_key(&tug_session_id);
+            if live_here {
+                self.close_headless_session(owner, &tug_session_id).await;
+                if self.ledger.lock().await.contains_key(&tug_session_id) {
+                    outcome
+                        .kept
+                        .push((session_id, "held by a card that adopted it".to_string()));
+                    continue;
+                }
+            }
+            let trashed = {
+                let ledger = Arc::clone(&ledger);
+                let id = session_id.clone();
+                tokio::task::spawn_blocking(move || {
+                    // The entry is gone from this process, so a row still
+                    // `live` has nobody left to close it but this sweep: a
+                    // restart's orphan, or a session whose bridge never
+                    // reported the id the close path marks rows under.
+                    if matches!(
+                        ledger.get(&id),
+                        Ok(Some(row)) if row.state == crate::session_ledger::SessionState::Live
+                    ) {
+                        let _ = ledger.mark_closed(&id);
+                    }
+                    // A session with no row yet was closed above and has
+                    // nothing to trash; that is a sweep, not a refusal.
+                    match ledger.trash(&id) {
+                        Err(crate::session_ledger::LedgerError::NotFound(_)) => Ok(()),
+                        other => other.map(|_| ()),
+                    }
+                })
+                .await
+            };
+            match trashed {
+                Ok(Ok(())) => {
+                    let _ = self
+                        .control_tx
+                        .send(recorder::build_session_removed_frame(&session_id));
+                    outcome.trashed.push(session_id);
+                }
+                Ok(Err(e)) => outcome.kept.push((session_id, e.to_string())),
+                Err(e) => outcome.kept.push((session_id, e.to_string())),
+            }
+        }
+        outcome
     }
 
     /// Close a **card** ([B04]): every bridge the card holds, and every live

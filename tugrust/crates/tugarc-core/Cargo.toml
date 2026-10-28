@@ -10,6 +10,13 @@ description = "Core library for tugarc: git-derived worktree work units (arcs)"
 name = "tugarc_core"
 path = "src/lib.rs"
 
+[features]
+# The crossing torture bench (`torture`): the scenario grammar and its
+# tempdir executor, which the hermetic git fixture builds repositories for.
+# Off by default so nothing that ships carries it; the crate's own tests and
+# the lab turn it on.
+torture = ["tugcore/test-fixtures"]
+
 [dependencies]
 chrono.workspace = true
 libc.workspace = true
@@ -27,3 +34,6 @@ tugtool-core.workspace = true
 serial_test = "3"
 # The hostile-filename fixture [B05], shared with tugchanges-core.
 tugcore = { workspace = true, features = ["test-fixtures"] }
+# The crate's own tests and examples see the bench: a dev-dependency on
+# itself turns the feature on for them and for nothing downstream.
+tugarc-core = { path = ".", features = ["torture"] }

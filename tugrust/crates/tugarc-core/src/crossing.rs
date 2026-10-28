@@ -50,9 +50,17 @@ pub const CROSSING: &str = "crossing";
 /// The marker of a conflicted crossing's arc log line.
 pub const CROSSING_CONFLICT: &str = "crossing-conflict";
 
+/// The marker of a crossing the settle could not teach the cache — a scribe or
+/// resolver that declined. A surface reads it where it reads every other
+/// crossing line, so a decline is a record rather than only a log line.
+pub const CROSSING_UNSETTLED: &str = "crossing-unsettled";
+
 /// One sibling an arc crosses: the paths both changed since they diverged,
 /// and which of those a merge of the two tips leaves conflicted.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Two transient fields — `changed` and `fingerprint` — are a probe's reading
+// of the pair's record, not part of the crossing's identity, so equality skips
+// them: a test that asserts a crossing's shape need not predict them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Crossing {
     /// The sibling arc's name.
     pub sibling: String,
@@ -65,7 +73,33 @@ pub struct Crossing {
     /// standing record did not hold. What the two sessions are told about.
     #[serde(default)]
     pub fresh: Vec<String>,
+    /// Whether this probe's standing state differs from the pair's last record
+    /// — the same condition under which a probe writes an arc-log line. Not
+    /// the settle's gate: that is [`needs_settle`], which reads whether a
+    /// settle *finished*, since the record here is written before one runs.
+    /// Transient to one probe, never stored: `probe_pair` sees no record and
+    /// defaults it true, and `probe_crossings` sets it from the comparison.
+    #[serde(skip)]
+    pub changed: bool,
+    /// A fingerprint of the conflict's content — the conflicted paths' stage
+    /// oids. The pair's standing record keeps it, so a round that leaves the
+    /// conflicted files untouched reads the same fingerprint and is not
+    /// re-settled, while a new or moved hunk reads a different one and is.
+    /// Transient like `changed`; the stored copy lives in [`Standing`].
+    #[serde(skip)]
+    pub fingerprint: String,
 }
+
+impl PartialEq for Crossing {
+    fn eq(&self, other: &Self) -> bool {
+        self.sibling == other.sibling
+            && self.overlap == other.overlap
+            && self.conflicts == other.conflicts
+            && self.fresh == other.fresh
+    }
+}
+
+impl Eq for Crossing {}
 
 impl Crossing {
     /// The arc log marker this crossing is recorded under.
@@ -169,12 +203,14 @@ pub fn probe_pair(
     // overlap by name: a merge conflicts only where both sides touched a
     // file, and a rename puts that conflict at the new name while the
     // overlap holds the old one.
-    let conflicts = crate::resolve::conflicted_paths(&repo, &ours, &theirs)?;
+    let (conflicts, fingerprint) = crate::resolve::conflict_fingerprint(&repo, &ours, &theirs)?;
     Ok(Some(Crossing {
         sibling: sibling.to_string(),
         fresh: overlap.clone(),
         overlap,
         conflicts,
+        changed: true,
+        fingerprint,
     }))
 }
 
@@ -191,6 +227,8 @@ fn pair_key(a: &str, b: &str) -> String {
 struct Standing {
     overlap: Vec<String>,
     conflicts: Vec<String>,
+    #[serde(default)]
+    fingerprint: String,
 }
 
 /// Drop every standing crossing record that names `name`, as an arc's
@@ -248,6 +286,10 @@ pub fn probe_crossings(
         let Some(mut crossing) = probe else {
             if standing.is_some() {
                 let _ = git_output(&repo, &["config", "--unset-all", &key]);
+                let _ = git_output(
+                    &repo,
+                    &["config", "--unset-all", &settled_key(name, &sibling)],
+                );
             }
             continue;
         };
@@ -259,8 +301,10 @@ pub fn probe_crossings(
         let now = Standing {
             overlap: crossing.overlap.clone(),
             conflicts: crossing.conflicts.clone(),
+            fingerprint: crossing.fingerprint.clone(),
         };
-        if standing.as_ref() != Some(&now) {
+        crossing.changed = standing.as_ref() != Some(&now);
+        if crossing.changed {
             let value = serde_json::to_string(&now).unwrap_or_default();
             let _ = git_output(&repo, &["config", "--replace-all", &key, &value]);
             crate::log::append_arc_log(paths, &repo, name, crossing.marker(), &crossing.note())
@@ -269,6 +313,46 @@ pub fn probe_crossings(
         found.push(crossing);
     }
     Ok(found)
+}
+
+/// The config key the fingerprint of a pair's last *finished* settle is kept
+/// under — beside the standing record, in the same section, so an arc's
+/// teardown drops both together.
+fn settled_key(a: &str, b: &str) -> String {
+    let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+    format!("tugcrossing.{lo} {hi}.settled")
+}
+
+/// Whether `crossing` wants a settle: it conflicts, and no settle has finished
+/// over this exact conflict.
+///
+/// The gate is the settle's own record, not the probe's. `changed` says the
+/// probe wrote a new standing record, which happens before any settle runs, so
+/// a settle that then failed — or was lost to a tugcast restart — would leave a
+/// standing record that matches every later round and the conflict would never
+/// be taught. Keyed on a finished settle instead, an unchanged conflict is
+/// settled once, and an unfinished one is settled again on the next round.
+pub fn needs_settle(repo_root: &Path, name: &str, crossing: &Crossing) -> bool {
+    if crossing.conflicts.is_empty() {
+        return false;
+    }
+    let repo = main_repo_root(repo_root);
+    config_get(&repo, &settled_key(name, &crossing.sibling)).as_deref()
+        != Some(crossing.fingerprint.as_str())
+}
+
+/// Record that a settle finished over `pair`'s conflict as it stands at the
+/// two tips the settle read, so [`needs_settle`] does not run it again until
+/// the conflict changes. A settle that finished with a resolver decline is
+/// finished too: the decline is recorded on the arc log, and re-running it on
+/// every round is the waste the gate exists to stop.
+pub fn mark_settled(repo_root: &Path, pair: &CrossingPair) -> Result<(), ArcError> {
+    let repo = main_repo_root(repo_root);
+    let (_, fingerprint) =
+        crate::resolve::conflict_fingerprint(&repo, &pair.first_tip, &pair.second_tip)?;
+    let key = settled_key(&pair.first, &pair.second);
+    let _ = git_output(&repo, &["config", "--replace-all", &key, &fingerprint]);
+    Ok(())
 }
 
 /// The line ranges `tip` changed in `path` since `merge_base`, in `tip`'s own
@@ -439,6 +523,66 @@ pub fn settle_crossing(
     Ok((pair, settled))
 }
 
+/// Settle `name` against the *composition* of two siblings that both cross it
+/// and cross each other, so the three-way conflict a later join meets is taught
+/// now rather than met fresh.
+///
+/// Two pairwise settles — `a·b`, and `a·c` — teach the cache two preimages, and
+/// neither is the one `c`'s join meets once `a` and `b` have both landed: that
+/// conflict is `c` against the *merged* `a·b` hunk, a preimage no pair ever
+/// produced. So when a third arc crosses two siblings that themselves conflict,
+/// the siblings' merge is composed through the cache into a throwaway commit and
+/// `name` is settled against it. The preimage this records is exactly the one
+/// the join will replay: the composed commit is parented on the siblings'
+/// merge-base, which is `name`'s base too, so `name`-against-composed has the
+/// same base, ours and theirs the join-against-landed-base will.
+///
+/// `Ok(None)` when the two siblings do not actually conflict (nothing to
+/// compose). Neither branch moves; the only durable effect is the cache, as
+/// with [`settle_crossing`].
+pub fn settle_composed(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    sib_a: &str,
+    sib_b: &str,
+    merger: Option<&dyn crate::resolve::FileMerger>,
+) -> Result<Option<crate::resolve::PairResolution>, ArcError> {
+    let repo = main_repo_root(repo_root);
+    let siblings = CrossingPair::read(&repo, sib_a, sib_b)?;
+    let sib_intent = siblings.intent(paths, &repo);
+    let merged = crate::resolve::resolve_pair(
+        &repo,
+        &siblings.first_tip,
+        &siblings.second_tip,
+        merger,
+        &sib_intent,
+    )?;
+    // Nothing the siblings conflict on, or nothing settled: there is no
+    // composed hunk for the third arc to meet, so there is nothing to teach.
+    let Some(tree) = merged.staged_tree.filter(|_| !merged.resolved.is_empty()) else {
+        return Ok(None);
+    };
+    let base = git_stdout(
+        &repo,
+        &["merge-base", &siblings.first_tip, &siblings.second_tip],
+    )?;
+    let composed = crate::resolve::commit_tree(
+        &repo,
+        &tree,
+        &base,
+        &format!("composed {sib_a}·{sib_b} for {name}"),
+    )?;
+    let name_tip = git_stdout(&repo, &["rev-parse", &branch_name(name)])?;
+    let intent = format!(
+        "Arc `{name}` crosses `{sib_a}` and `{sib_b}`, which cross each other. \
+         Settling `{name}` against their merged result teaches the three-way \
+         conflict `{name}`'s later join will meet once both siblings have landed."
+    );
+    let settled = crate::resolve::resolve_pair(&repo, &name_tip, &composed, merger, &intent)?;
+    Ok(Some(settled))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,7 +686,50 @@ mod tests {
                 overlap: vec!["f.txt".to_string()],
                 conflicts: vec!["h.txt".to_string()],
                 fresh: vec!["f.txt".to_string()],
+                changed: true,
+                fingerprint: String::new(),
             }]
+        );
+    }
+
+    /// A conflict no settle finished over stays due, round after round, even
+    /// though the probe's standing record stopped changing — the case of a
+    /// settle that failed or died with its process. Once one finishes, an
+    /// unchanged conflict is no longer due; a moved one is again.
+    #[test]
+    fn a_conflict_stays_due_until_a_settle_finishes_over_it() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = two_arcs();
+        let repo = temp.path();
+        round(repo, "a", "f.txt", &edit_line(5, "a five"));
+        round(repo, "b", "f.txt", &edit_line(5, "b five"));
+        let first = probe_crossings(&paths, repo, "b").unwrap().remove(0);
+        assert!(first.changed && needs_settle(repo, "b", &first));
+
+        // No settle ran. A round elsewhere leaves the record as it was, and the
+        // conflict is still due.
+        round(repo, "a", "g.txt", "g by a\n");
+        let again = probe_crossings(&paths, repo, "a").unwrap().remove(0);
+        assert!(!again.changed, "the standing record did not move");
+        assert!(
+            needs_settle(repo, "a", &again),
+            "an unfinished settle is retried"
+        );
+
+        mark_settled(repo, &CrossingPair::read(repo, "a", "b").unwrap()).unwrap();
+        round(repo, "a", "g.txt", "g by a, again\n");
+        let settled = probe_crossings(&paths, repo, "a").unwrap().remove(0);
+        assert!(
+            !needs_settle(repo, "a", &settled),
+            "a settled conflict is not re-run"
+        );
+
+        round(repo, "b", "f.txt", &edit_line(5, "b five, again"));
+        let moved = probe_crossings(&paths, repo, "b").unwrap().remove(0);
+        assert!(
+            needs_settle(repo, "b", &moved),
+            "a changed conflict is due again"
         );
     }
 
@@ -581,6 +768,8 @@ mod tests {
                 overlap: vec!["f.txt".to_string()],
                 conflicts: vec![],
                 fresh: vec!["f.txt".to_string()],
+                changed: true,
+                fingerprint: String::new(),
             }]
         );
         assert_eq!(logged(&paths, repo), vec!["a crossing b · overlaps f.txt"]);

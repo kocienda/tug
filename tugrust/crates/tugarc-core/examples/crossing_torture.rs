@@ -8,11 +8,10 @@
 //! three arcs round by round through the probe, the pair ladder (with a
 //! stand-in for the scribe named in the row), a landing, and the second
 //! arc's join with no scribe at all. The scenarios themselves are in
-//! `tests/torture/crossing.rs`, where the integration test of the same name
-//! asserts each one's expectation.
+//! `tugarc_core::torture`, and the integration test of the same name asserts
+//! each one's expectation.
 
-#[path = "../tests/torture/crossing.rs"]
-mod torture;
+use tugarc_core::torture;
 
 fn main() {
     let wanted: Vec<String> = std::env::args().skip(1).collect();

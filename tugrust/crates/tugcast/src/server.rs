@@ -1015,6 +1015,10 @@ fn apply_arc_request(
     }
 }
 
+/// The origin an injected lab turn is attributed to in the transcript, and
+/// the marker its submission wears for the agent, who sees no origin label.
+const LAB_ORIGIN: &str = "arc-lab";
+
 /// Request payload for POST /api/session — the wheel's door ([S03]).
 ///
 /// A rotation names no arc, so it does not ride `ArcApiRequest`: putting
@@ -1024,7 +1028,7 @@ fn apply_arc_request(
 #[derive(serde::Deserialize)]
 struct SessionApiRequest {
     /// `rotate` | `rotate_cancel` | `resolve` | `step_closed` | `turn_facts` |
-    /// `report`.
+    /// `report` | `spawn_headless` | `say` | `trash_headless`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -1080,6 +1084,17 @@ struct SessionApiRequest {
     /// own, so a report under another label nests beneath it on the block.
     #[serde(default)]
     nests: Option<bool>,
+    /// `spawn_headless` / `trash_headless`: the background owner — the card
+    /// id becomes `background:<owner>`, which is also how `trash_headless`
+    /// finds every session the owner spawned. A lab puts its run id in it.
+    #[serde(default)]
+    owner: Option<String>,
+    /// `spawn_headless`: the `--permission-mode` the session runs under.
+    #[serde(default)]
+    permission_mode: Option<String>,
+    /// `spawn_headless`: the line's callsign. Absent, the ledger mints one.
+    #[serde(default)]
+    tag: Option<String>,
 }
 
 /// Why a `resolve` could not answer, in the vocabulary the CLI's
@@ -1217,6 +1232,130 @@ async fn session_handler(
         Ok(r) => r,
         Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid JSON: {e}")),
     };
+
+    // ── The lab's doors ───────────────────────────────────────────────────
+    //
+    // Three ops a driver outside the deck uses to run a session it owns: a
+    // headless spawn, a turn handed to it, and the sweep at the end. Each is
+    // the existing path with an HTTP face — `spawn_headless_session`,
+    // base-motion's injection, the picker's `trash` — so nothing here is a
+    // second way to do what a card does. Loopback only, like the rest.
+    //
+    // `spawn_headless` and `trash_headless` name no session, which is why
+    // they stand before the session-id requirement below.
+    if req.op == "spawn_headless" {
+        let Some(owner) = req.owner.clone().filter(|o| !o.is_empty()) else {
+            return err(StatusCode::BAD_REQUEST, "spawn_headless names its owner");
+        };
+        let Some(project_dir) = req.project_dir.clone().filter(|p| !p.is_empty()) else {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "spawn_headless names its project_dir",
+            );
+        };
+        return match supervisor
+            .spawn_headless_session(
+                &owner,
+                std::path::Path::new(&project_dir),
+                req.permission_mode.clone().filter(|m| !m.is_empty()),
+                req.tag.clone().filter(|t| !t.is_empty()),
+            )
+            .await
+        {
+            Ok(session) => (
+                StatusCode::OK,
+                axum::Json(serde_json::json!({
+                    "status": "ok",
+                    "session_id": session.as_str(),
+                    "card_id": crate::background_session::background_card_id(&owner),
+                })),
+            )
+                .into_response(),
+            Err(e) => err(StatusCode::CONFLICT, &e.to_string()),
+        };
+    }
+    if req.op == "trash_headless" {
+        let Some(owner) = req.owner.clone().filter(|o| !o.is_empty()) else {
+            return err(StatusCode::BAD_REQUEST, "trash_headless names its owner");
+        };
+        let swept = supervisor.trash_headless_sessions(&owner).await;
+        let kept: Vec<serde_json::Value> = swept
+            .kept
+            .iter()
+            .map(|(id, reason)| serde_json::json!({ "session_id": id, "reason": reason }))
+            .collect();
+        return (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({
+                "status": "ok",
+                "trashed": swept.trashed,
+                "kept": kept,
+            })),
+        )
+            .into_response();
+    }
+    if req.op == "say" {
+        let Some(posted) = req.tug_session_id.clone().filter(|s| !s.is_empty()) else {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "say names the session it speaks to",
+            );
+        };
+        let Some(text) = req.text.clone().filter(|t| !t.trim().is_empty()) else {
+            return err(StatusCode::BAD_REQUEST, "say names its text");
+        };
+        let Some(code_input_tx) = router.code_input_tx.clone() else {
+            return err(StatusCode::SERVICE_UNAVAILABLE, "no code input");
+        };
+        let live = {
+            let ledger = Arc::clone(&ledger);
+            match tokio::task::spawn_blocking(move || {
+                ledger.live_segment_of(&posted).ok().flatten()
+            })
+            .await
+            {
+                Ok(live) => live,
+                Err(e) => {
+                    return err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("session task failed: {e}"),
+                    );
+                }
+            }
+        };
+        let Some(live) = live else {
+            return err(StatusCode::NOT_FOUND, "unknown_session");
+        };
+        // The doctrine's rule: no server-initiated turn is unannounced. The
+        // opener rides CODE_OUTPUT under the lab's own origin, and the
+        // submission the agent reads wears the same marker, because it
+        // arrives as an ordinary user message with no label of its own.
+        let handles = crate::feeds::base_motion::InjectHandles {
+            code_input_tx: Some(code_input_tx),
+            code_output: Some(supervisor.code_output.clone()),
+        };
+        let sent = handles
+            .send_as(
+                &live,
+                LAB_ORIGIN,
+                &text,
+                &format!("[{LAB_ORIGIN}] {text}"),
+                None,
+            )
+            .await;
+        if !sent {
+            return err(StatusCode::SERVICE_UNAVAILABLE, "code input closed");
+        }
+        return (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({
+                "status": "ok",
+                "session_id": live,
+                "origin": LAB_ORIGIN,
+            })),
+        )
+            .into_response();
+    }
     let Some(session_id) = req.tug_session_id.clone().filter(|s| !s.is_empty()) else {
         return err(
             StatusCode::BAD_REQUEST,
@@ -3052,6 +3191,235 @@ mod tests {
         .await;
         assert_eq!(status, 404);
         assert_eq!(body["message"], "unknown_session");
+    }
+
+    // ── /api/session — the lab's doors ─────────────────────────────────
+
+    /// What a `say` round trip needs in hand: the supervisor whose feeds the
+    /// opener rides, the ledger a session is seeded in, and the CODE_INPUT
+    /// queue the submission goes down.
+    struct LabFixture {
+        url: String,
+        sup: Arc<crate::feeds::agent_supervisor::AgentSupervisor>,
+        ledger: Arc<crate::session_ledger::SessionLedger>,
+        code_input_rx: tokio::sync::mpsc::Receiver<tugcast_core::Frame>,
+    }
+
+    async fn serve_lab_fixture() -> LabFixture {
+        let (sup, ledger, mut register_rx) =
+            crate::feeds::agent_supervisor::test_minimal_supervisor_reading_its_ledger();
+        tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::mpsc::channel(1);
+        let dev_state = crate::dev::new_shared_dev_state();
+        let mut router = FeedRouter::new(
+            "test-session".to_owned(),
+            crate::auth::new_shared_auth_state_no_auth(0),
+            shutdown_tx,
+            dev_state.clone(),
+        );
+        router.set_supervisor(Arc::clone(&sup));
+        let (code_input_tx, code_input_rx) = tokio::sync::mpsc::channel(8);
+        router.code_input_tx = Some(code_input_tx);
+        let app = build_app(router, dev_state, None, None, None);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        LabFixture {
+            url: format!("http://127.0.0.1:{port}/api/session"),
+            sup,
+            ledger,
+            code_input_rx,
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_headless_without_an_owner_or_a_project_is_refused() {
+        let url = serve_session_fixture().await;
+        let (status, body) = post_json(
+            &url,
+            &serde_json::json!({"op": "spawn_headless", "project_dir": env!("CARGO_MANIFEST_DIR")}),
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert_eq!(body["message"], "spawn_headless names its owner");
+        let (status, body) = post_json(
+            &url,
+            &serde_json::json!({"op": "spawn_headless", "owner": "arc-lab:run-1"}),
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert_eq!(body["message"], "spawn_headless names its project_dir");
+    }
+
+    /// The spawn answers with the id and the card id the owner's sessions
+    /// are found by, and the supervisor holds the session under that card
+    /// with the mode the caller asked for.
+    #[tokio::test]
+    async fn spawn_headless_seats_a_session_under_the_owners_card() {
+        let fx = serve_lab_fixture().await;
+        let (status, body) = post_json(
+            &fx.url,
+            &serde_json::json!({
+                "op": "spawn_headless",
+                "owner": "arc-lab:run-1",
+                "project_dir": env!("CARGO_MANIFEST_DIR"),
+                "permission_mode": "auto",
+            }),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["card_id"], "background:arc-lab:run-1");
+        let session =
+            tugcast_core::protocol::TugSessionId::new(body["session_id"].as_str().unwrap());
+        let entry_arc = fx
+            .sup
+            .ledger
+            .lock()
+            .await
+            .get(&session)
+            .cloned()
+            .expect("the supervisor holds the session");
+        let entry = entry_arc.lock().await;
+        assert_eq!(entry.card_id.as_deref(), Some("background:arc-lab:run-1"));
+        assert_eq!(entry.permission_mode.as_deref(), Some("auto"));
+    }
+
+    #[tokio::test]
+    async fn say_without_a_session_or_text_is_refused() {
+        let url = serve_session_fixture().await;
+        let (status, body) =
+            post_json(&url, &serde_json::json!({"op": "say", "text": "hello"})).await;
+        assert_eq!(status, 400);
+        assert_eq!(body["message"], "say names the session it speaks to");
+        let (status, body) = post_json(
+            &url,
+            &serde_json::json!({"op": "say", "tug_session_id": "sess-1", "text": "  "}),
+        )
+        .await;
+        assert_eq!(status, 400);
+        assert_eq!(body["message"], "say names its text");
+    }
+
+    #[tokio::test]
+    async fn say_to_a_session_this_instance_does_not_know_is_unknown_session() {
+        let fx = serve_lab_fixture().await;
+        let (status, body) = post_json(
+            &fx.url,
+            &serde_json::json!({"op": "say", "tug_session_id": "sess-nobody", "text": "hello"}),
+        )
+        .await;
+        assert_eq!(status, 404);
+        assert_eq!(body["message"], "unknown_session");
+    }
+
+    /// The injected turn is base-motion's shape under the lab's own name:
+    /// an opener on CODE_OUTPUT attributed to `arc-lab`, then a user message
+    /// down the CODE_INPUT queue whose text wears the same marker — so the
+    /// transcript shows who spoke and the agent reads it as not the user's.
+    #[tokio::test]
+    async fn say_opens_the_turn_on_code_output_and_submits_it_on_code_input() {
+        let mut fx = serve_lab_fixture().await;
+        fx.ledger
+            .record_spawn(
+                "sess-1",
+                "ws",
+                "/proj",
+                "background:arc-lab:run-1",
+                1_000,
+                "line-1",
+                None,
+            )
+            .unwrap();
+        let mut output_rx = fx.sup.code_output.subscribe();
+
+        let (status, body) = post_json(
+            &fx.url,
+            &serde_json::json!({"op": "say", "tug_session_id": "sess-1", "text": "make a round"}),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["session_id"], "sess-1");
+        assert_eq!(body["origin"], "arc-lab");
+
+        let opener: serde_json::Value =
+            serde_json::from_slice(&output_rx.try_recv().expect("an opener").payload).unwrap();
+        assert_eq!(opener["type"], "tug_notice");
+        assert_eq!(opener["origin"], "arc-lab");
+        assert_eq!(opener["text"], "make a round");
+        assert_eq!(opener["tug_session_id"], "sess-1");
+        assert!(
+            opener.get("standalone").is_none(),
+            "an opener, not a bulletin"
+        );
+
+        let submission = fx.code_input_rx.try_recv().expect("a submission");
+        assert_eq!(submission.feed_id, tugcast_core::FeedId::CODE_INPUT);
+        let message: serde_json::Value = serde_json::from_slice(&submission.payload).unwrap();
+        assert_eq!(message["type"], "user_message");
+        assert_eq!(message["tug_session_id"], "sess-1");
+        assert_eq!(message["content"][0]["text"], "[arc-lab] make a round");
+        assert!(
+            message["submission_id"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        );
+    }
+
+    #[tokio::test]
+    async fn trash_headless_without_an_owner_is_refused() {
+        let url = serve_session_fixture().await;
+        let (status, body) = post_json(&url, &serde_json::json!({"op": "trash_headless"})).await;
+        assert_eq!(status, 400);
+        assert_eq!(body["message"], "trash_headless names its owner");
+    }
+
+    /// Spawn, sweep: the sweep names what it trashed, and the session is gone
+    /// from the supervisor and the ledger.
+    #[tokio::test]
+    async fn trash_headless_sweeps_what_the_owner_spawned() {
+        let fx = serve_lab_fixture().await;
+        let (status, body) = post_json(
+            &fx.url,
+            &serde_json::json!({
+                "op": "spawn_headless",
+                "owner": "arc-lab:run-2",
+                "project_dir": env!("CARGO_MANIFEST_DIR"),
+            }),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        let id = body["session_id"].as_str().unwrap().to_string();
+        // The row the merger would write once the bridge reported in.
+        fx.ledger
+            .record_spawn(
+                &id,
+                "ws",
+                env!("CARGO_MANIFEST_DIR"),
+                "background:arc-lab:run-2",
+                1_000,
+                &id,
+                None,
+            )
+            .unwrap();
+
+        let (status, body) = post_json(
+            &fx.url,
+            &serde_json::json!({"op": "trash_headless", "owner": "arc-lab:run-2"}),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["trashed"], serde_json::json!([id]));
+        assert_eq!(body["kept"], serde_json::json!([]));
+        assert!(fx.ledger.get(&id).unwrap().is_none());
+        let session = tugcast_core::protocol::TugSessionId::new(id);
+        assert!(!fx.sup.ledger.lock().await.contains_key(&session));
     }
 
     fn ask_body(timeout_secs: u64) -> serde_json::Value {

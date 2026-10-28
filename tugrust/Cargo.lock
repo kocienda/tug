@@ -2862,9 +2862,24 @@ dependencies = [
  "serial_test",
  "tempfile",
  "thiserror 2.0.18",
+ "tugarc-core",
  "tugchanges-core",
  "tugcore",
  "tugtool-core",
+]
+
+[[package]]
+name = "tugarclab"
+version = "0.8.19"
+dependencies = [
+ "clap",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tugarc-core",
+ "tugcore",
+ "tugtool-core",
+ "ureq",
 ]
 
 [[package]]

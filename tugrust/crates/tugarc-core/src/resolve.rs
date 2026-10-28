@@ -518,7 +518,8 @@ fn resolve_ladder(
     // Walked directly rather than through `replay_probe`, which collapses the
     // round that stopped the walk into `None` — and that round is the reason
     // the rung declined.
-    let replayed = match crate::replay::walk_rounds(repo, &base_head, &base_head, &arc_head)? {
+    let replayed = match crate::replay::walk_rounds(repo, &base_head, &base_head, &arc_head, false)?
+    {
         ReplayWalk::Clean(replayed) => Ok(replayed),
         ReplayWalk::Conflicted { round_subject, .. } => {
             Err(format!("stopped at \"{round_subject}\""))
@@ -984,7 +985,7 @@ pub(crate) fn replay_probe(
     base_branch: &str,
     branch: &str,
 ) -> Result<Option<crate::replay::ReplayedRounds>, ArcError> {
-    match crate::replay::walk_rounds(repo, base_head, base_branch, branch)? {
+    match crate::replay::walk_rounds(repo, base_head, base_branch, branch, false)? {
         ReplayWalk::Clean(replayed) => Ok(Some(replayed)),
         ReplayWalk::Conflicted { .. } | ReplayWalk::Unavailable => Ok(None),
     }
@@ -1134,15 +1135,38 @@ fn merge_tree_stages(
     Ok((tree, map))
 }
 
-/// The paths a merge of `ours` and `theirs` leaves conflicted, in path order.
-/// Reads objects only — no checkout, no ref moved.
-pub(crate) fn conflicted_paths(
+/// The conflicted paths and a fingerprint of the conflict's content — the
+/// stage oids of every conflicted path, in path order. Two merges with the
+/// same fingerprint face byte-identical conflicts, so a resolution taught for
+/// one covers the other and settling the second is wasted work; a fingerprint
+/// that moved is a conflict that changed and wants settling afresh. Reads
+/// objects only.
+pub(crate) fn conflict_fingerprint(
     repo: &Path,
     ours: &str,
     theirs: &str,
-) -> Result<Vec<String>, ArcError> {
+) -> Result<(Vec<String>, String), ArcError> {
     let (_, stages) = merge_tree_stages(repo, ours, theirs)?;
-    Ok(stages.into_keys().collect())
+    let oid = |s: &Option<(String, String)>| {
+        s.as_ref()
+            .map(|(_, o)| o.as_str())
+            .unwrap_or("-")
+            .to_string()
+    };
+    // The two sides are sorted, not kept as ours/theirs: `probe_pair` names the
+    // rounding arc "ours", so the same standing conflict is read with the sides
+    // swapped from one arc's round to the other's. A sorted pair reads the same
+    // either way, which is what lets a round of the far arc match the record.
+    let fingerprint = stages
+        .iter()
+        .map(|(path, raw)| {
+            let mut sides = [oid(&raw.ours), oid(&raw.theirs)];
+            sides.sort();
+            format!("{path}\t{}\t{}\t{}", oid(&raw.base), sides[0], sides[1])
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok((stages.into_keys().collect(), fingerprint))
 }
 
 // ---------------------------------------------------------------------------
@@ -1347,7 +1371,7 @@ fn record_rerere(
     let _ = git_output(scratch.path(), &["merge", "--abort"]);
 }
 
-fn has_rr_cache(repo: &Path) -> bool {
+pub(crate) fn has_rr_cache(repo: &Path) -> bool {
     let dir = git_stdout(repo, &["rev-parse", "--git-path", "rr-cache"]).unwrap_or_default();
     if dir.is_empty() {
         return false;
@@ -1363,13 +1387,13 @@ fn has_rr_cache(repo: &Path) -> bool {
 }
 
 /// A scratch detached worktree that removes itself on drop.
-struct ScratchWorktree {
+pub(crate) struct ScratchWorktree {
     repo: std::path::PathBuf,
     dir: tempfile::TempDir,
 }
 
 impl ScratchWorktree {
-    fn open(repo: &Path, at: &str) -> Result<Self, ArcError> {
+    pub(crate) fn open(repo: &Path, at: &str) -> Result<Self, ArcError> {
         let dir = tempfile::tempdir()
             .map_err(|e| ArcError::io("scratch tempdir", std::env::temp_dir(), e))?;
         let path = dir.path().to_string_lossy();
@@ -1388,7 +1412,7 @@ impl ScratchWorktree {
         })
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         self.dir.path()
     }
 }
@@ -1563,6 +1587,13 @@ impl PairCheckout {
     /// Held to the bar every machine merge meets: a finished file must be
     /// marker-free and keep every clean segment of the pair's merge. A
     /// refusal teaches nothing, so a bad resolution never reaches a join.
+    ///
+    /// And a path rerere cannot record is a refusal too: a delete-versus-modify
+    /// is not a content conflict, so `git rerere` writes no preimage for it and
+    /// exits 0 all the same. `rerere status` names the paths rerere tracks as
+    /// content conflicts; a finished path missing from it taught the cache
+    /// nothing, and a caller that believed it did would have the join meet the
+    /// conflict fresh with no warning. So that case is reported, not swallowed.
     pub fn teach(&self, repo: &Path, finished: &[String]) -> Result<(), String> {
         let read = |path: &str| std::fs::read(self.path().join(path)).ok();
         let marked: Vec<String> = finished
@@ -1583,6 +1614,30 @@ impl PairCheckout {
             return Err(format!(
                 "the resolver rewrote lines outside the conflicts in {}",
                 rewritten.join(", ")
+            ));
+        }
+        // The content conflicts rerere will record, read before `add` clears
+        // them from its view. A finished path not among these is one rerere
+        // cannot record a resolution for.
+        let recordable: std::collections::BTreeSet<String> =
+            git_stdout(self.path(), &["rerere", "status"])
+                .map(|s| {
+                    s.lines()
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+        let unrecordable: Vec<String> = finished
+            .iter()
+            .filter(|path| !recordable.contains(*path))
+            .cloned()
+            .collect();
+        if !unrecordable.is_empty() {
+            return Err(format!(
+                "rerere recorded no resolution for {} (not a content conflict)",
+                unrecordable.join(", ")
             ));
         }
         let mut add = vec!["add", "--"];
@@ -2279,7 +2334,7 @@ pub(crate) fn orphan_marker_lines(bytes: &[u8]) -> bool {
 }
 
 /// Whether merged text is conflict-free — no `git` conflict markers.
-fn is_clean_merge(bytes: &[u8]) -> bool {
+pub(crate) fn is_clean_merge(bytes: &[u8]) -> bool {
     !has_conflict_markers(bytes)
 }
 

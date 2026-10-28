@@ -103,14 +103,17 @@ pub fn settle_in_background(ctx: SettleContext, repo: PathBuf, name: String, sib
     tokio::spawn(async move {
         loop {
             match settle_once(&ctx, &repo, &name, &sibling).await {
-                Ok(settled) => info!(
-                    arc = %name,
-                    sibling = %sibling,
-                    resolved = settled.ladder.resolved.len(),
-                    left = settled.ladder.unresolved.len(),
-                    resolver = ?settled.resolver,
-                    "crossing settled",
-                ),
+                Ok(settled) => {
+                    info!(
+                        arc = %name,
+                        sibling = %sibling,
+                        resolved = settled.ladder.resolved.len(),
+                        left = settled.ladder.unresolved.len(),
+                        resolver = ?settled.resolver,
+                        "crossing settled",
+                    );
+                    record_decline(&ctx, &repo, &name, &sibling, &settled);
+                }
                 Err(err) => {
                     warn!(arc = %name, sibling = %sibling, error = %err, "crossing settle failed")
                 }
@@ -122,6 +125,85 @@ pub fn settle_in_background(ctx: SettleContext, repo: PathBuf, name: String, sib
             }
             pairs.remove(&key);
             break;
+        }
+    });
+}
+
+/// Record a settle that could not teach the cache — a resolver that declined,
+/// so the paths it was handed are still unresolved. [F03b]: the decline used to
+/// live only in the log, where no probe reads it; this writes one arc-log line
+/// a surface sees beside the crossing it belongs to. A clean settle writes
+/// nothing — only a decline is news.
+fn record_decline(ctx: &SettleContext, repo: &Path, name: &str, sibling: &str, settled: &Settled) {
+    if !matches!(settled.resolver, Some(Err(_))) {
+        return;
+    }
+    let reason = match &settled.resolver {
+        Some(Err(reason)) => reason.as_str(),
+        _ => return,
+    };
+    let note = format!("{sibling} · unsettled: {reason}");
+    if let Err(e) = tugarc_core::log::append_arc_log(
+        &ctx.paths,
+        repo,
+        name,
+        tugarc_core::crossing::CROSSING_UNSETTLED,
+        &note,
+    ) {
+        warn!(arc = %name, sibling = %sibling, error = %e, "recording the crossing decline failed");
+    }
+}
+
+/// Compose a third arc against two siblings that cross it and each other, on a
+/// task of its own. [F03d]: two pairwise settles never produce the preimage a
+/// third arc's join meets once the siblings have merged, so the settle of a
+/// third arc also settles it against the siblings' merged hunk, teaching that
+/// preimage now. Best-effort: a compose that cannot run is logged, never fatal.
+pub fn compose_in_background(
+    ctx: SettleContext,
+    repo: PathBuf,
+    name: String,
+    sib_a: String,
+    sib_b: String,
+) {
+    tokio::spawn(async move {
+        let merger = ctx.scribe.as_ref().map(|spawner| ScribeFileMerger {
+            spawner: spawner.clone(),
+            model: ctx.model.clone(),
+            handle: tokio::runtime::Handle::current(),
+            recorder: None,
+        });
+        let result = {
+            let paths = ctx.paths.clone();
+            let (name, sib_a, sib_b) = (name.clone(), sib_a.clone(), sib_b.clone());
+            tokio::task::spawn_blocking(move || {
+                tugarc_core::crossing::settle_composed(
+                    &paths,
+                    &repo,
+                    &name,
+                    &sib_a,
+                    &sib_b,
+                    merger.as_ref().map(|m| m as &dyn FileMerger),
+                )
+                .map_err(|e| e.to_string())
+            })
+            .await
+        };
+        match result {
+            Ok(Ok(Some(settled))) => info!(
+                arc = %name,
+                siblings = %format!("{sib_a}·{sib_b}"),
+                resolved = settled.resolved.len(),
+                left = settled.unresolved.len(),
+                "crossing composed",
+            ),
+            Ok(Ok(None)) => {}
+            Ok(Err(err)) => {
+                warn!(arc = %name, siblings = %format!("{sib_a}·{sib_b}"), error = %err, "crossing compose failed")
+            }
+            Err(err) => {
+                warn!(arc = %name, error = %err, "crossing compose task failed")
+            }
         }
     });
 }
@@ -159,6 +241,7 @@ pub async fn settle_once(
         .map_err(|e| format!("crossing settle task: {e}"))??
     };
     if ladder.unresolved.is_empty() {
+        mark_settled(repo, &pair);
         return Ok(Settled {
             ladder,
             resolver: None,
@@ -176,10 +259,20 @@ pub async fn settle_once(
             RESOLVE_DEADLINE.as_secs() / 3600
         )),
     };
+    mark_settled(repo, &pair);
     Ok(Settled {
         ladder,
         resolver: Some(resolver),
     })
+}
+
+/// Mark the pair's conflict settled, so a later round over the same conflict
+/// does not settle it again. Only a settle that ran to its end marks; one that
+/// errored, or was lost with the process, leaves the conflict due.
+fn mark_settled(repo: &Path, pair: &tugarc_core::crossing::CrossingPair) {
+    if let Err(e) = tugarc_core::crossing::mark_settled(repo, pair) {
+        warn!(first = %pair.first, second = %pair.second, error = %e, "marking the crossing settled failed");
+    }
 }
 
 /// Hand the paths the rungs left to the resolver in a checkout of the pair's
@@ -359,6 +452,49 @@ mod tests {
         .unwrap();
         assert_eq!(joined.resolved.len(), 1);
         assert_eq!(joined.resolved[0].resolved_by, ResolvedBy::Rerere);
+    }
+
+    /// [F03b] A settle the resolver declined is recorded on the arc log, where
+    /// a probe reads it — not left in the process log alone.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_declined_settle_is_recorded_on_the_arc_log() {
+        let state = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        conflicting_arcs(&root);
+        // A finish that rewrites clean text teaches nothing, so the settle
+        // declines and the resolver's verdict is an error.
+        stub_resolver(
+            &root,
+            &ten_with_line_five("a five\nb five").replace("line 1\n", "LINE 1\n"),
+        );
+        let ctx = context(state.path());
+        let settled = settle_once(&ctx, &root, "a", "b").await.unwrap();
+        assert!(matches!(settled.resolver, Some(Err(_))), "{settled:?}");
+
+        record_decline(&ctx, &root, "a", "b", &settled);
+        let log = std::fs::read_to_string(tugtool_core::paths::arc_log_path_at(&ctx.paths, &root))
+            .unwrap_or_default();
+        assert!(log.contains("crossing-unsettled"), "no decline line: {log}");
+        assert!(log.contains("b · unsettled"), "{log}");
+
+        // A clean settle records nothing — only a decline is news.
+        let state2 = tempfile::tempdir().unwrap();
+        let dir2 = tempfile::tempdir().unwrap();
+        let root2 = dir2.path().canonicalize().unwrap();
+        conflicting_arcs(&root2);
+        stub_resolver(&root2, &ten_with_line_five("a five\nb five"));
+        let ctx2 = context(state2.path());
+        let clean = settle_once(&ctx2, &root2, "a", "b").await.unwrap();
+        assert_eq!(clean.resolver, Some(Ok(())));
+        record_decline(&ctx2, &root2, "a", "b", &clean);
+        let log2 =
+            std::fs::read_to_string(tugtool_core::paths::arc_log_path_at(&ctx2.paths, &root2))
+                .unwrap_or_default();
+        assert!(
+            !log2.contains("crossing-unsettled"),
+            "clean settle logged: {log2}"
+        );
     }
 
     /// A resolver whose finish rewrites text git merged by itself teaches

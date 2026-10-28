@@ -734,6 +734,9 @@ pub(crate) async fn supervisor(
     // session-lifecycle CONTROL frames and cross-check CODE_INPUT P5
     // ownership claims against `client_sessions`.
     feed_router.set_supervisor(Arc::clone(&supervisor));
+    // And the CODE_INPUT queue, for the session API's injected lab turn —
+    // the same queue base-motion's conflict turn goes down, below.
+    feed_router.code_input_tx = Some(code_input_tx.clone());
 
     // Register snapshot watches.
     //

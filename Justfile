@@ -1992,6 +1992,22 @@ model-liveness INSTANCE="debug-main":
 model-stats INSTANCE="debug-main":
     @python3 tests/model-eval/analyze.py {{INSTANCE}}
 
+# The live arc crossing lab: run one torture scenario against a RUNNING
+# instance — a lab project under /tmp/arc-lab/<run-id>/, headless sessions
+# spawned through tugcast's session API, arcs cut and bound, rounds and
+# landings driven, the outcome read from the records, a timeline printed.
+# A dev crate, never shipped. Defaults to the release-main instance; an arc
+# verifying its own tugcast passes the debug instance `just app-debug` built.
+#
+#   just arc-lab --list
+#   just arc-lab clean_crossing
+#   just arc-lab clean_crossing --instance debug-main --keep
+arc-lab *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    (cd tugrust && cargo build -q -p tugtool -p tugarclab)
+    exec tugrust/target/debug/tugarclab {{ARGS}}
+
 # Force a fresh app-test build, then run the files you name. Use after
 # changing Swift / Rust / harness source — `just app-test` only builds when
 # the bundle is ABSENT, so it would otherwise run against a stale bundle. The

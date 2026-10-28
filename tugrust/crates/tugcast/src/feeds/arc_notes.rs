@@ -221,22 +221,66 @@ async fn probe_on_round(ctx: &ArcNotesContext, root: &Path, line: &str) {
             })
             .flatten()
             .collect();
-        Ok::<_, tugarc_core::ArcError>((found, notices))
+        // Which conflicts no settle has finished over, read here too: it is
+        // a git read, and this is the blocking side.
+        let due: Vec<bool> = found
+            .iter()
+            .map(|c| tugarc_core::crossing::needs_settle(&repo, &arc, c))
+            .collect();
+        Ok::<_, tugarc_core::ArcError>((found, notices, due))
     })
     .await;
     match result {
-        Ok(Ok((found, notices))) => {
+        Ok(Ok((found, notices, due))) => {
             debug!(arc = %probed, crossings = found.len(), "crossing probe");
             for notice in notices {
                 super::base_motion::queue_crossing_notice(root, &notice.arc, &notice.text);
             }
-            for crossing in found.into_iter().filter(|c| !c.conflicts.is_empty()) {
+            // Every sibling this arc conflicts with now, and which of those
+            // conflicts no settle has finished over — the gate for both the
+            // pairwise settles and the composed one below.
+            let conflicting: Vec<String> = found
+                .iter()
+                .filter(|c| !c.conflicts.is_empty())
+                .map(|c| c.sibling.clone())
+                .collect();
+            // A settle is spent only on a conflict no settle has finished over:
+            // one that stands unchanged was settled when it first appeared, and
+            // re-running the ladder — and opening a scratch worktree — on every
+            // later round of either arc is work the cache has already done. A
+            // settle that failed or was lost to a restart never marked its
+            // conflict, so the next round runs it again.
+            let due: Vec<_> = found
+                .into_iter()
+                .zip(due)
+                .filter_map(|(c, due)| due.then_some(c))
+                .collect();
+            let any_due = !due.is_empty();
+            for crossing in due {
                 super::crossing_settle::settle_in_background(
                     super::crossing_settle::SettleContext::from_supervisor(&ctx.supervisor),
                     root.to_path_buf(),
                     probed.clone(),
                     crossing.sibling,
                 );
+            }
+            // When this arc conflicts with two or more siblings, each pair of
+            // them is composed against this arc, so the three-way conflict its
+            // later join meets once the siblings land is taught now rather than
+            // met fresh ([F03d]). The compose no-ops when a sibling pair does
+            // not itself conflict.
+            if any_due {
+                for i in 0..conflicting.len() {
+                    for j in (i + 1)..conflicting.len() {
+                        super::crossing_settle::compose_in_background(
+                            super::crossing_settle::SettleContext::from_supervisor(&ctx.supervisor),
+                            root.to_path_buf(),
+                            probed.clone(),
+                            conflicting[i].clone(),
+                            conflicting[j].clone(),
+                        );
+                    }
+                }
             }
         }
         Ok(Err(err)) => warn!(arc = %probed, error = %err, "crossing probe failed"),

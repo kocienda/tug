@@ -8,8 +8,12 @@
 //! worktree, and the bookkeeping that records where the rounds went.
 //!
 //! Nothing here resolves file content. A round that conflicts against the moved
-//! base is reported, never merged: that is a question for whoever is working the
-//! arc, and the landing-time ladder remains the fallback.
+//! base is reported, never merged by hand: that is a question for whoever is
+//! working the arc, and the landing-time ladder remains the fallback. The one
+//! thing the engine's replay consults before standing down is the recorded
+//! resolution — a hunk the crossing settle already taught to `rr-cache` is
+//! replayed through rerere rather than handed back as a conflict, because the
+//! machine already knows the answer and a turn spent on it is a turn wasted.
 
 use std::path::Path;
 use tugcore::instance::Paths;
@@ -31,6 +35,9 @@ pub struct ReplayedRounds {
     pub head: String,
     /// `(original round, rebuilt commit)`, oldest first, one pair per round.
     pub mapping: Vec<(String, String)>,
+    /// Paths a round conflicted on that rerere's recorded resolution settled,
+    /// in walk order; empty for a walk that met no conflict.
+    pub recalled: Vec<String>,
 }
 
 /// What replaying the rounds one at a time found, before anything is moved.
@@ -230,7 +237,7 @@ pub fn replay_watched(
 
     let tip_at_probe = git_stdout(repo, &["rev-parse", &branch])?;
     phase(1);
-    match walk_rounds(repo, &base_head, &base_branch, &branch)? {
+    match walk_rounds(repo, &base_head, &base_branch, &branch, true)? {
         ReplayWalk::Unavailable => Ok(ReplayOutcome::deferred(
             "no-rounds",
             format!("arc '{}' has no rounds to replay", name),
@@ -258,7 +265,7 @@ pub fn replay_watched(
                 paths,
                 repo,
                 name,
-                &replayed_note(repo, &base_head, &replayed.mapping),
+                &replayed_note(repo, &base_head, &replayed),
             )?;
             reconcile_ledger_cells(repo, name, &branch, &base_branch, Some(&replayed.mapping))?;
             op.complete(paths, repo, &branch, replayed.mapping.clone());
@@ -312,11 +319,20 @@ pub(crate) fn cas_reset(
 /// Replay each round of `branch` onto `base_head`, in memory, stopping at the
 /// first round that conflicts. Touches nothing in the repository beyond writing
 /// loose objects.
+///
+/// With `consult_rerere`, a round that conflicts is first offered to the
+/// recorded-resolution cache: the round is cherry-picked onto the running
+/// head in a scratch worktree with rerere on, and when every conflicted path
+/// comes out marker-free and rerere lists nothing remaining, that tree is the
+/// round's rebuilt tree and the walk goes on. Base-motion's replay passes
+/// `true`; the join ladder passes `false`, because there rerere is rung 2 and
+/// a resolution it replays is reported under its own name.
 pub(crate) fn walk_rounds(
     repo: &Path,
     base_head: &str,
     base_branch: &str,
     branch: &str,
+    consult_rerere: bool,
 ) -> Result<ReplayWalk, ArcError> {
     if !git_supports_merge_base_flag() {
         return Ok(ReplayWalk::Unavailable);
@@ -339,6 +355,8 @@ pub(crate) fn walk_rounds(
 
     let mut acc = base_head.to_string();
     let mut mapping: Vec<(String, String)> = Vec::new();
+    let mut recalled: Vec<String> = Vec::new();
+    let cache_present = consult_rerere && crate::resolve::has_rr_cache(repo);
     for round in rounds {
         let parent = format!("{}^", round);
         let out = git_output(
@@ -352,25 +370,92 @@ pub(crate) fn walk_rounds(
                 round,
             ],
         )?;
-        if !out.status.success() {
-            return Ok(ReplayWalk::Conflicted {
-                round: round.to_string(),
-                round_subject: git_stdout(repo, &["log", "-1", "--format=%s", round])
-                    .unwrap_or_default(),
-                paths: conflicted_paths(&out.stdout),
-            });
-        }
-        let tree = String::from_utf8_lossy(&out.stdout)
-            .split('\0')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+        let tree = if out.status.success() {
+            String::from_utf8_lossy(&out.stdout)
+                .split('\0')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        } else {
+            let paths = conflicted_paths(&out.stdout);
+            let remembered = if cache_present {
+                recall_round(repo, &acc, round, &paths)
+            } else {
+                None
+            };
+            match remembered {
+                Some(tree) => {
+                    recalled.extend(paths);
+                    tree
+                }
+                None => {
+                    return Ok(ReplayWalk::Conflicted {
+                        round: round.to_string(),
+                        round_subject: git_stdout(repo, &["log", "-1", "--format=%s", round])
+                            .unwrap_or_default(),
+                        paths,
+                    });
+                }
+            }
+        };
         let msg = git_stdout(repo, &["log", "-1", "--format=%B", round])?;
         acc = commit_tree(repo, &tree, &acc, &msg)?;
         mapping.push((round.to_string(), acc.clone()));
     }
-    Ok(ReplayWalk::Clean(ReplayedRounds { head: acc, mapping }))
+    Ok(ReplayWalk::Clean(ReplayedRounds {
+        head: acc,
+        mapping,
+        recalled,
+    }))
+}
+
+/// Rebuild one conflicting `round` onto `onto` through rerere's recorded
+/// resolutions: a cherry-pick in a scratch worktree with the cache on, which
+/// applies and stages every resolution it holds. The tree is answered only
+/// when every path the merge conflicted on is a content conflict that came
+/// out marker-free and rerere itself lists nothing remaining — anything less
+/// is the conflict it was, and the caller reports it. Best-effort: a scratch
+/// that cannot be opened answers nothing rather than failing the walk.
+fn recall_round(repo: &Path, onto: &str, round: &str, paths: &[String]) -> Option<String> {
+    if paths.is_empty() {
+        return None;
+    }
+    let scratch = crate::resolve::ScratchWorktree::open(repo, onto).ok()?;
+    let dir = scratch.path();
+    // The conflict is expected; rerere (autoUpdate) resolves and stages what
+    // it knows. The exit status says nothing useful, the tree does.
+    let _ = git_output(
+        dir,
+        &[
+            "-c",
+            "rerere.enabled=true",
+            "-c",
+            "rerere.autoUpdate=true",
+            "cherry-pick",
+            "--no-commit",
+            round,
+        ],
+    );
+    let remaining = git_stdout(dir, &["rerere", "remaining"]).unwrap_or_default();
+    // The conflicted paths, read through tugchanges-core's `-z` door rather
+    // than as raw `--name-only` text: only its emptiness matters here.
+    let unmerged =
+        tugchanges_core::git::read_paths(dir, &["diff", "--diff-filter=U"]).unwrap_or_default();
+    let settled = remaining.trim().is_empty()
+        && unmerged.is_empty()
+        && paths.iter().all(|path| {
+            std::fs::read(dir.join(path))
+                .map(|bytes| !bytes.is_empty() && crate::resolve::is_clean_merge(&bytes))
+                .unwrap_or(false)
+        });
+    let tree = if settled {
+        git_stdout(dir, &["write-tree"]).ok()
+    } else {
+        None
+    };
+    let _ = git_output(dir, &["cherry-pick", "--abort"]);
+    tree
 }
 
 /// The conflicted paths named by `merge-tree --write-tree -z`: the first NUL
@@ -548,17 +633,23 @@ fn log_replay(paths: &Paths, repo: &Path, name: &str, note: &str) -> Result<(), 
         .map_err(|e| ArcError::arc_log(paths, repo, e))
 }
 
-/// `onto <base>: <old>-><new>[, …]` — an engine replay's note.
-fn replayed_note(repo: &Path, base_head: &str, mapping: &[(String, String)]) -> String {
-    let pairs: Vec<String> = mapping
+/// `onto <base>: <old>-><new>[, …][; recalled <path> …]` — an engine replay's
+/// note, naming the paths rerere's recorded resolution settled on the way.
+fn replayed_note(repo: &Path, base_head: &str, replayed: &ReplayedRounds) -> String {
+    let pairs: Vec<String> = replayed
+        .mapping
         .iter()
         .map(|(old, new)| format!("{}->{}", abbreviate(repo, old, 9), abbreviate(repo, new, 9)))
         .collect();
-    format!(
+    let mut note = format!(
         "onto {}: {}",
         abbreviate(repo, base_head, 9),
         pairs.join(", ")
-    )
+    );
+    if !replayed.recalled.is_empty() {
+        note.push_str(&format!("; recalled {}", replayed.recalled.join(" ")));
+    }
+    note
 }
 
 /// `onto <base>: by rebase[, remapped …][, unmapped …]` — a reconciliation's.
@@ -695,6 +786,63 @@ mod tests {
             .iter()
             .filter_map(|r| r.commit.clone())
             .collect()
+    }
+
+    /// Teach rerere the resolution of `f.txt` between `main` and the arc, the
+    /// way a crossing settle does: reproduce the conflict in a scratch
+    /// checkout with the cache on, write the answer, record it, abort.
+    fn teach_rerere(f: &Fixture, resolution: &str) {
+        let scratch = tempfile::tempdir().unwrap();
+        let at = scratch.path().join("wt");
+        git(
+            f.path(),
+            &["worktree", "add", "--detach", at.to_str().unwrap(), "main"],
+        );
+        git(f.path(), &["config", "rerere.enabled", "true"]);
+        git(f.path(), &["config", "rerere.autoUpdate", "true"]);
+        let _ = git_output(&at, &["merge", "--no-edit", "tugarc/demo"]);
+        set(&at, "f.txt", resolution);
+        git(&at, &["add", "f.txt"]);
+        git(&at, &["rerere"]);
+        let _ = git_output(&at, &["merge", "--abort"]);
+        git(
+            f.path(),
+            &["worktree", "remove", "--force", at.to_str().unwrap()],
+        );
+    }
+
+    /// A round that conflicts on a hunk the cache already holds is replayed
+    /// through rerere rather than handed back: the branch moves, carries the
+    /// recorded resolution, and the arc log names the path recalled.
+    #[test]
+    fn a_round_the_cache_remembers_is_recalled_rather_than_reported() {
+        let f = init(&[("f.txt", "C\n", "arc rewrites f")]);
+        f.advance_base("f.txt", "B\n", "base rewrites f");
+        assert!(
+            matches!(
+                replay_onto(&f.paths, f.path(), "demo").unwrap(),
+                ReplayOutcome::Conflicted { .. }
+            ),
+            "with nothing recorded the conflict is reported"
+        );
+
+        teach_rerere(&f, "B\nC\n");
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
+        let ReplayOutcome::Replayed { mapping, .. } = &outcome else {
+            panic!("expected a replay through the cache, got {outcome:?}");
+        };
+        assert_eq!(mapping.len(), 1);
+        assert_eq!(
+            git_stdout(f.path(), &["show", "tugarc/demo:f.txt"]).unwrap(),
+            "B\nC",
+            "the branch carries the recorded resolution"
+        );
+        assert_eq!(f.tip("tugarc/demo"), mapping[0].1, "the worktree moved");
+        assert!(
+            f.arc_log().contains("recalled f.txt"),
+            "the log says what the cache settled: {}",
+            f.arc_log()
+        );
     }
 
     #[test]
