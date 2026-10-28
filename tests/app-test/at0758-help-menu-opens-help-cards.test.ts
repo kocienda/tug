@@ -22,9 +22,14 @@
  *   3. Perform Help ▸ Tug Help again. The card that comes forward is the
  *      first one.
  *
+ * Throughout, the document's prose is selectable: the pane content sets
+ * `user-select: none` for card chrome, and a help document is read and
+ * copied from, so its body has to opt back in.
+ *
  * @covers tugapp/Sources/MenuBarBuilder.swift
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugdeck/src/components/tugways/cards/help-card.tsx
+ * @covers tugdeck/src/components/tugways/cards/help-card.css
  * @covers tugdeck/src/lib/open-help-in-card.ts
  * @covers tugdeck/src/lib/help-docs.ts
  * @covers tugrust/crates/tugcast/src/help_docs.rs
@@ -57,6 +62,19 @@ async function pick(app: App, identifier: string, doc: string): Promise<string> 
   );
 }
 
+/** How the first paragraph of the help card's document resolves `user-select`. */
+async function proseSelectOf(app: App, cardId: string): Promise<string> {
+  return app.body(cardId).waitForCondition<string>(
+    `(function () {
+      var p = document.querySelector('[data-slot="help-card"] p');
+      if (!p) return null;
+      var s = getComputedStyle(p);
+      return s.webkitUserSelect || s.userSelect;
+    })()`,
+    { timeoutMs: 5_000 },
+  );
+}
+
 /** The heading the help card's body renders. */
 async function headingOf(app: App, cardId: string): Promise<string> {
   const ready = await settleFor(
@@ -81,12 +99,14 @@ describe.skipIf(!SHOULD_RUN)("at0758 — the Help menu opens the help documents"
         const featuresHeading = await headingOf(app, features);
         note(`Tug Help heading: ${JSON.stringify(featuresHeading)}`);
         expect(featuresHeading).toBe("Tug: what it does and how to use it");
+        expect(await proseSelectOf(app, features), "the guide's prose is selectable").toBe("text");
 
         const glossary = await pick(app, "help.glossary", "glossary");
         expect(glossary, "the glossary is its own card").not.toBe(features);
         const glossaryHeading = await headingOf(app, glossary);
         note(`Glossary heading: ${JSON.stringify(glossaryHeading)}`);
         expect(glossaryHeading).toBe("Tug glossary");
+        expect(await proseSelectOf(app, glossary), "the glossary's prose is selectable").toBe("text");
 
         const again = await pick(app, "help.tugHelp", "features");
         expect(again, "a second Tug Help brings the open card forward").toBe(features);

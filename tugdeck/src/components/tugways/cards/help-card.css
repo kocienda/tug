@@ -17,6 +17,18 @@
 
 .help-card-body {
   min-width: 0;
+  /* The document is read and copied from. The pane content sets
+     user-select: none for card chrome, so the body opts back in. */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  /* Read-only: no caret for a collapsed selection to paint. */
+  caret-color: transparent;
+}
+
+/* An explicit cursor on the body inherits past the UA's link hand. */
+.help-card-body a[href] {
+  cursor: pointer;
 }
 
 /* Single centered notice for the loading and error states. */
