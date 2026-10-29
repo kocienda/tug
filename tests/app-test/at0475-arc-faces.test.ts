@@ -208,12 +208,12 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
 
         // The words are on the placard, which is where there is room for them.
         await app.body("A").click(ARC_CELL);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ARC_TRACK)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        // card-dom: shell — the placard is a popover, and it rises in the shell.
-        const stopNote = await app.evalJS<string>(
+        // The placard is a popover on the card, and it rises in the card's body.
+        const stopNote = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(ARC_NOTE)})?.textContent ?? "").trim()`,
         );
         note("at0475 placard note", stopNote);
@@ -232,7 +232,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         // then the housekeeping verbs. The transport stands on every surface
         // that shows an arc, and this footer is one of them.
         expect(
-          await app.evalJS<string[]>(
+          await app.body("A").evalJS<string[]>(
             `Array.from(document.querySelectorAll('[data-slot="tug-popup-list-footer"] [data-slot="arc-verb"]')).slice(0, 2).map((b) => (b.textContent ?? "").trim())`,
           ),
         ).toEqual(["Resume", "Changes"]);

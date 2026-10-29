@@ -229,7 +229,9 @@ function deckShape() {
         position: { x: 40, y: 40 },
         size: { width: 900, height: 680 },
         cardIds: ["A", "B"],
-        activeCardId: "A",
+        // B starts in front: a hidden card's page is not loaded, and B's
+        // engine reports ready in its own page. A is raised once B is up.
+        activeCardId: "B",
         title: "",
         acceptsFamilies: ["maker"],
       },
@@ -287,18 +289,20 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await app.enableDeckTrace(true);
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
           await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("B")`,
           );
           // Spawning is what registers a scratch repo as a workspace, which is
           // what puts its project on the aggregate at all. Both projects are
-          // opened; only A is followed.
+          // opened; only A is followed. Each is spawned while it is the card in
+          // front, since only a shown card's page is loaded to report ready.
           await app.spawnSessionResume("B", {
             tugSessionId: SID_B,
             projectDir: dirB(),
           });
           await app.awaitEngineReady("B", { timeoutMs: 15000 });
+          await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
           await app.spawnSessionResume("A", {
             tugSessionId: SID_A,
             projectDir: dirA(),
