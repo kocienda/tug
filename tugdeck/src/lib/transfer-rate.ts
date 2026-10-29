@@ -44,7 +44,7 @@ const MIN_SAMPLE_MS = 20;
  *
  * The number is measured rather than reasoned. `at0632` reads the row's own box
  * in the running app and records it: the download row gives its detail line
- * **338px** while *Stop for Now* stands beside it — the narrowest any row of the
+ * **338px** while *Stop for Now* stood beside it — the narrowest any row of the
  * wizard gets — and the line renders at close to **5.76px per character** at
  * 13px, so 58 is the last count that fits (58 × 5.76 = 334px). The other rows
  * are wider (360–474px), which is why the budget belongs to the tightest of
@@ -52,7 +52,9 @@ const MIN_SAMPLE_MS = 20;
  *
  * Because it was measured on one row, it governs only the line that row asks
  * for: a call that passes a `trailer` is the download row mid-transfer with
- * *Stop for Now* beside it, and it is the only shape that can outgrow 352px.
+ * *Pause* beside it, and it is the only shape that can outgrow 352px. (The 338px
+ * was measured beside the wider *Stop for Now* label the button carried before
+ * [D202] was revised, so the budget is conservative under *Pause*.)
  * ConfigureTug paints its own download line through this function and is a
  * different row of a different panel — a budget taken from the wizard's
  * narrowest column is not a fact about it, so it is not applied there.

@@ -159,7 +159,7 @@ export function ProgressDetail(): ReactElement {
         expectedBytes,
         rate.bytesPerSecond,
         // Sparkle's download cannot be resumed where it left off — the spike
-        // settled that — so *Stop for Now* throws away everything that has
+        // settled that — so *Pause* throws away everything that has
         // arrived. A button that did so quietly would be the kind a user
         // presses once and never trusts again. The line names the bytes just
         // before this clause, so the clause says "it" rather than the number a
@@ -334,11 +334,11 @@ export function deriveUpdateRows(
       download.status = "busy";
       download.detail = <ProgressDetail />;
       download.edge = <TransferBar />;
-      // *Stop for Now* rather than *Cancel*, and never *Pause*: the press
-      // ends this download and keeps the update in hand, which is neither of
-      // the other two words. What it costs is the closing clause of the detail
-      // line above it.
-      if (state.cancellable) download.cta = { label: "Stop for Now", action: "pause" };
+      // *Pause* rather than *Cancel*: the press ends this download and keeps
+      // the update in hand, so the update is not being given up. Sparkle
+      // discards the bytes, though, so a pause here starts over on Resume —
+      // which is why the detail line above names what the press throws away.
+      if (state.cancellable) download.cta = { label: "Pause", action: "pause" };
       break;
     case "paused":
       check.status = "done";

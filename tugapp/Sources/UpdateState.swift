@@ -65,11 +65,10 @@ enum UpdateAction: String, Codable {
     case cancel
     /// Stop a transfer that is in flight, keeping the flow in hand.
     ///
-    /// The name is the wire's, not the surface's: what the update wizard's
-    /// button says is *Stop for Now*, because Sparkle's download cannot be
-    /// resumed where it left off — the spike settled that — and calling a
-    /// button "Pause" when the bytes are discarded would be a promise the
-    /// flow cannot keep.
+    /// The update wizard's button says *Pause*. Sparkle's download cannot be
+    /// resumed where it left off — the spike settled that — so a pause
+    /// discards the bytes and Resume starts over; the wizard's detail line
+    /// says so before the press.
     case pause
     /// Start a stopped transfer again. What that costs depends on who owns
     /// the bytes; for the Sparkle download it starts over.

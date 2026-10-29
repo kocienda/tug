@@ -17,7 +17,7 @@
  *   and `error`, acknowledge with `dismiss` [B04].
  * - **Progress is words on one span, never a render** [L06] (claim 6).
  * - **A download can be stopped, and what that costs is said first** (claim 7):
- *   *Stop for Now*, the bytes named on the download row's own detail line, and
+ *   *Pause*, the bytes named on the download row's own detail line, and
  *   *Resume* on the stopped row.
  *
  * The two were one file until it outgrew the 20 s budget;
@@ -243,10 +243,9 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
           await elementCount(app, `${STEP_ROWS} .tug-step-row-main ${BAR}`),
         ).toBe(0);
 
-        // The button says what it does. Not *Pause*, which would promise the
-        // bytes are kept, and not *Cancel*, which would say the update is
-        // being given up rather than the download.
-        expect(await ui(app).getElementText(cta("pause"))).toContain("Stop for Now");
+        // *Pause*, not *Cancel*, which would say the update is being given up
+        // rather than the download. The detail line says the bytes go.
+        expect(await ui(app).getElementText(cta("pause"))).toContain("Pause");
 
         await waitForClickable(app, cta("pause"));
         await ui(app).click(cta("pause"));
@@ -411,7 +410,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: what every update control posts, and what 
           }
         }
 
-        // And with no *Stop for Now* to warn about, the room goes back to the
+        // And with no *Pause* to warn about, the room goes back to the
         // ETA. The warning names a press, so it is there exactly where the
         // press is — which is also what keeps the line inside one row.
         //

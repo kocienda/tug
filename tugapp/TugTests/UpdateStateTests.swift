@@ -169,7 +169,7 @@ final class UpdateStateTests: XCTestCase {
 
     // ── Stopping a download, and what it keeps [B12], [B13] ─────────────
     //
-    // *Stop for Now* is the fallback the `file:` spike left standing: Sparkle's
+    // *Pause* is the fallback the `file:` spike left standing: Sparkle's
     // download cannot be picked up where it stopped, so the flow keeps the update
     // and throws the bytes away. Both halves of that are load-bearing — the update
     // staying is what Resume is about, and the bytes going is what the surface

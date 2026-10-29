@@ -64,7 +64,7 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
     /// Re-sends the quit event when the app declined to terminate.
     private var retryTermination: (() -> Void)?
 
-    /// True between a *Stop for Now* press and whatever ends the stop.
+    /// True between a *Pause* press and whatever ends the stop.
     ///
     /// Stopping is Sparkle's cancel, and Sparkle answers a cancelled download
     /// by tearing the session down — `dismissUpdateInstallation`, which

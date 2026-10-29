@@ -271,7 +271,7 @@ function ClaudeDownloadDetail(): ReactElement {
 /**
  * What a stopped download is holding, said on the paused row.
  *
- * The opposite sentence to the update wizard's: Sparkle's *Stop for Now*
+ * The opposite sentence to the update wizard's: Sparkle's *Pause*
  * discards, so that row names what the press would cost. Here the bytes are a
  * partial file on disk under Tug's own download directory, so the row names
  * what it kept — and Resume continues from that byte rather than from the top

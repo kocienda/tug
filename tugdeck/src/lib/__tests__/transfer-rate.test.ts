@@ -152,7 +152,7 @@ describe("transferDetailLine: the trailing clause ([B05])", () => {
 
   test("the budget reaches only the line it was measured on", () => {
     // The 58-character budget is the UpdateTug download row's 352px column
-    // with *Stop for Now* beside it. ConfigureTug paints its own download line
+    // with the download button beside it. ConfigureTug paints its own download line
     // through this same function, in a different row of a different panel, and
     // passes no trailer — so the shed must not reach it. The widest a
     // trailerless line gets is the three longest clauses this function can

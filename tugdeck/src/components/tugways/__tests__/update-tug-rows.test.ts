@@ -312,12 +312,12 @@ describe("update-tug-rows: the host's rows are unmoved", () => {
 });
 
 describe("update-tug-rows: stopping a download, and starting it again", () => {
-  it("offers Stop for Now while bytes are arriving, never Cancel and never Pause", () => {
+  it("offers Pause while bytes are arriving, never Cancel", () => {
     const download = rowsBy("downloading", NO_LIVE_TURNS, {
       snapshot: { cancellable: true },
     }).download;
     expect(download.status).toBe("busy");
-    expect(download.cta).toEqual({ label: "Stop for Now", action: "pause" });
+    expect(download.cta).toEqual({ label: "Pause", action: "pause" });
   });
 
   it("offers no stop at all when the host says the transfer cannot be called off", () => {
