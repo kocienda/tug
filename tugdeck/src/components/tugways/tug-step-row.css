@@ -18,7 +18,11 @@
 .tug-step-row {
   /* [L20] the row's own knobs. The height is at the point of use so a host can
      scope a taller row without reaching into this element. */
-  --tugx-step-row-h: 60px;
+  --tugx-step-row-h: 64px;
+  /* Room kept clear along the plinth's bottom for the `edge` strip, so a
+     detail line does not crowd a progress bar. It lifts the centered content
+     by half its height in every row alike, which keeps the rows level. */
+  --tugx-step-row-edge-room: 4px;
   /* Dot diameter (mirrors TUG_STEP_ROW_DOT_SIZE) + the headline gap; used to
      indent the detail line so it aligns under the label, not the dot. */
   --tugx-step-row-dot: 14px;
@@ -30,7 +34,7 @@
   /* The containing block for the `edge` strip. */
   position: relative;
   min-height: var(--tugx-step-row-h);
-  padding: 0 var(--tug-space-md);
+  padding: 0 var(--tug-space-md) var(--tugx-step-row-edge-room);
   background: var(--tugx-block-surface);
   border-radius: var(--tugx-block-chrome-radius);
 }

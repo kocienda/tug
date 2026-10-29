@@ -197,7 +197,7 @@ interface DetailLine {
 /**
  * Every row's detail line, measured.
  *
- * The row's 60px floor has about 20px of slack over `headline + one detail
+ * The row's 64px floor has about 20px of slack over `headline + one detail
  * line`, which is enough to absorb a detail line wrapping to *two* — so a wrap
  * is a thing the row heights above cannot see, and it is still the panel saying
  * one of its rows in two lines while the others say theirs in one. This is what
@@ -377,7 +377,7 @@ describe.skipIf(!SHOULD_RUN)("AT0632: a step row holds its height", () => {
           }
 
           // And no row says its line in two lines while the others say theirs
-          // in one — the wrap the 60px floor is roomy enough to hide.
+          // in one — the wrap the 64px floor is roomy enough to hide.
           for (const line of await detailLines(app)) {
             note(
               `at0632 ${stage} ${line.key} detail`,
