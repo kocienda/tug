@@ -108,7 +108,8 @@
  * event handlers and a `MutationObserver`, never React state; [L11] every
  * control emits `selectValue` through the responder chain, which this card
  * turns into `set-imposition` / `set-imposition-layout` / `set-content-width` /
- * `set-sidebar-side` / `set-column-mode` dispatches; [L19] every control is a `TugChoiceGroup` and
+ * `set-sidebar-side` / `set-column-mode` dispatches (the last from the place
+ * toggles under the strip); [L19] every control is a `TugChoiceGroup` and
  * every caption a `TugLabel`, composed rather than hand-rolled; [L30] every
  * user-invocable act goes through the command funnel. The card touches the
  * deck store directly in three narrow places that are not commands: the
@@ -256,7 +257,6 @@ const SIDE_SENDER_PREFIX = "layout-card-side:";
 
 
 const COLUMN_SENDER_PREFIX = "layout-card-column:";
-const COLUMN_ROW_SENDER_PREFIX = "layout-card-column-row:";
 
 /** Ids of the captions, so each group can point `aria-labelledby` at its own
  *  `TugLabel`. */
@@ -275,10 +275,9 @@ const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
  *  separately ordered is also what makes them separate rows of this card's arrow
  *  plane, so a vertical arrow steps from one group to the next.
  *
- *  Five deck rows, fixed, then the place rows: two rail rows that are always
- *  there, and a column row per slot with something to arrange ([B08]). The
- *  place rows' orders are keyed by side and by slot rather than counted, so a
- *  slot's row inserting itself moves no other row's order.
+ *  Five deck rows, fixed, then the sidebar rows. A slot's stack or split has no
+ *  row here: it is asked at the picture, by the place toggles under the strip,
+ *  and a `Column N` row under Gap restated that toggle in words.
  *
  *  A fourth stood here for a while: the slot window, how many places a Cards
  *  row draws around its card's own. It was the odd one — every other row
@@ -293,19 +292,11 @@ const LAYOUTS_LAYOUT_FOCUS_ORDER = 2;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 3;
 const LAYOUTS_GAP_FOCUS_ORDER = 4;
 
-/** The column rows' orders, directly under Gap — one per slot the kind
- *  defines, dense over the rows actually rendered (a slot with nothing to
- *  arrange has no row, so its order is simply unused). The sidebar rows start
- *  past the last slot any kind can define, so no two stops can share an order
- *  however the deck is shaped. */
-const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 5;
-
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
  *  sidebar card the deck HAS, open or not, because a hidden card's row is the
  *  one door that shows it. The deck-wide rows above never move. */
-const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER =
-  LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER + slotCount("six-up");
+const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 5;
 
 /** The fold cue's stop, PAST every row rather than ahead of them. The card
  *  engages KBF at rest ([P10]), so whatever holds order 0 wears the cursor's
@@ -362,14 +353,7 @@ const SIDE_LABELS: Record<SidebarSide, string> = {
   right: "Right",
 };
 
-/** A place row's two answers, in one choice group: the cards in a slot take
- *  turns, or they divide its run. */
-const PLACE_ROW_ITEMS: TugChoiceItem[] = [
-  { value: "stack", label: "Stack" },
-  { value: "split", label: "Split" },
-];
-
-/** The caption for a slot's column row. One-based, matching the ⌘-digit chords
+/** The caption for a slot's place toggle. One-based, matching the ⌘-digit chords
  *  and every other place the deck names a slot to the user. */
 function columnCaption(slot: number): string {
   return `Column ${slot + 1}`;
@@ -1095,13 +1079,8 @@ export function LayoutContent(
     true,
   );
   // Every occupied slot, whatever its membership (see `useDeckColumns` for
-  // why one card deep still counts): each slot with something to arrange draws
-  // a control row.
+  // why one card deep still counts).
   const columns = useDeckColumns();
-  const columnRowSlots: number[] = columns
-    .filter((column) => column.members.length > 1)
-    .map((column) => column.slot)
-    .sort((a, b) => a - b);
   // The rows list the Layout card's own last: its caption takes a second
   // line, and at the foot of the list that line pushes no row apart.
   const sidebarRows = [
@@ -1289,20 +1268,6 @@ export function LayoutContent(
         const value = event.value;
         if (typeof value !== "string") return;
         const sender = event.sender;
-        // The place row writes the slot's mode. The setter short-circuits on an
-        // unchanged value, so a row pressed on the answer it shows costs
-        // nothing.
-        if (
-          typeof sender === "string" &&
-          sender.startsWith(COLUMN_ROW_SENDER_PREFIX)
-        ) {
-          const slot = Number(sender.slice(COLUMN_ROW_SENDER_PREFIX.length));
-          if (!Number.isInteger(slot) || slot < 0) return;
-          if (isColumnMode(value)) {
-            dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: value });
-          }
-          return;
-        }
         if (
           typeof sender === "string" &&
           sender.startsWith(COLUMN_SENDER_PREFIX)
@@ -1933,43 +1898,6 @@ export function LayoutContent(
               data-testid="layout-card-gap"
             />
           </div>
-
-          {/* The place rows: one per slot with something to arrange. A rail
-              gets none — it is always divided ([B01]), so there is nothing to
-              choose. A per-thing row is told from the deck rows above by its
-              caption naming the place. No `data-preview-axis`: an arrangement
-              does not audition, for the reason the marks give — its effect is
-              the word on the segment. */}
-          {columnRowSlots.map((slot) => {
-            const captionId = `layout-card-column-caption-${slot}`;
-            return (
-              <div
-                className="layouts-section-row"
-                key={`column-${slot}`}
-              >
-                <TugLabel
-                  id={captionId}
-                  size="md"
-                  emphasis="proposal"
-                  className="layouts-section-caption"
-                >
-                  {columnCaption(slot)}
-                </TugLabel>
-                <TugChoiceGroup
-                  items={PLACE_ROW_ITEMS}
-                  value={columnModeOf(imposition, slot)}
-                  senderId={`${COLUMN_ROW_SENDER_PREFIX}${slot}`}
-                  size="xs"
-                  sidePadding="xs"
-                  reselect
-                  focusGroup={LAYOUT_FOCUS_GROUP}
-                  focusOrder={LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER + slot}
-                  aria-labelledby={captionId}
-                  data-testid={`layout-card-column-${slot}`}
-                />
-              </div>
-            );
-          })}
 
           {sidebarRows.map((entry, index) => {
             const captionId = `layout-card-sidebar-caption-${entry.componentId}`;

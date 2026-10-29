@@ -967,7 +967,7 @@ function wireActionDispatch(
 
   // set-column-mode: stack or split the cards sharing one numbered slot.
   // Dispatched by the title bar's stack badge menu, the Layout card's
-  // per-slot column row, and ⌃⌘/. A slot is a stack or a split — all of its
+  // place toggles, and ⌃⌘/. A slot is a stack or a split — all of its
   // members participate, which is why the payload names a slot rather than a
   // pair of cards.
   registerAction(TUG_ACTIONS.SET_COLUMN_MODE, (payload) => {

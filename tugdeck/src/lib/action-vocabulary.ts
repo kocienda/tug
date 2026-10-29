@@ -1160,8 +1160,7 @@ export const TUG_ACTIONS = {
   //                  front-to-back and z-order decides which you see; split,
   //                  the slot's vertical run is divided between them. Stack is
   //                  the default. Its doors are the title bar's stack badge
-  //                  menu, the rail Layouts section's per-slot column row, and
-  //                  ⌃⌘/.
+  //                  menu, the Layout card's place toggles, and ⌃⌘/.
   SET_COLUMN_MODE:        "set-column-mode",
   // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally
   //                  again, keeping the slot's mode and member order. Its

@@ -192,22 +192,22 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
           "layout-card-layout",
           "layout-card-width",
         ]);
-        // Under them, the place rows — one per slot with something to arrange
-        // (part 7); a rail gets none, because it is always divided — and under
-        // those, one row per REGISTERED sidebar card: the show/hide + side
-        // question the picture cannot ask, because a hidden card is exactly
-        // what the picture does not draw. The registry is a boot step, so that
-        // count is fixed too.
-        const placeRows = rows
-          .slice(4)
-          .filter((id) => id.startsWith("layout-card-column-"));
+        // No place rows: a slot's stack or split is asked by its toggle under
+        // the strip, and a rail is always divided. Under Gap stands one row per
+        // REGISTERED sidebar card: the show/hide + side question the picture
+        // cannot ask, because a hidden card is exactly what the picture does
+        // not draw. The registry is a boot step, so that count is fixed too.
+        expect(
+          rows.filter((id) => id.startsWith("layout-card-column-")),
+          "a slot has no arrangement row: its toggle under the strip asks it",
+        ).toEqual([]);
         expect(
           rows.filter((id) => id.startsWith("layout-card-rail-")),
           "a rail has no arrangement row",
         ).toEqual([]);
         // Then the sidebar rows, which close the section — the Layout card's
         // own last, because its caption carries a second line.
-        const sidebarRows = rows.slice(5 + placeRows.length);
+        const sidebarRows = rows.slice(5);
         expect(
           sidebarRows.length,
           "every remaining row is a sidebar card's",

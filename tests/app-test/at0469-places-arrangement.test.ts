@@ -35,19 +35,17 @@
  *      for a while is gone — and a rail put on flow through its mixer row
  *      draws as a strip in the miniature while the plan's note names the rail
  *      as the thing that scrolls.
- *   8. **A place's arrangement is a row in the mixer**, `Stack | Fit | Flow`
- *      per rail side and per slot with something to arrange. Stack writes the
- *      mode alone and the layout is remembered; Fit and Flow write the mode
- *      and the layout together. A rail row is disabled, never absent, while
- *      its side holds fewer than two cards; a column row is absent, never
- *      disabled, while its slot does.
+ *
+ *   A place's arrangement used to be a row in the mixer as well — a
+ *   `Column N` `Stack | Split` row under Gap per shared slot. It restated the
+ *   place toggle under the strip in words, and was removed; `at0469-places-marks`
+ *   asserts the mixer carries no such row.
  *
  * Read from live `getBoundingClientRect()` and `data-` attributes. Nothing here
  * reads back a declared style value.
  *
  * Cut from `at0469-layout-places` to fit the 20 s budget. This file carries
- * claims 7 and 8 (a place wears one mark, and a place's arrangement is a
- * mixer row); `at0469-places-marks` carries claims 1–3 and 5,
+ * claim 7 (a place wears one mark); `at0469-places-marks` carries claims 1–3 and 5,
  * `at0469-places-sidebar-rows` claim 4, and `at0469-places-drawing` claim 6.
  * The deck and the readers are `layout-places-fixture.ts`.
  *
@@ -135,107 +133,6 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
           railMarks,
           "no mark stands for either rail, and none stands on the drawing",
         ).toBe(0);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  // ── 7. The arrangement is a row in the mixer. ──
-  //
-  // The picture's marks state and toggle; a row states a choice among answers,
-  // and this is the row: `Stack | Split` per SLOT, under Card Width and above
-  // the per-card rows, told from the deck's own LAYOUT row by the caption
-  // naming the place. A rail gets no row at all — it is always divided ([B01]),
-  // so there is nothing to choose. Every press below is read back from the
-  // STORED record rather than from the row, so a pass says the deck changed
-  // and not that the segment lit.
-  test(
-    "a slot's arrangement is a Stack | Split row, and each segment writes the record it names",
-    async () => {
-      const app = await launchTugApp();
-      try {
-        await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
-        );
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.body("L").waitForCondition<boolean>(
-          `document.querySelector('${PLACES}') !== null`,
-          { timeoutMs: 8_000 },
-        );
-        await wait(AFTER_LAND_MS);
-
-        const columnRow = (slot: number) => `[data-testid="layout-card-column-${slot}"]`;
-        const rowFacts = async (
-          selector: string,
-        ): Promise<{ present: boolean; disabled: boolean; value: string | null }> =>
-          app.body("L").evalJS<{ present: boolean; disabled: boolean; value: string | null }>(
-            `(function () {
-              var row = document.querySelector('${selector}');
-              if (row === null) return { present: false, disabled: false, value: null };
-              var active = row.querySelector('[data-choice-value][data-state="active"]');
-              return {
-                present: true,
-                disabled: row.hasAttribute("data-disabled"),
-                value: active === null ? null : active.getAttribute("data-choice-value"),
-              };
-            })()`,
-          );
-        const stored = async (): Promise<{ mode: string | null }> =>
-          app.evalJS<{ mode: string | null }>(
-            `(function () {
-              var imp = window.tugdeck.diag.getDeckState().imposition;
-              var column = (imp.columns || {})[0] || {};
-              return { mode: column.mode || null };
-            })()`,
-          );
-
-        // ── The rows stand where the brief puts them. ──
-        //
-        // No rail row on either side. Slot 0 holds two cards and gets a row,
-        // slot 1 holds one and gets none. The column rows come directly after
-        // the last deck-wide row, Gap, and the per-card rows last.
-        const order = await app.body("L").evalJS<string[]>(
-          `Array.from(document.querySelectorAll('.layouts-section-row [data-testid^="layout-card-"]'))
-            .map(function (el) { return el.getAttribute("data-testid"); })`,
-        );
-        note(`mixer rows: ${order.join(" · ")}`);
-        expect(
-          order.filter((id) => id.startsWith("layout-card-rail-")),
-          "a rail has no arrangement row: it is always divided",
-        ).toEqual([]);
-        expect(order.indexOf("layout-card-column-0"), "Column 1 follows the deck-wide rows").toBe(
-          order.indexOf("layout-card-gap") + 1,
-        );
-        expect(
-          order.indexOf("layout-card-column-1"),
-          "a slot with one card has no row — absent, not disabled",
-        ).toBe(-1);
-        expect(
-          order.indexOf("layout-card-sidebar-layout"),
-          "and the per-card rows come after every place row",
-        ).toBeGreaterThan(order.indexOf("layout-card-column-0"));
-
-        // ── Split writes the slot's mode; Stack writes it back. ──
-        const columnAtRest = await rowFacts(columnRow(0));
-        expect(columnAtRest.present, "slot 0's row is there").toBe(true);
-        expect(columnAtRest.disabled, "enabled — two cards stand in it").toBe(false);
-        expect(columnAtRest.value, "reading Stack, which an untouched shared slot is").toBe("stack");
-
-        await app.body("L").click(`${columnRow(0)} [data-choice-value="split"]`);
-        await wait(AFTER_LAND_MS);
-        let record = await stored();
-        note(`after Split on Column 1: ${JSON.stringify(record)}`);
-        expect(record.mode, "Split divided the slot").toBe("split");
-        expect((await rowFacts(columnRow(0))).value, "and the row says Split").toBe("split");
-
-        await app.body("L").click(`${columnRow(0)} [data-choice-value="stack"]`);
-        await wait(AFTER_LAND_MS);
-        record = await stored();
-        note(`after Stack on Column 1: ${JSON.stringify(record)}`);
-        expect(record.mode, "Stack stacks the slot").toBe("stack");
-        expect((await rowFacts(columnRow(0))).value, "and the row says Stack").toBe("stack");
       } finally {
         await app.close();
       }
