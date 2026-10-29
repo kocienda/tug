@@ -1,8 +1,7 @@
 /**
  * sanitize-invariant-check.ts — the sanitizer's invariant on the page's side,
- * shared by the unit tests that hold the page's paths to it
- * (`sanitize-invariant.test.ts`) and the app-test that holds WebKit's parse
- * of tugcast's renders to it (`at0732-tugcast-hostile-render.test.ts`).
+ * read by the app-test that holds WebKit's parse of tugcast's renders to it
+ * (`at0732-tugcast-hostile-render.test.ts`).
  *
  * Every element is in `ALLOWED_TAGS`, every attribute in `ALLOWED_ATTR`,
  * every `href`/`src` relative or a safe scheme (`data:` only on `img src`),

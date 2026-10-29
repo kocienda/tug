@@ -216,7 +216,7 @@ Each app-test file launches its own copy of the app, so the full corpus is slow 
 ```sh
 just lint   # clippy, rustfmt, oxlint, typechecks, shellcheck, and the frontend's own audits
 just ci     # lint followed by the fast lane's tests; the same gate the CI workflow runs
-just ci-full  # ci plus the integration suites and the WASM rebuild; nightly and before a release
+just ci-full  # ci plus the integration suites; nightly and before a release
 ```
 
 `just fmt` formats the Rust code. The frontend and bridge are checked with `bun run check` and `bun run lint` in their own directories, which `just lint` already runs for you.

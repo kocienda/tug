@@ -1,5 +1,5 @@
 {
-  "about": "The sanitizer fuzz's alphabet. tugcast's fuzz (tugrust/crates/tugcast/tests/tugmark_invariant.rs) and the page's (tugdeck/full-lane/sanitize-invariant.test.ts) build each case the same way from a mulberry32 stream: one to ten atoms, each perhaps cut short, spliced with a hazard character or uppercased, joined by separators. The same seed builds the same cases on both sides, which `sample` holds them to. Hazards are code points so the file carries no control characters.",
+  "about": "The sanitizer fuzz's alphabet. tugcast's fuzz (tugrust/crates/tugcast/tests/tugmark_invariant.rs) builds each case from a mulberry32 stream: one to ten atoms, each perhaps cut short, spliced with a hazard character or uppercased, joined by separators. The same seed builds the same cases, which `sample` holds it to. Hazards are code points so the file carries no control characters.",
   "atoms": [
     "# heading",
     "## Pass",

@@ -65,8 +65,11 @@ fetch-fonts *ARGS:
 # The push-time gate: the fast lane.
 ci: lint test-fast
 
-# The fast lane plus the integration suites and the WASM rebuild; nightly,
-# release, and before a release by hand.
+# The fast lane plus the integration suites; nightly, release, and before a
+# release by hand. The WASM rebuild is not here: `wasm.yml` runs
+# `wasm-check` on every push that touches `tugdeck/crates/`, the only change
+# that can move a package, so a second release rebuild here bought minutes
+# of compile and nothing else.
 #
 # Every lane runs even after one goes red, and the reds are named together at
 # the end: a chain of dependencies stops at the first failing recipe, so one
@@ -74,7 +77,7 @@ ci: lint test-fast
 ci-full:
     #!/usr/bin/env bash
     red=()
-    lanes=(lint-audit lint-ts lint-rust test-rust test-ts test-swift test-standalone wasm-check test-rust-slow test-ts-slow)
+    lanes=(lint-audit lint-ts lint-rust test-rust test-ts test-swift test-standalone test-rust-slow test-ts-slow)
     n=0
     for recipe in "${lanes[@]}"; do
         if [ "$n" -eq 0 ]; then
@@ -265,31 +268,20 @@ tugmark-golden:
     cd tugrust && TUGMARK_GOLDEN_WRITE=1 cargo nextest run -p tugcast --test tugmark_drift
     cd tugdeck && bun test --timeout {{BUN_HANG_GUARD_MS}} src/lib/markdown/__tests__/tugmark-drift.test.ts
 
-# Fuzz both sanitizers at a fresh seed (`just tugmark-fuzz 1234` repeats one).
-# tugcast's renderer and sanitizer run 200,000 cases reparsed by html5ever; the
-# page's markdown pipeline runs `batches` runs of 1,000 reparsed by
-# jsdom, seeds `seed` upward, each in its own process because DOMPurify on
-# jsdom slows as one process ages. CI runs each once, at the fixed seed in
-# its test file. A failure names its seed and case.
-tugmark-fuzz seed="" batches="20":
+# Fuzz tugcast's sanitizer at a fresh seed (`just tugmark-fuzz 1234` repeats
+# one): its renderer and sanitizer run 200,000 cases reparsed by html5ever. CI
+# runs it once, at the fixed seed in its test file. A failure names its seed
+# and case.
+tugmark-fuzz seed="":
     #!/usr/bin/env bash
     set -euo pipefail
     seed="{{seed}}"
     [ -n "$seed" ] || seed=$(( (RANDOM << 15) | RANDOM ))
     echo "tugmark-fuzz: seed $seed"
-    # One phase for the Rust invariant, then one per bun batch.
-    phases=("rust invariant")
-    for i in $(seq 1 {{batches}}); do phases+=("bun batch $i"); done
     report="{{justfile_directory()}}/tugrust/scripts/report-phase.sh"
-    bash "$report" tugmark-fuzz 0 "rust invariant" --of "${phases[@]}"
+    bash "$report" tugmark-fuzz 0 "rust invariant" --of "rust invariant"
     (cd tugrust && TUGMARK_FUZZ_SEED="$seed" TUGMARK_FUZZ_CASES=200000 cargo nextest run -p tugcast --test tugmark_invariant fuzz)
-    cd tugdeck
-    for i in $(seq 0 $(( {{batches}} - 1 ))); do
-        bash "$report" tugmark-fuzz $(( i + 1 )) "bun batch $(( i + 1 ))"
-        TUGMARK_FUZZ_SEED=$(( seed + i )) TUGMARK_FUZZ_CASES=1000 \
-            bun test --timeout {{BUN_HANG_GUARD_MS}} ./full-lane/sanitize-invariant.test.ts -t "holds the invariant over"
-    done
-    bash "$report" tugmark-fuzz $(( {{batches}} + 1 ))
+    bash "$report" tugmark-fuzz 1
 
 # Capture Claude Code fixtures + capabilities snapshot (~2-3 min; real-claude)
 capture-capabilities:
@@ -512,7 +504,7 @@ fmt:
 # Each group runs under `tugtool test run --kind lines --unit check`, one
 # item per check, so `tugtool test last --failures` names a red check.
 # `wasm-check` is a release rebuild of every WASM crate, so it rides
-# `ci-full`, not `lint`.
+# `wasm.yml`, not `lint`.
 lint: lint-audit lint-ts lint-rust
 
 # The audit checks: the repository's own lints, shellcheck and the deck's audits.

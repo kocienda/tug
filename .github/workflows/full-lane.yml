@@ -1,7 +1,7 @@
 name: Full Lane
 
-# `just ci-full`: the fast lane, the WASM rebuild, and the slow suites — the
-# Rust set that spawns git or the real tugcast, and `tugdeck/full-lane/`. One
+# `just ci-full`: the fast lane and the slow suites — the Rust set that
+# spawns git or the real tugcast, and `tugdeck/full-lane/`. One
 # reusable job, so the nightly and the release both wait on the same copy of
 # it, and `workflow_dispatch` runs it by hand.
 
@@ -31,10 +31,6 @@ jobs:
         run: rustup toolchain install
         working-directory: tugrust
 
-      - name: Install the WASM toolchain
-        run: rustup toolchain install
-        working-directory: tugdeck/crates
-
       # Restore here, save at the end with `if: always()`, so a red run still
       # leaves a cache for the next one. The key ends in the run id, so every
       # run saves what it built and the next restores the newest by prefix: a
@@ -56,20 +52,6 @@ jobs:
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
-
-      - name: Install wasm-pack
-        uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-pack@0.15.0
-
-      # wasm-pack compiles the `wasm-bindgen` CLI from source on first use —
-      # two minutes of every night's WASM rebuild. The version it builds is the
-      # one `tugdeck/crates/Cargo.lock` pins, so that is the key.
-      - name: Cache wasm-bindgen
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/.wasm-pack
-          key: ${{ runner.os }}-wasm-pack-${{ hashFiles('tugdeck/crates/Cargo.lock') }}
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2

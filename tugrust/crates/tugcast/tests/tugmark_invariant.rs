@@ -22,8 +22,8 @@
 //! own regression corpus (`corpus/dompurify/payloads.json`, vendored by
 //! `tugdeck/scripts/import-dompurify-fixtures.ts`) rendered as markdown with
 //! highlighting on, as tugcast renders a turn, and sanitized directly as HTML;
-//! and a seeded fuzz, random fragments built from `corpus/fuzz/atoms.json`
-//! the same way the page's fuzz builds them, through the same two paths.
+//! and a seeded fuzz, random fragments built from `corpus/fuzz/atoms.json`,
+//! through the same two paths.
 //! CI runs it at a fixed seed; `just tugmark-fuzz` runs it at a fresh one
 //! (`TUGMARK_FUZZ_SEED`, `TUGMARK_FUZZ_CASES`).
 
@@ -321,7 +321,7 @@ fn the_invariant_catches_what_it_names() {
     );
 }
 
-/// mulberry32, the stream the page's fuzz draws from too.
+/// mulberry32, the stream the fuzz draws from.
 struct Mulberry32(u32);
 
 impl Mulberry32 {
@@ -340,7 +340,7 @@ impl Mulberry32 {
 
 /// `count` cases from `seed`: one to ten atoms joined by separators, each atom
 /// cut short, spliced with a hazard, uppercased, or left whole. The draws are
-/// made in the order the page's `fuzzCases` makes them, over code points.
+/// made in the order the recorded `sample` was made, over code points.
 fn fuzz_cases(seed: u32, count: usize) -> Vec<String> {
     let alphabet = read_json("crates/tugmark/corpus/fuzz/atoms.json");
     let strings = |key: &str| -> Vec<String> {
@@ -391,7 +391,7 @@ fn env_number(name: &str, default: u32) -> u32 {
 }
 
 #[test]
-fn a_seed_builds_the_cases_the_page_builds() {
+fn a_seed_builds_the_recorded_sample() {
     let sample = &read_json("crates/tugmark/corpus/fuzz/atoms.json")["sample"];
     let expected: Vec<String> = sample["cases"]
         .as_array()
