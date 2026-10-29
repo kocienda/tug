@@ -40,12 +40,33 @@ pub enum Act {
     },
     /// Land the arc on its base through `tugtool arc join`.
     Land(&'static str),
-    /// Discard the arc through `tugtool arc discard --break-lease`: its
-    /// worktree and branch gone without merging, the crossing it stood in
-    /// forgotten, and the arc dropped from the run so a later act may cut one
-    /// of the same name afresh. `--break-lease` is what lets the discard land
-    /// while a settle may still hold the pair's lease — the torture case.
+    /// Discard the arc through `tugtool arc discard`: its worktree and branch
+    /// gone without merging, the crossing it stood in forgotten, and the arc
+    /// dropped from the run so a later act may cut one of the same name
+    /// afresh.
     Discard(&'static str),
+    /// Make the arc a finished Wheel arc: the record a run that implemented
+    /// and audited leaves, with the `audited` mark on the live tips and
+    /// `arc-done` after it. Only a finished arc is made a Wheel arc — a live
+    /// record would have the runner seat a stage on the arc's headless session
+    /// — and a finished one is what a stale audit reopens.
+    Finish(&'static str),
+    /// `tugtool arc mark <arc> audited`: what a re-audit leaves when the work
+    /// is in good shape.
+    MarkAudited(&'static str),
+    /// `tugtool arc stop`: end the stage a re-audit seated before its model
+    /// does work the scenario does not need.
+    Stop(&'static str),
+    /// Drop the binding between the arc and its session, so no card holds it.
+    Unbind(&'static str),
+    /// Bind the arc's session to it again.
+    Rebind(&'static str),
+    /// A commit on `main` that no arc made: the base moves with no crossing
+    /// settled first, so a conflict it brings is one the cache never saw.
+    BaseCommit {
+        subject: &'static str,
+        edits: Vec<(&'static str, Edit)>,
+    },
     /// Wait for a record to say something, within the scenario's wait budget.
     Expect(Probe),
 }
@@ -73,6 +94,18 @@ fn green_docs() -> Vec<Surface> {
         name: "docs",
         paths: &["docs/"],
         check: &["true"],
+    }]
+}
+
+/// One surface claiming every path a lab round touches, with the check
+/// `check`. A finished arc's quiet re-stamp verifies the fit, and a path no
+/// surface claims reads `unclaimed` — which seats the audit — so the
+/// audit-readiness scenarios claim everything and choose the verdict.
+fn whole_tree(check: &'static [&'static str]) -> Vec<Surface> {
+    vec![Surface {
+        name: "lab",
+        paths: &["docs/", "f.txt", "g.txt"],
+        check,
     }]
 }
 
@@ -423,15 +456,14 @@ fn round_mid_settle() -> LabScenario {
 /// line five; the lab lands `ra` the instant the crossing is seen, without
 /// waiting for the settle to teach, so the land and the settle race. The sibling
 /// must not be stranded: the base takes the landing, and base-motion replays
-/// `rb` onto it and its session verifies it — the arc log records `rb verified`
-/// on the landed base, whichever order the race resolves in. (That the replay *recalls*
-/// the resolution rather than meeting the hunk fresh is the sequential path's
-/// proof, pinned by `scenario_zero` and `base_moves_twice`; here the point is
-/// that a join mid-settle leaves a consistent record, not a half-replayed arc.)
+/// `rb` onto it — whichever order the race resolves in. A replay that meets the
+/// hunk before the settle has taught stops; the settle's finish wakes the
+/// engine, and the cache that has learned since is the reason to try again, so
+/// the arc log records `rb replayed` with `f.txt` recalled.
 fn join_during_settle() -> LabScenario {
     LabScenario {
         name: "join_during_settle",
-        why: "a lands the instant the crossing is seen; b is replayed and verified, not stranded",
+        why: "a lands the instant the crossing is seen; b is replayed once the settle teaches, not stranded",
         files: ten_lines(),
         surfaces: green_docs(),
         acts: vec![
@@ -452,7 +484,8 @@ fn join_during_settle() -> LabScenario {
             Act::Expect(Probe::arc_log_marker("rb", "crossing-conflict")),
             Act::Land("ra"),
             Act::Expect(Probe::base_log("lab lands ra")),
-            Act::Expect(Probe::arc_log_marker("rb", "verified")),
+            Act::Expect(Probe::arc_log_marker("rb", "replayed")),
+            Act::Expect(Probe::arc_log("rb", "recalled f.txt")),
         ],
     }
 }
@@ -547,8 +580,9 @@ fn discard_mid_crossing() -> LabScenario {
 /// line five; `rb`'s session is handed a turn, and while it is mid-turn `ra`
 /// lands, so base-motion's replay notice for `rb` arrives against a session that
 /// is already busy. The notice must not be lost or double-injected: `rb` is
-/// still replayed onto the landed base and its verify runs — the arc log records
-/// `rb verified`, and the handed turn is in its transcript.
+/// still replayed onto the landed base once its turn ends — the arc log records
+/// `rb replayed` with `f.txt` recalled, and the handed turn is in its
+/// transcript.
 fn notice_mid_turn() -> LabScenario {
     LabScenario {
         name: "notice_mid_turn",
@@ -581,7 +615,8 @@ fn notice_mid_turn() -> LabScenario {
                 "rb",
                 "[arc-lab] Reply with a short paragraph",
             )),
-            Act::Expect(Probe::arc_log_marker("rb", "verified")),
+            Act::Expect(Probe::arc_log_marker("rb", "replayed")),
+            Act::Expect(Probe::arc_log("rb", "recalled f.txt")),
         ],
     }
 }
@@ -621,6 +656,228 @@ fn modelled_crossing() -> LabScenario {
     }
 }
 
+/// A finished arc whose base moves under it on a disjoint landing. Only the
+/// base moved, so the machine keeps the case: base-motion replays `rb` onto
+/// the landing, verifies the fit green, and writes a fresh `audited` mark on
+/// the live tips — the offer comes back with no turn spent and no audit
+/// seated.
+fn restamp_quiet() -> LabScenario {
+    LabScenario {
+        name: "restamp_quiet",
+        why: "a disjoint landing under a finished arc is re-stamped with no turn",
+        files: ten_lines(),
+        surfaces: whole_tree(&["true"]),
+        acts: vec![
+            Act::Arc("ra"),
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "ra",
+                subject: "a edits f",
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 1, "a one")))],
+            },
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g",
+                edits: vec![("g.txt", Edit::Write("g by b\n".to_string()))],
+            },
+            Act::Finish("rb"),
+            Act::Expect(Probe::stage("rb", "audited")),
+            Act::Land("ra"),
+            Act::Expect(Probe::base_log("lab lands ra")),
+            Act::Expect(Probe::arc_log_marker("rb", "replayed")),
+            Act::Expect(Probe::stage("rb", "audited")),
+            Act::Expect(Probe::absent(Probe::reaudit("rb"), 10)),
+        ],
+    }
+}
+
+/// A finished arc whose base moves by a sibling it crossed. The pair's settle
+/// taught the cache; `ra` lands; the quiet path's replay of `rb` recalls the
+/// settle, the fit is green, and the audit is re-stamped — a conflict the
+/// machine already answered costs no re-audit.
+fn restamp_recalls_crossing() -> LabScenario {
+    LabScenario {
+        name: "restamp_recalls_crossing",
+        why: "a settled crossing is recalled by the quiet replay and re-stamped",
+        files: ten_lines(),
+        surfaces: whole_tree(&["true"]),
+        acts: vec![
+            Act::Arc("ra"),
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "ra",
+                subject: A_FIVE,
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 5, "a five")))],
+            },
+            Act::Round {
+                arc: "rb",
+                subject: B_FIVE,
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 5, "b five")))],
+            },
+            Act::Expect(Probe::arc_log_marker("rb", "crossing-conflict")),
+            Act::Expect(Probe::rerere(1)),
+            Act::Finish("rb"),
+            Act::Land("ra"),
+            Act::Expect(Probe::base_log("lab lands ra")),
+            Act::Expect(Probe::arc_log("rb", "recalled f.txt")),
+            Act::Expect(Probe::stage("rb", "audited")),
+            Act::Expect(Probe::absent(Probe::reaudit("rb"), 10)),
+        ],
+    }
+}
+
+/// A finished arc whose base moves by a commit no arc made, onto the line the
+/// arc rewrote. No crossing ever settled it, so the quiet replay stops on a
+/// conflict the cache does not know, and the audit is seated on the arc's
+/// card to resolve it. The lab stops the seated stage before its model works.
+fn seat_on_unknown_conflict() -> LabScenario {
+    LabScenario {
+        name: "seat_on_unknown_conflict",
+        why: "a base commit conflicts with a finished arc; the cache cannot answer, so the audit is seated",
+        files: ten_lines(),
+        surfaces: whole_tree(&["true"]),
+        acts: vec![
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits line five",
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 5, "b five")))],
+            },
+            Act::Finish("rb"),
+            Act::BaseCommit {
+                subject: "main edits line five",
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 5, "main five")))],
+            },
+            Act::Expect(Probe::stage("rb", "audit-stale")),
+            Act::Expect(Probe::reaudit("rb")),
+            Act::Stop("rb"),
+        ],
+    }
+}
+
+/// A finished arc whose base moves cleanly but whose fit is red. The replay is
+/// clean, the verify fails, and a red is something a reader has to look at, so
+/// the audit is seated rather than re-stamped.
+fn seat_on_red_fit() -> LabScenario {
+    LabScenario {
+        name: "seat_on_red_fit",
+        why: "a clean replay with a red fit seats the audit instead of re-stamping",
+        files: ten_lines(),
+        surfaces: whole_tree(&["false"]),
+        acts: vec![
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g",
+                edits: vec![("g.txt", Edit::Write("g by b\n".to_string()))],
+            },
+            Act::Finish("rb"),
+            Act::BaseCommit {
+                subject: "main edits line one",
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 1, "main one")))],
+            },
+            Act::Expect(Probe::arc_log_marker("rb", "replayed")),
+            Act::Expect(Probe::reaudit("rb")),
+            Act::Stop("rb"),
+        ],
+    }
+}
+
+/// A round lands on a finished arc. The head moved, not only the base, so the
+/// machine cannot vouch for the new work: the offer goes down (`audit-stale`)
+/// and the audit is seated. When the re-audit marks, the offer comes back up.
+fn round_after_audit() -> LabScenario {
+    LabScenario {
+        name: "round_after_audit",
+        why: "a round on a finished arc takes the offer down and seats the audit; the re-audit's mark brings it up",
+        files: ten_lines(),
+        surfaces: whole_tree(&["true"]),
+        acts: vec![
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g",
+                edits: vec![("g.txt", Edit::Write("g by b\n".to_string()))],
+            },
+            Act::Finish("rb"),
+            Act::Expect(Probe::stage("rb", "audited")),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g again",
+                edits: vec![("g.txt", Edit::Write("g by b, twice\n".to_string()))],
+            },
+            Act::Expect(Probe::stage("rb", "audit-stale")),
+            Act::Expect(Probe::reaudit("rb")),
+            Act::Stop("rb"),
+            Act::MarkAudited("rb"),
+            Act::Expect(Probe::stage("rb", "audited")),
+        ],
+    }
+}
+
+/// A stale audit with no card to seat it on waits, and the bind that brings a
+/// card is the wake that seats it. The round comes while the arc is unbound,
+/// so nothing reopens it; binding the session again does.
+fn stale_waits_for_a_card() -> LabScenario {
+    LabScenario {
+        name: "stale_waits_for_a_card",
+        why: "a stale audit with no card waits; the bind seats it",
+        files: ten_lines(),
+        surfaces: whole_tree(&["true"]),
+        acts: vec![
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g",
+                edits: vec![("g.txt", Edit::Write("g by b\n".to_string()))],
+            },
+            Act::Finish("rb"),
+            Act::Unbind("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g again",
+                edits: vec![("g.txt", Edit::Write("g by b, twice\n".to_string()))],
+            },
+            Act::Expect(Probe::stage("rb", "audit-stale")),
+            Act::Expect(Probe::absent(Probe::reaudit("rb"), 10)),
+            Act::Rebind("rb"),
+            Act::Expect(Probe::reaudit("rb")),
+            Act::Stop("rb"),
+        ],
+    }
+}
+
+/// The hand door still lands an arc that is not ready. A finished arc goes
+/// stale on a round while no card holds it, so nothing re-audits it, and
+/// `tugtool arc join` lands it anyway — only the offer follows readiness.
+fn hand_joins_a_stale_arc() -> LabScenario {
+    LabScenario {
+        name: "hand_joins_a_stale_arc",
+        why: "tugtool arc join lands an audit-stale arc; only the offer follows readiness",
+        files: ten_lines(),
+        surfaces: whole_tree(&["true"]),
+        acts: vec![
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g",
+                edits: vec![("g.txt", Edit::Write("g by b\n".to_string()))],
+            },
+            Act::Finish("rb"),
+            Act::Unbind("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g again",
+                edits: vec![("g.txt", Edit::Write("g by b, twice\n".to_string()))],
+            },
+            Act::Expect(Probe::stage("rb", "audit-stale")),
+            Act::Land("rb"),
+            Act::Expect(Probe::base_log("lab lands rb")),
+            Act::Expect(Probe::arc_log("rb", "joined")),
+        ],
+    }
+}
+
 /// Every scenario, in the order `--list` prints them.
 pub fn scenarios() -> Vec<LabScenario> {
     vec![
@@ -639,6 +896,13 @@ pub fn scenarios() -> Vec<LabScenario> {
         discard_mid_crossing(),
         notice_mid_turn(),
         modelled_crossing(),
+        restamp_quiet(),
+        restamp_recalls_crossing(),
+        seat_on_unknown_conflict(),
+        seat_on_red_fit(),
+        round_after_audit(),
+        stale_waits_for_a_card(),
+        hand_joins_a_stale_arc(),
     ]
 }
 
@@ -686,7 +950,12 @@ mod tests {
                     Act::Round { arc, .. } | Act::Say { arc, .. } => {
                         assert!(cut.contains(arc), "{}: {arc} not cut", scenario.name)
                     }
-                    Act::Land(arc) => {
+                    Act::Land(arc)
+                    | Act::Finish(arc)
+                    | Act::MarkAudited(arc)
+                    | Act::Stop(arc)
+                    | Act::Unbind(arc)
+                    | Act::Rebind(arc) => {
                         assert!(cut.contains(arc), "{}: {arc} not cut", scenario.name)
                     }
                     Act::Discard(arc) => {
@@ -695,7 +964,7 @@ mod tests {
                         // the same name afresh before it can be named again.
                         cut.retain(|a| a != arc);
                     }
-                    Act::Expect(_) => {}
+                    Act::BaseCommit { .. } | Act::Expect(_) => {}
                 }
             }
         }

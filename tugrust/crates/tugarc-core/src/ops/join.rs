@@ -4,7 +4,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tugcore::instance::Paths;
 
 use super::{
@@ -51,17 +51,6 @@ pub struct JoinOptions {
     pub preview: bool,
     /// Resume an interrupted join's teardown from its open op-log record.
     pub continue_join: bool,
-    /// Land a pre-built candidate commit from the resolution ladder ([P31])
-    /// instead of merging the arc branch: the candidate supplies the resolved
-    /// **bytes**, `strategy` still decides the **shape**, and the normal
-    /// recorded teardown follows. It must be the arc's anchored candidate, and
-    /// it lands only on the base head that candidate recorded — the same test
-    /// [`crate::resolve::candidate_status`] applies.
-    ///
-    /// The candidate's own internal shape — one commit on the base, or a chain
-    /// of replayed rounds — is an implementation detail of the ladder and never
-    /// decides what the base's history looks like.
-    pub candidate: Option<String>,
     /// Which route asked for this join — `cli` or `card`. Recorded in the
     /// arc log's terminal note so a join is attributable after the fact;
     /// `None` writes the bare note the log carried before routes were recorded.
@@ -76,13 +65,6 @@ pub struct JoinOptions {
     /// shows one pill for work that had a session behind it. `None` writes no
     /// session trailers; the CLI fills it from its own `TUG_SESSION_ID`.
     pub session_id: Option<String>,
-    /// Proceed past the `live-resolve` refusal, tearing down a conflict chain
-    /// the lease says somebody may still be working on.
-    ///
-    /// Consent, not capability: the teardown is unchanged, and the op log's
-    /// keepalive already holds the chain so `tugtool arc undo` puts it back.
-    /// What the flag adds is a recorded decision and a receipt naming it.
-    pub break_lease: bool,
     /// The directory the caller is standing in, when it stands anywhere: the
     /// CLI passes its own cwd so a join run from inside the arc worktree is
     /// refused. `None` skips that check — tugcast's process cwd is the
@@ -153,7 +135,7 @@ pub struct ConflictCommit {
 /// One reason a join would be refused, as reported by a `--preview`.
 #[derive(Debug, Clone, Serialize)]
 pub struct JoinBlocker {
-    /// `off-base` | `base-dirt` | `stale-journal` | `live-resolve` | `empty`.
+    /// `off-base` | `base-dirt` | `stale-journal` | `empty`.
     pub kind: String,
     /// The situation named as a short phrase, for the dialog's title row.
     ///
@@ -536,8 +518,7 @@ pub(crate) fn arc_draft_message(paths: &Paths, repo: &Path, branch: &str) -> Opt
 
 /// The scoped integrate/join commit message: explicit override → maintained
 /// arc draft ([P23]) → the arc description → a bare fallback, always wrapped
-/// as `tugarc(<name>): …`. Shared by the strategy integrate and the resolution
-/// ladder's candidate commit so both speak the same voice.
+/// as `tugarc(<name>): …`, for every strategy's integrate.
 ///
 /// Every body source may legitimately already open with an arc scope — a draft
 /// authored in the conventional voice, a description written by hand, an
@@ -659,20 +640,6 @@ fn stale_journal_detail(name: &str) -> String {
     )
 }
 
-/// The receipt a broken lease leaves in the verb's warnings.
-pub(super) fn broke_lease_warning(
-    name: &str,
-    lease: &crate::resolve::ResolveLease,
-    seq: u64,
-) -> String {
-    format!(
-        "Broke the resolve lease on '{}' (chain tip {} old); the resolver's checkpoints are kept at op #{} — tugtool arc undo restores them.",
-        name,
-        human_age(lease.age),
-        seq
-    )
-}
-
 /// A duration as a reader would say it: `45s`, `12m`, `1h 20m`.
 pub fn human_age(age: Duration) -> String {
     let secs = age.as_secs();
@@ -684,23 +651,6 @@ pub fn human_age(age: Duration) -> String {
         return format!("{minutes}m");
     }
     format!("{}h {}m", minutes / 60, minutes % 60)
-}
-
-/// What a verb says when the chain says somebody is still resolving.
-///
-/// **Both ways out, because the sentence has two audiences.** `--break-lease`
-/// is a flag no Session card user can reach; the card's way past a lease that
-/// outlived its resolver is its Resolve arm, which runs the ladder and starts a
-/// fresh chain. A refusal naming only the flag would be a control that does
-/// nothing for half the people who read it ([L31]).
-pub fn live_resolve_detail(name: &str, lease: &crate::resolve::ResolveLease, verb: &str) -> String {
-    format!(
-        "A resolve may still be running for arc '{}': its conflict chain was last advanced {} ago, inside the {} lease. Wait for it to finish, resolve again to start a fresh one, or pass `--break-lease` to {} anyway — the resolver's checkpoints are kept by the op log and `tugtool arc undo` puts them back.",
-        name,
-        human_age(lease.age),
-        human_age(crate::resolve::RESOLVE_LEASE),
-        verb
-    )
 }
 
 fn off_base_detail(current_branch: &str, base_branch: &str) -> String {
@@ -780,14 +730,6 @@ fn off_base_blocker(current_branch: &str, base_branch: &str) -> JoinBlocker {
         "off-base",
         "The base is on another branch",
         off_base_detail(current_branch, base_branch),
-    )
-}
-
-fn live_resolve_blocker(name: &str, lease: &crate::resolve::ResolveLease) -> JoinBlocker {
-    plain_blocker(
-        "live-resolve",
-        "A resolve is running",
-        live_resolve_detail(name, lease, "join"),
     )
 }
 
@@ -1741,15 +1683,6 @@ pub fn join_blockers_from_detail(
         true,
     ));
 
-    // Only when nobody in this process holds the arc: the in-process registry
-    // is exact and instant, and the lease is the two-hour derived answer for
-    // the case it cannot see — another process entirely.
-    if held.is_none()
-        && let Some(lease) = crate::resolve::resolve_lease(repo_root, name, SystemTime::now())
-    {
-        blockers.push(live_resolve_blocker(name, &lease));
-    }
-
     // Empty is a *finding* on the preview path, not a refusal: the card's answer
     // to it is the discard affordance. The execute path auto-commits worktree
     // dirt before testing `ahead`, so dirt makes an arc non-empty here too.
@@ -1760,20 +1693,19 @@ pub fn join_blockers_from_detail(
     blockers
 }
 
-/// The conflict half of a join preview: what `merge-tree` says, plus the base
-/// archaeology behind it, plus the two heads the answer was computed from.
+/// The conflict half of a join preview: what `merge-tree` says, plus the two
+/// heads the answer was computed from.
 #[derive(Debug, Clone)]
 pub struct JoinConflicts {
     pub conflicts: Vec<String>,
-    pub archaeology: Vec<ConflictHistory>,
     pub base_sha: String,
     pub arc_sha: String,
 }
 
 /// Probe an arc's conflict set without touching anything.
 ///
-/// **This half is cacheable**, and it is the expensive one: `merge-tree` plus a
-/// `git log` per conflicted path. It is a pure function of the two heads it
+/// **This half is cacheable**, and it is the expensive one: a `merge-tree` of
+/// the two heads. It is a pure function of the two heads it
 /// reports, which is what makes a cache keyed by that pair sound — unlike the
 /// blockers ([`join_blockers_from_detail`]), which move without either head
 /// moving and must never be cached.
@@ -1792,10 +1724,8 @@ pub fn join_conflicts_in(repo_root: &Path, name: &str) -> Result<JoinConflicts, 
     }
     let base_branch = arc_base(repo_root, name)?;
     let conflicts = merge_tree_conflicts(repo_root, &base_branch, &branch)?;
-    let archaeology = conflict_archaeology(repo_root, &base_branch, &branch, &conflicts);
     Ok(JoinConflicts {
         conflicts,
-        archaeology,
         base_sha: git_stdout(repo_root, &["rev-parse", &base_branch])?,
         arc_sha: git_stdout(repo_root, &["rev-parse", &branch])?,
     })
@@ -1828,9 +1758,9 @@ pub fn join_in(
 ///
 /// | Beat | What it surrounds |
 /// |---|---|
-/// | `squash` | the integrate — squash-merge and commit, of the arc branch or of a resolved candidate, per `strategy` |
+/// | `squash` | the integrate — squash-merge and commit of the arc branch, per `strategy` |
 /// | `teardown` | removing the arc worktree |
-/// | `release` | dropping the candidate ref, removing the workshop, deleting the branch |
+/// | `release` | forgetting the arc's crossings and residue, deleting the branch |
 /// | `record` | the arc log line and closing the op-log record |
 ///
 /// **The order is the code's, not the wire's convenience.** The arc log line
@@ -1922,6 +1852,14 @@ pub fn join_in_with_progress(
         }
         let blockers = join_preflight_in(paths, &repo_root, name)?;
         let probe = join_conflicts_in(&repo_root, name)?;
+        // What the base did to each conflicted path, for the CLI's preview
+        // report; read here, on demand, rather than on every probe.
+        let archaeology = conflict_archaeology(
+            &repo_root,
+            &base_branch,
+            &branch_name(name),
+            &probe.conflicts,
+        );
         return Ok(JoinOutcome {
             name: name.to_string(),
             base_branch,
@@ -1935,7 +1873,7 @@ pub fn join_in_with_progress(
             previewed: true,
             blockers,
             message: None,
-            archaeology: probe.archaeology,
+            archaeology,
             warnings,
         });
     }
@@ -1994,19 +1932,6 @@ pub fn join_in_with_progress(
         }));
     }
 
-    // A resolve another process may still be running holds the arc, and the
-    // teardown below would take its workshop out from under it. Above the dirt
-    // sweep on purpose: every refusal to this point has touched nothing, and a
-    // refusal that had first committed a round would be a mutation on a
-    // refusal path ([L28]).
-    let broke_lease = match crate::resolve::resolve_lease(&repo_root, name, SystemTime::now()) {
-        Some(lease) if !opts.break_lease => {
-            return Err(ArcError::Blocked(vec![live_resolve_blocker(name, &lease)]));
-        }
-        Some(lease) => Some(lease),
-        None => None,
-    };
-
     // The verification gate stood here. Nothing replaces it: the run's ending
     // replays the arc onto the live base and verifies the tree that lands
     // ([D142]'s successor), so the bytes were checked once, warm, where a
@@ -2044,8 +1969,7 @@ pub fn join_in_with_progress(
     // The keepalive is what survives the teardown: `branch -D` below would
     // otherwise leave the arc's rounds reachable only from a reflog on a
     // clock.
-    let mut op_before = crate::oplog::capture_before(&repo_root, name)?;
-    op_before.broke_lease = broke_lease.as_ref().map(|l| l.age.as_secs());
+    let op_before = crate::oplog::capture_before(&repo_root, name)?;
     let op_tips = crate::oplog::tips_of(&op_before);
     let op_seq = crate::oplog::record_begin(
         paths,
@@ -2055,9 +1979,6 @@ pub fn join_in_with_progress(
         op_before,
         &op_tips,
     )?;
-    if let Some(lease) = &broke_lease {
-        warnings.push(broke_lease_warning(name, lease, op_seq));
-    }
 
     // The last refusal is behind us, so the base's stale copies of this arc's
     // own bytes can go. Git would refuse the merge over them otherwise, even
@@ -2438,11 +2359,10 @@ enum Integration {
 
 /// Put the arc's work on the base — the whole integrate, in one place.
 ///
-/// Three landing shapes read together: a pre-built candidate from the
-/// resolution ladder, and the strategy match for a plain join, which is the
-/// same three strategies over the arc branch itself. Every exit that does not
-/// land — a conflict, a stale candidate, a failed merge or commit — leaves the
-/// base as it was, which is what lets the caller drop the record it opened.
+/// The strategy decides the shape: one squash commit, a merge, or the rounds
+/// rebased. Every exit that does not land — a conflict, a failed merge or
+/// commit — leaves the base as it was, which is what lets the caller drop the
+/// record it opened.
 fn integrate_join(
     paths: &Paths,
     repo_root: &Path,
@@ -2451,102 +2371,10 @@ fn integrate_join(
     base_branch: &str,
     opts: &JoinOptions,
 ) -> Result<Integration, ArcError> {
-    // Every integrate moves the base, so every one holds the base's gate, and
-    // the staleness comparison below runs inside it: two joins comparing first
-    // and landing second is the same lost update the comparison exists to
-    // refuse, one process apart.
+    // Every integrate moves the base, so every one holds the base's gate: two
+    // joins reading the base first and landing second is a lost update, one
+    // process apart.
     let _gate = join_gate(repo_root, base_branch)?;
-
-    // Land a pre-built candidate from the resolution ladder ([P31]) instead of
-    // merging the arc branch. The candidate is the resolved bytes; `strategy`
-    // still decides the shape, and the recorded teardown is the same one.
-    if let Some(candidate) = opts.candidate.clone() {
-        // **A compare-and-swap on the base the candidate was built against.**
-        // The candidate's tree is a merge onto one specific base head, and it
-        // lands only on that head: the recorded base must be the base now.
-        // Ancestry is not enough — a tree merged against an older base and
-        // re-parented onto the moved one descends from it by construction, and
-        // landing that reverts whatever the base gained in between. This is
-        // the same equality `resolve::candidate_status` applies, so the join's
-        // verdict and the face's cannot disagree. The landing's own
-        // `merge --ff-only` onto a commit parented on this head closes the
-        // window against a base moved by something that holds no gate.
-        let base_head = git_stdout(repo_root, &["rev-parse", base_branch])?;
-        if crate::resolve::read_candidate(repo_root, name).as_deref() != Some(candidate.as_str()) {
-            return Err(ArcError::Refused(format!(
-                "stale candidate: {} is not the standing candidate for '{}'; re-resolve and try again",
-                candidate, name
-            )));
-        }
-        let built_on = crate::resolve::read_candidate_base(repo_root, name);
-        if built_on.as_deref() != Some(base_head.as_str()) {
-            return Err(ArcError::Refused(format!(
-                "stale candidate: base '{}' advanced since the conflicts were resolved; re-resolve and try again",
-                base_branch
-            )));
-        }
-
-        // **The candidate is the bytes, never the shape.** What the ladder
-        // hands back is a tree that resolves the join — sometimes one commit on
-        // the base, sometimes a chain of replayed rounds. Landing it by
-        // fast-forward let that internal shape decide what the base's history
-        // looks like and threw the authored draft away with it: a clean join
-        // arrived on the base as N round commits carrying no composed message
-        // at all, because a fast-forward has no commit to put one in. The
-        // strategy the caller asked for is what decides the shape, exactly as
-        // it does for a join with no candidate, and `Squash` is the default
-        // every route asks for.
-        let final_msg = integrate_message(
-            paths,
-            repo_root,
-            name,
-            branch,
-            opts.message.clone(),
-            opts.session_id.as_deref(),
-        );
-        let commit_hash = match opts.strategy {
-            // The candidate was built on the base head, so its tree *is* the
-            // join's result; the commit built on it is what the draft was
-            // written for — one parent for a squash, the candidate as the
-            // second for a merge.
-            JoinStrategy::Squash | JoinStrategy::Merge => {
-                let tree = git_stdout(repo_root, &["rev-parse", &format!("{candidate}^{{tree}}")])?;
-                let mut parents = vec![base_head.as_str()];
-                if matches!(opts.strategy, JoinStrategy::Merge) {
-                    parents.push(&candidate);
-                }
-                land_side_built_commit(repo_root, &tree, &parents, &final_msg)?
-            }
-            // The one strategy that asks for the candidate's own history on the
-            // base, and therefore the one that keeps its own messages.
-            JoinStrategy::Rebase => {
-                let what =
-                    format!("failed to fast-forward '{base_branch}' onto the resolved candidate");
-                if let Some(stderr) =
-                    git_write_on_the_merits(repo_root, &["merge", "--ff-only", &candidate], &what)?
-                {
-                    return Err(ArcError::git(
-                        what,
-                        &["merge", "--ff-only", &candidate],
-                        stderr,
-                    ));
-                }
-                git_stdout(repo_root, &["rev-parse", "HEAD"])?
-            }
-        };
-        // A rebase landed the candidate's own commits, so the receipt reports
-        // what is actually on the base rather than a message it never wrote.
-        let message = match opts.strategy {
-            JoinStrategy::Rebase => {
-                git_stdout(repo_root, &["log", "-1", "--format=%B", &commit_hash]).ok()
-            }
-            _ => Some(final_msg),
-        };
-        return Ok(Integration::Landed {
-            commit_hash,
-            message,
-        });
-    }
 
     let final_msg = integrate_message(
         paths,
@@ -2675,14 +2503,10 @@ fn finish_join_teardown(
 
     if progress.phase == crate::oplog::JoinPhase::WorktreeRemoved {
         on_beat("release", "start");
-        // The branch config section dies with the branch, but a loose ref does
-        // not — so the candidate is dropped explicitly, on every join path,
-        // rather than being left to outlive the arc it described.
-        crate::resolve::clear_candidate(repo_root, name);
         crate::crossing::forget_crossings(repo_root, name);
-        // The workshop outlives every resolve on purpose; it does not outlive
-        // the arc. A `tugworkshop/*` ref standing past its arc is a leak.
-        crate::workshop::remove(repo_root, name, &mut warnings);
+        // The branch config section dies with the branch, but a loose ref and
+        // a workshop the retired join pipeline left do not.
+        crate::residue::forget_join_residue(repo_root, name, &mut warnings);
         if branch_exists(repo_root, branch) {
             match git_output(repo_root, &["branch", "-D", branch]) {
                 Ok(o) if !o.status.success() => warnings.push(format!(
@@ -3303,55 +3127,6 @@ mod tests {
         );
     }
 
-    /// The resolution ladder builds a candidate off to the side; `join_in` with
-    /// `candidate` fast-forwards the base onto it and tears the arc down
-    /// ([P31]). Uses the replay scenario: base advanced to the arc's first
-    /// round, so the squash conflicts but replay is clean.
-    #[test]
-    fn test_arc_join_lands_resolved_candidate() {
-        let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        let home = temp.path().join("state");
-        init_git_repo(repo);
-        let paths = redirect_state_dir(&home);
-        // Baseline file the arc and main both evolve.
-        fs::write(repo.join("f.txt"), "A\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "seed f"]);
-
-        create_in(&paths, repo, "cand", None, false, None).unwrap();
-        let worktree = repo.join(".tug/worktrees/cand");
-        fs::write(worktree.join("f.txt"), "B\n").unwrap();
-        commit_in(&paths, repo, "cand", "r1", None, None).unwrap();
-        fs::write(worktree.join("f.txt"), "C\n").unwrap();
-        commit_in(&paths, repo, "cand", "r2", None, None).unwrap();
-
-        // Main independently advances to the arc's first-round state.
-        fs::write(repo.join("f.txt"), "B\n").unwrap();
-        git(repo, &["commit", "-am", "main advances to B"]);
-
-        let outcome = crate::resolve::resolve_conflicts(&paths, repo, "cand", None).unwrap();
-        assert_eq!(outcome.shape, crate::resolve::JoinShape::Replay);
-        let candidate = outcome.candidate_commit.clone().expect("candidate");
-
-        let landed = join_in(
-            &paths,
-            repo,
-            "cand",
-            JoinOptions {
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .unwrap();
-        assert!(landed.commit_hash.is_some());
-        assert_eq!(fs::read_to_string(repo.join("f.txt")).unwrap(), "C\n");
-        assert!(!worktree.exists(), "worktree torn down");
-        assert!(!branch_present(repo, "tugarc/cand"), "branch deleted");
-        let dlog = fs::read_to_string(arc_log_path(&home, repo)).unwrap();
-        assert!(dlog.contains("joined"));
-    }
-
     /// The join's preconditions are what the execution enforces, and nothing
     /// else: a candidate rides along when one stands, the merge either applies
     /// or does not, and no verdict is consulted anywhere.
@@ -3403,146 +3178,6 @@ mod tests {
             .expect("a reconcile-clean arc joins with no verdict anywhere");
         assert!(landed.commit_hash.is_some());
         assert!(!worktree.exists(), "the join really ran");
-    }
-
-    /// A candidate built against a base head that has since moved must refuse to
-    /// land — git's own `--ff-only` is the staleness guard ([P31]).
-    #[test]
-    fn test_arc_join_stale_candidate_refused() {
-        let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        let home = temp.path().join("state");
-        init_git_repo(repo);
-        let paths = redirect_state_dir(&home);
-        fs::write(repo.join("f.txt"), "A\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "seed f"]);
-
-        create_in(&paths, repo, "cand", None, false, None).unwrap();
-        let worktree = repo.join(".tug/worktrees/cand");
-        fs::write(worktree.join("f.txt"), "B\n").unwrap();
-        commit_in(&paths, repo, "cand", "r1", None, None).unwrap();
-        fs::write(worktree.join("f.txt"), "C\n").unwrap();
-        commit_in(&paths, repo, "cand", "r2", None, None).unwrap();
-        fs::write(repo.join("f.txt"), "B\n").unwrap();
-        git(repo, &["commit", "-am", "main to B"]);
-
-        let candidate = crate::resolve::resolve_conflicts(&paths, repo, "cand", None)
-            .unwrap()
-            .candidate_commit
-            .expect("candidate");
-
-        // Base moves after the candidate was built.
-        fs::write(repo.join("other.txt"), "z\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "base advances again"]);
-
-        let err = join_in(
-            &paths,
-            repo,
-            "cand",
-            JoinOptions {
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("stale candidate"), "got: {err}");
-        // Nothing torn down — the arc survives for a re-resolve.
-        assert!(worktree.exists(), "worktree intact after refusal");
-        assert!(branch_present(repo, "tugarc/cand"));
-    }
-
-    /// A candidate merged against one base and re-committed onto the moved one
-    /// is stale, though it descends from the base it would land on. That is the
-    /// lost update a resolver's re-commit used to produce: the tree never saw
-    /// the base's new commit, so landing it reverts that commit. The face's
-    /// guard and the join's both refuse it, and a workshop opened on the
-    /// candidate keeps parenting on the base the ladder ran against.
-    #[test]
-    fn a_candidate_reparented_onto_a_moved_base_is_refused() {
-        let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        let home = temp.path().join("state");
-        init_git_repo(repo);
-        let paths = redirect_state_dir(&home);
-        fs::write(repo.join("f.txt"), "A\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "seed f"]);
-
-        create_in(&paths, repo, "cand", None, false, None).unwrap();
-        let worktree = repo.join(".tug/worktrees/cand");
-        fs::write(worktree.join("f.txt"), "B\n").unwrap();
-        commit_in(&paths, repo, "cand", "r1", None, None).unwrap();
-
-        let outcome = crate::resolve::resolve_conflicts(&paths, repo, "cand", None).unwrap();
-        let candidate = outcome.candidate_commit.clone().expect("candidate");
-        let built_on = outcome.base_head.clone();
-        assert_eq!(
-            crate::resolve::read_candidate_base(repo, "cand").as_deref(),
-            Some(built_on.as_str()),
-            "the candidate records the base it was built on"
-        );
-
-        // The user's own commit lands while the candidate stands.
-        fs::write(repo.join("user.txt"), "the user's work\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "user commit"]);
-        let moved = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-
-        // A workshop opened on the candidate parents on the ladder's base, so
-        // whatever it commits stays visibly stale.
-        let ws =
-            crate::workshop::Workshop::open_candidate(repo, "cand", &candidate, &built_on).unwrap();
-        fs::write(ws.path().join("f.txt"), "B, audited\n").unwrap();
-        let recommitted = ws.commit("resolved").unwrap();
-        assert_eq!(
-            git_stdout(repo, &["rev-parse", &format!("{recommitted}^")]).unwrap(),
-            built_on,
-            "the workshop never re-parents onto the moved base"
-        );
-
-        // The shape of the incident: the stale tree, parented on the moved
-        // base, anchored with the base it was really merged against.
-        let tree = git_stdout(repo, &["rev-parse", &format!("{candidate}^{{tree}}")]).unwrap();
-        let reparented = crate::resolve::commit_tree(repo, &tree, &moved, "re-parented").unwrap();
-        assert!(
-            git_output(repo, &["merge-base", "--is-ancestor", &moved, &reparented])
-                .unwrap()
-                .status
-                .success(),
-            "ancestry alone would have called this current"
-        );
-        let arc_head = git_stdout(repo, &["rev-parse", "tugarc/cand"]).unwrap();
-        crate::resolve::anchor_candidate(repo, "cand", &reparented, &built_on, &arc_head).unwrap();
-
-        assert!(
-            matches!(
-                crate::resolve::candidate_status(repo, "cand", "main"),
-                crate::resolve::CandidateStatus::Stale(_)
-            ),
-            "the face's guard calls it stale"
-        );
-        let err = join_in(
-            &paths,
-            repo,
-            "cand",
-            JoinOptions {
-                candidate: Some(reparented),
-                ..mechanics()
-            },
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("stale candidate"), "got: {err}");
-        assert_eq!(
-            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
-            moved,
-            "the base is untouched"
-        );
-        assert!(repo.join("user.txt").exists(), "the user's commit survives");
-        assert!(worktree.exists(), "worktree intact after refusal");
     }
 
     /// Intersection preflight ([P14]): base dirt blocks a join only when it
@@ -3615,55 +3250,6 @@ mod tests {
         assert!(
             err.starts_with("nothing-to-undo:"),
             "and undo says so plainly rather than reporting a phantom: {err}"
-        );
-    }
-
-    /// The same rule on the refusal side: a candidate the base has moved past
-    /// never touches the base, so its record goes too.
-    #[test]
-    fn a_stale_candidate_refusal_records_no_op() {
-        let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        let home = temp.path().join("state");
-        init_git_repo(repo);
-        let paths = redirect_state_dir(&home);
-        fs::write(repo.join("f.txt"), "A\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "seed f"]);
-
-        create_in(&paths, repo, "stale", None, false, None).unwrap();
-        let worktree = repo.join(".tug/worktrees/stale");
-        fs::write(worktree.join("f.txt"), "B\n").unwrap();
-        commit_in(&paths, repo, "stale", "r1", None, None).unwrap();
-        fs::write(worktree.join("f.txt"), "C\n").unwrap();
-        commit_in(&paths, repo, "stale", "r2", None, None).unwrap();
-        fs::write(repo.join("f.txt"), "B\n").unwrap();
-        git(repo, &["commit", "-am", "main to B"]);
-
-        let candidate = crate::resolve::resolve_conflicts(&paths, repo, "stale", None)
-            .unwrap()
-            .candidate_commit
-            .expect("candidate");
-
-        fs::write(repo.join("other.txt"), "z\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "base advances again"]);
-
-        let err = join_in(
-            &paths,
-            repo,
-            "stale",
-            JoinOptions {
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("stale candidate"), "got: {err}");
-        assert!(
-            ops_for(&paths, repo, "stale").is_empty(),
-            "and no record survives it"
         );
     }
 
@@ -3788,431 +3374,6 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.starts_with("incomplete-op:"), "{err}");
-    }
-
-    #[test]
-    fn a_join_over_a_live_chain_is_refused_by_name_and_touches_nothing() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "leased");
-        let repo = temp.path();
-        let marker = lease_a_parked_conflict(&paths, repo, "leased");
-
-        // Dirt the sweep would commit, so a refusal below it would be visible.
-        let worktree = worktree_path(repo, "leased");
-        fs::write(worktree.join("late.txt"), "not yet committed\n").unwrap();
-        let arc_tip = git_stdout(repo, &["rev-parse", "tugarc/leased"]).unwrap();
-        let ops_before = crate::oplog::list_ops(&paths, repo).len();
-
-        let err = join_in(&paths, repo, "leased", mechanics())
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("A resolve may still be running"), "{err}");
-        assert!(err.contains("--break-lease"), "{err}");
-        assert!(err.contains("resolve again"), "{err}");
-
-        assert_eq!(
-            crate::resolve::read_conflict(repo, "leased").unwrap().tip,
-            marker,
-            "a refused join leaves the chain exactly as it found it"
-        );
-        assert_eq!(
-            git_stdout(repo, &["rev-parse", "tugarc/leased"]).unwrap(),
-            arc_tip,
-            "the refusal is above the dirt sweep, so no round was committed"
-        );
-        assert_eq!(
-            crate::oplog::list_ops(&paths, repo).len(),
-            ops_before,
-            "and nothing was recorded"
-        );
-        assert!(branch_exists(repo, "tugarc/leased"));
-    }
-
-    #[test]
-    fn a_preview_lists_live_resolve_as_a_blocker() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "leased");
-        let repo = temp.path();
-        lease_a_parked_conflict(&paths, repo, "leased");
-
-        let blockers = join_preflight_in(&paths, repo, "leased").unwrap();
-        let blocker = blockers
-            .iter()
-            .find(|b| b.kind == "live-resolve")
-            .expect("the preview names the lease");
-        assert!(
-            blocker.detail.contains("A resolve may still be running"),
-            "{}",
-            blocker.detail
-        );
-    }
-
-    #[test]
-    fn an_ended_lease_does_not_refuse() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "released");
-        let repo = temp.path();
-        park_conflict(&paths, repo, "released");
-        crate::resolve::mark_resolve_begun(repo, "released").unwrap();
-        crate::resolve::mark_resolve_ended(repo, "released").unwrap();
-
-        let (_, candidate) = resolve_parked_conflict(repo, "released");
-        let landed = join_in(
-            &paths,
-            repo,
-            "released",
-            JoinOptions {
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .expect("a released lease refuses nothing");
-        assert!(landed.commit_hash.is_some());
-    }
-
-    /// A resolve that died without its end marker stops refusing when its tip
-    /// ages past the window — the crash case, and the reason the window is the
-    /// resolver's own deadline rather than a guessed number.
-    ///
-    /// The ops path reads `SystemTime::now()` and cannot be handed a clock, and
-    /// `git_output` carries no environment, so the marker is backdated at the
-    /// point it is written instead.
-    #[test]
-    fn an_aged_out_lease_does_not_refuse() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "stale");
-        let repo = temp.path();
-        park_conflict(&paths, repo, "stale");
-
-        let tip = crate::resolve::read_conflict(repo, "stale").unwrap().tip;
-        let long_ago = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            - 3 * 60 * 60;
-        let out = tugcore::test_fixtures::git::command()
-            .arg("-C")
-            .arg(repo)
-            .args([
-                "commit-tree",
-                &format!("{tip}^{{tree}}"),
-                "-p",
-                &tip,
-                "-m",
-                "tugresolve(stale): begin",
-            ])
-            .env("GIT_COMMITTER_DATE", format!("{long_ago} +0000"))
-            .output()
-            .unwrap();
-        assert!(out.status.success());
-        let backdated = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        crate::resolve::advance_conflict_ref(repo, "stale", &backdated).unwrap();
-        assert!(
-            crate::resolve::resolve_lease(repo, "stale", std::time::SystemTime::now()).is_none(),
-            "three hours is past the two-hour window"
-        );
-
-        let (_, candidate) = resolve_parked_conflict(repo, "stale");
-        let landed = join_in(
-            &paths,
-            repo,
-            "stale",
-            JoinOptions {
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .expect("an aged-out lease refuses nothing");
-        assert!(landed.commit_hash.is_some());
-    }
-
-    /// The same flag on the join: a chain whose resolver died, on an arc that
-    /// now merges cleanly because the base moved on without it.
-    #[test]
-    fn breaking_the_lease_lets_a_join_through() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "forced");
-        let repo = temp.path();
-        park_conflict(&paths, repo, "forced");
-        crate::resolve::mark_resolve_begun(repo, "forced").unwrap();
-
-        // The base takes its own edit back, so nothing is left to merge around
-        // — the chain is stale, but the lease reads the tip, not validity.
-        fs::write(repo.join("shared.txt"), "base\n").unwrap();
-        git_output(repo, &["add", "."]).unwrap();
-        git_output(repo, &["commit", "-m", "base backs its edit out"]).unwrap();
-        assert!(crate::resolve::resolve_lease(repo, "forced", SystemTime::now()).is_some());
-
-        let refused = join_in(&paths, repo, "forced", mechanics())
-            .unwrap_err()
-            .to_string();
-        assert!(
-            refused.contains("A resolve may still be running"),
-            "{refused}"
-        );
-
-        let landed = join_in(
-            &paths,
-            repo,
-            "forced",
-            JoinOptions {
-                break_lease: true,
-                ..mechanics()
-            },
-        )
-        .expect("the break lands the join");
-        assert!(landed.commit_hash.is_some());
-        assert!(
-            landed
-                .warnings
-                .iter()
-                .any(|w| w.contains("Broke the resolve lease")),
-            "{:?}",
-            landed.warnings
-        );
-    }
-
-    #[test]
-    fn a_join_keeps_the_conflict_chain_alive_and_undo_puts_the_ref_back() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "chained");
-        let repo = temp.path();
-        park_conflict(&paths, repo, "chained");
-        let (chain_tip, candidate) = resolve_parked_conflict(repo, "chained");
-
-        // The join tears the arc down, and `clear_candidate` takes the
-        // conflict ref with it.
-        let landed = join_in(
-            &paths,
-            repo,
-            "chained",
-            JoinOptions {
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .unwrap();
-        assert!(
-            landed.commit_hash.is_some(),
-            "the join must land: {landed:?}"
-        );
-        assert!(
-            crate::resolve::read_conflict(repo, "chained").is_none(),
-            "the teardown cleared the ref"
-        );
-
-        // The op's keepalive is now the only thing holding the chain.
-        let alive = git_output(
-            repo,
-            &["cat-file", "-e", &format!("{chain_tip}^{{commit}}")],
-        )
-        .unwrap()
-        .status
-        .success();
-        assert!(alive, "the resolve work outlived the teardown");
-
-        let out = crate::oplog::undo_in(&paths, repo, None).unwrap();
-        assert_eq!(out.verb, crate::oplog::OpVerb::Join);
-        assert_eq!(
-            crate::resolve::read_conflict(repo, "chained").map(|c| c.tip),
-            Some(chain_tip),
-            "and the undo put the ref back where the teardown found it"
-        );
-    }
-
-    /// Never over newer work: a fresh resolve between the join and its undo
-    /// owns the ref, and restoring the older chain would destroy it.
-    #[test]
-    fn undo_leaves_a_newer_conflict_chain_alone_and_says_both_tips() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "raced2");
-        let repo = temp.path();
-        park_conflict(&paths, repo, "raced2");
-        let (old_tip, candidate) = resolve_parked_conflict(repo, "raced2");
-
-        join_in(
-            &paths,
-            repo,
-            "raced2",
-            JoinOptions {
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .unwrap();
-
-        // Somebody's newer resolve parked its own chain at the same ref.
-        let newer = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-        git_output(repo, &["update-ref", "refs/tug/conflict/raced2", &newer]).unwrap();
-
-        let out = crate::oplog::undo_in(&paths, repo, None).unwrap();
-        assert_eq!(
-            git_stdout(repo, &["rev-parse", "refs/tug/conflict/raced2"]).unwrap(),
-            newer,
-            "the newer chain is untouched"
-        );
-        let warning = out
-            .warnings
-            .iter()
-            .find(|w| w.contains("newer conflict"))
-            .unwrap_or_else(|| panic!("the skip must be reported: {:?}", out.warnings));
-        assert!(warning.contains(&newer[..9]), "{warning}");
-        assert!(warning.contains(&old_tip[..9]), "{warning}");
-    }
-
-    /// The whole round, on one arc, in one pass — every leg asserted rather
-    /// than eyeballed.
-    ///
-    /// A setext-underlined markdown file and a source file both conflict; a
-    /// resolver checkpoints one; the base moves, invalidating the chain; the
-    /// re-resolve salvages the checkpointed file and settles the rest; the join
-    /// lands and its teardown clears the refs; undo puts everything back; redo
-    /// takes it away again. The markdown file is the point: under the old
-    /// prefix predicate its underline made it permanently unresolvable, so this
-    /// drill could not have reached its second line.
-    #[test]
-    fn the_whole_arc_runs_on_one_arc() {
-        let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        init_git_repo(repo);
-        let paths = redirect_state_dir(&temp.path().join("state"));
-        fs::write(repo.join("doc.md"), "Heading\n=======\n\norig\n").unwrap();
-        fs::write(repo.join("code.rs"), "fn main() { orig() }\n").unwrap();
-        git_output(repo, &["add", "."]).unwrap();
-        git_output(repo, &["commit", "-m", "seed"]).unwrap();
-        create_in(&paths, repo, "arc", None, false, None).unwrap();
-
-        let worktree = repo.join(".tug/worktrees").join("arc");
-        fs::write(worktree.join("doc.md"), "Heading\n=======\n\narc\n").unwrap();
-        fs::write(worktree.join("code.rs"), "fn main() { arc() }\n").unwrap();
-        commit_in(&paths, repo, "arc", "arc edits both", None, None).unwrap();
-
-        fs::write(repo.join("doc.md"), "Heading\n=======\n\nbase\n").unwrap();
-        fs::write(repo.join("code.rs"), "fn main() { base() }\n").unwrap();
-        git_output(repo, &["add", "."]).unwrap();
-        git_output(repo, &["commit", "-m", "base edits both"]).unwrap();
-
-        // Both conflict, and the markdown file is one of them — which the old
-        // predicate would have made permanently unresolvable.
-        let first = crate::resolve::resolve_conflicts(&paths, repo, "arc", None).unwrap();
-        assert_eq!(
-            first.unresolved,
-            vec!["code.rs".to_string(), "doc.md".to_string()]
-        );
-
-        // A resolver settles the markdown file, underline intact, and commits
-        // the checkpoint.
-        {
-            let ws = crate::workshop::Workshop::open_conflict(repo, "arc").unwrap();
-            fs::write(ws.path().join("doc.md"), "Heading\n=======\n\nboth\n").unwrap();
-            assert_eq!(
-                ws.unresolved().unwrap(),
-                vec!["code.rs".to_string()],
-                "the setext file reads settled"
-            );
-            ws.checkpoint("resolve doc.md").expect("checkpoint accepts");
-        }
-
-        // Base motion invalidates the chain without touching either stage.
-        fs::write(repo.join("elsewhere.txt"), "unrelated\n").unwrap();
-        git_output(repo, &["add", "."]).unwrap();
-        git_output(repo, &["commit", "-m", "unrelated base work"]).unwrap();
-
-        // The re-resolve salvages the checkpointed file.
-        let second = crate::resolve::resolve_conflicts(&paths, repo, "arc", None).unwrap();
-        assert!(
-            second
-                .resolved
-                .iter()
-                .any(|r| r.path == "doc.md"
-                    && r.resolved_by == crate::resolve::ResolvedBy::Salvage),
-            "doc.md must arrive salvaged: {:?}",
-            second.resolved
-        );
-        assert_eq!(second.unresolved, vec!["code.rs".to_string()]);
-
-        // Finish the remainder and land.
-        let (chain_tip, candidate) = {
-            let ws = crate::workshop::Workshop::open_conflict(repo, "arc").unwrap();
-            fs::write(ws.path().join("code.rs"), "fn main() { both() }\n").unwrap();
-            ws.checkpoint("resolve code.rs").unwrap();
-            let tip = crate::resolve::read_conflict(repo, "arc").unwrap().tip;
-            let candidate = ws.commit("resolved").unwrap();
-            let arc_head = git_stdout(repo, &["rev-parse", "tugarc/arc"]).unwrap();
-            crate::resolve::anchor_candidate(repo, "arc", &candidate, ws.base_head(), &arc_head)
-                .unwrap();
-            (tip, candidate)
-        };
-        let arc_tip = git_stdout(repo, &["rev-parse", "tugarc/arc"]).unwrap();
-        let base_before = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-
-        join_in(
-            &paths,
-            repo,
-            "arc",
-            JoinOptions {
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .unwrap();
-        let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-        assert_ne!(landed, base_before);
-        assert!(!branch_exists(repo, "tugarc/arc"));
-        assert_eq!(
-            fs::read_to_string(repo.join("doc.md")).unwrap(),
-            "Heading\n=======\n\nboth\n",
-            "the resolved bytes landed, underline and all"
-        );
-        // The teardown cleared the chain, and only the keepalive holds it.
-        assert!(crate::resolve::read_conflict(repo, "arc").is_none());
-        assert!(
-            git_output(
-                repo,
-                &["cat-file", "-e", &format!("{chain_tip}^{{commit}}")]
-            )
-            .unwrap()
-            .status
-            .success(),
-            "the resolve work outlived the teardown"
-        );
-
-        // Undo restores everything the teardown took.
-        crate::oplog::undo_in(&paths, repo, None).unwrap();
-        assert_eq!(
-            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
-            base_before
-        );
-        assert_eq!(
-            git_stdout(repo, &["rev-parse", "tugarc/arc"]).unwrap(),
-            arc_tip
-        );
-        assert_eq!(
-            crate::resolve::read_conflict(repo, "arc").map(|c| c.tip),
-            Some(chain_tip),
-            "including the conflict chain"
-        );
-
-        // Redo takes it away again.
-        crate::oplog::redo_in(&paths, repo, None).unwrap();
-        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), landed);
-        assert!(!branch_exists(repo, "tugarc/arc"));
-
-        // And the log reads as a coherent history.
-        let ops = crate::oplog::list_ops(&paths, repo);
-        let verbs: Vec<&str> = ops.iter().map(|o| o.verb.as_str()).collect();
-        assert_eq!(
-            verbs,
-            vec!["redo", "undo", "join"],
-            "newest first, one of each"
-        );
-        assert!(
-            ops.iter()
-                .find(|o| o.verb == crate::oplog::OpVerb::Join)
-                .unwrap()
-                .is_undoable(),
-            "the join is undoable once more, so a further press means it"
-        );
     }
 
     // ---- redo ----
@@ -4358,7 +3519,7 @@ mod tests {
         crate::oplog::undo_in(&paths, repo, None).unwrap();
 
         // A discard on the restored arc is newer work the redo would trample.
-        discard_in(&paths, repo, "busy", None, false).unwrap();
+        discard_in(&paths, repo, "busy", None).unwrap();
 
         let err = crate::oplog::redo_in(&paths, repo, Some("busy"))
             .unwrap_err()
@@ -5262,90 +4423,6 @@ mod tests {
             3,
             "merge commit has two parents: {parents}"
         );
-    }
-
-    /// A join riding a candidate lands **one** commit, carrying the composed
-    /// message — even when the candidate is a chain of rounds.
-    ///
-    /// The candidate is the resolved *bytes*; the strategy is the shape. Landing
-    /// it with `merge --ff-only` conflated the two, so the ladder's internal
-    /// shape decided what the base's history looked like: a multi-round arc
-    /// arrived on the base as N round commits with the authored draft dropped on
-    /// the floor, because a fast-forward has no commit to put a message in. The
-    /// candidate here is deliberately the arc branch tip — the exact shape rung
-    /// 1 hands back — so this fails on the old code no matter what the ladder
-    /// decides.
-    #[test]
-    fn test_join_squashes_a_multi_commit_candidate_into_one_commit() {
-        let (_temp, repo, paths) = repo_with_committed_arc("cand");
-        let worktree = repo.join(".tug/worktrees/cand");
-        fs::write(worktree.join("g.txt"), "second\n").unwrap();
-        commit_in(&paths, &repo, "cand", "cand-round-2", None, None).unwrap();
-
-        let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
-        let candidate = git_stdout(&repo, &["rev-parse", "tugarc/cand"]).unwrap();
-        crate::resolve::anchor_candidate(&repo, "cand", &candidate, &before, &candidate).unwrap();
-        let rounds = git_stdout(&repo, &["rev-list", "--count", "main..tugarc/cand"]).unwrap();
-        assert_eq!(rounds, "2", "the candidate really is a chain");
-
-        let out = join_in(
-            &paths,
-            &repo,
-            "cand",
-            JoinOptions {
-                strategy: JoinStrategy::Squash,
-                candidate: Some(candidate),
-                message: Some("the authored subject".to_string()),
-                ..mechanics()
-            },
-        )
-        .unwrap();
-        assert!(out.commit_hash.is_some());
-
-        let landed =
-            git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")]).unwrap();
-        assert_eq!(landed, "1", "one commit on the base, never the chain");
-
-        let subject = git_stdout(&repo, &["log", "-1", "--format=%s"]).unwrap();
-        assert_eq!(subject, "tugarc(cand): the authored subject");
-
-        // Both rounds' bytes are present — squashing the shape never drops work.
-        for (rel, want) in [("f.txt", "arc"), ("g.txt", "second")] {
-            let blob = git_stdout(&repo, &["show", &format!("HEAD:{rel}")]).unwrap();
-            assert_eq!(blob, want, "{rel} landed");
-        }
-    }
-
-    /// The one strategy that asks for the candidate's own history keeps it —
-    /// `rebase` is an explicit opt-in to a linear land, and the fix above must
-    /// not quietly take it away.
-    #[test]
-    fn test_join_rebase_keeps_a_candidates_own_commits() {
-        let (_temp, repo, paths) = repo_with_committed_arc("candrb");
-        let worktree = repo.join(".tug/worktrees/candrb");
-        fs::write(worktree.join("g.txt"), "second\n").unwrap();
-        commit_in(&paths, &repo, "candrb", "candrb-round-2", None, None).unwrap();
-
-        let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
-        let candidate = git_stdout(&repo, &["rev-parse", "tugarc/candrb"]).unwrap();
-        crate::resolve::anchor_candidate(&repo, "candrb", &candidate, &before, &candidate).unwrap();
-        join_in(
-            &paths,
-            &repo,
-            "candrb",
-            JoinOptions {
-                strategy: JoinStrategy::Rebase,
-                candidate: Some(candidate),
-                ..mechanics()
-            },
-        )
-        .unwrap();
-
-        let landed =
-            git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")]).unwrap();
-        assert_eq!(landed, "2", "the rounds stand");
-        let subject = git_stdout(&repo, &["log", "-1", "--format=%s"]).unwrap();
-        assert_eq!(subject, "candrb-round-2", "and keep their own messages");
     }
 
     #[test]
@@ -6762,9 +5839,9 @@ mod tests {
         let previewed = preview_in(&paths, repo, "probe");
         assert_eq!(probe.conflicts, previewed.conflicts);
         assert_eq!(
-            probe.archaeology.len(),
             previewed.archaeology.len(),
-            "the same archaeology rides both paths"
+            probe.conflicts.len(),
+            "the preview reports what the base did to each conflicted path"
         );
         assert!(!probe.conflicts.is_empty(), "the fixture really conflicts");
         assert_eq!(

@@ -10,8 +10,7 @@ use tugcore::instance::Paths;
 use serde::Serialize;
 
 use tugarc_core::{
-    ArcError, ArcRecord, ArcRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops,
-    replay, resolve,
+    ArcError, ArcRecord, ArcRoundMeta, JoinOptions, MarkStage, ReplayOutcome, ops, replay,
 };
 
 use crate::arc_turn::{self, StepMove};
@@ -48,21 +47,14 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
         ArcCommands::Commit { name, message } => run_commit(paths, &name, &message, json, quiet),
         ArcCommands::Join {
             name,
-            message,
-            strategy,
-            preview,
-            continue_join,
-            resolve,
-            break_lease,
-        } if resolve => run_join_resolve(
-            paths,
-            &name,
-            message,
-            strategy.into(),
-            break_lease,
-            json,
-            quiet,
-        ),
+            resolve: true,
+            ..
+        } => Err(AppError::Exit3(
+            "arc_refused",
+            format!(
+                "The join no longer resolves conflicts. Replay arc '{name}' onto its base with `tugtool arc replay {name}` and resolve what conflicts in its worktree, or let its audit do it on its card; then join it."
+            ),
+        )),
         ArcCommands::Join {
             name,
             message,
@@ -70,7 +62,7 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             preview,
             continue_join,
             resolve: _,
-            break_lease,
+            break_lease: _,
         } => run_join(
             paths,
             &name,
@@ -79,12 +71,10 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
                 message,
                 preview,
                 continue_join,
-                candidate: None,
                 origin: Some("cli".to_string()),
                 // The CLI runs inside the session it belongs to, so its own
                 // `TUG_SESSION_ID` is the answer, read here at the edge.
                 session_id: crate::session_identity::trailer_session_id(),
-                break_lease,
                 caller_cwd: std::env::current_dir().ok(),
             },
             json,
@@ -101,9 +91,7 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
         ArcCommands::Redo { name, list } => {
             return run_redo(paths, name.as_deref(), list, json, quiet);
         }
-        ArcCommands::Discard { name, break_lease } => {
-            run_discard(paths, &name, break_lease, json, quiet)
-        }
+        ArcCommands::Discard { name, .. } => run_discard(paths, &name, json, quiet),
         ArcCommands::DeleteDocuments { name } => run_delete_documents(&name, json, quiet),
         ArcCommands::Config => run_config(json, quiet),
         ArcCommands::List => run_list(paths, json, quiet),
@@ -163,7 +151,6 @@ fn command_name(cmd: &ArcCommands) -> &'static str {
     match cmd {
         ArcCommands::Create { .. } => "arc create",
         ArcCommands::Commit { .. } => "arc commit",
-        ArcCommands::Join { resolve: true, .. } => "arc join --resolve",
         ArcCommands::Join { .. } => "arc join",
         ArcCommands::Replay { .. } => "arc replay",
         ArcCommands::ResolveBase { .. } => "arc resolve-base",
@@ -579,125 +566,11 @@ fn run_join(
     verdict
 }
 
-/// `tugtool arc join --resolve`: run the resolution ladder, then land the candidate
-/// ([P31]). No AI rung from the CLI (the scribe lives in tugcast) — the ladder's
-/// algorithmic rungs only.
-fn run_join_resolve(
-    paths: &Paths,
-    name: &str,
-    message: Option<String>,
-    strategy: JoinStrategy,
-    break_lease: bool,
-    json: bool,
-    quiet: bool,
-) -> Result<(), AppError> {
-    // The third cross-process door, and the one a lease check inside the join
-    // would never see: the ladder clears the conflict chain on both its arms,
-    // so by the time `ops::join` runs there is nothing left to protect. The
-    // check belongs here rather than in the ladder itself — the ladder's other
-    // callers are the join pilot and the supervisor, both already holding the
-    // in-process guard, and a check in the core would wedge the pilot for the
-    // whole window after any resolver crash ([P06]).
-    let repo_root = arc_repo_root()?;
-    if !break_lease
-        && let Some(lease) = resolve::resolve_lease(&repo_root, name, std::time::SystemTime::now())
-    {
-        return Err(AppError::Exit3(
-            "arc_refused",
-            ops::live_resolve_detail(name, &lease, "resolve"),
-        ));
-    }
-
-    let outcome = resolve::resolve_conflicts(paths, &repo_root, name, None)?;
-
-    let Some(candidate) = outcome.candidate_commit.clone() else {
-        // Some files could not be resolved algorithmically.
-        let unresolved = AppError::Exit3(
-            "arc_unresolved",
-            format!(
-                "{} file(s) unresolved; run the join from a Session card for AI assist",
-                outcome.unresolved.len()
-            ),
-        );
-        if json {
-            return print_receipt("arc join --resolve", &outcome, Err(unresolved));
-        }
-        if !quiet {
-            println!(
-                "Could not fully resolve arc '{}': {} file(s) still conflict:",
-                name,
-                outcome.unresolved.len()
-            );
-            for path in &outcome.unresolved {
-                println!("  {}", path);
-            }
-            for r in &outcome.resolved {
-                println!("  resolved {} ({:?})", r.path, r.resolved_by);
-            }
-        }
-        return Err(unresolved);
-    };
-
-    // Captured before the teardown, for the reason `capture_owner_key` states.
-    let owner_key = capture_owner_key(&repo_root, name);
-    let landed = ops::join_in(
-        paths,
-        &repo_root,
-        name,
-        JoinOptions {
-            strategy,
-            message,
-            preview: false,
-            continue_join: false,
-            candidate: Some(candidate),
-            origin: Some("cli".to_string()),
-            session_id: crate::session_identity::trailer_session_id(),
-            // The ladder already replaced whatever chain stood here, so the
-            // join below sees no lease — carried anyway so the two halves of
-            // one gesture cannot disagree.
-            break_lease,
-            caller_cwd: std::env::current_dir().ok(),
-        },
-    )?;
-    if landed.conflicts.is_empty() {
-        broadcast_arc_gone(&repo_root, &owner_key, ArcGone::Joined);
-    }
-
-    if json {
-        // Report the ladder outcome and the landed join together.
-        print_ok(
-            "arc join --resolve",
-            serde_json::json!({ "resolve": outcome, "join": landed }),
-        );
-    } else if !quiet {
-        println!(
-            "Resolved and joined arc '{}' into '{}' ({:?} shape)",
-            landed.name, landed.base_branch, outcome.shape
-        );
-        if let Some(hash) = &landed.commit_hash {
-            println!("  Commit: {}", hash);
-        }
-        for r in &outcome.resolved {
-            println!("  resolved {} ({:?})", r.path, r.resolved_by);
-        }
-        for warning in outcome.warnings.iter().chain(landed.warnings.iter()) {
-            println!("  Warning: {}", warning);
-        }
-    }
-    Ok(())
-}
-
-fn run_discard(
-    paths: &Paths,
-    name: &str,
-    break_lease: bool,
-    json: bool,
-    quiet: bool,
-) -> Result<(), AppError> {
+fn run_discard(paths: &Paths, name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
     // Captured before the teardown, for the reason `capture_owner_key` states.
     let repo = arc_repo_root()?;
     let owner_key = capture_owner_key(&repo, name);
-    let data = ops::discard_in(paths, &repo, name, Some("cli"), break_lease)?;
+    let data = ops::discard_in(paths, &repo, name, Some("cli"))?;
     broadcast_arc_gone(&repo, &owner_key, ArcGone::Discarded);
     if json {
         print_ok("arc discard", &data);
@@ -1499,15 +1372,6 @@ fn print_oplog(ops: &[tugarc_core::OpPayload]) {
             _ if op.is_redoable() => "redoable".to_string(),
             _ if op.is_undoable() => "undoable".to_string(),
             _ => "not undoable".to_string(),
-        };
-        // A broken resolve lease is part of what this operation *was*, so the
-        // list says so beside the state rather than leaving it to the payload.
-        let state = match op.before.broke_lease {
-            Some(secs) => format!(
-                "{state}, broke lease ({})",
-                ops::human_age(std::time::Duration::from_secs(secs))
-            ),
-            None => state,
         };
         println!(
             "  {:>4}  {:<8} {:<20} {}  ({})",
@@ -3170,7 +3034,6 @@ mod tests {
             last_activity: Some("2026-09-26T00:00:00Z".to_string()),
             fit: None,
             audited_at: None,
-            conflict: None,
             disagreements: Vec::new(),
         }
     }

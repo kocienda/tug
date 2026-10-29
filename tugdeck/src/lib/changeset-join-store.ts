@@ -36,7 +36,7 @@
  * losing every beat costs the progress line and nothing else.
  *
  * Attached once at boot with {@link attachChangesetJoinStore}; consumed via
- * {@link useChangesetJoinResolve} (the fold's overlay) and
+ * {@link useChangesetJoinResolve} (the base fold's overlay) and
  * {@link useChangesetJoinLand}.
  *
  * @module lib/changeset-join-store
@@ -533,8 +533,7 @@ export class ChangesetJoinStore extends Subscribable {
    *
    * The first beat is written by the client, before the request leaves it, so
    * that no frame between the press and the server's first word can fall
-   * through to the standing-candidate arm and rest on "Ready to join" over a
-   * running join. It is a placeholder and nothing more: every server frame for
+   * through to the offer arm and rest on "Ready to join" over a running join. It is a placeholder and nothing more: every server frame for
    * the arc overwrites it, and a wire drop deletes it like any other
    * non-terminal beat.
    *

@@ -1,8 +1,8 @@
 //! The crossing torture bench: adversarial pairs of live arcs, built from
 //! scratch in a tempdir and walked round by round through the probe, the
-//! pair ladder, a landing and the second arc's join — the whole path a real
-//! crossing takes, minus tugcast — with every stand-in for a model written
-//! down. One scenario grammar with two executors: the tempdir executor here
+//! pair ladder, a landing and the second arc's fit onto the moved base — the
+//! whole path a real crossing takes, minus tugcast — with every stand-in for
+//! a model written down. One scenario grammar with two executors: the tempdir executor here
 //! ([`Bench`]), which the `crossing_torture` example prints as a table and
 //! the integration test of the same name asserts under nextest, and the
 //! live lab, which walks the same [`scenarios`] against a running instance.
@@ -11,9 +11,16 @@
 //! and the lab enable; nothing that ships turns it on.
 //!
 //! What a scenario reports: the crossings the probe saw (clean and
-//! conflicted), what the settles taught the cache, which rung settled each
-//! file at the join, how many conflict blocks rung 2 took out, and whether
-//! the landed bytes equal what the scenario says they should.
+//! conflicted), what the settles taught the cache, which conflicted files the
+//! fit recalled from the cache and which it stopped on, how many conflict
+//! blocks the cache takes out of a plain merge, and whether the fitted bytes
+//! equal what the scenario says they should.
+//!
+//! The fit is the second arc replayed onto the moved base by the same engine
+//! base-motion runs ([`crate::replay_onto`]), which recalls a conflicted
+//! round from the cache before it stops. That is where a settle pays off: the
+//! join itself is a squash of an arc already fitted and audited, and resolves
+//! nothing.
 
 use std::path::PathBuf;
 
@@ -107,13 +114,19 @@ pub struct Settle {
     pub resolver: Option<Result<(), String>>,
 }
 
-/// The second arc's join, as the ladder ran it with no scribe at all.
+/// The second arc's fit onto the moved base, as the replay engine ran it.
 #[derive(Debug, Clone)]
 pub struct Join {
+    /// The paths a squash of the arc onto the base conflicts on, before the fit.
     pub conflicts: Vec<String>,
+    /// The conflicted paths the fit cleared — only the cache can clear one,
+    /// so each is recorded as recalled by rerere.
     pub resolved: Vec<(String, ResolvedBy)>,
+    /// The paths the fit stopped on.
     pub unresolved: Vec<String>,
-    pub candidate: Option<String>,
+    /// The arc head standing on the base after the fit — what a join would
+    /// squash. `None` when the fit stopped.
+    pub fitted: Option<String>,
     /// Conflict blocks the merge leaves with the cache off, and with it on.
     pub blocks: (usize, usize),
 }
@@ -305,24 +318,6 @@ impl Bench {
         forget_crossings(&self.repo, arc);
     }
 
-    /// Land a join's own candidate — one commit on `main` with its tree —
-    /// so a third arc's join meets what the second's really left.
-    pub fn land_candidate(&self, arc: &str, candidate: &str) {
-        let tree = self.git(&["rev-parse", &format!("{candidate}^{{tree}}")]);
-        let head = self.git(&["rev-parse", "main"]);
-        let sha = self.git(&[
-            "commit-tree",
-            &tree,
-            "-p",
-            &head,
-            "-m",
-            &format!("join {arc}"),
-        ]);
-        self.git(&["update-ref", "refs/heads/main", &sha]);
-        self.git(&["branch", "-qD", &format!("tugarc/{arc}")]);
-        forget_crossings(&self.repo, arc);
-    }
-
     /// Move `arc` onto the base the way base-motion does: its branch checked
     /// out in a worktree for the length of the move, `replay_onto` run over
     /// it, the worktree gone after so the bench can switch to the branch
@@ -337,24 +332,58 @@ impl Bench {
         outcome
     }
 
-    /// Run `arc`'s join ladder with no scribe, so every path it settles is
-    /// settled by a rung that needs no model.
+    /// Fit `arc` onto the moved base the way base-motion does, with no model
+    /// anywhere: what it clears, the cache cleared.
     pub fn join(&mut self, arc: &str) -> Join {
-        let outcome = crate::resolve_conflicts(&self.paths, &self.repo, arc, None).expect("join");
-        let blocks = self.blocks(&format!("tugarc/{arc}"));
+        let branch = format!("tugarc/{arc}");
+        let blocks = self.blocks(&branch);
+        let conflicts = self.squash_conflicts(&branch);
+        let (resolved, unresolved, fitted) = match self.replay(arc) {
+            crate::ReplayOutcome::Conflicted { paths, .. } => (Vec::new(), paths, None),
+            crate::ReplayOutcome::Deferred { reason, detail } => {
+                self.note(format!("{arc}'s fit deferred: {reason}: {detail}"));
+                (Vec::new(), conflicts.clone(), None)
+            }
+            _ => (
+                conflicts
+                    .iter()
+                    .map(|path| (path.clone(), ResolvedBy::Rerere))
+                    .collect(),
+                Vec::new(),
+                Some(self.git(&["rev-parse", &branch])),
+            ),
+        };
         let join = Join {
-            conflicts: outcome.preview_conflicts.clone(),
-            resolved: outcome
-                .resolved
-                .iter()
-                .map(|r| (r.path.clone(), r.resolved_by))
-                .collect(),
-            unresolved: outcome.unresolved.clone(),
-            candidate: outcome.candidate_commit.clone(),
+            conflicts,
+            resolved,
+            unresolved,
+            fitted,
             blocks,
         };
         self.joins.push(join.clone());
         join
+    }
+
+    /// The paths a squash of `branch` onto `main` conflicts on, read from
+    /// `merge-tree` without touching anything.
+    fn squash_conflicts(&self, branch: &str) -> Vec<String> {
+        let out = tugcore::git_command()
+            .arg("-C")
+            .arg(&self.repo)
+            .args(["merge-tree", "--write-tree", "--name-only", "main", branch])
+            .output()
+            .expect("merge-tree");
+        if out.status.success() {
+            return Vec::new();
+        }
+        // The first line is the tree; the conflicted paths follow it, then a
+        // blank line before the messages.
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .skip(1)
+            .take_while(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     /// A blob's bytes at `rev`, empty when the path is absent there.
@@ -436,9 +465,9 @@ impl Bench {
         }
     }
 
-    /// Expect the join's candidate to carry `want` at `path`.
+    /// Expect the fitted arc to carry `want` at `path`.
     pub fn expect_landed(&mut self, join: &Join, path: &str, want: &str) {
-        match &join.candidate {
+        match &join.fitted {
             Some(sha) => {
                 let got = self.text(sha, path);
                 if got != want {
@@ -451,7 +480,7 @@ impl Bench {
             }
             None => self
                 .failures
-                .push(format!("no candidate, so {path} landed nothing")),
+                .push(format!("the fit stopped, so {path} landed nothing")),
         }
     }
 }
@@ -502,7 +531,7 @@ fn disjoint() -> Bench {
     b.land("a");
     let j = b.join("b");
     b.expect(
-        j.conflicts.is_empty() && j.candidate.is_some(),
+        j.conflicts.is_empty() && j.fitted.is_some(),
         "the join is clean",
     );
     b
@@ -855,10 +884,10 @@ fn three_arcs() -> Bench {
         jb.rung("f.txt") == Some(ResolvedBy::Rerere),
         "b replays a·b",
     );
-    let Some(candidate) = jb.candidate.clone() else {
+    if jb.fitted.is_none() {
         return b;
-    };
-    b.land_candidate("b", &candidate);
+    }
+    b.land("b");
     let jc = b.join("c");
     b.note(format!(
         "c's join: f.txt {} · blocks {}→{}",
@@ -886,11 +915,11 @@ fn three_arcs_compose() -> Bench {
     b.compose("c", "a", "b");
     b.land("a");
     let jb = b.join("b");
-    let Some(candidate) = jb.candidate.clone() else {
-        b.expect(false, "b's join produced no candidate");
+    if jb.fitted.is_none() {
+        b.expect(false, "b's fit stopped");
         return b;
-    };
-    b.land_candidate("b", &candidate);
+    }
+    b.land("b");
     let jc = b.join("c");
     b.note(format!(
         "c's join: f.txt {} · blocks {}→{}",
@@ -905,7 +934,7 @@ fn three_arcs_compose() -> Bench {
             jc.rung("f.txt")
         ),
     );
-    if let Some(sha) = &jc.candidate {
+    if let Some(sha) = &jc.fitted {
         let landed = b.text(sha, "f.txt");
         for line in ["a five", "b five", "c five"] {
             b.expect(
@@ -1118,10 +1147,10 @@ fn mode_flip_vs_edit() -> Bench {
     b.land("a");
     let j = b.join("b");
     b.expect(
-        j.conflicts.is_empty() && j.candidate.is_some(),
+        j.conflicts.is_empty() && j.fitted.is_some(),
         "a mode flip merges clean",
     );
-    if let Some(c) = &j.candidate {
+    if let Some(c) = &j.fitted {
         let mode = b.git(&["ls-tree", c, "f.txt"]);
         b.expect(mode.starts_with("100755"), format!("mode kept: {mode}"));
     }
@@ -1248,7 +1277,7 @@ fn random_rounds(seed: u64) -> Bench {
         j.blocks.0,
         j.blocks.1
     ));
-    if j.candidate.is_some() {
+    if j.fitted.is_some() {
         for (path, text) in &want {
             b.expect_landed(&j, path, text);
         }

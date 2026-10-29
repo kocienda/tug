@@ -808,14 +808,6 @@ pub struct ArcStatus {
     /// rounds landed after the audit, the base side what the base brought in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audited_at: Option<crate::log::AuditedPair>,
-    /// The standing conflict, when this arc has one.
-    ///
-    /// Derived at read time from `refs/tug/conflict/<name>` and absent — not
-    /// zeroed — when no *valid* chain stands, so the field's presence is the
-    /// answer to "is this arc conflicted" and a stale chain can never
-    /// masquerade as a live one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conflict: Option<ConflictSummary>,
     /// Where this arc's five records disagree, one sentence each — the
     /// read-only core of `arc doctor`, run on every status call.
     ///
@@ -827,33 +819,6 @@ pub struct ArcStatus {
     /// which is the ordinary case and costs a status call one document parse.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub disagreements: Vec<String>,
-}
-
-/// What a standing conflict looks like from outside: how many paths it holds
-/// and how many of them are done.
-#[derive(Debug, Clone, Serialize)]
-pub struct ConflictSummary {
-    /// Paths the ladder could not settle.
-    pub paths_total: usize,
-    /// How many of those are marker-free at the chain's tip — the resolver's
-    /// progress, counted from the tree rather than declared anywhere.
-    pub paths_resolved: usize,
-    /// Paths a machine rung settled before the ladder gave up.
-    pub machine_resolved: usize,
-}
-
-/// Summarize an arc's standing conflict, or `None` when none does.
-pub fn conflict_summary(repo_root: &Path, name: &str) -> Option<ConflictSummary> {
-    let chain = crate::resolve::valid_conflict(repo_root, name)?;
-    let paths: Vec<String> = chain.record.paths.iter().map(|p| p.path.clone()).collect();
-    // Progress is read off the tip's tree, never declared: a count somebody
-    // wrote down is a count that can disagree with the files.
-    let still_conflicted = crate::resolve::marker_paths_in_tree(repo_root, &chain.tip, &paths);
-    Some(ConflictSummary {
-        paths_total: paths.len(),
-        paths_resolved: paths.len().saturating_sub(still_conflicted.len()),
-        machine_resolved: chain.record.resolved.len(),
-    })
 }
 
 /// The stage an arc is in, from what git derives and what the arc declared.
@@ -1082,7 +1047,6 @@ pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatu
         audited_at: matches!(declarations.latest, Some(ArcDeclaration::Audited))
             .then(|| declarations.audited_at.clone())
             .flatten(),
-        conflict: conflict_summary(repo_root, name),
         disagreements: crate::doctor::diagnose(paths, repo_root, name).sentences(),
     })
 }

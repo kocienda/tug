@@ -159,6 +159,9 @@ pub fn settle_in_background(ctx: SettleContext, repo: PathBuf, name: String, sib
                         "crossing settled",
                     );
                     record_decline(&ctx, &repo, &name, &sibling, &settled);
+                    // What the settle taught may be the very hunk a replay
+                    // already stopped on, when a sibling landed mid-settle.
+                    super::base_motion::wake_on_settle();
                 }
                 Err(err) => {
                     warn!(arc = %name, sibling = %sibling, error = %err, "crossing settle failed")
@@ -522,7 +525,7 @@ mod tests {
     }
 
     /// No rung settles the crossing, so the resolver does, and its finished
-    /// file is what the second arc's join replays through rung 2.
+    /// file is what the second arc's fit recalls once the first lands.
     #[tokio::test(flavor = "multi_thread")]
     async fn the_resolver_settles_what_the_rungs_leave() {
         let state = tempfile::tempdir().unwrap();
@@ -539,15 +542,25 @@ mod tests {
 
         git(&root, &["merge", "-q", "--ff-only", "tugarc/a"]);
         git(&root, &["branch", "-D", "tugarc/a"]);
-        let joined = tokio::task::spawn_blocking({
+        let worktree = root.join(".tug/worktrees/b");
+        std::fs::create_dir_all(worktree.parent().unwrap()).unwrap();
+        let at = worktree.to_string_lossy().into_owned();
+        git(&root, &["worktree", "add", "-q", &at, "tugarc/b"]);
+        let fit = tokio::task::spawn_blocking({
             let root = root.clone();
             let paths = ctx.paths.clone();
-            move || tugarc_core::resolve_conflicts(&paths, &root, "b", None).unwrap()
+            move || tugarc_core::replay_onto(&paths, &root, "b").unwrap()
         })
         .await
         .unwrap();
-        assert_eq!(joined.resolved.len(), 1);
-        assert_eq!(joined.resolved[0].resolved_by, ResolvedBy::Rerere);
+        assert!(
+            matches!(fit, tugarc_core::ReplayOutcome::Replayed { .. }),
+            "{fit:?}"
+        );
+        assert_eq!(
+            git(&root, &["show", "tugarc/b:f.txt"]).trim_end(),
+            kept.trim_end()
+        );
     }
 
     /// [F03b] A settle the resolver declined is recorded on the arc log, where

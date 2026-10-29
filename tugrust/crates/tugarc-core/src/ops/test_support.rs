@@ -555,58 +555,7 @@ pub(crate) fn ops_for(paths: &Paths, repo: &Path, name: &str) -> Vec<crate::oplo
         .collect()
 }
 
-/// Park a real conflict chain on `name` by making the base and the arc
-/// edit the same line, then running the ladder until it gives up.
-///
-/// Real rather than synthetic because `read_conflict` parses the record out
-/// of the root commit's message: a hand-made ref is not a chain.
-pub(crate) fn park_conflict(paths: &Paths, repo: &Path, name: &str) -> String {
-    let worktree = worktree_path(repo, name);
-    fs::write(worktree.join("shared.txt"), "base\narc side\n").unwrap();
-    commit_in(paths, repo, name, "arc edits shared", None, None).unwrap();
-    fs::write(repo.join("shared.txt"), "base\nbase side\n").unwrap();
-    git_output(repo, &["add", "."]).unwrap();
-    git_output(repo, &["commit", "-m", "base edits shared"]).unwrap();
-
-    let outcome = crate::resolve::resolve_conflicts(paths, repo, name, None).unwrap();
-    assert_eq!(
-        outcome.unresolved,
-        vec!["shared.txt".to_string()],
-        "the fixture must actually conflict"
-    );
-    crate::resolve::read_conflict(repo, name)
-        .expect("a chain stands")
-        .tip
-}
-
-/// Carry a parked conflict to the state a join actually meets: a resolver
-/// has committed a checkpoint and settled the file, so a candidate stands
-/// and the chain holds work worth keeping. Returns the chain tip.
-pub(crate) fn resolve_parked_conflict(repo: &Path, name: &str) -> (String, String) {
-    let ws = crate::workshop::Workshop::open_conflict(repo, name).unwrap();
-    fs::write(ws.path().join("shared.txt"), "base\nboth sides\n").unwrap();
-    ws.checkpoint("resolve shared.txt")
-        .expect("the checkpoint lands");
-    let tip = crate::resolve::read_conflict(repo, name)
-        .expect("the chain advanced")
-        .tip;
-    // `Workshop::commit` builds the candidate; anchoring it and recording
-    // which arc head it was resolved against is what makes the join see
-    // it, and both are the resolver's job in the live flow.
-    let candidate = ws.commit("resolved").expect("the candidate commits");
-    let arc_head = git_stdout(repo, &["rev-parse", &branch_name(name)]).unwrap();
-    crate::resolve::anchor_candidate(repo, name, &candidate, ws.base_head(), &arc_head).unwrap();
-    (tip, candidate)
-}
-
 // ---- the resolve lease ([P03], [P04]) ----
-
-/// A chain a resolver has opened but not finished — the state a second
-/// process must be able to read.
-pub(crate) fn lease_a_parked_conflict(paths: &Paths, repo: &Path, name: &str) -> String {
-    park_conflict(paths, repo, name);
-    crate::resolve::mark_resolve_begun(repo, name).expect("the begin marker lands")
-}
 
 /// Helper: a fresh repo with an arc carrying one commit that adds `f.txt`.
 pub(crate) fn repo_with_committed_arc(name: &str) -> (TempDir, std::path::PathBuf, Paths) {

@@ -3,13 +3,11 @@
 
 use serde::Serialize;
 use std::path::Path;
-use std::time::SystemTime;
 use tugcore::instance::Paths;
 
 use super::{
-    BaseDirtPath, base_working_set_dirt, branch_exists, branch_name, broke_lease_warning,
-    documents_dir, git_output, live_resolve_detail, main_repo_root, reconcile_branches,
-    remove_arc_worktree, worktree_path,
+    BaseDirtPath, base_working_set_dirt, branch_exists, branch_name, documents_dir, git_output,
+    main_repo_root, reconcile_branches, remove_arc_worktree, worktree_path,
 };
 use crate::error::ArcError;
 use crate::log::{append_arc_log, validate_arc_name};
@@ -113,9 +111,8 @@ pub fn discard_in(
     repo_root: &Path,
     name: &str,
     origin: Option<&str>,
-    break_lease: bool,
 ) -> Result<DiscardOutcome, ArcError> {
-    discard_inner(paths, repo_root, name, origin, break_lease, true)
+    discard_inner(paths, repo_root, name, origin, true)
 }
 
 /// Discard an arc an **agent** made, handing nothing back to the base checkout
@@ -137,17 +134,13 @@ pub fn discard_in(
 /// [`apply_hand_back`] **deletes** base files for every entry in
 /// `hand.deletions`, so an agent that removed a file is one hand-back away
 /// from removing it from the user's checkout. One skip closes both.
-///
-/// `break_lease` is always true: a settle-ceiling kill is precisely the case
-/// where a resolve lease may still be held by the process being killed, and a
-/// cleanup that refuses on a lease held by its own corpse never cleans up.
 pub fn discard_agent_arc_in(
     paths: &Paths,
     repo_root: &Path,
     name: &str,
     origin: Option<&str>,
 ) -> Result<DiscardOutcome, ArcError> {
-    discard_inner(paths, repo_root, name, origin, true, false)
+    discard_inner(paths, repo_root, name, origin, false)
 }
 
 fn discard_inner(
@@ -155,7 +148,6 @@ fn discard_inner(
     repo_root: &Path,
     name: &str,
     origin: Option<&str>,
-    break_lease: bool,
     hand_back: bool,
 ) -> Result<DiscardOutcome, ArcError> {
     let repo_root = main_repo_root(repo_root);
@@ -217,25 +209,11 @@ fn discard_inner(
         )));
     }
 
-    // A resolve another process may still be running holds the arc, and the
-    // teardown below removes the workshop it is working in. Above every write,
-    // beside the hand-back refusal, so a refused discard changes nothing.
-    let broke_lease = match crate::resolve::resolve_lease(&repo_root, name, SystemTime::now()) {
-        Some(lease) if !break_lease => {
-            return Err(ArcError::Refused(live_resolve_detail(
-                name, &lease, "discard",
-            )));
-        }
-        Some(lease) => Some(lease),
-        None => None,
-    };
-
     // Everything above this line refuses without touching anything, so the
     // record starts here — at the first write, with the branch still standing
     // and its config still readable.
     let op_seq = match crate::oplog::capture_before(&repo_root, name) {
-        Ok(mut before) => {
-            before.broke_lease = broke_lease.as_ref().map(|l| l.age.as_secs());
+        Ok(before) => {
             let tips = crate::oplog::tips_of(&before);
             crate::oplog::record_begin(
                 paths,
@@ -251,9 +229,6 @@ fn discard_inner(
             return Err(e.context("cannot record the discard in the op log"));
         }
     };
-    if let Some(lease) = &broke_lease {
-        warnings.push(broke_lease_warning(name, lease, op_seq));
-    }
 
     let work_restored = match &hand {
         Some(hand) => apply_hand_back(&repo_root, &worktree, hand, &mut warnings),
@@ -264,11 +239,10 @@ fn discard_inner(
     // `remove_arc_worktree` for the "Directory not empty" race this avoids).
     remove_arc_worktree(paths, &repo_root, &branch, &worktree, &mut warnings);
 
-    // A loose ref outlives the branch config it was written beside, so the
-    // candidate is dropped explicitly here too.
-    crate::resolve::clear_candidate(&repo_root, name);
     crate::crossing::forget_crossings(&repo_root, name);
-    crate::workshop::remove(&repo_root, name, &mut warnings);
+    // A loose ref and a workshop outlive the branch config they were written
+    // beside, so the retired pipeline's residue is collected here too.
+    crate::residue::forget_join_residue(&repo_root, name, &mut warnings);
 
     // Delete the branch (warn on failure).
     if branch_exists(&repo_root, &branch) {
@@ -474,13 +448,13 @@ mod tests {
         crate::arc::append_arc_start(&paths, &root, "arc-only", "arc/idea.md").unwrap();
         assert!(crate::arc::read_arc(&paths, &root, "arc-only").is_some());
 
-        let out = discard_in(&paths, &root, "arc-only", Some("cli"), false).unwrap();
+        let out = discard_in(&paths, &root, "arc-only", Some("cli")).unwrap();
         assert_eq!(out.documents_kept, None);
         assert!(out.work_restored.is_empty());
         assert_eq!(out.warnings.len(), 1, "it says what it ended");
         assert_eq!(crate::arc::read_arc(&paths, &root, "arc-only"), None);
         // With the record ended there is nothing left under the name.
-        assert!(discard_in(&paths, &root, "arc-only", Some("cli"), false).is_err());
+        assert!(discard_in(&paths, &root, "arc-only", Some("cli")).is_err());
     }
 
     /// The inverse: a discarded arc's decisions are the only trace the user
@@ -497,7 +471,7 @@ mod tests {
         fs::write(documents.join("brief.md"), "# The brief\n").unwrap();
         fs::write(documents.join("plan.md"), TWO_STEP_PLAN).unwrap();
 
-        let out = discard_in(&paths, &root, "kept", Some("cli"), false).unwrap();
+        let out = discard_in(&paths, &root, "kept", Some("cli")).unwrap();
         assert_eq!(
             out.documents_kept.as_deref(),
             Some(&*documents.to_string_lossy())
@@ -518,7 +492,7 @@ mod tests {
         create_in(&paths, &root, "returner", None, true, None).unwrap();
         assert!(!root.join("scratch.txt").exists());
 
-        let out = discard_in(&paths, &root, "returner", None, false).unwrap();
+        let out = discard_in(&paths, &root, "returner", None).unwrap();
         assert_eq!(out.work_restored, vec!["scratch.txt".to_string()]);
         assert_eq!(
             fs::read_to_string(root.join("scratch.txt")).unwrap(),
@@ -538,7 +512,7 @@ mod tests {
         fs::write(worktree.join("typed.txt"), "written in the arc\n").unwrap();
         fs::write(worktree.join("README.md"), "# edited in the arc\n").unwrap();
 
-        let out = discard_in(&paths, &root, "typed", None, false).unwrap();
+        let out = discard_in(&paths, &root, "typed", None).unwrap();
         assert_eq!(out.work_restored, vec!["README.md", "typed.txt"]);
         assert_eq!(
             fs::read_to_string(root.join("typed.txt")).unwrap(),
@@ -562,7 +536,7 @@ mod tests {
         fs::write(worktree.join("README.md"), "# the arc's words\n").unwrap();
         fs::write(root.join("README.md"), "# the user's words\n").unwrap();
 
-        let err = discard_in(&paths, &root, "clash", None, false)
+        let err = discard_in(&paths, &root, "clash", None)
             .unwrap_err()
             .to_string();
         assert!(err.contains("README.md"), "{err}");
@@ -579,7 +553,7 @@ mod tests {
     fn discard_of_a_clean_worktree_behaves_exactly_as_before() {
         let (_temp, root, paths) = repo_for_create();
         create_in(&paths, &root, "spotless", None, false, None).unwrap();
-        let out = discard_in(&paths, &root, "spotless", None, false).unwrap();
+        let out = discard_in(&paths, &root, "spotless", None).unwrap();
         assert!(out.work_restored.is_empty());
         assert!(out.warnings.is_empty(), "{:?}", out.warnings);
         assert!(!worktree_path(&root, "spotless").exists());
@@ -695,7 +669,7 @@ mod tests {
         let worktree = universe.join(".tug/worktrees/goner");
         assert!(worktree.exists());
 
-        discard_in(&paths, &universe, "goner", None, false).unwrap();
+        discard_in(&paths, &universe, "goner", None).unwrap();
 
         assert!(!worktree.exists(), "worktree gone");
         assert!(!branch_present(&universe, "tugarc/goner"), "branch gone");
@@ -713,7 +687,7 @@ mod tests {
         let paths = redirect_state_dir(&home);
 
         create_in(&paths, repo, "dropped", None, false, None).unwrap();
-        discard_in(&paths, repo, "dropped", Some("cli"), false).unwrap();
+        discard_in(&paths, repo, "dropped", Some("cli")).unwrap();
 
         let dlog = fs::read_to_string(arc_log_path(&home, repo)).unwrap();
         assert!(
@@ -728,7 +702,7 @@ mod tests {
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
         create_in(&paths, &root, "backagain", None, true, None).unwrap();
         let arc_tip = git_stdout(&root, &["rev-parse", "tugarc/backagain"]).unwrap();
-        discard_in(&paths, &root, "backagain", None, false).unwrap();
+        discard_in(&paths, &root, "backagain", None).unwrap();
         assert_eq!(
             fs::read_to_string(root.join("scratch.txt")).unwrap(),
             "notes\n"
@@ -756,101 +730,11 @@ mod tests {
     }
 
     #[test]
-    fn a_discard_over_a_live_chain_is_refused_the_same_way() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "leased");
-        let repo = temp.path();
-        let marker = lease_a_parked_conflict(&paths, repo, "leased");
-        let ops_before = crate::oplog::list_ops(&paths, repo).len();
-
-        let err = discard_in(&paths, repo, "leased", None, false)
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("A resolve may still be running"), "{err}");
-        assert!(err.contains("to discard anyway"), "{err}");
-
-        assert_eq!(
-            crate::resolve::read_conflict(repo, "leased").unwrap().tip,
-            marker
-        );
-        assert!(branch_exists(repo, "tugarc/leased"), "the arc stands");
-        assert!(worktree_path(repo, "leased").exists());
-        assert_eq!(crate::oplog::list_ops(&paths, repo).len(), ops_before);
-    }
-
-    /// The full receipt: an op that records the break, a warning that names
-    /// it, and an undo that puts the resolver's checkpoints back.
-    ///
-    /// A discard, because that is the shape where a lease genuinely still
-    /// stands: a join lands a *candidate*, and a candidate standing beside the
-    /// chain is the resolver's own receipt that it finished ([P02]).
-    #[test]
-    fn breaking_the_lease_tears_down_records_the_age_and_is_undoable() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "broken");
-        let repo = temp.path();
-        park_conflict(&paths, repo, "broken");
-        crate::resolve::mark_resolve_begun(repo, "broken").unwrap();
-
-        // The crashed resolver's committed work, above the begin marker.
-        let ws = crate::workshop::Workshop::open_conflict(repo, "broken").unwrap();
-        fs::write(ws.path().join("shared.txt"), "base\nboth sides\n").unwrap();
-        ws.checkpoint("tugresolve(broken): checkpoint").unwrap();
-        let chain_tip = crate::resolve::read_conflict(repo, "broken").unwrap().tip;
-        assert!(crate::resolve::resolve_lease(repo, "broken", SystemTime::now()).is_some());
-
-        let out = discard_in(&paths, repo, "broken", Some("cli"), true)
-            .expect("the break tears the arc down");
-        let warning = out
-            .warnings
-            .iter()
-            .find(|w| w.contains("Broke the resolve lease"))
-            .expect("the break is narrated");
-
-        let op = crate::oplog::newest_undoable(&paths, repo, Some("broken")).expect("an op stands");
-        assert!(warning.contains(&format!("#{}", op.seq)), "{warning}");
-        assert!(
-            op.before.broke_lease.is_some(),
-            "the op records that a lease was broken"
-        );
-        assert_eq!(op.before.conflict.as_deref(), Some(chain_tip.as_str()));
-
-        assert!(
-            crate::resolve::read_conflict(repo, "broken").is_none(),
-            "the discard tore the chain down, as it always has"
-        );
-        crate::oplog::undo_in(&paths, repo, None).unwrap();
-        assert_eq!(
-            crate::resolve::read_conflict(repo, "broken").map(|c| c.tip),
-            Some(chain_tip),
-            "and undo puts the resolver's checkpoints back"
-        );
-    }
-
-    #[test]
-    fn undo_of_a_discard_restores_the_conflict_ref_too() {
-        let temp = TempDir::new().unwrap();
-        let paths = seed_arc_with_a_round(&temp, "tossed");
-        let repo = temp.path();
-        park_conflict(&paths, repo, "tossed");
-        let (chain_tip, _candidate) = resolve_parked_conflict(repo, "tossed");
-
-        discard_in(&paths, repo, "tossed", None, false).unwrap();
-        assert!(crate::resolve::read_conflict(repo, "tossed").is_none());
-
-        crate::oplog::undo_in(&paths, repo, None).unwrap();
-        assert_eq!(
-            crate::resolve::read_conflict(repo, "tossed").map(|c| c.tip),
-            Some(chain_tip)
-        );
-    }
-
-    #[test]
     fn a_discard_undone_is_redone_without_repeating_the_hand_back() {
         let (_temp, root, paths) = repo_for_create();
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
         create_in(&paths, &root, "backandgone", None, true, None).unwrap();
-        discard_in(&paths, &root, "backandgone", None, false).unwrap();
+        discard_in(&paths, &root, "backandgone", None).unwrap();
         crate::oplog::undo_in(&paths, &root, None).unwrap();
         assert!(branch_exists(&root, "tugarc/backandgone"));
 
@@ -879,7 +763,7 @@ mod tests {
         create_in(&paths, &root, "recorder", None, true, None).unwrap();
         let arc_tip = git_stdout(&root, &["rev-parse", "tugarc/recorder"]).unwrap();
 
-        discard_in(&paths, &root, "recorder", None, false).unwrap();
+        discard_in(&paths, &root, "recorder", None).unwrap();
 
         let op = crate::oplog::list_ops(&paths, &root)
             .into_iter()
@@ -921,7 +805,7 @@ mod tests {
         let worktree = repo.join(".tug/worktrees/test-arc");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
 
-        let result = discard_in(&paths, repo, "test-arc", None, false);
+        let result = discard_in(&paths, repo, "test-arc", None);
         assert!(result.is_ok());
 
         assert!(!worktree.exists());
@@ -941,7 +825,7 @@ mod tests {
         init_git_repo(repo);
         let paths = redirect_state_dir(&temp.path().join("state"));
 
-        let result = discard_in(&paths, repo, "nonexistent", None, false);
+        let result = discard_in(&paths, repo, "nonexistent", None);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }

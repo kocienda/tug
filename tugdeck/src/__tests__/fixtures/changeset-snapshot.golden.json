@@ -52,18 +52,6 @@
         "phase": "conflicted",
         "conflicts": [
           "tugrust/crates/tugtool/src/commands/arc.rs"
-        ],
-        "archaeology": [
-          {
-            "path": "tugrust/crates/tugtool/src/commands/arc.rs",
-            "commits": [
-              {
-                "sha": "3722f24",
-                "subject": "Add graphical usage sheet"
-              }
-            ],
-            "total": 1
-          }
         ]
       }
     }

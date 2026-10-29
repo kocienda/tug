@@ -753,12 +753,7 @@ pub const RESOLVER_TURN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 /// one resolver turn plus one expired question is well inside it. This catches
 /// whatever the inner bounds cannot — and names, in the stuck fact, what the
 /// resolve was doing when it expired.
-///
-/// The same number is the lease window every process reads off the conflict
-/// chain: a resolve that has not advanced its chain in this long has either
-/// died here or lost the process running it, so a second process may take the
-/// arc. Defined once so the ceiling and the window cannot drift apart.
-pub const RESOLVE_DEADLINE: Duration = tugarc_core::resolve::RESOLVE_LEASE;
+pub const RESOLVE_DEADLINE: Duration = Duration::from_secs(2 * 60 * 60);
 
 /// What a turn that went silent is reported as.
 fn silent_turn(bound: Duration) -> String {
@@ -792,7 +787,7 @@ mod tests {
         let rung_resolved = vec![
             ("src/a.rs".to_string(), ResolvedBy::Rerere),
             ("src/b.rs".to_string(), ResolvedBy::Driver),
-            ("src/d.rs".to_string(), ResolvedBy::Salvage),
+            ("src/d.rs".to_string(), ResolvedBy::Ai),
         ];
         let charter = compose_charter(&CharterInputs {
             intent: "Round subjects:\nteach the parser about tabs",
@@ -812,7 +807,7 @@ mod tests {
         // A new rung reaches the charter with no edit here: the line is
         // rendered from `ResolvedBy::as_str`, so there is no rung-to-prose map
         // to keep in step and no way for one to fall behind.
-        assert!(charter.contains("`src/d.rs` — resolved by the salvage rung"));
+        assert!(charter.contains("`src/d.rs` — resolved by the ai rung"));
         // The fixed contract is present and unmodified.
         assert!(charter.starts_with(RESOLVER_CHARTER));
     }

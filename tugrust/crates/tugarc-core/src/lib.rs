@@ -29,13 +29,10 @@ pub mod oplog;
 /// the preconditions, the branch move, and the record of where rounds went.
 pub mod replay;
 
-/// The join conflict resolution ladder ([P31]): replay probe, rerere, per-file
-/// re-merge / structured-merge driver / AI seam, and the candidate builder.
+/// The per-file merge rungs a crossing settle runs over two live arcs' tips —
+/// rerere, merge-file, a structured-merge driver, the AI seam — and the
+/// checkout a resolver finishes the rest in.
 pub mod resolve;
-
-/// The workshop worktree — one stable checkout per arc where the merge is
-/// performed for real, so an agent has a tree and verification has a build.
-pub mod workshop;
 
 /// `arc doctor` — the five records an arc keeps, compared, with every
 /// disagreement named in a sentence and a reconciling append offered where one
@@ -57,9 +54,9 @@ pub mod crossing;
 #[cfg(feature = "torture")]
 pub mod torture;
 
-/// Join verification — the project's own declared build and test commands run
-/// against the joined tree, recorded as a fact anchored to two commits.
-pub mod verify;
+/// What the retired join pipeline left in repositories — `tugjoin*` keys,
+/// join and conflict refs, workshop checkouts — and the sweeps that collect it.
+pub mod residue;
 
 /// An arc's time as its log recorded it — stage rotations, step spans, and the
 /// marks between them — read for the TIME popup.
@@ -92,12 +89,8 @@ pub use ops::{
     step_start_in, tasks_file, worktree_path,
 };
 pub use replay::{REPLAY_PHASES, ReplayOutcome, ReplayedRounds, replay_onto, replay_watched};
+pub use residue::{forget_join_residue, sweep_join_residue};
 pub use resolve::{
-    FileMergeRequest, FileMerger, FileResolution, JoinShape, LadderEvent, ONE_SHOT_MERGE_CAP_CHARS,
-    RESOLVE_LEASE, RESOLVE_SUBJECT_PREFIX, ResolveLease, ResolveObserver, ResolveOutcome,
-    ResolvedBy, TOO_LARGE_FOR_ONE_SHOT, exceeds_one_shot_cap, mark_resolve_begun,
-    mark_resolve_ended, resolve_conflicts, resolve_conflicts_observed, resolve_intent,
-    resolve_lease, resolver_program,
+    FileMergeRequest, FileMerger, ONE_SHOT_MERGE_CAP_CHARS, ResolvedBy, TOO_LARGE_FOR_ONE_SHOT,
+    exceeds_one_shot_cap, resolve_intent, resolver_program,
 };
-pub use verify::clear_verification;
-pub use workshop::{Workshop, workshop_branch, workshop_path};

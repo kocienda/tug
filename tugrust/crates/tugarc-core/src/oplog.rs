@@ -129,27 +129,6 @@ pub struct OpBefore {
     pub worktree: String,
     #[serde(default)]
     pub config: OpConfig,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate: Option<String>,
-    /// The tip of `refs/tug/conflict/<name>` at capture, read **without** the
-    /// validity gate.
-    ///
-    /// Validity answers "may this chain be opened?"; the keepalive answers
-    /// "may this work be collected?", and the second question has the broader
-    /// yes. An invalidated chain still holds every checkpoint a resolver
-    /// committed, and those are the most expensive commits in the system — AI
-    /// and human turns — so they are exactly what a keepalive is for.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conflict: Option<String>,
-    /// How old the conflict chain's tip was, in seconds, when this verb broke a
-    /// resolve lease to proceed — `None` when no lease stood or none was
-    /// broken.
-    ///
-    /// The teardown is recorded either way by `conflict` above; this records
-    /// that somebody was told a resolve might still be running and said go
-    /// anyway. Never a silent destruction ([L23]).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub broke_lease: Option<u64>,
 }
 
 /// The world as the verb left it.
@@ -436,22 +415,12 @@ pub fn capture_before(repo: &Path, name: &str) -> Result<OpBefore, ArcError> {
             description: config_get(repo, &description_config_key(name)),
             tugid: config_get(repo, &tugid_config_key(name)),
         },
-        candidate: crate::resolve::read_candidate(repo, name),
-        conflict: crate::resolve::read_conflict(repo, name).map(|c| c.tip),
-        broke_lease: None,
     })
 }
 
-/// The tips a verb's keepalive must hold: the arc head, the base tip, a
-/// standing candidate, and the conflict chain.
+/// The tips a verb's keepalive must hold: the arc head and the base tip.
 pub(crate) fn tips_of(before: &OpBefore) -> Vec<String> {
     let mut tips = vec![before.arc_tip.clone(), before.base_tip.clone()];
-    if let Some(candidate) = &before.candidate {
-        tips.push(candidate.clone());
-    }
-    if let Some(conflict) = &before.conflict {
-        tips.push(conflict.clone());
-    }
     tips.retain(|t| !t.is_empty());
     tips
 }
@@ -463,7 +432,7 @@ pub(crate) fn tips_of(before: &OpBefore) -> Vec<String> {
 /// Record what `verb` is about to do to `arc`, before it does it.
 ///
 /// `tips` are the commits that must survive the operation — the arc head, the
-/// base tip, a standing candidate. They become the keepalive commit's parents.
+/// base tip. They become the keepalive commit's parents.
 ///
 /// Returns the sequence number the caller passes to [`record_complete`].
 ///
@@ -730,9 +699,6 @@ pub fn fold_legacy_join_journal(
                 arc_tip: String::new(),
                 worktree: String::new(),
                 config: OpConfig::default(),
-                candidate: None,
-                conflict: None,
-                broke_lease: None,
             });
             before.base_branch = journal.base_branch.clone();
             let tips = tips_of(&before);
@@ -966,9 +932,6 @@ pub fn undo_in(paths: &Paths, repo: &Path, arc: Option<&str>) -> Result<UndoOutc
         arc_tip: String::new(),
         worktree: op.before.worktree.clone(),
         config: OpConfig::default(),
-        candidate: None,
-        conflict: None,
-        broke_lease: None,
     });
     let tips = tips_of(&undo_before);
     let undo_seq = record_begin(paths, repo, OpVerb::Undo, &name, undo_before, &tips)?;
@@ -1175,9 +1138,6 @@ pub fn redo_in(paths: &Paths, repo: &Path, arc: Option<&str>) -> Result<RedoOutc
         arc_tip: String::new(),
         worktree: original.before.worktree.clone(),
         config: OpConfig::default(),
-        candidate: None,
-        conflict: None,
-        broke_lease: None,
     });
     let tips = tips_of(&redo_before);
     let redo_seq = record_begin(paths, repo, OpVerb::Redo, &name, redo_before, &tips)?;
@@ -1437,8 +1397,8 @@ fn teardown_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
             warnings.push(format!("The branch '{branch}' could not be removed."));
         }
     }
-    crate::resolve::clear_candidate(repo, &op.arc);
     crate::crossing::forget_crossings(repo, &op.arc);
+    crate::residue::forget_join_residue(repo, &op.arc, warnings);
 }
 
 /// Put the base branch back, then rebuild the arc the join tore down.
@@ -1484,50 +1444,10 @@ fn undo_join(
     }
 
     restore_arc(repo, op, warnings)?;
-    restore_conflict_ref(repo, op, warnings);
     Ok((
         Some(op.before.arc_tip.clone()),
         Some(op.before.base_tip.clone()),
     ))
-}
-
-/// Put `refs/tug/conflict/<name>` back where the teardown found it.
-///
-/// Only for the two verbs whose teardown deletes it — join and discard, both
-/// through `clear_candidate`, which folds `clear_conflict`. A replay never
-/// touches the ref, and restoring the arc tip is itself what re-validates the
-/// chain under the head-equality test.
-///
-/// **Never over a newer chain.** Between the join and its undo a fresh resolve
-/// may have parked its own conflict at the same ref; overwriting that would
-/// destroy newer work to restore older. When the ref stands somewhere else the
-/// restore is skipped and both tips are named — the recorded chain stays
-/// reachable through this operation's keepalive either way, so nothing is lost
-/// by declining.
-fn restore_conflict_ref(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
-    let Some(recorded) = op.before.conflict.as_deref() else {
-        return;
-    };
-    // The question is whether the *ref* stands, not whether what it points at
-    // parses as a chain. A ref somebody else wrote is theirs either way, and a
-    // restore that clobbered an unparseable one would be the same destruction
-    // wearing a technicality.
-    let ref_name = crate::resolve::conflict_ref_name(&op.arc);
-    if let Ok(standing) = git_stdout(repo, &["rev-parse", "--verify", &ref_name]) {
-        if standing != recorded {
-            warnings.push(format!(
-                "A newer conflict for '{}' stands at {}, so the one this operation recorded ({}) \
-                 was left where it is; it stays reachable through the operation log.",
-                op.arc,
-                &standing[..standing.len().min(9)],
-                &recorded[..recorded.len().min(9)]
-            ));
-        }
-        return;
-    }
-    if let Err(e) = crate::resolve::advance_conflict_ref(repo, &op.arc, recorded) {
-        warnings.push(format!("The conflict chain could not be restored: {e}"));
-    }
 }
 
 /// Put a folded base edit back the way it was: uncommitted, on the base.
@@ -1566,11 +1486,6 @@ fn undo_resolve_base(
 }
 
 /// Move the arc branch back to the tip it had before the replay.
-///
-/// **No conflict-ref work, deliberately.** A replay never deletes the chain, so
-/// there is nothing to restore — and moving the arc tip back is itself what
-/// re-validates it: validity is head equality, and the heads the chain names
-/// are the ones this reset just reinstated.
 fn undo_replay(
     repo: &Path,
     op: &OpPayload,
@@ -1625,7 +1540,6 @@ fn undo_discard(
         )));
     }
     restore_arc(repo, op, warnings)?;
-    restore_conflict_ref(repo, op, warnings);
     Ok((Some(op.before.arc_tip.clone()), None))
 }
 
@@ -1744,9 +1658,6 @@ mod tests {
                 description: Some("d".to_string()),
                 tugid: Some("id".to_string()),
             },
-            candidate: None,
-            conflict: None,
-            broke_lease: None,
         }
     }
 
@@ -1822,68 +1733,28 @@ mod tests {
         );
     }
 
-    /// A payload written before the conflict field existed must still parse —
-    /// the log is append-only and old records outlive schema changes.
+    /// A record an older build wrote, carrying the retired join pipeline's
+    /// candidate, conflict-chain and lease fields, must still parse: the log
+    /// is append-only and old records outlive the fields they were written
+    /// with.
     #[test]
-    fn an_old_payload_without_the_conflict_field_still_parses() {
+    fn a_record_carrying_the_retired_join_fields_still_parses() {
         let f = init();
         let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
         let path = payload_path(&f.paths, f.path(), seq);
-        let raw = std::fs::read_to_string(&path).unwrap();
-        assert!(
-            !raw.contains("conflict"),
-            "an absent chain is omitted from the JSON entirely"
-        );
+        let mut raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let stored = raw
+            .get_mut("before")
+            .and_then(|b| b.as_object_mut())
+            .expect("a before object");
+        stored.insert("candidate".into(), serde_json::json!(f.tip("HEAD")));
+        stored.insert("conflict".into(), serde_json::json!(f.tip("HEAD")));
+        stored.insert("broke_lease".into(), serde_json::json!(120));
+        std::fs::write(&path, serde_json::to_string(&raw).unwrap()).unwrap();
+
         let read = read_op(&f.paths, f.path(), seq).expect("it parses");
-        assert!(read.before.conflict.is_none());
-
-        // And a recorded one round-trips.
-        let mut with = before(&f);
-        with.conflict = Some(f.tip("HEAD"));
-        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", with, &[]).unwrap();
-        assert_eq!(
-            read_op(&f.paths, f.path(), seq)
-                .unwrap()
-                .before
-                .conflict
-                .as_deref(),
-            Some(f.tip("HEAD").as_str())
-        );
-    }
-
-    /// The keepalive's whole job, applied to the one commit family the landed
-    /// round left outside it: a checkpoint the resolver committed must survive
-    /// the teardown that deletes the conflict ref.
-    #[test]
-    fn the_keepalive_holds_a_conflict_chain_whose_ref_is_deleted() {
-        let f = init();
-        git(f.path(), &["checkout", "-q", "-b", "chain"]);
-        let checkpoint = f.commit("f.txt", "resolver got this far\n", "checkpoint");
-        git(f.path(), &["checkout", "-q", "main"]);
-        git(
-            f.path(),
-            &["update-ref", "refs/tug/conflict/demo", &checkpoint],
-        );
-
-        let mut b = before(&f);
-        b.conflict = Some(checkpoint.clone());
-        let tips = tips_of(&b);
-        assert!(tips.contains(&checkpoint), "and the keepalive parents it");
-
-        record_begin(&f.paths, f.path(), OpVerb::Join, "demo", b, &tips).unwrap();
-
-        // The teardown: the ref goes, the branch goes, nothing else refers to it.
-        crate::resolve::clear_conflict(f.path(), "demo");
-        git(f.path(), &["branch", "-D", "chain"]);
-
-        let alive = git_output(
-            f.path(),
-            &["cat-file", "-e", &format!("{checkpoint}^{{commit}}")],
-        )
-        .unwrap()
-        .status
-        .success();
-        assert!(alive, "the resolver's checkpoint is still reachable");
+        assert_eq!(read.before.arc_tip, f.tip("HEAD"));
     }
 
     #[test]

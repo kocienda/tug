@@ -3221,9 +3221,9 @@ export function SessionCardBody({
   // somebody else landed something. The board's **attention key** is the fact
   // that says "this arc needs you and you have not seen why" ([B04]): minted
   // from the work id — the rounds' count and messages, so a new round moves
-  // it and a replay does not — and from the reason, so a stuck line or a
-  // question after a seen offer is new work. It is absent while a run is
-  // live, so nothing reveals over a resolve in flight. Nothing durable
+  // it and a replay does not. Its one reason is a standing offer, and it is
+  // absent while a run is live, so nothing reveals over a join or a fold in
+  // flight. Nothing durable
   // records the reveal: closing the shade discards nothing, and the worst case
   // of forgetting is one extra glance ([L22] — mount-local memory,
   // deliberately not a store).
@@ -5421,9 +5421,9 @@ export function SessionCardBody({
                     : "commit"
                 }
                 // Derived on every render from two live reads, and remembered
-                // nowhere: this card's arc needs the user — an offer, a stuck
-                // line or a question, the same attention the reveal keys on —
-                // and the room it stands in is closed. When the join lands the
+                // nowhere: this card's arc needs the user — its offer stands,
+                // the same attention the reveal keys on — and the room it
+                // stands in is closed. When the join lands the
                 // arc leaves the feed and the attention goes with it, so the
                 // dot cannot outlive what it points at.
                 changesHasOffer={joinAttentionKey !== null && shadeView === "none"}

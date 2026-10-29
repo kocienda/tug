@@ -1760,10 +1760,9 @@ async fn arc_entries(
         let mut timelines = tugarc_core::timeline::read_timelines(&Paths::from_env(), &root);
         let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
         crate::feeds::join_board::sweep(&live);
-        // The same idea one level down: a workshop is a real checkout on disk,
-        // and one whose arc is gone is a leak nothing else collects ([P07]).
-        let live_names: Vec<String> = details.iter().map(|d| d.name.clone()).collect();
-        crate::feeds::join_board::sweep_workshops(&root, &live_names);
+        // The same idea one level down: what the retired join pipeline left in
+        // this repository is collected once per process ([P07]).
+        crate::feeds::join_board::sweep_residue_once(&root);
         details
             .into_iter()
             .map(|detail| {

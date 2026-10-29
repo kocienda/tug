@@ -42,7 +42,9 @@ use serde::{Deserialize, Serialize};
 use tugcore::instance::Paths;
 
 use crate::error::ArcError;
-use crate::ops::{arc_base, branch_name, config_get, git_output, git_stdout, main_repo_root};
+use crate::ops::{
+    arc_base, branch_exists, branch_name, config_get, git_output, git_stdout, main_repo_root,
+};
 
 /// The marker of a clean crossing's arc log line.
 pub const CROSSING: &str = "crossing";
@@ -346,8 +348,20 @@ pub fn needs_settle(repo_root: &Path, name: &str, crossing: &Crossing) -> bool {
 /// the conflict changes. A settle that finished with a resolver decline is
 /// finished too: the decline is recorded on the arc log, and re-running it on
 /// every round is the waste the gate exists to stop.
+///
+/// **Only while both arcs still stand.** A settle runs for seconds to
+/// minutes, and a sibling may land or be discarded inside that window; its
+/// teardown forgets every record naming it before the settle ends. A mark
+/// written after that describes a pair that no longer exists, and would
+/// outlive both arcs. So it is not written; the cache keeps what the settle
+/// taught either way.
 pub fn mark_settled(repo_root: &Path, pair: &CrossingPair) -> Result<(), ArcError> {
     let repo = main_repo_root(repo_root);
+    if !branch_exists(&repo, &branch_name(&pair.first))
+        || !branch_exists(&repo, &branch_name(&pair.second))
+    {
+        return Ok(());
+    }
     let (_, fingerprint) =
         crate::resolve::conflict_fingerprint(&repo, &pair.first_tip, &pair.second_tip)?;
     let key = settled_key(&pair.first, &pair.second);
@@ -882,25 +896,39 @@ mod tests {
     }
 
     /// Land `first` the way a join does — `main` takes its tree and its branch
-    /// goes — then run the second arc's join ladder with no scribe at all.
-    fn join_after(paths: &Paths, repo: &Path, first: &str, second: &str) -> crate::ResolveOutcome {
+    /// goes — then fit the second arc onto the moved base the way base-motion
+    /// does, with no model anywhere: only the cache can clear its conflict.
+    fn join_after(paths: &Paths, repo: &Path, first: &str, second: &str) -> crate::ReplayOutcome {
         git(
             repo,
             &["merge", "-q", "--ff-only", &format!("tugarc/{first}")],
         );
         git(repo, &["branch", "-D", &format!("tugarc/{first}")]);
-        crate::resolve::resolve_conflicts(paths, repo, second, None).unwrap()
+        let worktree = repo.join(".tug").join("worktrees").join(second);
+        std::fs::create_dir_all(worktree.parent().unwrap()).unwrap();
+        let at = worktree.to_string_lossy().into_owned();
+        git(
+            repo,
+            &["worktree", "add", "-q", &at, &format!("tugarc/{second}")],
+        );
+        let fit = crate::replay_onto(paths, repo, second).unwrap();
+        git(repo, &["worktree", "remove", "--force", &at]);
+        fit
     }
 
-    fn landed_file(repo: &Path, outcome: &crate::ResolveOutcome) -> String {
-        let candidate = outcome.candidate_commit.as_deref().expect("a candidate");
-        git_stdout(repo, &["show", &format!("{candidate}:f.txt")]).unwrap() + "\n"
+    /// The fitted arc's `f.txt`, once the fit replayed it onto the base.
+    fn landed_file(repo: &Path, arc: &str, fit: &crate::ReplayOutcome) -> String {
+        assert!(
+            matches!(fit, crate::ReplayOutcome::Replayed { .. }),
+            "the fit replays: {fit:?}"
+        );
+        git_stdout(repo, &["show", &format!("tugarc/{arc}:f.txt")]).unwrap() + "\n"
     }
 
     /// The crossing settled while both arcs were a round old is what the
-    /// second join replays, through rung 2, whichever arc lands first.
+    /// second arc's fit recalls from the cache, whichever arc lands first.
     #[test]
-    fn a_crossing_settled_at_a_round_replays_through_rerere_at_the_join() {
+    fn a_crossing_settled_at_a_round_is_recalled_when_the_sibling_lands() {
         for (first, second) in [("a", "b"), ("b", "a")] {
             let _state = tempfile::TempDir::new().unwrap();
             let paths = Paths::under(_state.path());
@@ -920,16 +948,18 @@ mod tests {
             assert_eq!(tips(repo), before, "neither branch is touched");
 
             let joined = join_after(&paths, repo, first, second);
-            assert_eq!(joined.resolved.len(), 1, "{first} then {second}");
-            assert_eq!(joined.resolved[0].resolved_by, crate::ResolvedBy::Rerere);
-            assert_eq!(landed_file(repo, &joined), kept_both());
+            assert_eq!(
+                landed_file(repo, second, &joined),
+                kept_both(),
+                "{first} then {second}"
+            );
         }
     }
 
     /// What the rungs leave, the resolver finishes in a pair checkout, and
-    /// its finished file is what the join replays.
+    /// its finished file is what the second arc's fit recalls.
     #[test]
-    fn a_crossing_the_resolver_finished_replays_at_the_join() {
+    fn a_crossing_the_resolver_finished_is_recalled_by_the_fit() {
         let _state = tempfile::TempDir::new().unwrap();
         let paths = Paths::under(_state.path());
         let temp = two_arcs();
@@ -946,12 +976,11 @@ mod tests {
         drop(checkout);
 
         let joined = join_after(&paths, repo, "a", "b");
-        assert_eq!(joined.resolved[0].resolved_by, crate::ResolvedBy::Rerere);
-        assert_eq!(landed_file(repo, &joined), kept_both());
+        assert_eq!(landed_file(repo, "b", &joined), kept_both());
     }
 
     /// A finished file that leaves markers or rewrites clean text teaches the
-    /// cache nothing, so the join meets the conflict fresh.
+    /// cache nothing, so the fit meets the conflict fresh and stops on it.
     #[test]
     fn a_bad_finish_teaches_the_cache_nothing() {
         let _state = tempfile::TempDir::new().unwrap();
@@ -979,7 +1008,41 @@ mod tests {
         drop(checkout);
 
         let joined = join_after(&paths, repo, "a", "b");
-        assert_eq!(joined.unresolved, vec!["f.txt".to_string()]);
+        match joined {
+            crate::ReplayOutcome::Conflicted { paths, .. } => {
+                assert_eq!(paths, vec!["f.txt".to_string()]);
+            }
+            other => panic!("the fit must stop on f.txt: {other:?}"),
+        }
+    }
+
+    /// A settle that finishes after one of its arcs was torn down writes no
+    /// finished mark: the teardown already forgot the pair, and a mark written
+    /// after it would describe a pair that no longer exists.
+    #[test]
+    fn a_settle_that_outlives_an_arc_marks_nothing() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let temp = two_arcs();
+        let repo = temp.path();
+        line_five_conflict(repo);
+        let (pair, _) = settle_crossing(&paths, repo, "a", "b", Some(&KeepsBoth)).unwrap();
+
+        git(repo, &["branch", "-D", "tugarc/a"]);
+        forget_crossings(repo, "a");
+        mark_settled(repo, &pair).unwrap();
+        assert!(
+            config_get(repo, &settled_key("a", "b")).is_none(),
+            "no record outlives the arc it names"
+        );
+
+        // While both stand, the mark is written as before.
+        let temp = two_arcs();
+        let repo = temp.path();
+        line_five_conflict(repo);
+        let (pair, _) = settle_crossing(&paths, repo, "a", "b", Some(&KeepsBoth)).unwrap();
+        mark_settled(repo, &pair).unwrap();
+        assert!(config_get(repo, &settled_key("a", "b")).is_some());
     }
 
     /// An arc's teardown forgets its crossings, so a later arc of the same

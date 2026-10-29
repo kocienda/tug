@@ -438,15 +438,7 @@ fn changeset_join_ok_omits_blockers_when_there_are_none() {
     {
         body["blockers"] = blockers;
     }
-    if !outcome.archaeology.is_empty()
-        && let Ok(archaeology) = serde_json::to_value(&outcome.archaeology)
-    {
-        body["archaeology"] = archaeology;
-    }
     assert!(body.get("blockers").is_none());
-    // Same contract for the archaeology key: a clean preview carries no
-    // history, and it must be absent rather than an empty array.
-    assert!(body.get("archaeology").is_none());
 
     let blocked = tugarc_core::JoinBlocker {
         kind: "off-base".to_string(),

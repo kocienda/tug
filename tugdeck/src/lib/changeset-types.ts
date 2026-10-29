@@ -492,20 +492,6 @@ export interface ArcJoinRemedyWire {
   explain: string;
 }
 
-/** One base commit behind a conflicted path. */
-export interface ArcConflictCommitWire {
-  sha: string;
-  subject: string;
-}
-
-/** What the base did to one conflicted path since the two sides parted. */
-export interface ArcConflictHistoryWire {
-  path: string;
-  commits?: ArcConflictCommitWire[];
-  /** How many commits touched it in total — more than `commits` when capped. */
-  total: number;
-}
-
 /**
  * The join pipeline's server-owned state for one arc.
  *
@@ -520,8 +506,6 @@ export interface ArcJoinStateWire {
   blockers?: ArcJoinBlockerWire[];
   /** Conflicted paths from the in-memory merge probe. */
   conflicts?: string[];
-  /** What the base did to each conflicted path. */
-  archaeology?: ArcConflictHistoryWire[];
   /**
    * What is running on this arc right now — `join` or `resolve-base` —
    * absent when nothing is.
@@ -731,23 +715,7 @@ function isOptionalArcJoinState(
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
   if (typeof value.phase !== "string") return false;
-  if (value.candidate !== undefined && typeof value.candidate !== "string")
-    return false;
-  if (value.reviewed !== undefined && typeof value.reviewed !== "boolean")
-    return false;
-  if (value.stale_note !== undefined && typeof value.stale_note !== "string")
-    return false;
   if (value.run !== undefined && typeof value.run !== "string") return false;
-  if (
-    value.ledger !== undefined &&
-    !(
-      isRecord(value.ledger) &&
-      typeof value.ledger.run === "string" &&
-      Array.isArray(value.ledger.events)
-    )
-  ) {
-    return false;
-  }
   if (!isOptionalStringArray(value.conflicts)) return false;
   if (
     value.blockers !== undefined &&
@@ -761,45 +729,6 @@ function isOptionalArcJoinState(
           isOptionalStringArray(b.paths) &&
           (b.remedy === undefined ||
             (isRecord(b.remedy) && typeof b.remedy.explain === "string")),
-      )
-    )
-  ) {
-    return false;
-  }
-  if (
-    value.archaeology !== undefined &&
-    !(
-      Array.isArray(value.archaeology) &&
-      value.archaeology.every(
-        (h) =>
-          isRecord(h) &&
-          typeof h.path === "string" &&
-          typeof h.total === "number" &&
-          (h.commits === undefined ||
-            (Array.isArray(h.commits) &&
-              h.commits.every(
-                (c) =>
-                  isRecord(c) &&
-                  typeof c.sha === "string" &&
-                  typeof c.subject === "string",
-              ))),
-      )
-    )
-  ) {
-    return false;
-  }
-  if (
-    value.resolved !== undefined &&
-    !(
-      Array.isArray(value.resolved) &&
-      value.resolved.every(
-        (r) =>
-          isRecord(r) &&
-          typeof r.path === "string" &&
-          typeof r.resolved_by === "string" &&
-          (r.diff === undefined || typeof r.diff === "string") &&
-          (r.added === undefined || typeof r.added === "number") &&
-          (r.removed === undefined || typeof r.removed === "number"),
       )
     )
   ) {

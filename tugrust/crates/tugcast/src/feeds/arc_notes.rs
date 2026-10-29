@@ -203,6 +203,12 @@ async fn probe_on_round(ctx: &ArcNotesContext, root: &Path, line: &str) {
     if !is_round(marker, note) {
         return;
     }
+    // A round moves the arc's head, which is what takes a finished arc's
+    // audit stale and seats its re-audit. A round a stage makes is followed
+    // by its turn's end, which wakes the engine anyway; a hand-run `arc
+    // commit` has no turn, and without this its arc sat stale until some
+    // unrelated wake.
+    super::base_motion::wake_on_round();
     let repo = root.to_path_buf();
     let arc = arc.to_string();
     let probed = arc.clone();

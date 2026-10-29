@@ -222,13 +222,12 @@ export function SessionChangesView({
   // refusal is the band's, like the claim's above.
   const discardVerb = useChangesetDiscard(changesController.entryKey);
   const replayVerb = useChangesetReplay(changesController.entryKey);
-  // The resolution ladder's overlay, keyed by arc rather than by card. The
-  // fronted arc is resolved from the same snapshot the lane orders by; an
+  // The fronted arc is resolved from the same snapshot the lane orders by; an
   // unbound card watches the empty key, which is idle by construction.
   // A join in flight decides the fronted row; the card's binding decides it
   // the rest of the time. `/arc-join <name>` aims at an arc without binding to
-  // it, and the join face — outcome, blockers, the resolve ladder — is the
-  // fronted row's alone, so fronting by the binding would leave a named join
+  // it, and the join face — outcome, blockers, conflicts — is the fronted
+  // row's alone, so fronting by the binding would leave a named join
   // live in the composer with nothing in the room to explain a refusal.
   const frontedArcId = arcJoin?.arcId ?? boundArcId;
   // A card can be bound to an arc before its branch exists — the planning
@@ -239,10 +238,9 @@ export function SessionChangesView({
     snap.arcs.some((entry) => entry.owner_id === boundArcId)
       ? null
       : (snap.documentArcs.find((row) => row.owner_id === boundArcId) ?? null);
-  // The resolution ladder's overlay is read per ROW, in `ArcRow`, keyed by
-  // that row's own arc — the store is keyed by arc, and every row now carries
-  // a face, so a single read here would paint the fronted arc's ladder under
-  // all of them.
+  // The base fold's overlay is read per ROW, in `ArcRow`, keyed by that row's
+  // own arc — the store is keyed by arc, and every row carries a face, so a
+  // single read here would paint the fronted arc's fold under all of them.
 
   // An arc whose join is RUNNING is no longer offered here ([P05]).
   //

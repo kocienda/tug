@@ -237,6 +237,22 @@ export function reportedBlockers(
 }
 
 /**
+ * What the face says over the paths a merge onto the base conflicts on.
+ *
+ * An arc on the Wheel — one with a run record — goes back to its audit when
+ * the base moves under it, and the audit resolves the conflict as ordinary
+ * rounds, so the sentence says so. An arc with no run record has no audit to
+ * go back to: nothing resolves it until somebody replays it and resolves the
+ * conflict in its worktree, and a sentence promising an audit would be a
+ * promise nothing keeps.
+ */
+export function conflictSentence(entry: Pick<ArcChangesetEntry, "base" | "arc">): string {
+  return entry.arc !== undefined
+    ? `Conflicts with ${entry.base} — the audit resolves them`
+    : `Conflicts with ${entry.base} — replay the arc and resolve them in its worktree`;
+}
+
+/**
  * One blocker, as an inline dialog.
  *
  * A refusal with one act to clear it is a dialog, and Tug already has that
@@ -400,16 +416,18 @@ export function SessionChangesArcJoin({
           Nothing to join — discard this arc.
         </div>
       ) : null}
-      {/* The base moved past this arc into the same lines: its audit replays
-          the arc onto the live base and resolves what conflicts there, as
-          ordinary rounds. The paths are what this row can add to that. */}
+      {/* The base moved past this arc into the same lines. An arc on the
+          Wheel goes back to its audit, which replays it onto the live base and
+          resolves what conflicts there as ordinary rounds. An arc with no run
+          record has no audit to send it to, so nothing resolves it until it is
+          replayed and resolved by hand; the sentence says which. */}
       {conflicts.length > 0 ? (
         <div
-          className="session-changes-arc-join-rungs"
+          className="session-changes-arc-join-pathlist"
           data-slot="session-changes-arc-join-conflicts"
         >
           <div className="session-changes-arc-join-note">
-            Conflicts with {entry.base} — the audit resolves them
+            {conflictSentence(entry)}
           </div>
           {conflicts.map((path) => (
             <ArcFoldRow key={path} leading={<ArcFoldCell />}>
@@ -528,7 +546,7 @@ export function SessionChangesArcJoin({
           defect the register exists to prevent. */}
       {resolveFace === "folding" ? (
         <div
-          className="session-changes-arc-join-rungs"
+          className="session-changes-arc-join-pathlist"
           data-slot="session-changes-arc-join-folding"
         >
           {blockers

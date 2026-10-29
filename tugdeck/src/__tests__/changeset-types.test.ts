@@ -296,8 +296,6 @@ describe("aggregate changeset wire contract", () => {
 
     expect(join.phase).toBe("conflicted");
     expect(join.conflicts).toEqual(["tugrust/crates/tugtool/src/commands/arc.rs"]);
-    expect(join.archaeology?.[0]?.total).toBe(1);
-    expect(join.archaeology?.[0]?.commits?.[0]?.sha).toBe("3722f24");
   });
 
   test("an arc entry with no join block still parses", () => {
@@ -384,17 +382,17 @@ describe("aggregate changeset wire contract", () => {
     // …but the one required field really is required.
     expect(isChangesetEntry(withJoin({}))).toBe(false);
     expect(isChangesetEntry(withJoin({ phase: 3 }))).toBe(false);
-    // A resolved file without its rung would render as a diff nobody can
-    // attribute, which is the signal the review panel exists to carry.
-    expect(
-      isChangesetEntry(withJoin({ phase: "resolved", resolved: [{ path: "a" }] })),
-    ).toBe(false);
     expect(
       isChangesetEntry(
         withJoin({ phase: "blocked", blockers: [{ kind: "empty" }] }),
       ),
     ).toBe(false);
-    expect(isChangesetEntry(withJoin({ phase: "resolved", candidate: 7 }))).toBe(false);
+    // The retired join pipeline's fields — a candidate, a resolve ledger, the
+    // per-path rungs — are nothing this deck reads, so a block an older server
+    // sends with them still parses on the fields that remain.
+    expect(
+      isChangesetEntry(withJoin({ phase: "previewed", candidate: 7, ledger: "x" })),
+    ).toBe(true);
   });
 
   test("the live-run fact round-trips, and absence means nothing is running", () => {

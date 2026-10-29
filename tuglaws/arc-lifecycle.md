@@ -144,7 +144,7 @@ An arc verb that lands, moves, or deletes a branch used to be a one-way door. `t
 
 An operation has two halves, which store different facts and never the same one:
 
-- **A keepalive ref**, `refs/tug/oplog/<seq>`, on a synthetic commit whose parents are every tip the verb is about to move or delete — the arc head, the base tip, a standing candidate, and the conflict chain. This is what makes recovery possible at all: once it exists, `branch -D` and `reset` cannot strand the arc's rounds, so they are reachable from a ref rather than from a reflog on a clock. The conflict chain is in that list because a teardown deletes its ref along with the candidate's, and the chain holds the resolver's checkpoints — the most expensive commits in the system, and the ones nothing else would keep. It is read **without** the validity gate: validity answers *may this chain be opened*, the keepalive answers *may this work be collected*, and the second question has the broader yes.
+- **A keepalive ref**, `refs/tug/oplog/<seq>`, on a synthetic commit whose parents are every tip the verb is about to move or delete — the arc head and the base tip. This is what makes recovery possible at all: once it exists, `branch -D` and `reset` cannot strand the arc's rounds, so they are reachable from a ref rather than from a reflog on a clock. The conflict chain is in that list because a teardown deletes its ref along with the candidate's, and the chain holds the resolver's checkpoints — the most expensive commits in the system, and the ones nothing else would keep. It is read **without** the validity gate: validity answers *may this chain be opened*, the keepalive answers *may this work be collected*, and the second question has the broader yes.
 - **A payload**, `oplog-<seq>.json` in the project state dir, holding the verb, the arc, and the before/after values. It is a file rather than the keepalive's commit message because it is written twice — once before the verb acts and once when it completes — and a commit message is immutable.
 
 Three verbs record: `join`, `replay`, and `discard`. `create` does not, because a half-made create already rolls itself back. Retention is 50 operations per repository, pruned oldest-first by the writer — no daemon and no lock file. Pruning drops both halves, and dropping the keepalive is what finally lets `git gc` collect the commits, which is the honest meaning of *no longer undoable*.
@@ -167,38 +167,15 @@ A discard's handed-back files are the one half no undo reverses: they were *copi
 
 Undo and redo of a replay are each a compare-and-swap on the branch **plus** a walk of the plan ledger's commit cells along the replay's own recorded mapping — reversed for the undo, forward for the redo. The mapping is exact, so neither falls back on subject matching. The ledger needs the second half because it lives outside every tree git watches: moving the branch does not move its cells with it, and a cell naming a commit the undo just made unreachable would be a wrong sha in the record rather than a stale one.
 
-## Occupancy — the lease
+## Occupancy
 
-A workshop has one worker. Inside tugcast that is exact: a process-global registry takes the arc before any run touches it, and a second one is refused by name — "a resolve is already running for this arc". The registry is in memory on purpose, because a tugcast restart is both the only event that orphans a run and the event that releases every hold.
+An arc has one worker at a time. Inside tugcast that is exact: a process-global registry takes the arc before a join or a base fold touches it, and a second is refused by name. The registry is in memory on purpose, because a tugcast restart is both the only event that orphans a run and the event that releases every hold.
 
-What it cannot see is a **second process**. `tugtool arc join`, `tugtool arc discard`, and `tugtool arc join --resolve` run the same core from a CLI, and each of them tears a workshop down. A resolver mid-turn in that workshop loses its checkout.
-
-So liveness is derived from git, where both processes can read it, and the thing it is derived from is the conflict chain the resolve already writes. The chain becomes the resolve's own operation log:
-
-```
-tugresolve(<arc>): end          ← the resolve exited; the lease is released
-tugresolve(<arc>): checkpoint   ← one per turn that changed the tree
-tugresolve(<arc>): begin        ← the resolver opened the workshop
-tugconflict(<arc>): …           ← the root the ladder parked, record in its body
-```
-
-The markers are empty-delta commits carrying the tip's own tree and the tip as their only parent, so every existing reader — `read_conflict`'s first-parent walk, `open_conflict`'s reset, the salvage rung's blob reads — sees exactly what it saw before. What changes is the subject, which is the whole point.
-
-`resolve_lease` is then a pure function of the tip, and it holds only when all four are true: a chain stands, its tip is a `tugresolve(` commit that is not the end marker, no candidate is anchored, and the tip is younger than `RESOLVE_LEASE`. Each of the four answers a case the others cannot. A bare `tugconflict(` root is a conflict the ladder parked with nobody on it — the join pilot does that unattended — so the root's age is never a lease. A standing candidate is the resolver's own receipt of completion, because anchoring one is its last act and the ladder clears any candidate before parking a new root; without it, a resolve that missed its end marker would refuse for the whole window. And the chain is read **without** the validity gate, for the same reason the keepalive is: a round landing on the arc mid-resolve invalidates the chain without stopping the resolver.
-
-**The window is not a new number.** `RESOLVE_LEASE` is tugcast's `RESOLVE_DEADLINE` — the ceiling the resolver already enforces on itself — and the two are one constant by definition. A resolve that has not advanced its chain in that long has either died at its own deadline or lost the process running it. Nothing writes on a timer, and nothing needs to: checkpoints are per turn, and the begin marker is what carries a resolve through a slow one or a resume onto a tip that is days old.
-
-The refusal is an ordinary named blocker, `live-resolve`, in the same vocabulary as `stale-journal`, `off-base`, `base-dirt`, and `empty` — so it reaches the card with no client change, and the preview lists it where the execute path returns it as its `Err`. Its sentence states the tip's age, the window, and **both** ways out: `--break-lease` for the CLI, and resolving again for the card, whose Resolve arm runs the ladder and starts a fresh chain. Naming only the flag would be a control that does nothing for half the people who read it.
-
-`--break-lease` is consent, not capability. The teardown it permits is the one the verb always performed; the op log's keepalive already parents the chain tip, so `tugtool arc undo` puts the resolver's checkpoints back either way. What the flag adds is a recorded decision — `broke_lease` in the operation's `before`, printed in `arc undo --list` — and a warning naming the op number that restores what was torn down. Never a silent destruction.
-
-The in-process registry stays as the fast path and is not weakened: every tugcast path takes it first, and a run it holds suppresses the lease blocker, because the exact answer beats the derived one wherever it exists. The lease is the backstop for the process that has no registry to ask. The model is jj's op-heads lock, which exists only to avoid duplicated work and never carries correctness — here too, a lease that is wrong costs one turn, and the op log is what makes that turn recoverable.
-
-The CLI's `join --resolve` is guarded at the CLI rather than inside the ladder. The ladder clears the chain on both its arms, so a check in `join` would fire long after the checkpoints were gone; and a check in the ladder's core would also refuse the join pilot for the whole window after any resolver crash, wedging the one actor whose job is to clear the wreckage.
+Nothing crosses processes for occupancy to guard. The join resolves nothing ([D226]), so a CLI join or discard tears down only the arc's own worktree, which is what it was asked to do. `--break-lease` is a retired spelling, accepted and ignored.
 
 ## Ownership — whose arc is this to judge?
 
-The lease above is about one actor at a time inside a workshop. This is the same shape one level up: **an arc's clock belongs to the instance that seated the stage, and to nobody else.**
+Occupancy above is about one actor at a time on an arc. This is the same shape one level up: **an arc's clock belongs to the instance that seated the stage, and to nobody else.**
 
 The arc log is a per-project file that every instance over one checkout reads. A second `Tug.app` therefore sees a first one's arcs — but it cannot get a session snapshot for a seat that lives in the other tugcast's process, and before ownership existed that blindness had exactly one reading: *the stage went silent*. On 2026-09-02 a debug instance launched by an unrelated acceptance test spent thirty minutes on that reading and then wrote a healthy arc a durable `Stalled` stop receipt, twenty-seven minutes into an audit that was working.
 

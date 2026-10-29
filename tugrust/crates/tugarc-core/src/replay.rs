@@ -237,7 +237,7 @@ pub fn replay_watched(
 
     let tip_at_probe = git_stdout(repo, &["rev-parse", &branch])?;
     phase(1);
-    match walk_rounds(repo, &base_head, &base_branch, &branch, true)? {
+    match walk_rounds(repo, &base_head, &base_branch, &branch)? {
         ReplayWalk::Unavailable => Ok(ReplayOutcome::deferred(
             "no-rounds",
             format!("arc '{}' has no rounds to replay", name),
@@ -320,19 +320,31 @@ pub(crate) fn cas_reset(
 /// first round that conflicts. Touches nothing in the repository beyond writing
 /// loose objects.
 ///
-/// With `consult_rerere`, a round that conflicts is first offered to the
-/// recorded-resolution cache: the round is cherry-picked onto the running
-/// head in a scratch worktree with rerere on, and when every conflicted path
-/// comes out marker-free and rerere lists nothing remaining, that tree is the
-/// round's rebuilt tree and the walk goes on. Base-motion's replay passes
-/// `true`; the join ladder passes `false`, because there rerere is rung 2 and
-/// a resolution it replays is reported under its own name.
+/// A round that conflicts is first offered to the recorded-resolution cache:
+/// the round is cherry-picked onto the running head in a scratch worktree with
+/// rerere on, and when every conflicted path comes out marker-free and rerere
+/// lists nothing remaining, that tree is the round's rebuilt tree and the walk
+/// goes on.
+///
+/// **When the round alone is not in the cache, the rest of the arc may be.**
+/// A crossing settle teaches the merge of two arc *tips*, so its preimage is
+/// every hunk the pair conflicts on at once. A walk meets those hunks one
+/// round at a time — a second hunk a later round added, an edit reverted and
+/// redone — and each round's conflict is a preimage the cache never saw,
+/// though the whole of it is. So a round the cache cannot settle is offered
+/// again as the remainder: every round from it to the tip, squashed onto its
+/// parent and picked onto the running head as one change. When that recalls,
+/// the remaining rounds are rebuilt as one commit carrying the recalled tree,
+/// and every one of them maps to it. When it does not, and earlier rounds
+/// recalled on their own, the whole arc is offered onto the base the same
+/// way: a later round's hunk may only ever have been taught beside theirs. The rounds lose their separate identity
+/// on the arc; a join squashes them anyway, and the arc log and the ledger's
+/// commit cells follow the mapping.
 pub(crate) fn walk_rounds(
     repo: &Path,
     base_head: &str,
     base_branch: &str,
     branch: &str,
-    consult_rerere: bool,
 ) -> Result<ReplayWalk, ArcError> {
     if !git_supports_merge_base_flag() {
         return Ok(ReplayWalk::Unavailable);
@@ -356,8 +368,8 @@ pub(crate) fn walk_rounds(
     let mut acc = base_head.to_string();
     let mut mapping: Vec<(String, String)> = Vec::new();
     let mut recalled: Vec<String> = Vec::new();
-    let cache_present = consult_rerere && crate::resolve::has_rr_cache(repo);
-    for round in rounds {
+    let cache_present = crate::resolve::has_rr_cache(repo);
+    for (at, round) in rounds.iter().copied().enumerate() {
         let parent = format!("{}^", round);
         let out = git_output(
             repo,
@@ -390,6 +402,42 @@ pub(crate) fn walk_rounds(
                     tree
                 }
                 None => {
+                    // The rest of the arc from this round, onto the running
+                    // head; then, when earlier rounds recalled on their own
+                    // but this one's hunk was only ever taught beside theirs,
+                    // the whole arc onto the base.
+                    let from_here = if cache_present {
+                        recall_remainder(repo, &acc, round, branch)?
+                    } else {
+                        None
+                    };
+                    let whole = match &from_here {
+                        None if cache_present && at > 0 => {
+                            recall_remainder(repo, base_head, rounds[0], branch)?
+                        }
+                        _ => None,
+                    };
+                    let collapsed = match (from_here, whole) {
+                        (Some(found), _) => Some((at, found)),
+                        (None, Some(found)) => Some((0, found)),
+                        (None, None) => None,
+                    };
+                    if let Some((from, (tree, settled))) = collapsed {
+                        if from == 0 {
+                            acc = base_head.to_string();
+                            mapping.clear();
+                            recalled.clear();
+                        }
+                        recalled.extend(settled);
+                        let rest = &rounds[from..];
+                        acc = commit_tree(repo, &tree, &acc, &collapsed_message(repo, rest)?)?;
+                        mapping.extend(rest.iter().map(|r| (r.to_string(), acc.clone())));
+                        return Ok(ReplayWalk::Clean(ReplayedRounds {
+                            head: acc,
+                            mapping,
+                            recalled,
+                        }));
+                    }
                     return Ok(ReplayWalk::Conflicted {
                         round: round.to_string(),
                         round_subject: git_stdout(repo, &["log", "-1", "--format=%s", round])
@@ -408,6 +456,62 @@ pub(crate) fn walk_rounds(
         mapping,
         recalled,
     }))
+}
+
+/// Rebuild every round from `first` to the arc's tip onto `onto` as one
+/// change, through the cache: the remainder squashed onto `first`'s parent,
+/// then recalled exactly as one round is. Answers the rebuilt tree and the
+/// paths the cache settled, or `None` when the remainder conflicts in a way
+/// the cache does not hold.
+fn recall_remainder(
+    repo: &Path,
+    onto: &str,
+    first: &str,
+    branch: &str,
+) -> Result<Option<(String, Vec<String>)>, ArcError> {
+    let parent = git_stdout(repo, &["rev-parse", &format!("{first}^")])?;
+    let tip_tree = git_stdout(repo, &["rev-parse", &format!("{branch}^{{tree}}")])?;
+    let squashed = commit_tree(repo, &tip_tree, &parent, "remainder")?;
+    let out = git_output(
+        repo,
+        &[
+            "merge-tree",
+            "--write-tree",
+            "-z",
+            &format!("--merge-base={parent}"),
+            onto,
+            &squashed,
+        ],
+    )?;
+    if out.status.success() {
+        let tree = String::from_utf8_lossy(&out.stdout)
+            .split('\0')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        return Ok(Some((tree, Vec::new())));
+    }
+    let paths = conflicted_paths(&out.stdout);
+    Ok(recall_round(repo, onto, &squashed, &paths).map(|tree| (tree, paths)))
+}
+
+/// The message a collapsed remainder carries: the last round's subject, and
+/// every round it stands for, so the arc's own history still says what was
+/// done.
+fn collapsed_message(repo: &Path, rounds: &[&str]) -> Result<String, ArcError> {
+    let subjects: Vec<String> = rounds
+        .iter()
+        .map(|round| git_stdout(repo, &["log", "-1", "--format=%s", round]))
+        .collect::<Result<_, _>>()?;
+    let last = subjects.last().cloned().unwrap_or_default();
+    if subjects.len() == 1 {
+        return git_stdout(repo, &["log", "-1", "--format=%B", rounds[0]]);
+    }
+    let listed: String = subjects.iter().map(|s| format!("- {s}\n")).collect();
+    Ok(format!(
+        "{last}\n\nReplayed as one change: these rounds conflicted one at a time, and the cache recalled them together.\n\n{listed}"
+    ))
 }
 
 /// Rebuild one conflicting `round` onto `onto` through rerere's recorded
@@ -843,6 +947,49 @@ mod tests {
             "the log says what the cache settled: {}",
             f.arc_log()
         );
+    }
+
+    /// An arc whose conflict with the base grew over two rounds meets it one
+    /// hunk per round, and neither one-hunk conflict is the two-hunk merge a
+    /// crossing settle taught the cache. The walk offers the remainder as one
+    /// change instead, the cache recalls it, and both rounds map to the one
+    /// commit that carries the recalled tree.
+    #[test]
+    fn a_conflict_that_grew_over_rounds_is_recalled_as_one_change() {
+        let ten = |two: &str, nine: &str| -> String {
+            (1..=10)
+                .map(|n| match n {
+                    2 => format!("{two}\n"),
+                    9 => format!("{nine}\n"),
+                    _ => format!("line {n}\n"),
+                })
+                .collect()
+        };
+        let f = init(&[]);
+        f.advance_base("f.txt", &ten("line 2", "line 9"), "spread f");
+        git(&f.worktree(), &["reset", "-q", "--hard", "main"]);
+        f.round("f.txt", &ten("arc two", "line 9"), "arc two");
+        f.round("f.txt", &ten("arc two", "arc nine"), "arc nine");
+        f.advance_base("f.txt", &ten("base two", "base nine"), "base edits both");
+
+        let resolved = ten("base two\narc two", "base nine\narc nine");
+        teach_rerere(&f, &resolved);
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
+        let ReplayOutcome::Replayed { mapping, .. } = &outcome else {
+            panic!("expected the remainder recalled through the cache, got {outcome:?}");
+        };
+        assert_eq!(mapping.len(), 2, "both rounds are mapped");
+        assert_eq!(mapping[0].1, mapping[1].1, "to the one commit");
+        assert_eq!(
+            git_stdout(f.path(), &["show", "tugarc/demo:f.txt"]).unwrap() + "\n",
+            resolved
+        );
+        let message = git_stdout(f.path(), &["log", "-1", "--format=%B", "tugarc/demo"]).unwrap();
+        assert!(
+            message.starts_with("arc nine") && message.contains("- arc two"),
+            "the commit says which rounds it stands for: {message}"
+        );
+        assert!(f.arc_log().contains("recalled f.txt"), "{}", f.arc_log());
     }
 
     #[test]

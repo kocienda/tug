@@ -7,13 +7,11 @@
  * moment, only once per thing the arc needs, and only into a form that can
  * show what it opens.
  *
- * **What it reveals on is attention, not an offer ([B04]).** The board
- * publishes one attention fact per ready arc — its offer stands, its last
- * resolve is stuck, or a question waits — under a key that moves when the
- * reason does. A withdrawn candidate is the moment the decision becomes the
- * user's, and that is exactly when the room opens; so the gate and the memory
- * key on the attention key, and a new stuck line after a seen offer is new
- * work to show.
+ * **What it reveals on is the board's attention fact ([B04]).** The board
+ * publishes one per ready arc, and the one reason it has is a standing offer:
+ * the arc's audit stands on the live base, so the decision is the user's.
+ * The gate and the memory key on the attention key, so an offer seen once is
+ * not shown again until new work makes a new one.
  *
  * The predicate lives here, apart from the card, because it is the decision
  * rather than the plumbing. Every condition is a *dependency* of the effect
@@ -59,8 +57,7 @@
  * **The key is the board's attention key, never the arc head.** It is minted
  * from the server's work id — the rounds' count and messages, which a base
  * move's replay keeps, so a neighbour's join does not read here as new work
- * and a new round still does — and from the reason the arc needs the user, so
- * a stuck line or a question after a seen offer reads as new.
+ * and a new round still does.
  *
  * @module lib/join-offer-reveal
  */

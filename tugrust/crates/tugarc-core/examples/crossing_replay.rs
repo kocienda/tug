@@ -1,5 +1,5 @@
-//! Replay two arcs' round commits through the crossing probe, then join the
-//! second and count what rung 2 replays.
+//! Replay two arcs' round commits through the crossing probe, then fit the
+//! second onto the landed base and count what the cache recalled.
 //!
 //! ```text
 //! cargo run -p tugarc-core --example crossing_replay -- [--with-resolver] \
@@ -15,12 +15,12 @@
 //! With `--with-resolver`, what the rungs leave is finished the same way in
 //! the pair's checkout and taught through it, standing in for the resolver.
 //! Then every arc but `<second-arc>` is landed by moving `main` to
-//! `<join-base>`, and the second arc's join ladder runs with no scribe at all,
-//! so every path it settles is settled by a rung that needs no model.
+//! `<join-base>`, and the second arc is fitted onto it by the replay engine
+//! base-motion runs, round by round, with no model anywhere: a conflicted
+//! round it clears, the cache cleared.
 
 use std::path::{Path, PathBuf};
 
-use tugarc_core::ResolvedBy;
 use tugarc_core::crossing::{probe_crossings, settle_crossing};
 use tugarc_core::resolve::{FileMergeRequest, FileMerger, PairCheckout};
 use tugcore::instance::Paths;
@@ -231,29 +231,39 @@ fn main() {
             &["update-ref", "-d", &format!("refs/heads/tugarc/{arc}")],
         );
     }
-    let joined =
-        tugarc_core::resolve_conflicts(&paths, &repo, second, None).expect("the join ladder");
-    let replayed: Vec<&str> = joined
-        .resolved
-        .iter()
-        .filter(|r| r.resolved_by == ResolvedBy::Rerere)
-        .map(|r| r.path.as_str())
-        .collect();
-    println!(
-        "join {second} · conflicts {}",
-        joined.preview_conflicts.join(", ")
+    let worktree = repo.join(".tug").join("worktrees").join(second);
+    std::fs::create_dir_all(worktree.parent().expect("a parent")).expect("worktrees dir");
+    let at = worktree.to_string_lossy().into_owned();
+    git(
+        &repo,
+        &["worktree", "add", "-q", &at, &format!("tugarc/{second}")],
     );
-    for r in &joined.resolved {
-        println!("  {} by {}", r.path, r.resolved_by.as_str());
+    let fit = tugarc_core::replay_onto(&paths, &repo, second).expect("the fit");
+    git(&repo, &["worktree", "remove", "--force", &at]);
+    match &fit {
+        tugarc_core::ReplayOutcome::Replayed { mapping, .. } => {
+            println!(
+                "fit {second} · replayed {} round(s) onto the join base",
+                mapping.len()
+            );
+        }
+        tugarc_core::ReplayOutcome::Conflicted {
+            round_subject,
+            paths: stopped,
+            ..
+        } => {
+            println!("fit {second} · stopped at \"{round_subject}\"");
+            for path in stopped {
+                println!("  {path} conflicted");
+            }
+        }
+        other => println!("fit {second} · {other:?}"),
     }
-    for path in &joined.unresolved {
-        println!("  {path} unresolved");
+    let log = std::fs::read_to_string(tugtool_core::paths::arc_log_path_at(&paths, &repo))
+        .unwrap_or_default();
+    for line in log.lines().filter(|l| l.contains("recalled")) {
+        println!("  {line}");
     }
-    println!(
-        "files replayed by rung 2: {} of {}",
-        replayed.len(),
-        joined.preview_conflicts.len()
-    );
     let (before, after) = blocks(
         &repo,
         scratch.path(),

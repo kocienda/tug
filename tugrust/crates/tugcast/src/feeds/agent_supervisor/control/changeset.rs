@@ -414,11 +414,6 @@ pub(in crate::feeds::agent_supervisor) struct ChangesetJoinPayload {
     pub(in crate::feeds::agent_supervisor) strategy: tugarc_core::JoinStrategy,
     pub(in crate::feeds::agent_supervisor) message: Option<String>,
     pub(in crate::feeds::agent_supervisor) preview: bool,
-    /// A pre-resolved candidate commit to land ([P31]/[P32], Spec S12): when
-    /// present the join takes its resolved bytes instead of merging the arc
-    /// branch, staleness-guarded by ancestry. `strategy` still decides the
-    /// shape — a candidate never turns a squash into anything else.
-    pub(in crate::feeds::agent_supervisor) candidate: Option<String>,
     /// Resume an interrupted teardown from the journal (Spec S04).
     pub(in crate::feeds::agent_supervisor) continue_join: bool,
     /// The calling card's tug session id, for the receipt's shell-ledger row
@@ -460,11 +455,6 @@ pub(in crate::feeds::agent_supervisor) fn parse_changeset_join_payload(
         .get("preview")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let candidate = value
-        .get("candidate")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-        .map(str::to_string);
     let continue_join = value
         .get("continue")
         .and_then(|v| v.as_bool())
@@ -476,7 +466,6 @@ pub(in crate::feeds::agent_supervisor) fn parse_changeset_join_payload(
         strategy,
         message,
         preview,
-        candidate,
         continue_join,
         session_id,
     })
@@ -1736,17 +1725,12 @@ impl AgentSupervisor {
             message: request.message.clone(),
             preview: request.preview,
             continue_join: request.continue_join,
-            candidate: request.candidate.clone(),
             origin: Some("card".to_string()),
             // Who landed it. tugcast is nobody's session, so the pressing
             // card's id is the only way the squash commit can name the session
             // beside the arc — the two pills a joined commit's History row
             // shows ([P10], Spec S03).
             session_id: request.session_id.clone(),
-            // The card has no gesture for breaking a lease, and tugcast's own
-            // guard is exact: a card join that reaches the lease refusal is by
-            // definition a resolve in another process ([P04], [P05]).
-            break_lease: false,
             // tugcast's cwd is the server's, not the card's, so it stands
             // nowhere and the inside-the-worktree refusal does not apply.
             caller_cwd: None,
@@ -1899,13 +1883,6 @@ impl AgentSupervisor {
                     && let Ok(blockers) = serde_json::to_value(&outcome.blockers)
                 {
                     body["blockers"] = blockers;
-                }
-                // Same additive shape: the base-side history behind each
-                // conflicted path, present only on a conflicted preview.
-                if !outcome.archaeology.is_empty()
-                    && let Ok(archaeology) = serde_json::to_value(&outcome.archaeology)
-                {
-                    body["archaeology"] = archaeology;
                 }
                 send_control(&self.control_tx, body);
                 landed
@@ -2468,7 +2445,7 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let arc = request.arc.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugarc_core::discard_in(&Paths::from_env(), &dir_owned, &arc, Some("card"), false)
+            tugarc_core::discard_in(&Paths::from_env(), &dir_owned, &arc, Some("card"))
         })
         .await;
 

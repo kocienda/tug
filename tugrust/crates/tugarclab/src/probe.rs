@@ -34,6 +34,11 @@ pub enum Probe {
     /// The base branch's recent subjects contain `contains` — what a landing
     /// leaves.
     BaseLog { contains: String },
+    /// `tugtool arc status <arc> --json` reads `stage` — `audited` while the
+    /// audit's pair still stands on the live tips, `audit-stale` once either
+    /// moved. Readiness to join is relative to the audit, so this is the
+    /// reading the offer follows.
+    Stage { arc: String, stage: String },
     /// `inner` still does not hold after `after_secs` — the negative reading,
     /// for "no conflict turn was injected".
     Absent { inner: Box<Probe>, after_secs: u64 },
@@ -90,6 +95,19 @@ impl Probe {
         }
     }
 
+    pub fn stage(arc: &str, stage: &str) -> Self {
+        Probe::Stage {
+            arc: arc.to_string(),
+            stage: stage.to_string(),
+        }
+    }
+
+    /// The arc log carries `arc-resume audit` for `arc` — the line that
+    /// reopens a finished arc whose audit went stale and seats its audit.
+    pub fn reaudit(arc: &str) -> Self {
+        Probe::arc_log(arc, "arc-resume  audit")
+    }
+
     pub fn absent(inner: Probe, after_secs: u64) -> Self {
         Probe::Absent {
             inner: Box::new(inner),
@@ -106,6 +124,7 @@ impl Probe {
             Probe::Rerere { min } => format!("rr-cache ≥ {min}"),
             Probe::Transcript { arc, grep } => format!("transcript {arc} ∋ {grep}"),
             Probe::BaseLog { contains } => format!("base log ∋ {contains}"),
+            Probe::Stage { arc, stage } => format!("stage {arc} = {stage}"),
             Probe::Absent { inner, after_secs } => {
                 format!("absent after {after_secs}s: {}", inner.label())
             }
@@ -155,6 +174,13 @@ impl Probe {
                 "git -C {repo} log --format=%s -n 20 main | grep -F -q -- {needle}",
                 repo = sh(env.repo),
                 needle = sh_str(contains),
+            ),
+            Probe::Stage { arc, stage } => format!(
+                "cd {repo} && {tugtool} arc status {arc} --json | grep -F -q -- {needle}",
+                repo = sh(env.repo),
+                tugtool = sh(env.tugtool),
+                arc = sh_str(arc),
+                needle = sh_str(&format!("\"stage\": \"{stage}\"")),
             ),
             Probe::Absent { inner, .. } => inner.shell(env)?,
         })
@@ -247,6 +273,23 @@ mod tests {
     #[test]
     fn a_quote_in_a_needle_is_closed_around() {
         assert_eq!(sh_str("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn a_stage_probe_reads_the_quoted_stage_word_from_status() {
+        // The quotes are the needle's edges, so `audited` never matches the
+        // `audit-stale` that names the same mark gone stale.
+        let p = Probe::stage("b", "audited");
+        let shell = p.shell(&env(&no_sessions)).unwrap();
+        assert_eq!(
+            shell,
+            "cd '/tmp/arc-lab/run/repo' && '/bin/tugtool' arc status 'b' --json | grep -F -q -- '\"stage\": \"audited\"'"
+        );
+        assert_eq!(p.label(), "stage b = audited");
+        assert_eq!(
+            Probe::reaudit("b"),
+            Probe::arc_log("b", "arc-resume  audit")
+        );
     }
 
     #[test]

@@ -135,30 +135,7 @@ impl Lab {
         edits: &[(&str, Edit)],
     ) -> Result<(), String> {
         let worktree = self.seat(name)?.worktree.clone();
-        for (path, edit) in edits {
-            let full = worktree.join(path);
-            match edit {
-                Edit::Write(body) => std::fs::write(&full, body)
-                    .map_err(|e| format!("writing {}: {e}", full.display()))?,
-                Edit::WriteBytes(bytes) => std::fs::write(&full, bytes)
-                    .map_err(|e| format!("writing {}: {e}", full.display()))?,
-                Edit::Delete => {
-                    crate::project::git(&worktree, &["rm", "-q", path])?;
-                }
-                Edit::Rename(to) => {
-                    crate::project::git(&worktree, &["mv", path, to])?;
-                }
-                Edit::Executable => {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        std::fs::set_permissions(&full, std::fs::Permissions::from_mode(0o755))
-                            .map_err(|e| format!("chmod {}: {e}", full.display()))?;
-                    }
-                }
-            }
-        }
-        crate::project::git(&worktree, &["add", "-A"])?;
+        apply_edits(&worktree, edits)?;
         let metadata = serde_json::json!({
             "instruction": subject,
             "summary": format!("scripted by the arc lab: {subject}"),
@@ -229,17 +206,118 @@ impl Lab {
         Ok(())
     }
 
-    /// Discard the arc: `tugtool arc discard --break-lease`, deleting its
-    /// worktree and branch without merging, and drop it from the run's seats
-    /// so a later act may cut an arc of the same name afresh. `--break-lease`
-    /// lets the discard proceed even while a settle holds the pair's lease.
+    /// Discard the arc: `tugtool arc discard`, deleting its worktree and
+    /// branch without merging, and drop it from the run's seats so a later
+    /// act may cut an arc of the same name afresh.
     pub fn discard(&mut self, name: &str) -> Result<(), String> {
         self.seat(name)?;
         let mut cmd = self.tugtool(&self.project.root);
-        cmd.args(["arc", "discard", name, "--break-lease", "--json"]);
+        cmd.args(["arc", "discard", name, "--json"]);
         run_capturing(&mut cmd)?;
         self.arcs.remove(name);
         self.timeline.act(name, "discarded".to_string());
+        Ok(())
+    }
+
+    /// Write the record of a finished Wheel arc: `arc-start`, `arc-kind
+    /// plain`, an `audited` mark carrying the live arc head and base tip, and
+    /// `arc-done` — the lines a run that implemented and audited leaves. The
+    /// four lines are appended in-process, back to back, so the runner never
+    /// reads the arc live: a live record on a lab arc would seat a stage on
+    /// its headless session and spend a model turn the scenario never asked
+    /// for, and a done record is one the runner never dispatches.
+    pub fn finish(&mut self, name: &str) -> Result<(), String> {
+        self.seat(name)?;
+        let paths = tugcore::instance::Paths::from_env();
+        let root = &self.project.root;
+        let document = format!(".tug/arcs/{name}/idea.md");
+        tugarc_core::append_arc_start(&paths, root, name, &document)
+            .map_err(|e| format!("arc-start {name}: {e}"))?;
+        tugarc_core::append_arc_kind(&paths, root, name, tugarc_core::ArcKind::Plain)
+            .map_err(|e| format!("arc-kind {name}: {e}"))?;
+        tugarc_core::mark_in(
+            &paths,
+            root,
+            name,
+            tugarc_core::MarkStage::Audited,
+            Some("finished by the arc lab"),
+        )
+        .map_err(|e| format!("audited {name}: {e}"))?;
+        tugarc_core::append_arc_done(&paths, root, name)
+            .map_err(|e| format!("arc-done {name}: {e}"))?;
+        self.timeline
+            .act(name, "finished: audited on the live tips, done".to_string());
+        Ok(())
+    }
+
+    /// `tugtool arc mark <name> audited` — what a re-audit leaves when it
+    /// finds the work in good shape.
+    pub fn mark_audited(&mut self, name: &str) -> Result<(), String> {
+        self.seat(name)?;
+        let mut cmd = self.tugtool(&self.project.root);
+        cmd.args(["arc", "mark", name, "audited", "--json"]);
+        run_capturing(&mut cmd)?;
+        self.timeline.act(name, "marked audited".to_string());
+        Ok(())
+    }
+
+    /// `tugtool arc stop` on the arc's own session: the stage a re-audit
+    /// seated is ended before its model does any work worth paying for.
+    pub fn stop(&mut self, name: &str) -> Result<(), String> {
+        let session = self.seat(name)?.session.clone();
+        let root = self.project.root.to_string_lossy().into_owned();
+        let mut cmd = self.tugtool(&self.project.root);
+        cmd.args([
+            "arc",
+            "stop",
+            name,
+            "--project",
+            &root,
+            "--session",
+            &session,
+            "--json",
+        ]);
+        run_capturing(&mut cmd)?;
+        self.timeline.act(name, "stopped".to_string());
+        Ok(())
+    }
+
+    /// `tugtool arc unbind` on the arc's own session: the arc keeps its
+    /// seat in the run but no card holds it.
+    pub fn unbind(&mut self, name: &str) -> Result<(), String> {
+        let session = self.seat(name)?.session.clone();
+        let root = self.project.root.to_string_lossy().into_owned();
+        let mut cmd = self.tugtool(&self.project.root);
+        cmd.args([
+            "arc",
+            "unbind",
+            "--project",
+            &root,
+            "--session",
+            &session,
+            "--json",
+        ]);
+        run_capturing(&mut cmd)?;
+        self.timeline.act(name, format!("unbound from {session}"));
+        Ok(())
+    }
+
+    /// Bind the arc's own session to it again, after an unbind.
+    pub fn rebind(&mut self, name: &str) -> Result<(), String> {
+        let session = self.seat(name)?.session.clone();
+        self.bind_arc(name, &session)?;
+        self.timeline.act(name, format!("bound again to {session}"));
+        Ok(())
+    }
+
+    /// A commit on `main` that no arc made: the base moves under every arc
+    /// with no crossing to settle first, so a conflict it brings is one the
+    /// cache has never seen.
+    pub fn base_commit(&mut self, subject: &str, edits: &[(&str, Edit)]) -> Result<(), String> {
+        let root = self.project.root.clone();
+        apply_edits(&root, edits)?;
+        crate::project::git(&root, &["commit", "-q", "-m", subject])?;
+        self.timeline.act("main", format!("committed: {subject}"));
         Ok(())
     }
 
@@ -311,6 +389,12 @@ impl Lab {
                 Act::Say { arc, text } => self.say(arc, text)?,
                 Act::Land(arc) => self.land(arc)?,
                 Act::Discard(arc) => self.discard(arc)?,
+                Act::Finish(arc) => self.finish(arc)?,
+                Act::MarkAudited(arc) => self.mark_audited(arc)?,
+                Act::Stop(arc) => self.stop(arc)?,
+                Act::Unbind(arc) => self.unbind(arc)?,
+                Act::Rebind(arc) => self.rebind(arc)?,
+                Act::BaseCommit { subject, edits } => self.base_commit(subject, edits)?,
                 Act::Expect(probe) => {
                     self.expect(probe)?;
                 }
@@ -351,4 +435,32 @@ impl Lab {
             .map_err(|e| format!("writing {}: {e}", path.display()))?;
         Ok(path)
     }
+}
+
+/// Make `edits` in the checkout at `dir` and stage them all.
+fn apply_edits(dir: &Path, edits: &[(&str, Edit)]) -> Result<(), String> {
+    for (path, edit) in edits {
+        let full = dir.join(path);
+        match edit {
+            Edit::Write(body) => std::fs::write(&full, body)
+                .map_err(|e| format!("writing {}: {e}", full.display()))?,
+            Edit::WriteBytes(bytes) => std::fs::write(&full, bytes)
+                .map_err(|e| format!("writing {}: {e}", full.display()))?,
+            Edit::Delete => {
+                crate::project::git(dir, &["rm", "-q", path])?;
+            }
+            Edit::Rename(to) => {
+                crate::project::git(dir, &["mv", path, to])?;
+            }
+            Edit::Executable => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&full, std::fs::Permissions::from_mode(0o755))
+                        .map_err(|e| format!("chmod {}: {e}", full.display()))?;
+                }
+            }
+        }
+    }
+    crate::project::git(dir, &["add", "-A"]).map(|_| ())
 }

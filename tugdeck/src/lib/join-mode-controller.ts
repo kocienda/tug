@@ -346,7 +346,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
     if (draftStore !== null) {
       this.unsubscribes.push(draftStore.subscribe(() => this.recompute()));
     }
-    // The join's beats and the ladder's progress both live here, and both feed
+    // The join's beats and the base fold's progress both live here, and both feed
     // the register the composer shows ([P03], [P04]). Without this subscription
     // the composer's status row would freeze on whichever beat happened to be
     // current when some *other* store last moved.

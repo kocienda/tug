@@ -10,8 +10,7 @@
 //! rebuild the bug the feature exists to remove.
 //!
 //! **Cached, keyed by `(base_sha, arc_head_sha)`** — the `merge-tree` conflict
-//! probe and the archaeology behind it. Each is
-//! a pure function of those two commits, so a hit is sound and a miss costs one
+//! probe. It is a pure function of those two commits, so a hit is sound and a miss costs one
 //! probe per actual movement.
 //!
 //! **Never cached** — the blockers, and every ref and config read. Blockers
@@ -33,8 +32,7 @@ use tugcore::instance::Paths;
 
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
-    ArcConflictCommit, ArcConflictHistory, ArcJoinAttention, ArcJoinBlocker, ArcJoinOffer,
-    ArcJoinState, ArcResolvedBase,
+    ArcJoinAttention, ArcJoinBlocker, ArcJoinOffer, ArcJoinState, ArcResolvedBase,
 };
 
 /// The cacheable half of one arc's join facts, and the head pair it describes.
@@ -43,7 +41,6 @@ struct CachedProbe {
     base_sha: String,
     arc_sha: String,
     conflicts: Vec<String>,
-    archaeology: Vec<ArcConflictHistory>,
 }
 
 #[derive(Default)]
@@ -78,49 +75,23 @@ pub fn sweep(live_owner_keys: &[String]) {
     map.retain(|key, _| live_owner_keys.iter().any(|k| k == key));
 }
 
-/// Collect workshops whose arc is gone ([P07]).
-///
-/// `.tug/workshops/` is a directory of second checkouts with warm build outputs
-/// in them, and until now nothing swept it: a workshop was removed by the arc
-/// verbs that knew about it, and anything that slipped past them — a join that
-/// tore one down while a straggling task re-created it, a discard that raced a
-/// resolve — stayed on disk with its branch, forever, invisible to every
-/// surface. This is the sweeper the directory never had.
-///
-/// Safe because occupancy is checked first: a workshop whose arc is gone but
-/// whose name still holds a live run is left alone, and the run's own exit
-/// takes it. Removing a checkout out from under a working resolver would turn
-/// a leaked directory into a lost run.
-pub fn sweep_workshops(repo_root: &Path, live_arcs: &[String]) {
-    let live: Vec<String> = live_arcs
-        .iter()
-        .map(|name| tugarc_core::workshop::workshop_branch(name))
-        .collect();
+/// The repositories this process has already swept for the retired join
+/// pipeline's residue.
+static RESIDUE_SWEPT: OnceLock<Mutex<std::collections::HashSet<std::path::PathBuf>>> =
+    OnceLock::new();
 
-    for name in tugarc_core::workshop::existing(repo_root) {
-        let branch = tugarc_core::workshop::workshop_branch(&name);
-        if live.contains(&branch) {
-            continue;
-        }
-        let owner_key = tugarc_core::ops::arc_owner_key(repo_root, &name);
-        if crate::feeds::join_occupancy::run_kind(&owner_key).is_some() {
-            continue;
-        }
-        // A join removes its own workshop as one phase of a recorded
-        // teardown, and the arc leaves the feed's list before that teardown
-        // finishes. Sweeping in that window would run a second `git worktree
-        // remove`/`prune` in the same `.git/worktrees` as the one the join is
-        // running. The open join record is the "a join owns this arc right
-        // now" fact, and it outlives the arc's presence on the feed by design.
-        if tugarc_core::ops::join_in_flight(&Paths::from_env(), repo_root, &name) {
-            continue;
-        }
-        let mut warnings = Vec::new();
-        tugarc_core::workshop::remove(repo_root, &name, &mut warnings);
-        for warning in warnings {
-            tracing::warn!(workshop = %name, %warning, "arc-join: orphaned workshop");
-        }
-        tracing::info!(workshop = %name, "arc-join: swept an orphaned workshop");
+/// Collect what the retired join pipeline left in this repository — `tugjoin*`
+/// keys on live arcs, join and conflict refs, workshop checkouts — once per
+/// repository per process. A teardown forgets its own arc's residue; this is
+/// for the live arcs no teardown will reach soon, and for the workshops of
+/// arcs long gone.
+pub fn sweep_residue_once(repo_root: &Path) {
+    let swept = RESIDUE_SWEPT.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
+    if !swept.lock().insert(repo_root.to_path_buf()) {
+        return;
+    }
+    for warning in tugarc_core::sweep_join_residue(repo_root) {
+        tracing::warn!(repo = %repo_root.display(), %warning, "arc residue sweep");
     }
 }
 
@@ -182,7 +153,6 @@ pub fn join_state_for(
             phase: "blocked".to_string(),
             blockers,
             conflicts: Vec::new(),
-            archaeology: Vec::new(),
             run,
             // A blocked arc has nothing to offer — it is waiting on an act,
             // elsewhere, that each blocker names.
@@ -196,10 +166,7 @@ pub fn join_state_for(
     }
 
     let probe = cached_probe(repo_root, detail);
-    let (conflicts, archaeology) = match probe {
-        Some(p) => (p.conflicts, p.archaeology),
-        None => (Vec::new(), Vec::new()),
-    };
+    let conflicts = probe.map(|p| p.conflicts).unwrap_or_default();
     let phase = if conflicts.is_empty() {
         "previewed"
     } else {
@@ -236,7 +203,6 @@ pub fn join_state_for(
         phase: phase.to_string(),
         blockers,
         conflicts,
-        archaeology,
         run,
         offer,
         attention,
@@ -429,22 +395,6 @@ fn cached_probe(repo_root: &Path, detail: &ArcDetail) -> Option<CachedProbe> {
         base_sha: probed.base_sha,
         arc_sha: probed.arc_sha,
         conflicts: probed.conflicts,
-        archaeology: probed
-            .archaeology
-            .into_iter()
-            .map(|h| ArcConflictHistory {
-                path: h.path,
-                commits: h
-                    .commits
-                    .into_iter()
-                    .map(|c| ArcConflictCommit {
-                        sha: c.sha,
-                        subject: c.subject,
-                    })
-                    .collect(),
-                total: h.total,
-            })
-            .collect(),
     };
     board.by_arc.lock().insert(key, fresh.clone());
     Some(fresh)
@@ -473,18 +423,6 @@ mod tests {
         git(repo, &["switch", "-q", "main"]);
         std::fs::write(repo.join("f.txt"), "C\n").unwrap();
         git(repo, &["commit", "-am", "main to C"]);
-
-        let stub = repo.join("stub-driver.sh");
-        std::fs::write(&stub, "#!/bin/sh\nprintf 'RESOLVED\\n' > \"$4\"\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        git(
-            repo,
-            &["config", "tugarc.mergedriver", &stub.to_string_lossy()],
-        );
         temp
     }
 
@@ -608,53 +546,6 @@ mod tests {
         assert_eq!(conflicted.phase, "conflicted");
         assert!(!conflicted.conflicts.is_empty());
         assert!(probe_runs() > before, "and the probe runs then");
-    }
-
-    /// A workshop whose arc is gone is collected; one with a live run is not
-    /// ([P07]).
-    ///
-    /// Nothing swept `.tug/workshops/` before this. A workshop was torn down by
-    /// the arc verbs that knew about it, and anything that slipped past them
-    /// — a join racing a straggling task, a discard racing a resolve — stayed
-    /// on disk with its branch forever, invisible to every surface.
-    #[test]
-    fn an_orphaned_workshop_is_swept_and_an_occupied_one_is_not() {
-        let temp = fixture();
-        let repo = temp.path();
-
-        tugarc_core::workshop::Workshop::open_existing(repo, "demo").expect("a live arc");
-        let workshop = tugarc_core::workshop::workshop_path(repo, "demo");
-        assert!(workshop.exists());
-
-        // Still live: the sweep leaves it alone, which is the whole reason the
-        // workshop is stable in the first place.
-        sweep_workshops(repo, &["demo".to_string()]);
-        assert!(workshop.exists(), "a live arc keeps its workshop");
-
-        // The arc goes, and the workshop is left behind — the leak.
-        git(repo, &["branch", "-D", "tugarc/demo"]);
-
-        // But a run still holds it, so it is not the sweeper's to take:
-        // removing a checkout out from under a working resolver would turn a
-        // leaked directory into a lost run.
-        let owner_key = tugarc_core::ops::arc_owner_key(repo, "demo");
-        let held = crate::feeds::join_occupancy::acquire(
-            &owner_key,
-            crate::feeds::join_occupancy::JoinRunKind::ResolveBase,
-        )
-        .expect("the arc is free");
-        sweep_workshops(repo, &[]);
-        assert!(workshop.exists(), "an occupied workshop survives its arc");
-
-        drop(held);
-        sweep_workshops(repo, &[]);
-        assert!(!workshop.exists(), "released, the orphan is collected");
-        assert!(
-            !tugarc_core::workshop::existing(repo)
-                .iter()
-                .any(|n| n == "demo"),
-            "branch and directory both"
-        );
     }
 
     // ── The join offer ──────────────────────────────────────────────────────
@@ -902,26 +793,30 @@ mod tests {
             "precondition: the fold is the newest thing that happened"
         );
 
+        // The fold put the user's own edit on the base over the arc's file,
+        // so the arc meets it the way any arc meets a moved base: it takes
+        // the base in and resolves on its own branch — the audit's work —
+        // and then joins clean.
+        git(repo, &["switch", "-q", "tugarc/demo"]);
+        git(repo, &["merge", "-q", "--no-edit", "-X", "ours", "main"]);
+        git(repo, &["switch", "-q", "main"]);
+
         // The arc lands. Its fold is still in the log, and still un-undone.
-        let candidate =
-            tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None)
-                .expect("reconciled")
-                .candidate_commit;
         let joined = ops::join_in(
             &Paths::from_env(),
             repo,
             "demo",
             ops::JoinOptions {
                 preview: false,
-                candidate,
                 ..Default::default()
             },
         )
         .expect("joined");
         assert!(
-            joined.blockers.is_empty(),
-            "precondition: the join actually landed: {:?}",
-            joined.blockers
+            joined.blockers.is_empty() && joined.conflicts.is_empty(),
+            "precondition: the join actually landed: {:?} {:?}",
+            joined.blockers,
+            joined.conflicts
         );
 
         assert!(

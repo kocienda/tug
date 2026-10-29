@@ -13,6 +13,7 @@ import {
   reportedBlockers,
   deriveResolveFace,
   refusalReasons,
+  conflictSentence,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
 import { arcFitSentence } from "@/lib/arc-fit";
@@ -164,5 +165,19 @@ describe("refusalReasons", () => {
     expect(refusalReasons(said, said)).toEqual([
       { slot: "session-changes-arc-join-resolve-error", text: said },
     ]);
+  });
+});
+
+describe("conflictSentence", () => {
+  it("promises the audit only to an arc on the Wheel", () => {
+    expect(conflictSentence({ base: "main", arc: { stage: "audit" } })).toBe(
+      "Conflicts with main — the audit resolves them",
+    );
+  });
+
+  it("tells an arc with no run record what resolves it", () => {
+    expect(conflictSentence({ base: "main" })).toBe(
+      "Conflicts with main — replay the arc and resolve them in its worktree",
+    );
   });
 });

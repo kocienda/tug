@@ -762,8 +762,8 @@ pub enum ChangesetEntry {
         /// an attempt rather than about a state.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         replay_conflict_paths: Vec<String>,
-        /// The join pipeline's entire durable state for this arc — blockers,
-        /// conflicts, the resolved candidate, and what verification said of it.
+        /// The join's state for this arc — its blockers, the paths a merge onto
+        /// the base conflicts on, what runs on it, and the offer.
         ///
         /// This is the join's single source of truth ([P01]); the client
         /// holds no durable copy of any of it. Absent from an older server,
@@ -878,9 +878,6 @@ pub struct ArcJoinState {
     /// Conflicted paths from the in-memory merge probe.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<String>,
-    /// What the base did to each conflicted path since the two sides parted.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub archaeology: Vec<ArcConflictHistory>,
     /// What is running on this arc right now — `"join"` or `"resolve-base"`
     /// — and absent when nothing is (Spec S01).
     ///
@@ -949,8 +946,9 @@ pub struct ArcResolvedBase {
 
 /// The join an arc is ready for, as a fact rather than an ask.
 ///
-/// Everything before it is the machine's: the reconcile and the candidate it
-/// produced. This is where that work stops and a person decides. The decision
+/// Everything before it is the machine's: the audit that verified the fit of
+/// exactly the tree a join lands. This is where that work stops and a person
+/// decides. The decision
 /// surface is the Changes shade — the offer is what the shade shows and what
 /// summons it, so this carries what a person needs to see and nothing that
 /// belongs to a dialog.
@@ -1001,12 +999,9 @@ pub struct ArcJoinAttention {
     pub key: String,
 }
 
-/// The resolver's account of a candidate (Spec S02) — what it finished, what it
-/// audited, what verification said each pass, and what it asked.
-///
-/// This is what the retired review panel's space now renders. The difference is
-/// who read the resolutions: the human was being asked to; the resolver has,
-/// and this is the reading.
+/// The resolver's account of what it finished in a crossing's pair checkout
+/// (Spec S02): each file and how it was reconciled, and any question it asked
+/// instead of finishing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ArcJoinReport {
     pub files: Vec<ArcJoinReportFile>,
@@ -1067,24 +1062,6 @@ pub struct ArcJoinBlocker {
 pub struct ArcJoinRemedy {
     /// What Resolve will do, as one sentence.
     pub explain: String,
-}
-
-/// What the base did to one conflicted path since the two sides parted.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcConflictHistory {
-    pub path: String,
-    /// The most recent base commits that touched it, newest first, capped.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub commits: Vec<ArcConflictCommit>,
-    /// How many touched it in total — `commits.len()` unless the cap bit.
-    pub total: u32,
-}
-
-/// One base commit behind a conflicted path.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcConflictCommit {
-    pub sha: String,
-    pub subject: String,
 }
 
 /// `skip_serializing_if` for a count whose zero means "nothing to say".

@@ -151,7 +151,7 @@ What to run is the project's to say: the `build` command declared in `[tugtool.a
 
 Before stopping, leave the **join draft** behind: write the squash message with `tugtool draft set --owner arc:<name> --message "…"`. The join gesture lands that message; it does not compose one. An arc that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 
-Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message**. Not one commit per round, not the rounds replayed — one, whatever the ladder did off to the side to make the bytes merge, and regardless of how many rounds the arc took. The draft is therefore the *only* durable prose the base will carry about this arc, and the round commits it might have leaned on to fill in what it left out will not be there.
+Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message**. Not one commit per round, not the rounds replayed — one, regardless of how many rounds the arc took. The draft is therefore the *only* durable prose the base will carry about this arc, and the round commits it might have leaned on to fill in what it left out will not be there.
 
 **So the draft is a commit message, held to the same standard as every other commit the base carries.** An imperative subject in the repository's recent-commit style, then a body describing the change the base is about to receive — what it does, and the argument the work rests on — written for a reader who never saw the arc. Never a narration of the arc: no round-by-round digest, no step numbers, no "it did X and then Y", and no archaeology about defects found and fixed along the way. The round count is the receipt's fact rather than the message's: the join receipt shows it, the `Tug-Arc:` trailer names the branch and base, and the arc branch's own log holds the rounds until the join sweeps it. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. The subject is **bare** — no `tugarc(<name>): ` prefix, because the join wears the scope itself. Every line runs unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
 
@@ -159,51 +159,22 @@ Read the base's recent joins before writing one — `git log` shows them. A good
 
 **The arc arms itself, and `tugtool arc mark <name> built` is telemetry.** What arms it is the arc reaching the step its selection declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time an arc ended early. The mark stamps the word `built` on the arc's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
 
-Once armed, the pilot reconciles the arc against its base, unprompted. It runs no build and no tests — the arc's ending already verified the tree that lands — so a standing candidate is the whole of readiness, and the arc **offers** the moment it has one: the Changes shade reveals itself on the bound session in the first quiet moment, showing the arc's row, what the join would land, and where those words came from. A stage's report therefore does not end in a `/arc-join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself.
+Once the audit marks, the arc is **ready**, and it offers the moment it is: the Changes shade reveals itself on the bound session in the first quiet moment, showing the arc's row, what the join would land, and where those words came from. A stage's report therefore does not end in a `/arc-join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself.
 
-## The join finishes itself
+## Readiness is the audit's, and the join is a squash
 
-A join whose merge conflicts is **not** handed back to you, and not handed to
-the user as a diff to read. The server runs a resolution ladder, then hands the
-result to a resolver: the model working in the arc's own **workshop** worktree,
-where the merge is a real tree with the whole project around it. It finishes
-what the ladder could not, **audits every file the ladder's machine rungs
-decided** against the arc's recorded intent, and reports what it did.
+**An arc is ready only while its audit still describes it.** The `audited` mark records the arc head and the base tip the audit stood on. Either one moving makes the audit stale and takes the offer down: a new round is work the audit never read, and a moved base is a tree it never verified. Nothing has to be declared by hand for that to happen.
 
-**The gate is reconcile-clean, and nothing else.** An arc joins when
-its merge onto the current base is clean — either because it always was, or
-because the ladder and the resolver made it so. No build runs here and no tests
-run here, because verification belongs to the arc's ending, over the tree the
-arc actually produced. A join that re-verified would be re-reading work that was
-already read, at the one moment the user is waiting.
+**A stale audit is answered on the Wheel, never in the shade.** When only the base moved, the base-motion engine keeps the quiet case itself: it replays the arc, verifies the fit, and on a clean replay and a green fit writes a fresh `audited` mark on the live tips, spending no turn. Anything else — a conflict, a red or refused fit, a round landed after the audit — sends the arc back to its audit stage, seated on its bound card; an arc nobody holds waits for a card, and a session binding to it is what seats the re-audit.
 
-Two consequences for anyone working in this lane:
+**So the join resolves nothing.** A ready arc's fit was verified against exactly the base it lands on, so the join is a squash and a land, under the base's lock, and it runs no build and no tests. A conflict is never the join's to work: it is the audit's, resolved in the arc's worktree as ordinary rounds — `tugtool arc replay <name>`, resolve what it stops on, commit, verify.
 
-- **A conflicted join is not a stall.** Do not resolve conflicts by hand on the
-  arc's worktree to "help it along". The resolve path owns that work, and a hand
-  resolution is one nothing audited.
-- **An escalation is the user's, and only an intent question.** When the two
-  sides want genuinely incompatible things the resolver asks — once, phrased as
-  what each side was trying to do, with concrete resolutions. It reaches the
-  join face and waits. Answer it there; a resolve blocked on a question is
-  blocked on a person, not broken.
+**A conflict met at the audit may already be answered.** Live arcs on one base are probed against each other on every round, and a crossing that conflicts is settled into the shared rerere cache while both sides are a round old. Every replay — the engine's and `tugtool arc replay` — recalls from that cache: a conflicting round the cache knows is rebuilt from it, and when the conflict grew over several rounds and only the whole of it was ever taught, the rest of the arc is recalled as one change. The arc log names each path recalled. What the cache does not know stops the replay, and that is the audit's to resolve.
 
-Two rules the pipeline holds itself to, which are worth knowing when a join
-behaves in a way that looks like nothing happening:
+Two rules the machine holds itself to, worth knowing when an arc behaves in a way that looks like nothing happening:
 
-- **One arc, one worker.** A resolve and a non-preview join each take the arc
-  before they touch anything, and any second one is refused by name — "a resolve
-  is already running for this arc". They share a workshop worktree, so two at
-  once means one resetting the tree the other is editing. A preview takes
-  nothing, because it touches nothing. Admission, never a queue: one arc, one
-  worker, and the refused press is told what holds it.
-- **A failure fact is always terminal.** Nothing durable describes an activity
-  nobody is performing: an arc that dies writes its outcome rather than leaving
-  itself running, and a question whose resolver is gone becomes a stuck line
-  quoting what was asked. So a face that says an arc is live means one is.
-  Silence from the resolver is not evidence of anything — its rung reports four
-  discrete beats with minutes between them, and only the server's own timeouts
-  can call it dead.
+- **One arc, one worker.** A join and a base fold each take the arc before they touch anything, and a second is refused by name. Admission, never a queue: the refused press is told what holds it.
+- **A failure fact is always terminal.** Nothing durable describes an activity nobody is performing: an arc that dies writes its outcome rather than leaving itself running, so a face that says an arc is live means one is.
 
 **The join speaks in the room where the work is, and that room stands.**
 The decision surface is the Changes shade: the card reveals it in the

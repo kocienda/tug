@@ -204,7 +204,7 @@ export function arcBranchRef(entry: ArcChangesetEntry): string {
 /**
  * The half of a row's join face the card owns, read once by the view and handed
  * to every row. What a join would do comes off each arc's own feed entry, and
- * the resolution ladder's progress is read per row from a store keyed by arc.
+ * a base fold's progress is read per row from a store keyed by arc.
  */
 export interface ArcLaneJoinFace {
   /** The card's one join round trip ([L02], read by the view) — the face
@@ -550,8 +550,8 @@ function ArcRow({
           // finished, whatever its committed rounds say.
           holdersBusy={entry.holders_busy === true}
           resolvePhase={resolve.phase}
-          // Which act, not only that one is running: a fold and a ladder run
-          // share the phase and say different sentences.
+          // Which act, not only that one is running, so the register speaks
+          // from the press rather than waiting for the recompute.
           {...(resolve.act !== undefined ? { resolveAct: resolve.act } : {})}
           landBeat={landBeat}
           // The lane shows unfronted, unheld arcs too, and the pilot never

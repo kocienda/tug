@@ -1031,14 +1031,14 @@ pub enum ArcCommands {
         /// Resume an interrupted join's teardown from the journal.
         #[arg(long = "continue")]
         continue_join: bool,
-        /// Run the conflict resolution ladder ([P31]) — replay probe, rerere,
-        /// re-merge, and a structured-merge driver — then land the result.
-        #[arg(long)]
+        /// Retired. The join no longer resolves conflicts: a conflicted arc is
+        /// replayed onto its base and resolved by its audit, on its card. Kept
+        /// so the old spelling lands on a sentence rather than on clap's error.
+        #[arg(long, hide = true)]
         resolve: bool,
-        /// Proceed although the arc's conflict chain says a resolve may still
-        /// be running, tearing down whatever it had reached. The op log keeps
-        /// the resolver's checkpoints; `tugtool arc undo` restores them.
-        #[arg(long = "break-lease")]
+        /// Retired, and accepted as a no-op: there is no resolve lease left to
+        /// break.
+        #[arg(long = "break-lease", hide = true)]
         break_lease: bool,
     },
     /// Move an arc's rounds onto its base branch's current tip.
@@ -1059,7 +1059,7 @@ pub enum ArcCommands {
     /// nothing is lost, because those bytes are on the arc's branch. The user's
     /// own divergent edits are committed onto the base as one commit of their
     /// own, so a collision with the arc's work becomes an ordinary join
-    /// conflict and reaches the resolution ladder. An edit another live session
+    /// conflict that the arc's replay meets. An edit another live session
     /// holds is refused by name and nothing moves.
     ///
     /// It clears the block and stops; joining stays a separate gesture.
@@ -1091,10 +1091,9 @@ pub enum ArcCommands {
     Discard {
         /// Arc name.
         name: String,
-        /// Proceed although the arc's conflict chain says a resolve may still
-        /// be running, tearing down whatever it had reached. The op log keeps
-        /// the resolver's checkpoints; `tugtool arc undo` restores them.
-        #[arg(long = "break-lease")]
+        /// Retired, and accepted as a no-op: there is no resolve lease left to
+        /// break.
+        #[arg(long = "break-lease", hide = true)]
         break_lease: bool,
     },
     /// Delete an arc's documents — `.tug/arcs/<name>/` — and nothing else.

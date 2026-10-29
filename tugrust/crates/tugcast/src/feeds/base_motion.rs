@@ -266,6 +266,11 @@ struct ConflictRecord {
     round: String,
     round_subject: String,
     paths: Vec<String>,
+    /// How many resolutions the rerere cache held when the replay began. A
+    /// crossing settle that finishes after a sibling lands teaches the cache
+    /// the very hunk this replay stopped on; a count that has moved since is
+    /// the engine's cue that a retry may now recall it.
+    cache_learned: usize,
 }
 
 /// One line saying what a replay stopped on — the round, the base it was
@@ -529,6 +534,20 @@ pub fn wake_on_bind() {
     bind_wake().notify_one();
 }
 
+/// Tell the engine a crossing settle finished. What it taught the cache may
+/// be exactly the hunk a replay already stopped on, and the conflict record
+/// says so by its cache count; a wake is what gets that replay retried now
+/// rather than on the next unrelated commit.
+pub fn wake_on_settle() {
+    crossing_notices().wake.notify_one();
+}
+
+/// Tell the engine a round landed on an arc. The head moved, so a finished
+/// arc whose audit no longer describes it is owed a re-audit now.
+pub fn wake_on_round() {
+    crossing_notices().wake.notify_one();
+}
+
 /// Tell `arc`'s session about a crossing, as soon as it is quiet.
 pub fn queue_crossing_notice(repo: &Path, arc: &str, text: &str) {
     crossing_notices().queue(repo, arc, text);
@@ -666,8 +685,9 @@ async fn evaluate_workspace(
     // The whole enumeration is synchronous git, so it goes to the blocking pool
     // in one hop — the same discipline `arc_entries` uses.
     let dir = repo_dir.clone();
-    let Ok((autoreplay, arcs)) = tokio::task::spawn_blocking(move || {
+    let Ok((autoreplay, cache_learned, arcs)) = tokio::task::spawn_blocking(move || {
         let autoreplay = read_autoreplay(&dir);
+        let cache_learned = tugarc_core::resolve::rr_cache_learned(&dir);
         let arcs: Vec<ArcReading> = tugarc_core::arc_detail_entries_in(&Paths::from_env(), &dir)
             .into_iter()
             .map(|detail| ArcReading {
@@ -681,7 +701,7 @@ async fn evaluate_workspace(
                 detail,
             })
             .collect();
-        (autoreplay, arcs)
+        (autoreplay, cache_learned, arcs)
     })
     .await
     else {
@@ -711,7 +731,12 @@ async fn evaluate_workspace(
             match map.get(&owner_key) {
                 Some(st) => (
                     st.in_flight,
-                    st.conflict.is_some(),
+                    // A conflict stands only while the cache knows what it
+                    // knew when the replay stopped; anything it has learned
+                    // since is a reason to try again.
+                    st.conflict
+                        .as_ref()
+                        .is_some_and(|c| c.cache_learned == cache_learned),
                     // The latch is keyed on the tip, not on a bare flag: a base
                     // that moves again is a new chance for the quiet path.
                     st.quiet_failed_tip.as_deref() == Some(reading.base_tip.as_str()),
@@ -884,9 +909,19 @@ fn spawn_replay(
             let repo = job.repo_dir.clone();
             let name = job.name.clone();
             tokio::task::spawn_blocking(move || {
-                tugarc_core::replay_onto(&Paths::from_env(), &repo, &name)
+                // Read before the replay, so a settle that teaches the cache
+                // while it runs leaves a count the next wake sees as moved.
+                let learned = tugarc_core::resolve::rr_cache_learned(&repo);
+                (
+                    learned,
+                    tugarc_core::replay_onto(&Paths::from_env(), &repo, &name),
+                )
             })
             .await
+        };
+        let (cache_learned, outcome) = match outcome {
+            Ok((learned, result)) => (learned, Ok(result)),
+            Err(e) => (0, Err(e)),
         };
 
         // What to say, decided under the lock; saying it happens after, because
@@ -942,6 +977,7 @@ fn spawn_replay(
                         round,
                         round_subject,
                         paths,
+                        cache_learned,
                     });
                     (true, QuietReplay::Stopped)
                 }
@@ -2206,6 +2242,96 @@ mod tests {
             compose_replay_notice("demo", "main", &base, &["f.txt".to_string()]),
             "the words are unchanged by the facts"
         );
+        cancel.cancel();
+    }
+
+    /// **A replay that stopped before a settle finished is retried once the
+    /// cache learns.** A sibling that lands inside a crossing settle's window
+    /// moves the base before the settle has taught the cache, so the first
+    /// replay stops on the hunk. When the settle finishes it wakes the engine,
+    /// and the conflict record's cache count no longer matches: the replay
+    /// runs again and recalls what the settle taught, instead of leaving the
+    /// arc behind until the base moves again.
+    #[tokio::test]
+    #[serial]
+    async fn a_replay_that_stopped_before_the_settle_is_retried_when_the_cache_learns() {
+        let repo = repo_with_a_arc();
+        let wt = repo.worktree();
+        std::fs::write(wt.join("f.txt"), "arc\n").unwrap();
+        git(&wt, &["commit", "-qam", "arc rewrites f"]);
+
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        register(&registry, repo.path(), &cancel);
+        let (gh_tx, gh_rx) = broadcast::channel::<Frame>(16);
+        let (_open_tx, open_rx) = mpsc::channel::<String>(4);
+        let (turn_tx, turn_rx) = mpsc::channel::<String>(4);
+        let bump = Arc::new(Notify::new());
+        tokio::spawn(run_base_motion_engine(
+            test_context(&registry, &bump, &cancel),
+            gh_rx,
+            open_rx,
+            turn_rx,
+        ));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let before = repo.tip("tugarc/demo");
+        repo.advance_base("base\n");
+        turn_tx.send("sess-1".to_string()).await.unwrap();
+        let owner_key = tugarc_core::ops::arc_owner_key(repo.path(), "demo");
+        assert!(
+            settles(|| conflict_paths_for(&owner_key) == ["f.txt"]).await,
+            "the first replay stops on the hunk nothing has taught"
+        );
+        assert_eq!(repo.tip("tugarc/demo"), before);
+
+        // The settle finishes: it teaches the cache the pair's resolution, the
+        // way a crossing settle does, and wakes the engine.
+        let scratch = tempfile::tempdir().unwrap();
+        let at = scratch.path().join("wt");
+        git(
+            repo.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                at.to_str().unwrap(),
+                "main",
+            ],
+        );
+        git(repo.path(), &["config", "rerere.enabled", "true"]);
+        let _ = tugcore::git_command()
+            .arg("-C")
+            .arg(&at)
+            .args(["merge", "--no-edit", "tugarc/demo"])
+            .output();
+        std::fs::write(at.join("f.txt"), "base\narc\n").unwrap();
+        git(&at, &["add", "f.txt"]);
+        git(&at, &["rerere"]);
+        let _ = tugcore::git_command()
+            .arg("-C")
+            .arg(&at)
+            .args(["merge", "--abort"])
+            .output();
+        git(
+            repo.path(),
+            &["worktree", "remove", "--force", at.to_str().unwrap()],
+        );
+        wake_on_settle();
+
+        assert!(
+            settles(|| repo.tip("tugarc/demo") != before).await,
+            "the settle's wake retries the replay, which recalls the hunk"
+        );
+        assert_eq!(
+            read(repo.path(), &["show", "tugarc/demo:f.txt"]),
+            "base\narc"
+        );
+        assert!(
+            settles(|| conflict_paths_for(&owner_key).is_empty()).await,
+            "and the lane's conflict mark clears"
+        );
+        drop(gh_tx);
         cancel.cancel();
     }
 

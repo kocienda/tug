@@ -15,15 +15,10 @@
  * @tug-pairings
  * | Element                                          | Surface                                           | Role    | Context                     |
  * |--------------------------------------------------|---------------------------------------------------|---------|-----------------------------|
- * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-fact, .arc-fold-muted, .arc-fold-sha, .arc-fold-cell[data-tone="muted"], .session-changes-arc-join-act, .session-changes-arc-join-fold-sentence, .session-changes-ledger-said |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-fact, .arc-fold-sha, .arc-fold-cell[data-tone="muted"], .session-changes-arc-join-act, .session-changes-arc-join-fold-sentence |
  * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-path, .arc-fold-prose, .session-changes-arc-draft-message |
- * | --tug7-element-tone-icon-normal-danger-rest      | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-path-danger, .arc-fold-fact-danger, .arc-fold-cell[data-tone="danger"] |
+ * | --tug7-element-tone-icon-normal-danger-rest      | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-path-danger, .arc-fold-cell[data-tone="danger"] |
  * | --tug7-element-tone-icon-normal-caution-rest     | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-fact-caution      |
- * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-card-primary-normal-block-rest     | content | .session-changes-ledger-live-clock |
- * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-card-primary-normal-block-rest     | content | .session-changes-ledger-live-words[data-quiet="true"] |
- * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-arc-run-line |
- * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-arc-run-line-words[data-quiet="true"] |
- * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-arc-run-line-clock |
  */
 
 .arc-fold-row {
@@ -130,10 +125,6 @@
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-.arc-fold-muted {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
 .arc-fold-sha {
   flex-shrink: 0;
   color: var(--tug7-element-global-text-normal-muted-rest);
@@ -151,10 +142,6 @@
   white-space: nowrap;
 }
 
-.arc-fold-fact-danger {
-  color: var(--tug7-element-tone-icon-normal-danger-rest);
-}
-
 /* A plan nothing has vouched for says so in the caution tone the rest of the
    shade uses for the same fact. */
 .arc-fold-fact-caution {
@@ -163,9 +150,8 @@
 
 /* THE nesting step: a row's children hang one mark cell under it — the step
    the parent's glyph took — so a nested row's own mark stands where its
-   parent's content started. A directory's files, a conflict's archaeology,
-   the rounds and the full message under their fold heads: one rule, because
-   it is one step.
+   parent's content started. A directory's files, the rounds and the full
+   message under their fold heads: one rule, because it is one step.
 
    The type declared here is load-bearing rather than decorative. `ch`
    resolves against the ELEMENT'S OWN font, so four sites each writing
@@ -175,7 +161,6 @@
    cell's type here is what makes the step one step; everything inside sets
    its own type, so nothing that shows text inherits it. */
 .arc-fold-nested,
-.session-changes-arc-join-archaeology,
 .session-changes-arc-brief-rounds > .session-changes-arc-subjects,
 .session-changes-arc-brief-detail > .tugx-commit-receipt {
   padding-inline-start: calc(2ch + var(--tugx-list-row-gap));
@@ -225,13 +210,12 @@
 
 /* The section's ROWS take no air and no hang — they are the fold's one row,
    and their column is the fold's column. What does take air is the chrome a
-   row is not: a framed blocker, the account panel, the wizard, a sentence of
-   prose. Each of those is a block standing among rows, and a block flush
+   row is not: a framed blocker, a fold receipt, a refusal band, a sentence
+   of prose. Each of those is a block standing among rows, and a block flush
    against a row reads as part of it. */
 .session-changes-arc-join > .session-changes-arc-join-note,
 .session-changes-arc-join > .session-changes-arc-join-fold-receipt-frame,
 .session-changes-arc-join > .session-changes-arc-join-blockers,
-.session-changes-arc-join > .session-changes-ledger,
 .session-changes-arc-join > .session-changes-arc-join-refusal {
   margin-block: var(--tug-space-2xs);
 }
@@ -248,9 +232,7 @@
 }
 
 .session-changes-arc-join-blockers,
-.session-changes-arc-join-conflicts,
-.session-changes-arc-join-rungs,
-.session-changes-arc-join-report,
+.session-changes-arc-join-pathlist,
 .session-changes-arc-join-paths {
   display: flex;
   flex-direction: column;
@@ -259,17 +241,6 @@
 
 .session-changes-arc-join-blockers {
   gap: var(--tug-space-2xs);
-}
-
-/* What the base did to a conflicted path since the two sides parted, nested
-   under the path it explains. Indented rather than badged: it is the row's own
-   footnote, and a conflict list that shouted its history twice over would bury
-   the paths themselves. The hang is the fold's own nesting step, so an
-   archaeology row's mark cell stands where its conflict's path started. */
-.session-changes-arc-join-archaeology {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
 }
 
 /* A blocker is a `TugInlineDialog`, so the frame, the icon column, the title
@@ -326,202 +297,9 @@
   color: var(--tug7-element-tone-text-normal-caution-rest);
 }
 
-/* ---------------------------------------------------------------------------
-   The ledger — one `BlockChrome` per act of a resolve
-
-   The chrome is the transcript's own; what is authored here is the column the
-   blocks stack in and the four body kinds they carry. A running block's wave
-   rides the chrome's notice band and holds its own motion, so nothing here
-   animates.
-   ------------------------------------------------------------------------- */
-
-/* The blocks stack as they do in a transcript entry: no gap of this column's
-   own, the chrome's follower-position stack gap between them. */
-.session-changes-ledger {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-/* A block's identity is prose — a sentence about a file, not a command — so
-   it takes the receipt's face the way the commit and join receipts do, riding
-   the header's own line box as inline text. The file inside it is a `<code>`
-   run in the block's mono. */
-.session-changes-ledger-identity {
-  display: block;
-  min-width: 0;
-  font-family: var(--tugx-commit-subject-font, var(--tug-font-family-sans));
-  color: var(--tugx-block-text-color);
-}
-
-.session-changes-ledger-identity code {
-  font-family: var(--tugx-block-code-font);
-}
-
-.session-changes-ledger .arc-fold-sha {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  vertical-align: baseline;
-}
-
-/* Body kinds own their inset. Rows carry their own inline inset (a compact
-   list row's padding plus its indicator gutter — the receipt inset is defined
-   as exactly that), so the body states only the block inset. */
-.session-changes-ledger-rows {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding-block: var(--tugx-block-receipt-inset-block);
-}
-
-.session-changes-ledger-rows .arc-fold-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 0.6ch;
-}
-
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-changes-ledger-said {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-/* The live band's clock: the time since the run started and since its last
-   report, after the server's words, in figures that do not jitter as they
-   tick. */
-/* @tug-renders-on: --tug7-surface-card-primary-normal-block-rest */
-.session-changes-ledger-live-clock {
-  margin-inline-start: var(--tug-space-md);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-  font-variant-numeric: tabular-nums;
-}
-
-/* A run quiet past the threshold says so in the caution tone. */
-/* @tug-renders-on: --tug7-surface-card-primary-normal-block-rest */
-.session-changes-ledger-live-words[data-quiet="true"] {
-  color: var(--tug7-element-global-text-normal-caution-rest);
-}
-
-/* The shade's run line: the live band's two facts at the arc's whole width,
-   under the register on the lane's indent — the server's last words at the
-   leading edge, the clock at the trailing edge — at the shade's reading
-   scale. Present only while a run is live. */
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-changes-arc-run-line {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--tug-space-md);
-  min-width: 0;
-  padding-inline-start: var(--tugx-arc-stack-indent);
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-sm);
-  line-height: 1.5;
-  color: var(--tug7-element-global-text-normal-default-rest);
-}
-
-.session-changes-arc-run-line-words {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-changes-arc-run-line-words[data-quiet="true"] {
-  color: var(--tug7-element-global-text-normal-caution-rest);
-}
-
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-changes-arc-run-line-clock {
-  flex: none;
-  color: var(--tug7-element-global-text-normal-muted-rest);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Prose in a body: the receipt's inset on both axes, so its left edge is the
-   rows' text edge in the block above it. */
-.session-changes-ledger-words {
-  padding: var(--tugx-block-receipt-inset-block) var(--tugx-block-receipt-inset-inline);
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-sm);
-  line-height: 1.5;
-  color: var(--tugx-block-text-color-muted);
-  max-width: 72ch;
-  white-space: pre-line;
-}
-
-.session-changes-ledger-words code {
-  font-family: var(--tugx-block-code-font);
-  font-size: 0.92em;
-}
-
-/* The scribe's tail is the file being written, not prose: its last lines in
-   the block's mono, kept as they are. */
-.session-changes-ledger-tail {
-  font-family: var(--tugx-block-code-font);
-  font-size: var(--tug-font-size-xs);
-  white-space: pre;
-  overflow-x: auto;
-  max-width: none;
-}
-
-/* The question wizard in a body: the shade's own wrapper class gives it its
-   seat; the inset is the body's. */
-.session-changes-ledger .session-changes-arc-join-question {
-  padding: 0 var(--tugx-block-receipt-inset-inline) var(--tugx-block-receipt-inset-block);
-}
-
-/* The audit's account in a body: its rows take the block inset. */
-.session-changes-ledger .session-changes-arc-join-account {
-  padding-block: var(--tugx-block-receipt-inset-block);
-}
-
-/* The verdict panel ([P31]): what the ladder decided and what the checks said,
-   before it can land. It reads as evidence under the report eyebrow now — the
-   tier line fronts the verdict and the tones carry it, so the panel needs no
-   framing rule of its own. */
-.session-changes-arc-join-account {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--tug-space-2xs);
-  min-width: 0;
-}
-
-.session-changes-arc-join-report {
-  align-self: stretch;
-}
-
-/* A path the resolver redid rather than kept is the one the audit earned, so
-   it reads at full strength while the kept ones recede. */
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-changes-arc-join-report
-  [data-audit="redone"]
-  .session-changes-arc-join-report-what {
-  color: var(--tug7-element-tone-text-normal-accent-rest);
-}
-
-/* The escalation's surface is the shipped question wizard; the face gives it
-   room and nothing else. */
-.session-changes-arc-join-question {
-  align-self: stretch;
-}
-
-/* The row a standing ledger's one act rides: Resolve again, at the trailing
-   edge under the blocks it would redo. */
-.session-changes-arc-join-acts {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: var(--tug-space-sm);
-}
-
-/* Why the join will not proceed: one error band, the notice band the ledger's
-   blocks wear, at its body size with the tone on its icon. The frame only
-   rounds the strip so it stands among the blocks as one of them; each reason
-   is its own line. */
+/* Why the join will not proceed: one error band, the block notice band, at its
+   body size with the tone on its icon. The frame only rounds the strip; each
+   reason is its own line. */
 .session-changes-arc-join-refusal {
   align-self: stretch;
   border-radius: var(--tug-radius-md);
@@ -530,23 +308,6 @@
 
 .session-changes-arc-join-reason {
   display: block;
-}
-
-/* The refusal block: the sentence on its own line, then the paths it named as
-   fold rows beneath it — the commit receipt's one-file-per-row, inside the
-   band in the fold and inside the withheld candidate in the ledger. The rows
-   keep the fold's mono column; the sentence keeps the seat's own face. */
-.session-changes-join-refusal {
-  display: block;
-}
-
-.session-changes-join-refusal-sentence {
-  display: block;
-}
-
-.session-changes-join-refusal-paths {
-  display: block;
-  margin-block-start: var(--tug-space-2xs);
 }
 
 /* ---------------------------------------------------------------------------

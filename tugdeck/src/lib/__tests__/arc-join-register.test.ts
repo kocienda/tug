@@ -124,7 +124,7 @@ describe("what the register says", () => {
       landBeat: { beat: "teardown", status: "start" },
     });
     expect(joining?.phase).toBe("in_flight");
-    expect(joining?.line).toBe("Joining imposer2 into main — tearing down the workshop");
+    expect(joining?.line).toBe("Joining imposer2 into main — removing the arc worktree");
     expect(joining?.word).toBe("joining");
 
     // A beat this table has not learned still renders as itself rather than

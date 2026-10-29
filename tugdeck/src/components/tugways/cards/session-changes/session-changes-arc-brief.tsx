@@ -242,8 +242,8 @@ export function SessionChangesArcBrief({
   branch: string;
 }): React.ReactElement | null {
   const [openDirs, setOpenDirs] = useState<ReadonlySet<string>>(() => new Set());
-  // Open, as the candidate is: the fold cue is a way to get the list out of
-  // the way, not a gate in front of it.
+  // Open by default: the fold cue is a way to get the list out of the way,
+  // not a gate in front of it.
   const [filesOpen, setFilesOpen] = useState(true);
   const [roundsOpen, setRoundsOpen] = useState(false);
   const [bodyOpen, setBodyOpen] = useState(false);

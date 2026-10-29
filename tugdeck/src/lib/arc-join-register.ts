@@ -106,12 +106,11 @@ export interface ArcJoinRegisterInput {
   /**
    * Which act the client's overlay is running, when one is.
    *
-   * The two acts share the resolving phase and do not share a sentence: a
-   * ladder run reconciles, a fold commits base work. Read beside `join.run` so
+   * The one act is the fold that commits base work. Read beside `join.run` so
    * the register speaks from the press rather than waiting for the recompute
    * that confirms it.
    */
-  resolveAct?: "resolve" | "resolve-base";
+  resolveAct?: "resolve-base";
   /**
    * What a join last reported ([P03]) — a beat while it runs, its result once
    * it is over (`terminal`).
@@ -192,7 +191,7 @@ export const BEAT_WORDS: Record<string, string> = {
   requested: "starting",
   preflight: "checking the base",
   squash: "squashing",
-  teardown: "tearing down the workshop",
+  teardown: "removing the arc worktree",
   release: "releasing the branch",
   record: "recording the landing",
 };
@@ -207,38 +206,35 @@ export const BEAT_WORDS: Record<string, string> = {
  * 1. **wire-drop** — nothing below can be trusted when the feed is not
  *    arriving. Every other state is a claim about a moment that may be past.
  * 2. **joining** — a live join is the most specific thing happening, and it
- *    outranks both the verdict that permitted it and any blocker. A blocker
- *    answers *may this arc be joined*; a join in flight is past that question,
- *    so a refusal painted over a running join reports a decision that has
- *    already been made.
- * 2a. **folding** — the fold that commits the base-side work refusing this
- *    join, from the feed's `run` fact or the client's own act. It sits here
- *    for the same reason a join does: the fold is past the question the
- *    blocker it is clearing asks, so the blocker's refusal must not paint over
- *    the act clearing it.
- * 3. **blocked** — an act somebody must take elsewhere, which outranks a green
- *    verdict: a tree that builds still cannot land onto a dirty base.
- * 4. **question** — a person is being waited on. Louder than a run, because a
- *    run that is waiting is not progressing.
- * 5. **stuck** — a refusal already stated, which is not a wait.
- * 6. **running** — the pilot's reconcile or check, from the feed's own `run`
- *    fact or the client's overlay.
- * 7. **verdict** — red, then green.
- * 7a. **still working** — above the readiness arms only. An arc whose holder
- *    has not stopped is not being offered, but a join already in flight, a
- *    blocker, a question and a stated refusal all outrank it: each reports
- *    something that has already happened, and none of them is an offer.
- * 7b. **the arc is still running** — beside 7a and for the same reason: the
- *    work is not finished. A live wheel means a stage is seated, and the audit
- *    is the one that most often is; it commits fixup rounds, so the tree the
- *    join would land is still moving.
- * 7c. **the arc stopped before its audit marked** — in the audit itself, or
- *    at the seam after the last step closed. Either way the stop *means*
- *    nothing audited the tree: the server holds `join_ready` shut over every
- *    stop on a wheel-driven arc, and this arm says why, as a wait on a person
- *    rather than as readiness. A stop mid-walk is not this: the arc is simply
- *    unfinished, and there is nothing yet for a person to decide.
- * 8. **nothing** — an arc still being worked has no join yet, and `null`
+ *    outranks any blocker. A blocker answers *may this arc be joined*; a join
+ *    in flight is past that question, so a refusal painted over a running
+ *    join reports a decision that has already been made.
+ * 3. **audit-stale** — the head or the base moved out from under the audit,
+ *    so the offer is down and the arc goes back to its audit: re-auditing,
+ *    about to be seated on its card, or waiting for a card. Above the
+ *    blockers, because the join is not on offer and a join-time blocker is
+ *    not the sentence that explains the arc.
+ * 4. **question** — the arc stopped to ask the user something, which is
+ *    answered on its own card. Nothing moves until it is.
+ * 5. **folding** — the fold that commits the base-side work refusing this
+ *    join, from the feed's `run` fact or the client's own act. The fold is
+ *    past the question the blocker it is clearing asks, so the blocker's
+ *    refusal must not paint over the act clearing it.
+ * 6. **blocked** — an act somebody must take elsewhere, in the blocker's own
+ *    sentence.
+ * 7. **the join's last word** — joined, or failed with the arc still here,
+ *    resting until a new press replaces it.
+ * 8. **still working** — above the offer only. An arc whose holder has not
+ *    stopped is not being offered.
+ * 9. **the arc is still running** — beside 8 and for the same reason: a live
+ *    wheel means a stage is seated, and the audit commits fixup rounds, so
+ *    the tree the join would land is still moving.
+ * 10. **the arc stopped before its audit marked** — the stop *means* nothing
+ *    audited the tree, so the server holds `join_ready` shut, and this arm
+ *    says why, as a wait on a person rather than as readiness.
+ * 11. **the offer** — the audit stands on the live base, so the fit was
+ *    verified against exactly the tree the join lands.
+ * 12. **nothing** — an arc still being worked has no join yet, and `null`
  *    is how that is said. A register with nothing to report does not mount.
  */
 export function arcJoinRegister(
@@ -256,9 +252,9 @@ export function arcJoinRegister(
   // would put a red register on every new arc in the Arcs card.
   //
   // The exception is anything that implies somebody already acted. A live
-  // join, a run in flight, a standing question or a stated refusal cannot
-  // happen to an arc nobody has touched, and each of them is worth saying
-  // whatever the stage reads.
+  // join, a fold in flight, a stale audit or a stopped arc cannot happen to an
+  // arc nobody has touched, and each of them is worth saying whatever the
+  // stage reads.
   //
   // A stop with the walk over and no audit mark is the same kind of
   // exception. The server holds `join_ready` shut over it, so its stage reads
