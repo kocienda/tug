@@ -51,6 +51,8 @@
  */
 
 import { Subscribable } from "./subscribable";
+import type { CodeSessionSnapshot, TurnEntry } from "./code-session-store";
+import { isCompactionSubmission } from "./code-session-store/compaction";
 import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
@@ -63,6 +65,21 @@ import {
 export type CompactionOutcome = "succeeded" | "canceled" | "failed";
 
 export interface CompactionProgress {
+  /**
+   * The compact turn this run was opened for — the key the run's whole
+   * outcome is asked of ([B02]). The wheel's run reads it off the turn it
+   * found open; the typed run takes the one its own submission opened.
+   */
+  readonly turnKey: string;
+  /**
+   * The `msgId` of the last turn the transcript had committed when the run
+   * began, or `null` over an empty transcript. A turn a replay rebuilds is
+   * minted a fresh key, and a wheel-sent turn's opener carries tugcast's id
+   * rather than the deck's, so a catch-up can hand the run its turn back with
+   * neither key on it; what it keeps is its place, the first `/compact` turn
+   * after this one.
+   */
+  readonly afterMsgId: string | null;
   /** Terminal outcome, or `null` while the run is still in flight. */
   readonly outcome: CompactionOutcome | null;
   /** Human-readable reason when `outcome === "failed"`, else `null`. */
@@ -71,6 +88,9 @@ export interface CompactionProgress {
 
 /** Every open run, keyed by the card that started it. */
 export type CompactionRuns = ReadonlyMap<string, CompactionProgress>;
+
+/** The turn a run is opened over: its key, and the turn committed before it. */
+export type CompactionTurn = Pick<CompactionProgress, "turnKey" | "afterMsgId">;
 
 const NO_RUNS: CompactionRuns = new Map();
 
@@ -89,6 +109,118 @@ export function isCompactingCard(
   if (cardId === undefined) return false;
   const run = runs.get(cardId);
   return run !== undefined && run.outcome === null;
+}
+
+/** What the transcript says a run's compact turn came to. */
+export interface CompactionVerdict {
+  readonly outcome: CompactionOutcome;
+  /** The closing bulletin's reason when `outcome === "failed"`, else `null`. */
+  readonly failureReason: string | null;
+}
+
+/** The failure reason when the turn ended with no compaction and no error said why. */
+export const COMPACTION_DID_NOT_RUN = "Compaction didn't run — session left intact";
+
+/** The parts of a session snapshot a run's outcome is read from. */
+export type CompactionOutcomeSnapshot = Pick<
+  CodeSessionSnapshot,
+  "phase" | "catchingUp" | "activeTurn" | "queuedSends" | "transcript" | "lastError"
+>;
+
+/**
+ * Whether a turn's messages say it was opened by the submission `turnKey`.
+ *
+ * A turn the card streamed commits under the key it was sent with, but a turn
+ * a replay rebuilt — a catch-up after the body slept, an evicted body brought
+ * back — is minted a fresh key, and what it keeps of the submission is its
+ * opener's `submissionId`, which tugcode handed claude as the input's `uuid`
+ * and claude wrote back as the record's. Either one names the run's turn.
+ */
+function openedBy(
+  turn: { readonly turnKey: string; readonly messages: TurnEntry["messages"] },
+  turnKey: string,
+): boolean {
+  if (turn.turnKey === turnKey) return true;
+  return turn.messages.some(
+    (m) => m.kind === "user_message" && m.submissionId === turnKey,
+  );
+}
+
+/** Whether a turn, open or committed, was opened by a `/compact` submission. */
+function isCompactTurn(turn: { readonly messages: TurnEntry["messages"] }): boolean {
+  const opener = turn.messages.find((m) => m.kind === "user_message");
+  return (
+    opener !== undefined &&
+    opener.kind === "user_message" &&
+    isCompactionSubmission(opener.text, opener.attachments)
+  );
+}
+
+/**
+ * The run's turn, committed — found by either of its keys, or failing that by
+ * its place: the first `/compact` turn after the one the run began behind.
+ * `undefined` when the transcript holds neither.
+ */
+function committedTurnOf(
+  run: CompactionTurn,
+  transcript: CompactionOutcomeSnapshot["transcript"],
+): TurnEntry | undefined {
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    if (openedBy(transcript[i], run.turnKey)) return transcript[i];
+  }
+  let from = 0;
+  if (run.afterMsgId !== null) {
+    const before = transcript.findIndex((t) => t.msgId === run.afterMsgId);
+    if (before < 0) return undefined;
+    from = before + 1;
+  }
+  for (let i = from; i < transcript.length; i++) {
+    if (isCompactTurn(transcript[i])) return transcript[i];
+  }
+  return undefined;
+}
+
+/**
+ * What a `/compact` run's turn came to, read off the snapshot as it is now
+ * ([B01], [B04]) — `null` while the answer is not yet in the snapshot.
+ *
+ * A derivation rather than an edge a listener has to witness: a card that
+ * slept through the turn's end, or one batch that carried the turn's commit
+ * and the next turn's opener together, shows a listener only the last state,
+ * and the last state is enough. So the run settles the first time anyone
+ * looks, however late.
+ *
+ * - `null` while a replay bracket is open or a catch-up is outstanding (the
+ *   turn is in neither slot mid-bracket, which is not an answer), while the
+ *   run's submission is still queued, and while its turn is the active one.
+ * - `succeeded` when its committed entry carries the compaction mark — even
+ *   one that ended interrupted, since the compaction is then real anyway.
+ * - `canceled` when it ended interrupted with no compaction.
+ * - `failed` when it ended any other way with no compaction, or when it is
+ *   nowhere at all, with the session's last error as the reason when it has
+ *   one.
+ *
+ * Pure: it reads the run's key and the snapshot, and nothing a closure kept.
+ */
+export function compactionOutcome(
+  run: CompactionTurn,
+  snapshot: CompactionOutcomeSnapshot,
+): CompactionVerdict | null {
+  if (snapshot.phase === "replaying" || snapshot.catchingUp) return null;
+  const key = run.turnKey;
+  if (snapshot.queuedSends.some((q) => q.turnKey === key)) return null;
+  const active = snapshot.activeTurn;
+  if (active !== null && openedBy(active, key)) return null;
+  const entry = committedTurnOf(run, snapshot.transcript);
+  // Not committed by any name, and a turn is open: when it is a `/compact`
+  // it is this run's, rebuilt by a replay under a fresh key — still running.
+  if (entry === undefined && active !== null && isCompactTurn(active)) return null;
+  if (entry?.compacted === true) return { outcome: "succeeded", failureReason: null };
+  if (entry?.turnEndReason === "interrupted") return { outcome: "canceled", failureReason: null };
+  return {
+    outcome: "failed",
+    failureReason: snapshot.lastError?.message ?? COMPACTION_DID_NOT_RUN,
+  };
 }
 
 class CompactionProgressStore extends Subscribable {
@@ -145,8 +277,13 @@ class CompactionProgressStore extends Subscribable {
   getFor = (cardId: string): CompactionProgress | null =>
     this.state.get(cardId) ?? null;
 
-  /** Open an in-flight run for `cardId`. */
-  begin(cardId: string, onCancel?: () => void, hold?: CardModalHold): void {
+  /** Open an in-flight run for `cardId`, over the compact turn `turn`. */
+  begin(
+    cardId: string,
+    turn: CompactionTurn,
+    onCancel?: () => void,
+    hold?: CardModalHold,
+  ): void {
     if (onCancel !== undefined) this.cancels.set(cardId, onCancel);
     // Held for the run's life rather than the cover's, which is what makes the
     // fold a question the holder answers rather than a hole in the sheet's
@@ -156,7 +293,12 @@ class CompactionProgressStore extends Subscribable {
       this.releaseHold(cardId);
       this.holdReleases.set(cardId, cardModalHoldStore.hold(cardId, hold));
     }
-    this.write(cardId, { outcome: null, failureReason: null });
+    this.write(cardId, {
+      turnKey: turn.turnKey,
+      afterMsgId: turn.afterMsgId,
+      outcome: null,
+      failureReason: null,
+    });
   }
 
   /**
@@ -220,6 +362,17 @@ class CompactionProgressStore extends Subscribable {
     this.settle(cardId, "failed", reason);
   }
 
+  /**
+   * Settle this card's run with what the transcript says its turn came to
+   * ({@link compactionOutcome}). Only the run over `turnKey`, and only while it
+   * is in flight: a verdict read for a run already settled, or for a run since
+   * replaced by another on the same card, changes nothing.
+   */
+  settleFrom(cardId: string, turnKey: string, verdict: CompactionVerdict): void {
+    if (this.state.get(cardId)?.turnKey !== turnKey) return;
+    this.settle(cardId, verdict.outcome, verdict.failureReason);
+  }
+
   /** Drop this card's run — dismisses its sheet and ends the run. */
   clear(cardId: string): void {
     this.cancels.delete(cardId);
@@ -240,7 +393,7 @@ class CompactionProgressStore extends Subscribable {
     // racing paths (Cancel button vs. the turn settling) can't double-fire.
     const run = this.state.get(cardId);
     if (run === undefined || run.outcome !== null) return;
-    this.write(cardId, { outcome, failureReason });
+    this.write(cardId, { ...run, outcome, failureReason });
   }
 
   private write(cardId: string, run: CompactionProgress): void {

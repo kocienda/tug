@@ -308,7 +308,7 @@ import {
   type TugPaneBulletinApi,
 } from "../tug-pane-bulletin";
 import { lastAssistantCopyText } from "@/lib/turn-entry-markdown";
-import { compactionProgressStore } from "@/lib/compaction-progress-store";
+import { compactionOutcome, compactionProgressStore } from "@/lib/compaction-progress-store";
 import { useCompactionRun } from "./session-compaction-run";
 import { MODAL_REST_LINE } from "./modal-rest-line";
 import "./session-card.css";
@@ -3508,6 +3508,30 @@ export function SessionCardBody({
     compactionProgressStore.clear(cardId);
   }, [compactionProgress, cardId]);
 
+  // No run outlives its turn ([B05]), and the card is where that is checked,
+  // because the card is what reads the run: an open run is held against every
+  // session snapshot the card renders, and the first one that answers settles
+  // it. The run's own watcher does the same from inside the run; this is the
+  // read side, for a run whose watcher is not there to see it — a body
+  // evicted and rebuilt, whose closure went with it. The snapshot read here is
+  // the verdict's outcome, a primitive, so a session notify that changes
+  // nothing about the run re-renders nothing ([L02]).
+  const derivedCompactionOutcome = useSyncExternalStore(
+    codeSessionStore.subscribe,
+    useCallback(() => {
+      if (compactionProgress === null || compactionProgress.outcome !== null) return null;
+      return compactionOutcome(compactionProgress, codeSessionStore.getSnapshot())?.outcome ?? null;
+    }, [compactionProgress, codeSessionStore]),
+  );
+  useEffect(() => {
+    if (derivedCompactionOutcome === null) return;
+    if (compactionProgress === null || compactionProgress.outcome !== null) return;
+    const verdict = compactionOutcome(compactionProgress, codeSessionStore.getSnapshot());
+    if (verdict !== null) {
+      compactionProgressStore.settleFrom(cardId, compactionProgress.turnKey, verdict);
+    }
+  }, [derivedCompactionOutcome, compactionProgress, codeSessionStore, cardId]);
+
   // The card's `/compact` run, whoever sends the command: the hold the run puts
   // on the card, the derivation that raises and lowers the cover as the run and
   // the fold change, the watcher that settles it, and — for a `/compact` the
@@ -3922,11 +3946,10 @@ export function SessionCardBody({
     // on a full context (measured: 111 s and 159 s on two 140k/170k-token
     // compactions); Cancel maps to the turn interrupt.
     //
-    // The run settles off `codeSessionStore` snapshots, no timers ([P07]): the
-    // `/compact` turn opens, and when it settles we succeed if compaction ink
-    // was observed since dispatch (the summary re-marked `compactionSeed`, or a
-    // `source: "compact"` note attached to the turn), else cancel (interrupted)
-    // or fail (refused / errored — e.g. "Not enough messages to compact").
+    // The run settles off `codeSessionStore` snapshots, no timers ([P07]): its
+    // outcome is read off the committed `/compact` turn — succeeded when the
+    // turn commits marked as a compaction, canceled when it ended interrupted,
+    // else failed (refused / errored — e.g. "Not enough messages to compact").
     // Reads live ([L07]).
     compact: (args, draft) => {
       const notify = paneBulletinRef.current;
@@ -3936,14 +3959,26 @@ export function SessionCardBody({
         return;
       }
       const focus = args.trim();
-      beginCompactionRun();
       // Sent as a substrate, not a flat line: the command is a leading
       // `command` atom and the focus keeps whatever atoms the user typed, so
       // the transcript row reads `/compact` + its file chips — the same ink
       // a replay reconstructs from claude's `<command-name>` echo. The wire
       // still carries a clean `/compact …` (see `hasLeadingCommandAtom`).
       const submission = buildCommandSubmission("compact", focus, draft);
-      codeSessionStore.send(submission.text, submission.atoms);
+      const turnKey = codeSessionStore.send(submission.text, submission.atoms);
+      if (turnKey === null) return;
+      // The run is opened over the turn this submission opened ([B02]), once
+      // the mirror shows it. The engine reduces the send on its own thread, so
+      // a run begun at once would read a snapshot with its turn in neither
+      // slot and settle failed on its first look. A send the engine dropped,
+      // or a store disposed before it answered, opens no run at all.
+      void codeSessionStore.whenSettled().then(() => {
+        const snap = codeSessionStore.getSnapshot();
+        const shown =
+          snap.activeTurn?.turnKey === turnKey ||
+          snap.queuedSends.some((q) => q.turnKey === turnKey);
+        if (shown) beginCompactionRun(turnKey);
+      });
     },
     // Export the committed transcript ([#step-13c]). The content (both
     // Markdown + JSON Lines renderings) is built client-side from the

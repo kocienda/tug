@@ -688,6 +688,13 @@ export interface TurnEntry {
    * stays the real, zero-usage `TurnCost`) so it can't masquerade as usage.
    */
   compactionPostTotal?: number;
+  /**
+   * This turn compacted: a `compact_boundary` or `compact_summary` landed
+   * while it was the open turn, live or replayed. A `/compact` run's outcome
+   * is derived from it (`compactionOutcome`), so a store rebuilt from a replay
+   * answers the same as the one that streamed the turn. Absent otherwise.
+   */
+  compacted?: true;
 }
 
 /** One selectable answer in a {@link PendingAsk}. */

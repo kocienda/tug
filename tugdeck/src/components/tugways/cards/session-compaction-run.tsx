@@ -46,6 +46,8 @@ import type {
 } from "@/lib/code-session-store";
 import {
   compactionProgressStore,
+  compactionOutcome,
+  type CompactionTurn,
   isCompactingCard,
 } from "@/lib/compaction-progress-store";
 import { useIsCardFolded } from "@/lib/card-fold";
@@ -62,18 +64,6 @@ import {
 
 /** The in-flight turn, as the snapshot carries it. */
 type ActiveTurn = NonNullable<CodeSessionSnapshot["activeTurn"]>;
-
-/**
- * True when the in-flight turn carries a compaction divider — a `system_note`
- * whose `source` is `"compact"`. The run watcher uses it as the belt-and-
- * suspenders "compaction landed" signal for a summary-less (fail-closed)
- * compaction, alongside the primary `compactionSeed` reference check.
- */
-function activeTurnHasCompactNote(activeTurn: ActiveTurn): boolean {
-  return activeTurn.messages.some(
-    (m) => m.kind === "system_note" && m.source === "compact",
-  );
-}
 
 /**
  * True when the in-flight turn is a `/compact` the **wheel** sent, rather than
@@ -129,13 +119,11 @@ export interface CompactionRunHost {
 /**
  * Wire this card's `/compact` run, and return the function that opens one.
  *
- * The returned `beginCompactionRun` does NOT dispatch anything — the typed
- * path sends its own submission after calling it, and the wheel's was already
- * sent by tugcast. A run already open is left alone, which is what keeps the
- * typed path (which begins the run before its turn exists) from opening a
- * second one when the watcher below sees that turn arrive.
+ * The returned `beginCompactionRun` does NOT dispatch anything — it takes the
+ * `turnKey` of a compact turn already submitted: the typed path's own send,
+ * or the wheel's, which tugcast sent. A run already open is left alone.
  */
-export function useCompactionRun(host: CompactionRunHost): () => void {
+export function useCompactionRun(host: CompactionRunHost): (turnKey: string) => void {
   const {
     cardId,
     codeSessionStore,
@@ -145,83 +133,65 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     bulletinRef,
   } = host;
 
-  const beginCompactionRun = useCallback((): void => {
+  // The turn the last run was begun for, so the wheel's watch below cannot
+  // open a second run over a turn whose run already settled.
+  const begunForRef = useRef<string | null>(null);
+  const beginCompactionRun = useCallback((turnKey: string): void => {
     if (compactionProgressStore.getFor(cardId) !== null) return;
+    // One run per turn: a wheel `/compact` still open after its run was
+    // canceled and cleared is the same turn, not a second compaction.
+    if (begunForRef.current === turnKey) return;
+    begunForRef.current = turnKey;
     const snap0 = codeSessionStore.getSnapshot();
-    const openTurn = snap0.activeTurn;
+    // The run's turn is not committed yet, so the last committed turn is the
+    // one it began behind — its place, should a replay re-key it.
+    const run: CompactionTurn = {
+      turnKey,
+      afterMsgId: snap0.transcript[snap0.transcript.length - 1]?.msgId ?? null,
+    };
 
-    // Baseline for detecting compaction ink: a `compact_summary` mints a new
-    // `compactionSeed` object, so a reference change since dispatch proves a
-    // compaction landed. A boundary note on the in-flight turn is the belt-
-    // and-suspenders signal for a summary-less (fail-closed) compaction.
-    const seedAtDispatch = snap0.compactionSeed;
-    // Seeded from the live snapshot rather than `false`, because the run does
-    // not always start before its turn: the wheel's `/compact` is dispatched by
-    // tugcast and observed here after the turn has opened. A compaction turn
-    // streams nothing, so the store may not notify again until that turn ends
-    // — and a watcher that had not seen it open would read the settle as "not
-    // mine yet" and leave the sheet standing forever.
-    let sawActive = openTurn !== null;
-    let sawInk = openTurn !== null && activeTurnHasCompactNote(openTurn);
-    let interrupted = false;
+    // Cancel is an ACT, so it is the one thing this closure keeps ([B06]): the
+    // press settles the run at the gesture. Everything the run is waiting to
+    // learn is read off the snapshot instead.
     let canceled = false;
-
     const onCancel = (): void => {
       if (canceled) return;
       canceled = true;
       // Interrupt the compaction turn — Claude Code's own supported abort
-      // path ([Q01]); the session stays intact. The watcher unsubscribes at
-      // the active → null transition; the store is already settled here.
+      // path ([Q01]); the session stays intact.
       codeSessionStore.interrupt();
       compactionProgressStore.cancel(cardId);
     };
 
-    const unsubscribe = codeSessionStore.subscribe(() => {
-      const snap = codeSessionStore.getSnapshot();
-      const active = snap.activeTurn;
-      // Compaction ink: the summary re-marked `compactionSeed`, or a compact
-      // divider attached to the in-flight turn.
-      if (snap.compactionSeed !== seedAtDispatch) sawInk = true;
-      if (active !== null && activeTurnHasCompactNote(active)) sawInk = true;
-      if (active !== null) {
-        // Latched during the interrupt round-trip (the turn is still
-        // in-flight); acted on at the active → null transition below.
-        if (snap.interruptInFlight) interrupted = true;
-        sawActive = true;
-        return;
-      }
-      if (!sawActive) return; // turn hasn't opened yet
+    // The settle is a DERIVATION over the snapshot as it is now ([B01]), never
+    // an edge this listener had to see: one batch can carry the turn's end and
+    // the next turn's opener together — a catch-up after the body slept
+    // through the compaction always does — and a listener then sees only the
+    // last state. The last state is enough, so it is read fresh on every
+    // notify, and once at subscribe for a run that ended before anyone looked.
+    let unsubscribe = (): void => {};
+    let done = false;
+    const settle = (): void => {
+      if (done) return;
+      const verdict = compactionOutcome(run, codeSessionStore.getSnapshot());
+      if (verdict === null) return;
+      done = true;
       unsubscribe();
       if (canceled) {
-        // The Cancel button settles the store (and dismisses the sheet) at
-        // the gesture, but Claude Code does not reliably abort a compaction
-        // mid-run — it can finish anyway, and the interrupt no longer pulls
-        // the turn down locally to hide that. The "canceled" bulletin has
-        // already fired by now, so correct the record when the ink lands.
-        if (sawInk) {
+        // The Cancel button settled the run at the gesture, but Claude Code
+        // does not reliably abort a compaction mid-run — it can finish anyway.
+        // The "canceled" bulletin has already fired, so correct the record
+        // when the turn commits as a compaction.
+        if (verdict.outcome === "succeeded") {
           bulletinRef.current?.caution(
             "Compaction finished before it could be canceled",
           );
         }
         return;
       }
-      if (sawInk) {
-        compactionProgressStore.succeed(cardId);
-        return;
-      }
-      if (interrupted) {
-        // Interrupted by Escape / Stop (not the Cancel button): settle
-        // canceled, session intact.
-        compactionProgressStore.cancel(cardId);
-        return;
-      }
-      // Turn settled with no compaction — refused (too-short session) or
-      // errored. Surface the reason; the refusal text is already in the turn.
-      compactionProgressStore.fail(
-        cardId,
-        snap.lastError?.message ?? "Compaction didn't run — session left intact",
-      );
-    });
+      compactionProgressStore.settleFrom(cardId, turnKey, verdict);
+    };
+    unsubscribe = codeSessionStore.subscribe(settle);
 
     // Open the run and present the modal sheet.
     //
@@ -263,7 +233,7 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     // the fold could then only be admitted by a hole in the guard. Held by the
     // run, the fold is simply the one door this holder names ([B02]), and
     // every other door stays shut on both faces.
-    compactionProgressStore.begin(cardId, onCancel, {
+    compactionProgressStore.begin(cardId, run, onCancel, {
       reason: COMPACTION_REFUSAL_TEXT,
       // Through the store, because the run has two faces and the hold does not
       // know which is up ([B08]): the cover flashes its line beneath the bar,
@@ -278,6 +248,7 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     // the fold below ([B03]), so a run begun on a folded card raises no panel
     // ([B04]) and gets one the first time the card is open — which is the same
     // rule stated once instead of a raise here and a re-raise somewhere else.
+    settle();
   }, [cardId, codeSessionStore, bulletinRef]);
 
   // The wheel's `/compact` never passes the command handler, so the turn is
@@ -287,7 +258,7 @@ export function useCompactionRun(host: CompactionRunHost): () => void {
     const check = (): void => {
       const active = codeSessionStore.getSnapshot().activeTurn;
       if (active === null || !activeTurnIsWheelCompact(active)) return;
-      beginCompactionRun();
+      beginCompactionRun(active.turnKey);
     };
     check();
     return codeSessionStore.subscribe(check);

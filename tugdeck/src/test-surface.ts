@@ -87,6 +87,7 @@ import type { CardBinding, SessionRow } from "./protocol";
 import { FeedId } from "./protocol";
 import type { IngestSpikeRequest, IngestSpikeResponse } from "./lib/workers/ingest-worker";
 import { cardServicesStore } from "./lib/card-services-store";
+import { compactionProgressStore } from "./lib/compaction-progress-store";
 import { getConnection } from "./lib/connection-singleton";
 import { sendCloseSessionKeepingBinding, sendSpawnSession } from "./lib/session-lifecycle";
 import { fireNewSpawn } from "./lib/session-restore";
@@ -1898,16 +1899,18 @@ export interface TugTestSurface {
   // ---- Dev lifecycle-matrix driving (SURFACE_VERSION 1.6.0) ----
 
   /**
-   * Drive a bound session card's `CodeSessionStore` one step through the
-   * lifecycle matrix. Resolves the card's services via
-   * `cardServicesStore`; throws if the card is not bound (call
-   * `bindSession` first). See {@link SessionDriveAction} for
-   * the step vocabulary.
-   *
-   * The app-test matrix-coordination test drives a session card through
-   * every distinct matrix row with this and asserts the rendered
-   * Z1 / Z2 / Z5 zones. Test-mode-only.
+   * A `/compact` run's truth for one card, read from the stores: the run (its
+   * turn, its outcome), the session's catch-up and phase, the open turn's
+   * opener, and each committed turn's opener and compaction mark — what a
+   * run's settle is derived from.
    */
+  compactionRunFacts(cardId: string): {
+    run: { turnKey: string; afterMsgId: string | null; outcome: string | null } | null;
+    phase: string;
+    catchingUp: boolean;
+    active: { turnKey: string; opener: string | null } | null;
+    turns: Array<{ msgId: string; opener: string | null; compacted: boolean; end: string }>;
+  };
   /**
    * Ink-restore truth for one card, read from the stores rather than the DOM
    * ([P07]) — see the implementation for why the DOM cannot answer this.
@@ -1961,6 +1964,17 @@ export interface TugTestSurface {
    * landing reaches a transcript that already holds the live one.
    */
   refreshInkRestore(cardId: string): void;
+  /**
+   * Drive a bound session card's `CodeSessionStore` one step through the
+   * lifecycle matrix. Resolves the card's services via
+   * `cardServicesStore`; throws if the card is not bound (call
+   * `bindSession` first). See {@link SessionDriveAction} for
+   * the step vocabulary.
+   *
+   * The app-test matrix-coordination test drives a session card through
+   * every distinct matrix row with this and asserts the rendered
+   * Z1 / Z2 / Z5 zones. Test-mode-only.
+   */
   driveSession(cardId: string, action: SessionDriveAction): void;
 
   /**
@@ -3084,6 +3098,31 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
         if (turnKey !== undefined) liveTurnKeys.push(turnKey);
       });
       return { byIdentity: snapshotParsesByIdentity(), liveTurnKeys };
+    },
+
+    compactionRunFacts(cardId: string) {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(`compactionRunFacts: card "${cardId}" has no bound session`);
+      }
+      const snap = services.codeSessionStore.getSnapshot();
+      const openerOf = (messages: ReadonlyArray<{ kind: string }>): string | null => {
+        const m = messages.find((x) => x.kind === "user_message") as { text?: string } | undefined;
+        return m?.text ?? null;
+      };
+      const run = compactionProgressStore.getFor(cardId);
+      return {
+        run: run === null ? null : { turnKey: run.turnKey, afterMsgId: run.afterMsgId, outcome: run.outcome },
+        phase: snap.phase,
+        catchingUp: snap.catchingUp,
+        active: snap.activeTurn === null ? null : { turnKey: snap.activeTurn.turnKey, opener: openerOf(snap.activeTurn.messages) },
+        turns: snap.transcript.map((t) => ({
+          msgId: t.msgId,
+          opener: openerOf(t.messages),
+          compacted: t.compacted === true,
+          end: t.turnEndReason,
+        })),
+      };
     },
 
     /**

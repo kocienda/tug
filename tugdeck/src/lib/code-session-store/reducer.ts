@@ -232,6 +232,13 @@ export interface ScratchEntry {
    * discarded with the scratch entry at commit.
    */
   compactionPostTotal?: number;
+  /**
+   * This turn compacted: a `compact_boundary` or `compact_summary` landed
+   * while it was the open turn. `buildTurnEntry` copies it onto the committed
+   * `TurnEntry.compacted`, which is what a `/compact` run's outcome is read
+   * from — so the answer is on the transcript, live and replayed alike.
+   */
+  compacted?: true;
 }
 
 /**
@@ -4258,6 +4265,7 @@ function buildTurnEntry(
     ...(typeof entry?.compactionPostTotal === "number"
       ? { compactionPostTotal: entry.compactionPostTotal }
       : {}),
+    ...(entry?.compacted === true ? { compacted: true as const } : {}),
   };
 }
 
@@ -5903,6 +5911,7 @@ function handleCompactBoundary(
     messages: [...entry.messages, note],
     systemNoteSeq: entry.systemNoteSeq + 1,
     ...(honestTotal !== undefined ? { compactionPostTotal: honestTotal } : {}),
+    compacted: true,
   };
   return {
     state: {
@@ -6019,12 +6028,16 @@ function handleSessionStage(
  * `compactionSeed` so the carry-forward block renders (live and on reload),
  * latest-wins ([P05]). Preserves a `preTokens` a preceding `compact_boundary`
  * may have latched, else `null`. Phase-tolerant: live it arrives mid-turn, on
- * replay during `replaying`. No transcript ink, no phase change.
+ * replay during `replaying`. No transcript ink, no phase change — but the open
+ * turn, when it has a scratch, is marked `compacted`, so a summary-only
+ * compaction commits as one too.
  */
 function handleCompactSummary(
   state: CodeSessionState,
   event: CompactSummaryEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
+  const turnKey = state.pendingTurn?.turnKey;
+  const entry = turnKey === undefined ? undefined : state.scratch.get(turnKey);
   return {
     state: {
       ...state,
@@ -6032,6 +6045,9 @@ function handleCompactSummary(
         summary: event.summary,
         preTokens: state.compactionSeed?.preTokens ?? null,
       },
+      ...(turnKey !== undefined && entry !== undefined && entry.compacted !== true
+        ? { scratch: withScratchEntry(state.scratch, turnKey, { ...entry, compacted: true }) }
+        : {}),
     },
     effects: [],
   };

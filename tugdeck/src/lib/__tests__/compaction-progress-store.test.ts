@@ -26,8 +26,10 @@ describe("compactionProgressStore", () => {
   });
 
   it("begins in flight for its card, no outcome", () => {
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     expect(compactionProgressStore.getFor("A")).toEqual({
+      turnKey: "turn-A",
+      afterMsgId: null,
       outcome: null,
       failureReason: null,
     });
@@ -37,7 +39,7 @@ describe("compactionProgressStore", () => {
   });
 
   it("succeed settles the outcome", () => {
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     compactionProgressStore.succeed("A");
     expect(compactionProgressStore.getFor("A")?.outcome).toBe("succeeded");
     expect(isCompactingCard(compactionProgressStore.getSnapshot(), "A")).toBe(
@@ -46,35 +48,37 @@ describe("compactionProgressStore", () => {
   });
 
   it("cancel and fail carry their outcome (fail keeps the reason)", () => {
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     compactionProgressStore.cancel("A");
     expect(compactionProgressStore.getFor("A")?.outcome).toBe("canceled");
 
     compactionProgressStore.clear("A");
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     compactionProgressStore.fail("A", "boom");
     const s = compactionProgressStore.getFor("A");
     expect(s?.outcome).toBe("failed");
     expect(s?.failureReason).toBe("boom");
+    // Settling keeps the run's turn.
+    expect(s?.turnKey).toBe("turn-A");
   });
 
   it("a second terminal call is a no-op (first outcome wins)", () => {
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     compactionProgressStore.succeed("A");
     compactionProgressStore.cancel("A");
     expect(compactionProgressStore.getFor("A")?.outcome).toBe("succeeded");
   });
 
   it("clear resets that card to idle", () => {
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     compactionProgressStore.succeed("A");
     compactionProgressStore.clear("A");
     expect(compactionProgressStore.getFor("A")).toBeNull();
   });
 
   it("holds concurrent runs independently — one settling leaves the other alone", () => {
-    compactionProgressStore.begin("A");
-    compactionProgressStore.begin("B");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
+    compactionProgressStore.begin("B", { turnKey: "turn-B", afterMsgId: null });
     expect(compactionProgressStore.getFor("A")?.outcome).toBeNull();
     expect(compactionProgressStore.getFor("B")?.outcome).toBeNull();
 
@@ -91,6 +95,20 @@ describe("compactionProgressStore", () => {
     expect(compactionProgressStore.getFor("B")?.failureReason).toBe("boom");
   });
 
+  it("settleFrom settles only the in-flight run over the verdict's turn", () => {
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
+    // A verdict read for some other turn — a run since replaced — changes nothing.
+    compactionProgressStore.settleFrom("A", "turn-old", { outcome: "failed", failureReason: "stale" });
+    expect(compactionProgressStore.getFor("A")?.outcome).toBeNull();
+
+    compactionProgressStore.settleFrom("A", "turn-A", { outcome: "failed", failureReason: "boom" });
+    expect(compactionProgressStore.getFor("A")).toMatchObject({ outcome: "failed", failureReason: "boom" });
+
+    // Settled already: a second verdict, from the other reader, is a no-op.
+    compactionProgressStore.settleFrom("A", "turn-A", { outcome: "succeeded", failureReason: null });
+    expect(compactionProgressStore.getFor("A")?.outcome).toBe("failed");
+  });
+
   it("settling an unknown card is a no-op", () => {
     compactionProgressStore.succeed("A");
     compactionProgressStore.clear("A");
@@ -102,7 +120,7 @@ describe("compactionProgressStore", () => {
     const unsub = compactionProgressStore.subscribe(() => {
       n += 1;
     });
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     compactionProgressStore.succeed("A");
     expect(n).toBe(2);
     unsub();
@@ -112,7 +130,7 @@ describe("compactionProgressStore", () => {
 
   it("performs the run's own cancel, once, and only while it is in flight", () => {
     let asked = 0;
-    compactionProgressStore.begin("A", () => {
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null }, () => {
       asked += 1;
       compactionProgressStore.cancel("A");
     });
@@ -129,24 +147,24 @@ describe("compactionProgressStore", () => {
 
   it("answers false when there is no run, or a run with no cancel", () => {
     expect(compactionProgressStore.requestCancel("A")).toBe(false);
-    compactionProgressStore.begin("B");
+    compactionProgressStore.begin("B", { turnKey: "turn-B", afterMsgId: null });
     expect(compactionProgressStore.requestCancel("B")).toBe(false);
   });
 
   it("drops the cancel with the run — a cleared card cannot be canceled", () => {
     let asked = 0;
-    compactionProgressStore.begin("A", () => {
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null }, () => {
       asked += 1;
     });
     compactionProgressStore.clear("A");
     // A second run on the same card, opened without one, must not inherit it.
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     expect(compactionProgressStore.requestCancel("A")).toBe(false);
     expect(asked).toBe(0);
   });
 
   it("keeps stable snapshot references between notifications", () => {
-    compactionProgressStore.begin("A");
+    compactionProgressStore.begin("A", { turnKey: "turn-A", afterMsgId: null });
     expect(compactionProgressStore.getSnapshot()).toBe(
       compactionProgressStore.getSnapshot(),
     );
@@ -157,7 +175,7 @@ describe("compactionProgressStore", () => {
     // Another card's run must not churn this card's snapshot identity —
     // a changed reference would re-render every card's sheet.
     const a = compactionProgressStore.getFor("A");
-    compactionProgressStore.begin("B");
+    compactionProgressStore.begin("B", { turnKey: "turn-B", afterMsgId: null });
     expect(compactionProgressStore.getFor("A")).toBe(a);
   });
 });

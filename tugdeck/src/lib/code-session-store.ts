@@ -904,9 +904,12 @@ export class CodeSessionStore extends Subscribable {
    * Submit a user message. The route (>, $, :) — when present — is the
    * leading atom in `atoms`; `tug-prompt-entry` (T3.4.b) owns route
    * extraction and the store is route-oblivious.
+   *
+   * Returns the submission's `turnKey` — the key the turn it opens (or the
+   * queued send it waits as) carries — or `null` from a disposed store.
    */
-  send(text: string, atoms: AtomSegment[], opts?: { suppress?: boolean }): void {
-    if (this._disposed) return;
+  send(text: string, atoms: AtomSegment[], opts?: { suppress?: boolean }): string | null {
+    if (this._disposed) return null;
     // A fresh submission makes prior digest lines stale for this
     // card — clear its strip; the new turn's lines repopulate it.
     // Suppressed (programmatic) sends are not user submissions.
@@ -964,12 +967,13 @@ export class CodeSessionStore extends Subscribable {
       : synthesizeUserMessageFromBlocks(wire.content, this.atomBytesStore, {
           atomIdAt: wire.atomIdAt,
         });
+    const turnKey = mintTurnKey();
     this.dispatch({
       type: "send",
       text: synth.text,
       atoms: synth.atoms,
       content: wire.content,
-      turnKey: mintTurnKey(),
+      turnKey,
       suppress: opts?.suppress === true,
       queueOnly: this._sendsHeldForHandOver,
       // Read here rather than in the reducer, which is pure and cannot see a
@@ -979,6 +983,7 @@ export class CodeSessionStore extends Subscribable {
       // on it.
       pathUnsatisfied: networkPathStore.getSnapshot().status === "unsatisfied",
     });
+    return turnKey;
   }
 
   /**
