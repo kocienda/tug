@@ -52,6 +52,48 @@ export function overviewCellTops(
 }
 
 /**
+ * Did the reader leave the live edge? Asked of a scroll event that arrives
+ * while the column is following, and answered from two readings that must
+ * BOTH say yes:
+ *
+ * - **Away from the live bottom now.** `scrollHeight − scrollTop −
+ *   clientHeight` past the slack.
+ * - **Up from where the card last pinned, past the slack.** Measured from the
+ *   pin's own `scrollTop`, net of however much the viewport has grown since
+ *   (a taller viewport clamps `scrollTop` down by exactly that much, and that
+ *   is layout, not the reader).
+ *
+ * The first alone asks a question whose answer changes when the bottom
+ * moves, which in a streaming column it does constantly. A scroll event is
+ * delivered a frame after the position it carries, against a column that may
+ * have grown since; a `scrollTop` re-rounded one pixel under the pin at a
+ * fractional zoom, read against a post that grew 60px in the meantime, is
+ * "scrolled up and far from the bottom" when nobody moved anything — and a
+ * following column stopped following for good, because growth never brings
+ * the edge back to re-engage it. That is the bottom moving away from the
+ * reader mistaken for the reader moving away from the bottom. Growth fails
+ * the second reading, since it leaves the position where the pin put it;
+ * every real upward gesture passes both. The Session transcript's
+ * `SmartScroll` learned the same lesson (`_isAwayFromShownBottom`).
+ *
+ * `pinTop` is `+∞` before the card has ever pinned, so the second reading
+ * passes and the first decides alone — the cold-boot restore's case.
+ */
+export function overviewReaderLeftEdge(g: {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  pinTop: number;
+  pinClientHeight: number;
+  slack: number;
+}): boolean {
+  const fromBottom = g.scrollHeight - g.scrollTop - g.clientHeight;
+  if (fromBottom <= g.slack) return false;
+  const viewportGrowth = Math.max(0, g.clientHeight - g.pinClientHeight);
+  return g.pinTop - g.scrollTop - viewportGrowth > g.slack;
+}
+
+/**
  * What a post's height is taken to be before the column has measured any
  * post. Once it has, a post with no height stands in at the median extent
  * ({@link overviewEstimatedExtent}).

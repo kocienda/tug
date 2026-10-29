@@ -7,7 +7,13 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { createTopPostStore, overviewCellTops, overviewSpacerHeight, pinnedRangeFor } from "../overview-window";
+import {
+  createTopPostStore,
+  overviewCellTops,
+  overviewReaderLeftEdge,
+  overviewSpacerHeight,
+  pinnedRangeFor,
+} from "../overview-window";
 
 describe("overviewSpacerHeight", () => {
   // Extents of posts whose bare heights are `h`, under `gap`.
@@ -96,5 +102,60 @@ describe("createTopPostStore", () => {
     off();
     store.set("b");
     expect(heard).toBe(2);
+  });
+});
+
+describe("overviewReaderLeftEdge", () => {
+  // Pinned at the edge of a 2000px column in a 500px viewport.
+  const pinned = { pinTop: 1500, pinClientHeight: 500, slack: 24 };
+
+  test("a scrollTop re-rounded one pixel under the pin, as the column grows, is not the reader", () => {
+    // The field shape: the event carries 1499 against a column that has
+    // grown 60px since the pin, so it reads 61px from the bottom.
+    expect(
+      overviewReaderLeftEdge({ ...pinned, scrollTop: 1499, scrollHeight: 2060, clientHeight: 500 }),
+    ).toBe(false);
+  });
+
+  test("growth alone, with the position where the pin put it, is not the reader", () => {
+    expect(
+      overviewReaderLeftEdge({ ...pinned, scrollTop: 1500, scrollHeight: 2400, clientHeight: 500 }),
+    ).toBe(false);
+  });
+
+  test("a taller viewport clamps the position down, and that is layout", () => {
+    // The composer shrank by 80px: the column is 80px taller, the browser
+    // clamps scrollTop to 1420, and the column then grows 60px.
+    expect(
+      overviewReaderLeftEdge({ ...pinned, scrollTop: 1420, scrollHeight: 2060, clientHeight: 580 }),
+    ).toBe(false);
+  });
+
+  test("a wheel-up past the slack is the reader leaving", () => {
+    expect(
+      overviewReaderLeftEdge({ ...pinned, scrollTop: 1400, scrollHeight: 2000, clientHeight: 500 }),
+    ).toBe(true);
+  });
+
+  test("a wheel-up past the slack while the column grows is still the reader leaving", () => {
+    expect(
+      overviewReaderLeftEdge({ ...pinned, scrollTop: 1400, scrollHeight: 2060, clientHeight: 500 }),
+    ).toBe(true);
+  });
+
+  test("a nudge inside the slack does not disengage", () => {
+    expect(
+      overviewReaderLeftEdge({ ...pinned, scrollTop: 1490, scrollHeight: 2000, clientHeight: 500 }),
+    ).toBe(false);
+  });
+
+  test("before any pin, the live-bottom reading decides alone", () => {
+    const unpinned = { pinTop: Number.POSITIVE_INFINITY, pinClientHeight: 0, slack: 24 };
+    expect(
+      overviewReaderLeftEdge({ ...unpinned, scrollTop: 300, scrollHeight: 2000, clientHeight: 500 }),
+    ).toBe(true);
+    expect(
+      overviewReaderLeftEdge({ ...unpinned, scrollTop: 1500, scrollHeight: 2000, clientHeight: 500 }),
+    ).toBe(false);
   });
 });

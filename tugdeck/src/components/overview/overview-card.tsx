@@ -127,6 +127,7 @@ import { computePageNavigation } from "@/components/tugways/internal/list-view-p
 import {
   createTopPostStore,
   overviewCellTops,
+  overviewReaderLeftEdge,
   PENDING_TOP_POST,
   type TopPostStore,
 } from "./overview-window";
@@ -1115,6 +1116,9 @@ export function OverviewContent({
   // be this card's, and one that arrives (the cold-boot restore's) must be
   // free to say the reader is not at the bottom.
   const pinTopRef = useRef(Number.POSITIVE_INFINITY);
+  // The viewport height that pin was taken at: a taller viewport since clamps
+  // `scrollTop` down by the difference, which is layout, not the reader.
+  const pinClientHeightRef = useRef(0);
 
   // The posts as of this render, for the gesture paths that read them later.
   const overviewPostsRef = useRef(posts);
@@ -1246,6 +1250,7 @@ export function OverviewContent({
   const pinToBottom = useCallback((el: HTMLDivElement): void => {
     el.scrollTop = el.scrollHeight;
     pinTopRef.current = el.scrollTop;
+    pinClientHeightRef.current = el.clientHeight;
   }, []);
 
   /** Is the live edge under the eye? The one geometric reading, spelled once. */
@@ -1433,13 +1438,27 @@ export function OverviewContent({
     // permanently: the re-engage branch of the resize observer only fires on
     // a geometry change that brings the edge back, and growth never does.
     //
-    // So only a scroll that went UP from where this card last pinned can
-    // disengage. Content growing under a pin leaves `scrollTop` exactly where
-    // the pin put it — the pin is the reference, not the bottom, and the
-    // bottom has already moved. A reader's wheel-up is below it by however
-    // far they scrolled, which is the one thing that means they left.
-    if (!followingRef.current || el.scrollTop < pinTopRef.current) {
+    // So only a scroll that went UP from where this card last pinned, by more
+    // than the slack, can disengage. Content growing under a pin leaves
+    // `scrollTop` where the pin put it — the pin is the reference, not the
+    // bottom, and the bottom has already moved. A reader's wheel-up is below
+    // it by however far they scrolled, which is the one thing that means they
+    // left. "Below it" is never one pixel: a `scrollTop` re-rounded under the
+    // pin as the column grows reads as below it too, and that alone was enough
+    // to drop the follow. See `overviewReaderLeftEdge`.
+    if (!followingRef.current) {
       setFollowing(atBottom(el));
+    } else if (
+      overviewReaderLeftEdge({
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        pinTop: pinTopRef.current,
+        pinClientHeight: pinClientHeightRef.current,
+        slack: FOLLOW_SLACK_PX,
+      })
+    ) {
+      setFollowing(false);
     }
     // Near the top, ask for the page before this one. The store owns every
     // guard — nothing to ask for, nothing to anchor on, a request already
