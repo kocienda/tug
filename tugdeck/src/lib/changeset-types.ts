@@ -593,6 +593,12 @@ export interface ArcJoinStateWire {
    */
   offer?: ArcJoinOfferWire;
   /**
+   * What this ready arc needs from the user — its offer stands, its last
+   * resolve is stuck, or a question waits — with a key that changes when the
+   * reason does and is absent while a run is live. The reveal keys on it.
+   */
+  attention?: ArcJoinAttentionWire;
+  /**
    * The fold that stands over this arc — the base work committed to clear its
    * join, when one has been and has not been undone or superseded.
    *
@@ -704,6 +710,12 @@ export interface ArcResolvedBaseWire {
   dropped?: string[];
   /** Folded paths that were another live session's work, by holder name. */
   folded_from?: Record<string, string>;
+}
+
+/** Why a ready arc needs the user, and a key that moves when the reason does. */
+export interface ArcJoinAttentionWire {
+  kind: "offer" | "stuck" | "question";
+  key: string;
 }
 
 /**

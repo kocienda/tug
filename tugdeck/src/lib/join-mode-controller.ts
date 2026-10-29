@@ -684,6 +684,16 @@ export class JoinModeController extends Subscribable implements LandingMode {
    * An action taken on entry, never derived state — and safe to fire twice,
    * because one arc admits one run ([P01]) and the second send comes back as
    * a named refusal rather than a second ladder.
+   *
+   * **Never over a standing refusal.** The stuck line is the server's durable
+   * record that the last resolve stopped short at this arc head, and the
+   * ledger's last `ended` says whether the last run anchored a candidate.
+   * While either says the machine has already tried and stopped, entering the
+   * mode sends nothing: a glance at the shade is not consent to another
+   * ladder, and the deck once re-ran a four-minute resolve on every entry
+   * into an arc whose last candidate had been withdrawn. Only the explicit
+   * Resolve again press, or a resolve the server starts over a moved head,
+   * runs it again — `autoResolveHeld` is that decision.
    */
   private ensureCandidate(): void {
     const target = this.target;
@@ -693,6 +703,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
     if (deriveJoinOutcome(join) !== "clean") return;
     if (typeof join.candidate === "string" && join.candidate !== "") return;
     if (joinRunLive(join)) return;
+    if (autoResolveHeld(join) !== null) return;
     getChangesetJoinStore()?.resolve(this.deps.changesController.workspaceKey, target.name);
   }
 
@@ -1081,6 +1092,30 @@ export function deriveJoinOutcome(join: ArcJoinStateWire | null | undefined): Jo
  */
 export function joinRunLive(join: ArcJoinStateWire | null | undefined): boolean {
   return typeof join?.run === "string" && join.run !== "";
+}
+
+/**
+ * Why the mode's own resolve-on-entry is held, or `null` when it may send.
+ *
+ * `stuck` is the standing refusal: the server anchors it to the arc head and
+ * drops it when a resolve starts or the head moves, so its presence already
+ * means "the last run stopped short at these bytes". The ledger is the last
+ * run read back; one whose final event is an `ended` with no candidate —
+ * stuck, unresolved, errored or superseded — is a run that already tried and
+ * anchored nothing, and a second unasked send would only repeat it. A ledger
+ * that ended on a candidate holds nothing, because a candidate the server has
+ * since dropped shows as a stale note, which `deriveJoinOutcome` ranks above
+ * `clean` on its own.
+ */
+export function autoResolveHeld(join: ArcJoinStateWire | null | undefined): string | null {
+  if (join === null || join === undefined) return null;
+  if (typeof join.stuck === "string" && join.stuck !== "") return "stuck";
+  const events = join.ledger?.events ?? [];
+  const last = events[events.length - 1];
+  if (last !== undefined && last.kind === "ended" && last.outcome !== "candidate") {
+    return `last run ended ${last.outcome}`;
+  }
+  return null;
 }
 
 /** Field-by-field snapshot equality so `getSnapshot` stays referentially stable. */

@@ -33,8 +33,9 @@ use tugcore::instance::Paths;
 
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
-    ArcConflictCommit, ArcConflictHistory, ArcJoinBlocker, ArcJoinLedger, ArcJoinLedgerEventBody,
-    ArcJoinOffer, ArcJoinQuestion, ArcJoinReport, ArcJoinState, ArcResolvedBase, ArcResolvedFile,
+    ArcConflictCommit, ArcConflictHistory, ArcJoinAttention, ArcJoinBlocker, ArcJoinLedger,
+    ArcJoinLedgerEventBody, ArcJoinOffer, ArcJoinQuestion, ArcJoinReport, ArcJoinState,
+    ArcResolvedBase, ArcResolvedFile,
 };
 
 use tugarc_core::resolve::{self, CandidateStatus};
@@ -231,6 +232,7 @@ pub fn join_state_for(
             // A blocked arc has nothing to offer — it is waiting on an act,
             // elsewhere, that each blocker names.
             offer: None,
+            attention: None,
             // Reported on this arm too: a fold that cleared one blocker and
             // left another standing still happened, and the receipt is how the
             // user checks what it did to their base.
@@ -280,6 +282,13 @@ pub fn join_state_for(
         None
     };
     let offer = standing_offer(repo_root, detail, withheld.is_none());
+    let attention = standing_attention(
+        detail,
+        run.is_some(),
+        offer.is_some(),
+        question.as_ref(),
+        stuck.as_deref(),
+    );
     let ledger = standing_ledger(repo_root, detail, candidate.as_deref());
     offer_receipt(
         detail,
@@ -304,6 +313,7 @@ pub fn join_state_for(
         question,
         run,
         offer,
+        attention,
         resolved_base: receipts.get(name).cloned(),
         ledger,
     }
@@ -485,6 +495,61 @@ fn standing_offer(repo_root: &Path, detail: &ArcDetail, quiet: bool) -> Option<A
         work_id: detail.work_id.clone(),
         message,
         message_source: message_source.as_str().to_string(),
+    })
+}
+
+/// What a ready arc needs from the user, as one fact the reveal can key on.
+///
+/// The offer is the ordinary case. The two others are the moments the machine
+/// has stopped and the decision has become the user's: a stuck line — the
+/// resolve refused, the candidate withdrawn — and a question the resolver is
+/// waiting on. Before this, only the offer summoned the shade, and an arc that
+/// went ready and had its candidate withheld cycled `no-candidate` →
+/// `run-held` → `stuck` without ever presenting itself (three arcs on
+/// 2026-10-28). A live run publishes nothing — a machine still working needs
+/// nobody, and the key would otherwise flicker as the run's facts moved —
+/// with one exception: a run waiting on a question is live and needs the
+/// user both, and the question is the one fact that only ever stands under
+/// a live run (an orphaned one converts to a stuck line).
+///
+/// The key is the arc's `work_id` and the kind, with the stuck line's digest
+/// or the question's id appended, so a surface that remembers having shown a
+/// key sees a new refusal over the same work as new, and the same refusal
+/// re-derived as the one it already showed. Not keyed on an arc head: a
+/// base-motion replay rewrites the head and leaves the work the same.
+fn standing_attention(
+    detail: &ArcDetail,
+    run_live: bool,
+    offered: bool,
+    question: Option<&ArcJoinQuestion>,
+    stuck: Option<&str>,
+) -> Option<ArcJoinAttention> {
+    if !detail.join_ready {
+        return None;
+    }
+    let work = detail.work_id.as_str();
+    let (kind, key) = if let Some(q) = question {
+        ("question", format!("{work}:question:{}", q.request_id))
+    } else if run_live {
+        return None;
+    } else if offered {
+        ("offer", format!("{work}:offer"))
+    } else if let Some(line) = stuck {
+        ("stuck", format!("{work}:stuck:{:016x}", fnv1a(line)))
+    } else {
+        return None;
+    };
+    Some(ArcJoinAttention {
+        kind: kind.to_string(),
+        key,
+    })
+}
+
+/// FNV-1a over the bytes: a short, stable digest for a key, the same across
+/// processes and builds, which `DefaultHasher` does not promise.
+fn fnv1a(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
     })
 }
 
@@ -1329,6 +1394,96 @@ mod tests {
         );
         drop(held);
         assert!(compose(repo).offer.is_some(), "and offers again once it is");
+    }
+
+    /// The attention fact across the cycle that never presented itself: a
+    /// ready arc whose candidate is withdrawn by a stuck ending is an arc
+    /// that needs the user, and says so under a key that moves with the
+    /// line; a live run says nothing unless it is waiting on a question.
+    #[test]
+    fn attention_follows_the_offer_the_stuck_line_and_the_question() {
+        let temp = fixture();
+        let repo = temp.path();
+        assert!(
+            compose(repo).attention.is_none(),
+            "a conflicted arc with the machine still working needs nobody"
+        );
+
+        reconciled(repo);
+        let work = detail_for(repo).work_id.clone();
+        let offered = compose(repo).attention.expect("an offer is attention");
+        assert_eq!(offered.kind, "offer");
+        assert_eq!(offered.key, format!("{work}:offer"));
+        assert_eq!(
+            compose(repo).attention.expect("still").key,
+            offered.key,
+            "re-derived, the same key"
+        );
+
+        // The candidate withdrawn by a refusal: no offer, a stuck line — the
+        // moment the decision becomes the user's.
+        let head = ops::rev_parse(repo, "tugarc/demo").unwrap();
+        resolve::clear_candidate(repo, "demo");
+        resolve::write_stuck(
+            repo,
+            "demo",
+            &head,
+            "the resolver's report does not account for f.txt",
+        );
+        let state = compose(repo);
+        assert!(state.offer.is_none(), "precondition: withheld");
+        let stuck = state.attention.expect("a stuck ready arc is attention");
+        assert_eq!(stuck.kind, "stuck");
+        assert!(
+            stuck.key.starts_with(&format!("{work}:stuck:")),
+            "{}",
+            stuck.key
+        );
+        assert_ne!(
+            stuck.key, offered.key,
+            "a refusal after a seen offer is new work"
+        );
+        assert_eq!(
+            compose(repo).attention.expect("still").key,
+            stuck.key,
+            "the same line re-derived is the same key"
+        );
+        resolve::write_stuck(
+            repo,
+            "demo",
+            &head,
+            "the resolver rewrote lines outside the conflicts in f.txt",
+        );
+        assert_ne!(
+            compose(repo).attention.expect("still stuck").key,
+            stuck.key,
+            "a different line is a different key"
+        );
+
+        // A run in flight says nothing, until it asks.
+        let owner_key = ops::arc_owner_key(repo, "demo");
+        let held = crate::feeds::join_occupancy::acquire(
+            &owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::Resolve,
+            None,
+        )
+        .expect("the arc is free");
+        assert!(
+            compose(repo).attention.is_none(),
+            "a machine still working needs nobody"
+        );
+        tugarc_core::resolve::write_question(
+            repo,
+            "demo",
+            &head,
+            r#"{"request_id":"join-demo-7","question":"Which side owns the timeout?","options":[{"label":"the arc","description":""},{"label":"the base","description":""}]}"#,
+        );
+        let asked = compose(repo)
+            .attention
+            .expect("a waiting question is attention");
+        assert_eq!(asked.kind, "question");
+        assert_eq!(asked.key, format!("{work}:question:join-demo-7"));
+        drop(held);
     }
 
     /// Redirect the arc state dir at a scratch path, so a tempdir repo's ops

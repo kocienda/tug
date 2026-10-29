@@ -730,15 +730,17 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
 
         // ── The air: rows and eyebrows, and nothing else ──────────────────
         // One row height for every row the fold draws, two type sizes for
-        // everything the fold itself authors, and no gap between the sections
-        // — the three facts that make the fold read as one list rather than
-        // as three strips that happen to be stacked.
+        // everything the fold itself authors — the compact row size for the
+        // files, and the body size for the text the reader is about to sign,
+        // the landing scale ([B03]) — and no gap between the sections: the
+        // three facts that make the fold read as one list rather than as
+        // three strips that happen to be stacked.
         const air = await app.body("A").evalJS<{
           gap: string;
           heights: number[];
           sizes: number[];
           xs: number;
-          sm: number;
+          md: number;
         }>(
           `(() => {
              const detail = document.querySelector(${JSON.stringify(DETAIL)});
@@ -751,8 +753,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
              detail.appendChild(probe);
              probe.style.fontSize = "var(--tug-font-size-xs)";
              const xs = parseFloat(getComputedStyle(probe).fontSize);
-             probe.style.fontSize = "var(--tug-font-size-sm)";
-             const sm = parseFloat(getComputedStyle(probe).fontSize);
+             probe.style.fontSize = "var(--tug-font-size-md)";
+             const md = parseFloat(getComputedStyle(probe).fontSize);
              probe.remove();
 
              const foreign = ${JSON.stringify(FOREIGN_TYPE_SCALES)}.join(",");
@@ -782,7 +784,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
                )],
                sizes: [...sizes].sort((a, b) => a - b),
                xs,
-               sm,
+               md,
              };
            })()`,
         );
@@ -797,7 +799,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         expect(air.heights, "every fold row reports one height").toHaveLength(1);
         expect(air.sizes, "and the fold's own text has two sizes").toEqual([
           air.xs,
-          air.sm,
+          air.md,
         ]);
 
         // ── Bind: the arc fronts, expanded, under its own label ───────────

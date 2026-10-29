@@ -110,8 +110,13 @@ describe("the receipt scope publishes the proportional face", () => {
 describe("a message about to land reads at the reading size", () => {
   const landing = ruleBody(PRESENTATION_CSS, ".tugx-commit-landing .tugx-commit-message");
 
-  test("the landing scope raises the well's size to sm and touches nothing else", () => {
-    expect(decl(landing, "--tugx-commit-message-size")).toBe("var(--tug-font-size-sm)");
+  test("the landing scope raises the subject and the well to md and touches nothing else", () => {
+    // What the user is about to sign reads at the size they would write it,
+    // the composer's — subject and message alike.
+    const scope = ruleBody(PRESENTATION_CSS, ".tugx-commit-landing");
+    expect(decl(scope, "--tugx-commit-subject-size")).toBe("var(--tug-font-size-md)");
+    expect(decl(scope, "--tugx-commit-subject-font")).toBeNull();
+    expect(decl(landing, "--tugx-commit-message-size")).toBe("var(--tug-font-size-md)");
     expect(decl(landing, "--tugx-commit-message-font")).toBeNull();
   });
 

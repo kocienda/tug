@@ -91,6 +91,8 @@ import {
 import { arcFitSentence } from "@/lib/arc-fit";
 import { ResolveLedgerBlocks } from "@/components/tugways/cards/session-changes/session-changes-resolve-ledger";
 import { BlockNoticeBand } from "@/components/tugways/blocks/block-notice";
+import { JoinRefusalBlock } from "@/components/tugways/cards/session-changes/session-changes-join-refusal";
+import { parseJoinRefusal } from "@/lib/join-refusal";
 import {
   deriveJoinOutcome,
   type JoinOutcome,
@@ -265,6 +267,15 @@ export function joinLedgerInput(input: {
 
 /** How many lines the refusal band shows before it clamps. */
 const REFUSAL_MAX_LINES = 8;
+
+/**
+ * The band's clamp, grown by one line per path the stuck line names: the
+ * paths are rows inside the band, and a clamp that cut the list would hide
+ * the files the refusal is about.
+ */
+export function refusalMaxLines(stuck: string | null): number {
+  return REFUSAL_MAX_LINES + (stuck === null ? 0 : parseJoinRefusal(stuck).paths.length);
+}
 
 /** One reason the join will not proceed, under the slot that names its source. */
 export interface RefusalReason {
@@ -713,7 +724,10 @@ export function SessionChangesArcJoin({
       {/* Why the join will not proceed, as one error band at the face's body
           size: the stuck line, a refused resolve verb, and a refused join verb,
           each in its own slot and a sentence said once however many of them
-          carry it. The stuck line is durable and server-written, so unlike the
+          carry it. The stuck line is drawn as the refusal block — its sentence,
+          then one row per path it names — because a resolver's refusal lists
+          files, and twenty of them in a paragraph is a wall with no red in it.
+          It is durable and server-written, so unlike the
           overlay's errors it survives a reload — a resolve is minutes long and
           the deck that started it is often not the deck that comes back to
           it. Rendered on the reasons, not on the face: a refused answer or
@@ -729,12 +743,16 @@ export function SessionChangesArcJoin({
         >
           <BlockNoticeBand
             tone="error"
-            maxLines={REFUSAL_MAX_LINES}
-            text={reasons.map(({ slot, text }) => (
-              <span key={slot} className="session-changes-arc-join-reason" data-slot={slot}>
-                {text}
-              </span>
-            ))}
+            maxLines={refusalMaxLines(stuck)}
+            text={reasons.map(({ slot, text }) =>
+              slot === "session-changes-arc-join-stuck" ? (
+                <JoinRefusalBlock key={slot} detail={text} slot={slot} />
+              ) : (
+                <span key={slot} className="session-changes-arc-join-reason" data-slot={slot}>
+                  {text}
+                </span>
+              ),
+            )}
           />
         </div>
       ) : null}

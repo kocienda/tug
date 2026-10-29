@@ -934,6 +934,17 @@ pub struct ArcJoinState {
     /// unmentioned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<ArcJoinOffer>,
+    /// What this ready arc needs from the user, if anything: its `offer`
+    /// stands, its last resolve is `stuck`, or a `question` waits.
+    ///
+    /// One fact rather than three to compare, because the surface that
+    /// reveals itself on "this arc needs you" keys on it: the key changes
+    /// when the stuck line or the question changes, so a new refusal after a
+    /// seen offer is new work, and it is absent while a run is live, because
+    /// a machine still working needs nobody. Derived like everything else
+    /// here, on every recompute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attention: Option<ArcJoinAttention>,
     /// The fold that stands over this arc — the base work committed to clear
     /// its join, when one has been and has not been undone or superseded.
     ///
@@ -1021,6 +1032,19 @@ pub struct ArcJoinOffer {
     /// branch description silently.
     #[serde(default)]
     pub message_source: String,
+}
+
+/// Why a ready arc needs the user, and a key that changes when the reason
+/// does.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArcJoinAttention {
+    /// `offer` | `stuck` | `question`.
+    pub kind: String,
+    /// `<work_id>:<kind>` for an offer, with the stuck line's digest or the
+    /// question's request id appended for the other two — so the same work
+    /// refused twice over different lines is two keys, and the same line
+    /// re-derived is one.
+    pub key: String,
 }
 
 /// An escalation from the resolver, phrased as intent ([P06]).

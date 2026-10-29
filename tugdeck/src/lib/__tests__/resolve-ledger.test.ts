@@ -393,7 +393,21 @@ describe("ledgerBlocks and mergeLedgerEvents, over recorded events", () => {
       (b) => b.kind === "candidate",
     )!;
     expect(candidate.phase).toBe("error");
-    expect(candidate.identity.text).toBe("withheld — the candidate failed its checks: docs: `false` (exit 1)");
+    // A legacy check sentence reads as the refusal's own sentence.
+    expect(candidate.identity.text).toBe("withheld — the candidate failed its checks: docs ran `false`, exit 1");
+    expect(candidate.body.kind).toBe("files");
+
+    // A refusal naming paths keeps the sentence on the identity line and
+    // hands the paths to the body, one row each.
+    const named = [
+      events[0]!,
+      { seq: 1, at_ms: 1, kind: "ended" as const, outcome: "stuck" as const, detail: "the resolver's report does not account for src/a.rs, docs/b.md" },
+    ];
+    const withheld = ledgerBlocks({ join: null, durable: { ...durable, events: named }, live: EMPTY_LIVE, base: "main", running: false }).find(
+      (b) => b.kind === "candidate",
+    )!;
+    expect(withheld.identity.text).toBe("withheld — the resolver's report does not account for 2 files");
+    expect(withheld.body).toEqual({ kind: "refusal", detail: "the resolver's report does not account for src/a.rs, docs/b.md" });
 
     const moved = [
       events[0]!,

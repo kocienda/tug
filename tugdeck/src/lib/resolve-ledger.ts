@@ -9,6 +9,7 @@
  */
 
 import type { ToolResultSummary } from "@/components/tugways/blocks/tool-result-summary";
+import { parseJoinRefusal } from "@/lib/join-refusal";
 import type { ResolveFace } from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import type {
   ArcConflictHistoryWire,
@@ -196,7 +197,9 @@ export type LedgerBody =
   | { kind: "words"; text: string }
   | { kind: "question"; question: ArcJoinQuestionWire; text?: string }
   | { kind: "audit"; files: ArcJoinReportFileWire[]; notes?: string }
-  | { kind: "files"; files: LedgerFileRow[] };
+  | { kind: "files"; files: LedgerFileRow[] }
+  /** A refusal that names paths: the rows, under an identity line that said the sentence. */
+  | { kind: "refusal"; detail: string };
 
 export interface LedgerBlock {
   /** Stable React key: the kind, plus its path or turn. */
@@ -582,10 +585,20 @@ function candidateDraft(
   if (durable?.ended_ms !== undefined) {
     summary.push({ kind: "text", text: `${duration(durable.started_ms, durable.ended_ms)} in all` });
   }
+  // A stuck ending's detail is read as a refusal: the identity line says its
+  // sentence, and the paths it names are the body's rows rather than a
+  // paragraph in the line.
+  const stuckDetail =
+    withdrawn && ending.outcome === "stuck" && ending.detail !== undefined && ending.detail !== ""
+      ? ending.detail
+      : null;
+  const refusal = stuckDetail !== null ? parseJoinRefusal(stuckDetail) : null;
   const text = withdrawn
-    ? `${ending.outcome === "stuck" ? "withheld" : "superseded"}${
-        ending.detail !== undefined && ending.detail !== "" ? ` — ${ending.detail}` : ""
-      }`
+    ? refusal !== null
+      ? `withheld — ${refusal.sentence}`
+      : `${ending.outcome === "stuck" ? "withheld" : "superseded"}${
+          ending.detail !== undefined && ending.detail !== "" ? ` — ${ending.detail}` : ""
+        }`
     : `anchored on ${base} — Join lands it as one commit`;
   return {
     key: "candidate",
@@ -594,10 +607,13 @@ function candidateDraft(
     identity: { sha, text },
     summary,
     variant: "receipt",
-    body: {
-      kind: "files",
-      files: files.map((f) => ({ path: f.path, fact: f.resolved_by })),
-    },
+    body:
+      stuckDetail !== null && refusal !== null && refusal.paths.length > 0
+        ? { kind: "refusal", detail: stuckDetail }
+        : {
+            kind: "files",
+            files: files.map((f) => ({ path: f.path, fact: f.resolved_by })),
+          },
     open: false,
     ...(withdrawn ? { withdrawn: true } : {}),
   };

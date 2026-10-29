@@ -780,12 +780,13 @@ export interface TugPromptEntryProps {
    */
   changesLandingKind?: LandingKind;
   /**
-   * A join is standing for this card's arc and the room is not open.
+   * This card's arc needs the user — a standing join, a stuck resolve, or a
+   * question — and the room is not open.
    *
    * The unread idiom: while it holds, the Changes segment wears a small accent
    * dot saying there is something in there to look at. It is the held signal
    * for the case the shade's own reveal must yield to — a running turn, a
-   * half-typed composer — so the offer is never silent, only quiet.
+   * folded card — so the offer is never silent, only quiet.
    *
    * The host derives it per render from live facts and never remembers it, so
    * the dot cannot outlive the arc. The label does not change with it: the

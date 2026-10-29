@@ -617,9 +617,12 @@ export function SessionChangesNotice(
           <>
             {face.act === "retry" && retryWord !== null ? (
               <>
+                {/* One accent per band: Copy is the quiet outlined button in
+                    the neutral action role, and Retry is the one filled,
+                    role-coloured call — two coloured buttons side by side
+                    read as two asks. */}
                 <TugPushButton
                   emphasis="outlined"
-                  role="accent"
                   size="sm"
                   onClick={handleCopy}
                   data-testid="session-landing-notice-copy"

@@ -42,7 +42,7 @@
  *   written" over a join that landed with one.
  * - **The Changes segment wears the offer while the room is closed**, and rests
  *   while it is open. The held signal for the case a reveal must yield to — a
- *   running turn, a half-typed composer — so an offer is never silent, only
+ *   running turn, a folded card — so an offer is never silent, only
  *   quiet.
  * - **Closing costs nothing, and does not re-reveal.** The shade goes down and
  *   stays down for the same work across a full re-run of the arc — a base

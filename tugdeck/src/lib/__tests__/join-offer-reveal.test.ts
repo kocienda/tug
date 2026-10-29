@@ -5,6 +5,8 @@
  * reveal, that a folded card is one of them ([B06]), and that every deferral
  * is a deferral rather than a refusal — the caller spends the arc head only on
  * a `true`, so the table below is also the record of what does NOT spend it.
+ * A half-typed composer is not in the table: it stopped being a hold ([B05]),
+ * and the record says so by its absence.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -26,7 +28,6 @@ function quiet(over: Partial<JoinOfferRevealInput> = {}): JoinOfferRevealInput {
     landingInFlight: false,
     turnInFlight: false,
     anyLandingActive: false,
-    composerEmpty: true,
     shadeShowing: false,
     folded: false,
     ...over,
@@ -54,7 +55,6 @@ describe("shouldRevealJoinOffer", () => {
     ["this card's own landing in flight", { landingInFlight: true }],
     ["a turn in flight", { turnInFlight: true }],
     ["a landing already up", { anyLandingActive: true }],
-    ["a half-typed composer", { composerEmpty: false }],
     ["a shade already showing", { shadeShowing: true }],
     ["a folded card", { folded: true }],
   ] as const)("%s defers", (_name, over) => {
@@ -130,11 +130,11 @@ describe("JoinOfferMemory — any entry into join mode spends the offer", () => 
   const offer = { ownerId: "arc-1", key: "head-a" } as const;
 
   test("a room opened by hand under a held gate spends its offer", () => {
-    // The gate held (a half-typed composer), so the passive reveal never fired;
+    // The gate held (a turn in flight), so the passive reveal never fired;
     // the user opened the room by a hand door instead. Closing it must not
     // leave the head unspent for the reveal to re-open.
     const memory = new JoinOfferMemory();
-    expect(shouldRevealJoinOffer(quiet({ composerEmpty: false }))).toBe(false);
+    expect(shouldRevealJoinOffer(quiet({ turnInFlight: true }))).toBe(false);
     expect(memory.spendOnEntry("arc-1", offer)).toBe(true);
     const afterClose = quiet({ alreadyRevealed: memory.has(offer.key) });
     expect(shouldRevealJoinOffer(afterClose)).toBe(false);
@@ -190,7 +190,6 @@ describe("joinOfferRevealHold — the gate's first failing reason", () => {
     [{ folded: true }, "folded"],
     [{ turnInFlight: true }, "turn-in-flight"],
     [{ anyLandingActive: true }, "landing-active"],
-    [{ composerEmpty: false }, "composer-busy"],
     [{ shadeShowing: true }, "shade-showing"],
   ] as const)("%o holds as %s", (over, hold) => {
     expect(joinOfferRevealHold(quiet(over))).toBe(hold);
@@ -201,13 +200,13 @@ describe("joinOfferRevealHold — the gate's first failing reason", () => {
     // ending would still leave the room with no door.
     expect(joinOfferRevealHold(quiet({ folded: true, turnInFlight: true }))).toBe("folded");
     expect(
-      joinOfferRevealHold(quiet({ alreadyRevealed: true, composerEmpty: false })),
+      joinOfferRevealHold(quiet({ alreadyRevealed: true, turnInFlight: true })),
     ).toBe("already-shown");
   });
 
   test("the dot says what a deferral waits on, in the gate's words", () => {
     expect(joinOfferRevealHoldSentence("turn-in-flight")).toBe("opens when the turn finishes");
-    expect(joinOfferRevealHoldSentence("composer-busy")).toBe("opens when the composer is empty");
+    expect(joinOfferRevealHoldSentence("landing-active")).toBe("opens when this landing closes");
     expect(joinOfferRevealHoldSentence("folded")).toBe("unfold to open");
   });
 
@@ -229,7 +228,7 @@ describe("JoinOfferRevealReceipts — once per key and reason", () => {
     const receipts = new JoinOfferRevealReceipts();
     receipts.due({ key: "head-a", verdict: "deferred", reason: "turn-in-flight" });
     expect(
-      receipts.due({ key: "head-a", verdict: "deferred", reason: "composer-busy" }),
+      receipts.due({ key: "head-a", verdict: "deferred", reason: "shade-showing" }),
     ).toBe(true);
     expect(receipts.due({ key: "head-a", verdict: "revealed", reason: null })).toBe(true);
   });
@@ -240,8 +239,11 @@ describe("JoinOfferRevealReceipts — once per key and reason", () => {
     expect(receipts.due({ key: "head-b", verdict: "deferred", reason: "folded" })).toBe(true);
   });
 
-  test("an already-shown hold is never a receipt", () => {
+  test("an already-shown hold is a receipt like the others, once", () => {
     const receipts = new JoinOfferRevealReceipts();
+    expect(
+      receipts.due({ key: "head-a", verdict: "deferred", reason: "already-shown" }),
+    ).toBe(true);
     expect(
       receipts.due({ key: "head-a", verdict: "deferred", reason: "already-shown" }),
     ).toBe(false);

@@ -85,12 +85,18 @@
  * A message about to land — the draft a join or a commit will sign — is text
  * the user reads before they sign it, not a record they scan afterwards. So a
  * surface showing one wears `.tugx-commit-landing` beside the receipt face,
- * and its message well reads at the reading size, at least as large as the
- * file list under it. The well restates its own size for hosts under no scope
- * (below), so the scope reaches it through this descendant rule, owned here,
- * rather than by any surface overriding the size per site. */
+ * and its subject and message both read at the body size — the size the
+ * composer beneath shows the same words at, so what you are about to sign
+ * reads at the size you would write it. File rows under it keep the
+ * compact scale. The well restates its own size for hosts under no scope
+ * (below), so the scope reaches it through these descendant rules, owned
+ * here, rather than by any surface overriding the size per site. */
+.tugx-commit-landing {
+  --tugx-commit-subject-size: var(--tug-font-size-md);
+}
+
 .tugx-commit-landing .tugx-commit-message {
-  --tugx-commit-message-size: var(--tug-font-size-sm);
+  --tugx-commit-message-size: var(--tug-font-size-md);
 }
 
 /* ---- The list ---- */

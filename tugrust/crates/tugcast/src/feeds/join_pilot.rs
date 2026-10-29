@@ -264,6 +264,7 @@ mod tests {
             question: None,
             run: None,
             offer: None,
+            attention: None,
             resolved_base: None,
         }
     }

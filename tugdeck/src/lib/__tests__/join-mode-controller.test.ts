@@ -19,6 +19,7 @@ import { beforeEach, afterEach, describe, expect, it } from "bun:test";
 
 import {
   JoinModeController,
+  autoResolveHeld,
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
@@ -500,6 +501,33 @@ afterEach(() => {
   _resetChangesetJoinStoreForTest();
 });
 
+describe("autoResolveHeld", () => {
+  it("names the record that holds the send, and nothing when none does", () => {
+    expect(autoResolveHeld(null)).toBeNull();
+    expect(autoResolveHeld({ phase: "previewed" })).toBeNull();
+    expect(autoResolveHeld({ phase: "previewed", stuck: "" })).toBeNull();
+    expect(autoResolveHeld({ phase: "previewed", stuck: "the resolver exited" })).toBe("stuck");
+    const ledger = (outcome: "candidate" | "unresolved" | "stuck" | "error" | "superseded") => ({
+      run: "1",
+      started_ms: 0,
+      ended_ms: 1,
+      events: [{ seq: 0, at_ms: 1, kind: "ended" as const, outcome }],
+    });
+    expect(autoResolveHeld({ phase: "previewed", ledger: ledger("stuck") })).toBe("last run ended stuck");
+    expect(autoResolveHeld({ phase: "previewed", ledger: ledger("error") })).toBe("last run ended error");
+    // A run that anchored a candidate holds nothing — a dropped candidate is a
+    // stale note, which outranks `clean` on its own.
+    expect(autoResolveHeld({ phase: "previewed", ledger: ledger("candidate") })).toBeNull();
+    // A ledger still running has no verdict yet; the live-run arm holds it.
+    expect(
+      autoResolveHeld({
+        phase: "previewed",
+        ledger: { run: "1", started_ms: 0, events: [{ seq: 0, at_ms: 0, kind: "probe", paths: [] }] },
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("JoinModeController", () => {
   function build(canInterrupt = false) {
     const commitMode = fakeCommitMode();
@@ -609,6 +637,40 @@ describe("JoinModeController", () => {
     changesController._setJoin({ phase: "previewed", conflicts: ["a.ts"] });
     controller.enter(TARGET);
     expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
+    controller.dispose();
+  });
+
+  it("holds the entry resolve while a refusal stands or the last run anchored nothing", () => {
+    // A glance at the shade is not consent to another ladder: the deck once
+    // re-sent a four-minute resolve on every entry into an arc whose last
+    // candidate had been withdrawn. The stuck line and a ledger ending with
+    // no candidate are the two records that say the machine already tried.
+    const { controller, changesController } = build();
+
+    changesController._setJoin({ ...UNRECONCILED_CLEAN, stuck: "the resolver's report does not account for a.rs" });
+    controller.enter(TARGET);
+    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
+    controller.exit();
+
+    changesController._setJoin({
+      ...UNRECONCILED_CLEAN,
+      ledger: {
+        run: "1",
+        started_ms: 0,
+        ended_ms: 5,
+        events: [
+          { seq: 0, at_ms: 0, kind: "probe", paths: [] },
+          { seq: 1, at_ms: 5, kind: "ended", outcome: "unresolved" },
+        ],
+      },
+    });
+    controller.enter(TARGET);
+    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
+    controller.exit();
+
+    // The explicit press is the one gesture that re-runs over a refusal.
+    getChangesetJoinStore()?.resolve(WORKSPACE_KEY, "join-lane");
+    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(1);
     controller.dispose();
   });
 

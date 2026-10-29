@@ -532,6 +532,23 @@
   display: block;
 }
 
+/* The refusal block: the sentence on its own line, then the paths it named as
+   fold rows beneath it — the commit receipt's one-file-per-row, inside the
+   band in the fold and inside the withheld candidate in the ledger. The rows
+   keep the fold's mono column; the sentence keeps the seat's own face. */
+.session-changes-join-refusal {
+  display: block;
+}
+
+.session-changes-join-refusal-sentence {
+  display: block;
+}
+
+.session-changes-join-refusal-paths {
+  display: block;
+  margin-block-start: var(--tug-space-2xs);
+}
+
 /* ---------------------------------------------------------------------------
    The brief section — what an arc would land
 
@@ -559,15 +576,17 @@
 }
 
 /* The subject, in prose: it is the one line the reader came for, and the one
-   line in the whole fold above `xs` ([B03]). It sits on the message well's own
-   inset so it shares a left edge with the summary under it. */
+   line the reader will sign, so it reads at the body size — the landing
+   scale's, the same size the summary under it and the composer beneath show
+   the words at ([B03]). It sits on the message well's own inset so it shares
+   a left edge with the summary under it. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .session-changes-arc-brief-subject {
   padding-inline-start: calc(
     var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
   );
   padding-block: var(--tug-space-xs) var(--tug-space-2xs);
-  font-size: var(--tug-font-size-sm);
+  font-size: var(--tug-font-size-md);
   font-weight: var(--tug-font-weight-medium);
   line-height: 1.4;
   color: var(--tug7-element-global-text-normal-default-rest);
@@ -607,7 +626,7 @@
 .session-changes-arc-draft-message {
   white-space: pre-line;
   font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-sm);
+  font-size: var(--tug-font-size-md);
   line-height: 1.5;
   color: var(--tug7-element-global-text-normal-default-rest);
   overflow-wrap: anywhere;

@@ -40,6 +40,7 @@ import { Check, GitCommitHorizontal, TriangleAlert } from "lucide-react";
 
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { BlockNoticeBand } from "@/components/tugways/blocks/block-notice";
+import { JoinRefusalBlock } from "@/components/tugways/cards/session-changes/session-changes-join-refusal";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import {
   ArcFoldCell,
@@ -382,6 +383,17 @@ function Body({
               <span className="arc-fold-path">{file.path}</span>
             </ArcFoldRow>
           ))}
+        </div>
+      );
+    case "refusal":
+      // The identity line said the sentence; the body is the paths as rows.
+      return (
+        <div className="session-changes-ledger-rows" data-slot="session-changes-arc-join-withheld">
+          <JoinRefusalBlock
+            detail={body.detail}
+            slot="session-changes-arc-join-withheld-refusal"
+            sentence={false}
+          />
         </div>
       );
   }

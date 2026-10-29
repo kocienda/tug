@@ -4,15 +4,25 @@
  * A finished arc raises a standing join offer, and the Session card answers it
  * by opening the Changes room armed — the entry the user would have made by
  * hand. That entry is unbidden, so it is fenced: it fires only at a quiet
- * moment, only once per piece of work, and only into a form that can show what it
- * opens.
+ * moment, only once per thing the arc needs, and only into a form that can
+ * show what it opens.
+ *
+ * **What it reveals on is attention, not an offer ([B04]).** The board
+ * publishes one attention fact per ready arc — its offer stands, its last
+ * resolve is stuck, or a question waits — under a key that moves when the
+ * reason does. A withdrawn candidate is the moment the decision becomes the
+ * user's, and that is exactly when the room opens; so the gate and the memory
+ * key on the attention key, and a new stuck line after a seen offer is new
+ * work to show.
  *
  * The predicate lives here, apart from the card, because it is the decision
  * rather than the plumbing. Every condition is a *dependency* of the effect
  * that calls it, never a peek at a ref — a deferral has to re-run on its own
- * when the turn settles, the composer empties, the shade closes, or the user
- * unfolds the card. Read as refs they would defer forever, since nothing would
- * wake the effect once the offer stopped changing.
+ * when the turn settles, the shade closes, or the user unfolds the card. Read
+ * as refs they would defer forever, since nothing would wake the effect once
+ * the attention stopped changing. A half-typed composer is not a hold ([B05]):
+ * text in the composer is not a reason to keep a ready join out of sight, and
+ * the effect had no reliable re-arm on it.
  *
  * **Folded is the condition this module was written for ([B06]).** The Changes
  * shade is a view swap over the top column, and on a settled folded card that
@@ -46,11 +56,11 @@
  * reader has seen this work", and a reveal that never happened showed them
  * nothing.
  *
- * **The key is the server's work id, never the arc head.** A base move replays
- * every ready arc's rounds onto the new base, which rewrites the head while
- * nobody did any work; the work id is minted from the rounds' count and
- * messages, which the replay keeps, so a neighbour's join does not read here
- * as new work and a new round still does.
+ * **The key is the board's attention key, never the arc head.** It is minted
+ * from the server's work id — the rounds' count and messages, which a base
+ * move's replay keeps, so a neighbour's join does not read here as new work
+ * and a new round still does — and from the reason the arc needs the user, so
+ * a stuck line or a question after a seen offer reads as new.
  *
  * @module lib/join-offer-reveal
  */
@@ -98,8 +108,6 @@ export interface JoinOfferRevealInput {
   readonly turnInFlight: boolean;
   /** Whether any landing is already up. */
   readonly anyLandingActive: boolean;
-  /** Whether the composer holds no user content. */
-  readonly composerEmpty: boolean;
   /** Whether a shade is already showing. */
   readonly shadeShowing: boolean;
   /** Whether the card wears the folded form ([P01], [P03]). */
@@ -113,7 +121,6 @@ export type JoinOfferRevealHold =
   | "folded"
   | "turn-in-flight"
   | "landing-active"
-  | "composer-busy"
   | "shade-showing";
 
 /**
@@ -130,7 +137,6 @@ export function joinOfferRevealHold(input: JoinOfferRevealInput): JoinOfferRevea
   if (input.folded) return "folded";
   if (input.turnInFlight) return "turn-in-flight";
   if (input.anyLandingActive) return "landing-active";
-  if (!input.composerEmpty) return "composer-busy";
   if (input.shadeShowing) return "shade-showing";
   return null;
 }
@@ -159,8 +165,6 @@ export function joinOfferRevealHoldSentence(hold: JoinOfferRevealHold | null): s
       return "opens when the turn finishes";
     case "landing-active":
       return "opens when this landing closes";
-    case "composer-busy":
-      return "opens when the composer is empty";
     case "shade-showing":
       return "opens when the shade closes";
     case "already-shown":
@@ -181,16 +185,16 @@ export interface JoinOfferRevealReceipt {
  *
  * The reveal effect runs on every dependency move, and most runs repeat the
  * last answer. A receipt per run would bury the one line that matters, so a
- * receipt is due only the first time a `(key, verdict, reason)` is seen. An
- * `already-shown` hold is never due: it is the room's memory, not a deferral —
- * the work has been shown in this room, by whichever door opened it.
+ * receipt is due only the first time a `(key, verdict, reason)` is seen.
+ * `already-shown` is due like the others ([B05]): it is the one answer that
+ * was silent, and "the shade did not reveal" has to be readable from the log
+ * when the reason is that the room showed this work already.
  */
 export class JoinOfferRevealReceipts {
   private readonly seen = new Set<string>();
 
   /** Whether this receipt is new and should be sent. Records it if so. */
   due(receipt: JoinOfferRevealReceipt): boolean {
-    if (receipt.reason === "already-shown") return false;
     const id = `${receipt.key}|${receipt.verdict}|${receipt.reason ?? "-"}`;
     if (this.seen.has(id)) return false;
     this.seen.add(id);
@@ -198,7 +202,7 @@ export class JoinOfferRevealReceipts {
   }
 }
 
-/** The offer standing for the bound arc: whose it is, and the key it is remembered by. */
+/** The attention standing for the bound arc: whose it is, and the key it is remembered by. */
 export interface StandingOffer {
   readonly ownerId: string;
   readonly key: string;
