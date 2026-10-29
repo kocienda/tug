@@ -242,6 +242,14 @@ export function SessionProjectPickerForm({
       return next;
     });
   }, []);
+  // Fold or unfold one group outright: the toggle that leaves `dir` the way
+  // asked, or none when it already is.
+  const setGroupExpanded = useCallback(
+    (dir: string, open: boolean): void => {
+      if (isExpanded(dir) !== open) toggleGroup(dir);
+    },
+    [isExpanded, toggleGroup],
+  );
 
   // The filter field's query — transient local UI state, never persisted.
   const [filterQuery, setFilterQuery] = useState("");
@@ -541,14 +549,45 @@ export function SessionProjectPickerForm({
   // Enter on a band folds or unfolds it, as a disclosure row's does. The list
   // captures Enter only while a band is the selection; on every other row it
   // falls through to the picker's default action, Open.
+  //
+  // ⌘← folds the selection's project and ⌘→ unfolds it, from the band or from
+  // any row inside it — Finder's list-view pair. Folding from inside the group
+  // hides the selected row, so the selection and the cursor move up onto the
+  // band, which keeps its index: it is above every row the fold removes. While
+  // a filter holds a query every matching group is shown open and the fold
+  // state is not what the reader sees, so the pair stands down.
   const onBand = selection?.kind === "group";
   const handleListKey = useCallback(
     (event: KeyboardEvent): boolean => {
-      if (event.key !== "Enter" || selection?.kind !== "group") return false;
-      toggleGroup(selection.projectDir);
+      if (event.key === "Enter") {
+        if (selection?.kind !== "group") return false;
+        toggleGroup(selection.projectDir);
+        return true;
+      }
+      const fold = event.key === "ArrowLeft";
+      if (
+        !(fold || event.key === "ArrowRight") ||
+        !event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey ||
+        filterQuery.trim() !== "" ||
+        selection === null ||
+        selection.kind === "other"
+      ) {
+        return false;
+      }
+      const dir = selection.projectDir;
+      setGroupExpanded(dir, !fold);
+      if (fold && selection.kind !== "group") {
+        const band: PickerSelection = { kind: "group", projectDir: dir };
+        setChosen(band);
+        const bandIndex = dataSource.indexOfId(pickerSelectionRowId(band));
+        if (bandIndex !== undefined) pickerListRef.current?.moveCursorTo(bandIndex);
+      }
       return true;
     },
-    [selection, toggleGroup],
+    [selection, toggleGroup, setGroupExpanded, filterQuery, dataSource],
   );
 
   const cellContextValue = useMemo(
