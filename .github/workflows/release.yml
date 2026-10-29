@@ -17,6 +17,12 @@ name: Stable Release
 # CFBundleVersion, and the version.sh-computed value (major*10000 + minor*100
 # + patch) is monotonic across semver bumps and derivable from the tag alone —
 # a CI run number would make update ordering depend on CI history.
+#
+# Three jobs. `full-lane` and `build` start together, because neither needs
+# the other: the tests take about as long as compiling, signing and
+# notarizing, and run end to end they made a release wait for the sum.
+# `publish` needs both, so a red full lane still keeps the release
+# unpublished — the build is thrown away, never shipped.
 
 on:
   workflow_dispatch:
@@ -25,18 +31,19 @@ permissions:
   contents: write
 
 jobs:
-  # The full lane runs first, and a red keeps the release unpublished.
+  # Runs beside `build`; a red keeps `publish` from running.
   full-lane:
     uses: ./.github/workflows/full-lane.yml
 
-  release:
-    needs: full-lane
+  build:
     # macos-26 and a pinned Xcode, for the same reason as nightly.yml: the
     # macOS 26 Speech APIs are not in the 15.5 SDK.
     runs-on: macos-26
     timeout-minutes: 120
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout code
@@ -194,16 +201,41 @@ jobs:
           xcodebuild -resolvePackageDependencies -project tugapp/Tug.xcodeproj -scheme Tug
           tugrust/scripts/make-appcast.sh "products/Tug-$VERSION.zip"
 
+      # The three files `publish` ships, handed over as one artifact.
+      - name: Upload the release products
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-products
+          path: |
+            products/Tug.dmg
+            products/Tug-${{ steps.version.outputs.version }}.zip
+            products/appcast.xml
+          if-no-files-found: error
+          retention-days: 7
+
+  # Ships what `build` made, and only once the full lane is green too.
+  publish:
+    needs: [full-lane, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Download the release products
+        uses: actions/download-artifact@v4
+        with:
+          name: release-products
+          path: products
+
       # target_commitish pins the tag to the commit this run checked out. Left
       # unset, a tag that does not exist yet is created at main's head when this
-      # step runs — eight minutes after the checkout, by which time a fix may
+      # step runs — many minutes after the checkout, by which time a fix may
       # have been pushed, and the tag then names a commit this run never built.
       - name: Publish the versioned release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
+          tag_name: v${{ needs.build.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: Tug ${{ steps.version.outputs.version }}
+          name: Tug ${{ needs.build.outputs.version }}
           files: products/Tug.dmg
           body: |
             To install, download `Tug.dmg`, open it, and drag Tug into your Applications folder.
@@ -220,7 +252,7 @@ jobs:
           name: Update Feed
           prerelease: true
           files: |
-            products/Tug-${{ steps.version.outputs.version }}.zip
+            products/Tug-${{ needs.build.outputs.version }}.zip
             products/appcast.xml
           body: |
             Sparkle update feed for Tug. This release is machinery, not a

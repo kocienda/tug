@@ -18,6 +18,11 @@
 # returns. Naming that is most of the feedback anybody needs: the wait is
 # expected, it is outside this repository, and it is not a hang.
 #
+# A run is three jobs: `full-lane` (the tests) and `build` (that step) run at
+# once, and `publish` follows when both are green. So a step is named with its
+# job — two jobs both have a `Set up job` — and the live line carries every
+# step in flight, one per job.
+#
 # A step is announced the moment it starts rather than when it ends. The
 # running step holds the last line of the terminal with a counter that ticks
 # every second, and settles in place into the same line carrying its final
@@ -89,8 +94,9 @@ URL="$(gh run view "$RUN_ID" --json url --jq '.url' 2>/dev/null || true)"
 echo "==> Watching run $RUN_ID"
 [ -n "$URL" ] && echo "    $URL"
 echo
-echo "    A release takes roughly eight minutes. Nearly all of it is one step:"
-echo "    building, signing and notarizing the DMG. Notarization waits on Apple."
+echo "    The full lane (the tests) and the build run side by side, and publishing"
+echo "    waits for both. The build is mostly signing and notarizing the DMG, and"
+echo "    notarization waits on Apple."
 echo
 
 WATCH_STARTED="$(date +%s)"
@@ -140,13 +146,14 @@ start_poll() {
     # reads as GitHub not answering rather than as a run that stopped having
     # steps.
     (
+        # shellcheck disable=SC2016  # `$job` is jq's variable, not the shell's.
         gh run view "$RUN_ID" --json status,conclusion,jobs --jq '
             def secs: if . == null then 0 else (try fromdateiso8601 catch 0) end;
             def nz: if . == null or . == "" then "-" else . end;
             (["RUN", .status, (.conclusion | nz)] | @tsv),
-            (.jobs[].steps[] | ["STEP", .status, (.conclusion | nz),
+            (.jobs[] | .name as $job | .steps[] | ["STEP", .status, (.conclusion | nz),
                (.startedAt | secs), (.completedAt | secs),
-               .name] | @tsv)' > "$POLL_DIR/part" 2>/dev/null
+               ($job | nz), .name] | @tsv)' > "$POLL_DIR/part" 2>/dev/null
         echo "$?" > "$POLL_DIR/rc"
         mv -f "$POLL_DIR/part" "$POLL_DIR/new"
     ) &
@@ -194,8 +201,8 @@ while :; do
 
     RUN_STATUS=""
     RUN_CONCLUSION=""
-    RUNNING_NAME=""
-    RUNNING_SINCE=0
+    # Every step in flight, one per running job, as `label<TAB>since<TAB>step`.
+    RUNNING=""
 
     # `nz` above is why no field here can be empty, and it is not optional. Tab
     # is IFS *whitespace*, so `read` collapses a run of tabs into one
@@ -205,7 +212,8 @@ while :; do
     # name lands in D and NAME comes out blank. `//` is no use against it,
     # since jq's alternative operator answers null and false and not "".
     # Any field added here needs the same treatment.
-    while IFS=$'\t' read -r KIND A B C D NAME; do
+    while IFS=$'\t' read -r KIND A B C D JOB STEP; do
+        NAME="$JOB › $STEP"
         case "$KIND" in
             RUN)
                 RUN_STATUS="$A"
@@ -223,13 +231,12 @@ while :; do
                             [ "$B" = "success" ] || MARK="✗"
                             [ "$B" = "skipped" ] && MARK="–"
                             clear_line
-                            printf '  %s %-48s %8s\n' \
+                            printf '  %s %-62s %8s\n' \
                                 "$MARK" "$NAME" "$(fmt_duration "$DUR")"
                             ;;
                     esac
                 elif [ "$A" = "in_progress" ]; then
-                    RUNNING_NAME="$NAME"
-                    RUNNING_SINCE="$C"
+                    [ "$C" -gt 0 ] && RUNNING="$RUNNING$NAME"$'\t'"$C"$'\t'"$STEP"$'\n'
                 fi
                 ;;
         esac
@@ -254,32 +261,37 @@ while :; do
         exit 1
     fi
 
-    # The in-flight step: announced on the first poll that sees it, then ticked
-    # once a second in the column the settled line will use, so the counter
-    # turns into the duration in place. This is the point of the whole script —
-    # a release that is working and a release that is wedged differ only in
-    # whether this number is moving.
-    if [ -n "$RUNNING_NAME" ] && [ "$RUNNING_SINCE" -gt 0 ]; then
-        ELAPSED=$((NOW - RUNNING_SINCE))
+    # The in-flight steps: each announced on the first poll that sees it, then
+    # ticked once a second, so a counter turns into its duration in place. This
+    # is the point of the whole script — a release that is working and a
+    # release that is wedged differ only in whether these numbers are moving.
+    # Two jobs run at once, so the live line holds one counter per job.
+    if [ -n "$RUNNING" ]; then
+        LINE=""
+        while IFS=$'\t' read -r RNAME RSINCE RSTEP; do
+            [ -n "$RNAME" ] || continue
+            case "$LIVE_NAME" in
+                *$'\n'"$RNAME"$'\n'*) ;;
+                *)
+                    NOTE="$(step_note "$RSTEP")"
+                    clear_line
+                    if [ "$TTY" -eq 1 ]; then
+                        [ -n "$NOTE" ] && printf '    (%s: %s)\n' "$RNAME" "$NOTE"
+                    else
+                        printf '  … %s\n' "$RNAME"
+                        [ -n "$NOTE" ] && echo "    ($NOTE)"
+                    fi
+                    LIVE_NAME="${LIVE_NAME:-$'\n'}$RNAME"$'\n'
+                    ;;
+            esac
+            [ -n "$LINE" ] && LINE="$LINE   "
+            LINE="$LINE… $RNAME $(fmt_duration $((NOW - RSINCE)))"
+        done <<< "$RUNNING"
         if [ "$TTY" -eq 1 ]; then
-            if [ "$LIVE_NAME" != "$RUNNING_NAME" ]; then
-                NOTE="$(step_note "$RUNNING_NAME")"
-                [ -n "$NOTE" ] && printf '    (%s: %s)\n' "$RUNNING_NAME" "$NOTE"
-                LIVE_NAME="$RUNNING_NAME"
-            fi
-            printf '\033[2K\r  … %-48s %8s' \
-                "$RUNNING_NAME" "$(fmt_duration "$ELAPSED")"
-        else
-            if [ "$LIVE_NAME" != "$RUNNING_NAME" ]; then
-                NOTE="$(step_note "$RUNNING_NAME")"
-                printf '  … %-48s %8s\n' "$RUNNING_NAME" "$(fmt_duration "$ELAPSED")"
-                [ -n "$NOTE" ] && echo "    ($NOTE)"
-                LIVE_NAME="$RUNNING_NAME"
-                LIVE_PRINTED="$NOW"
-            elif [ $((NOW - LIVE_PRINTED)) -ge 30 ]; then
-                printf '  … %-48s %8s\n' "$RUNNING_NAME" "$(fmt_duration "$ELAPSED")"
-                LIVE_PRINTED="$NOW"
-            fi
+            printf '\033[2K\r  %s' "$LINE"
+        elif [ $((NOW - LIVE_PRINTED)) -ge 30 ]; then
+            printf '  %s\n' "$LINE"
+            LIVE_PRINTED="$NOW"
         fi
     fi
 
