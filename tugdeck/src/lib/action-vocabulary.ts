@@ -1165,8 +1165,18 @@ export const TUG_ACTIONS = {
   SET_COLUMN_MODE:        "set-column-mode",
   // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally
   //                  again, keeping the slot's mode and member order. Its
-  //                  door is the stack badge menu.
+  //                  doors are the stack badge menu and Equalize Heights.
   EQUALIZE_COLUMN:        "equalize-column",
+  // EQUALIZE_HEIGHTS: payload — none. ⌃⌘E and View ▸ Equalize Heights.
+  //                   Equalize the column the layout selection's card stands
+  //                   in — the slot ⌃⌘/ resolves — by handing its slot to
+  //                   EQUALIZE_COLUMN.
+  EQUALIZE_HEIGHTS:       "equalize-heights",
+  // EQUALIZE_ALL_HEIGHTS: payload — none. ⌥⇧⌘E and View ▸ Equalize All
+  //                       Heights. Every split column on the deck divided
+  //                       equally again, in one commit. Rails are not
+  //                       columns; Resize Sidebars to Fit is theirs.
+  EQUALIZE_ALL_HEIGHTS:   "equalize-all-heights",
   // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌥⇧⌘S and View ▸ Resize Sidebars
   //                         to Fit. Stand every rail's cards at the heights
   //                         their content asks for, once, and write the

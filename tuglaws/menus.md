@@ -190,6 +190,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘A | `claim-all-changes` | Claim All Changes | JS, responder |
 | ⌃⌘B | `toggle-bullseye` | Bullseye | menu bar (swept) |
 | ⌃⌘C | `toggle-changes-view` | Show Session Changes | JS, global |
+| ⌃⌘E | `equalize-heights` | Equalize Heights | menu bar (swept) |
 | ⌃⌘F | `toggle-full-screen` | Enter Full Screen | menu bar (AppKit's own) |
 | ⌃⌘H | `toggle-history-view` | Show Commit History | JS, global |
 | ⌃⌘I | `run-slash-command:ai` | AI Settings… | menu bar (swept) |
@@ -253,6 +254,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌘} | `next-tab` | Next Card | JS, global |
 | ⌥⇥ | `cycle-focus-mode` | Cycle Focus Mode | JS, global |
 | ⌥⇧⌘C | `copy-as-plain-text` | Copy as Plain Text | JS, global |
+| ⌥⇧⌘E | `equalize-all-heights` | Equalize All Heights | menu bar (swept) |
 | ⌥⇧⌘S | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
 | ⌥⇧⌘V | `paste-as-plain-text` | Paste as Plain Text | JS, global |
 | ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
@@ -390,6 +392,8 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `view.cardWidth.slim` | `set-pane-width:slim` | first responder | registry gate |
 | `view.cardWidth.wide` | `set-pane-width:wide` | first responder | registry gate |
 | `view.enterFullScreen` | `toggle-full-screen` | AppKit performs it | host tier |
+| `view.equalizeAllHeights` | `equalize-all-heights` | registered handler | registry gate |
+| `view.equalizeHeights` | `equalize-heights` | first responder | registry gate |
 | `view.foldCard` | `toggle-card-fold` | first responder | registry gate |
 | `view.keyboardFocus` | `cycle-focus-mode` | registered handler | host tier |
 | `view.nextKeyboardFocus` | `next-keyboard-focus` | registered handler | host tier |

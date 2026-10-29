@@ -98,6 +98,7 @@ import {
   columnMoveOrder,
   deckColumnsOf,
   deckFlowStrip,
+  equalizableSlotsOf,
   findSidebarPanes,
   isSidebarParked,
   railMembersToPark,
@@ -3755,6 +3756,28 @@ export class DeckManager implements IDeckManagerStore {
         imposition,
         slot,
         Object.fromEntries(members.map((paneId) => [paneId, 1])),
+      ),
+    );
+  }
+
+  /** Divide every split column's run equally again — View ▸ Equalize All
+   *  Heights. Each slot gets exactly what {@link equalizeColumn} would write,
+   *  composed into ONE imposition, so the deck commits once and an undo takes
+   *  every column back together. Rails are not columns and are untouched. */
+  equalizeAllColumns(): void {
+    const slots = equalizableSlotsOf(this.deckState);
+    if (slots.length === 0) return;
+    this._reimpose(
+      slots.reduce(
+        (imposition, slot) =>
+          withColumnShares(
+            imposition,
+            slot,
+            Object.fromEntries(
+              columnMembersOf(this.deckState, slot).map((paneId) => [paneId, 1]),
+            ),
+          ),
+        this.deckState.imposition,
       ),
     );
   }

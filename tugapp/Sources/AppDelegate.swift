@@ -1222,6 +1222,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("toggle-rail", params: ["value": side])
     }
 
+    /// View ▸ Equalize Heights. Carries nothing: which column divides is the
+    /// frontend's answer, resolved from the layout selection as ⌃⌘/ resolves
+    /// it, and the item is dark when that column has no division to write.
+    @objc func equalizeHeights(_ sender: Any) {
+        sendControl("equalize-heights")
+    }
+
+    /// View ▸ Equalize All Heights. Every split column on the deck divided
+    /// equally again, in one commit; the rails are not columns.
+    @objc func equalizeAllHeights(_ sender: Any) {
+        sendControl("equalize-all-heights")
+    }
+
     /// View ▸ Resize Sidebars to Fit. One run of the rails' only remaining
     /// vertical algorithm: each card is stood at the height its content asks
     /// for, and the result is kept as the hand's own division from there on.

@@ -583,6 +583,23 @@ export function columnMembersOf(
   return effectiveColumnOrder(state.imposition, slot, [...standing].sort());
 }
 
+/** The slots Equalize Heights has something to do in: split, with two or more
+ *  members standing. A stacked slot draws every member over the same run, and
+ *  a lone member takes the whole of it, so neither has a division to write —
+ *  the same rule {@link DeckManager.equalizeColumn} refuses on. Ascending. */
+export function equalizableSlotsOf(state: DeckState): readonly number[] {
+  const kind = state.imposition.kind;
+  if (kind === undefined) return [];
+  const bySlot = columnStandingBySlot(state, kind);
+  return [...bySlot.keys()]
+    .filter(
+      (slot) =>
+        columnModeOf(state.imposition, slot) === "split" &&
+        (bySlot.get(slot)?.length ?? 0) >= 2,
+    )
+    .sort((a, b) => a - b);
+}
+
 /**
  * The runs the deck's two kinds of place divide, measured — the pair every
  * allocation is derived against ([P06]).

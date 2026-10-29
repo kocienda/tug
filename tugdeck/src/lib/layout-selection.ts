@@ -31,7 +31,7 @@
  */
 
 import { isSidebarCard } from "@/card-registry";
-import { columnMoveOrder } from "@/deck-store-selectors";
+import { columnMembersOf, columnMoveOrder } from "@/deck-store-selectors";
 import { clampSlot, columnModeOf } from "@/lib/layout-imposer";
 import type { ColumnMode } from "@/lib/layout-imposer";
 import {
@@ -93,7 +93,12 @@ function contentCardsAmong(
 export function resolveColumnMenuFact(
   deck: CardDeck,
   selection: CardsSelectionStore = cardsSelectionStore,
-): { mode: ColumnMode; canMoveUp: boolean; canMoveDown: boolean } | null {
+): {
+  mode: ColumnMode;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  canEqualize: boolean;
+} | null {
   const cardIds = contentCardsAmong(deck, resolveLayoutSelection(deck, selection));
   if (cardIds.length === 0) return null;
   const state = deck.getSnapshot();
@@ -103,15 +108,21 @@ export function resolveColumnMenuFact(
   const slot = clampSlot(state.imposition.kind, host.slot);
   const order = columnMoveOrder(state, host.id);
   const at = order.indexOf(host.id);
+  const mode = columnModeOf(state.imposition, slot);
   return {
     // The arrangement the slot is SET to, which is what the toggle inverts —
     // never what the geometry happens to be drawing. A lone member draws
     // across the whole slot whichever mode it stands under, so reading the
     // drawing would make the menu name the wrong verb for a split place that
     // has not been joined yet.
-    mode: columnModeOf(state.imposition, slot),
+    mode,
     canMoveUp: at > 0,
     canMoveDown: at !== -1 && at < order.length - 1,
+    // Equalize Heights writes a division, so it needs one to write: a split
+    // slot with two members standing. The badge offers the row on the same
+    // terms, and `equalizeColumn` refuses on them.
+    canEqualize:
+      mode === "split" && columnMembersOf(state, slot).length >= 2,
   };
 }
 

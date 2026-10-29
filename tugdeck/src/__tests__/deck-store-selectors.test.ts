@@ -15,6 +15,7 @@ import {
   columnBadgeFactsOf,
   deckColumnsOf,
   deckFlowStrip,
+  equalizableSlotsOf,
   isFocusDestination,
   isUnboundMember,
   paneFoldedOf,
@@ -423,6 +424,53 @@ describe("deckColumnsOf", () => {
     );
     expect(columns.map((c) => c.slot)).toEqual([2]);
     expect(columns[0].members.length).toBe(2);
+  });
+});
+
+describe("equalizableSlotsOf", () => {
+  function deck(
+    slots: Record<string, number>,
+    columns: DeckState["imposition"]["columns"],
+  ): DeckState {
+    const ids = Object.keys(slots);
+    return {
+      cards: ids.map((id) => makeCard(`card-${id}`)),
+      panes: ids.map((id) => ({
+        ...makePane(id, [`card-${id}`], `card-${id}`),
+        slot: slots[id],
+      })),
+      imposition: {
+        kind: "three-up",
+        sidebars: { dashes: { side: "right" } },
+        columns,
+      },
+      hasFocus: true,
+    };
+  }
+
+  test("only split slots with two or more members have a division to write", () => {
+    const state = deck(
+      // Slot 0: split, two deep. Slot 1: split, one deep. Slot 2: stacked,
+      // two deep.
+      { a: 0, b: 0, c: 1, d: 2, e: 2 },
+      { 0: { mode: "split" }, 1: { mode: "split" } },
+    );
+    expect(equalizableSlotsOf(state)).toEqual([0]);
+  });
+
+  test("every qualifying slot, ascending", () => {
+    const state = deck(
+      { a: 2, b: 2, c: 0, d: 0 },
+      { 0: { mode: "split" }, 2: { mode: "split" } },
+    );
+    expect(equalizableSlotsOf(state)).toEqual([0, 2]);
+  });
+
+  test("a free deck has none", () => {
+    const state = deck({ a: 0, b: 0 }, { 0: { mode: "split" } });
+    expect(
+      equalizableSlotsOf({ ...state, imposition: { sidebars: {} } }),
+    ).toEqual([]);
   });
 });
 

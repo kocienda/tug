@@ -209,6 +209,13 @@ export interface CommandMenuFacts {
    */
   readonly reachableSlots: number;
   /**
+   * How many columns are split with two or more members standing — the slots
+   * Equalize All Heights would divide. Like {@link reachableSlots} it takes no
+   * selection gate: the verb is about the whole deck, so a deselected deck can
+   * still be equalized.
+   */
+  readonly equalizableColumns: number;
+  /**
    * What the column verbs could do to the card the layout selection resolves
    * to. `null` when none does — nothing selected, no cursor in the Cards list,
    * no content card fronted, or a deck with no imposition to hold a column.
@@ -225,6 +232,7 @@ export interface CommandMenuFacts {
     readonly mode: ColumnMode;
     readonly canMoveUp: boolean;
     readonly canMoveDown: boolean;
+    readonly canEqualize: boolean;
   } | null;
   /**
    * Whether a directional focus move would act, per direction. `null` when none
@@ -333,6 +341,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   bullseye: null,
   cardFold: null,
   reachableSlots: 0,
+  equalizableColumns: 0,
   column: null,
   focusTravel: null,
   sidebars: {},
@@ -2318,6 +2327,63 @@ export const COMMANDS: readonly CommandEntry[] = [
   ...SLOT_COMMANDS,
   ...NUDGE_SLOT_COMMANDS,
   ...COLUMN_SPLIT_COMMANDS,
+  // ⌃⌘E — Equalize Heights: divide the column the layout selection's card
+  // stands in equally again, the stack badge's row of the same name given a
+  // chord and a View menu row of its own.
+  //
+  // **The tier, derived** (tuglaws/chord-tiers.md): a column's division is
+  // layout vocabulary, the tier ⌃⌘/ Split or Stack Column already holds for
+  // the same slot. E for *Equalize*, an initial, on a letter the tier had free
+  // and macOS reserves nothing on.
+  //
+  // Routed first-responder and answered by the deck canvas, for ⌃⌘/'s reason:
+  // which slot is meant is the layout selection's answer, and the canvas is
+  // where that ladder is walked. Gated on `column.canEqualize` — a split slot
+  // with two members standing — which resolves the same ladder, so the row is
+  // live exactly when the chord would act. `disabledChord: "keep"`, as the
+  // rest of the column family: nothing else in the funnel wants ⌃⌘E.
+  {
+    id: TUG_ACTIONS.EQUALIZE_HEIGHTS,
+    title: "Equalize Heights",
+    routing: "first-responder",
+    menuItemId: "view.equalizeHeights",
+    mirrored: true,
+    disabledChord: "keep",
+    bindings: [
+      chord(
+        { key: "KeyE", ctrl: true, meta: true, label: "e" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    validate: (chain) => chain.menu.column?.canEqualize === true,
+  },
+  // ⌥⇧⌘E — Equalize All Heights: every split column on the deck divided
+  // equally again, in one commit. Rails are not columns and take no part;
+  // Resize Sidebars to Fit is their verb.
+  //
+  // **A grant with a reading, on the shape ⌃⌘S / ⌥⇧⌘S already makes** —
+  // the key is the constant and ⌥⇧⌘ is the deck-wide form. ⌃⇧⌘E is where the
+  // algebra would put a counterpart, and ⌃⇧⌘ on the left of the board is the
+  // hand shape the user does not form ("A chord has to be typable").
+  //
+  // Routed through the registry: the verb names no card, so there is no
+  // selection to resolve. Gated on the deck-wide `equalizableColumns` count,
+  // which takes no selection gate either.
+  {
+    id: TUG_ACTIONS.EQUALIZE_ALL_HEIGHTS,
+    title: "Equalize All Heights",
+    routing: "registry",
+    menuItemId: "view.equalizeAllHeights",
+    mirrored: true,
+    disabledChord: "keep",
+    bindings: [
+      chord(
+        { key: "KeyE", meta: true, alt: true, shift: true, label: "e" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    validate: (chain) => chain.menu.equalizableColumns > 0,
+  },
   // ⌃⌘S — Hide Sidebars / Show Sidebars: take both of the deck's edges away,
   // or put back what the last press took ({@link toggleSidebars}).
   //

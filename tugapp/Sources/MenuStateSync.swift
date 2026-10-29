@@ -261,6 +261,19 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
         // writes ⌃⌘Y from the frontend's keymap.
         menu.addItem(NSMenuItem(title: "Fold Card", action: #selector(AppDelegate.toggleCardFold(_:)), keyEquivalent: "").identified("view.foldCard"))
 
+        // The two verbs about a column's DIVISION: one equalizes the column
+        // the layout selection stands in, the other every split column on the
+        // deck. Between the card postures above and the rail verbs below,
+        // because a column is neither one card nor a sidebar. ⌃⌘E and ⌥⇧⌘E —
+        // the same key twice, the shape the sidebar pair below makes on S.
+        //
+        // Key equivalents left EMPTY as everywhere in this file:
+        // `applyCommandChords` writes both from the frontend's keymap. Each is
+        // dark when it has no division to write, by its registry gate.
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Equalize Heights", action: #selector(AppDelegate.equalizeHeights(_:)), keyEquivalent: "").identified("view.equalizeHeights"))
+        menu.addItem(NSMenuItem(title: "Equalize All Heights", action: #selector(AppDelegate.equalizeAllHeights(_:)), keyEquivalent: "").identified("view.equalizeAllHeights"))
+
         // The two verbs about the rails AS RAILS, above the card rows they
         // act on: one takes both sides away and brings them back, the other
         // stands the cards left on them at their content heights. They read as

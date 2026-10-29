@@ -441,7 +441,12 @@ describe("computeCommandCapabilities", () => {
     // split it" — the two surfaces contradicting each other over one slot.
     const stacked = computeCommandCapabilities(
       source(chain, {
-        column: { mode: "stack", canMoveUp: false, canMoveDown: false },
+        column: {
+          mode: "stack",
+          canMoveUp: false,
+          canMoveDown: false,
+          canEqualize: false,
+        },
       }),
     );
     expect(stacked["window.columnSplit"].enabled).toBe(true);
@@ -450,17 +455,38 @@ describe("computeCommandCapabilities", () => {
     // nowhere to go, and that refusal is what `disabledChord: "keep"` beeps.
     expect(stacked["window.columnMoveUp"].enabled).toBe(false);
     expect(stacked["window.columnMoveDown"].enabled).toBe(false);
+    // A stack has no division, so Equalize Heights is dark over it.
+    expect(stacked["view.equalizeHeights"].enabled).toBe(false);
 
     // The same row over a split place, saying the way back.
     const split = computeCommandCapabilities(
       source(chain, {
-        column: { mode: "split", canMoveUp: true, canMoveDown: false },
+        column: {
+          mode: "split",
+          canMoveUp: true,
+          canMoveDown: false,
+          canEqualize: true,
+        },
       }),
     );
     expect(split["window.columnSplit"].enabled).toBe(true);
     expect(split["window.columnSplit"].title).toBe("Stack Column");
     expect(split["window.columnMoveUp"].enabled).toBe(true);
     expect(split["window.columnMoveDown"].enabled).toBe(false);
+    expect(split["view.equalizeHeights"].enabled).toBe(true);
+  });
+
+  test("Equalize All Heights is gated on the deck's count, not the selection", () => {
+    const chain = new ResponderChainManager();
+    const none = computeCommandCapabilities(source(chain));
+    expect(none["view.equalizeAllHeights"].enabled).toBe(false);
+    // No selection resolves (`column: null`) and the row is still live: the
+    // verb is about every column on the deck.
+    const some = computeCommandCapabilities(
+      source(chain, { column: null, equalizableColumns: 2 }),
+    );
+    expect(some["view.equalizeAllHeights"].enabled).toBe(true);
+    expect(some["view.equalizeHeights"].enabled).toBe(false);
   });
 
   test("the card-width radio checks the stamped preset, and none at a dragged width", () => {

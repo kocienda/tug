@@ -42,7 +42,7 @@ Composed sets are never assigned fresh — each one *means* its composition, and
 
 | Set | Reading |
 |---|---|
-| ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). On the bracket row it is the slot nudge ⌥⇧⌘[/], both twists of the lateral ring; on the arrow row it is free in full, and recorded free rather than spent ([D184]). It also holds the one chord the hand chose rather than the algebra: Resize Sidebars to Fit ⌥⇧⌘S, recorded under "A chord has to be typable" below. |
+| ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). On the bracket row it is the slot nudge ⌥⇧⌘[/], both twists of the lateral ring; on the arrow row it is free in full, and recorded free rather than spent ([D184]). It also holds the chords the hand chose rather than the algebra: Resize Sidebars to Fit ⌥⇧⌘S and Equalize All Heights ⌥⇧⌘E, recorded under "A chord has to be typable" below. |
 | ⌃⇧⌘ | The counterpart of a Tug-tier command. Disclaim All ⌃⇧⌘A, against Claim All ⌃⌘A — the same key, the opposite bulk verb of the Changes shade ([D175]). |
 | ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. **Unavailable for new grants, and down to one resident.** The set is spoken for outside Tug, recorded below. Cycle Permission Mode ⌃⌥⌘P is what is left, since permission modes govern agent autonomy, the quintessential expert feature; it is the tier's debut resident and now its only one. Resize Sidebars to Fit sat here, on ⌃⌥⌘R and then ⌃⌥⌘S, and left when both were found to be keys the tier's outside claimant already holds. The tier briefly held the Changes shade's bulk verbs; [D175] returned those to the tiers [D126] derived for them. |
 
@@ -355,13 +355,15 @@ The bracket keys carry three commands, and they carry the same axis in all three
 
 ## The split family
 
-A slot holds a run of vertical space, and the cards standing in it either take turns in that run or divide it. Five chords say so: one that decides which, and four that move a card within it.
+A slot holds a run of vertical space, and the cards standing in it either take turns in that run or divide it. Seven chords say so: one that decides which, four that move a card within it, and two that divide the run equally again.
 
 | Command | Chord | Derivation |
 |---|---|---|
 | `toggle-column-split` | **⌃⌘/** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the Go to Slot row, ⌃⌘B Bullseye and the ⌃⌘←/→ rail pair. The slash is the division sign, which is what the verb does to a slot — a glyph rather than an initial, and only ⌘/ and ⌥⌘/ exist on that key. It held **⌃⌘S** until Hide Sidebars took the letter as its own initial. |
 | `move-in-column:up` / `:down` | **⌃⌘↑ / ⌃⌘↓** | R1's base pair on the vertical axis, in the tier that owns the slot. Arrows are R1-exempt under R2. |
 | `move-in-column:top` / `:bottom` | **⌃⇧⌘↑ / ⌃⇧⌘↓** | The counterpart set of the ⌃⌘ base: top and bottom are the ⇧-extreme of up and down, exactly the shape ⌃⇧⌘[/] First/Last Turn has one key class over. |
+| `equalize-heights` | **⌃⌘E** | Tug tier, beside ⌃⌘/ on the same slot: a column's division is layout vocabulary. E for *Equalize*, an initial, on a letter the tier had free and macOS reserves nothing on. |
+| `equalize-all-heights` | **⌥⇧⌘E** | A grant with a reading rather than a derivation ("A chord has to be typable"), on the shape ⌃⌘S / ⌥⇧⌘S already makes: the key is the constant and ⌥⇧⌘ is the deck-wide form. ⌃⇧⌘E is where the algebra puts the counterpart; the hand would not form it. |
 
 **Why ⌃⌘ arrows are available.** The macOS never-bind list reserves *plain* ⌃-arrows for Spaces and Mission Control — not the ⌘ composition. The vertical pair was unbound in Tug when this family took it, and the horizontal pair was still unbound when the rail promotion took that; all four are spent now, and the tier's arrows are a closed set. Checked against the registry rather than assumed in both cases, and pinned by the routing-drift guard, which fails on any chord the table gains without being declared.
 
@@ -372,6 +374,8 @@ A slot holds a run of vertical space, and the cards standing in it either take t
 That last sentence is the whole cost of a promotion and it applies to this family too: ⌃⌘/ and the ⌃⌘ arrows now leave the JS funnel and are claimed globally by the menu bar, above every surface — including a text editor's caret. `disabledChord: "keep"`, as the Go to Slot row does: nothing else in the funnel wants these chords, so there is nothing for a detach to hand them back to.
 
 **Refusal is visible.** ⌃⌘/ on a slot holding one card has nothing to divide, and a member already at the end it was sent to has nowhere to go; both flash the pane's border rather than returning quietly. A chord that does nothing and says nothing cannot be told from a chord that never arrived.
+
+**The equalize pair lives in View, not Window**, in its own section between the card postures and the sidebar verbs, because a column's division is neither one card nor a rail. ⌃⌘E resolves the same ladder ⌃⌘/ does and is gated on `menu.column.canEqualize` — a split slot with two members standing, the terms the stack badge offers *Equalize Heights* on. ⌥⇧⌘E names no card, so it takes no selection gate: it is live whenever any column on the deck is split two deep, and it writes every one of them in a single commit. Rails are not columns and take no part; Resize Sidebars to Fit is theirs.
 
 ## The sidebar verbs
 

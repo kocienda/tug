@@ -1179,6 +1179,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.NUDGE_SLOT,
   TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
   TUG_ACTIONS.MOVE_IN_COLUMN,
+  TUG_ACTIONS.EQUALIZE_HEIGHTS,
   TUG_ACTIONS.SET_PANE_WIDTH,
   TUG_ACTIONS.TOGGLE_BULLSEYE,
   TUG_ACTIONS.TOGGLE_CARD_FOLD,
@@ -2522,6 +2523,26 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           slot,
           mode: column.mode === "split" ? "stack" : "split",
         });
+      },
+      // ⌃⌘E — equalize the column the layout selection stands in. The same
+      // resolution as ⌃⌘/ above: the selection's FIRST card, its pane's slot.
+      // A slot with no division to write — stacked, or one card deep — flashes
+      // the pane rather than returning quietly; the menu row is dark there,
+      // so only a chord whose gate has not caught up yet can reach it.
+      [TUG_ACTIONS.EQUALIZE_HEIGHTS]: () => {
+        const state = store.getSnapshot();
+        if (state.imposition.kind === undefined) return;
+        const cardIds = contentCardsInLayoutSelection(store);
+        if (cardIds.length === 0) return;
+        const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
+        if (host?.slot === undefined) return;
+        const slot = clampSlot(state.imposition.kind, host.slot);
+        const column = deckColumnsOf(state, null).find((c) => c.slot === slot);
+        if (column?.mode !== "split" || column.members.length < 2) {
+          flashCardPane(store, cardIds[0]);
+          return;
+        }
+        dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot });
       },
       // ⌃⌘↑/↓ and ⌃⇧⌘↑/↓ — move the resolved card within its own column. What
       // "up" means is the store's to decide, not the chord's: split, it is the

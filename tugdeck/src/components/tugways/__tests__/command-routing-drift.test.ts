@@ -349,6 +349,8 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "toggle-rail": { bridgeFor: TUG_ACTIONS.TOGGLE_RAIL },
   "toggle-sidebars": "command",
   "resize-sidebars-to-fit": "command",
+  "equalize-heights": "command",
+  "equalize-all-heights": "command",
   // A command in its own right rather than a bridge, though the Window
   // menu's per-card rows do carry per-value entries: the wire's handler
   // takes the card and the side out of one payload, and the Layout card's
@@ -628,6 +630,12 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // delivered, and ⌃⇧⌘S briefly, which the hand would not form.
   ["⌃⌘S", TUG_ACTIONS.TOGGLE_SIDEBARS],
   ["⌥⇧⌘S", TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT],
+  // The column's division, on the same key-twice shape: ⌃⌘E equalizes the
+  // column the selection stands in — E for *Equalize*, on the layout tier
+  // beside ⌃⌘/ — and ⌥⇧⌘E every split column, the deck-wide form on the set
+  // ⌥⇧⌘S already reads as one. ⌃⇧⌘E is the hand shape the user declines.
+  ["⌃⌘E", TUG_ACTIONS.EQUALIZE_HEIGHTS],
+  ["⌥⇧⌘E", TUG_ACTIONS.EQUALIZE_ALL_HEIGHTS],
 ];
 
 /** The map as it reads today: transcription, minus retirements, plus moves and additions. */

@@ -29,7 +29,12 @@
 
 import type { DeckState } from "../layout-tree";
 import { NO_SPACES, spaceThemesDiffer, type SpacesSnapshot } from "../spaces";
-import { bullseyePaneIdOf, isSidebarStanding, slotStackOf } from "../deck-store-selectors";
+import {
+  bullseyePaneIdOf,
+  equalizableSlotsOf,
+  isSidebarStanding,
+  slotStackOf,
+} from "../deck-store-selectors";
 import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
@@ -661,6 +666,12 @@ export interface MenuStateDeckProjection {
    */
   reachableSlots: number;
   /**
+   * How many split columns have two or more members standing. Gates View ▸
+   * Equalize All Heights. Module-internal: the mirror carries the gates, so
+   * this never rides the wire.
+   */
+  equalizableColumns: number;
+  /**
    * Every registered sidebar card, keyed by component id. Gates and marks the
    * View menu's per-card rows. Module-internal: the mirror carries the
    * gates, so this never rides the wire.
@@ -916,6 +927,9 @@ export function projectDeckState(
     bullseye,
     cardFold,
     reachableSlots,
+    // Like the slot count, a fact about the arrangement and not the
+    // selection: Equalize All Heights acts on every column.
+    equalizableColumns: equalizableSlotsOf(state).length,
     sidebars,
   };
 }
@@ -964,6 +978,7 @@ export class HostMenuStatePublisher {
     bullseye: null,
     cardFold: null,
     reachableSlots: 0,
+    equalizableColumns: 0,
     sidebars: {},
   };
   /**
@@ -1215,6 +1230,7 @@ export class HostMenuStatePublisher {
       bullseye,
       cardFold,
       reachableSlots,
+      equalizableColumns,
       sidebars,
     } = this.deckProjection;
     const session =
@@ -1278,6 +1294,7 @@ export class HostMenuStatePublisher {
           ? null
           : cardFold,
       reachableSlots,
+      equalizableColumns,
       sidebars,
       column: this.columnFactSource?.() ?? null,
       focusTravel: this.focusTravelFactSource?.() ?? null,

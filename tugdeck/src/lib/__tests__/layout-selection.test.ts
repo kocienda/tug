@@ -139,6 +139,7 @@ describe("resolveColumnMenuFact", () => {
       mode: "stack",
       canMoveUp: false,
       canMoveDown: false,
+      canEqualize: false,
     });
   });
 
@@ -156,12 +157,15 @@ describe("resolveColumnMenuFact", () => {
       mode: "split",
       canMoveUp: true,
       canMoveDown: false,
+      // Split and two deep: a division to write.
+      canEqualize: true,
     });
     cardsSelectionStore.pickOnly("card-b");
     expect(resolveColumnMenuFact(storeOver(state))).toEqual({
       mode: "split",
       canMoveUp: false,
       canMoveDown: true,
+      canEqualize: true,
     });
   });
 
@@ -174,6 +178,8 @@ describe("resolveColumnMenuFact", () => {
       mode: "stack",
       canMoveUp: false,
       canMoveDown: true,
+      // Stacked members share one rect; there is no division to equalize.
+      canEqualize: false,
     });
   });
 });

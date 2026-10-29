@@ -996,6 +996,19 @@ function wireActionDispatch(
     deckManager.equalizeColumn(slot);
   });
 
+  // equalize-heights: ⌃⌘E and View ▸ Equalize Heights. Selection-relative,
+  // so the round-trip through `dispatchCommand` puts "which slot" on the
+  // canvas, where the chord lands too — the shape toggle-column-split takes.
+  registerAction(TUG_ACTIONS.EQUALIZE_HEIGHTS, () => {
+    dispatchCommand(TUG_ACTIONS.EQUALIZE_HEIGHTS);
+  });
+
+  // equalize-all-heights: ⌥⇧⌘E and View ▸ Equalize All Heights. Every split
+  // column at once; it names no card, so nothing needs resolving.
+  registerAction(TUG_ACTIONS.EQUALIZE_ALL_HEIGHTS, () => {
+    deckManager.equalizeAllColumns();
+  });
+
   // resize-sidebars-to-fit: stand every rail's cards at the heights their
   // content asks for, once. Dispatched by ⌥⇧⌘S and the View menu row, and
   // by nothing else — the result is a division like any the hand makes, and
