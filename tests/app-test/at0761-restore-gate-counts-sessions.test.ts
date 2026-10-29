@@ -1,7 +1,7 @@
 /**
  * at0761-restore-gate-counts-sessions.test.ts — the restore gate counts
  * sessions, over a total fixed when it opens, and one session shows a
- * spinner.
+ * barber-pole bar.
  *
  * ## What this gates
  *
@@ -11,11 +11,11 @@
  * then ran backwards. It now counts sessions: "Restoring sessions" over
  * "n of N sessions", where N is fixed when the gate opens — the cards the
  * restore pass is resuming plus the cards holding then — and n only rises.
- * A single session shows a spinner and no count. This file pins what the
+ * A single session shows a barber-pole bar and no count. This file pins what the
  * user sees:
  *
  *   1. one session resumed: every open frame totals 1, says "Restoring
- *      session", shows a spinner and no "n of m";
+ *      session", shows a barber-pole bar and no "n of m";
  *   2. three sessions resumed by the real restore pass a workspace switch
  *      runs: every open frame totals 3, the done count never falls, the
  *      title is "Restoring sessions" with no number and nothing about turns.
@@ -32,7 +32,7 @@
  * have mounted and the gate is down, since the gate may close between staged
  * pages and reopen on the same round. A `MutationObserver` in the overlay page, where
  * the gate is drawn, records the gate's `data-sessions-*` attributes, its
- * title, whether it shows a spinner, and its text on every change. The count
+ * title, whether it shows a barber pole, and its text on every change. The count
  * is read from the attributes only: the bar's readout keeps a full-scale
  * width ghost ("3 of 3 sessions") in its text, and a done of 0 draws no
  * readout at all.
@@ -211,13 +211,13 @@ interface Rec {
   done: number | null;
   total: number | null;
   title: string | null;
-  spinner: boolean;
+  pole: boolean;
   text: string | null;
 }
 
 /**
  * The gate's recorder, in the overlay page. Logs a record whenever what the
- * gate shows changes — present or not, its counts, its title, its spinner,
+ * gate shows changes — present or not, its counts, its title, its pole,
  * its text — so the log is the sequence of frames the user could have seen.
  */
 const INSTALL_RECORDER = `(function(){
@@ -225,14 +225,14 @@ const INSTALL_RECORDER = `(function(){
   var lastKey = null;
   var read = function(){
     var g = document.querySelector(${JSON.stringify(GATE)});
-    if (g === null) return { open: false, done: null, total: null, title: null, spinner: false, text: null };
+    if (g === null) return { open: false, done: null, total: null, title: null, pole: false, text: null };
     var title = g.querySelector(".tug-alert-title");
     return {
       open: true,
       done: Number(g.getAttribute("data-sessions-done")),
       total: Number(g.getAttribute("data-sessions-total")),
       title: title === null ? null : title.textContent,
-      spinner: g.querySelector('[data-variant="spinner"]') !== null,
+      pole: g.querySelector('[data-variant="bar"]:not([aria-valuenow])') !== null,
       text: g.textContent,
     };
   };
@@ -269,7 +269,7 @@ async function waitForBodyReady(app: App, cardId: string, timeoutMs: number): Pr
 
 describe.skipIf(!SHOULD_RUN)("at0761 — the restore gate counts sessions", () => {
   test(
-    "one session shows a spinner; three resumed by a workspace switch count up to a fixed total of three",
+    "one session shows a barber pole; three resumed by a workspace switch count up to a fixed total of three",
     async () => {
       const app = await launchTugApp({
         testName: "at0761-restore-gate-counts-sessions",
@@ -303,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)("at0761 — the restore gate counts sessions", () =
         for (const r of open1) {
           expect(r.total, "one session totals 1").toBe(1);
           expect(r.title).toBe("Restoring session");
-          expect(r.spinner, "one session shows a spinner").toBe(true);
+          expect(r.pole, "one session shows a barber-pole bar").toBe(true);
           expect(r.text ?? "", "one session shows no count").not.toMatch(/\d+ of \d+/);
         }
 

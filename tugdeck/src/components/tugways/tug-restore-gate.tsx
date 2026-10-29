@@ -47,8 +47,9 @@
  * the bar fills in steps, one per session whose wait has ended — the
  * truth about the work. Before the first session finishes the bar runs
  * indeterminate with no count, by the progress indicator's own rule that
- * a bar never sits at a literal 0. A round of one session shows a spinner
- * and no count, since "0 of 1" says nothing. The title carries no number.
+ * a bar never sits at a literal 0. A round of one session shows that same
+ * bar as a barber pole throughout and no count, since "0 of 1" says
+ * nothing. The title carries no number.
  *
  * @module components/tugways/tug-restore-gate
  */
@@ -115,9 +116,11 @@ export function TugRestoreGate(): ReactElement {
                   <p>Tug is rebuilding your transcripts. Just a moment.</p>
                   {single ? (
                     <TugProgressIndicator
-                      variant="spinner"
+                      variant="bar"
+                      size={8}
                       role="action"
                       state="running"
+                      className="tug-restore-gate-bar"
                       aria-label={title}
                     />
                   ) : (
