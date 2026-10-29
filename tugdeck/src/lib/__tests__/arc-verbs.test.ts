@@ -211,6 +211,9 @@ describe("Join's refusals ([B05])", () => {
     expect(gated({ holderBusy: true })).toBe("Wait for the arc to finish its work");
     expect(gated({ turnInProgress: true })).toBe("Wait for the turn to finish");
     expect(gated({ pending: true })).toBe("Joining…");
+    expect(
+      gated({ state: { phase: "resolved", candidate: "abc123", run: "resolve" } }),
+    ).toBe("Wait for the resolve to finish");
   });
 });
 

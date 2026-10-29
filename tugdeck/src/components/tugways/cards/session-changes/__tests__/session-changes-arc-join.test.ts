@@ -12,6 +12,7 @@ import { describe, expect, it } from "bun:test";
 import {
   reportedBlockers,
   deriveResolveFace,
+  refusalReasons,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
 import { arcFitSentence } from "@/lib/arc-fit";
@@ -161,5 +162,27 @@ describe("arcFitSentence", () => {
       reading: "stale",
       text: "Verified at 3f0a1c9 onto 91c4de7, but that pair no longer stands.",
     });
+  });
+});
+
+describe("refusalReasons", () => {
+  it("is empty when nothing refuses", () => {
+    expect(refusalReasons(null, null, null)).toEqual([]);
+    expect(refusalReasons("", null, "")).toEqual([]);
+  });
+
+  it("carries each reason under its source's slot, stuck first", () => {
+    expect(refusalReasons("the resolver gave up", "answer refused", "join refused")).toEqual([
+      { slot: "session-changes-arc-join-stuck", text: "the resolver gave up" },
+      { slot: "session-changes-arc-join-resolve-error", text: "answer refused" },
+      { slot: "session-changes-arc-join-error", text: "join refused" },
+    ]);
+  });
+
+  it("says a sentence once however many sources carry it", () => {
+    const said = "a resolve is already running for this arc";
+    expect(refusalReasons(null, said, said)).toEqual([
+      { slot: "session-changes-arc-join-resolve-error", text: said },
+    ]);
   });
 });

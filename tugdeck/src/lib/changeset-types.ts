@@ -627,6 +627,19 @@ export type ArcJoinLedgerEventBody =
       archaeology?: ArcConflictHistoryWire[];
     }
   | {
+      /** Something the run has begun and not yet finished, in the server's
+       *  own words (`said`). The verdict that ends it is its own event. */
+      kind: "phase";
+      phase: "rung" | "workshop" | "resolver-turn" | "committing" | "anchoring";
+      /** The rung taking up the work, on a `rung` phase. */
+      rung?: "replay" | "rerere" | "merge-file" | "driver";
+      /** The file, on a per-file `rung` phase. */
+      path?: string;
+      /** The resolver's turn, on a `resolver-turn` phase. */
+      turn?: number;
+      said: string;
+    }
+  | {
       kind: "rung";
       rung: "replay" | "salvage" | "rerere" | "merge-file" | "driver";
       path?: string;

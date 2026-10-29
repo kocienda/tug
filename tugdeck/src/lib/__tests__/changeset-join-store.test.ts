@@ -65,7 +65,9 @@ describe("changeset join resolve overlay", () => {
     const resolving = store.state("/p", "demo");
     expect(resolving.run).toBe("100");
     expect(resolving.events.map((e) => e.kind)).toEqual(["scribe"]);
-    expect(resolving.stream.scribe).toEqual({ path: "a.rs", text: "merged so far" });
+    // The beat's own wall clock rides with it: a live band counts silence
+    // from the last thing the server said, beats included.
+    expect(resolving.stream.scribe).toEqual({ path: "a.rs", text: "merged so far", at_ms: 0 });
 
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_ok",

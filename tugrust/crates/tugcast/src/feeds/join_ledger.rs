@@ -121,6 +121,26 @@ impl LedgerRecorder {
         let _ = tokio::task::spawn_blocking(move || this.record(body)).await;
     }
 
+    /// Tell a phase tugcast owns — the workshop, a resolver turn, the commit,
+    /// the anchor — before its work begins, in the sentence the deck shows.
+    /// `turn` is zero for every phase but a resolver turn.
+    pub fn phase(&self, phase: &str, turn: u32, said: &str) -> ArcJoinLedgerEvent {
+        self.record(ArcJoinLedgerEventBody::Phase {
+            phase: phase.to_string(),
+            rung: None,
+            path: None,
+            turn,
+            said: said.to_string(),
+        })
+    }
+
+    /// [`Self::phase`] from async code, on the blocking pool for the reason
+    /// [`Self::record_blocking`] gives.
+    pub async fn phase_blocking(self: &Arc<Self>, phase: &'static str, turn: u32, said: String) {
+        let this = self.clone();
+        let _ = tokio::task::spawn_blocking(move || this.phase(phase, turn, &said)).await;
+    }
+
     /// Write the whole ledger as it stands, replacing the last write.
     fn persist(&self, events: &[ArcJoinLedgerEvent]) {
         let ledger = ArcJoinLedger {
@@ -175,6 +195,16 @@ impl ResolveObserver for LedgerRecorder {
                         total: h.total,
                     })
                     .collect(),
+            },
+            LadderEvent::RungStarted { rung, path } => ArcJoinLedgerEventBody::Phase {
+                said: match &path {
+                    Some(p) => format!("trying {} on {p}", rung.as_str()),
+                    None => format!("trying {}", rung.as_str()),
+                },
+                phase: "rung".to_string(),
+                rung: Some(rung.as_str().to_string()),
+                path,
+                turn: 0,
             },
             LadderEvent::Rung {
                 rung,
@@ -310,5 +340,47 @@ mod tests {
         assert_eq!(event["kind"], "rung");
         assert_eq!(event["rung"], "merge-file");
         assert_eq!(event["outcome"], "declined");
+    }
+
+    #[test]
+    fn a_rung_taken_up_is_a_kept_phase_in_its_own_words() {
+        let (rec, mut rx) = recorder();
+        rec.ladder(LadderEvent::RungStarted {
+            rung: tugarc_core::ResolvedBy::Driver,
+            path: Some("a.rs".to_string()),
+        });
+        rec.ladder(LadderEvent::RungStarted {
+            rung: tugarc_core::ResolvedBy::Replay,
+            path: None,
+        });
+        let driver = &body(&mut rx)["event"];
+        assert_eq!(driver["kind"], "phase");
+        assert_eq!(driver["phase"], "rung");
+        assert_eq!(driver["rung"], "driver");
+        assert_eq!(driver["path"], "a.rs");
+        assert_eq!(driver["said"], "trying driver on a.rs");
+        assert!(driver.get("turn").is_none(), "a rung has no turn on the wire");
+        let replay = &body(&mut rx)["event"];
+        assert_eq!(replay["said"], "trying replay");
+        assert!(replay.get("path").is_none());
+        assert_eq!(rec.events().len(), 2, "a phase is kept, not streamed");
+    }
+
+    #[test]
+    fn tugcast_phases_are_kept_in_sequence_with_their_turn() {
+        let (rec, mut rx) = recorder();
+        rec.phase("workshop", 0, "opening the workshop");
+        rec.phase("resolver-turn", 2, "resolver turn 2");
+        rec.phase("committing", 0, "committing the candidate");
+        rec.phase("anchoring", 0, "anchoring the candidate");
+        let frames: Vec<serde_json::Value> = (0..4).map(|_| body(&mut rx)["event"].clone()).collect();
+        let phases: Vec<&str> = frames.iter().map(|e| e["phase"].as_str().unwrap()).collect();
+        assert_eq!(phases, vec!["workshop", "resolver-turn", "committing", "anchoring"]);
+        let seqs: Vec<u64> = frames.iter().map(|e| e["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, vec![0, 1, 2, 3]);
+        assert_eq!(frames[1]["turn"], 2);
+        assert_eq!(frames[1]["said"], "resolver turn 2");
+        assert!(frames[0].get("turn").is_none());
+        assert!(frames.iter().all(|e| e.get("rung").is_none()));
     }
 }

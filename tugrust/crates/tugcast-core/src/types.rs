@@ -1204,6 +1204,25 @@ pub enum ArcJoinLedgerEventBody {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         archaeology: Vec<ArcConflictHistory>,
     },
+    /// Something the run has begun and not yet finished, in its own words:
+    /// `rung` (a machine rung taking up the arc or a file, `rung` and `path`
+    /// naming which), `workshop` (opening the workshop), `resolver-turn` (the
+    /// resolver working turn `turn`), `committing`, and `anchoring`. Kept, so
+    /// a reload mid-run still says what was under way, and so the deck can
+    /// name what the server is doing rather than inventing a phase.
+    ///
+    /// The verdict that ends a phase is its own event — a `rung`, a resolver
+    /// `turn`, a `candidate` — so a phase is only ever the latest thing begun.
+    Phase {
+        phase: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rung: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        turn: u32,
+        said: String,
+    },
     /// One machine rung's verdict: `replay` | `salvage` | `rerere` |
     /// `merge-file` | `driver`. No `path` for the whole-arc replay.
     Rung {

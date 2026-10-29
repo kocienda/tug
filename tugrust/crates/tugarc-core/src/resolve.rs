@@ -143,6 +143,12 @@ pub enum LadderEvent {
         paths: Vec<String>,
         archaeology: Vec<ConflictHistory>,
     },
+    /// A machine rung is taking up the arc or a file, told before the work so
+    /// a slow rung reads as under way rather than as silence. `path` is `None`
+    /// for the whole-arc replay and for rerere's one batch over every path.
+    /// The salvage rung, a lookup, tells only its verdict; the AI rung tells
+    /// [`LadderEvent::ScribeStarted`].
+    RungStarted { rung: ResolvedBy, path: Option<String> },
     /// One machine rung's verdict. `path` is `None` for the whole-arc replay.
     Rung {
         rung: ResolvedBy,
@@ -518,6 +524,10 @@ fn resolve_ladder(
     // Walked directly rather than through `replay_probe`, which collapses the
     // round that stopped the walk into `None` — and that round is the reason
     // the rung declined.
+    tell(observer, || LadderEvent::RungStarted {
+        rung: ResolvedBy::Replay,
+        path: None,
+    });
     let replayed = match crate::replay::walk_rounds(repo, &base_head, &base_head, &arc_head, false)?
     {
         ReplayWalk::Clean(replayed) => Ok(replayed),
@@ -584,6 +594,10 @@ fn resolve_ladder(
     let rerere_resolved = if !rerere_ran {
         BTreeMap::new()
     } else {
+        tell(observer, || LadderEvent::RungStarted {
+            rung: ResolvedBy::Rerere,
+            path: None,
+        });
         rerere_rung(repo, &base_head, &arc_head, &stages, &mut warnings)
     };
     // Asked once: whether a driver is configured at all is the difference
@@ -595,6 +609,12 @@ fn resolve_ladder(
             path: Some(path.to_string()),
             resolved,
             said: said.to_string(),
+        });
+    };
+    let started = |rung: ResolvedBy, path: &str| {
+        tell(observer, || LadderEvent::RungStarted {
+            rung,
+            path: Some(path.to_string()),
         });
     };
 
@@ -659,6 +679,7 @@ fn resolve_ladder(
         };
 
         // Rung 3 — opportunistic merge-file re-merge.
+        started(ResolvedBy::MergeFile, path);
         if let Some(bytes) = merge_file_rung(scratch.path(), path, &loaded) {
             rung(ResolvedBy::MergeFile, path, true, "merged clean three ways");
             let oid = hash_blob(repo, &bytes)?;
@@ -678,6 +699,7 @@ fn resolve_ladder(
         );
 
         // Rung 4 — structured-merge driver.
+        started(ResolvedBy::Driver, path);
         if let Some(bytes) = driver_rung(repo, scratch.path(), path, &loaded) {
             rung(
                 ResolvedBy::Driver,
@@ -5178,8 +5200,21 @@ mod tests {
                 "every round replayed clean onto the base".to_string()
             )]
         );
+        // The replay is told as taken up before its verdict, so a slow walk
+        // reads as under way rather than as silence.
+        assert_eq!(
+            events[1],
+            LadderEvent::RungStarted {
+                rung: ResolvedBy::Replay,
+                path: None
+            }
+        );
         assert!(matches!(events.last(), Some(LadderEvent::Candidate { .. })));
-        assert_eq!(events.len(), 3, "probe, replay, candidate: {events:?}");
+        assert_eq!(
+            events.len(),
+            4,
+            "probe, replay started, replay, candidate: {events:?}"
+        );
     }
 
     #[test]

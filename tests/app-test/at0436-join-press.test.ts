@@ -220,20 +220,24 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
           `(window.__tug.dispatchControlAction("bind_arc_ok", ${JSON.stringify(bindOk)}), null)`,
         );
         // A landable arc publishes its OFFER — the `lands as` line — so that
-        // is what says the fixture is ready. The report fold is NOT a
-        // readiness signal and cannot be waited on here: a clean join has no
-        // conflict, blocker, question or account to show, and the section
-        // renders nothing it cannot say. Its silence is the clean case's own
-        // shape, so it is asserted rather than waited for.
+        // is what says the fixture is ready. The report section is NOT a
+        // readiness signal: it always renders, opening on the arc's fit
+        // ([D224]). What a clean join has nothing of is evidence — no
+        // conflict, blocker, question or account — so its ledger settles to
+        // nothing once the run that anchored the candidate has ended.
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(landsAs(ARC))}) !== null`,
           { timeoutMs: 20000 },
         );
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${landing(ARC)} [data-slot="session-changes-ledger"]`)}) === null`,
+          { timeoutMs: 10000 },
+        );
         expect(
           await app.body("A").evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(landing(ARC))}) === null`,
+            `document.querySelector(${JSON.stringify(`${landing(ARC)} [data-slot="session-changes-arc-join-fit"]`)}) !== null`,
           ),
-          "a clean arc shows no report — the fold speaks only with evidence",
+          "a clean arc's report opens on its fit, and its ledger speaks only with evidence",
         ).toBe(true);
 
         // `/commit` raised the shade in COMMIT mode, and one composer holds one

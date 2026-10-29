@@ -107,6 +107,20 @@ describe("the receipt scope publishes the proportional face", () => {
   });
 });
 
+describe("a message about to land reads at the reading size", () => {
+  const landing = ruleBody(PRESENTATION_CSS, ".tugx-commit-landing .tugx-commit-message");
+
+  test("the landing scope raises the well's size to sm and touches nothing else", () => {
+    expect(decl(landing, "--tugx-commit-message-size")).toBe("var(--tug-font-size-sm)");
+    expect(decl(landing, "--tugx-commit-message-font")).toBeNull();
+  });
+
+  test("the arc's brief wears it on both of its message wells", () => {
+    const brief = read("src/components/tugways/cards/session-changes/session-changes-arc-brief.tsx");
+    expect(brief.match(/tugx-commit-receipt tugx-commit-landing/g)?.length).toBe(2);
+  });
+});
+
 describe("the message body reads its face from whichever scope is above it", () => {
   const message = ruleBody(PRESENTATION_CSS, ".tugx-commit-message");
 

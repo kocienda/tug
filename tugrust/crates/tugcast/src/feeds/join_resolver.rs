@@ -990,6 +990,9 @@ async fn finish_join_inner(
     outcome: &tugarc_core::ResolveOutcome,
     phase: &Phase,
 ) -> Result<Finished, String> {
+    ctx.recorder
+        .phase_blocking("workshop", 0, read_phase(phase).to_string())
+        .await;
     let state = open_workshop(ctx, outcome).await?;
     ctx.recorder
         .record_blocking(resolver_event(0, "started"))
@@ -1023,6 +1026,9 @@ async fn finish_join_inner(
     }
 
     set_phase(phase, "waiting on the resolver");
+    ctx.recorder
+        .phase_blocking("resolver-turn", 1, "resolver turn 1".to_string())
+        .await;
     let mut turn = send_turn(ctx, &mut run, charter, 1).await?;
     checkpoint_turn(ctx).await;
     let mut asked: Option<tugcast_core::types::ArcJoinReportQuestion> = None;
@@ -1047,6 +1053,9 @@ async fn finish_join_inner(
             answer: answer.clone(),
         });
         set_phase(phase, "waiting on the resolver");
+        ctx.recorder
+            .phase_blocking("resolver-turn", 2, "resolver turn 2".to_string())
+            .await;
         turn = send_turn(ctx, &mut run, compose_answer_turn(&answer), 2).await?;
         checkpoint_turn(ctx).await;
     }
@@ -1075,6 +1084,9 @@ async fn finish_join_inner(
     // to ship without checking again anyway. The run's ending is where the
     // joined tree is built now, so a resolve resolves and stops.
     set_phase(phase, "committing the candidate");
+    ctx.recorder
+        .phase_blocking("committing", 0, read_phase(phase).to_string())
+        .await;
     let candidate = match commit_candidate(ctx, &state, &report, &baseline).await? {
         Committed::Anchored(candidate) => candidate,
         Committed::Superseded(reason) => {
@@ -1491,6 +1503,7 @@ async fn commit_candidate(
     let arc_head = state.arc_head.clone();
     let base_branch = state.base_branch.clone();
     let report_for_validation = report.clone();
+    let recorder = ctx.recorder.clone();
 
     tokio::task::spawn_blocking(move || {
         let workshop = tugarc_core::Workshop::open_existing_on(&repo, &arc, &base_head)
@@ -1556,6 +1569,9 @@ async fn commit_candidate(
         {
             return Ok(Committed::Superseded(reason));
         }
+        // Told here, inside the task, because the commit and the anchor are
+        // one blocking pass: the anchor is its own phase only from in here.
+        recorder.phase("anchoring", 0, "anchoring the candidate");
         tugarc_core::resolve::anchor_candidate(&repo, &arc, &candidate, &base_head, &arc_head)
             .map_err(|e| e.to_string())?;
 

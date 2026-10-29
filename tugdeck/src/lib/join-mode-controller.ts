@@ -93,6 +93,16 @@ export interface JoinGateInput {
    * nobody has finished checking.
    */
   holderBusy: boolean;
+  /**
+   * A run holds the arc — a resolve, a re-resolve or a verify — the feed's
+   * `join.run` ({@link joinRunLive}).
+   *
+   * One arc admits one run, and the server refuses a join pressed while one
+   * holds it. The candidate the run anchors can stand long before the run
+   * ends, so a clean outcome alone would light a button whose press the
+   * server is bound to refuse.
+   */
+  runLive: boolean;
   /** The current join round-trip phase for this entry. */
   joinPhase: JoinPhase;
   /** The derived join outcome. */
@@ -107,6 +117,7 @@ export interface JoinGateInput {
 export type JoinGateReason =
   | "turn"
   | "holder"
+  | "running"
   | "pending"
   | "outcome"
   | "empty-message";
@@ -130,6 +141,10 @@ export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   // Above the round trip for the same reason `turn` is: nothing about the
   // join's own state matters while the work behind it is still moving.
   if (input.holderBusy) return { ok: false, reason: "holder" };
+  // Below the holder and above the round trip: the arc's own work is done,
+  // but the machine's work on the join is not, and the server admits one run
+  // per arc — a press here could only come back as its refusal.
+  if (input.runLive) return { ok: false, reason: "running" };
   if (input.joinPhase === "pending") return { ok: false, reason: "pending" };
   // The outcome already accounts for the candidate ({@link deriveJoinOutcome}),
   // so it is the whole answer. It deliberately no longer reads
@@ -163,6 +178,7 @@ export function joinDisabledReason(
   // different cards — and because a background test sweep outlives the turn
   // that started it, so "the turn is finished" would be true and useless.
   if (reason === "holder") return "Wait for the arc to finish its work";
+  if (reason === "running") return "Wait for the resolve to finish";
   // `pending` is the execute round trip and nothing else now that the card
   // never previews, so the sentence says the only thing it can mean.
   if (reason === "pending") return "Joining…";
@@ -225,6 +241,8 @@ export const REFUSAL_REACHABILITY = {
   // Nor an arc still working. Time is the whole answer: the session finishes
   // its turn and its background jobs report, and the refusal clears itself.
   holder: { slot: null, where: "time" },
+  // Nor a run holding the arc. It ends by itself, and the refusal with it.
+  running: { slot: null, where: "time" },
   // Nor a join already in flight. This reason is also why the joinable row
   // needs no control of its own: with nothing to press twice, a second press
   // cannot double-submit a join.
@@ -254,6 +272,7 @@ export function joinGateFacts(input: JoinGateInput): Record<string, unknown> {
   return {
     turnInProgress: input.turnInProgress,
     holderBusy: input.holderBusy,
+    runLive: input.runLive,
     joinPhase: input.joinPhase,
     outcome: input.outcome,
     candidateCommit: input.candidateCommit,
@@ -443,6 +462,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
     const gate = evaluateJoinGate({
       turnInProgress,
       holderBusy: entry?.holders_busy === true,
+      runLive: joinRunLive(join),
       joinPhase,
       outcome,
       candidateCommit,
@@ -672,7 +692,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
     if (join === null) return;
     if (deriveJoinOutcome(join) !== "clean") return;
     if (typeof join.candidate === "string" && join.candidate !== "") return;
-    if (typeof join.run === "string" && join.run !== "") return;
+    if (joinRunLive(join)) return;
     getChangesetJoinStore()?.resolve(this.deps.changesController.workspaceKey, target.name);
   }
 
@@ -912,6 +932,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
     return {
       turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
       holderBusy: this.entryFor(target.ownerId)?.holders_busy === true,
+      runLive: joinRunLive(join),
       joinPhase: getChangesetVerbStore()?.joinState(changesController.entryKey).phase ?? "idle",
       outcome: deriveJoinOutcome(join),
       candidateCommit: typeof candidate === "string" && candidate !== "" ? candidate : null,
@@ -1051,6 +1072,15 @@ export function deriveJoinOutcome(join: ArcJoinStateWire | null | undefined): Jo
   if (typeof join.stale_note === "string" && join.stale_note !== "") return "stale";
   if ((join.conflicts ?? []).length > 0) return "conflicted";
   return "clean";
+}
+
+/**
+ * Whether a run holds the arc — the feed's `join.run` is a non-empty word.
+ * Pure and exported so the join gate and the resolve send read occupancy the
+ * same way.
+ */
+export function joinRunLive(join: ArcJoinStateWire | null | undefined): boolean {
+  return typeof join?.run === "string" && join.run !== "";
 }
 
 /** Field-by-field snapshot equality so `getSnapshot` stays referentially stable. */

@@ -108,6 +108,9 @@ import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { compareArcEntries } from "@/lib/arc-order";
 import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
 import { useChangesetJoinLand, useChangesetJoinResolve } from "@/lib/changeset-join-store";
+import { liveBandOf } from "@/lib/resolve-ledger";
+import { joinLedgerInput } from "./session-changes-arc-join";
+import { RunLine } from "./session-changes-resolve-ledger";
 import { ARC_UNBOUND_LABEL, arcFrontedLabel } from "./changes-section-labels";
 import {
   SessionChangesArcJoin,
@@ -380,6 +383,11 @@ function ArcRow({
   // and for the same reason as the beats above: the store is keyed by arc, so
   // a row reading the fronted arc's key would paint another arc's ladder.
   const resolve = useChangesetJoinResolve(workspaceKey, entry.display_name);
+  // The live run's band, the one the report's live block carries; null while
+  // no run is live, and the run line goes with it.
+  const runBand = liveBandOf(
+    joinLedgerInput({ join: entry.join ?? null, base: entry.base ?? "main", resolve }),
+  );
   // Opening a row points the join mode at its arc and asks the server nothing:
   // the answer is already on the entry. The effect fires on the closed → open
   // edge (and on mount, since the fronted row opens with the shade), so the
@@ -566,6 +574,11 @@ function ArcRow({
           altitude="entry"
         />
       </span>
+      {/* The run line: while a run is live, what the server last
+          reported and the clock, at the arc's whole width and directly under
+          the register — where the eye lands. The shade's alone: the register
+          the Arcs card row and the composer share keeps its one word. */}
+      {runBand !== null ? <RunLine band={runBand} /> : null}
       {/* The fold, ranked: documents · report (the join's evidence, advisories
           included) · the brief (what would land, as a briefing: the message's
           subject and summary, the change's shape, the paths and rounds one

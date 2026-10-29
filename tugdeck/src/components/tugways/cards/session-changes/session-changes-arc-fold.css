@@ -16,9 +16,14 @@
  * | Element                                          | Surface                                           | Role    | Context                     |
  * |--------------------------------------------------|---------------------------------------------------|---------|-----------------------------|
  * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-fact, .arc-fold-muted, .arc-fold-sha, .arc-fold-cell[data-tone="muted"], .session-changes-arc-join-act, .session-changes-arc-join-fold-sentence, .session-changes-ledger-said |
- * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-path, .arc-fold-prose |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-path, .arc-fold-prose, .session-changes-arc-draft-message |
  * | --tug7-element-tone-icon-normal-danger-rest      | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-path-danger, .arc-fold-fact-danger, .arc-fold-cell[data-tone="danger"] |
  * | --tug7-element-tone-icon-normal-caution-rest     | --tug7-surface-global-primary-normal-content-rest | content | .arc-fold-fact-caution      |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-card-primary-normal-block-rest     | content | .session-changes-ledger-live-clock |
+ * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-card-primary-normal-block-rest     | content | .session-changes-ledger-live-words[data-quiet="true"] |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-arc-run-line |
+ * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-arc-run-line-words[data-quiet="true"] |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-arc-run-line-clock |
  */
 
 .arc-fold-row {
@@ -227,8 +232,7 @@
 .session-changes-arc-join > .session-changes-arc-join-fold-receipt-frame,
 .session-changes-arc-join > .session-changes-arc-join-blockers,
 .session-changes-arc-join > .session-changes-ledger,
-.session-changes-arc-join > .session-changes-arc-join-stuck,
-.session-changes-arc-join > .session-changes-arc-join-error {
+.session-changes-arc-join > .session-changes-arc-join-refusal {
   margin-block: var(--tug-space-2xs);
 }
 
@@ -383,6 +387,59 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+/* The live band's clock: the time since the run started and since its last
+   report, after the server's words, in figures that do not jitter as they
+   tick. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-block-rest */
+.session-changes-ledger-live-clock {
+  margin-inline-start: var(--tug-space-md);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A run quiet past the threshold says so in the caution tone. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-block-rest */
+.session-changes-ledger-live-words[data-quiet="true"] {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+/* The shade's run line: the live band's two facts at the arc's whole width,
+   under the register on the lane's indent — the server's last words at the
+   leading edge, the clock at the trailing edge — at the shade's reading
+   scale. Present only while a run is live. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-run-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tug-space-md);
+  min-width: 0;
+  padding-inline-start: var(--tugx-arc-stack-indent);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.session-changes-arc-run-line-words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-run-line-words[data-quiet="true"] {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-changes-arc-run-line-clock {
+  flex: none;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Prose in a body: the receipt's inset on both axes, so its left edge is the
    rows' text edge in the block above it. */
 .session-changes-ledger-words {
@@ -452,14 +509,6 @@
   align-self: stretch;
 }
 
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-changes-arc-join-error {
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-xs);
-  line-height: 1.5;
-  color: var(--tug7-element-tone-text-normal-danger-rest);
-}
-
 /* The row a standing ledger's one act rides: Resolve again, at the trailing
    edge under the blocks it would redo. */
 .session-changes-arc-join-acts {
@@ -469,17 +518,18 @@
   padding-top: var(--tug-space-sm);
 }
 
-/* The server's own account of why a resolve stopped. Danger-toned like the
-   overlay's error beside it, but durable: it comes back on the feed after a
-   reload, because a resolve is minutes long and the deck that started it is
-   often not the deck that comes back to it. */
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-changes-arc-join-stuck {
+/* Why the join will not proceed: one error band, the notice band the ledger's
+   blocks wear, at its body size with the tone on its icon. The frame only
+   rounds the strip so it stands among the blocks as one of them; each reason
+   is its own line. */
+.session-changes-arc-join-refusal {
   align-self: stretch;
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-xs);
-  line-height: 1.5;
-  color: var(--tug7-element-tone-text-normal-danger-rest);
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+}
+
+.session-changes-arc-join-reason {
+  display: block;
 }
 
 /* ---------------------------------------------------------------------------
@@ -549,15 +599,17 @@
   display: none;
 }
 
-/* The message's detail on the unsummarized arm, muted: the one block that
-   quotes rather than reports. */
+/* The message's detail on the unsummarized arm. It is the text the user signs,
+   so it is set as a message — the reading size, in the normal tone and the
+   receipt's proportional face, as the summarized arm's wells are — and never
+   smaller than the file list under it. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .session-changes-arc-draft-message {
   white-space: pre-line;
-  font-family: var(--tug-font-family-mono);
-  font-size: var(--tug-font-size-xs);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
   line-height: 1.5;
-  color: var(--tug7-element-global-text-normal-muted-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
   overflow-wrap: anywhere;
 }
 

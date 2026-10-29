@@ -3,9 +3,15 @@ import { describe, expect, test } from "bun:test";
 import type { ArcJoinLedgerWire, ArcJoinStateWire } from "@/lib/changeset-types";
 import {
   EMPTY_LIVE,
+  NOTHING_REPORTED,
+  SILENCE_THRESHOLD_MS,
   documentDisplayPath,
+  eventWords,
   foldReceiptText,
   ledgerBlocks,
+  lastReportWords,
+  liveBandOf,
+  liveBandReading,
   mergeLedgerEvents,
   offersResolveAgain,
 } from "@/lib/resolve-ledger";
@@ -188,15 +194,36 @@ describe("ledgerBlocks, from join facts alone", () => {
     expect(blocks.filter((b) => b.phase === "in_flight")).toEqual([]);
   });
 
-  test("a running resolve has exactly one in-flight block, and it carries the band", () => {
+  test("a run with nothing reported draws one Run block, and invents no phase", () => {
     const blocks = ledgerBlocks(input(conflicted, true));
-    expect(blocks.map((b) => b.kind)).toEqual(["probe", "ladder"]);
+    expect(blocks.map((b) => b.kind)).toEqual(["probe", "run"]);
     const live = blocks.filter((b) => b.phase === "in_flight");
     expect(live).toHaveLength(1);
-    expect(live[0]!.kind).toBe("ladder");
-    expect(live[0]!.identity.text).toBe("Resolving 1 file");
-    expect(live[0]!.live).toBe("working through the ladder");
+    expect(live[0]!.kind).toBe("run");
+    expect(live[0]!.identity.text).toBe("reconciling with main");
+    expect(live[0]!.live?.words).toBe(NOTHING_REPORTED);
     expect(live[0]!.status).toBe("streaming");
+  });
+
+  test("a clean arc at rest draws no ledger at all", () => {
+    expect(ledgerBlocks(input({ phase: "previewed" } as ArcJoinStateWire))).toEqual([]);
+  });
+
+  test("a clean run's recorded candidate, naming no file, is not evidence", () => {
+    // The probe found nothing, and the one-shot squash anchored a candidate
+    // that resolved nothing: the ledger has nothing to say once it ends.
+    const durable: ArcJoinLedgerWire = {
+      run: "900",
+      started_ms: 900,
+      ended_ms: 1_021,
+      events: [
+        { seq: 0, at_ms: 958, kind: "probe", paths: [] },
+        { seq: 1, at_ms: 1_021, kind: "candidate", sha: "c1ea4a5e1", base_sha: "f6de104", files: [] },
+        { seq: 2, at_ms: 1_021, kind: "ended", outcome: "candidate" },
+      ],
+    };
+    const join = { phase: "previewed", candidate: "c1ea4a5e1" } as ArcJoinStateWire;
+    expect(ledgerBlocks({ join, durable, live: EMPTY_LIVE, base: "main", running: false })).toEqual([]);
   });
 });
 
@@ -244,7 +271,11 @@ describe("ledgerBlocks and mergeLedgerEvents, over recorded events", () => {
     const blocks = ledgerBlocks({ join: null, durable: null, live, base: "main", running: true });
     const inFlight = blocks.filter((b) => b.phase === "in_flight");
     expect(inFlight.map((b) => b.kind)).toEqual(["scribe"]);
-    expect(inFlight[0]!.live).toBe("merging Justfile");
+    expect(inFlight[0]!.live).toEqual({
+      words: "merging Justfile",
+      startedMs: 100,
+      lastReportMs: 100_300,
+    });
     expect(inFlight[0]!.body).toEqual({ kind: "scribe-tail", text: "build:\n  just test" });
   });
 
@@ -279,25 +310,26 @@ describe("ledgerBlocks and mergeLedgerEvents, over recorded events", () => {
     expect(ladder.body.rows.map((r) => r.rung)).toEqual(["salvage", "rerere", "merge-file", "driver"]);
     const scribe = blocks.find((b) => b.kind === "scribe")!;
     expect(scribe.phase).toBe("in_flight");
-    expect(scribe.live).toBe("merging Justfile");
+    expect(scribe.live?.words).toBe("merging Justfile");
   });
 
-  test("the resolver's band follows its last tool, and falls back while it has none", () => {
+  test("the resolver's band follows its last tool, and otherwise the last report", () => {
     const events = [
       { seq: 0, at_ms: 0, kind: "probe" as const, paths: ["Justfile"] },
       { seq: 1, at_ms: 1, kind: "rung" as const, rung: "driver" as const, path: "Justfile", outcome: "declined" as const, said: "no merge driver on PATH" },
       { seq: 2, at_ms: 2, kind: "resolver" as const, turn: 0, status: "started" as const },
     ];
-    const at = (stream: { resolver?: { turn: number; text: string; tool?: string } }) =>
+    const at = (stream: { resolver?: { turn: number; text: string; tool?: string; at_ms?: number } }) =>
       ledgerBlocks({ join: null, durable: null, live: { run: "500", events, stream }, base: "main", running: true }).find(
         (b) => b.kind === "resolver",
       )!;
     const reading = at({});
     expect(reading.phase).toBe("in_flight");
-    expect(reading.live).toBe("reading the workshop");
+    expect(reading.live?.words).toBe("resolver started");
     expect(reading.identity.text).toBe("finishing Justfile");
-    const working = at({ resolver: { turn: 1, text: "Both sides edit the recipe.", tool: "Read Justfile" } });
-    expect(working.live).toBe("Read Justfile");
+    const working = at({ resolver: { turn: 1, text: "Both sides edit the recipe.", tool: "Read Justfile", at_ms: 3 } });
+    expect(working.live?.words).toBe("Read Justfile");
+    expect(working.live?.lastReportMs).toBe(3);
     expect(working.body).toEqual({ kind: "words", text: "Both sides edit the recipe." });
     expect(working.summary).toEqual({ kind: "text", text: "turn 1" });
   });
@@ -374,9 +406,12 @@ describe("ledgerBlocks and mergeLedgerEvents, over recorded events", () => {
     expect(superseded.identity.text.startsWith("superseded — main moved")).toBe(true);
 
     // The ending before the candidate is an earlier run's; this one stands.
+    // It names the file it resolved: a candidate naming none over no conflict
+    // is a clean run's, which draws no receipt at all.
+    const resolved = { ...events[0]!, files: [{ path: "a.ts", resolved_by: "replay" as const }] };
     const stands = ledgerBlocks({
       join: null,
-      durable: { ...durable, events: [{ ...events[1]!, seq: 0 }, { ...events[0]!, seq: 1 }] },
+      durable: { ...durable, events: [{ ...events[1]!, seq: 0 }, { ...resolved, seq: 1 }] },
       live: EMPTY_LIVE,
       base: "main",
       running: false,
@@ -387,11 +422,12 @@ describe("ledgerBlocks and mergeLedgerEvents, over recorded events", () => {
   test("a new run over the last run's ended ledger draws its own live block, not the old account", () => {
     const join = { phase: "conflicted", conflicts: ["Justfile"] } as ArcJoinStateWire;
     // Pressed, and nothing heard of the new run yet: the ended ledger is the
-    // last run's, and the press still has its one live block.
+    // last run's, and the press still has its one live block, which says only
+    // that nothing has been reported.
     const pressed = ledgerBlocks({ join, durable: ledger, live: EMPTY_LIVE, base: "main", running: true });
-    expect(pressed.map((b) => b.kind)).toEqual(["probe", "ladder"]);
+    expect(pressed.map((b) => b.kind)).toEqual(["probe", "run"]);
     expect(pressed[1]!.phase).toBe("in_flight");
-    expect(pressed[1]!.live).toBe("working through the ladder");
+    expect(pressed[1]!.live?.words).toBe(NOTHING_REPORTED);
     // At rest the same ledger is the account it always was.
     const atRest = ledgerBlocks({ join, durable: ledger, live: EMPTY_LIVE, base: "main", running: false });
     expect(atRest.map((b) => b.kind)).toEqual(["probe", "ladder", "scribe", "candidate"]);
@@ -416,6 +452,98 @@ describe("ledgerBlocks and mergeLedgerEvents, over recorded events", () => {
       (b) => b.kind === "ladder",
     )!;
     expect(ladder.identity.text).toBe("the arc — replayed clean");
+  });
+
+  test("between the ladder and the resolver the band rides a Run block, in tugcast's words", () => {
+    const events = [
+      { seq: 0, at_ms: 1_000, kind: "probe" as const, paths: ["a.ts"] },
+      { seq: 1, at_ms: 1_001, kind: "phase" as const, phase: "rung" as const, rung: "replay" as const, said: "trying replay" },
+      { seq: 2, at_ms: 1_002, kind: "rung" as const, rung: "replay" as const, outcome: "resolved" as const, said: "every round replayed clean onto the base" },
+      { seq: 3, at_ms: 1_003, kind: "candidate" as const, sha: "9f3c1e2a7", base_sha: "f6de104", files: [{ path: "a.ts", resolved_by: "replay" }] },
+      { seq: 4, at_ms: 1_004, kind: "phase" as const, phase: "workshop" as const, said: "opening the workshop" },
+    ];
+    const blocks = ledgerBlocks({ join: null, durable: null, live: { run: "1000", events, stream: {} }, base: "main", running: true });
+    expect(blocks.map((b) => b.kind)).toEqual(["probe", "ladder", "candidate", "run"]);
+    const live = blocks.filter((b) => b.phase === "in_flight");
+    expect(live.map((b) => b.kind)).toEqual(["run"]);
+    expect(live[0]!.live).toEqual({ words: "opening the workshop", startedMs: 1000, lastReportMs: 1_004 });
+  });
+
+  test("the run line's band is the live block's, and there is none at rest", () => {
+    const events = [
+      { seq: 0, at_ms: 1_000, kind: "probe" as const, paths: ["a.ts"] },
+      { seq: 1, at_ms: 1_004, kind: "phase" as const, phase: "workshop" as const, said: "opening the workshop" },
+    ];
+    const live = { run: "1000", events, stream: {} };
+    const running = { join: null, durable: null, live, base: "main", running: true };
+    const block = ledgerBlocks(running).find((b) => b.live !== undefined)!;
+    expect(liveBandOf(running)).toEqual(block.live!);
+    expect(liveBandOf({ ...running, running: false })).toBeNull();
+    expect(liveBandOf(input(conflicted))).toBeNull();
+  });
+
+  test("a rung taken up keeps the ladder live with the server's own sentence", () => {
+    const events = [
+      { seq: 0, at_ms: 0, kind: "probe" as const, paths: ["a.ts"] },
+      { seq: 1, at_ms: 1, kind: "rung" as const, rung: "replay" as const, outcome: "declined" as const, said: "stopped at \"r2\"" },
+      { seq: 2, at_ms: 2, kind: "phase" as const, phase: "rung" as const, rung: "driver" as const, path: "a.ts", said: "trying driver on a.ts" },
+    ];
+    const ladder = ledgerBlocks({ join: null, durable: null, live: { run: "0", events, stream: {} }, base: "main", running: true }).find(
+      (b) => b.kind === "ladder",
+    )!;
+    expect(ladder.phase).toBe("in_flight");
+    expect(ladder.live?.words).toBe("trying driver on a.ts");
+  });
+
+  test("every kept event reads in its own words", () => {
+    expect(eventWords({ seq: 0, at_ms: 0, kind: "phase", phase: "resolver-turn", turn: 2, said: "resolver turn 2" })).toBe(
+      "resolver turn 2",
+    );
+    expect(eventWords({ seq: 0, at_ms: 0, kind: "probe", paths: [] })).toBe("probe: nothing conflicts");
+    expect(eventWords({ seq: 0, at_ms: 0, kind: "rung", rung: "merge-file", path: "a.ts", outcome: "declined", said: "conflict blocks remain" })).toBe(
+      "merge-file on a.ts: conflict blocks remain",
+    );
+    expect(eventWords({ seq: 0, at_ms: 0, kind: "candidate", sha: "9f3c1e2a7deadbeef", base_sha: "x", files: [] })).toBe(
+      "candidate 9f3c1e2a7 anchored",
+    );
+  });
+
+  test("a live beat newer than the last kept event is the last report", () => {
+    const events = [{ seq: 0, at_ms: 10, kind: "resolver" as const, turn: 0, status: "started" as const }];
+    expect(lastReportWords(events, { events, stream: {} })).toEqual({ words: "resolver started", atMs: 10 });
+    expect(
+      lastReportWords(events, { events, stream: { resolver: { turn: 1, text: "", tool: "Edit a.ts", at_ms: 40 } } }),
+    ).toEqual({ words: "Edit a.ts", atMs: 40 });
+    expect(lastReportWords([], EMPTY_LIVE)).toBeNull();
+  });
+
+  test("the band reads the server's words until it goes quiet past the threshold", () => {
+    const band = { words: "resolver turn 1", startedMs: 0, lastReportMs: 5_000 };
+    const talking = liveBandReading(band, 5_000 + SILENCE_THRESHOLD_MS);
+    expect(talking).toEqual({
+      text: "resolver turn 1",
+      tone: "progress",
+      quiet: false,
+      clock: "0:25 · 20 s since the last report",
+    });
+    const quiet = liveBandReading(band, 45_000);
+    expect(quiet.text).toBe("no report for 40 s");
+    expect(quiet.tone).toBe("warning");
+    expect(quiet.quiet).toBe(true);
+    expect(quiet.clock).toBe("0:45 · 40 s since the last report");
+  });
+
+  test("a run that has reported nothing counts its silence from its start", () => {
+    const band = { words: NOTHING_REPORTED, startedMs: 1_000 };
+    expect(liveBandReading(band, 6_000)).toEqual({ text: NOTHING_REPORTED, tone: "progress", quiet: false, clock: "0:05" });
+    expect(liveBandReading(band, 31_000).text).toBe("no report for 30 s");
+    // With no start known there is no clock to count from, so no silence.
+    expect(liveBandReading({ words: NOTHING_REPORTED }, 1e12)).toEqual({
+      text: NOTHING_REPORTED,
+      tone: "progress",
+      quiet: false,
+      clock: "",
+    });
   });
 
   test("live events past the durable ledger's last seq are appended, a newer run replaces it", () => {

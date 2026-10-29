@@ -84,8 +84,9 @@ export type ResolvePhase = "idle" | "resolving" | "error";
  * The scribe's is the tail of the file it is writing ([P03]).
  */
 export interface ResolveStream {
-  scribe?: { path: string; text: string };
-  resolver?: { turn: number; text: string; tool?: string };
+  /** `at_ms` is the beat's own wall clock — what a live band counts silence from. */
+  scribe?: { path: string; text: string; at_ms?: number };
+  resolver?: { turn: number; text: string; tool?: string; at_ms?: number };
 }
 
 /** How many lines of the scribe's file a stream holds. */
@@ -241,6 +242,7 @@ function foldDelta(
         scribe: {
           path: wire.path,
           text: tailLines(wire.text ?? "", SCRIBE_STREAM_LINES),
+          at_ms: wire.at_ms,
         },
       };
     } else if (wire.kind === "resolver" && wire.status === "streaming") {
@@ -250,6 +252,7 @@ function foldDelta(
           turn: wire.turn,
           text: wire.text ?? "",
           ...(wire.tool !== undefined ? { tool: wire.tool } : {}),
+          at_ms: wire.at_ms,
         },
       };
     } else {

@@ -305,7 +305,7 @@ export function SessionChangesArcBrief({
           </div>
         ) : null}
         {parts.summary !== "" ? (
-          <div className="tugx-commit-receipt">
+          <div className="tugx-commit-receipt tugx-commit-landing">
             <CommitMessage
               body={parts.summary}
               dataSlot="session-changes-arc-brief-summary"
@@ -503,7 +503,7 @@ export function SessionChangesArcBrief({
               >
                 <span className="arc-fold-prose">Full message</span>
               </ArcFoldRow>
-              <div className="tugx-commit-receipt session-changes-arc-draft-message">
+              <div className="tugx-commit-receipt tugx-commit-landing session-changes-arc-draft-message">
                 <CommitMessage body={parts.body} dataSlot="session-changes-arc-brief-body" />
               </div>
             </div>

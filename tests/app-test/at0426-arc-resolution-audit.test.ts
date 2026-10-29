@@ -214,6 +214,31 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the resolver audits what the machines deci
         expect(stuck, "the refusal names what went unaccounted for").toContain(FILE);
         expect(stuck, "in the contract's own words").toContain("does not account for");
         note(`at0426 silence refused: ${JSON.stringify(stuck)}`);
+        // The refusal is one error band at the face's body size, not bare
+        // xs red text: the stuck reason rides inside it, once.
+        const band = await app.body("A").evalJS<{ bands: number; tone: string | null; size: number; sm: number }>(
+          `(() => {
+             const row = document.querySelector(${JSON.stringify(row)});
+             const bands = row.querySelectorAll('[data-slot="session-changes-arc-join-refusal"]');
+             const reason = row.querySelector('[data-slot="session-changes-arc-join-refusal"] [data-slot="session-changes-arc-join-stuck"]');
+             const notice = bands[0]?.querySelector('[data-slot="tool-block-notice"]') ?? null;
+             const probe = document.createElement("span");
+             probe.style.fontSize = "var(--tug-font-size-sm)";
+             row.appendChild(probe);
+             const sm = parseFloat(getComputedStyle(probe).fontSize);
+             probe.remove();
+             return {
+               bands: bands.length,
+               tone: notice?.getAttribute("data-tone") ?? null,
+               size: reason === null ? 0 : parseFloat(getComputedStyle(reason).fontSize),
+               sm,
+             };
+           })()`,
+        );
+        note(`at0426 refusal band: ${JSON.stringify(band)}`);
+        expect(band.bands, "the refusal is drawn once").toBe(1);
+        expect(band.tone, "as an error band").toBe("error");
+        expect(band.size, "at the face's body size").toBe(band.sm);
 
         // The run's ledger is durable: a reload draws the same blocks, in the
         // same order, from the arc's feed entry alone — the page that watched

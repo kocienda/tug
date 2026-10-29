@@ -86,9 +86,11 @@ import {
   foldReceiptText,
   ledgerBlocks,
   offersResolveAgain,
+  type LedgerInput,
 } from "@/lib/resolve-ledger";
 import { arcFitSentence } from "@/lib/arc-fit";
 import { ResolveLedgerBlocks } from "@/components/tugways/cards/session-changes/session-changes-resolve-ledger";
+import { BlockNoticeBand } from "@/components/tugways/blocks/block-notice";
 import {
   deriveJoinOutcome,
   type JoinOutcome,
@@ -231,6 +233,69 @@ export function deriveJoinFace(input: {
     input.resolveAct,
   );
   return { outcome, resolve };
+}
+
+/**
+ * What the resolve's ledger is folded from, for one arc: the join facts, the
+ * durable ledger off the entry, and the store's live half, running only while
+ * the face has earned its progress state. One builder, so the report's ledger
+ * and the shade's run line read the same run.
+ */
+export function joinLedgerInput(input: {
+  join: ArcJoinStateWire | null;
+  base: string;
+  resolve: ResolveState;
+}): LedgerInput {
+  const { join, base, resolve } = input;
+  const face = deriveJoinFace({
+    join,
+    resolvePhase: resolve.phase,
+    ...(resolve.act !== undefined ? { resolveAct: resolve.act } : {}),
+  });
+  return {
+    join,
+    durable: join?.ledger ?? null,
+    // The store's run is the ledger's live half: what this page heard of
+    // the run since it started, merged past what the entry already holds.
+    live: resolve,
+    base,
+    running: face.resolve === "progress",
+  };
+}
+
+/** How many lines the refusal band shows before it clamps. */
+const REFUSAL_MAX_LINES = 8;
+
+/** One reason the join will not proceed, under the slot that names its source. */
+export interface RefusalReason {
+  slot:
+    | "session-changes-arc-join-stuck"
+    | "session-changes-arc-join-resolve-error"
+    | "session-changes-arc-join-error";
+  text: string;
+}
+
+/**
+ * The reasons the refusal band carries, in order — why the last resolve
+ * stopped, a refused resolve verb, a refused join verb — each sentence once:
+ * a reason already said by an earlier source is not said again.
+ */
+export function refusalReasons(
+  stuck: string | null,
+  resolveError: string | null,
+  joinError: string | null,
+): RefusalReason[] {
+  const out: RefusalReason[] = [];
+  const said = new Set<string>();
+  const add = (slot: RefusalReason["slot"], text: string | null): void => {
+    if (text === null || text === "" || said.has(text)) return;
+    said.add(text);
+    out.push({ slot, text });
+  };
+  add("session-changes-arc-join-stuck", stuck);
+  add("session-changes-arc-join-resolve-error", resolveError);
+  add("session-changes-arc-join-error", joinError);
+  return out;
 }
 
 export interface SessionChangesArcJoinProps {
@@ -408,6 +473,7 @@ export function SessionChangesArcJoin({
   const blockers = join?.blockers ?? [];
   const stuck =
     typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
+  const reasons = refusalReasons(stuck, resolve.error, error);
   // The fold that stands over this arc, if one does. Durable — read off the
   // entry rather than out of the overlay — so a reload and a second deck show
   // the same receipt as the deck that pressed.
@@ -436,15 +502,7 @@ export function SessionChangesArcJoin({
   // The resolve's ledger: one block per act, from the join facts and whatever
   // the run has recorded. One pure decision ({@link ledgerBlocks}); the live
   // block's wave holds its own motion, so nothing here holds one for it.
-  const blocks = ledgerBlocks({
-    join,
-    durable: join?.ledger ?? null,
-    // The store's run is the ledger's live half: what this page heard of
-    // the run since it started, merged past what the entry already holds.
-    live: resolve,
-    base: entry.base,
-    running: resolveFace === "progress",
-  });
+  const blocks = ledgerBlocks(joinLedgerInput({ join, base: entry.base, resolve }));
   // Resolve again rides under the ledger it would redo, and only when that
   // ledger no longer applies (Spec S05).
   const again = offersResolveAgain(resolveFace, join);
@@ -652,37 +710,32 @@ export function SessionChangesArcJoin({
           </TugPushButton>
         </div>
       ) : null}
-      {/* Why the last resolve stopped short. Durable and server-written, so
-          unlike the overlay's error below it survives a reload — which matters
-          because a resolve is minutes long and the deck that started it is
-          often not the deck that comes back to it. A join that will not
-          proceed and cannot say why is the one state this face must never
-          render ([L31]). */}
-      {stuck !== null ? (
+      {/* Why the join will not proceed, as one error band at the face's body
+          size: the stuck line, a refused resolve verb, and a refused join verb,
+          each in its own slot and a sentence said once however many of them
+          carry it. The stuck line is durable and server-written, so unlike the
+          overlay's errors it survives a reload — a resolve is minutes long and
+          the deck that started it is often not the deck that comes back to
+          it. Rendered on the reasons, not on the face: a refused answer or
+          override arrives while a candidate stands, and keying this off
+          `resolveFace` swallowed exactly the refusals that have no other way
+          to be seen. A join that will not proceed and cannot say why is the
+          one state this face must never render ([L31]). */}
+      {reasons.length > 0 ? (
         <div
-          className="session-changes-arc-join-stuck"
-          data-slot="session-changes-arc-join-stuck"
+          className="session-changes-arc-join-refusal"
+          data-slot="session-changes-arc-join-refusal"
           role="alert"
         >
-          {stuck}
-        </div>
-      ) : null}
-      {/* Rendered on the reason, not on the face. A refused answer or a refused
-          override arrives while a candidate stands, and the resolved face
-          outranks the error one — so keying this off `resolveFace` swallowed
-          exactly the refusals that have no other way to be seen ([L31]). */}
-      {resolve.error !== null ? (
-        <div
-          className="session-changes-arc-join-error"
-          data-slot="session-changes-arc-join-resolve-error"
-          role="alert"
-        >
-          {resolve.error}
-        </div>
-      ) : null}
-      {error !== null ? (
-        <div className="session-changes-arc-join-error" role="alert">
-          {error}
+          <BlockNoticeBand
+            tone="error"
+            maxLines={REFUSAL_MAX_LINES}
+            text={reasons.map(({ slot, text }) => (
+              <span key={slot} className="session-changes-arc-join-reason" data-slot={slot}>
+                {text}
+              </span>
+            ))}
+          />
         </div>
       ) : null}
     </div>

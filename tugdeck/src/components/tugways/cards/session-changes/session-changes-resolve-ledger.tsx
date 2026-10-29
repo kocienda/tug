@@ -10,7 +10,12 @@
  *
  * The live block — at most one — carries the thinking wave in a progress
  * notice band, never in the header's leading slot ([B02]): the header's dot
- * says the block is running, and the band says what it is doing.
+ * says the block is running, and the band says what the server last reported,
+ * in its own words, with a clock beside it — the time since the run started
+ * and since its last report. Past the silence threshold the band's sentence
+ * becomes "no report for N s" in the warning tone. The clock ticks on the
+ * client's own time and is painted straight into the DOM, never through React
+ * state: it is appearance, and nothing but the renderer reads it.
  *
  * The slots the app-tests read moved with the content they mark: the probe's
  * rows are `session-changes-arc-join-conflicts`, each path keeps
@@ -19,7 +24,9 @@
  * `data-audit` per row.
  *
  * Laws: [L02] every value arrives as a prop; [L06] phase and status are data
- * attributes the chrome paints through CSS, and the wave holds its own motion;
+ * attributes the chrome paints through CSS, the wave holds its own motion, and
+ * the band's clock, silence sentence and tone are DOM writes from one interval
+ * the band owns and releases ([L27]);
  * [L19] composes `BlockChrome`, `BlockNoticeBand`, `TugProgressIndicator`,
  * `QuestionWizard` and `ArcFoldRow` rather than hand-rolling any of them.
  *
@@ -28,7 +35,7 @@
 
 import "./session-changes-arc-fold.css";
 
-import React from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import { Check, GitCommitHorizontal, TriangleAlert } from "lucide-react";
 
 import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
@@ -40,7 +47,13 @@ import {
 } from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
 import { QuestionWizard } from "@/components/tugways/chrome/session-question-dialog";
 import type { ArcJoinQuestionWire } from "@/lib/changeset-types";
-import type { LedgerBlock, LedgerBody, LedgerIdentity } from "@/lib/resolve-ledger";
+import {
+  liveBandReading,
+  type LedgerBlock,
+  type LedgerBody,
+  type LedgerIdentity,
+  type LedgerLiveBand,
+} from "@/lib/resolve-ledger";
 
 /** How the question body answers: the same three hands the face always had. */
 export interface LedgerQuestionHandlers {
@@ -87,15 +100,107 @@ function Identity({ identity }: { identity: LedgerIdentity }): React.ReactElemen
   );
 }
 
-/** The in-flight band: the standard thinking wave, and what is happening. */
-function LiveBand({ text }: { text: string }): React.ReactElement {
+/** How often the band's clock repaints. */
+const BAND_TICK_MS = 1000;
+
+/**
+ * Paint a live band's words, clock and tone through the DOM ([L06]): once
+ * before first paint, then on the client's own clock until the band's facts
+ * change or the owner unmounts ([L27]). `toneSlot` is the selector of the
+ * ancestor whose `data-tone` carries the band's tone.
+ */
+function useLiveBandPaint(
+  band: LedgerLiveBand,
+  wordsRef: React.RefObject<HTMLSpanElement | null>,
+  clockRef: React.RefObject<HTMLSpanElement | null>,
+  toneSlot: string,
+): void {
+  const { words, startedMs, lastReportMs } = band;
+  useLayoutEffect(() => {
+    const paint = (): void => {
+      const reading = liveBandReading({ words, startedMs, lastReportMs }, Date.now());
+      const wordsEl = wordsRef.current;
+      const clockEl = clockRef.current;
+      if (wordsEl === null || clockEl === null) return;
+      wordsEl.textContent = reading.text;
+      wordsEl.dataset.quiet = reading.quiet ? "true" : "false";
+      clockEl.textContent = reading.clock;
+      wordsEl.closest(toneSlot)?.setAttribute("data-tone", reading.tone);
+    };
+    paint();
+    const timer = setInterval(paint, BAND_TICK_MS);
+    return () => clearInterval(timer);
+  }, [words, startedMs, lastReportMs, wordsRef, clockRef, toneSlot]);
+}
+
+/**
+ * The in-flight band: the standard thinking wave, the server's last words,
+ * and the client's clock. One interval repaints the words, the clock and the
+ * band's tone from {@link liveBandReading}; the props only change when the
+ * server says something new.
+ */
+export function LiveBand({ band }: { band: LedgerLiveBand }): React.ReactElement {
+  const wordsRef = useRef<HTMLSpanElement>(null);
+  const clockRef = useRef<HTMLSpanElement>(null);
+  // The band's tone is its own `data-tone` attribute, the appearance hook
+  // `BlockNoticeBand` documents.
+  useLiveBandPaint(band, wordsRef, clockRef, '[data-slot="tool-block-notice"]');
   return (
     <BlockNoticeBand
       tone="progress"
       maxLines={1}
       icon={<TugProgressIndicator variant="wave" state="running" role="inherit" />}
-      text={text}
+      text={
+        <>
+          <span
+            ref={wordsRef}
+            className="session-changes-ledger-live-words"
+            data-slot="session-changes-ledger-live-words"
+            data-quiet="false"
+          />
+          {/* Both spans are the effect's to fill, before first paint: a text
+              child React owned would be orphaned by the first repaint. */}
+          <span
+            ref={clockRef}
+            className="session-changes-ledger-live-clock"
+            data-slot="session-changes-ledger-live-clock"
+          />
+        </>
+      }
     />
+  );
+}
+
+/**
+ * The shade's run line: the live band's two facts at the width of the arc,
+ * directly under the register — the server's last words (or the silence
+ * sentence, in caution) on the left and the clock on the right. It reads the
+ * same band the report's live block carries, so the two cannot disagree; the
+ * shared register keeps its one word.
+ */
+export function RunLine({ band }: { band: LedgerLiveBand }): React.ReactElement {
+  const wordsRef = useRef<HTMLSpanElement>(null);
+  const clockRef = useRef<HTMLSpanElement>(null);
+  useLiveBandPaint(band, wordsRef, clockRef, '[data-slot="session-changes-arc-run-line"]');
+  return (
+    <div
+      className="session-changes-arc-run-line"
+      data-slot="session-changes-arc-run-line"
+      data-tone="progress"
+    >
+      {/* Both spans are the effect's to fill, before first paint. */}
+      <span
+        ref={wordsRef}
+        className="session-changes-arc-run-line-words"
+        data-slot="session-changes-arc-run-line-words"
+        data-quiet="false"
+      />
+      <span
+        ref={clockRef}
+        className="session-changes-arc-run-line-clock"
+        data-slot="session-changes-arc-run-line-clock"
+      />
+    </div>
   );
 }
 
@@ -306,7 +411,7 @@ export function ResolveLedgerBlocks({
           status={block.status}
           flowTrailing
           forceExpanded={block.phase === "awaiting"}
-          {...(block.live !== undefined ? { liveBand: <LiveBand text={block.live} /> } : {})}
+          {...(block.live !== undefined ? { liveBand: <LiveBand band={block.live} /> } : {})}
           {...(block.kind === "stale"
             ? { notice: { tone: "warning" as const, text: staleNotice(base) } }
             : {})}

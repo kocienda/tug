@@ -45,6 +45,7 @@ import {
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
+  joinRunLive,
 } from "@/lib/join-mode-controller";
 import type { ArcBranchFacts } from "@/lib/arc-meta-facts";
 
@@ -226,6 +227,7 @@ function joinRefusal(input: ArcVerbInput): string | null {
   const gate = evaluateJoinGate({
     turnInProgress,
     holderBusy,
+    runLive: joinRunLive(state),
     joinPhase: pending ? "pending" : "idle",
     outcome,
     candidateCommit:

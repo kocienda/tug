@@ -82,6 +82,14 @@ body {
      declares only the number. `tuglaws/type-alignment.md` rule (ii). */
   --tugx-line-box: var(--tugx-toolnotice-line);
   color: var(--tugx-toolnotice-icon-color);
+  /* Every leading icon rides the same icon-size box, centred in it. A glyph
+     already fills the box; an icon whose own box is narrower — the progress
+     wave's three bars are about 11px of ink at its default 16 — would
+     otherwise pull the text a few pixels left of every other band's and sit
+     its ink nearer the text than a glyph's. Boxed, its ink lands where every
+     glyph's lands and the text column holds. */
+  min-width: var(--tugx-toolnotice-icon-size);
+  justify-content: center;
 }
 
 .tool-block-notice-icon svg {

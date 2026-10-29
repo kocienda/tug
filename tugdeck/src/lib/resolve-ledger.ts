@@ -127,8 +127,8 @@ export interface LedgerLive {
   events: readonly ArcJoinLedgerEventWire[];
   /** The latest live-only text per stream, replaced on each beat. */
   stream: {
-    scribe?: { path: string; text: string };
-    resolver?: { turn: number; text: string; tool?: string };
+    scribe?: { path: string; text: string; at_ms?: number };
+    resolver?: { turn: number; text: string; tool?: string; at_ms?: number };
   };
 }
 
@@ -157,6 +157,7 @@ export type LedgerBlockKind =
   | "resolver"
   | "audit"
   | "candidate"
+  | "run"
   | "stale";
 
 /** A block's identity line: an optional sha and path, then the sentence. */
@@ -206,10 +207,24 @@ export interface LedgerBlock {
   summary: ToolResultSummary | ToolResultSummary[];
   phase: "in_flight" | "awaiting" | "success" | "error";
   status: "streaming" | "ready" | "error";
-  /** The live band's sentence — only on the one in-flight block. */
-  live?: string;
+  /** The live band — only on the one in-flight block. */
+  live?: LedgerLiveBand;
   variant: "tool" | "receipt";
   body: LedgerBody;
+}
+
+/**
+ * What the live band carries: the last thing the server reported, in its own
+ * words, and the two instants its clock reads from. The clock itself is the
+ * client's ({@link liveBandReading}); nothing here is a guess at a phase.
+ */
+export interface LedgerLiveBand {
+  /** The last report's own words, or "started · nothing reported yet". */
+  words: string;
+  /** When the run started — its id is its `started_ms`. */
+  startedMs?: number;
+  /** When the server last said anything, kept event or live beat. */
+  lastReportMs?: number;
 }
 
 /**
@@ -243,8 +258,6 @@ const duration = (fromMs: number, toMs: number): string => {
 interface Draft extends Omit<LedgerBlock, "phase" | "status" | "live"> {
   /** True while the block's terminal event has not arrived. */
   open: boolean;
-  /** What the band says, if this block turns out to be the live one. */
-  liveText?: string;
   /** A resolver asking a question it has had no answer to. */
   awaiting?: boolean;
   /** A candidate the run then took back — withheld by a stuck ending, or
@@ -308,10 +321,12 @@ function ladderDraft(
       e.kind === "scribe" ||
       e.kind === "resolver" ||
       e.kind === "candidate" ||
-      e.kind === "ended",
+      e.kind === "ended" ||
+      // A phase tugcast owns — the workshop, a resolver turn — begins after
+      // the ladder is done with the arc.
+      (e.kind === "phase" && e.phase !== "rung"),
   );
   const distinct = new Set(rungs.map((r) => r.rung)).size;
-  const last = rungs[rungs.length - 1]!;
   const replayed = rungs.some((r) => r.rung === "replay" && r.outcome === "resolved");
   const subject = paths.length === 1 ? undefined : paths.length === 0 ? "the arc" : `${paths.length} files`;
   const declinedText = `${declined} ${declined === 1 ? "rung" : "rungs"} declined`;
@@ -344,7 +359,6 @@ function ladderDraft(
       })),
     },
     open: !over,
-    liveText: `trying ${last.rung}${last.path !== undefined ? ` on ${last.path}` : ""}`,
   };
 }
 
@@ -386,7 +400,6 @@ function scribeDrafts(
           ? { kind: "scribe-tail", text: tail }
           : { kind: "none" },
       open: end === undefined,
-      liveText: `merging ${path}`,
     };
   });
 }
@@ -442,7 +455,6 @@ function resolverDraft(
           : { kind: "none" },
     open: !closed && !awaiting,
     awaiting,
-    liveText: streaming?.tool ?? "reading the workshop",
   };
 }
 
@@ -542,10 +554,6 @@ function candidateDraft(
         : null;
   if (sha === null) return null;
   const files = event !== undefined ? event.files : (join?.resolved ?? []);
-  // A clean merge stands a candidate too, having resolved nothing. With no
-  // ledger to say otherwise, a candidate that names no resolved file is not
-  // evidence of anything, and a receipt over an empty list would say so.
-  if (event === undefined && files.length === 0) return null;
   // The ladder tells the ledger "candidate" the moment it anchors, and a
   // moved head (or, in a ledger recorded before the join stopped examining
   // candidates, a stuck ending) can take it back afterwards; the run's ending
@@ -562,6 +570,12 @@ function candidateDraft(
       : undefined;
   const withdrawn =
     ending !== undefined && (ending.outcome === "stuck" || ending.outcome === "superseded");
+  // A clean merge stands a candidate too, having resolved nothing. Unless the
+  // run took it back, a candidate that names no resolved file over a run whose
+  // probe found no conflict is not evidence of anything — recorded or not —
+  // and a receipt over an empty list would only say so.
+  const conflicted = events.some((e) => e.kind === "probe" && e.paths.length > 0);
+  if (files.length === 0 && !withdrawn && (event === undefined || !conflicted)) return null;
   const summary: ToolResultSummary[] = [
     { kind: "count", count: files.length, noun: "file" },
   ];
@@ -599,14 +613,16 @@ function candidateDraft(
  * an answer is `awaiting` rather than in flight, because it is waiting on a
  * person and not working.
  *
- * With no ladder events yet (the run's first moments, or a server that does
- * not report its rungs) a live run still draws one Ladder block, so the press
- * has a receipt from the first frame. That holds over a ledger a previous run
- * left too: a live run this page has heard nothing of yet, over a durable
- * ledger that has already ended, is a new run — Resolve again, or the pilot
- * re-running a moved head pair — and the ended ledger is the last run's
- * account, which stands aside rather than being drawn as this run's with
- * nothing in flight.
+ * A live block names only what the server reported. Its band carries the last
+ * report's own words ({@link lastReportWords}), whichever block it rides, and
+ * the client never synthesizes a phase: with no block open — the run's first
+ * moments, or a run between acts, after the ladder's candidate and before the
+ * resolver opens — a live run draws one Run block whose band says what was
+ * last reported, or "started · nothing reported yet". That holds over a ledger
+ * a previous run left too: a live run this page has heard nothing of yet, over
+ * a durable ledger that has already ended, is a new run — Resolve again, or
+ * the pilot re-running a moved head pair — and the ended ledger is the last
+ * run's account, which stands aside rather than being drawn as this run's.
  */
 export function ledgerBlocks(input: LedgerInput): LedgerBlock[] {
   const { join, live, base, running } = input;
@@ -627,18 +643,16 @@ export function ledgerBlocks(input: LedgerInput): LedgerBlock[] {
   const candidate = candidateDraft(events, join, durable, base);
   if (candidate !== null) drafts.push(candidate);
 
-  if (running && ladder === null && !drafts.some((d) => d.open || d.awaiting)) {
-    const n = join?.conflicts?.length ?? 0;
-    drafts.splice(probe !== null ? 1 : 0, 0, {
-      key: "ladder",
-      kind: "ladder",
-      toolName: "Ladder",
-      identity: { text: `Resolving ${n} ${filesWord(n)}` },
-      summary: { kind: "text", text: "rung 1" },
+  if (running && !drafts.some((d) => d.open || d.awaiting)) {
+    drafts.push({
+      key: "run",
+      kind: "run",
+      toolName: "Run",
+      identity: { text: `reconciling with ${base}` },
+      summary: { kind: "text", text: "running" },
       variant: "tool",
       body: { kind: "none" },
       open: true,
-      liveText: "working through the ladder",
     });
   }
 
@@ -652,8 +666,10 @@ export function ledgerBlocks(input: LedgerInput): LedgerBlock[] {
     }
   }
 
+  const band: LedgerLiveBand | null =
+    liveIndex === -1 ? null : liveBandFor(events, live, durable);
   const blocks: LedgerBlock[] = drafts.map((draft, i) => {
-    const { open: _open, liveText, awaiting, withdrawn, ...rest } = draft;
+    const { open: _open, awaiting, withdrawn, ...rest } = draft;
     if (awaiting === true) return { ...rest, phase: "awaiting", status: "ready" };
     if (withdrawn === true) return { ...rest, phase: "error", status: "error" };
     if (i === liveIndex) {
@@ -661,7 +677,7 @@ export function ledgerBlocks(input: LedgerInput): LedgerBlock[] {
         ...rest,
         phase: "in_flight",
         status: "streaming",
-        ...(liveText !== undefined ? { live: liveText } : {}),
+        ...(band !== null ? { live: band } : {}),
       };
     }
     return { ...rest, phase: "success", status: "ready" };
@@ -683,4 +699,145 @@ export function ledgerBlocks(input: LedgerInput): LedgerBlock[] {
     });
   }
   return blocks;
+}
+
+/**
+ * The live run's band alone — the one the ledger's live block carries — or
+ * null when no run is live. The shade's run line reads this, so the line
+ * under the register and the band in the report cannot say different things.
+ */
+export function liveBandOf(input: LedgerInput): LedgerLiveBand | null {
+  for (const block of ledgerBlocks(input)) {
+    if (block.live !== undefined) return block.live;
+  }
+  return null;
+}
+
+/** What a live band says before the server has reported anything. */
+export const NOTHING_REPORTED = "started · nothing reported yet";
+
+/**
+ * How long a run may go without a report before its band says so — the same
+ * twenty seconds past which a Bash call that reported nothing is recorded as a
+ * gap (`GAP_THRESHOLD_MS` in `tugcore`'s `report_gaps.rs`), so one number
+ * means one thing across the deck.
+ */
+export const SILENCE_THRESHOLD_MS = 20_000;
+
+/**
+ * One kept event in its own words: the server's `said` where it wrote one,
+ * and otherwise the event's facts read straight off it — never a guess at
+ * what might be under way.
+ */
+export function eventWords(e: ArcJoinLedgerEventWire): string {
+  switch (e.kind) {
+    case "phase":
+      return e.said;
+    case "probe":
+      return e.paths.length === 0
+        ? "probe: nothing conflicts"
+        : `probe: ${e.paths.length} ${filesWord(e.paths.length)} conflict`;
+    case "rung":
+      return `${e.rung}${e.path !== undefined ? ` on ${e.path}` : ""}: ${e.said}`;
+    case "scribe":
+      if (e.status === "started" || e.status === "streaming") return `merging ${e.path}`;
+      return `scribe ${e.status} ${e.path}${e.said !== undefined && e.said !== "" ? `: ${e.said}` : ""}`;
+    case "resolver":
+      switch (e.status) {
+        case "started":
+          return "resolver started";
+        case "streaming":
+          return e.tool ?? `resolver turn ${e.turn}`;
+        case "turn":
+          return `resolver turn ${e.turn} ended`;
+        case "asked":
+          return "resolver asked a question";
+        case "answered":
+          return "resolver has its answer";
+        case "reported":
+          return "resolver reported";
+      }
+      return "resolver";
+    case "candidate":
+      return `candidate ${e.sha.slice(0, 9)} anchored`;
+    case "ended":
+      return `ended: ${e.outcome}`;
+  }
+}
+
+/**
+ * The last thing the server said, in its words: the latest kept event, unless
+ * a live beat — a resolver's tool, a scribe's stream — came after it. Null
+ * when nothing has been reported at all.
+ */
+export function lastReportWords(
+  events: readonly ArcJoinLedgerEventWire[],
+  live: LedgerLive,
+): { words: string; atMs: number } | null {
+  let best: { words: string; atMs: number } | null = null;
+  const last = events.length > 0 ? events[events.length - 1]! : undefined;
+  if (last !== undefined) best = { words: eventWords(last), atMs: last.at_ms };
+  const resolver = live.stream.resolver;
+  if (resolver?.at_ms !== undefined && (best === null || resolver.at_ms > best.atMs)) {
+    best = { words: resolver.tool ?? `resolver turn ${resolver.turn}`, atMs: resolver.at_ms };
+  }
+  const scribe = live.stream.scribe;
+  if (scribe?.at_ms !== undefined && (best === null || scribe.at_ms > best.atMs)) {
+    best = { words: `merging ${scribe.path}`, atMs: scribe.at_ms };
+  }
+  return best;
+}
+
+/** The live band for the events that stand, and the run they belong to. */
+function liveBandFor(
+  events: readonly ArcJoinLedgerEventWire[],
+  live: LedgerLive,
+  durable: ArcJoinLedgerWire | null,
+): LedgerLiveBand {
+  const report = lastReportWords(events, live);
+  const fromId = live.run !== undefined ? Number(live.run) : NaN;
+  const startedMs = Number.isFinite(fromId) ? fromId : durable?.started_ms;
+  return {
+    words: report?.words ?? NOTHING_REPORTED,
+    ...(startedMs !== undefined ? { startedMs } : {}),
+    ...(report !== null ? { lastReportMs: report.atMs } : {}),
+  };
+}
+
+/** What a live band reads at one instant of the client's clock. */
+export interface LiveBandReading {
+  /** The band's sentence: the report's words, or the silence sentence. */
+  text: string;
+  /** `warning` once the run has been quiet past the threshold. */
+  tone: "progress" | "warning";
+  /** True once the run has been quiet past {@link SILENCE_THRESHOLD_MS}. */
+  quiet: boolean;
+  /** The clock: time since the run started, and since its last report. */
+  clock: string;
+}
+
+const wholeSecs = (fromMs: number, toMs: number): number =>
+  Math.max(0, Math.floor((toMs - fromMs) / 1000));
+
+/**
+ * A live band at `nowMs`: the server's last words while it keeps talking, and
+ * "no report for N s" once it has said nothing for longer than the threshold —
+ * counted from the last report, or from the start when there has been none.
+ * The clock is the client's own; painting it asks the server nothing.
+ */
+export function liveBandReading(band: LedgerLiveBand, nowMs: number): LiveBandReading {
+  const quietSince = band.lastReportMs ?? band.startedMs;
+  const quietMs = quietSince === undefined ? 0 : nowMs - quietSince;
+  const quiet = quietMs > SILENCE_THRESHOLD_MS;
+  const elapsed = band.startedMs !== undefined ? duration(band.startedMs, nowMs) : null;
+  const since =
+    band.lastReportMs !== undefined
+      ? `${wholeSecs(band.lastReportMs, nowMs)} s since the last report`
+      : null;
+  return {
+    text: quiet ? `no report for ${wholeSecs(quietSince!, nowMs)} s` : band.words,
+    tone: quiet ? "warning" : "progress",
+    quiet,
+    clock: [elapsed, since].filter((s): s is string => s !== null).join(" · "),
+  };
 }

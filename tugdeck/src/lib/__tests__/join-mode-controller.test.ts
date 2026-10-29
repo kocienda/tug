@@ -22,6 +22,7 @@ import {
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
+  joinRunLive,
   joinTargetFromEntry,
   type JoinTarget,
 } from "@/lib/join-mode-controller";
@@ -116,6 +117,7 @@ describe("evaluateJoinGate", () => {
   const base = {
     turnInProgress: false,
     holderBusy: false,
+    runLive: false,
     joinPhase: "idle" as const,
     outcome: "clean" as const,
     candidateCommit: null,
@@ -148,6 +150,36 @@ describe("evaluateJoinGate", () => {
         outcome: "blocked",
       }),
     ).toEqual({ ok: false, reason: "holder" });
+  });
+
+  it("refuses while a run holds the arc, though its candidate already stands", () => {
+    // The 2026-10-28 press: the ladder anchored a candidate within a second,
+    // the run went on for minutes, and the button lit over a press the
+    // server could only refuse.
+    const join = { phase: "resolved" as const, candidate: "cafe1234", run: "resolve" };
+    expect(joinRunLive(join)).toBe(true);
+    const outcome = deriveJoinOutcome(join);
+    expect(outcome).toBe("clean");
+    expect(
+      evaluateJoinGate({ ...base, runLive: true, outcome, candidateCommit: "cafe1234" }),
+    ).toEqual({ ok: false, reason: "running" });
+    expect(joinDisabledReason("running", outcome)).toBe("Wait for the resolve to finish");
+  });
+
+  it("puts the run below the holder and above the round trip", () => {
+    expect(evaluateJoinGate({ ...base, holderBusy: true, runLive: true })).toEqual({
+      ok: false,
+      reason: "holder",
+    });
+    expect(
+      evaluateJoinGate({ ...base, runLive: true, joinPhase: "pending", outcome: "blocked" }),
+    ).toEqual({ ok: false, reason: "running" });
+  });
+
+  it("reads no run from an absent or empty run word", () => {
+    expect(joinRunLive(null)).toBe(false);
+    expect(joinRunLive({ phase: "previewed" })).toBe(false);
+    expect(joinRunLive({ phase: "previewed", run: "" })).toBe(false);
   });
 
   it("fails first on a running turn, before every other reason", () => {
