@@ -143,8 +143,8 @@ impl std::fmt::Display for ListingError {
             ListingError::Git(detail) => write!(f, "{detail}"),
             ListingError::Undecodable { lossy } => write!(
                 f,
-                "git reported a path that is not valid UTF-8: {lossy:?}. Tug reads paths as text \
-                 and will not guess at one it cannot decode, because a guessed path names a \
+                "git reported a path that is not valid UTF-8: {lossy:?}. Paths are read as text, \
+                 and one that cannot be decoded is never guessed at, because a guessed path names a \
                  different file."
             ),
         }

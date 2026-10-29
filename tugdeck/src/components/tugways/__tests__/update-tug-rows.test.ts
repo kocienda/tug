@@ -193,7 +193,7 @@ describe("update-tug-rows: the install is never offered while a turn exists ([B0
       "relaunch"
     ];
     expect(row.status).toBe("active");
-    expect(row.detail).toBe("Tug quits and reopens on the new version.");
+    expect(row.detail).toBe("Quits and reopens on the new version.");
     expect(row.cta).toEqual({ label: "Install and Relaunch", action: "install" });
   });
 
@@ -285,7 +285,7 @@ describe("update-tug-rows: the host's rows are unmoved", () => {
       stalled: true,
     });
     expect(rows.download.status).toBe("error");
-    expect(rows.download.detail).toBe("Tug has heard nothing back for a while.");
+    expect(rows.download.detail).toBe("Nothing heard back for a while.");
     expect(rows.download.cta).toEqual({ label: "Retry", action: "retry" });
     expect(rows.download.edge).toBeUndefined();
     expect(rows.download.body).toBeUndefined();

@@ -213,8 +213,8 @@ export function SettingsGeneralBody() {
           </div>
           <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
             {missing
-              ? "This folder doesn't exist yet — it will be created the first time Tug needs it."
-              : "Where Tug looks when no session card says otherwise: Open Quickly with nothing open, and the new-session path when there are no recent projects."}
+              ? "This folder doesn't exist yet — it will be created the first time it's needed."
+              : "The fallback when no session card says otherwise: Open Quickly with nothing open, and the new-session path when there are no recent projects."}
           </TugLabel>
         </TugBox>
 

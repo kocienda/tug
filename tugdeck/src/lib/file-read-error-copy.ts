@@ -19,7 +19,7 @@ export function describeFileReadError(kind: string, size?: number): string {
     case "not_found":
       return "The file does not exist.";
     case "denied":
-      return "Tug can't open this file (permission refused or a protected file type).";
+      return "This file can't be opened (permission refused or a protected file type).";
     case "binary":
       return "This file isn't text — binary content can't be edited here.";
     case "too_large":
@@ -27,9 +27,9 @@ export function describeFileReadError(kind: string, size?: number): string {
         size !== undefined ? ` (${Math.round(size / (1024 * 1024))} MB)` : ""
       }.`;
     case "bad_path":
-      return "That path isn't a file Tug can open.";
+      return "That path isn't a file that can be opened.";
     case "network":
-      return "Tug couldn't reach its file service.";
+      return "Couldn't reach the file service.";
     default:
       return "The file couldn't be opened.";
   }

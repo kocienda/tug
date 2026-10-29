@@ -136,7 +136,7 @@ export function claudeTooOldCopy(
   installed: string,
   minimum: string = MIN_CLAUDE_CODE_VERSION,
 ): string {
-  return `Tug needs Claude Code ${minimum} or later. This Mac has ${installed} — update to continue.`;
+  return `Requires Claude Code ${minimum} or later. This Mac has ${installed} — update to continue.`;
 }
 
 /**
@@ -311,8 +311,8 @@ export function hostToolsCopy(tools: {
       status: "error",
       label: "Update git",
       detail: applesGit
-        ? `Version ${tools.gitVersion} — Tug needs git ${floor} or newer.`
-        : `Version ${tools.gitVersion} at ${tools.gitPath ?? "an unknown path"} — Tug needs git ${floor} or newer.`,
+        ? `Version ${tools.gitVersion} — requires git ${floor} or newer.`
+        : `Version ${tools.gitVersion} at ${tools.gitPath ?? "an unknown path"} — requires git ${floor} or newer.`,
       ...(applesGit ? { cta: "Install" } : {}),
     };
   }
@@ -503,14 +503,14 @@ export function authOfflineCopy(reading: AuthOfflineReading): AuthOfflineCopy {
     return {
       label: "Can't check your login right now",
       detail:
-        "Tug asked Claude Code whether you're logged in and got no answer. You can keep reading your existing sessions; starting a turn needs Claude Code.",
+        "Asked Claude Code whether you're logged in and got no answer. You can keep reading your existing sessions; starting a turn needs Claude Code.",
       cta: "Try Again",
     };
   }
   return {
     label: "Can't log in right now",
     detail:
-      "Tug needs a network connection to reach Anthropic. Logging in opens your browser, which can't finish while you're offline.",
+      "Reaching Anthropic needs a network connection. Logging in opens your browser, which can't finish while you're offline.",
     cta: "Log In",
   };
 }

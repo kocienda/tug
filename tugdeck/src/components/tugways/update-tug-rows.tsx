@@ -368,7 +368,7 @@ export function deriveUpdateRows(
       download.status = "done";
       download.detail = "Downloaded and verified.";
       relaunch.status = "busy";
-      relaunch.detail = "Installing. Tug reopens in a moment…";
+      relaunch.detail = "Installing. Reopening in a moment…";
       // No bar, for the reason the check row has none: nothing here reports a
       // fraction, and the dot already says the work is running.
       break;
@@ -408,7 +408,7 @@ export function deriveUpdateRows(
       failed.body = undefined;
       failed.edge = undefined;
       failed.detail =
-        state.message === "" ? "Tug could not finish the update." : state.message;
+        state.message === "" ? "Couldn't finish the update." : state.message;
       failed.cta = { label: "Retry", action: "retry" };
     }
   }
@@ -423,7 +423,7 @@ export function deriveUpdateRows(
       waiting.status = "error";
       waiting.body = undefined;
       waiting.edge = undefined;
-      waiting.detail = "Tug has heard nothing back for a while.";
+      waiting.detail = "Nothing heard back for a while.";
       waiting.cta = { label: "Retry", action: "retry" };
     }
   }
@@ -436,7 +436,7 @@ export function deriveUpdateRows(
   // this panel already uses three times.
   if (stage === "readyToInstall" && stopWork.status === "done") {
     relaunch.status = "active";
-    relaunch.detail = "Tug quits and reopens on the new version.";
+    relaunch.detail = "Quits and reopens on the new version.";
     relaunch.cta = { label: "Install and Relaunch", action: "install" };
   }
 

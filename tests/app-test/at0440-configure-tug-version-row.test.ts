@@ -215,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
           `(window.tugdeck.lab.dispatch("claude_version_result", { installed: "2.1.200", latest: "2.1.290" }), null)`,
         );
         await overlay.waitForCondition<boolean>(
-          `${text(INSTALL_DETAIL)}.indexOf("Tug needs Claude Code") !== -1`,
+          `${text(INSTALL_DETAIL)}.indexOf("Requires Claude Code") !== -1`,
           { timeoutMs: 5000 },
         );
         const detail = await overlay.evalJS<string>(text(INSTALL_DETAIL));
@@ -227,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
         note(`at0440 too-old row: ${JSON.stringify({ detail, cta, status })}`);
 
         expect(detail, "the row names the floor and the installed version").toBe(
-          "Tug needs Claude Code 2.1.285 or later. This Mac has 2.1.200 — update to continue.",
+          "Requires Claude Code 2.1.285 or later. This Mac has 2.1.200 — update to continue.",
         );
         expect(cta.trim(), "the row offers the update").toBe("Update");
         expect(hasCheck, "a too-old install is not a settled step").toBe(false);

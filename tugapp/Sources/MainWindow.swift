@@ -994,7 +994,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             TugLog.field("reason", reason ?? "no reason given"),
         ])
 
-        let title = NSTextField(labelWithString: "Tug is stuck \(stage).")
+        let title = NSTextField(labelWithString: "Stuck \(stage).")
         title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
         title.alignment = .center
 

@@ -1167,7 +1167,7 @@ class ProcessManager {
         let who = pid.map { "PID \($0)" } ?? "Another process"
         alert.informativeText =
             "\(who) holds the port this build was assigned. " +
-            "Tug.app cannot run two instances with the same identity. " +
+            "Two instances with the same identity cannot run at once. " +
             "Quit the other instance and take over, or cancel this launch."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Quit Other & Continue") // .alertFirstButtonReturn (default)

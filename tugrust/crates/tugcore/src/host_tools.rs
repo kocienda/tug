@@ -349,7 +349,7 @@ pub fn refusal(tools: &HostTools) -> Option<String> {
                 )
             };
             Some(format!(
-                "git {version} is too old — Tug needs git {GIT_VERSION_FLOOR} or newer.\n{fix}"
+                "git {version} is too old — git {GIT_VERSION_FLOOR} or newer is required.\n{fix}"
             ))
         }
         None => Some(format!(

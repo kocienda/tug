@@ -874,7 +874,7 @@ export function ConfigureTug(): ReactElement {
         key,
         status: "active",
         label: "Install Claude Code",
-        detail: "Tug will install it for you.",
+        detail: "It will be installed for you.",
         cta: { label: "Install", onClick: handleInstall },
       };
     }
@@ -978,7 +978,7 @@ export function ConfigureTug(): ReactElement {
               key: "signin",
               status: "active",
               label: "Log in to Claude",
-              detail: "Tug runs sessions with your Claude subscription.",
+              detail: "Sessions run on your Claude subscription.",
               cta: { label: "Log In", onClick: handleSignIn },
             };
 
@@ -1054,7 +1054,7 @@ export function ConfigureTug(): ReactElement {
       status: "active",
       label: "Choose a default project directory",
       detail:
-        "Tug opens new sessions in this directory by default. You can change it later in Settings → General.",
+        "New sessions open in this directory by default. You can change it later in Settings → General.",
       body: chooser("Choose"),
     };
   })();

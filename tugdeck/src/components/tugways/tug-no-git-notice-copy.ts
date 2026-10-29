@@ -70,15 +70,15 @@ export function noGitNoticeCopy(tools: {
     return {
       title: `git ${tools.gitVersion} is too old.`,
       detail: applesGit
-        ? `Tug needs git ${floor} or newer — Apple's Command Line Tools carry it, ${COMMAND_LINE_TOOLS_SIZE}`
-        : `Tug needs git ${floor} or newer — update the git at ${tools.gitPath ?? "an unknown path"}`,
+        ? `Requires git ${floor} or newer — Apple's Command Line Tools carry it, ${COMMAND_LINE_TOOLS_SIZE}`
+        : `Requires git ${floor} or newer — update the git at ${tools.gitPath ?? "an unknown path"}`,
       ...(applesGit ? { action: "Install" } : {}),
     };
   }
 
   return {
     title: "git isn't installed.",
-    detail: `Tug needs git to track changes and make commits — Apple's Command Line Tools carry it, ${COMMAND_LINE_TOOLS_SIZE}`,
+    detail: `Tracking changes and making commits needs git — Apple's Command Line Tools carry it, ${COMMAND_LINE_TOOLS_SIZE}`,
     action: "Install",
   };
 }

@@ -188,7 +188,7 @@ const ISOLATED_STEPS: SetupStepModel[] = [
   {
     key: "active",
     label: "Log in to Claude",
-    detail: "Tug runs sessions with your Claude subscription.",
+    detail: "Sessions run on your Claude subscription.",
     status: "active",
     cta: { label: "Log In" },
   },
@@ -344,7 +344,7 @@ function buildFlow(
         steps: [
           install({
             status: "active",
-            detail: "Tug will install it for you.",
+            detail: "It will be installed for you.",
             cta: { label: "Install", onClick: () => go("installing") },
           }),
           signin({}),
@@ -431,7 +431,7 @@ function buildFlow(
           installed,
           signin({
             status: "active",
-            detail: "Tug runs sessions with your Claude subscription.",
+            detail: "Sessions run on your Claude subscription.",
             cta: { label: "Log In", onClick: () => go("complete") },
           }),
         ],
@@ -442,7 +442,7 @@ function buildFlow(
           install({ status: "done", label: "Claude Code installed", detail: "Claude Code is ready." }),
           signin({
             status: "active",
-            detail: "Tug runs sessions with your Claude subscription.",
+            detail: "Sessions run on your Claude subscription.",
             cta: { label: "Log In", onClick: () => go("signing_in") },
           }),
           open({}),
@@ -479,7 +479,7 @@ function buildFlow(
           signedIn,
           projectDir({
             status: "active",
-            detail: "Tug opens new sessions in this directory by default.",
+            detail: "New sessions open in this directory by default.",
             body: projectDirChooser("Choose"),
           }),
           open({ status: "pending", detail: "Waiting for a default project directory." }),
@@ -534,7 +534,7 @@ function buildFlow(
           install({ status: "done", label: "Claude Code installed", detail: "Claude Code is ready." }),
           signin({
             status: "active",
-            detail: "Tug runs sessions with your Claude subscription.",
+            detail: "Sessions run on your Claude subscription.",
             cta: { label: "Log In", onClick: () => go("complete") },
           }),
           open({ status: "pending", ...pendingOpenStepCopy(3) }),

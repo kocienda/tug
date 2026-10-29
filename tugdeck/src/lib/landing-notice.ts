@@ -60,7 +60,7 @@ const COMMIT_CAUSES: CauseRow[] = [
   {
     match: (lower) => lower.includes("index.lock") && lower.includes("exists"),
     title: "Another git process is holding the repository lock",
-    remedy: `Tug couldn't take .git/index.lock. If nothing else is running git here, remove the lock file and ${KEPT}`,
+    remedy: `Couldn't take .git/index.lock. If nothing else is running git here, remove the lock file and ${KEPT}`,
   },
   {
     match: (lower) =>
@@ -96,7 +96,7 @@ const COMMIT_CAUSES: CauseRow[] = [
   {
     match: (lower) => lower.includes("already staged"),
     title: "Some files are already staged",
-    remedy: `Picking hunks commits the whole index, so Tug won't commit while other files sit in it. Unstage them with git reset, or commit whole files instead of picking hunks, and ${KEPT}`,
+    remedy: `Picking hunks commits the whole index, so nothing is committed while other files sit in it. Unstage them with git reset, or commit whole files instead of picking hunks, and ${KEPT}`,
   },
 ];
 

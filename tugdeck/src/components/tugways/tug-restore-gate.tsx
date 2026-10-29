@@ -113,7 +113,7 @@ export function TugRestoreGate(): ReactElement {
               </AlertDialog.Title>
               <AlertDialog.Description className="tug-alert-message" asChild>
                 <div>
-                  <p>Tug is rebuilding your transcripts. Just a moment.</p>
+                  <p>Rebuilding your transcripts…</p>
                   {single ? (
                     <TugProgressIndicator
                       variant="bar"

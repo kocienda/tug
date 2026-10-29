@@ -69,7 +69,7 @@ export function TugVersionGate(): ReactElement {
               <AlertDialog.Description className="tug-alert-message" asChild>
                 <div>
                   <p>
-                    Tug needs macOS {required} or later.
+                    Requires macOS {required} or later.
                     {host !== null
                       ? ` This Mac is running macOS ${host.version}.`
                       : ""}

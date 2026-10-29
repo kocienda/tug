@@ -158,7 +158,7 @@ describe("minimum Claude Code version", () => {
 
   test("the row names the floor and what is installed", () => {
     expect(claudeTooOldCopy("2.1.200")).toBe(
-      "Tug needs Claude Code 2.1.285 or later. This Mac has 2.1.200 — update to continue.",
+      "Requires Claude Code 2.1.285 or later. This Mac has 2.1.200 — update to continue.",
     );
   });
 });

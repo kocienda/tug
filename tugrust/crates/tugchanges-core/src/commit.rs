@@ -99,7 +99,7 @@ impl fmt::Display for CommitError {
             }
             CommitError::BadPath { paths } => write!(
                 f,
-                "Tug produced {} path(s) git does not know, so nothing was committed. This is a \
+                "{} path(s) that git does not know were produced, so nothing was committed. This is a \
                  defect in Tug, not in your files: the names are correct and there is nothing \
                  for you to fix, and retrying will fail the same way. The path(s): {}",
                 paths.len(),

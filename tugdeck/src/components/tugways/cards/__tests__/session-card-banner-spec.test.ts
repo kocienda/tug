@@ -29,13 +29,13 @@ describe("humanizeErrorSummary", () => {
       "The session stopped unexpectedly and couldn't be restarted.",
     );
     expect(humanizeErrorSummary("resume_failed")).toBe(
-      "Tug couldn't resume the previous session.",
+      "Couldn't resume the previous session.",
     );
   });
 
   it("collapses a spawn-failure reason to a humane line", () => {
     expect(humanizeErrorSummary("spawn failed: ENOENT")).toBe(
-      "Tug couldn't start the session process.",
+      "Couldn't start the session process.",
     );
   });
 

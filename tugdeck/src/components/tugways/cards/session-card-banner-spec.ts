@@ -137,7 +137,7 @@ export function deriveSessionCardBannerSpec(
 const ERROR_SUMMARY_COPY: Record<string, string> = {
   crash_budget_exhausted:
     "The session stopped unexpectedly and couldn't be restarted.",
-  resume_failed: "Tug couldn't resume the previous session.",
+  resume_failed: "Couldn't resume the previous session.",
 };
 
 /**
@@ -150,7 +150,7 @@ export function humanizeErrorSummary(summary: string): string {
   const key = summary.trim();
   if (key in ERROR_SUMMARY_COPY) return ERROR_SUMMARY_COPY[key];
   if (key.startsWith("spawn failed")) {
-    return "Tug couldn't start the session process.";
+    return "Couldn't start the session process.";
   }
   const looksInternal = key === "" || /^[a-z0-9_]+$/.test(key);
   return looksInternal ? "The session ended unexpectedly." : key;

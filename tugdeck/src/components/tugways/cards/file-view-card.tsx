@@ -438,7 +438,7 @@ export function FileViewCardContent({ cardId }: { cardId: string }) {
           />
         ) : (
           <TugLabel className="file-view-card-notice">
-            Tug can&rsquo;t display this file yet.
+            This file can&rsquo;t be displayed yet.
           </TugLabel>
         )}
         {renderSheet()}
