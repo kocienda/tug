@@ -140,6 +140,9 @@ pub(crate) fn quit_host(
     let mut reply: Option<SendOutcome> = None;
     let mut failed_at: Option<Instant> = None;
     let mut capture: Option<std::thread::JoinHandle<Result<PathBuf, String>>> = None;
+    // One capture per quit: the handle is taken once it finishes, so the
+    // slot alone cannot say a capture already ran.
+    let mut captured = false;
     let mut next_progress = PROGRESS_EVERY;
 
     loop {
@@ -173,7 +176,8 @@ pub(crate) fn quit_host(
             report.outcome = QuitOutcome::Refused;
             break;
         }
-        if reply.is_none() && capture.is_none() && elapsed >= STALL_AFTER {
+        if reply.is_none() && !captured && elapsed >= STALL_AFTER {
+            captured = true;
             say(format!(
                 "quit {}: no reply after {}s — capturing a stall",
                 target.instance_id,

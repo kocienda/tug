@@ -365,24 +365,30 @@ impl Bench {
     }
 
     /// The paths a squash of `branch` onto `main` conflicts on, read from
-    /// `merge-tree` without touching anything.
+    /// `merge-tree` without touching anything, through the `-z` door so a
+    /// path git would C-quote arrives as the bytes it holds.
     fn squash_conflicts(&self, branch: &str) -> Vec<String> {
-        let out = tugcore::git_command()
-            .arg("-C")
-            .arg(&self.repo)
-            .args(["merge-tree", "--write-tree", "--name-only", "main", branch])
-            .output()
-            .expect("merge-tree");
-        if out.status.success() {
+        let (records, status) = tugchanges_core::listing_with_status(
+            &self.repo,
+            &[
+                "merge-tree",
+                "--write-tree",
+                "--name-only",
+                "-z",
+                "main",
+                branch,
+            ],
+        )
+        .expect("merge-tree");
+        if status.success() {
             return Vec::new();
         }
-        // The first line is the tree; the conflicted paths follow it, then a
-        // blank line before the messages.
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
+        // The first record is the tree; the conflicted paths follow it, then
+        // an empty record before the messages.
+        records
+            .into_iter()
             .skip(1)
-            .take_while(|line| !line.is_empty())
-            .map(str::to_string)
+            .take_while(|record| !record.is_empty())
             .collect()
     }
 
