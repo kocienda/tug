@@ -28,31 +28,20 @@ const reg = (
 ): ReturnType<typeof arcJoinRegister> =>
   arcJoinRegister({ ...BASE, join, ...over });
 
-/** An arc the pilot has reconciled — a candidate stands, and that is all the
- *  readiness there is to have. */
+/** A ready arc — its audit stands on the live base, so the server offers its
+ *  join, and that is all the readiness there is to have. */
 const reconciled = (): ArcJoinStateWire => ({
-  phase: "resolved",
-  candidate: "cafe1234",
+  phase: "previewed",
+  offer: {
+    request_id: "imposer2:b:h",
+    base_sha: "b",
+    arc_head: "h",
+    work_id: "w",
+  },
 });
 
 describe("what the register says", () => {
-  test("reconciling names the base and counts the files", () => {
-    const running = reg({ phase: "conflicted", run: "resolve", conflicts: ["a.rs", "b.rs"] });
-    expect(running?.phase).toBe("in_flight");
-    expect(running?.line).toBe("Reconciling with main — resolving 2 files");
-    expect(running?.word).toBe("reconciling");
-
-    // One file is one file, not "1 files".
-    const single = reg({ phase: "conflicted", run: "resolve", conflicts: ["a.rs"] });
-    expect(single?.line).toBe("Reconciling with main — resolving 1 file");
-
-    // A reconcile with no conflict list still says what it is doing rather
-    // than claiming a count it does not have.
-    const countless = reg({ phase: "conflicted", run: "resolve" });
-    expect(countless?.line).toBe("Reconciling with main");
-  });
-
-  test("ready is a candidate that stands — nothing is built here", () => {
+  test("ready is an offer that stands — nothing is built here", () => {
     const ready = reg(reconciled());
     expect(ready?.phase).toBe("success");
     expect(ready?.line).toBe("Ready to join to main");
@@ -115,18 +104,18 @@ describe("what the register says", () => {
       })?.word,
     ).toBe("blocked");
     expect(
-      reg({ phase: "conflicted", run: "resolve" }, { holdersBusy: true })?.word,
-    ).toBe("reconciling");
+      reg({ phase: "blocked", run: "resolve-base" }, { holdersBusy: true })?.word,
+    ).toBe("committing");
   });
 
-  test("a question waits on a person, and says which prompt", () => {
-    const asked = reg({
-      phase: "conflicted",
-      question: { request_id: "r1", question: "which side?", options: [] },
+  test("an arc stopped with a question waits on a person, on its card", () => {
+    const asked = reg(null, {
+      stage: "implementing",
+      run: { stage: "implement", stopped: "needs a decision", stopped_stage: "implement" },
     });
     // `awaiting` is the caution pulse — work that has stopped for somebody.
     expect(asked?.phase).toBe("awaiting");
-    expect(asked?.line).toBe("The resolver needs a decision — answer the prompt");
+    expect(asked?.line).toBe("imposer2 stopped with a question — answer it on its card");
     expect(asked?.word).toBe("question");
   });
 
@@ -173,25 +162,11 @@ describe("what the register says", () => {
     expect(blocked?.word).toBe("blocked");
   });
 
-  test("a stuck resolve states the refusal it already made", () => {
-    const stuck = reg({ phase: "conflicted", stuck: "the resolver exhausted its budget" });
-    expect(stuck?.phase).toBe("error");
-    expect(stuck?.line).toBe("the resolver exhausted its budget");
-    expect(stuck?.word).toBe("stuck");
-  });
-
   test("a dropped wire says so, and does not claim the run died", () => {
     const offline = reg(reconciled(), { connected: false });
     expect(offline?.phase).toBe("idle");
     expect(offline?.line).toBe("Connection dropped — the run continues on the server");
     expect(offline?.word).toBe("offline");
-  });
-
-  test("a joinable arc with no candidate reads as the reconcile about to happen", () => {
-    // The gap between the recompute and the pilot's dispatch landing. Calling
-    // it "nothing to reconcile" would be a lie with a very short shelf life.
-    const gap = reg({ phase: "previewed" });
-    expect(gap?.word).toBe("reconciling");
   });
 
   test("an arc still being worked has no join, and mounts nothing", () => {
@@ -206,19 +181,14 @@ describe("what the register says", () => {
     // the same states now.
     for (const stage of ["ready", "built", "audited"]) {
       expect(reg(reconciled(), { stage })?.word).toBe("ready");
-      // And with no candidate yet, the beat rather than null: the pilot's
-      // dispatch is one recompute away, not absent.
-      expect(reg({ phase: "previewed" }, { stage })?.word).toBe("reconciling");
+      // With no offer standing there is nothing to promise.
+      expect(reg({ phase: "previewed" }, { stage })).toBeNull();
     }
   });
 
-  test("an unbound joinable arc says nothing rather than promising a reconcile", () => {
-    // The pilot never runs for an arc nobody holds, so naming a reconcile on
-    // the Arcs card row would be a promise the machine has already declined to
-    // keep — standing there forever.
+  test("an unbound ready arc is still offered", () => {
+    // The offer is a fact about the arc, not about who holds it.
     expect(reg({ phase: "previewed" }, { stage: "ready", bound: false })).toBeNull();
-    // A candidate that DID land (from a `/arc-join` on demand, or from a bind
-    // since withdrawn) is a fact and still reported.
     expect(
       reg(reconciled(), { stage: "ready", bound: false })?.word,
     ).toBe("ready");
@@ -247,37 +217,22 @@ describe("what the register says", () => {
   });
 
   test("anything that implies somebody acted speaks whatever the stage says", () => {
-    // A live run, a beat, a standing question and a stated refusal cannot
-    // happen to an arc nobody has touched, so each is worth saying even before
-    // the arc reaches `built`.
-    const running = reg({ phase: "conflicted", run: "resolve" }, { stage: "implementing" });
-    expect(running?.word).toBe("reconciling");
-
-    const asked = reg(
-      {
-        phase: "conflicted",
-        question: { request_id: "r1", question: "which side?", options: [] },
-      },
-      { stage: "implementing" },
-    );
-    expect(asked?.word).toBe("question");
+    // A fold, a beat and a question cannot happen to an arc nobody has
+    // touched, so each is worth saying even before the arc reaches `built`.
+    const folding = reg({ phase: "blocked", run: "resolve-base" }, { stage: "implementing" });
+    expect(folding?.word).toBe("committing");
 
     const joining = reg(null, {
       stage: "implementing",
       landBeat: { beat: "squash", status: "start" },
     });
     expect(joining?.word).toBe("joining");
-
-    const stuck = reg({ phase: "conflicted", stuck: "the resolver gave up" }, {
-      stage: "implementing",
-    });
-    expect(stuck?.word).toBe("stuck");
   });
 });
 
 describe("precedence — the part that gets re-derived wrongly", () => {
-  test("a wire drop outranks a running resolve", () => {
-    const dropped = reg({ phase: "conflicted", run: "resolve", conflicts: ["a.rs"] }, {
+  test("a wire drop outranks a running fold", () => {
+    const dropped = reg({ phase: "blocked", run: "resolve-base" }, {
       connected: false,
     });
     expect(dropped?.word).toBe("offline");
@@ -330,15 +285,6 @@ describe("precedence — the part that gets re-derived wrongly", () => {
   });
 
   test("a live join outranks everything but a wire drop", () => {
-    const overQuestion = reg(
-      {
-        phase: "conflicted",
-        question: { request_id: "r1", question: "which side?", options: [] },
-      },
-      { landBeat: { beat: "squash", status: "start" } },
-    );
-    expect(overQuestion?.word).toBe("joining");
-
     const overDrop = reg(reconciled(), {
       landBeat: { beat: "squash", status: "start" },
       connected: false,
@@ -346,27 +292,6 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     expect(overDrop?.word).toBe("offline");
   });
 
-  test("a question outranks the run it belongs to", () => {
-    // A run that is waiting on a person is not progressing, and rendering it
-    // as progress is how an unanswered prompt goes unnoticed.
-    const waiting = reg({
-      phase: "conflicted",
-      run: "resolve",
-      conflicts: ["a.rs"],
-      question: { request_id: "r1", question: "which side?", options: [] },
-    });
-    expect(waiting?.word).toBe("question");
-  });
-
-  test("the client's own overlay stands in when the feed has not caught up", () => {
-    // The press sends and the store flips to `resolving` immediately; the
-    // feed's `run` fact arrives on the next recompute. Without this arm the
-    // row reads idle for the gap between them.
-    const overlay = reg({ phase: "conflicted", conflicts: ["a.rs"] }, {
-      resolvePhase: "resolving",
-    });
-    expect(overlay?.word).toBe("reconciling");
-  });
   test("a join that finished says so, and keeps saying so", () => {
     // The whole reason the terminal beat settles instead of clearing: frames
     // arrive in batches, so on a join fast enough to finish inside one, every
@@ -646,14 +571,49 @@ describe("the fold has its own sentence ([P07])", () => {
     );
     expect(offline?.word).toBe("offline");
   });
+});
 
-  test("the ladder's resolve still reads as reconciling", () => {
-    const ladder = reg({
-      phase: "conflicted",
-      run: "resolve",
-      conflicts: ["a.rs"],
+describe("a stale audit takes the offer down and says where the re-audit is", () => {
+  const stale = { stage: "audit-stale" };
+
+  test("nobody holds it: waiting for a card", () => {
+    const waiting = reg(reconciled(), {
+      ...stale,
+      run: { stage: "audit", done: true },
+      bound: false,
     });
-    expect(ladder?.word).toBe("reconciling");
-    expect(ladder?.line).toBe("Reconciling with main — resolving 1 file");
+    expect(waiting?.phase).toBe("awaiting");
+    expect(waiting?.line).toBe("imposer2's audit is stale — waiting for a card");
+    expect(waiting?.word).toBe("audit-stale");
+  });
+
+  test("a card holds it: the re-audit is about to be seated there", () => {
+    const seating = reg(reconciled(), {
+      ...stale,
+      run: { stage: "audit", done: true },
+      bound: true,
+    });
+    expect(seating?.phase).toBe("in_flight");
+    expect(seating?.line).toBe("imposer2's audit is stale — the re-audit starts on its card");
+  });
+
+  test("reopened: re-auditing", () => {
+    const running = reg(reconciled(), { ...stale, run: { stage: "audit" } });
+    expect(running?.phase).toBe("in_flight");
+    expect(running?.line).toBe("imposer2's audit is stale — re-auditing");
+    expect(running?.word).toBe("re-auditing");
+  });
+
+  test("a re-audit stopped with a question reads as the question", () => {
+    const stopped = reg(reconciled(), {
+      ...stale,
+      run: { stage: "audit", stopped: "needs a decision", stopped_stage: "audit" },
+    });
+    expect(stopped?.word).toBe("question");
+  });
+
+  test("it is never an offer, whatever offer the wire still carries", () => {
+    const line = reg(reconciled(), { ...stale, run: { stage: "audit", done: true } });
+    expect(line?.phase).not.toBe("success");
   });
 });

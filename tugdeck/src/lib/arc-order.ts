@@ -28,6 +28,9 @@ export const ARC_STAGE_RANK: Record<string, number> = {
   joining: 6,
   "draft-ready": 5,
   audited: 4,
+  // An audit whose head or base has since moved: as far along as `audited`,
+  // and no longer joinable until it is re-audited.
+  "audit-stale": 4,
   built: 3,
   implementing: 2,
   working: 1,

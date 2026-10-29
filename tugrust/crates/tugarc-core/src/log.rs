@@ -389,6 +389,59 @@ pub fn parse_verified_note(note: &str) -> Option<(String, String)> {
     }
     Some((head.to_string(), base.to_string()))
 }
+
+/// The arc head and base tip an `audited` mark was made against.
+///
+/// An audit is a verdict about one tree — this head replayed onto this base —
+/// so the mark carries both, and readiness is derived from whether they still
+/// stand rather than latched from the mark having been made at all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuditedPair {
+    /// The arc branch's tip when the audit marked, full sha.
+    pub head: String,
+    /// The base branch's tip when the audit marked, full sha.
+    pub base: String,
+}
+
+/// The note an `audited` mark writes: the pair first, then whatever the
+/// marker said, after a `·`.
+pub fn audited_note(pair: &AuditedPair, note: &str) -> String {
+    let note = note.trim();
+    if note.is_empty() {
+        format!("{} onto {}", pair.head, pair.base)
+    } else {
+        format!("{} onto {} · {note}", pair.head, pair.base)
+    }
+}
+
+/// The pair an `audited` note leads with, if it leads with one.
+///
+/// Stricter than [`parse_verified_note`] on purpose: an `audited` note
+/// predating the pair is free text ("good shape"), and a sentence that
+/// happens to contain the word "onto" must not be read as two shas. So the
+/// note must open with `<hex> onto <hex>`, each at least seven characters.
+pub fn parse_audited_note(note: &str) -> Option<AuditedPair> {
+    let mut tokens = note.split_whitespace();
+    let head = tokens.next()?;
+    if tokens.next()? != "onto" {
+        return None;
+    }
+    let base = tokens.next()?;
+    let is_sha = |s: &str| s.len() >= 7 && s.bytes().all(|b| b.is_ascii_hexdigit());
+    (is_sha(head) && is_sha(base)).then(|| AuditedPair {
+        head: head.to_string(),
+        base: base.to_string(),
+    })
+}
+
+/// The live tips an arc's readiness is judged against: the arc branch's head
+/// and the base branch's tip, each `None` when it cannot be read.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ArcTips {
+    pub head: Option<String>,
+    pub base: Option<String>,
+}
+
 /// What an arc's surviving declarations say about it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ArcDeclarations {
@@ -411,6 +464,12 @@ pub struct ArcDeclarations {
     /// declaration, on the same grounds as `last_replay`: verifying reports on
     /// a tree, it does not move the arc's stage.
     pub last_verified: Option<String>,
+    /// The pair the latest `audited` line was made against, when its note
+    /// carries one. `None` for a generation never audited and for a
+    /// pair-less mark written before the pair existed — which
+    /// [`audit_current`] reads as stale, since an audit that cannot say what
+    /// it was relative to is not one readiness can be derived from.
+    pub audited_at: Option<AuditedPair>,
     /// The timestamp of the newest surviving line for this arc's current
     /// generation — when the arc was last touched at all, by any writer. Reset
     /// with everything else at a terminal line, so a reused name reports its own
@@ -696,7 +755,10 @@ pub fn read_declarations(paths: &Paths, repo_root: &Path, arc: &str) -> ArcDecla
                 }
             }
             "built" => found.latest = Some(ArcDeclaration::Built),
-            "audited" => found.latest = Some(ArcDeclaration::Audited),
+            "audited" => {
+                found.latest = Some(ArcDeclaration::Audited);
+                found.audited_at = parse_audited_note(note);
+            }
             "replayed" => found.last_replay = Some(note.to_owned()),
             "verified" => found.last_verified = Some(note.to_owned()),
             "arc-note" if is_yield_note(note) => {
@@ -761,13 +823,17 @@ pub fn read_declarations(paths: &Paths, repo_root: &Path, arc: &str) -> ArcDecla
 ///
 /// 1. the declared selection finished — `done(m)` against the run's
 ///    `--through <m>` ([P01]);
-/// 2. `built` or `audited` was declared — the hand-driven "I say it's done",
-///    and the unblock for any generation whose log predates the declaration
-///    ([P03]);
+/// 2. `built` was declared — the hand-driven "I say it's done", and the
+///    unblock for any generation whose log predates the declaration ([P03]);
 /// 3. the generation declared no steps at all — a plan-less arc, where every
 ///    committed round is itself the completed unit of asked work ([P02]).
 ///
 /// An arc mid-step satisfies neither 1 nor 3, so an open step is never ready.
+///
+/// **An `audited` mark answers for itself, wheel or no wheel.** It is ready
+/// exactly while the arc head and base tip it was made against are the live
+/// `tips` ([`audit_current`]); either moving makes it audit-stale, and the
+/// other arms do not rescue it.
 ///
 /// Dirt is measured over *tracked* paths only: the join's preamble commits
 /// tracked changes, so an untracked scratch file must not hold the arc hostage
@@ -825,30 +891,74 @@ pub fn join_ready(
     decls: &ArcDeclarations,
     has_plan: bool,
     wheel: WheelReading,
+    tips: &ArcTips,
 ) -> bool {
     if joining || rounds < 1 || worktree_dirty_tracked {
         return false;
     }
+    // A standing audit is the whole answer, whoever is driving: the audit
+    // vouched for one head on one base, and is current only while both still
+    // stand. This holds with the wheel off too, because an arc whose run
+    // finished reads `Off` the moment its record goes `done` — exactly when
+    // the base is most likely to move under it — and the pre-wheel arms below
+    // would otherwise call it ready over a tree nobody audited.
+    if matches!(decls.latest, Some(ArcDeclaration::Audited)) {
+        return audit_current(decls, tips);
+    }
     match wheel {
-        // The audit's own declaration, and nothing else. Not `run_complete`,
-        // not `built` — the implement stage declares `built` itself, and the
-        // stage that may still change the code runs after it. A stop in any
-        // stage is the same reading: the audit did not mark, and the stop
-        // does not make it have.
+        // The audit's own declaration, and nothing else — answered above.
+        // Not `run_complete`, not `built`: the implement stage declares
+        // `built` itself, and the stage that may still change the code runs
+        // after it. A stop in any stage is the same reading: the audit did not
+        // mark, and the stop does not make it have.
         WheelReading::Live | WheelReading::Stopped => {
-            return matches!(decls.latest, Some(ArcDeclaration::Audited));
+            return false;
         }
         WheelReading::Off => {}
     }
     decls.run_complete
-        || matches!(
-            decls.latest,
-            Some(ArcDeclaration::Built) | Some(ArcDeclaration::Audited)
-        )
+        || matches!(decls.latest, Some(ArcDeclaration::Built))
         // A plan-less arc arms on every round. An arc that adopted a plan
         // and has not yet declared a step is a run that has not started —
         // its one round is the adoption itself — and is not joinable.
         || (!has_plan && decls.step.is_none())
+}
+
+/// Whether the standing `audited` mark still describes the tree a join would
+/// land: the arc head and base tip it was made against are both the live
+/// tips. A base that moved means the audit never saw the base the arc would
+/// land on; a head that moved means a round landed after it — and a round is
+/// a head move, so no new round needs a case of its own.
+///
+/// A pair-less mark is never current: it cannot say what it was relative to.
+/// Nor is a tip that cannot be read, which is an arc whose fit nothing can
+/// vouch for.
+pub fn audit_current(decls: &ArcDeclarations, tips: &ArcTips) -> bool {
+    let Some(pair) = decls.audited_at.as_ref() else {
+        return false;
+    };
+    tips.head.as_deref() == Some(pair.head.as_str())
+        && tips.base.as_deref() == Some(pair.base.as_str())
+}
+
+/// Whether the arc stands audited by a mark that no longer describes it — the
+/// **audit-stale** reading: the latest declaration is `audited` and
+/// [`audit_current`] says it has gone stale.
+pub fn audit_stale(decls: &ArcDeclarations, tips: &ArcTips) -> bool {
+    matches!(decls.latest, Some(ArcDeclaration::Audited)) && !audit_current(decls, tips)
+}
+
+/// Whether a stale audit went stale **only on the base side**: the arc head
+/// the mark was made against is still the live head, so no round landed after
+/// it and the arc's own bytes are the ones the audit read. That is the one
+/// staleness the machine may answer by itself — replay, verify, re-stamp —
+/// because nothing in it needs a reading of new work. A pair-less mark, or a
+/// head that cannot be read, is never base-only.
+pub fn audit_stale_on_base_only(decls: &ArcDeclarations, tips: &ArcTips) -> bool {
+    let Some(pair) = decls.audited_at.as_ref() else {
+        return false;
+    };
+    audit_stale(decls, tips) && tips.head.as_deref() == Some(pair.head.as_str())
 }
 
 /// How far through the *declared run* a stepped arc has got: `(position,
@@ -1805,7 +1915,27 @@ mod tests {
             step: Some((8, 15)),
             run_through: Some(8),
             run_complete: true,
+            audited_at: matches!(latest, Some(ArcDeclaration::Audited)).then(audited_here),
             ..ArcDeclarations::default()
+        }
+    }
+
+    const HEAD: &str = "1111111111111111111111111111111111111111";
+    const BASE: &str = "2222222222222222222222222222222222222222";
+
+    /// The pair an audit made here would carry.
+    fn audited_here() -> AuditedPair {
+        AuditedPair {
+            head: HEAD.to_owned(),
+            base: BASE.to_owned(),
+        }
+    }
+
+    /// The live tips when nothing has moved since the audit.
+    fn here() -> ArcTips {
+        ArcTips {
+            head: Some(HEAD.to_owned()),
+            base: Some(BASE.to_owned()),
         }
     }
 
@@ -1823,7 +1953,8 @@ mod tests {
                 false,
                 &armed_three_ways(None),
                 true,
-                WheelReading::Live
+                WheelReading::Live,
+                &here()
             ),
             "a finished run is recorded but not yet offered"
         );
@@ -1834,7 +1965,8 @@ mod tests {
                 false,
                 &armed_three_ways(Some(ArcDeclaration::Built)),
                 true,
-                WheelReading::Live
+                WheelReading::Live,
+                &here()
             ),
             "and neither is `built`, which the implement stage declares itself"
         );
@@ -1844,7 +1976,8 @@ mod tests {
             false,
             &armed_three_ways(Some(ArcDeclaration::Audited)),
             true,
-            WheelReading::Live
+            WheelReading::Live,
+            &here()
         ));
     }
 
@@ -1867,7 +2000,8 @@ mod tests {
                     false,
                     &armed_three_ways(latest),
                     true,
-                    WheelReading::Off
+                    WheelReading::Off,
+                    &here()
                 ),
                 "{latest:?} arms with no live wheel over it"
             );
@@ -1879,7 +2013,8 @@ mod tests {
             false,
             &ArcDeclarations::default(),
             false,
-            WheelReading::Off
+            WheelReading::Off,
+            &here()
         ));
         // And under a live wheel it is refused like everything else.
         assert!(!join_ready(
@@ -1888,7 +2023,8 @@ mod tests {
             false,
             &ArcDeclarations::default(),
             false,
-            WheelReading::Live
+            WheelReading::Live,
+            &here()
         ));
     }
 
@@ -1908,7 +2044,8 @@ mod tests {
                 false,
                 &armed_three_ways(None),
                 true,
-                WheelReading::Stopped
+                WheelReading::Stopped,
+                &here()
             ),
             "a finished run stopped at the seam before its audit is unaudited, not ready"
         );
@@ -1919,7 +2056,8 @@ mod tests {
                 false,
                 &armed_three_ways(Some(ArcDeclaration::Built)),
                 true,
-                WheelReading::Stopped
+                WheelReading::Stopped,
+                &here()
             ),
             "`built` is the implement stage's word and does not stand in for the audit's"
         );
@@ -1929,7 +2067,8 @@ mod tests {
             false,
             &armed_three_ways(Some(ArcDeclaration::Audited)),
             true,
-            WheelReading::Stopped
+            WheelReading::Stopped,
+            &here()
         ));
         // The plan-less arm is behind the same gate: a stop on a wheel-driven
         // arc with no steps is still an arc nothing audited.
@@ -1939,8 +2078,146 @@ mod tests {
             false,
             &ArcDeclarations::default(),
             false,
-            WheelReading::Stopped
+            WheelReading::Stopped,
+            &here()
         ));
+    }
+
+    // ── the audit is relative to a head and a base ───────────────────────
+
+    /// **Ready is derived from the audited pair, not latched from the mark.**
+    /// Fresh is ready; a base that moved, or a head that moved because a
+    /// round landed after the audit, is audit-stale and not ready — under a
+    /// live wheel, a stopped one, and an off one alike, since a finished arc
+    /// reads `Off` the moment its record goes done.
+    #[test]
+    fn an_audit_is_ready_only_while_its_pair_stands() {
+        let audited = armed_three_ways(Some(ArcDeclaration::Audited));
+        let base_moved = ArcTips {
+            base: Some("3333333333333333333333333333333333333333".to_owned()),
+            ..here()
+        };
+        let head_moved = ArcTips {
+            head: Some("4444444444444444444444444444444444444444".to_owned()),
+            ..here()
+        };
+        for wheel in [WheelReading::Live, WheelReading::Stopped, WheelReading::Off] {
+            assert!(
+                join_ready(3, false, false, &audited, true, wheel, &here()),
+                "{wheel:?}: fresh"
+            );
+            assert!(
+                !join_ready(3, false, false, &audited, true, wheel, &base_moved),
+                "{wheel:?}: the base moved after the audit"
+            );
+            assert!(
+                !join_ready(3, false, false, &audited, true, wheel, &head_moved),
+                "{wheel:?}: a round landed after the audit"
+            );
+        }
+        assert!(!audit_stale(&audited, &here()));
+        assert!(audit_stale(&audited, &base_moved));
+        assert!(audit_stale(&audited, &head_moved));
+        // A tip that cannot be read vouches for nothing.
+        assert!(audit_stale(&audited, &ArcTips::default()));
+        // Not audited at all is not audit-stale: there is no audit to go stale.
+        assert!(!audit_stale(
+            &armed_three_ways(Some(ArcDeclaration::Built)),
+            &base_moved
+        ));
+    }
+
+    /// **A pair-less mark is stale.** An `audited` line written before the
+    /// pair existed cannot say what it was relative to, so readiness cannot
+    /// be derived from it — even with the wheel off, where the other arms
+    /// would have called a finished run ready.
+    #[test]
+    fn a_pair_less_audited_mark_is_stale() {
+        let legacy = ArcDeclarations {
+            audited_at: None,
+            ..armed_three_ways(Some(ArcDeclaration::Audited))
+        };
+        for wheel in [WheelReading::Live, WheelReading::Stopped, WheelReading::Off] {
+            assert!(
+                !join_ready(3, false, false, &legacy, true, wheel, &here()),
+                "{wheel:?}"
+            );
+        }
+        assert!(audit_stale(&legacy, &here()));
+    }
+
+    /// **Only a base move is the machine's to answer.** A stale audit whose
+    /// head still stands went stale on the base alone; a round after the
+    /// audit, a pair-less mark, or an unreadable head is new work to read.
+    #[test]
+    fn a_base_only_staleness_is_told_apart_from_a_round() {
+        let audited = armed_three_ways(Some(ArcDeclaration::Audited));
+        let base_moved = ArcTips {
+            base: Some("3333333333333333333333333333333333333333".to_owned()),
+            ..here()
+        };
+        let head_moved = ArcTips {
+            head: Some("4444444444444444444444444444444444444444".to_owned()),
+            ..base_moved.clone()
+        };
+        assert!(audit_stale_on_base_only(&audited, &base_moved));
+        assert!(!audit_stale_on_base_only(&audited, &here()), "not stale");
+        assert!(!audit_stale_on_base_only(&audited, &head_moved));
+        assert!(!audit_stale_on_base_only(
+            &audited,
+            &ArcTips {
+                head: None,
+                ..base_moved.clone()
+            }
+        ));
+        let legacy = ArcDeclarations {
+            audited_at: None,
+            ..audited
+        };
+        assert!(!audit_stale_on_base_only(&legacy, &base_moved));
+    }
+
+    /// The `audited` note is read strictly: the pair must open the note as
+    /// two shas around `onto`, so a free-text note from before the pair is
+    /// not half-believed.
+    #[test]
+    fn the_audited_note_carries_its_pair() {
+        let pair = audited_here();
+        assert_eq!(
+            parse_audited_note(&audited_note(&pair, "")),
+            Some(pair.clone())
+        );
+        assert_eq!(
+            parse_audited_note(&audited_note(&pair, "good shape")),
+            Some(pair.clone())
+        );
+        assert_eq!(
+            audited_note(&pair, "good shape"),
+            format!("{HEAD} onto {BASE} · good shape")
+        );
+        assert_eq!(parse_audited_note("good shape"), None);
+        assert_eq!(parse_audited_note("replayed onto main"), None);
+        assert_eq!(parse_audited_note(""), None);
+        assert_eq!(parse_audited_note(&format!("{HEAD} onto")), None);
+    }
+
+    /// The fold keeps the latest mark's pair, and a later pair-less mark
+    /// clears an earlier one rather than inheriting it.
+    #[test]
+    fn the_latest_audited_line_owns_the_pair() {
+        let first = audited_note(&audited_here(), "");
+        let fixture = log_repo(&format!(
+            "{}{}",
+            log_line("d", "audited", &first),
+            log_line("d", "audited", "good shape"),
+        ));
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
+        assert_eq!(found.latest, Some(ArcDeclaration::Audited));
+        assert_eq!(found.audited_at, None);
+
+        let fixture = log_repo(&log_line("d", "audited", &first));
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
+        assert_eq!(found.audited_at, Some(audited_here()));
     }
 
     /// The reading, from the record: a stop in any stage reads `Stopped`, and
@@ -2000,7 +2277,8 @@ mod tests {
             false,
             &marked,
             true,
-            WheelReading::Off
+            WheelReading::Off,
+            &here()
         ));
         // The three early refusals still come first, wheel or no wheel.
         assert!(!join_ready(
@@ -2009,7 +2287,8 @@ mod tests {
             false,
             &marked,
             true,
-            WheelReading::Off
+            WheelReading::Off,
+            &here()
         ));
         assert!(!join_ready(
             3,
@@ -2017,7 +2296,8 @@ mod tests {
             false,
             &marked,
             true,
-            WheelReading::Off
+            WheelReading::Off,
+            &here()
         ));
         assert!(!join_ready(
             3,
@@ -2025,7 +2305,8 @@ mod tests {
             true,
             &marked,
             true,
-            WheelReading::Off
+            WheelReading::Off,
+            &here()
         ));
     }
 }

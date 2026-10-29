@@ -244,11 +244,17 @@ pub(crate) fn bind(
         return ArcApiOutcome::Error(format!("{holder} is running {arc}"));
     }
     match ledger.set_arc_binding(tug_session_id, Some((&arc_id, arc))) {
-        Ok(true) => ArcApiOutcome::Bound {
-            session_id: tug_session_id.to_string(),
-            arc_id,
-            arc_name: arc.to_string(),
-        },
+        Ok(true) => {
+            // A bind is a wake for the base-motion engine: a done arc whose
+            // audit went stale while no card held it has been waiting for
+            // exactly this card, and the engine is what seats its re-audit.
+            crate::feeds::base_motion::wake_on_bind();
+            ArcApiOutcome::Bound {
+                session_id: tug_session_id.to_string(),
+                arc_id,
+                arc_name: arc.to_string(),
+            }
+        }
         // Unreachable through the resolution above, and kept because the day
         // it is reachable is the day something bound a corpse again — better
         // a refusal that names the session than a success that doesn't.
@@ -352,6 +358,21 @@ pub(crate) fn arc_resume(
         return ArcApiOutcome::Error(format!(
             "{arc}'s arc is stopping — wait for the stop to finish"
         ));
+    }
+    // A done arc is resumable at its audit and only there: the Re-audit
+    // press takes the same door `tugtool arc run` does, and a done arc whose
+    // audit still stands is refused rather than bound as though something
+    // were about to happen.
+    if record.done {
+        match tugarc_core::ops::reopen_stale_audit(&Paths::from_env(), project_dir, arc) {
+            Ok(true) => {}
+            Ok(false) => {
+                return ArcApiOutcome::Error(format!(
+                    "{arc} is done and its audit still stands — there is nothing to re-audit"
+                ));
+            }
+            Err(e) => return ArcApiOutcome::Error(e.to_string()),
+        }
     }
     if let Some((stage, _)) = record.stopped {
         if let Err(e) =
@@ -1700,6 +1721,62 @@ mod tests {
             Some(tugarc_core::arc::ArcStage::Implement),
             "and it picks up in the stage it stopped in, not at the top",
         );
+        assert_eq!(bound_arc(&ledger).as_deref(), Some("alpha"));
+    }
+
+    /// The Re-audit press takes the door `tugtool arc run` takes: a done arc
+    /// whose audit can no longer vouch for its tree is reopened at the audit
+    /// and the card seated on it, and a done arc with no stale audit to
+    /// answer is refused before anything is written. (A scratch dir with no
+    /// git has no tips to read, so its audit mark reads stale — the same
+    /// reading as a pair-less mark: nothing it can vouch for.)
+    #[test]
+    #[serial_test::serial]
+    fn a_done_arc_resumes_only_at_a_stale_audit() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        let paths = Paths::from_env();
+        tugarc_core::arc::append_arc_stage(
+            &paths,
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Audit,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_done(&paths, root, "alpha").unwrap();
+
+        assert!(
+            matches!(
+                arc_resume(&ledger, root, "claude-1", "alpha"),
+                ArcApiOutcome::Error(why) if why.contains("nothing to re-audit")
+            ),
+            "done with no audit standing: refused",
+        );
+        assert_eq!(resume_lines(root), 0, "and nothing written");
+
+        tugarc_core::log::append_mark_declaration(
+            &paths,
+            root,
+            "alpha",
+            tugarc_core::log::MarkStage::Audited,
+            "good shape",
+        )
+        .unwrap();
+        assert!(matches!(
+            arc_resume(&ledger, root, "claude-1", "alpha"),
+            ArcApiOutcome::Bound { .. }
+        ));
+        let record = tugarc_core::arc::read_arc(&paths, root, "alpha").expect("the arc");
+        assert!(!record.done, "the re-audit reopens the arc");
+        assert_eq!(record.resume, Some(tugarc_core::arc::ArcStage::Audit));
         assert_eq!(bound_arc(&ledger).as_deref(), Some("alpha"));
     }
 

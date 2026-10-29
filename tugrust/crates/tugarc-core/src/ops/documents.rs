@@ -59,6 +59,10 @@ pub struct OpenOutcome {
     pub started: bool,
     /// The arc carried a stop and an `arc-resume` cleared it.
     pub resumed: bool,
+    /// The arc was done and its audit had gone stale, so the `arc-resume`
+    /// reopened it at the audit stage ([`reopen_stale_audit`]). Implies
+    /// `resumed`.
+    pub reaudit: bool,
     /// The record as it reads after whichever act ran.
     pub record: crate::arc::ArcRecord,
 }
@@ -134,6 +138,7 @@ pub fn open_arc(paths: &Paths, root: &Path, arc: &str) -> Result<OpenOutcome, Ar
     Ok(OpenOutcome {
         started: true,
         resumed: false,
+        reaudit: false,
         record,
     })
 }
@@ -142,33 +147,118 @@ pub fn open_arc(paths: &Paths, root: &Path, arc: &str) -> Result<OpenOutcome, Ar
 /// in, which clears the stop and tells the runner which stage to rotate again
 /// on the calling session's next idle ([P11]). An arc that is not stopped is
 /// left as it is — its record is already what the runner reads.
+///
+/// **A done arc is resumable at its audit, and only there.** When its audit
+/// has gone stale — the head or the base it was made against has moved — the
+/// arc reopens at the audit stage through [`reopen_stale_audit`]. A done arc
+/// whose audit still stands has nothing to re-audit, and is refused.
 fn resume_arc(
     paths: &Paths,
     root: &Path,
     name: &str,
     record: crate::arc::ArcRecord,
 ) -> Result<OpenOutcome, ArcError> {
+    if record.done {
+        if !reopen_stale_audit(paths, root, name)? {
+            return Err(ArcError::Refused(format!(
+                "arc '{name}' is done and its audit still stands — there is nothing to re-audit"
+            )));
+        }
+        let record = read_back(paths, root, name)?;
+        return Ok(OpenOutcome {
+            started: false,
+            resumed: true,
+            reaudit: true,
+            record,
+        });
+    }
     let Some((stage, _)) = record.stopped else {
         return Ok(OpenOutcome {
             started: false,
             resumed: false,
+            reaudit: false,
             record,
         });
     };
     crate::arc::append_arc_resume(paths, root, name, stage)
         .map_err(|e| ArcError::arc_log(paths, root, e))?;
-    let record = crate::arc::read_arc(paths, root, name).ok_or_else(|| {
+    let record = read_back(paths, root, name)?;
+    Ok(OpenOutcome {
+        started: false,
+        resumed: true,
+        reaudit: false,
+        record,
+    })
+}
+
+/// The record after a resume wrote to it.
+fn read_back(paths: &Paths, root: &Path, name: &str) -> Result<crate::arc::ArcRecord, ArcError> {
+    crate::arc::read_arc(paths, root, name).ok_or_else(|| {
         ArcError::arc_log_said(
             paths,
             root,
             format!("resumed the arc for '{name}' but could not read it back"),
         )
-    })?;
-    Ok(OpenOutcome {
-        started: false,
-        resumed: true,
-        record,
     })
+}
+
+/// Reopen a finished arc at its audit stage when the audit no longer
+/// describes it — the one door every re-audit takes.
+///
+/// Writes `arc-resume audit` when the arc stands audited and the head or base
+/// that audit was made against has moved, and returns whether it did. That one
+/// line is the whole act: it clears `done` in the record, and the runner seats
+/// the audit on the bound card's next idle, through the same resume arm a
+/// stopped arc takes. `tugtool arc run`, the fold's Re-audit, and the
+/// base-motion engine's bind wake all come here, so the three cannot disagree
+/// about when an arc may go back.
+///
+/// Idempotent by construction: a reopened arc is no longer done, and a second
+/// call on one is a no-op.
+pub fn reopen_stale_audit(paths: &Paths, root: &Path, name: &str) -> Result<bool, ArcError> {
+    let Some(record) = crate::arc::read_arc(paths, root, name) else {
+        return Ok(false);
+    };
+    if !record.done {
+        return Ok(false);
+    }
+    let declarations = crate::log::read_declarations(paths, root, name);
+    if !crate::log::audit_stale(&declarations, &super::live_tips(root, name)) {
+        return Ok(false);
+    }
+    crate::arc::append_arc_resume(paths, root, name, crate::arc::ArcStage::Audit)
+        .map_err(|e| ArcError::arc_log(paths, root, e))?;
+    Ok(true)
+}
+
+/// Re-stamp a finished arc's audit onto the tips it stands on now — the quiet
+/// answer to an audit that went stale on the base alone.
+///
+/// The caller has already done the work the mark vouches for: it found the
+/// audited head still standing, replayed the arc onto the moved base without
+/// a conflict, and verified the fit green. What is left is the record, and
+/// this writes it: a fresh `audited` mark carrying the live pair, so the arc
+/// reads ready again with no turn spent on it. Returns whether it wrote;
+/// an arc that is not done, or whose audit already stands, is left alone.
+pub fn restamp_audit(paths: &Paths, root: &Path, name: &str) -> Result<bool, ArcError> {
+    let Some(record) = crate::arc::read_arc(paths, root, name) else {
+        return Ok(false);
+    };
+    if !record.done {
+        return Ok(false);
+    }
+    let declarations = crate::log::read_declarations(paths, root, name);
+    if !crate::log::audit_stale(&declarations, &super::live_tips(root, name)) {
+        return Ok(false);
+    }
+    super::mark_in(
+        paths,
+        root,
+        name,
+        crate::log::MarkStage::Audited,
+        Some("re-stamped: the base moved, the replay was clean, the fit verified"),
+    )?;
+    Ok(true)
 }
 
 /// The document whose Step Status Ledger this arc's steps are walked from.

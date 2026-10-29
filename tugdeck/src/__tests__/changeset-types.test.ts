@@ -294,21 +294,10 @@ describe("aggregate changeset wire contract", () => {
     expect(join).toBeDefined();
     if (!join) throw new Error("expected a join block");
 
-    expect(join.phase).toBe("resolved");
-    expect(join.candidate).toBe("9f1c2d3e4b5a60718293a4b5c6d7e8f901234567");
-    expect(join.reviewed).toBe(false);
+    expect(join.phase).toBe("conflicted");
     expect(join.conflicts).toEqual(["tugrust/crates/tugtool/src/commands/arc.rs"]);
     expect(join.archaeology?.[0]?.total).toBe(1);
     expect(join.archaeology?.[0]?.commits?.[0]?.sha).toBe("3722f24");
-
-    // The review payload's two halves: the diff (recomputed server-side from
-    // git) and the rung (persisted, because git cannot answer it).
-    expect(join.resolved).toHaveLength(1);
-    expect(join.resolved?.[0]?.resolved_by).toBe("driver");
-    expect(join.resolved?.[0]?.diff).toContain("@@");
-    expect(join.resolved?.[0]?.added).toBe(1);
-    expect(join.resolved?.[0]?.removed).toBe(1);
-
   });
 
   test("an arc entry with no join block still parses", () => {

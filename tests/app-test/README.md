@@ -225,7 +225,7 @@ Everything a scratch fixture makes carries the `tug-scratch-` prefix — the
 repo, its data root, its stub scripts, and the transcript directory under
 `~/.claude/projects` — and the recipe sweeps that namespace at the start
 of every run, so a test killed before its teardown leaves nothing behind.
-`at0426` is the worked example for a join; `at0421` for a plain
+`at0436` is the worked example for a join; `at0421` for a plain
 arc-UI one.
 
 ## Environment variables
@@ -340,31 +340,22 @@ stderr.
 
 ## The join fixtures, and why none of them runs a model
 
-A conflicted arc join is finished by an agent: it reconciles the merge in a
-workshop worktree, audits what the algorithmic rungs decided, may ask one
-intent question, and reports. Three fixtures press that arc — `at0426` (the
-audit), `at0436` (a join pressed for real), `at0442` (the escalation) — and
-**none of them spawns a model.** Two seams make that possible, and a new join
-fixture should use both.
+A join is squash and land: the arc's audit verified the fit against the base
+it stands on, and a conflicted arc is not offered at all — its audit resolves
+the conflict, on the Wheel. So no join fixture spawns a model, and `at0436`
+(a join pressed for real) is the worked example.
 
-**The resolver is scripted.** `git config tugarc.joinresolver <script>` in the
-fixture's repo makes tugcast run that command instead of `claude`. It speaks the
-same two terminal shapes the real spawn does — one JSON line per user message in
-on stdin, one per terminal turn out on stdout, either `{"ask":{…}}` or the
-report — so the orchestrator's parse-and-wait path is the identical one. A few
-lines of `sh` can play any resolver behavior: resolve-and-report, ask-then-
-resolve, never-repair, report-nothing. This is the `tugarc.mergedriver` stub
-pattern one rung up. **Without a stub the seam does not fall back to a model —
-it refuses**, which is what keeps a stray fixture from quietly spending a
-minute of API time.
+**The resolver is still scripted.** The crossing settle still spawns one, so
+`git config tugarc.joinresolver <script>` in the fixture's repo makes tugcast
+run that command instead of `claude`. **Without a stub the seam does not fall
+back to a model — it refuses**, which is what keeps a stray fixture from
+quietly spending a minute of API time.
 
-**Nothing is built or tested at join time.** A join gates on reconcile-clean
-alone: the run's ending replays the arc onto the live base and verifies the
-tree that will actually land, so by the time a join is offered the bytes have
-been checked once, warm, where a failure could still be fixed. A fixture join
-therefore runs at git speed and needs no toolchain — and cannot deadlock on the
-machine-wide `apptest` gate its own run is holding, which a join-time test tier
-could.
+**Nothing is built or tested at join time.** By the time a join is offered the
+bytes have been checked once, warm, where a failure could still be fixed. A
+fixture join therefore runs at git speed and needs no toolchain — and cannot
+deadlock on the machine-wide `apptest` gate its own run is holding, which a
+join-time test tier could.
 
 **The repository is the fixture's own.** `makeJoinScratchRepo` in
 `arc-fixture.ts` builds one — on top of `makeArcScratchRepo`, the same
@@ -376,22 +367,11 @@ through a join — a successful join squashes onto the base branch **in that
 branch's live working tree**, which for the checkout would be the developer's
 own `main`. `rmJoinScratchRepo` deletes the lot.
 
-Owning it is also what makes a fixture *safe*, and that is the newer half. Every
-join rides a candidate, so **opening join mode resolves the arc** — a clean one
-included. Aimed at the developer's checkout, that is a reconcile on the way to
-a button press. Any test that enters join mode belongs on a scratch repo, which
-is why `at0435` and `at0436` moved onto one.
-
-Two options shape what the fixture builds:
-
-- **`cleanMerge: true`** puts the base's rewrite in a file of its own, so the
-  squash has nothing to reconcile. The clean join is its own arc rather than the
-  absence of one: it resolves and anchors a candidate.
-- **A slow resolver stub** — `read -r _charter; sleep 15; …` — held a run silent
-  past the twelve-second deadline the client used to enforce, in `at0444`
-  (deleted 2026-10-16: a 15 s silence cannot fit the 20 s file budget). The
-  guarantee — a run that cannot speak is still a run, and only the server can
-  say otherwise — is pinned by `changeset-join-store.test.ts`.
+Owning it is also what makes a fixture *safe*: a press lands for real, so any
+test that enters join mode belongs on a scratch repo, which is why `at0435`
+and `at0436` moved onto one. **`cleanMerge: true`** puts the base's rewrite in
+a file of its own, so the squash has nothing to reconcile and the arc is
+offered.
 
 ## Selectors that mirror the product
 

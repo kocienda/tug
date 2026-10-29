@@ -1819,6 +1819,7 @@ fn run_arc_run(
     let tugarc_core::OpenOutcome {
         started,
         resumed,
+        reaudit,
         record: arc,
     } = tugarc_core::ops::open_arc(paths, &root, name)?;
 
@@ -1853,6 +1854,10 @@ fn run_arc_run(
                 "Arc opened on '{}' for {}",
                 name,
                 arc.document.as_deref().unwrap_or("(no document)")
+            ),
+            (false, true) if reaudit => println!(
+                "Arc on '{}' is done but its audit is stale — re-auditing",
+                name
             ),
             (false, true) => println!(
                 "Arc on '{}' is stopped in {} — resuming",
@@ -3164,6 +3169,7 @@ mod tests {
             documents: ops::ArcDocuments::default(),
             last_activity: Some("2026-09-26T00:00:00Z".to_string()),
             fit: None,
+            audited_at: None,
             conflict: None,
             disagreements: Vec::new(),
         }

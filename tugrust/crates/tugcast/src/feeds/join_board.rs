@@ -10,7 +10,7 @@
 //! rebuild the bug the feature exists to remove.
 //!
 //! **Cached, keyed by `(base_sha, arc_head_sha)`** — the `merge-tree` conflict
-//! probe, the archaeology behind it, and the candidate's per-file diffs. Each is
+//! probe and the archaeology behind it. Each is
 //! a pure function of those two commits, so a hit is sound and a miss costs one
 //! probe per actual movement.
 //!
@@ -33,12 +33,9 @@ use tugcore::instance::Paths;
 
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
-    ArcConflictCommit, ArcConflictHistory, ArcJoinAttention, ArcJoinBlocker, ArcJoinLedger,
-    ArcJoinLedgerEventBody, ArcJoinOffer, ArcJoinQuestion, ArcJoinReport, ArcJoinState,
-    ArcResolvedBase, ArcResolvedFile,
+    ArcConflictCommit, ArcConflictHistory, ArcJoinAttention, ArcJoinBlocker, ArcJoinOffer,
+    ArcJoinState, ArcResolvedBase,
 };
-
-use tugarc_core::resolve::{self, CandidateStatus};
 
 /// The cacheable half of one arc's join facts, and the head pair it describes.
 #[derive(Clone)]
@@ -47,9 +44,6 @@ struct CachedProbe {
     arc_sha: String,
     conflicts: Vec<String>,
     archaeology: Vec<ArcConflictHistory>,
-    /// Keyed by candidate sha, because a re-resolve against the same heads can
-    /// produce a different candidate and its diffs must not be inherited.
-    diffs: HashMap<String, Vec<ArcResolvedFile>>,
 }
 
 #[derive(Default)]
@@ -139,6 +133,13 @@ pub fn sweep_workshops(repo_root: &Path, live_arcs: &[String]) {
 /// `receipts` follows the same rule for the same reason — see
 /// [`standing_resolve_receipts`], which is one eager walk of the op log and so
 /// belongs to the recompute rather than to the arc.
+///
+/// **A ready arc's join is a squash and a land.** Readiness is derived from
+/// the audited pair: an arc reads ready only while its audit stands on the
+/// live base, so its fit was verified against exactly the tree the join
+/// lands. There is no candidate to build and nothing to resolve at the join;
+/// the offer stands whenever the arc is ready and nothing refuses or occupies
+/// it.
 pub fn join_state_for(
     repo_root: &Path,
     detail: &ArcDetail,
@@ -153,81 +154,35 @@ pub fn join_state_for(
     let run = run_kind.map(|k| k.to_string());
 
     // Uncached, always: what would refuse a join right now.
-    let blockers: Vec<ArcJoinBlocker> =
-        // A live join and a crashed one both leave an open record carrying a
-        // phase, and only the second is a blocker. The holder is what tells
-        // them apart — and it has to be a *join* holder: a resolve running over
-        // the leavings of a crashed join is exactly the case that still wants
-        // the refusal.
-        //
-        // The holder also suppresses the resolve lease, whichever run it is:
-        // the registry is the exact answer where it exists, and the lease is
-        // the derived one for the process that cannot see it.
-        ops::join_blockers_from_detail(
-            &Paths::from_env(),
-            repo_root,
-            detail,
-            current_branch,
-            run_kind,
-            live_dirt,
-        )
-            .into_iter()
-            .map(|b| ArcJoinBlocker {
-                kind: b.kind,
-                title: b.title,
-                detail: b.detail,
-                paths: b.paths,
-                remedy: b.remedy.map(|r| tugcast_core::types::ArcJoinRemedy {
-                    explain: r.explain,
-                }),
-            })
-            .collect();
+    let blockers: Vec<ArcJoinBlocker> = ops::join_blockers_from_detail(
+        &Paths::from_env(),
+        repo_root,
+        detail,
+        current_branch,
+        run_kind,
+        live_dirt,
+    )
+    .into_iter()
+    .map(|b| ArcJoinBlocker {
+        kind: b.kind,
+        title: b.title,
+        detail: b.detail,
+        paths: b.paths,
+        remedy: b
+            .remedy
+            .map(|r| tugcast_core::types::ArcJoinRemedy { explain: r.explain }),
+    })
+    .collect();
 
-    // Uncached, always: the candidate ref and its marks. A candidate that no
-    // longer describes the current heads is dropped here rather than reported,
-    // so the state demotes itself instead of standing as a lie.
     let name = detail.name.as_str();
-    let status = resolve::candidate_status(repo_root, name, &detail.base);
-    let mut stale_note = None;
-    let mut candidate = None;
-    match status {
-        CandidateStatus::Valid(sha) => candidate = Some(sha),
-        CandidateStatus::Stale(note) => {
-            // Reported either way, but only *cleared* between runs. Clearing it
-            // mid-resolve pulls the candidate out from under the run that is
-            // building on it, and the sentence that surfaces — "the build
-            // verdict went missing before the exam" — names none of the real
-            // cause. A base that genuinely moved during a run demotes the
-            // candidate on the next recompute instead: the ordinary staleness
-            // path, at the ordinary time.
-            if run.is_none() {
-                resolve::clear_candidate(repo_root, name);
-            }
-            stale_note = Some(note);
-        }
-        CandidateStatus::None => {}
-    }
-
     if !blockers.is_empty() {
         offer_receipt(detail, Some("blocked"));
-        // The question is read before the stuck line, always: an orphaned
-        // question *becomes* a stuck line, and reading the two the other way
-        // round would withhold the conversion until the next recompute.
-        let question = standing_question(repo_root, detail);
-        let stuck = standing_stuck(repo_root, detail);
         // The probe's answer would not be displayed, so it is not paid for.
-        let ledger = standing_ledger(repo_root, detail, candidate.as_deref());
         return ArcJoinState {
             phase: "blocked".to_string(),
             blockers,
             conflicts: Vec::new(),
             archaeology: Vec::new(),
-            candidate,
-            resolved: Vec::new(),
-            stale_note,
-            report: None,
-            stuck,
-            question,
             run,
             // A blocked arc has nothing to offer — it is waiting on an act,
             // elsewhere, that each blocker names.
@@ -237,59 +192,36 @@ pub fn join_state_for(
             // left another standing still happened, and the receipt is how the
             // user checks what it did to their base.
             resolved_base: receipts.get(name).cloned(),
-            // And the ledger, for the same reason: what the last run did is a
-            // thing that happened, whatever is blocking the join now.
-            ledger,
         };
     }
 
     let probe = cached_probe(repo_root, detail);
-    let (conflicts, archaeology) = match &probe {
-        Some(p) => (p.conflicts.clone(), p.archaeology.clone()),
+    let (conflicts, archaeology) = match probe {
+        Some(p) => (p.conflicts, p.archaeology),
         None => (Vec::new(), Vec::new()),
     };
-
-    let resolved = match &candidate {
-        Some(sha) => candidate_files(repo_root, detail, sha, probe.as_ref()),
-        None => Vec::new(),
-    };
-
-    let phase = if candidate.is_some() {
-        "resolved"
-    } else if !conflicts.is_empty() {
-        "conflicted"
-    } else {
+    let phase = if conflicts.is_empty() {
         "previewed"
+    } else {
+        "conflicted"
     };
 
-    let report = candidate
-        .as_deref()
-        .and_then(|sha| standing_report(repo_root, name, sha));
-    let question = standing_question(repo_root, detail);
-    let stuck = standing_stuck(repo_root, detail);
-    // The first reason the offer is withheld, in the order a reader would
-    // clear them. Named rather than folded into one flag so the log can say
-    // which one held a ready arc's room shut.
-    let withheld = if candidate.is_none() {
-        Some("no-candidate")
-    } else if run.is_some() {
+    // The first reason the offer is withheld, named rather than folded into
+    // one flag so the log can say which one held a ready arc's room shut. A
+    // conflict on a ready arc is the base having moved past its audit faster
+    // than the readiness read caught up; the re-audit answers it.
+    let withheld = if run.is_some() {
         Some("run-held")
-    } else if question.is_some() {
-        Some("question")
-    } else if stuck.is_some() {
-        Some("stuck")
+    } else if !conflicts.is_empty() {
+        Some("conflicted")
     } else {
         None
     };
     let offer = standing_offer(repo_root, detail, withheld.is_none());
-    let attention = standing_attention(
-        detail,
-        run.is_some(),
-        offer.is_some(),
-        question.as_ref(),
-        stuck.as_deref(),
-    );
-    let ledger = standing_ledger(repo_root, detail, candidate.as_deref());
+    let attention = offer.as_ref().map(|_| ArcJoinAttention {
+        kind: "offer".to_string(),
+        key: format!("{}:offer", detail.work_id),
+    });
     offer_receipt(
         detail,
         match (&offer, withheld) {
@@ -305,20 +237,12 @@ pub fn join_state_for(
         blockers,
         conflicts,
         archaeology,
-        candidate,
-        resolved,
-        stale_note,
-        report,
-        stuck,
-        question,
         run,
         offer,
         attention,
         resolved_base: receipts.get(name).cloned(),
-        ledger,
     }
 }
-
 /// Every arc's standing fold receipt, from one walk of the op log.
 ///
 /// **One walk per recompute, not one per arc.** `list_ops` is eager — a git
@@ -429,35 +353,18 @@ fn offer_receipt(detail: &ArcDetail, withheld: Option<&'static str>) {
     }
 }
 
-/// Log the pilot holding off a ready, bound arc because its holder is busy, and
-/// letting go of it, once per change.
-///
-/// A held pilot builds no candidate, so the offer reads `no-candidate` until
-/// the holder's turn ends; this is the line that says why.
-pub(crate) fn pilot_receipt(detail: &ArcDetail, bound: bool, holder_busy: bool) {
-    let key = format!("pilot:{}", detail.owner_key);
-    let word = (detail.join_ready && bound).then_some(if holder_busy { "held" } else { "free" });
-    let changed = said_once().lock().say(&key, word);
-    if changed && holder_busy {
-        tracing::info!(arc = %detail.name, verdict = "held", reason = "holder-busy", "pilot-receipt");
-    } else if changed {
-        tracing::info!(arc = %detail.name, verdict = "free", "pilot-receipt");
-    }
-}
-
 /// The join this arc is ready for, if it is ready for one.
 ///
 /// Everything this reads is already computed by the caller, with one exception:
 /// the two head shas, which cost a `rev-parse` each. They are paid for only in
 /// the narrow branch that is actually going to offer — an arc that is
-/// join-ready, with a candidate, with nothing running and nothing else standing
-/// in the way — and `cached_probe` has already paid the same two on the path
-/// that reaches here, so in practice the answers are warm.
+/// join-ready, with nothing running and nothing else standing in the way —
+/// and `cached_probe` has already paid the same two on the path that reaches
+/// here, so in practice the answers are warm.
 ///
-/// **Reconcile-clean is the whole gate.** The offer used to wait on a settled
-/// verdict over the candidate's tree, which put a build between the user and
-/// the decision. The run's ending verifies the tree that lands, so a candidate
-/// standing on a ready arc is an offer, immediately.
+/// **Readiness is the whole gate.** A ready arc's audit verified the fit of
+/// exactly the tree the join lands, so a ready arc is an offer, immediately,
+/// with no build between the user and the decision.
 ///
 /// **There is no dismissal gate, and that is the design.** The offer is a
 /// standing fact about the arc, not an ask somebody can decline: the surface
@@ -496,207 +403,6 @@ fn standing_offer(repo_root: &Path, detail: &ArcDetail, quiet: bool) -> Option<A
         message,
         message_source: message_source.as_str().to_string(),
     })
-}
-
-/// What a ready arc needs from the user, as one fact the reveal can key on.
-///
-/// The offer is the ordinary case. The two others are the moments the machine
-/// has stopped and the decision has become the user's: a stuck line — the
-/// resolve refused, the candidate withdrawn — and a question the resolver is
-/// waiting on. Before this, only the offer summoned the shade, and an arc that
-/// went ready and had its candidate withheld cycled `no-candidate` →
-/// `run-held` → `stuck` without ever presenting itself (three arcs on
-/// 2026-10-28). A live run publishes nothing — a machine still working needs
-/// nobody, and the key would otherwise flicker as the run's facts moved —
-/// with one exception: a run waiting on a question is live and needs the
-/// user both, and the question is the one fact that only ever stands under
-/// a live run (an orphaned one converts to a stuck line).
-///
-/// The key is the arc's `work_id` and the kind, with the stuck line's digest
-/// or the question's id appended, so a surface that remembers having shown a
-/// key sees a new refusal over the same work as new, and the same refusal
-/// re-derived as the one it already showed. Not keyed on an arc head: a
-/// base-motion replay rewrites the head and leaves the work the same.
-fn standing_attention(
-    detail: &ArcDetail,
-    run_live: bool,
-    offered: bool,
-    question: Option<&ArcJoinQuestion>,
-    stuck: Option<&str>,
-) -> Option<ArcJoinAttention> {
-    if !detail.join_ready {
-        return None;
-    }
-    let work = detail.work_id.as_str();
-    let (kind, key) = if let Some(q) = question {
-        ("question", format!("{work}:question:{}", q.request_id))
-    } else if run_live {
-        return None;
-    } else if offered {
-        ("offer", format!("{work}:offer"))
-    } else if let Some(line) = stuck {
-        ("stuck", format!("{work}:stuck:{:016x}", fnv1a(line)))
-    } else {
-        return None;
-    };
-    Some(ArcJoinAttention {
-        kind: kind.to_string(),
-        key,
-    })
-}
-
-/// FNV-1a over the bytes: a short, stable digest for a key, the same across
-/// processes and builds, which `DefaultHasher` does not promise.
-fn fnv1a(text: &str) -> u64 {
-    text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
-    })
-}
-
-/// The escalation a resolve is blocked on, while it still describes the arc
-/// head it was raised against.
-///
-/// Read on every recompute rather than held in memory, because the whole point
-/// of persisting it is that a reload — a fresh process, an empty memory — must
-/// still render the question the resolver is waiting on.
-/// A question with no live run is nobody's question — it is converted here
-/// into a stuck line quoting what was asked, and the fact is dropped.
-///
-/// The registry is in-process, so a tugcast restart is exactly the event that
-/// orphans a resolve *and* the event that empties the registry. That makes this
-/// read the self-heal: the first recompute after a restart finds a question the
-/// resolver that raised it can no longer be given, and says so. Left alone it
-/// rendered as a live wizard whose answer the supervisor would refuse, which is
-/// the [L31] silence in its purest form — a control that does nothing.
-fn standing_question(repo_root: &Path, detail: &ArcDetail) -> Option<ArcJoinQuestion> {
-    let name = detail.name.as_str();
-
-    // A resolve that is still running owns its question, and matches it against
-    // the head it started on: a round landing on the arc mid-question must not
-    // vanish the wizard the user is answering.
-    if let Some(head) = crate::feeds::join_occupancy::run_head(&detail.owner_key) {
-        let json = resolve::read_question(repo_root, name, &head)?;
-        return serde_json::from_str(&json).ok();
-    }
-
-    let head = ops::rev_parse(repo_root, &detail.branch).ok()?;
-    let json = resolve::read_question(repo_root, name, &head)?;
-
-    if crate::feeds::join_occupancy::run_kind(&detail.owner_key).is_none() {
-        let asked = serde_json::from_str::<ArcJoinQuestion>(&json)
-            .map(|q| q.question)
-            .unwrap_or_else(|_| "an intent question".to_string());
-        resolve::clear_question(repo_root, name);
-        resolve::write_stuck(
-            repo_root,
-            name,
-            &head,
-            &format!("tugcast restarted while the resolver waited on: {asked}"),
-        );
-        return None;
-    }
-
-    serde_json::from_str(&json).ok()
-}
-
-/// The resolver's account of the candidate that stands.
-///
-/// Anchored to the candidate sha, so a report about a superseded resolution is
-/// simply not found — the same self-demotion the verdict beside it gets, and
-/// for the same reason: a report describing a tree that is no longer the
-/// candidate would be read as describing the one that is.
-fn standing_report(repo_root: &Path, name: &str, candidate: &str) -> Option<ArcJoinReport> {
-    let json = resolve::read_report(repo_root, name, candidate)?;
-    serde_json::from_str(&json).ok()
-}
-
-/// The last resolve run's ledger, parsed, keyed by `(repo_root, arc)` with
-/// the blob oid it was parsed from (Risk R01).
-type LedgerCache = HashMap<(std::path::PathBuf, String), (String, ArcJoinLedger)>;
-
-fn ledger_cache() -> &'static Mutex<LedgerCache> {
-    static CACHE: OnceLock<Mutex<LedgerCache>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// How many times a ledger blob has actually been read and parsed — the
-/// cache's evidence, as [`PROBE_RUNS`] is the probe's.
-static LEDGER_READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-#[cfg(test)]
-pub fn ledger_reads() -> u64 {
-    LEDGER_READS.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// The last resolve run's ledger, as the arc's config points at it.
-///
-/// The board recomposes every arc on every recompute, so the blob is read
-/// only when its oid moved: the pointer is one config read, the same cost the
-/// report already pays, and an unchanged oid is answered from the cache. A
-/// blob that will not parse is logged and reads as no ledger.
-///
-/// **A ledger that contradicts the standing candidate is withheld.** Every
-/// ladder run clears the ledger as it starts, so the run that built the
-/// standing candidate is the run the ledger records — unless something built
-/// a candidate without recording, which would leave the face narrating a run
-/// that did not make what it shows. The check is on the *last* `candidate`
-/// event: the resolver records its own candidate after the ladder's, so an
-/// earlier one naming the ladder's superseded commit is the ordinary shape.
-fn standing_ledger(
-    repo_root: &Path,
-    detail: &ArcDetail,
-    candidate: Option<&str>,
-) -> Option<ArcJoinLedger> {
-    let name = detail.name.as_str();
-    let key = (repo_root.to_path_buf(), name.to_string());
-    let Some(oid) = resolve::ledger_oid(repo_root, name) else {
-        ledger_cache().lock().remove(&key);
-        return None;
-    };
-    let cached = ledger_cache()
-        .lock()
-        .get(&key)
-        .filter(|(at, _)| *at == oid)
-        .map(|(_, ledger)| ledger.clone());
-    let ledger = match cached {
-        Some(ledger) => ledger,
-        None => {
-            LEDGER_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let (oid, json) = resolve::read_ledger(repo_root, name)?;
-            let ledger: ArcJoinLedger = match serde_json::from_str(&json) {
-                Ok(ledger) => ledger,
-                Err(err) => {
-                    tracing::warn!(arc = %name, error = %err, "join-board: unreadable resolve ledger");
-                    return None;
-                }
-            };
-            ledger_cache().lock().insert(key, (oid, ledger.clone()));
-            ledger
-        }
-    };
-    if let Some(standing) = candidate {
-        let last = ledger.events.iter().rev().find_map(|e| match &e.body {
-            ArcJoinLedgerEventBody::Candidate { sha, .. } => Some(sha.as_str()),
-            _ => None,
-        });
-        if last.is_some_and(|sha| sha != standing) {
-            return None;
-        }
-    }
-    Some(ledger)
-}
-
-/// Why the last resolve stopped short, while it still describes the arc head
-/// it ran on.
-///
-/// A new round on the arc means the refusal was about a state that no longer
-/// exists, so it stops being reported — but unlike the candidate facts it is
-/// not *cleared* here. A resolve clears it when it starts, which is the moment
-/// it stops being true; clearing it on a recompute would erase the account of a
-/// failure nobody had read yet.
-fn standing_stuck(repo_root: &Path, detail: &ArcDetail) -> Option<String> {
-    let head = ops::rev_parse(repo_root, &detail.branch).ok()?;
-    resolve::read_stuck(repo_root, detail.name.as_str(), &head)
 }
 
 /// The conflict probe, from cache when the head pair is unmoved.
@@ -739,59 +445,9 @@ fn cached_probe(repo_root: &Path, detail: &ArcDetail) -> Option<CachedProbe> {
                 total: h.total,
             })
             .collect(),
-        diffs: HashMap::new(),
     };
     board.by_arc.lock().insert(key, fresh.clone());
     Some(fresh)
-}
-
-/// The review payload for a valid candidate: diffs recomputed from git, rungs
-/// read back from where the ladder persisted them.
-///
-/// The two halves come from different places on purpose. The diffs are a pure
-/// function of `(base_head, candidate, path)`, so recomputing them means the
-/// feed's copy and the commit cannot drift. The rung is not recorded anywhere
-/// in git — the candidate holds the resolved bytes and says nothing about which
-/// rung chose them — so it is read from the config the ladder wrote. A path
-/// whose rung cannot be recovered still renders, as `unknown`: a resolution
-/// nobody can attribute is still one that has to be reviewed.
-fn candidate_files(
-    repo_root: &Path,
-    detail: &ArcDetail,
-    candidate: &str,
-    probe: Option<&CachedProbe>,
-) -> Vec<ArcResolvedFile> {
-    let name = detail.name.as_str();
-
-    if let Some(p) = probe {
-        if let Some(hit) = p.diffs.get(candidate) {
-            return hit.clone();
-        }
-    }
-
-    let rungs = resolve::read_resolved_rungs(repo_root, name);
-    let files: Vec<ArcResolvedFile> = rungs
-        .iter()
-        .map(|(path, by)| {
-            let d = resolve::candidate_path_diff(repo_root, &detail.base, candidate, path);
-            ArcResolvedFile {
-                path: path.clone(),
-                resolved_by: by.as_str().to_string(),
-                added: d.as_ref().and_then(|d| d.added),
-                removed: d.as_ref().and_then(|d| d.removed),
-                diff: d.map(|d| d.text),
-            }
-        })
-        .collect();
-
-    if probe.is_some() {
-        let board = board();
-        let mut map = board.by_arc.lock();
-        if let Some(entry) = map.get_mut(&detail.owner_key) {
-            entry.diffs.insert(candidate.to_string(), files.clone());
-        }
-    }
-    files
 }
 
 #[cfg(test)]
@@ -800,8 +456,8 @@ mod tests {
 
     use tugcore::test_fixtures::git::{GitFixture, git};
 
-    /// A repo on `main` with a conflicting arc and a stub merge driver, so the
-    /// ladder reaches a candidate without the AI rung.
+    /// A repo on `main` with a conflicting arc, and a stub merge driver for the
+    /// core ladder a join or a test may still run.
     fn fixture() -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
@@ -838,11 +494,11 @@ mod tests {
     fn a_withheld_reason_is_said_once_per_change() {
         let mut said = SaidOnce::default();
         assert!(
-            said.say("offer:a", Some("no-candidate")),
+            said.say("offer:a", Some("conflicted")),
             "the first word is said"
         );
         assert!(
-            !said.say("offer:a", Some("no-candidate")),
+            !said.say("offer:a", Some("conflicted")),
             "a recompute is not a change"
         );
         assert!(
@@ -874,53 +530,6 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &standing_resolve_receipts(repo),
         )
-    }
-
-    #[test]
-    fn conflicted_then_resolved_then_stale_across_the_candidate_lifecycle() {
-        let temp = fixture();
-        let repo = temp.path();
-
-        let conflicted = compose(repo);
-        assert_eq!(conflicted.phase, "conflicted");
-        assert_eq!(conflicted.conflicts, vec!["f.txt".to_string()]);
-        assert!(conflicted.candidate.is_none());
-
-        // The ladder builds and anchors a candidate.
-        let outcome =
-            tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None)
-                .unwrap();
-        let candidate = outcome.candidate_commit.clone().expect("candidate");
-
-        let resolved = compose(repo);
-        assert_eq!(resolved.phase, "resolved");
-        assert_eq!(resolved.candidate.as_deref(), Some(candidate.as_str()));
-        assert_eq!(resolved.resolved.len(), 1, "the review payload rides along");
-        assert_eq!(resolved.resolved[0].path, "f.txt");
-        assert_eq!(
-            resolved.resolved[0].resolved_by, "driver",
-            "the rung the ladder used, read back from where it was persisted"
-        );
-        assert!(
-            resolved.resolved[0].diff.is_some(),
-            "and its diff, recomputed from git"
-        );
-
-        // The base advances past the candidate → the state demotes itself and
-        // says why, and the stale ref is gone rather than left standing.
-        std::fs::write(repo.join("other.txt"), "later\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "main moves on"]);
-        let stale = compose(repo);
-        assert!(
-            stale.candidate.is_none(),
-            "the stale candidate is not shown"
-        );
-        assert!(
-            stale.stale_note.is_some(),
-            "and the demotion carries a sentence"
-        );
-        assert_eq!(tugarc_core::resolve::read_candidate(repo, "demo"), None);
     }
 
     #[test]
@@ -975,72 +584,6 @@ mod tests {
         assert_eq!(cleared.phase, "conflicted");
     }
 
-    /// A ledger whose `candidate` events name `shas`, in order.
-    fn ledger_naming(shas: &[&str]) -> String {
-        let events: Vec<serde_json::Value> = shas
-            .iter()
-            .enumerate()
-            .map(|(seq, sha)| {
-                serde_json::json!({
-                    "seq": seq, "at_ms": 0, "kind": "candidate",
-                    "sha": sha, "base_sha": "b", "files": [],
-                })
-            })
-            .collect();
-        serde_json::json!({ "run": "1", "started_ms": 0, "events": events }).to_string()
-    }
-
-    #[test]
-    fn a_written_ledger_rides_both_arms_and_is_read_once_per_oid() {
-        let temp = fixture();
-        let repo = temp.path();
-        tugarc_core::resolve::write_ledger(repo, "demo", &ledger_naming(&[])).unwrap();
-
-        let before = ledger_reads();
-        let conflicted = compose(repo);
-        assert_eq!(conflicted.phase, "conflicted");
-        assert_eq!(
-            conflicted.ledger.as_ref().map(|l| l.run.as_str()),
-            Some("1")
-        );
-        let again = compose(repo);
-        assert!(again.ledger.is_some());
-        assert_eq!(ledger_reads(), before + 1, "an unmoved oid is a cache hit");
-
-        git(repo, &["switch", "-q", "-c", "scratch"]);
-        let blocked = compose(repo);
-        assert_eq!(blocked.phase, "blocked");
-        assert!(blocked.ledger.is_some(), "the blocked arm reports it too");
-
-        // A new write is a new oid, and is read.
-        git(repo, &["switch", "-q", "main"]);
-        tugarc_core::resolve::write_ledger(repo, "demo", &ledger_naming(&["x"])).unwrap();
-        let _ = compose(repo);
-        assert_eq!(ledger_reads(), before + 2);
-    }
-
-    #[test]
-    fn a_ledger_is_kept_only_when_its_last_candidate_is_the_standing_one() {
-        let temp = fixture();
-        let repo = temp.path();
-        let outcome =
-            tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None)
-                .unwrap();
-        let candidate = outcome.candidate_commit.expect("candidate");
-
-        // The ladder's commit, superseded by the resolver's: the ordinary shape.
-        let kept = ledger_naming(&["superseded", &candidate]);
-        tugarc_core::resolve::write_ledger(repo, "demo", &kept).unwrap();
-        assert!(compose(repo).ledger.is_some(), "the last candidate stands");
-
-        // A last candidate the board does not hold: a run that did not build it.
-        let dropped = ledger_naming(&[&candidate, "elsewhere"]);
-        tugarc_core::resolve::write_ledger(repo, "demo", &dropped).unwrap();
-        let state = compose(repo);
-        assert_eq!(state.candidate.as_deref(), Some(candidate.as_str()));
-        assert!(state.ledger.is_none(), "a contradicting ledger is withheld");
-    }
-
     #[test]
     fn a_blocked_arc_never_pays_for_the_probe() {
         let temp = fixture();
@@ -1065,161 +608,6 @@ mod tests {
         assert_eq!(conflicted.phase, "conflicted");
         assert!(!conflicted.conflicts.is_empty());
         assert!(probe_runs() > before, "and the probe runs then");
-    }
-
-    /// A question nobody is waiting on becomes a stuck line quoting what was
-    /// asked, and the question fact is gone afterwards.
-    ///
-    /// This is the restart self-heal. A tugcast restart empties the occupancy
-    /// registry and kills the resolver that raised the question — but the
-    /// question is durable, so it kept rendering as a live wizard whose answer
-    /// the supervisor would then refuse. A control that cannot do anything is
-    /// the silence [L31] forbids; this converts it into a sentence.
-    #[test]
-    fn an_orphaned_question_becomes_a_stuck_line() {
-        let temp = fixture();
-        let repo = temp.path();
-        let head = ops::rev_parse(repo, "tugarc/demo").unwrap();
-
-        tugarc_core::resolve::write_question(
-            repo,
-            "demo",
-            &head,
-            r#"{"request_id":"join-demo-1","question":"Which side owns the timeout?","options":[{"label":"the arc","description":""},{"label":"the base","description":""}]}"#,
-        );
-
-        let state = compose(repo);
-        assert!(
-            state.question.is_none(),
-            "no live run means no live question"
-        );
-        let stuck = state.stuck.expect("the question converted to a stuck line");
-        assert!(stuck.contains("tugcast restarted"), "{stuck}");
-        assert!(
-            stuck.contains("Which side owns the timeout?"),
-            "the stuck line quotes what was asked: {stuck}"
-        );
-        assert!(
-            tugarc_core::resolve::read_question(repo, "demo", &head).is_none(),
-            "the converted fact is gone, so this happens once"
-        );
-    }
-
-    /// A question raised by a live run survives a round landing on the arc.
-    ///
-    /// The question is keyed by the head it was raised against, so without the
-    /// run's own snapshot a mid-question arc commit makes the wizard vanish
-    /// while the resolver is still waiting for its answer.
-    #[test]
-    fn a_live_runs_question_survives_the_arc_head_moving() {
-        let temp = fixture();
-        let repo = temp.path();
-        let detail = detail_for(repo);
-        let head = ops::rev_parse(repo, "tugarc/demo").unwrap();
-
-        let _held = crate::feeds::join_occupancy::acquire(
-            &detail.owner_key,
-            crate::feeds::join_occupancy::JoinRunKind::Resolve,
-            Some(head.clone()),
-        )
-        .expect("the arc is free");
-
-        tugarc_core::resolve::write_question(
-            repo,
-            "demo",
-            &head,
-            r#"{"request_id":"join-demo-2","question":"Keep the new flag?","options":[{"label":"yes","description":""},{"label":"no","description":""}]}"#,
-        );
-
-        // A round lands on the arc while the resolver waits.
-        git(repo, &["switch", "-q", "tugarc/demo"]);
-        std::fs::write(repo.join("late.txt"), "another round\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "r2"]);
-        git(repo, &["switch", "-q", "main"]);
-        assert_ne!(ops::rev_parse(repo, "tugarc/demo").unwrap(), head);
-
-        let state = compose(repo);
-        let question = state.question.expect("the question the user is answering");
-        assert_eq!(question.question, "Keep the new flag?");
-        assert_eq!(state.run.as_deref(), Some("resolve"));
-    }
-
-    /// The in-process registry is the fast path and the lease is the
-    /// cross-process backstop, so a run this process holds suppresses the
-    /// lease blocker — and only for as long as it holds it ([P05]).
-    #[test]
-    fn the_board_hides_the_lease_blocker_while_it_holds_the_arc() {
-        let temp = fixture();
-        let repo = temp.path();
-        // Without the driver the ladder gives up and parks a conflict, which
-        // is what a resolver would then open.
-        git(repo, &["config", "--unset", "tugarc.mergedriver"]);
-        tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
-        tugarc_core::resolve::mark_resolve_begun(repo, "demo").unwrap();
-
-        let leased = |state: &ArcJoinState| state.blockers.iter().any(|b| b.kind == "live-resolve");
-        assert!(leased(&compose(repo)), "nobody holds it, so git answers");
-
-        let detail = detail_for(repo);
-        let held = crate::feeds::join_occupancy::acquire(
-            &detail.owner_key,
-            crate::feeds::join_occupancy::JoinRunKind::Resolve,
-            None,
-        )
-        .expect("the arc is free");
-        assert!(
-            !leased(&compose(repo)),
-            "this process is the resolver; the derived answer is redundant"
-        );
-
-        drop(held);
-        assert!(leased(&compose(repo)), "and it comes back on release");
-    }
-
-    /// A candidate that went stale under a live run is reported, not cleared.
-    ///
-    /// Clearing it mid-run pulls the tree out from under the resolve that is
-    /// building on it; the sentence that surfaced — "the build verdict went
-    /// missing before the exam" — named none of the real cause. After the run
-    /// releases, the ordinary demotion runs at the ordinary time.
-    #[test]
-    fn a_stale_candidate_is_pinned_while_a_run_holds_the_arc() {
-        let temp = fixture();
-        let repo = temp.path();
-        let detail = detail_for(repo);
-
-        tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
-        assert!(compose(repo).candidate.is_some());
-
-        // The base moves, which is what makes the candidate stale.
-        std::fs::write(repo.join("other.txt"), "later\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "main moves on"]);
-
-        let held = crate::feeds::join_occupancy::acquire(
-            &detail.owner_key,
-            crate::feeds::join_occupancy::JoinRunKind::Resolve,
-            None,
-        )
-        .expect("the arc is free");
-
-        let during = compose(repo);
-        assert!(during.candidate.is_none(), "a stale candidate is not shown");
-        assert!(during.stale_note.is_some(), "and the note says why");
-        assert!(
-            tugarc_core::resolve::read_candidate(repo, "demo").is_some(),
-            "but the ref still stands under the live run"
-        );
-
-        drop(held);
-        let after = compose(repo);
-        assert!(after.stale_note.is_some());
-        assert_eq!(
-            tugarc_core::resolve::read_candidate(repo, "demo"),
-            None,
-            "released, the ordinary demotion collects it"
-        );
     }
 
     /// A workshop whose arc is gone is collected; one with a live run is not
@@ -1252,8 +640,7 @@ mod tests {
         let owner_key = tugarc_core::ops::arc_owner_key(repo, "demo");
         let held = crate::feeds::join_occupancy::acquire(
             &owner_key,
-            crate::feeds::join_occupancy::JoinRunKind::Resolve,
-            None,
+            crate::feeds::join_occupancy::JoinRunKind::ResolveBase,
         )
         .expect("the arc is free");
         sweep_workshops(repo, &[]);
@@ -1272,46 +659,48 @@ mod tests {
 
     // ── The join offer ──────────────────────────────────────────────────────
 
-    /// Take the fixture's arc all the way to a settled verdict — the only
-    /// state the arc offers a join in.
+    /// Clear the fixture's conflict — the base takes the arc's side of
+    /// `f.txt` — so the arc is a ready arc with a clean merge, the only state
+    /// it offers a join in.
     ///
     /// **Nothing is declared here.** The arc is a plan-less generation with a
-    /// landed round and a clean worktree, which is the whole arming fact
-    /// ([P02]) — this helper appended a `built` mark until [D147], and its
-    /// removal is the Rust-level pin that the endgame no longer waits on a
-    /// skill to say a word.
-    ///
-    /// The arc log carries the stage and lives under the data dir, so it is
-    /// redirected here. nextest runs one process per test, which is what makes
-    /// that safe.
-    fn reconciled(repo: &Path) -> String {
+    /// landed round and a clean worktree, which is the whole arming fact. The
+    /// arc log lives under the data dir, so it is redirected here; nextest
+    /// runs one process per test, which is what makes that safe.
+    fn reconciled(repo: &Path) {
         let data = Box::leak(Box::new(tempfile::tempdir().unwrap()));
         // SAFETY: single-threaded setup, and this process runs one test.
         unsafe {
             std::env::set_var("TUG_DATA_DIR", data.path());
         }
-        let outcome =
-            tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None)
-                .unwrap();
-        outcome.candidate_commit.clone().expect("candidate")
+        std::fs::write(repo.join("f.txt"), "B\n").unwrap();
+        git(
+            repo,
+            &[
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-am",
+                "main takes the arc's side",
+            ],
+        );
     }
-
     #[test]
     fn the_offer_arrives_once_the_machine_is_out_of_work_and_not_before() {
         let temp = fixture();
         let repo = temp.path();
 
-        // Conflicted, nothing built: the machine still has work, so there is
-        // nothing to offer.
+        // Conflicted: the base moved past the arc, so there is nothing to
+        // offer.
         assert!(
             compose(repo).offer.is_none(),
-            "a conflicted arc offers nothing"
+            "a conflicted arc offers nothing: its audit has not seen this base"
         );
 
         reconciled(repo);
         let offer = compose(repo)
             .offer
-            .expect("a reconciled ready arc offers its join");
+            .expect("a clean ready arc offers its join");
 
         // Stable across recomputes. The offer is re-derived every time, so an
         // id that moved would re-summon the shade on every recompute.
@@ -1384,8 +773,7 @@ mod tests {
         let owner_key = ops::arc_owner_key(repo, "demo");
         let held = crate::feeds::join_occupancy::acquire(
             &owner_key,
-            crate::feeds::join_occupancy::JoinRunKind::Resolve,
-            None,
+            crate::feeds::join_occupancy::JoinRunKind::ResolveBase,
         )
         .expect("the arc is free");
         assert!(
@@ -1396,17 +784,16 @@ mod tests {
         assert!(compose(repo).offer.is_some(), "and offers again once it is");
     }
 
-    /// The attention fact across the cycle that never presented itself: a
-    /// ready arc whose candidate is withdrawn by a stuck ending is an arc
-    /// that needs the user, and says so under a key that moves with the
-    /// line; a live run says nothing unless it is waiting on a question.
+    /// The attention fact is the offer's: a ready arc whose offer stands needs
+    /// the user, under a key that names the work; a conflicted arc and an arc
+    /// with a run in flight need nobody.
     #[test]
-    fn attention_follows_the_offer_the_stuck_line_and_the_question() {
+    fn attention_follows_the_offer() {
         let temp = fixture();
         let repo = temp.path();
         assert!(
             compose(repo).attention.is_none(),
-            "a conflicted arc with the machine still working needs nobody"
+            "a conflicted arc offers nothing, so needs nobody"
         );
 
         reconciled(repo);
@@ -1420,69 +807,16 @@ mod tests {
             "re-derived, the same key"
         );
 
-        // The candidate withdrawn by a refusal: no offer, a stuck line — the
-        // moment the decision becomes the user's.
-        let head = ops::rev_parse(repo, "tugarc/demo").unwrap();
-        resolve::clear_candidate(repo, "demo");
-        resolve::write_stuck(
-            repo,
-            "demo",
-            &head,
-            "the resolver's report does not account for f.txt",
-        );
-        let state = compose(repo);
-        assert!(state.offer.is_none(), "precondition: withheld");
-        let stuck = state.attention.expect("a stuck ready arc is attention");
-        assert_eq!(stuck.kind, "stuck");
-        assert!(
-            stuck.key.starts_with(&format!("{work}:stuck:")),
-            "{}",
-            stuck.key
-        );
-        assert_ne!(
-            stuck.key, offered.key,
-            "a refusal after a seen offer is new work"
-        );
-        assert_eq!(
-            compose(repo).attention.expect("still").key,
-            stuck.key,
-            "the same line re-derived is the same key"
-        );
-        resolve::write_stuck(
-            repo,
-            "demo",
-            &head,
-            "the resolver rewrote lines outside the conflicts in f.txt",
-        );
-        assert_ne!(
-            compose(repo).attention.expect("still stuck").key,
-            stuck.key,
-            "a different line is a different key"
-        );
-
-        // A run in flight says nothing, until it asks.
         let owner_key = ops::arc_owner_key(repo, "demo");
         let held = crate::feeds::join_occupancy::acquire(
             &owner_key,
-            crate::feeds::join_occupancy::JoinRunKind::Resolve,
-            None,
+            crate::feeds::join_occupancy::JoinRunKind::ResolveBase,
         )
         .expect("the arc is free");
         assert!(
             compose(repo).attention.is_none(),
             "a machine still working needs nobody"
         );
-        tugarc_core::resolve::write_question(
-            repo,
-            "demo",
-            &head,
-            r#"{"request_id":"join-demo-7","question":"Which side owns the timeout?","options":[{"label":"the arc","description":""},{"label":"the base","description":""}]}"#,
-        );
-        let asked = compose(repo)
-            .attention
-            .expect("a waiting question is attention");
-        assert_eq!(asked.kind, "question");
-        assert_eq!(asked.key, format!("{work}:question:join-demo-7"));
         drop(held);
     }
 
@@ -1619,7 +953,6 @@ mod tests {
         let held = crate::feeds::join_occupancy::acquire(
             &owner_key,
             crate::feeds::join_occupancy::JoinRunKind::ResolveBase,
-            None,
         )
         .expect("the arc is free");
 

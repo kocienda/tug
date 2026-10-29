@@ -25,6 +25,11 @@
 //! as its turn closes, and an arc parked behind it replays seconds later instead
 //! of waiting for an unrelated commit.
 //!
+//! The fourth is a session binding to an arc. A done arc whose audit has gone
+//! stale goes back to its audit stage on the Wheel, and that stage needs a
+//! card: an arc nobody holds waits, and the bind that gives it one is the
+//! moment to seat the re-audit.
+//!
 //! ## The decision is separate from the wiring
 //!
 //! [`decide_for_arc`] is pure — the gate and the choice of action expressed
@@ -95,8 +100,15 @@ pub struct ArcInputs {
     pub in_flight: bool,
     /// The last replay attempt at the current base tip stopped on a conflict.
     pub conflicted: bool,
-    /// A turn has already been injected for this arc at the current base tip.
-    pub notified: bool,
+    /// The arc is done and its audit has gone stale: the head or the base the
+    /// `audited` mark was made against has moved since.
+    pub audit_stale_done: bool,
+    /// The stale audit went stale on the base alone: the head it was made
+    /// against still stands, so no round landed after it.
+    pub audit_base_only: bool,
+    /// The quiet path already ran at the current base tip and could not
+    /// re-stamp — the replay stopped or the fit was red.
+    pub quiet_failed: bool,
 }
 
 /// What to do about one arc on one wake.
@@ -109,11 +121,19 @@ pub enum Decision {
     /// Replay, then tell this session its context moved — the arc is mid-plan,
     /// so an agent is holding file contents the replay is about to rewrite.
     ReplayThenNotify(String),
-    /// The replay conflicts and this session can be asked to resolve it.
-    InjectConflict(String),
-    /// Record the state for the lane marks; there is nobody to tell and nothing
-    /// safe to do.
+    /// Record the state for the lane marks; nothing is safe to do. A conflict
+    /// is never made into a turn here: resolving one is the audit stage's
+    /// work, on the Wheel.
     MarkOnly,
+    /// The arc's audit has gone stale: reopen it at the audit stage, on this
+    /// idle bound session. The stage replays and resolves in the transcript,
+    /// so the engine moves no refs for it.
+    SeatAudit(String),
+    /// The arc's audit went stale on the base alone: replay it, verify the
+    /// fit, and re-stamp the audit with no turn spent. Anything short of a
+    /// clean replay and a green fit seats the audit instead, on this idle
+    /// bound session when there is one.
+    Restamp(Option<String>),
 }
 
 /// The gate ([P02]) and the choice of action, with no IO.
@@ -121,8 +141,8 @@ pub enum Decision {
 /// Order is meaning, not convenience: the flag comes first because a repository
 /// that has opted out gets no further thought; `Current` comes before the safety
 /// checks because an arc with nothing to do is not "deferred over dirt"; and the
-/// mid-turn check comes before the conflict branch so a busy session is parked
-/// rather than interrupted, to be retried when its turn ends.
+/// mid-turn check comes before any motion so a busy session is parked rather
+/// than moved under, to be retried when its turn ends.
 ///
 /// Worktree cleanliness and a join in flight are re-checked inside
 /// `replay_onto`, which is the single source of truth for them — they appear
@@ -138,6 +158,29 @@ pub fn decide_for_arc(inputs: &ArcInputs) -> Decision {
     if inputs.in_flight {
         return Decision::Skip("in-flight");
     }
+    // Above `current`: an audit goes stale on a new round as well as on a
+    // base move, and an arc whose head moved is not behind. Above the replay
+    // gates too: a stale audit's replay is either the quiet path's own, or
+    // the audit stage's, and never the ordinary one.
+    if inputs.audit_stale_done {
+        if inputs.join_journal {
+            return Decision::Skip("join-journal");
+        }
+        let idle = match &inputs.session {
+            Some(session) if session.busy => return Decision::Skip("session-busy"),
+            Some(session) => Some(session.id.clone()),
+            None => None,
+        };
+        // Only the base moved: the machine keeps that case, with or
+        // without a card, so a join on the base costs no turn per arc.
+        if inputs.audit_base_only && !inputs.quiet_failed {
+            return Decision::Restamp(idle);
+        }
+        return match idle {
+            Some(id) => Decision::SeatAudit(id),
+            None => Decision::Skip("audit-stale, waiting for a card"),
+        };
+    }
     if inputs.base_ahead == 0 {
         return Decision::Skip("current");
     }
@@ -152,18 +195,54 @@ pub fn decide_for_arc(inputs: &ArcInputs) -> Decision {
     }
 
     if inputs.conflicted {
-        if inputs.notified {
-            return Decision::MarkOnly;
-        }
-        return match &inputs.session {
-            Some(session) => Decision::InjectConflict(session.id.clone()),
-            None => Decision::MarkOnly,
-        };
+        return Decision::MarkOnly;
     }
 
     match (inputs.mid_plan, &inputs.session) {
         (true, Some(session)) => Decision::ReplayThenNotify(session.id.clone()),
         _ => Decision::Replay,
+    }
+}
+
+/// How far the quiet path's replay got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuietReplay {
+    /// The arc stands on the moved base: replayed, recorded, or already current.
+    Clean,
+    /// The replay stopped — a conflict, or a gate inside `replay_onto` (dirt,
+    /// a head that moved under it) deferred it.
+    Stopped,
+    /// The replay could not run at all.
+    Failed,
+}
+
+/// How the quiet path ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuietEnd {
+    /// Write the fresh `audited` mark.
+    Restamp,
+    /// Hand the arc to its audit stage.
+    Seat,
+    /// Do nothing; a later wake tries again.
+    Leave,
+}
+
+/// The quiet path's verdict, with no IO: a clean replay and a green fit
+/// re-stamp; anything a reader has to look at seats the audit.
+///
+/// `verdict` is the verify report's word, `None` when the verify could not
+/// run. Only `verified` and `nothing-in-range` are green here. A project
+/// that declares no surfaces (`declares-none`) has nothing the machine can
+/// run, and the audit verifies it with the plan's own checkpoints — so it is
+/// seated, as a red or an unclaimed path is.
+pub fn quiet_end(replay: QuietReplay, verdict: Option<&str>) -> QuietEnd {
+    match replay {
+        QuietReplay::Failed => QuietEnd::Leave,
+        QuietReplay::Stopped => QuietEnd::Seat,
+        QuietReplay::Clean => match verdict {
+            Some("verified" | "nothing-in-range") => QuietEnd::Restamp,
+            _ => QuietEnd::Seat,
+        },
     }
 }
 
@@ -176,8 +255,9 @@ struct ArcState {
     /// The paths the last conflicted attempt stopped on, and the base tip it
     /// stopped against. Cleared when the arc becomes current.
     conflict: Option<ConflictRecord>,
-    /// The base tip a turn has already been injected for.
-    notified_tip: Option<String>,
+    /// The base tip the quiet path last failed at, so a wake at the same tip
+    /// seats the audit rather than replaying and verifying again.
+    quiet_failed_tip: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -201,67 +281,6 @@ fn describe_conflict(record: &ConflictRecord) -> String {
 }
 
 // MARK: - The messages
-
-/// Everything the conflict message says, so composing it needs no IO.
-pub struct ConflictMessage<'a> {
-    pub arc: &'a str,
-    pub base_branch: &'a str,
-    pub base_head: &'a str,
-    pub round: &'a str,
-    pub round_subject: &'a str,
-    pub paths: &'a [String],
-    /// `tugarc_core::resolve_intent` — the arc's maintained draft and round
-    /// subjects, so the agent knows what the work it is rescuing is for.
-    pub intent: &'a str,
-    pub worktree_abs: &'a str,
-}
-
-/// The turn a conflicted replay becomes.
-///
-/// It carries what moved, where the replay stopped, what this arc is trying to
-/// do, and the exact sequence that finishes the job — including the
-/// bookkeeping verb, without which the moved rounds go unrecorded, and the
-/// verb that checks the fit of what the replay produced. It also
-/// says what to do when the conflict is a real design collision rather than a
-/// mechanical one, because "resolve this" is not always the right answer.
-pub fn compose_conflict_message(m: &ConflictMessage<'_>) -> String {
-    let mut out = String::new();
-    out.push_str(&format!(
-        "The base branch {} moved to {} under arc \"{}\",\n\
-         and replaying its rounds stopped at {} \"{}\" with conflicts in:\n",
-        m.base_branch,
-        short(m.base_head),
-        m.arc,
-        short(m.round),
-        m.round_subject,
-    ));
-    for path in m.paths {
-        out.push_str(&format!("  {}\n", path));
-    }
-    if !m.intent.trim().is_empty() {
-        out.push_str(&format!("\nThis arc's intent:\n{}\n", m.intent.trim()));
-    }
-    out.push_str(&format!(
-        "\nResolve it on the arc's own worktree:\n  \
-         git -C {} rebase {}\n\
-         Fix each conflict with both sides in view, then `git rebase --continue`. When the\n\
-         rebase is done, run `tugtool arc replay {} --json` to record the moved rounds.\n",
-        m.worktree_abs, m.base_branch, m.arc,
-    ));
-    out.push_str(&format!(
-        "After the replay records, verify the fit:\n  \
-         tugtool arc verify {}\n\
-         It resolves every path the arc would land to a declared surface and runs what\n\
-         those surfaces declare. A refusal names paths no surface claims — declare one for\n\
-         them in .tugtool/config.toml rather than working around it. Red is ordinary work:\n\
-         fix it in the worktree and re-run.\n",
-        m.arc,
-    ));
-    out.push_str(
-        "If the conflict reveals a real design collision instead, `git rebase --abort` and say so.\n",
-    );
-    out
-}
 
 /// The notice after a clean replay under a live plan run ([P11]).
 ///
@@ -340,7 +359,9 @@ pub(crate) fn notice_payload(
 }
 
 /// What a base-motion outcome was, as data (Spec S06): the replay and its
-/// size, or where it stopped and the arc's worktree to finish it in.
+/// size. A stopped replay is no longer told to anyone — the audit stage
+/// resolves it on the Wheel — though the deck still draws the receipts such
+/// notices left in older transcripts.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub(crate) enum NoticeFacts {
@@ -352,19 +373,6 @@ pub(crate) enum NoticeFacts {
         /// What the base brought in.
         paths: Vec<String>,
         rounds: usize,
-    },
-    ReplayStopped {
-        arc: String,
-        base: String,
-        sha: String,
-        /// The paths that collided.
-        paths: Vec<String>,
-        round_subject: String,
-        /// 1-based, when it could be counted.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        round_index: Option<usize>,
-        /// Repo-relative when it lies under the repo, absolute otherwise.
-        worktree: String,
     },
 }
 
@@ -509,6 +517,18 @@ fn crossing_notices() -> &'static CrossingNotices {
     NOTICES.get_or_init(CrossingNotices::default)
 }
 
+/// The wake a bind sends. A `Notify` keeps one permit when the engine is busy,
+/// so a bind landing mid-evaluation is answered by the next pass, not lost.
+fn bind_wake() -> &'static Notify {
+    static WAKE: OnceLock<Notify> = OnceLock::new();
+    WAKE.get_or_init(Notify::new)
+}
+
+/// Tell the engine a session just bound to an arc.
+pub fn wake_on_bind() {
+    bind_wake().notify_one();
+}
+
 /// Tell `arc`'s session about a crossing, as soon as it is quiet.
 pub fn queue_crossing_notice(repo: &Path, arc: &str, text: &str) {
     crossing_notices().queue(repo, arc, text);
@@ -525,6 +545,9 @@ enum Wake {
     /// Which arc that is depends on bindings that may have changed, so this
     /// re-evaluates every open workspace rather than guessing.
     TurnComplete,
+    /// A session bound to an arc, so a stale audit that was waiting for a
+    /// card may now have one. Every open workspace, as for a turn ending.
+    Bind,
     /// Startup, or a periodic level read.
     All,
 }
@@ -596,6 +619,7 @@ pub async fn run_base_motion_engine(
                 None => continue,
             },
             _ = crossing_notices().wake.notified() => Wake::All,
+            _ = bind_wake().notified() => Wake::Bind,
         };
         evaluate(&ctx, &board, &state, wake).await;
     }
@@ -610,7 +634,9 @@ fn wake_targets(registry: &WorkspaceRegistry, wake: &Wake) -> Vec<PathBuf> {
             .filter(|(_, k)| k == key)
             .map(|(dir, _)| dir)
             .collect(),
-        Wake::TurnComplete | Wake::All => open.into_iter().map(|(dir, _)| dir).collect(),
+        Wake::TurnComplete | Wake::Bind | Wake::All => {
+            open.into_iter().map(|(dir, _)| dir).collect()
+        }
     }
 }
 
@@ -648,6 +674,10 @@ async fn evaluate_workspace(
                 base_tip: rev_parse(&dir, &detail.base),
                 join_journal: tugarc_core::join_in_flight(&Paths::from_env(), &dir, &detail.name),
                 arc_autoreplay: read_arc_autoreplay(&dir, &detail.name),
+                audit_base_only: tugarc_core::log::audit_stale_on_base_only(
+                    &tugarc_core::read_declarations(&Paths::from_env(), &dir, &detail.name),
+                    &tugarc_core::ops::live_tips(&dir, &detail.name),
+                ),
                 detail,
             })
             .collect();
@@ -676,16 +706,15 @@ async fn evaluate_workspace(
         )
         .await;
 
-        let (in_flight, conflicted, notified) = {
+        let (in_flight, conflicted, quiet_failed) = {
             let map = state.lock();
             match map.get(&owner_key) {
                 Some(st) => (
                     st.in_flight,
                     st.conflict.is_some(),
                     // The latch is keyed on the tip, not on a bare flag: a base
-                    // that moves again is a new divergence event and deserves
-                    // to be spoken about again.
-                    st.notified_tip.as_deref() == Some(reading.base_tip.as_str()),
+                    // that moves again is a new chance for the quiet path.
+                    st.quiet_failed_tip.as_deref() == Some(reading.base_tip.as_str()),
                 ),
                 None => (false, false, false),
             }
@@ -701,11 +730,39 @@ async fn evaluate_workspace(
             session,
             in_flight,
             conflicted,
-            notified,
+            audit_stale_done: detail.stage == "audit-stale"
+                && detail.arc.as_ref().is_some_and(|run| run.done),
+            audit_base_only: reading.audit_base_only,
+            quiet_failed,
         };
 
         let decision = decide_for_arc(&inputs);
         match &decision {
+            Decision::SeatAudit(session) => {
+                let (dir, name) = (repo_dir.clone(), detail.name.clone());
+                let reopened = tokio::task::spawn_blocking(move || {
+                    tugarc_core::ops::reopen_stale_audit(&Paths::from_env(), &dir, &name)
+                })
+                .await;
+                match reopened {
+                    Ok(Ok(true)) => {
+                        info!(
+                            arc = %detail.name,
+                            session = %session,
+                            "base-motion: audit stale, re-audit seated",
+                        );
+                        ctx.bump.notify_one();
+                    }
+                    // Another wake got there first: the arc is no longer done.
+                    Ok(Ok(false)) => {}
+                    Ok(Err(e)) => {
+                        warn!(arc = %detail.name, error = %e, "base-motion: re-audit refused")
+                    }
+                    Err(e) => {
+                        warn!(arc = %detail.name, error = %e, "base-motion: re-audit task failed")
+                    }
+                }
+            }
             Decision::Skip(reason) => {
                 // An arc that has caught up owes nobody a conflict mark.
                 if inputs.base_ahead == 0 {
@@ -726,16 +783,17 @@ async fn evaluate_workspace(
                     "base-motion: conflicted, marked only",
                 );
             }
-            Decision::Replay | Decision::ReplayThenNotify(_) | Decision::InjectConflict(_) => {
-                // A plain `Replay` still carries the session it *would* tell,
-                // because a replay that turns out to conflict must become a
-                // turn now — the alternative is silence until the next wake,
-                // and the next wake may not come.
-                let target = match &decision {
-                    Decision::ReplayThenNotify(id) | Decision::InjectConflict(id) => {
-                        Some(id.clone())
-                    }
-                    _ => inputs.session.as_ref().map(|s| s.id.clone()),
+            Decision::Replay | Decision::ReplayThenNotify(_) | Decision::Restamp(_) => {
+                let (notify, quiet) = match &decision {
+                    Decision::ReplayThenNotify(id) => (Some(id.clone()), None),
+                    Decision::Restamp(seat) => (
+                        None,
+                        Some(QuietJob {
+                            seat: seat.clone(),
+                            base_tip: reading.base_tip.clone(),
+                        }),
+                    ),
+                    _ => (None, None),
                 };
                 spawn_replay(
                     ctx,
@@ -746,10 +804,8 @@ async fn evaluate_workspace(
                         name: detail.name.clone(),
                         owner_key,
                         base_branch: detail.base.clone(),
-                        worktree_abs: detail.worktree_abs.clone(),
-                        branch: detail.branch.clone(),
-                        target,
-                        notify_on_clean: matches!(decision, Decision::ReplayThenNotify(_)),
+                        notify,
+                        quiet,
                     },
                 );
             }
@@ -757,13 +813,15 @@ async fn evaluate_workspace(
     }
 }
 
-/// One arc as a wake reads it: the shared composition, plus the two facts the
+/// One arc as a wake reads it: the shared composition, plus the facts the
 /// decision needs that it does not carry.
 struct ArcReading {
     detail: tugarc_core::ArcDetail,
     base_tip: String,
     join_journal: bool,
     arc_autoreplay: bool,
+    /// The audit went stale on the base alone (`audit_stale_on_base_only`).
+    audit_base_only: bool,
 }
 
 /// Everything one replay needs, gathered on the async side so the spawned work
@@ -773,19 +831,30 @@ struct ReplayJob {
     name: String,
     owner_key: String,
     base_branch: String,
-    worktree_abs: String,
-    branch: String,
-    /// The session an outcome would be told about, when there is one.
-    target: Option<String>,
-    /// Whether a *clean* replay should tell it ([P11]). A conflict always tells
-    /// it, whatever this says.
-    notify_on_clean: bool,
+    /// The session a *clean* replay is told about ([P11]), when the arc is
+    /// mid-plan and holds one.
+    notify: Option<String>,
+    /// Set when this replay is a stale audit's quiet path: verify and
+    /// re-stamp after a clean replay, seat the audit after anything else.
+    quiet: Option<QuietJob>,
+}
+
+/// The quiet path's half of a replay job.
+struct QuietJob {
+    /// The idle bound session the audit is seated on when the quiet path
+    /// cannot re-stamp. With none, the arc waits for a card.
+    seat: Option<String>,
+    /// The base tip the wake read, which a failure is latched against.
+    base_tip: String,
 }
 
 /// Take the in-flight lock and run one replay on the blocking pool.
 ///
 /// The lock is per arc and is taken *before* the spawn, so a second signal
-/// arriving while a replay runs finds `in_flight` set and decides `Skip`.
+/// arriving while a replay runs finds `in_flight` set and decides `Skip`. A
+/// quiet-path job holds it through its verify and its mark as well, because
+/// until the mark lands the arc still reads stale and a second wake would
+/// start the same work again.
 fn spawn_replay(
     ctx: &BaseMotionContext,
     board: &Arc<ConflictBoard>,
@@ -822,11 +891,13 @@ fn spawn_replay(
 
         // What to say, decided under the lock; saying it happens after, because
         // the channel send is async and the state mutex is not.
-        let mut speak: Option<Speak> = None;
-        let refresh = {
+        let mut notice: Option<Notice> = None;
+        let (mut refresh, replay) = {
             let mut map = state.lock();
             let entry = map.entry(job.owner_key.clone()).or_default();
-            entry.in_flight = false;
+            if job.quiet.is_none() {
+                entry.in_flight = false;
+            }
 
             match outcome {
                 Ok(Ok(tugarc_core::ReplayOutcome::Replayed {
@@ -834,11 +905,9 @@ fn spawn_replay(
                 })) => {
                     info!(arc = %arc, base = %short(&base_head), "base-motion: replayed");
                     entry.conflict = None;
-                    entry.notified_tip = None;
                     board.set(&job.owner_key, Vec::new());
-                    if job.notify_on_clean && job.target.is_some() {
-                        entry.notified_tip = Some(base_head.clone());
-                        speak = Some(Speak::Notice {
+                    if job.notify.is_some() {
+                        notice = Some(Notice {
                             base_head,
                             rounds: mapping.len(),
                             // The oldest round, as it stood before the move. Its
@@ -848,13 +917,12 @@ fn spawn_replay(
                             oldest_round_before: mapping.first().map(|(old, _)| old.clone()),
                         });
                     }
-                    true
+                    (true, QuietReplay::Clean)
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Recorded { .. })) => {
                     entry.conflict = None;
-                    entry.notified_tip = None;
                     board.set(&job.owner_key, Vec::new());
-                    true
+                    (true, QuietReplay::Clean)
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Conflicted {
                     base_head,
@@ -869,52 +937,46 @@ fn spawn_replay(
                         "base-motion: replay conflicts",
                     );
                     board.set(&job.owner_key, paths.clone());
-                    // One injection per divergence event: a base tip already
-                    // spoken about is not spoken about again.
-                    let already = entry.notified_tip.as_deref() == Some(base_head.as_str());
-                    if !already && job.target.is_some() {
-                        entry.notified_tip = Some(base_head.clone());
-                        speak = Some(Speak::Conflict);
-                    }
                     entry.conflict = Some(ConflictRecord {
                         base_head,
                         round,
                         round_subject,
                         paths,
                     });
-                    true
+                    (true, QuietReplay::Stopped)
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Current)) => {
                     entry.conflict = None;
-                    entry.notified_tip = None;
                     board.set(&job.owner_key, Vec::new());
-                    false
+                    (false, QuietReplay::Clean)
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Deferred { reason, detail })) => {
                     debug!(arc = %arc, reason = %reason, detail = %detail, "base-motion: deferred");
-                    false
+                    (false, QuietReplay::Stopped)
                 }
                 Ok(Err(err)) => {
                     warn!(arc = %arc, error = %err, "base-motion: replay failed");
-                    false
+                    (false, QuietReplay::Failed)
                 }
                 Err(err) => {
                     warn!(arc = %arc, error = %err, "base-motion: replay task died");
-                    false
+                    (false, QuietReplay::Failed)
                 }
             }
         };
 
-        if let (Some(speak), Some(session)) = (speak, job.target.as_deref()) {
-            let (text, facts) = compose_for(&job, &speak, &state);
-            if !inject.send(session, &text, facts.as_ref()).await {
-                // Nowhere to send after all — take the latch back off so a
-                // later wake can try again rather than staying silent forever.
-                let mut map = state.lock();
-                if let Some(entry) = map.get_mut(&job.owner_key) {
-                    entry.notified_tip = None;
-                }
-            }
+        if let (Some(notice), Some(session)) = (notice, job.notify.as_deref()) {
+            let (text, facts) = compose_notice(&job, &notice);
+            inject.send(session, &text, Some(&facts)).await;
+        }
+
+        if let Some(quiet) = job.quiet.as_ref() {
+            let (moved, end) = finish_quiet(&job, quiet, replay).await;
+            refresh |= moved;
+            let mut map = state.lock();
+            let entry = map.entry(job.owner_key.clone()).or_default();
+            entry.in_flight = false;
+            entry.quiet_failed_tip = (end == QuietEnd::Seat).then(|| quiet.base_tip.clone());
         }
 
         if refresh {
@@ -923,114 +985,100 @@ fn spawn_replay(
     });
 }
 
-/// Which message an outcome calls for.
-enum Speak {
-    /// The replay stopped on a conflict; the record holds where.
-    Conflict,
-    /// The replay was clean and a plan run is live, so its agent is told its
-    /// working tree moved.
-    Notice {
-        base_head: String,
-        /// How many rounds the replay moved.
-        rounds: usize,
-        oldest_round_before: Option<String>,
-    },
-}
-
-/// Compose the message this outcome calls for, and the same outcome as facts.
-fn compose_for(
-    job: &ReplayJob,
-    speak: &Speak,
-    state: &Arc<Mutex<HashMap<String, ArcState>>>,
-) -> (String, Option<NoticeFacts>) {
-    match speak {
-        Speak::Conflict => {
-            let record = {
-                let map = state.lock();
-                map.get(&job.owner_key).and_then(|st| st.conflict.clone())
-            };
-            let Some(record) = record else {
-                // Only reachable if the record were cleared between deciding to
-                // speak and composing, which the lock ordering prevents.
-                return (String::new(), None);
-            };
-            let intent = tugarc_core::resolve_intent(
-                &Paths::from_env(),
-                &job.repo_dir,
-                &job.base_branch,
-                &job.branch,
-            );
-            let text = compose_conflict_message(&ConflictMessage {
-                arc: &job.name,
-                base_branch: &job.base_branch,
-                base_head: &record.base_head,
-                round: &record.round,
-                round_subject: &record.round_subject,
-                paths: &record.paths,
-                intent: &intent,
-                worktree_abs: &job.worktree_abs,
-            });
-            let facts = NoticeFacts::ReplayStopped {
-                arc: job.name.clone(),
-                base: job.base_branch.clone(),
-                sha: record.base_head.clone(),
-                paths: record.paths.clone(),
-                round_subject: record.round_subject.clone(),
-                round_index: round_index(
-                    &job.repo_dir,
-                    &job.base_branch,
-                    &job.branch,
-                    &record.round,
-                ),
-                worktree: repo_relative(&job.repo_dir, &job.worktree_abs),
-            };
-            (text, Some(facts))
+/// The rest of a stale audit's quiet path, after its replay: verify a clean
+/// one and re-stamp a green fit, or seat the audit. Returns whether the arc's
+/// record moved, and how the path ended — a `Seat` is latched by the caller
+/// against the base tip, so a later wake (the bind that brings a card, most
+/// often) seats the audit rather than replaying and verifying again.
+async fn finish_quiet(job: &ReplayJob, quiet: &QuietJob, replay: QuietReplay) -> (bool, QuietEnd) {
+    let (repo, name) = (job.repo_dir.clone(), job.name.clone());
+    let verdict = match replay {
+        QuietReplay::Clean => {
+            let (repo, name) = (repo.clone(), name.clone());
+            let report = tokio::task::spawn_blocking(move || {
+                tugarc_core::surfaces::verify_in(&Paths::from_env(), &repo, &name, None, None)
+            })
+            .await;
+            match report {
+                Ok(Ok(report)) => Some(report.verdict),
+                Ok(Err(e)) => {
+                    warn!(arc = %job.name, error = %e, "base-motion: verify refused");
+                    None
+                }
+                Err(e) => {
+                    warn!(arc = %job.name, error = %e, "base-motion: verify task died");
+                    None
+                }
+            }
         }
-        Speak::Notice {
-            base_head,
-            rounds,
-            oldest_round_before,
-        } => {
-            let paths = base_delta_paths(
-                &job.repo_dir,
-                &job.base_branch,
-                oldest_round_before.as_deref(),
-            );
-            let text = compose_replay_notice(&job.name, &job.base_branch, base_head, &paths);
-            let facts = NoticeFacts::Replayed {
-                arc: job.name.clone(),
-                base: job.base_branch.clone(),
-                sha: base_head.clone(),
-                paths,
-                rounds: *rounds,
-            };
-            (text, Some(facts))
+        _ => None,
+    };
+    let end = quiet_end(replay, verdict.as_deref());
+    let wrote = match end {
+        QuietEnd::Leave => return (false, end),
+        QuietEnd::Restamp => {
+            tokio::task::spawn_blocking(move || {
+                tugarc_core::ops::restamp_audit(&Paths::from_env(), &repo, &name)
+            })
+            .await
         }
-    }
+        QuietEnd::Seat => {
+            if quiet.seat.is_none() {
+                debug!(arc = %job.name, "base-motion: audit stale, waiting for a card");
+                return (false, end);
+            }
+            tokio::task::spawn_blocking(move || {
+                tugarc_core::ops::reopen_stale_audit(&Paths::from_env(), &repo, &name)
+            })
+            .await
+        }
+    };
+    let moved = match wrote {
+        Ok(Ok(wrote)) => {
+            info!(
+                arc = %job.name,
+                verdict = verdict.as_deref().unwrap_or("-"),
+                end = ?end,
+                "base-motion: stale audit answered",
+            );
+            wrote
+        }
+        Ok(Err(e)) => {
+            warn!(arc = %job.name, error = %e, "base-motion: stale audit refused");
+            false
+        }
+        Err(e) => {
+            warn!(arc = %job.name, error = %e, "base-motion: stale audit task died");
+            false
+        }
+    };
+    (moved, end)
 }
 
-/// `path` relative to `repo` when it lies under it, else as given — the
-/// receipt names the worktree the way a reader in the checkout would type it.
-fn repo_relative(repo: &Path, path: &str) -> String {
-    Path::new(path)
-        .strip_prefix(repo)
-        .ok()
-        .filter(|rel| !rel.as_os_str().is_empty())
-        .map(|rel| rel.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.to_string())
+/// A clean replay under a live plan run, as the notice tells it.
+struct Notice {
+    base_head: String,
+    /// How many rounds the replay moved.
+    rounds: usize,
+    oldest_round_before: Option<String>,
 }
 
-/// The 1-based position of `round` among the arc's rounds, oldest first, or
-/// `None` when it is not among them — one `rev-list`, read only when a
-/// conflict is being told about.
-fn round_index(repo: &Path, base_branch: &str, branch: &str, round: &str) -> Option<usize> {
-    let mb = merge_base(repo, branch, base_branch);
-    if mb.is_empty() {
-        return None;
-    }
-    let range = format!("{mb}..{branch}");
-    let shas = tugchanges_core::read_paths(repo, &["rev-list", "--reverse", &range]).ok()?;
-    shas.iter().position(|sha| sha == round).map(|i| i + 1)
+/// Compose the notice a clean replay calls for, and the same outcome as facts.
+fn compose_notice(job: &ReplayJob, notice: &Notice) -> (String, NoticeFacts) {
+    let paths = base_delta_paths(
+        &job.repo_dir,
+        &job.base_branch,
+        notice.oldest_round_before.as_deref(),
+    );
+    let text = compose_replay_notice(&job.name, &job.base_branch, &notice.base_head, &paths);
+    let facts = NoticeFacts::Replayed {
+        arc: job.name.clone(),
+        base: job.base_branch.clone(),
+        sha: notice.base_head.clone(),
+        paths,
+        rounds: notice.rounds,
+    };
+    (text, facts)
 }
 
 /// The files the base brought in — what an agent's context may be stale about.
@@ -1147,7 +1195,6 @@ fn clear_arc(
     let mut map = state.lock();
     if let Some(entry) = map.get_mut(owner_key) {
         entry.conflict = None;
-        entry.notified_tip = None;
     }
     board.set(owner_key, Vec::new());
 }
@@ -1241,8 +1288,123 @@ mod tests {
             session: None,
             in_flight: false,
             conflicted: false,
-            notified: false,
+            audit_stale_done: false,
+            audit_base_only: false,
+            quiet_failed: false,
         }
+    }
+
+    /// **A done arc whose audit went stale on a round seats its audit** on an
+    /// idle bound card, waits on a busy one, and waits for a card when nobody
+    /// holds it. It is decided whether or not the base is ahead — a new round
+    /// stales an audit as surely as a base move — and the engine never
+    /// replays it, because the audit stage replays the arc itself.
+    #[test]
+    fn a_stale_done_audit_seats_the_audit_stage() {
+        let stale = |session: Option<BoundSession>, base_ahead: u32| ArcInputs {
+            audit_stale_done: true,
+            base_ahead,
+            session,
+            ..behind()
+        };
+        assert_eq!(
+            decide_for_arc(&stale(Some(idle("s1")), 2)),
+            Decision::SeatAudit("s1".to_string())
+        );
+        assert_eq!(
+            decide_for_arc(&stale(Some(idle("s1")), 0)),
+            Decision::SeatAudit("s1".to_string()),
+            "a head move is stale with the base not ahead"
+        );
+        assert_eq!(
+            decide_for_arc(&stale(Some(busy("s1")), 2)),
+            Decision::Skip("session-busy")
+        );
+        assert_eq!(
+            decide_for_arc(&stale(None, 2)),
+            Decision::Skip("audit-stale, waiting for a card")
+        );
+        assert_eq!(
+            decide_for_arc(&ArcInputs {
+                join_journal: true,
+                ..stale(Some(idle("s1")), 2)
+            }),
+            Decision::Skip("join-journal")
+        );
+        assert_eq!(
+            decide_for_arc(&ArcInputs {
+                autoreplay: false,
+                ..stale(Some(idle("s1")), 2)
+            }),
+            Decision::Skip("autoreplay-off"),
+            "an arc whose repository opted out of motion is left alone"
+        );
+    }
+
+    /// **The machine keeps the quiet case.** An audit stale on the base alone
+    /// is replayed, verified and re-stamped with no turn — bound or not, since
+    /// the re-stamp needs no card. Once the quiet path has failed at this base
+    /// tip, the same arc seats its audit (or waits for a card) instead of
+    /// replaying and verifying again.
+    #[test]
+    fn a_base_only_stale_audit_is_restamped_quietly() {
+        let base_only = |session: Option<BoundSession>| ArcInputs {
+            audit_stale_done: true,
+            audit_base_only: true,
+            session,
+            ..behind()
+        };
+        assert_eq!(
+            decide_for_arc(&base_only(Some(idle("s1")))),
+            Decision::Restamp(Some("s1".to_string()))
+        );
+        assert_eq!(decide_for_arc(&base_only(None)), Decision::Restamp(None));
+        assert_eq!(
+            decide_for_arc(&base_only(Some(busy("s1")))),
+            Decision::Skip("session-busy"),
+            "a working session is never moved under"
+        );
+        let failed = |session| ArcInputs {
+            quiet_failed: true,
+            ..base_only(session)
+        };
+        assert_eq!(
+            decide_for_arc(&failed(Some(idle("s1")))),
+            Decision::SeatAudit("s1".to_string())
+        );
+        assert_eq!(
+            decide_for_arc(&failed(None)),
+            Decision::Skip("audit-stale, waiting for a card")
+        );
+    }
+
+    /// The quiet path's verdict: a clean replay with a green fit re-stamps; a
+    /// conflicted or deferred replay, a red fit, an unclaimed path, a project
+    /// with no surfaces to run, or a verify that could not run seats the
+    /// audit; a replay that could not run at all leaves the arc for the next
+    /// wake.
+    #[test]
+    fn the_quiet_path_restamps_only_a_clean_green_fit() {
+        use QuietEnd::*;
+        use QuietReplay::*;
+        assert_eq!(quiet_end(Clean, Some("verified")), Restamp);
+        assert_eq!(quiet_end(Clean, Some("nothing-in-range")), Restamp);
+        assert_eq!(quiet_end(Clean, Some("red")), Seat);
+        assert_eq!(quiet_end(Clean, Some("unclaimed")), Seat);
+        assert_eq!(quiet_end(Clean, Some("declares-none")), Seat);
+        assert_eq!(quiet_end(Clean, None), Seat);
+        assert_eq!(quiet_end(Stopped, None), Seat);
+        assert_eq!(quiet_end(Failed, None), Leave);
+    }
+
+    /// The bind wake keeps its permit: a bind while the engine is busy is
+    /// answered by the next pass rather than lost.
+    #[tokio::test]
+    async fn a_bind_wakes_the_engine() {
+        wake_on_bind();
+        // The permit is already stored, so this resolves at once; a lost
+        // wake would hang here and nextest's own guard would name it.
+        bind_wake().notified().await;
     }
 
     #[test]
@@ -1343,26 +1505,14 @@ mod tests {
     }
 
     #[test]
-    fn a_conflicted_arc_with_an_idle_session_becomes_a_turn() {
+    fn a_conflicted_arc_is_marked_and_never_made_a_turn() {
         let inputs = ArcInputs {
             conflicted: true,
             session: Some(idle("sess-1")),
             ..behind()
         };
-        assert_eq!(
-            decide_for_arc(&inputs),
-            Decision::InjectConflict("sess-1".to_string())
-        );
-    }
-
-    #[test]
-    fn a_conflict_already_told_about_is_not_told_again() {
-        let inputs = ArcInputs {
-            conflicted: true,
-            notified: true,
-            session: Some(idle("sess-1")),
-            ..behind()
-        };
+        // Resolving a conflict is the audit stage's work, on the Wheel; the
+        // engine only keeps the lane mark.
         assert_eq!(decide_for_arc(&inputs), Decision::MarkOnly);
     }
 
@@ -1396,105 +1546,6 @@ mod tests {
     }
 
     // MARK: - The messages
-
-    fn conflict_text() -> String {
-        compose_conflict_message(&ConflictMessage {
-            arc: "demo",
-            base_branch: "main",
-            base_head: "abcdef0123456789",
-            round: "0123456789abcdef",
-            round_subject: "teach the lane to say what moved",
-            paths: &["src/a.rs".to_string(), "src/b.rs".to_string()],
-            intent: "Land the divergence marks.\n\nRound subjects:\nadd the marks",
-            worktree_abs: "/repo/.tug/worktrees/demo",
-        })
-    }
-
-    #[test]
-    fn the_conflict_turn_says_where_it_stopped_and_how_to_finish() {
-        let text = conflict_text();
-        assert!(text.contains("teach the lane to say what moved"));
-        assert!(text.contains("src/a.rs"), "every conflicting path is named");
-        assert!(text.contains("src/b.rs"));
-        assert!(
-            text.contains("git -C /repo/.tug/worktrees/demo rebase main"),
-            "the rebase is worktree-absolute, not relative to wherever the agent stands",
-        );
-        assert!(
-            text.contains("tugtool arc replay demo"),
-            "the bookkeeping verb finishes the contract",
-        );
-        assert!(
-            text.contains("git rebase --abort"),
-            "a real design collision is an outcome the turn allows for",
-        );
-        assert!(
-            text.contains("Land the divergence marks."),
-            "the intent rides along"
-        );
-        assert!(
-            text.contains("tugtool arc verify demo"),
-            "the turn names the verb, which knows what this project is made of",
-        );
-        assert!(
-            !text.contains("{base}") && !text.contains("{head}"),
-            "nothing is left for the agent to substitute by hand",
-        );
-        assert!(
-            text.contains("no surface claims"),
-            "a refusal is fixed by declaring a surface, and the turn says so",
-        );
-        assert!(
-            text.contains("Red is ordinary work"),
-            "a red verify is ordinary work, and the turn says so",
-        );
-        let replay_at = text.find("tugtool arc replay demo").expect("replay named");
-        let verify_at = text.find("verify the fit").expect("verify named");
-        assert!(
-            replay_at < verify_at,
-            "the fit is checked over what the replay recorded, so it comes after",
-        );
-    }
-
-    /// The verb is named whatever the project declares, because the verb is
-    /// what reads the declaration — a project with no surfaces gets the
-    /// declared-none report from the verb itself rather than a turn that
-    /// quietly said nothing about the fit at all.
-    #[test]
-    fn a_conflict_turn_names_the_verb_whatever_the_project_declares() {
-        let text = compose_conflict_message(&ConflictMessage {
-            arc: "demo",
-            base_branch: "main",
-            base_head: "abcdef0123456789",
-            round: "0123456789abcdef",
-            round_subject: "s",
-            paths: &["f.txt".to_string()],
-            intent: "   ",
-            worktree_abs: "/repo/wt",
-        });
-        assert!(text.contains("tugtool arc verify demo"));
-        assert!(
-            text.contains("tugtool arc replay demo"),
-            "the bookkeeping verb stands with or without a declaration",
-        );
-        assert!(text.contains("git rebase --abort"));
-    }
-
-    #[test]
-    fn a_conflict_turn_without_an_intent_skips_the_section() {
-        let text = compose_conflict_message(&ConflictMessage {
-            arc: "demo",
-            base_branch: "main",
-            base_head: "abcdef0123456789",
-            round: "0123456789abcdef",
-            round_subject: "s",
-            paths: &["f.txt".to_string()],
-            intent: "   ",
-            worktree_abs: "/repo/wt",
-        });
-        assert!(!text.contains("This arc's intent"));
-        assert!(text.contains("tugtool arc replay demo"));
-    }
 
     #[test]
     fn the_replay_notice_names_the_base_delta_and_asks_for_nothing() {
@@ -1607,7 +1658,7 @@ mod tests {
             code_output: Some(feed),
         };
 
-        let text = conflict_text();
+        let text = compose_replay_notice("demo", "main", "abcdef0123456789", &[]);
         assert!(handles.send("sess-1", &text, None).await);
 
         let opener = out_rx.try_recv().expect("an opener rode out");
@@ -1757,17 +1808,89 @@ mod tests {
         check()
     }
 
-    /// The same repository, but with the arc's round and the base's commit
-    /// both rewriting `f.txt` — so replaying the round onto the moved base
-    /// cannot merge.
-    fn repo_with_a_conflicting_arc() -> Repo {
+    /// The fixture arc, finished and audited, and then its base moved under
+    /// the audit. The arc declares one surface whose check is `check`, on the
+    /// arc itself so the verify reads it from the worktree. A `conflicting`
+    /// arc rewrites `f.txt` as the base move does, so its replay cannot
+    /// merge.
+    fn repo_with_a_stale_audit(check: &str, conflicting: bool) -> Repo {
         let repo = repo_with_a_arc();
         let wt = repo.worktree();
-        std::fs::write(wt.join("f.txt"), "arc rewrote this\n").unwrap();
+        std::fs::create_dir_all(wt.join(".tugtool")).unwrap();
+        std::fs::write(
+            wt.join(".tugtool/config.toml"),
+            format!(
+                "[[tugtool.arc.surface]]\nname = \"all\"\n\
+                 paths = [\".tugtool/\", \"f.txt\", \"g.txt\"]\ncheck = [\"{check}\"]\n"
+            ),
+        )
+        .unwrap();
+        if conflicting {
+            std::fs::write(wt.join("f.txt"), "arc rewrote this\n").unwrap();
+        }
         git(&wt, &["add", "-A"]);
-        git(&wt, &["commit", "-q", "-m", "rewrite f"]);
+        git(&wt, &["commit", "-q", "-m", "declare the surface"]);
+
+        let paths = Paths::from_env();
+        let root = repo.path();
+        tugarc_core::append_arc_start(&paths, root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+        tugarc_core::mark_in(&paths, root, "demo", tugarc_core::MarkStage::Audited, None).unwrap();
+        tugarc_core::append_arc_done(&paths, root, "demo").unwrap();
         repo.advance_base("base rewrote this\n");
         repo
+    }
+
+    /// The fixture arc's quiet-path job, with a card to seat the audit on.
+    fn quiet_job(repo: &Repo) -> ReplayJob {
+        ReplayJob {
+            quiet: Some(QuietJob {
+                seat: Some("sess-1".to_string()),
+                base_tip: repo.tip("main"),
+            }),
+            ..demo_job(repo)
+        }
+    }
+
+    /// Run one quiet-path job to its end, and read back the arc's record.
+    async fn run_quiet(repo: &Repo) -> (Arc<Mutex<HashMap<String, ArcState>>>, ArcRecordView) {
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let bump = Arc::new(Notify::new());
+        let ctx = test_context(&registry, &bump, &cancel);
+        let board = Arc::new(ConflictBoard::default());
+        let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
+        spawn_replay(&ctx, &board, &state, quiet_job(repo));
+        assert!(
+            settles(|| state
+                .lock()
+                .get("tugarc/demo")
+                .is_some_and(|st| !st.in_flight))
+            .await,
+            "the quiet path runs to its end"
+        );
+        cancel.cancel();
+        let paths = Paths::from_env();
+        let record = tugarc_core::read_arc(&paths, repo.path(), "demo").expect("the arc record");
+        let log = tugarc_core::read_declarations(&paths, repo.path(), "demo");
+        let current = tugarc_core::log::audit_current(
+            &log,
+            &tugarc_core::ops::live_tips(repo.path(), "demo"),
+        );
+        (
+            state,
+            ArcRecordView {
+                done: record.done,
+                reaudit: record.resume == Some(tugarc_core::ArcStage::Audit),
+                audit_current: current,
+            },
+        )
+    }
+
+    /// What the quiet-path tests read off the arc once the job ends.
+    struct ArcRecordView {
+        done: bool,
+        reaudit: bool,
+        audit_current: bool,
     }
 
     /// The fixture arc's replay job, with nobody to tell about the outcome.
@@ -1777,10 +1900,8 @@ mod tests {
             name: "demo".to_string(),
             owner_key: "tugarc/demo".to_string(),
             base_branch: "main".to_string(),
-            worktree_abs: repo.worktree().to_string_lossy().into_owned(),
-            branch: "tugarc/demo".to_string(),
-            target: None,
-            notify_on_clean: false,
+            notify: None,
+            quiet: None,
         }
     }
 
@@ -1996,100 +2117,6 @@ mod tests {
         cancel.cancel();
     }
 
-    /// [P05]: a replay that cannot merge becomes an ordinary turn in the arc's
-    /// bound session — and exactly one, however many wakes arrive at the same
-    /// base tip. The turn carries the round it stopped on and the paths.
-    #[tokio::test]
-    #[serial]
-    async fn a_conflicted_replay_becomes_one_turn_per_divergence_event() {
-        let repo = repo_with_a_conflicting_arc();
-        let before = repo.tip("tugarc/demo");
-
-        let cancel = CancellationToken::new();
-        let registry = Arc::new(WorkspaceRegistry::new_for_test());
-        let bump = Arc::new(Notify::new());
-        let feed =
-            SessionScopedFeed::new(FeedId::CODE_OUTPUT, 16, tugcast_core::lag::LagPolicy::Warn);
-        let mut out_rx = feed.subscribe();
-        let (in_tx, mut in_rx) = mpsc::channel::<Frame>(8);
-        let mut ctx = test_context(&registry, &bump, &cancel);
-        ctx.code_input_tx = Some(in_tx);
-        ctx.code_output = Some(feed);
-
-        let board = Arc::new(ConflictBoard::default());
-        let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
-        let job = || ReplayJob {
-            target: Some("sess-1".to_string()),
-            ..demo_job(&repo)
-        };
-
-        spawn_replay(&ctx, &board, &state, job());
-        let first = tokio::time::timeout(Duration::from_secs(5), in_rx.recv())
-            .await
-            .expect("an injection within the timeout")
-            .expect("the channel is open");
-        assert_eq!(
-            repo.tip("tugarc/demo"),
-            before,
-            "a conflicted replay moves nothing",
-        );
-
-        let body: serde_json::Value = serde_json::from_slice(&first.payload).unwrap();
-        let text = body["content"][0]["text"].as_str().unwrap().to_string();
-        assert!(
-            text.contains("rewrite f"),
-            "the turn names the stopping round"
-        );
-        assert!(
-            text.contains("f.txt"),
-            "the turn names the conflicting path"
-        );
-        assert!(text.contains("tugtool arc replay demo"));
-
-        // The opener rode out with it — the turn is not invisible.
-        let opener = out_rx.try_recv().expect("an opener");
-        let opener: serde_json::Value = serde_json::from_slice(&opener.payload).unwrap();
-        assert_eq!(opener["type"], "tug_notice");
-        // The same words, and only the submission wears the origin marker:
-        // the row has an origin label of its own, and the submission has
-        // nowhere else to say where it came from.
-        assert_eq!(
-            format!("[base-motion replay] {}", opener["text"].as_str().unwrap()),
-            text
-        );
-        // And it carries where the replay stopped as facts (Spec S06): the
-        // round's subject and place, and the worktree to finish it in, named
-        // the way a reader in the checkout would type it.
-        let facts = &opener["facts"];
-        assert_eq!(facts["kind"], "replay-stopped", "{opener}");
-        assert_eq!(facts["arc"], "demo");
-        assert_eq!(facts["base"], "main");
-        assert_eq!(facts["sha"], repo.tip("main"), "the base head, full");
-        assert_eq!(facts["round_subject"], "rewrite f");
-        assert_eq!(facts["round_index"], 2, "the arc's second round");
-        assert_eq!(facts["paths"], serde_json::json!(["f.txt"]));
-        assert_eq!(facts["worktree"], ".tug/worktrees/demo");
-
-        // A second wake at the same base tip says nothing more.
-        spawn_replay(&ctx, &board, &state, job());
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        assert!(
-            in_rx.try_recv().is_err(),
-            "one injection per divergence event, not one per wake",
-        );
-
-        // The base moving is a new divergence event, and reopens the question.
-        repo.advance_base("base rewrote this again\n");
-        spawn_replay(&ctx, &board, &state, job());
-        assert!(
-            tokio::time::timeout(Duration::from_secs(5), in_rx.recv())
-                .await
-                .is_ok(),
-            "a base that moved again is spoken about again",
-        );
-        cancel.cancel();
-    }
-
     /// [P02]'s park-and-retry, from the wake side: the engine's gate refuses to
     /// act while a session is mid-turn, so the supervisor's turn-complete signal
     /// is what lets the arc catch up. No GIT_HEAD signal is ever sent here.
@@ -2151,8 +2178,7 @@ mod tests {
             &board,
             &state,
             ReplayJob {
-                target: Some("sess-1".to_string()),
-                notify_on_clean: true,
+                notify: Some("sess-1".to_string()),
                 ..demo_job(&repo)
             },
         );
@@ -2183,15 +2209,59 @@ mod tests {
         cancel.cancel();
     }
 
-    #[test]
-    fn a_worktree_under_the_repo_is_named_relative_to_it() {
-        let repo = Path::new("/u/src/tug");
-        assert_eq!(
-            repo_relative(repo, "/u/src/tug/.tug/worktrees/x"),
-            ".tug/worktrees/x"
+    /// **The clean re-stamp.** The base moved under a finished, audited arc
+    /// and nothing else did: the engine replays it, the fit verifies green,
+    /// and a fresh mark stands on the live tips — the arc is still done, and
+    /// no stage was seated.
+    #[tokio::test]
+    #[serial]
+    async fn a_clean_green_base_move_restamps_the_audit() {
+        let repo = repo_with_a_stale_audit("true", false);
+        let before = repo.tip("tugarc/demo");
+        let (state, arc) = run_quiet(&repo).await;
+        assert_ne!(repo.tip("tugarc/demo"), before, "the arc was replayed");
+        assert!(arc.audit_current, "the re-stamp stands on the live tips");
+        assert!(arc.done && !arc.reaudit, "no turn was spent");
+        assert!(state.lock()["tugarc/demo"].quiet_failed_tip.is_none());
+    }
+
+    /// **The conflicted re-seat.** A replay that cannot merge moves nothing
+    /// and is never made into a turn of its own: the arc goes back to its
+    /// audit stage on the Wheel, and the failure is latched at this base tip.
+    #[tokio::test]
+    #[serial]
+    async fn a_conflicted_base_move_seats_the_audit() {
+        let repo = repo_with_a_stale_audit("true", true);
+        let before = repo.tip("tugarc/demo");
+        let (state, arc) = run_quiet(&repo).await;
+        assert_eq!(repo.tip("tugarc/demo"), before, "a conflict moves nothing");
+        assert!(!arc.done && arc.reaudit, "the audit is seated");
+        assert!(!arc.audit_current);
+        let st = &state.lock()["tugarc/demo"];
+        assert!(st.conflict.is_some(), "the lane keeps its conflict mark");
+        assert_eq!(st.quiet_failed_tip, Some(repo.tip("main")));
+    }
+
+    /// **The red re-seat.** The replay was clean but the fit is red: the
+    /// audit is not re-stamped over a red check, and the arc goes back to its
+    /// audit stage to answer it.
+    #[tokio::test]
+    #[serial]
+    async fn a_red_fit_after_a_clean_replay_seats_the_audit() {
+        let repo = repo_with_a_stale_audit("false", false);
+        let before = repo.tip("tugarc/demo");
+        let (state, arc) = run_quiet(&repo).await;
+        assert_ne!(
+            repo.tip("tugarc/demo"),
+            before,
+            "the replay itself was clean"
         );
-        assert_eq!(repo_relative(repo, "/elsewhere/x"), "/elsewhere/x");
-        assert_eq!(repo_relative(repo, "/u/src/tug"), "/u/src/tug");
+        assert!(!arc.done && arc.reaudit, "the audit is seated");
+        assert!(!arc.audit_current, "nothing re-stamped a red fit");
+        assert_eq!(
+            state.lock()["tugarc/demo"].quiet_failed_tip,
+            Some(repo.tip("main"))
+        );
     }
 
     /// The in-flight lock, at the seam a second wake actually hits: a replay

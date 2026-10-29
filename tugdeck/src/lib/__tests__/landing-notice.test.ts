@@ -47,12 +47,10 @@ const ARC_ENTRY: ArcChangesetEntry = {
   worktree_dirty: false,
   files: [],
   draft: { fingerprint: "abc", message: "a join message", updated_at: 0, edited: false },
-  // The server says this arc merges clean and carries a standing candidate,
-  // which is what makes the land press below reach the wire rather than being
-  // refused. Every join rides a candidate ([P03]), clean ones included.
+  // The server says this arc merges clean, which is what makes the land press
+  // below reach the wire rather than being refused.
   join: {
     phase: "previewed",
-    candidate: "cafe1234",
   },
 };
 

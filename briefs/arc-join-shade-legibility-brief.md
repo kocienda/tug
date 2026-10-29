@@ -43,15 +43,25 @@ And, on learning that one arc was resolved five times in twenty-five minutes: "I
 
 **[B02] A failed check is structured at the source and rendered with the receipt row grammar, one path per row, by one component in both seats.** The check result carries surface, command head (the template before `expand`), the paths, exit code and first-red title as fields; the stuck line and the ledger's `ended` event carry that structure rather than a sentence. The deck renders a sentence row ("the candidate failed its checks: deck ran `just app-test-changed`, exit 1, first red …") followed by one `arc-fold-path` row per file, the same block in the join fold and in the resolve ledger. The resolver reads the app-test report's first failure (its `Failures:` section or `TUG_APPTEST_JSON`) so the title is never empty for that check. The old single-string detail stays readable for ledgers written before this lands.
 
+*Superseded by `audit-relative-readiness-brief.md` [B08]: the join lost its ladder, so there is no stuck line, resolve ledger or join-time check to structure.*
+
 **[B03] The landing scale is `md` for subject and message alike.** What you are about to sign reads at the size you would write it, matching the composer. File rows under it keep their size.
 
 **[B04] The shade reveals on "this arc needs you", not on "this arc has an offer".** The board publishes one attention fact per ready arc: `offer`, `stuck` or `question`, with a key that changes when the stuck line or question changes, and never while a run is live. The reveal effect and the spend memory key on that attention key, so a new stuck line after a seen offer is new work. A withdrawn candidate is the moment the decision becomes the user's, and that is exactly when the room opens.
 
+*Superseded by `audit-relative-readiness-brief.md` [B08]: with no stuck line or question on the board, the attention fact is the offer alone.*
+
 **[B05] Every reveal verdict is logged, and a hold either resolves or goes.** `already-shown` gets a receipt like the others, since it is the one silent case. The `composer-busy` hold is dropped: a composer with text in it is not a reason to keep a ready join out of sight, and the effect had no reliable re-arm on it.
+
+*Superseded by `audit-relative-readiness-brief.md` [B08]: the reveal reads the offer; the stuck and question re-asks it was written for are gone.*
 
 **[B06] The join check stays `just app-test-changed` over the arc's whole diff, minus files the app-test history records red at the base.** The resolver asks `tugtool apptest history` for each selected file and drops the ones red at the base before the arc touched them, naming them in the report as left out. A red that was red before the arc is not the arc's verdict to carry.
 
+*Superseded by `audit-relative-readiness-brief.md` [B08]: nothing is checked at join time; the audit verifies the fit.*
+
 **[B07] No automatic resolve while a stuck line stands or the last run ended without a candidate at the same head pair.** `ensureCandidate` reads the stuck line and the last ended run's head pair before sending, and the pilot keeps its existing stop. Only the explicit Resolve again press, or a head move on either side, re-runs. A glance at the shade is not consent to a four-minute check.
+
+*Superseded by `audit-relative-readiness-brief.md` [B08]: there is no automatic resolve left to hold — `ensureCandidate` and the pilot are gone.*
 
 ---
 

@@ -13,8 +13,8 @@
  *
  * What differs is what a join *means* here. The gate's third reason is the
  * arc's join state rather than the changeset: a join may proceed only over a
- * merge the server reports clean, or over a candidate the resolution ladder
- * built out of the conflicts. That state is not asked for — it rides the arc's
+ * merge the server reports clean, on an arc whose audit stands on the live
+ * base. That state is not asked for — it rides the arc's
  * feed entry as a `join` block the server computes on every changeset
  * recompute, so this controller reads it and never previews. And the draft is
  * the *arc's*: it keys on the arc's owner id, so the message the run's
@@ -72,11 +72,9 @@ export interface JoinTarget {
 /**
  * The join outcome the surface fronts ([#outcome-derivation]). `empty` and
  * `blocked` both come from the feed's blockers — `empty` is called out
- * separately because its answer is release, not a fix. `stale` is a candidate
- * the server has already invalidated: it names which side moved, and the act
- * that clears it is another run of the ladder.
+ * separately because its answer is release, not a fix.
  */
-export type JoinOutcome = "clean" | "conflicted" | "blocked" | "empty" | "stale";
+export type JoinOutcome = "clean" | "conflicted" | "blocked" | "empty";
 
 /** Inputs to the pure join gate. */
 export interface JoinGateInput {
@@ -94,12 +92,11 @@ export interface JoinGateInput {
    */
   holderBusy: boolean;
   /**
-   * A run holds the arc — a resolve, a re-resolve or a verify — the feed's
-   * `join.run` ({@link joinRunLive}).
+   * A run holds the arc — a base fold or a join — the feed's `join.run`
+   * ({@link joinRunLive}).
    *
    * One arc admits one run, and the server refuses a join pressed while one
-   * holds it. The candidate the run anchors can stand long before the run
-   * ends, so a clean outcome alone would light a button whose press the
+   * holds it, so a clean outcome alone would light a button whose press the
    * server is bound to refuse.
    */
   runLive: boolean;
@@ -107,8 +104,6 @@ export interface JoinGateInput {
   joinPhase: JoinPhase;
   /** The derived join outcome. */
   outcome: JoinOutcome;
-  /** A candidate commit from the resolution ladder, if one was built. */
-  candidateCommit: string | null;
   /** The trimmed join message. */
   message: string;
 }
@@ -132,9 +127,8 @@ export type JoinGate = { ok: true } | { ok: false; reason: JoinGateReason };
  * being joined, then the message — because the reasons map to the button's
  * disable-and-hint precedence and the two gates must not disagree.
  *
- * `outcome` passes on a clean preview, or on any state carrying a candidate
- * commit: a resolved conflict is a joinable arc even though its history is
- * `conflicted`.
+ * `outcome` passes on a clean preview and nothing else: a ready arc's audit
+ * verified the fit of exactly the tree the join lands.
  */
 export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   if (input.turnInProgress) return { ok: false, reason: "turn" };
@@ -146,15 +140,9 @@ export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   // per arc — a press here could only come back as its refusal.
   if (input.runLive) return { ok: false, reason: "running" };
   if (input.joinPhase === "pending") return { ok: false, reason: "pending" };
-  // The outcome already accounts for the candidate ({@link deriveJoinOutcome}),
-  // so it is the whole answer. It deliberately no longer reads
-  // `candidateCommit` as a second, independent arm: that arm re-admitted every
-  // state the outcome had just refused — a blocked join with a candidate was
-  // joinable through it, which is the shade saying "blocked" and the button
-  // saying "go".
   if (input.outcome !== "clean") return { ok: false, reason: "outcome" };
-  // Nothing about a build is asked here. The run's ending verified the tree
-  // that lands, so what is left between a press and the base is the message.
+  // Nothing about a build is asked here. The audit verified the tree that
+  // lands, so what is left between a press and the base is the message.
   if (input.message.trim().length === 0) return { ok: false, reason: "empty-message" };
   return { ok: true };
 }
@@ -168,17 +156,13 @@ export function evaluateJoinGate(input: JoinGateInput): JoinGate {
  * composer's Join button) and a refusal that reads differently in two places
  * is worse than one that reads tersely in both.
  */
-export function joinDisabledReason(
-  reason: JoinGateReason,
-  outcome: JoinOutcome,
-  staleNote?: string | null,
-): string {
+export function joinDisabledReason(reason: JoinGateReason, outcome: JoinOutcome): string {
   if (reason === "turn") return "Wait for the turn to finish";
   // Named for the arc rather than "the turn", because the two are usually
   // different cards — and because a background test sweep outlives the turn
   // that started it, so "the turn is finished" would be true and useless.
   if (reason === "holder") return "Wait for the arc to finish its work";
-  if (reason === "running") return "Wait for the resolve to finish";
+  if (reason === "running") return "Wait for the run on this arc to finish";
   // `pending` is the execute round trip and nothing else now that the card
   // never previews, so the sentence says the only thing it can mean.
   if (reason === "pending") return "Joining…";
@@ -188,17 +172,11 @@ export function joinDisabledReason(
   if (reason === "empty-message") return "Write a join message";
   switch (outcome) {
     case "conflicted":
-      return "Resolve the conflicts first";
+      return "The base moved past this arc's audit — it re-audits before it joins";
     case "blocked":
       return "Clear what blocks this join first";
     case "empty":
       return "Nothing to join";
-    // The server's own sentence names which side moved, so it is the refusal;
-    // the fallback covers a stale state whose note did not survive the wire.
-    case "stale":
-      return staleNote !== null && staleNote !== undefined && staleNote !== ""
-        ? staleNote
-        : "The resolution is out of date — resolve again";
     default:
       return "This join is not ready yet";
   }
@@ -247,8 +225,8 @@ export const REFUSAL_REACHABILITY = {
   // needs no control of its own: with nothing to press twice, a second press
   // cannot double-submit a join.
   pending: { slot: null, where: "time" },
-  // Every reading of `outcome` is now a wait. Conflicted and stale are the
-  // pilot's to clear and it starts unprompted; blocked is cleared outside the
+  // Every reading of `outcome` is now a wait. Conflicted is the re-audit's to
+  // clear and it is seated unprompted; blocked is cleared outside the
   // app entirely, which is why each blocker carries its own act sentence; and
   // an empty arc is the one state whose answer — discard — is deliberately
   // rare enough to live in the row's overflow menu rather than in a refusal.
@@ -275,7 +253,6 @@ export function joinGateFacts(input: JoinGateInput): Record<string, unknown> {
     runLive: input.runLive,
     joinPhase: input.joinPhase,
     outcome: input.outcome,
-    candidateCommit: input.candidateCommit,
     messageLen: input.message.trim().length,
   };
 }
@@ -290,10 +267,6 @@ export interface JoinModeSnapshot extends LandingSnapshot {
   conflicts: readonly string[];
   /** What would refuse this join, from the server's preflight. */
   blockers: readonly ArcJoinBlockerWire[];
-  /** A candidate commit from the resolution ladder, if one still verifies. */
-  candidateCommit: string | null;
-  /** The server's sentence for a candidate that no longer describes the heads. */
-  staleNote: string | null;
 }
 
 export interface JoinModeControllerDeps {
@@ -433,10 +406,6 @@ export class JoinModeController extends Subscribable implements LandingMode {
     const join = entry?.join ?? null;
     const conflicts = join?.conflicts ?? [];
     const blockers = join?.blockers ?? [];
-    const candidateCommit =
-      typeof join?.candidate === "string" && join.candidate !== "" ? join.candidate : null;
-    const staleNote =
-      typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
 
     const outcome = deriveJoinOutcome(join);
 
@@ -465,7 +434,6 @@ export class JoinModeController extends Subscribable implements LandingMode {
       runLive: joinRunLive(join),
       joinPhase,
       outcome,
-      candidateCommit,
       message: "x", // ignore message emptiness here (CSS-gated on data-commit-empty)
     });
     // The same sentence the fronted row's join face shows, carried to the
@@ -473,7 +441,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
     // actually looking, and which otherwise reports a constant.
     const landBlockedReason = gate.ok
       ? null
-      : joinDisabledReason(gate.reason, outcome, staleNote);
+      : joinDisabledReason(gate.reason, outcome);
     const messagePresent = this.active && (this.messageProvider?.() ?? "").trim().length > 0;
     // The aimed arc while there is one, the arc this composer last fired at
     // once the press has taken the mode down. Only the register reads it —
@@ -532,8 +500,6 @@ export class JoinModeController extends Subscribable implements LandingMode {
       outcome,
       conflicts,
       blockers,
-      candidateCommit,
-      staleNote,
     };
   }
 
@@ -663,48 +629,6 @@ export class JoinModeController extends Subscribable implements LandingMode {
     this.active = true;
     this.snapshot = this.derive();
     this.notify();
-    this.ensureCandidate();
-  }
-
-  /**
-   * A clean arc grows a candidate without being asked ([P03]).
-   *
-   * A conflicted arc has always been resolved before it could join, so what
-   * would land was a tree the project's checks had judged. A clean one skipped
-   * all of it and joined on the strength of git reporting no textual conflict —
-   * which is not the same claim. The failure this closes is a merge with no
-   * conflicting file that does not build: a symbol renamed on one side, a new
-   * call site added on the other.
-   *
-   * So entering the mode on a clean arc sends the same resolve a conflicted
-   * one sends. The ladder's one-shot squash anchors a candidate, the server
-   * verifies it unpressed, and the gate that already refuses an unverified
-   * candidate finally has one to refuse.
-   *
-   * An action taken on entry, never derived state — and safe to fire twice,
-   * because one arc admits one run ([P01]) and the second send comes back as
-   * a named refusal rather than a second ladder.
-   *
-   * **Never over a standing refusal.** The stuck line is the server's durable
-   * record that the last resolve stopped short at this arc head, and the
-   * ledger's last `ended` says whether the last run anchored a candidate.
-   * While either says the machine has already tried and stopped, entering the
-   * mode sends nothing: a glance at the shade is not consent to another
-   * ladder, and the deck once re-ran a four-minute resolve on every entry
-   * into an arc whose last candidate had been withdrawn. Only the explicit
-   * Resolve again press, or a resolve the server starts over a moved head,
-   * runs it again — `autoResolveHeld` is that decision.
-   */
-  private ensureCandidate(): void {
-    const target = this.target;
-    if (target === null) return;
-    const join = this.entry()?.join ?? null;
-    if (join === null) return;
-    if (deriveJoinOutcome(join) !== "clean") return;
-    if (typeof join.candidate === "string" && join.candidate !== "") return;
-    if (joinRunLive(join)) return;
-    if (autoResolveHeld(join) !== null) return;
-    getChangesetJoinStore()?.resolve(this.deps.changesController.workspaceKey, target.name);
   }
 
   /**
@@ -856,7 +780,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
     if (!gate.ok) {
       return this.refuse(
         "gate",
-        joinDisabledReason(gate.reason, input.outcome, this.staleNoteFor(target)),
+        joinDisabledReason(gate.reason, input.outcome),
         gate.reason,
         input,
       );
@@ -939,22 +863,14 @@ export class JoinModeController extends Subscribable implements LandingMode {
     // snapshot read would judge a null target. The arc comes from the caller
     // for the same reason the staged land carries it.
     const join = this.entryFor(target.ownerId)?.join ?? null;
-    const candidate = join?.candidate;
     return {
       turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
       holderBusy: this.entryFor(target.ownerId)?.holders_busy === true,
       runLive: joinRunLive(join),
       joinPhase: getChangesetVerbStore()?.joinState(changesController.entryKey).phase ?? "idle",
       outcome: deriveJoinOutcome(join),
-      candidateCommit: typeof candidate === "string" && candidate !== "" ? candidate : null,
       message,
     };
-  }
-
-  /** The arc's stale-candidate sentence, for a refusal that must quote it. */
-  private staleNoteFor(target: JoinTarget): string | null {
-    const note = this.entryFor(target.ownerId)?.join?.stale_note;
-    return typeof note === "string" && note !== "" ? note : null;
   }
 
   /**
@@ -973,7 +889,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
       if (!this.active) this.enter(target);
       this.refuse(
         "gate",
-        joinDisabledReason(gate.reason, input.outcome, this.staleNoteFor(target)),
+        joinDisabledReason(gate.reason, input.outcome),
         gate.reason,
         input,
       );
@@ -990,7 +906,6 @@ export class JoinModeController extends Subscribable implements LandingMode {
       preview: false,
       message: text,
       sessionId: changesController.tugSessionId,
-      ...(input.candidateCommit !== null ? { candidate: input.candidateCommit } : {}),
     });
     const unsubscribe = verbStore.subscribe(() => {
       const phase = verbStore.joinState(changesController.entryKey).phase;
@@ -998,7 +913,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
       unsubscribe();
       if (phase === "done") {
         // The landed arc's draft row and bindings die server-side ([P14]);
-        // clearing the ladder's candidate is what keeps a reused arc name
+        // clearing the arc's overlay cell is what keeps a reused arc name
         // from inheriting a stale one.
         getChangesetJoinStore()?.clear(changesController.workspaceKey, target.name);
         this.exit();
@@ -1066,56 +981,20 @@ export function deriveJoinOutcome(join: ArcJoinStateWire | null | undefined): Jo
   if (join === null || join === undefined) return "blocked";
   const blockers = join.blockers ?? [];
   if (blockers.some((b) => b.kind === "empty")) return "empty";
-  // A BLOCKER outranks a resolved candidate, and the order here is the whole
-  // point. The ladder resolves conflicts; it does not commit the base's
+  // A blocker outranks the merge: a clean merge does not commit the base's
   // outstanding changes, finish an interrupted prior join, or make a branch
-  // exist. Ranked the other way — as this was — a successful Resolve painted
-  // `clean` over a face still displaying `join: commit outstanding changes`
-  // one line below it, and the join gate believed the badge.
+  // exist.
   if (blockers.length > 0) return "blocked";
-  // A candidate the server still verifies DOES outrank the conflicts it was
-  // built from — that is the one state where a conflicted history is joinable,
-  // and the reason this check sits between the two.
-  if (typeof join.candidate === "string" && join.candidate !== "") return "clean";
-  // A note means the candidate that stood here no longer describes these two
-  // heads. The merge underneath may well be clean, but joining it would land
-  // an unreviewed machine merge under a review that answered a different one.
-  if (typeof join.stale_note === "string" && join.stale_note !== "") return "stale";
   if ((join.conflicts ?? []).length > 0) return "conflicted";
   return "clean";
 }
 
 /**
  * Whether a run holds the arc — the feed's `join.run` is a non-empty word.
- * Pure and exported so the join gate and the resolve send read occupancy the
- * same way.
+ * Pure and exported so every reader of occupancy reads it the same way.
  */
 export function joinRunLive(join: ArcJoinStateWire | null | undefined): boolean {
   return typeof join?.run === "string" && join.run !== "";
-}
-
-/**
- * Why the mode's own resolve-on-entry is held, or `null` when it may send.
- *
- * `stuck` is the standing refusal: the server anchors it to the arc head and
- * drops it when a resolve starts or the head moves, so its presence already
- * means "the last run stopped short at these bytes". The ledger is the last
- * run read back; one whose final event is an `ended` with no candidate —
- * stuck, unresolved, errored or superseded — is a run that already tried and
- * anchored nothing, and a second unasked send would only repeat it. A ledger
- * that ended on a candidate holds nothing, because a candidate the server has
- * since dropped shows as a stale note, which `deriveJoinOutcome` ranks above
- * `clean` on its own.
- */
-export function autoResolveHeld(join: ArcJoinStateWire | null | undefined): string | null {
-  if (join === null || join === undefined) return null;
-  if (typeof join.stuck === "string" && join.stuck !== "") return "stuck";
-  const events = join.ledger?.events ?? [];
-  const last = events[events.length - 1];
-  if (last !== undefined && last.kind === "ended" && last.outcome !== "candidate") {
-    return `last run ended ${last.outcome}`;
-  }
-  return null;
 }
 
 /** Field-by-field snapshot equality so `getSnapshot` stays referentially stable. */
@@ -1136,8 +1015,6 @@ function snapshotsEqual(a: JoinModeSnapshot, b: JoinModeSnapshot): boolean {
     a.edited === b.edited &&
     a.draftError === b.draftError &&
     a.outcome === b.outcome &&
-    a.candidateCommit === b.candidateCommit &&
-    a.staleNote === b.staleNote &&
     sameTarget(a.arc, b.arc) &&
     sameStrings(a.conflicts, b.conflicts) &&
     sameBlockers(a.blockers, b.blockers)

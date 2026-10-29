@@ -51,6 +51,19 @@ describe("transportFace (Table T01)", () => {
     }
   });
 
+  it("offers Resume on a finished arc whose audit went stale — the re-audit", () => {
+    // A done arc is resumable at its audit and only there, so staleness is
+    // the one fact that gives it a face at all.
+    for (const boundSession of [null, "sess-1"]) {
+      expect(
+        transportFace({ arc: DONE, boundSession, hasDocument: true, auditStale: true }),
+      ).toBe("resume");
+      expect(
+        transportFace({ arc: DONE, boundSession, hasDocument: true, auditStale: false }),
+      ).toBe("none");
+    }
+  });
+
   it("offers Resume on a stopped arc, held or not", () => {
     // A stop keeps the binding, so the held case is the ordinary one — but an
     // arc whose card closed is still resumable, from another card.

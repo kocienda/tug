@@ -10,8 +10,8 @@
 //! changeset watch, the three idle-transition channels, and the wheel — are
 //! built here before it and handed in as one `SupervisorDeps`; their consumers
 //! are spawned after it. The process-wide `OnceLock`s startup fills are filled
-//! in this stage, each marked where it happens: `join_pilot::RUNNER` and the
-//! base-motion `BOARD` (inside `run_base_motion_engine`). The crate's other
+//! in this stage, each marked where it happens: the base-motion `BOARD`
+//! (inside `run_base_motion_engine`). The crate's other
 //! `OnceLock` statics initialise lazily on first use and belong to no startup
 //! stage.
 
@@ -491,11 +491,6 @@ pub(crate) async fn supervisor(
     // in-memory ledger — `client_sessions` is left untouched and real
     // clients connecting after startup send their own `spawn_session`
     // CONTROL frames.
-    // The join pilot reaches the supervisor through a process-global handle,
-    // registered once the supervisor is in its Arc ([P01]).
-    // Initialises `join_pilot::RUNNER` — owned by this stage.
-    supervisor.register_pilot_runner();
-
     match supervisor.rebind_from_ledger().await {
         Ok(count) if count > 0 => info!(count, "rebound ledger rows on startup"),
         Ok(_) => {}

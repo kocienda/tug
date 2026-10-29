@@ -1,12 +1,11 @@
 /**
- * changeset-join-store — the arc-join resolve overlay over the ladder's
- * CONTROL frames (Spec S12): resolving → per-file deltas → out of the way,
- * keyed by (workspace_key, arc).
+ * changeset-join-store — the overlay over the base fold's CONTROL frames and
+ * the join's own narration, keyed by (workspace_key, arc).
  *
- * The overlay holds the *run*, never its result. What the ladder built lands in
+ * The overlay holds the *run*, never its result. What the fold did lands in
  * git and comes back on the arc's feed entry, so what these cases pin is that
  * an `_ok` puts the overlay away rather than becoming a second, competing
- * account of the resolution — and that a run which stops talking always ends in
+ * account of it — and that a press which stops talking always ends in
  * a sentence rather than a spinner nothing will ever take down.
  */
 
@@ -32,182 +31,11 @@ const fakeConn = { onFrame: () => () => {}, sendControlFrame: () => {} } as neve
 
 const K = { project_dir: "/p", arc: "demo" };
 
-/** A Spec S02 delta: one ledger event for `K`'s run. */
-function delta(event: Record<string, unknown>, run = "100"): Record<string, unknown> {
-  return { action: "changeset_join_resolve_delta", ...K, run, event: { at_ms: 0, ...event } };
-}
-
-/** A scribe beat; `streaming` carries text and the last kept seq. */
-function scribeDelta(status: string, seq: number, text?: string): Record<string, unknown> {
-  return delta({ kind: "scribe", seq, path: "a.rs", status, ...(text !== undefined ? { text } : {}) });
-}
-
-/** A resolver beat. */
-function resolverDelta(status: string, seq: number): Record<string, unknown> {
-  return delta({ kind: "resolver", seq, turn: 0, status });
-}
-
 beforeEach(() => {
   _resetChangesetJoinStoreForTest();
   // The deadline is a module-level number a test may shorten, so every case
   // starts from the shipped one rather than from whatever the last one left.
   _setPressAcknowledgementMsForTest(PRESS_ACKNOWLEDGEMENT_MS);
-});
-
-describe("changeset join resolve overlay", () => {
-  test("deltas fold into the run's ledger, then ok puts the overlay away", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest(scribeDelta("started", 0));
-    expect(store.state("/p", "demo").phase).toBe("resolving");
-
-    _ingestJoinFrameForTest(scribeDelta("streaming", 0, "merged so far"));
-    // The kept event is held once; the beat replaces the stream and is not kept.
-    const resolving = store.state("/p", "demo");
-    expect(resolving.run).toBe("100");
-    expect(resolving.events.map((e) => e.kind)).toEqual(["scribe"]);
-    // The beat's own wall clock rides with it: a live band counts silence
-    // from the last thing the server said, beats included.
-    expect(resolving.stream.scribe).toEqual({ path: "a.rs", text: "merged so far", at_ms: 0 });
-
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [
-        { path: "a.rs", resolved_by: "ai", diff: "@@ -1 +1 @@\n-old\n+new\n", added: 1, removed: 1 },
-        // Counts are optional on the wire — git omits them for a binary path.
-        { path: "b.bin", resolved_by: "driver", diff: "Binary files differ\n" },
-      ],
-      unresolved: [],
-      candidate_commit: "abc123",
-      shape: "squash",
-    });
-    // The run is over, so the overlay is over. The candidate and every file's
-    // rung and diff came back in the same frame, and every one of them is
-    // ignored here on purpose: the server wrote them into git before it bumped
-    // the feed, and the row reads them from there. A copy kept here would be a
-    // second account of the same resolution, free to disagree with the first —
-    // which is what a reload used to expose, and what a lost frame used to
-    // destroy.
-    const done = store.state("/p", "demo");
-    expect(done.phase).toBe("idle");
-    expect(done.events).toEqual([]);
-    expect(done.error).toBeNull();
-  });
-
-  test("events append in seq order, and a seq already held is ignored", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest(delta({ kind: "probe", seq: 0, paths: ["a.rs"] }));
-    _ingestJoinFrameForTest(
-      delta({ kind: "rung", seq: 1, rung: "replay", outcome: "declined", said: "stopped" }),
-    );
-    // A frame heard twice draws once.
-    _ingestJoinFrameForTest(
-      delta({ kind: "rung", seq: 1, rung: "replay", outcome: "declined", said: "stopped" }),
-    );
-    expect(store.state("/p", "demo").events.map((e) => e.seq)).toEqual([0, 1]);
-  });
-
-  test("a new run drops what the cell held of the last one", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest(delta({ kind: "probe", seq: 0, paths: ["a.rs"] }, "100"));
-    _ingestJoinFrameForTest(scribeDelta("streaming", 0, "old text"));
-    _ingestJoinFrameForTest(delta({ kind: "probe", seq: 0, paths: ["b.rs"] }, "200"));
-    const st = store.state("/p", "demo");
-    expect(st.run).toBe("200");
-    expect(st.events).toHaveLength(1);
-    expect(st.events[0]).toMatchObject({ kind: "probe", paths: ["b.rs"] });
-    expect(st.stream).toEqual({});
-  });
-
-  test("a scribe stream keeps the last 8 lines of the file being written", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    const text = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
-    _ingestJoinFrameForTest(scribeDelta("streaming", 0, text));
-    const tail = store.state("/p", "demo").stream.scribe!.text.split("\n");
-    expect(tail).toHaveLength(8);
-    expect(tail[0]).toBe("line 5");
-    expect(store.state("/p", "demo").events).toEqual([]);
-  });
-
-  test("an ok that leaves files unresolved keeps the run's events", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest(delta({ kind: "probe", seq: 0, paths: ["a.rs"] }));
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [],
-      unresolved: ["a.rs"],
-    });
-    const st = store.state("/p", "demo");
-    expect(st.phase).toBe("error");
-    expect(st.events.map((e) => e.kind)).toEqual(["probe"]);
-  });
-
-  test("answering an escalation carries the request id that scopes it", () => {
-    // The request id is the whole safety of this send. A resolve that already
-    // expired, or a later one asking something else, must not be resolved by
-    // an answer written for a different question — so the answer names which
-    // one it belongs to and the server matches on that, not on the arc.
-    const sent: { action: string; body: Record<string, unknown> }[] = [];
-    const conn = {
-      onFrame: () => () => {},
-      sendControlFrame: (action: string, body: Record<string, unknown>) => {
-        sent.push({ action, body });
-      },
-    } as never;
-    const store = attachChangesetJoinStore(conn);
-    store.answerQuestion("/u/src/tugtool", "demo", "join-demo-7", "the arc");
-    expect(sent).toEqual([
-      {
-        action: "changeset_join_question_answer",
-        body: {
-          project_dir: "/u/src/tugtool",
-          arc: "demo",
-          request_id: "join-demo-7",
-          answer: "the arc",
-        },
-      },
-    ]);
-  });
-
-  test("ok with unresolved files names them, because the feed cannot", () => {
-    // The ladder's honest dead end. The arc's conflicts are still on the feed,
-    // but nothing on the entry says a run just tried them and stopped — so
-    // clearing the overlay here would erase the only record that re-running
-    // decides nothing new.
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [{ path: "a.rs", resolved_by: "driver" }],
-      unresolved: ["b.rs", "c.rs"],
-      candidate_commit: null,
-      shape: "squash",
-    });
-    const st = store.state("/p", "demo");
-    expect(st.phase).toBe("error");
-    expect(st.error).toBe("Still conflicting — resolve by hand: b.rs, c.rs");
-  });
-
-  test("err carries the detail", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_err",
-      ...K,
-      detail: "Arc not found",
-    });
-    const st = store.state("/p", "demo");
-    expect(st.phase).toBe("error");
-    expect(st.error).toBe("Arc not found");
-  });
-
-  test("clear resets to idle; unrelated arcs stay idle", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest(scribeDelta("started", 0));
-    expect(store.state("/other", "x").phase).toBe("idle");
-    store.clear("/p", "demo");
-    expect(store.state("/p", "demo").phase).toBe("idle");
-  });
 });
 
 /**
@@ -227,49 +55,12 @@ function liveLifecycle(): ConnectionLifecycle {
   return live;
 }
 
-describe("Resolve again (Spec S05)", () => {
-  const settle = (ms: number): Promise<void> =>
-    new Promise((done) => setTimeout(done, ms));
-
-  test("sends its own verb with project_dir and arc, from a fresh resolving cell", () => {
-    const sent: { action: string; body: Record<string, unknown> }[] = [];
-    const conn = {
-      onFrame: () => () => {},
-      sendControlFrame: (action: string, body: Record<string, unknown>) => {
-        sent.push({ action, body });
-      },
-    } as never;
-    const store = attachChangesetJoinStore(conn);
-    _ingestJoinFrameForTest(scribeDelta("started", 0));
-    store.resolveAgain("/p", "demo");
-    expect(sent).toEqual([
-      { action: "changeset_join_resolve_again", body: { project_dir: "/p", arc: "demo" } },
-    ]);
-    const st = store.state("/p", "demo");
-    expect(st.phase).toBe("resolving");
-    expect(st.act).toBe("resolve");
-    expect(st.events).toEqual([]);
-  });
-
-  test("arms the acknowledgement deadline as a first Resolve does", async () => {
-    _setPressAcknowledgementMsForTest(20);
-    const store = attachChangesetJoinStore(fakeConn);
-    store.resolveAgain("/p", "demo");
-
-    await settle(40);
-
-    const state = store.state("/p", "demo");
-    expect(state.phase).toBe("error");
-    expect(state.error).toContain("got no answer");
-  });
-});
-
 describe("a run whose answer never arrives", () => {
-  test("the wire dropping mid-ladder fails the run instead of latching it", () => {
+  test("the wire dropping mid-fold fails the run instead of latching it", () => {
     try {
       const lifecycle = liveLifecycle();
       const store = attachChangesetJoinStore(fakeConn);
-      store.resolve("/p", "demo");
+      store.resolveBase("/p", "demo");
       expect(store.state("/p", "demo").phase).toBe("resolving");
 
       // The server finished and broadcast its result to a socket that was
@@ -290,17 +81,11 @@ describe("a run whose answer never arrives", () => {
     try {
       const lifecycle = liveLifecycle();
       const store = attachChangesetJoinStore(fakeConn);
-      _ingestJoinFrameForTest({
-        action: "changeset_join_resolve_ok",
-        ...K,
-        resolved: [{ path: "a.rs", resolved_by: "driver", diff: "@@\n" }],
-        unresolved: [],
-        candidate_commit: "abc123",
-        shape: "squash",
-      });
+      store.resolveBase("/p", "demo");
+      _ingestJoinFrameForTest(okFrame);
       lifecycle.notifyConnectionDidClose();
 
-      // Idle, not error: the run ended, and the resolution it built is in git
+      // Idle, not error: the run ended, and the commit it made is in git
       // where a dropped socket cannot reach it.
       expect(store.state("/p", "demo").phase).toBe("idle");
     } finally {
@@ -565,39 +350,6 @@ describe("an arc whose join is running is not on offer ([P05])", () => {
 });
 
 describe("the client does not guess at liveness ([P03])", () => {
-  const settle = (ms: number): Promise<void> =>
-    new Promise((done) => setTimeout(done, ms));
-
-  test("a run that goes quiet stays a run", async () => {
-    // There was a twelve-second silence clock here, and it was deleted rather
-    // than tuned. Its premise was per-chunk streaming — true of the scribe rung
-    // and false of every other: the algorithmic rungs are git work, and the
-    // resolver reports four discrete beats with minutes of legitimate quiet
-    // between them. So it measured nothing and declared healthy work dead, and
-    // the error face it produced re-mounted Resolve, which is how a second run
-    // came to `reset --hard` the workshop the first was editing.
-    //
-    // Liveness for a run is the server's to bound: a per-turn silence bound, a
-    // tier-0 timeout, an overall deadline, each landing in the durable stuck
-    // fact with a sentence naming which one fired.
-    const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
-    for (const [seq, status] of ["started", "asked", "answered"].entries()) {
-      _ingestJoinFrameForTest(resolverDelta(status, seq));
-      await settle(30);
-      const live = store.state("/p", "demo");
-      expect(live.phase).toBe("resolving");
-      expect(live.error).toBeNull();
-    }
-
-    // And the same for a scribe that has said one thing and gone quiet: it was
-    // the one rung the old clock was right about, and it is still not this
-    // client's to judge.
-    _ingestJoinFrameForTest(scribeDelta("streaming", 2, "half a merge"));
-    await settle(60);
-    expect(store.state("/p", "demo").phase).toBe("resolving");
-  });
-
   test("both banished sentences are gone, and cannot come back", async () => {
     // A drift assertion over the module's own source. The two sentences were
     // word salad in different ways — one guessed at liveness the client cannot
@@ -609,42 +361,6 @@ describe("the client does not guess at liveness ([P03])", () => {
     expect(source).not.toContain("resolution ladder in");
     expect(source).not.toContain("if it finished");
   });
-
-  test("the resolver's beats are one run's events, not one entry per file", () => {
-    // The sha used to ride in `path`, which put a commit hash in the face's
-    // filename column and made each status of one run key as a separate file.
-    // A beat now names no path at all: it is an event in the run's ledger.
-    const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
-    for (const [seq, status] of ["started", "asked"].entries()) {
-      _ingestJoinFrameForTest(resolverDelta(status, seq));
-    }
-    const events = store.state("/p", "demo").events;
-    expect(events.map((e) => e.kind)).toEqual(["resolver", "resolver"]);
-    expect(events[1]).toMatchObject({ status: "asked" });
-    expect(events.some((e) => "path" in e)).toBe(false);
-  });
-});
-
-describe("a press that changed nothing says so ([P04], [P06])", () => {
-  test("a refused answer reaches the face instead of vanishing", () => {
-    // The server has always been able to refuse an answer — the resolver may
-    // have expired, or a later run may be asking something else — and nothing
-    // on this side listened for the refusal. The press looked accepted and the
-    // wizard sat there, which is the silence [L31] exists to forbid.
-    const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
-    _ingestJoinFrameForTest({
-      action: "changeset_join_question_answer_err",
-      ...K,
-      detail: "nobody is waiting on that question any more",
-    });
-    const live = store.state("/p", "demo");
-    expect(live.error).toBe("nobody is waiting on that question any more");
-    // And the run it belongs to is untouched: an expired question does not
-    // mean the resolver died.
-    expect(live.phase).toBe("resolving");
-  });
 });
 
 describe("an admission refusal does not kill the run it was refused for ([P01])", () => {
@@ -654,28 +370,20 @@ describe("an admission refusal does not kill the run it was refused for ([P01])"
     // run as dead — the false error face, rebuilt out of the very mechanism
     // that exists to prevent the damage it used to invite.
     const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
-    _ingestJoinFrameForTest(resolverDelta("started", 0));
+    store.resolveBase("/p", "demo");
 
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_err",
       ...K,
-      detail: "a resolve is already running for this arc",
+      detail: "a resolve-base is already running for this arc",
       admission: true,
     });
     const during = store.state("/p", "demo");
     expect(during.phase).toBe("resolving");
-    expect(during.error).toBe("a resolve is already running for this arc");
+    expect(during.error).toBe("a resolve-base is already running for this arc");
 
     // And the first run's own answer still lands, over the top of the notice.
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [{ path: "a.rs", resolved_by: "resolver", diff: "@@\n" }],
-      unresolved: [],
-      candidate_commit: "cafe1234",
-      shape: "squash",
-    });
+    _ingestJoinFrameForTest(okFrame);
     const after = store.state("/p", "demo");
     expect(after.phase).toBe("idle");
     expect(after.error).toBeNull();
@@ -810,47 +518,18 @@ describe("the feed settles the overlay ([P02], [P03])", () => {
     expect(state.error).toContain("got no answer");
   });
 
-  test("the ladder's run seen on the feed and then gone settles the overlay", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
-
-    store.observeFeed(feed({ phase: "conflicted", run: "resolve" }));
-    expect(store.state("/p", "demo").phase).toBe("resolving");
-
-    store.observeFeed(feed({ phase: "resolved" }));
-    expect(store.state("/p", "demo").phase).toBe("idle");
-  });
-
-  test("a resolve not yet seen on the feed is not a resolve that ended", () => {
-    // The mirror, and the reason the seen half is not optional: the snapshot in
-    // hand when the press goes out predates the server's hold, so `run` absent
-    // on it means *not yet* rather than *finished*. Reading it the other way
-    // would put the overlay away before the run began.
-    const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
-
-    store.observeFeed(feed({ phase: "conflicted" }));
-
-    expect(store.state("/p", "demo").phase).toBe("resolving");
-  });
-
-  test("a stuck run is the server's own account, and the overlay yields to it", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
-
-    store.observeFeed(
-      feed({ phase: "conflicted", stuck: "the resolver ran out of turns" }),
-    );
-
-    expect(store.state("/p", "demo").phase).toBe("idle");
-  });
-
   test("a frame for the cell acknowledges the press on its own", async () => {
     _setPressAcknowledgementMsForTest(20);
     const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
+    store.resolveBase("/p", "demo");
 
-    _ingestJoinFrameForTest(scribeDelta("started", 0));
+    // An admission refusal names the cell, so the press was heard.
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_err",
+      ...K,
+      detail: "a join is already running for this arc",
+      admission: true,
+    });
 
     await settle(40);
     expect(store.state("/p", "demo").phase).toBe("resolving");
@@ -867,25 +546,6 @@ describe("the feed settles the overlay ([P02], [P03])", () => {
     store.observeFeed(feed({ phase: "blocked", blockers: [baseDirt] }));
 
     expect(store.state("/p", "demo").phase).toBe("idle");
-  });
-
-  test("a frame is not the feed having shown the run", async () => {
-    // A delta says the press was heard; it says nothing about whether the
-    // server has published its hold. A recompute already in flight when the
-    // press went out predates that hold, so `run` is absent on it — and read
-    // as the seen half, it would settle the overlay over a ladder with
-    // minutes left to run.
-    _setPressAcknowledgementMsForTest(20);
-    const store = attachChangesetJoinStore(fakeConn);
-    store.resolve("/p", "demo");
-
-    _ingestJoinFrameForTest(scribeDelta("started", 0));
-    store.observeFeed(feed({ phase: "conflicted" }));
-
-    expect(store.state("/p", "demo").phase).toBe("resolving");
-    // …and the frame still stood the deadline down, which is the other half.
-    await settle(40);
-    expect(store.state("/p", "demo").phase).toBe("resolving");
   });
 
   test("a run that ended names no act, whichever way it ended", async () => {

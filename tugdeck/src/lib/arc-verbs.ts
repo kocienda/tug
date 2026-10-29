@@ -230,22 +230,20 @@ function joinRefusal(input: ArcVerbInput): string | null {
     runLive: joinRunLive(state),
     joinPhase: pending ? "pending" : "idle",
     outcome,
-    candidateCommit:
-      typeof state?.candidate === "string" && state.candidate !== ""
-        ? state.candidate
-        : null,
     message: input.draft,
   });
   if (gate.ok) return null;
-  return joinDisabledReason(gate.reason, outcome, state?.stale_note ?? null);
+  return joinDisabledReason(gate.reason, outcome);
 }
 
 /** The first slot ([B04]). */
 function nextVerb(input: ArcVerbInput): ArcVerbSet["next"] {
+  const auditStale = input.stage === "audit-stale";
   const face = transportFace({
     arc: input.run,
     boundSession: input.boundSession,
     hasDocument: hasAnyDocument(input.documents),
+    auditStale,
   });
   // A live wheel outranks the offer, as it does in the join register: the
   // arc's next act while it runs is ending the run, whatever its stage word
@@ -270,7 +268,12 @@ function nextVerb(input: ArcVerbInput): ArcVerbSet["next"] {
     projectDir: input.projectDir,
     arc: input.arc,
   });
-  const word = TRANSPORT_WORD[face];
+  // A Resume on a done arc is the re-audit: the same press and the same
+  // door, named for what it does.
+  const word =
+    face === "resume" && auditStale && input.run?.done === true
+      ? "Re-audit"
+      : TRANSPORT_WORD[face];
   return {
     kind: face,
     word,

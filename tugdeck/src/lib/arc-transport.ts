@@ -47,13 +47,20 @@ export interface TransportFaceInput {
   boundSession: string | null;
   /** Whether any of the arc's three documents exists. */
   hasDocument: boolean;
+  /**
+   * Whether the arc's audit has gone stale — the server's `audit-stale`
+   * stage. A done arc is resumable at its audit and only then, so this is the
+   * one fact that gives a done arc a transport face.
+   */
+  auditStale?: boolean;
 }
 
 /**
  * Which act the arc is asking for (Table T01).
  *
  * The ladder is short because the questions nest: a *done* arc is finished
- * whatever else is true; an arc with a *stop* on it wants Resume, whether or
+ * unless its audit has gone stale, when it wants Resume — the re-audit, which
+ * reopens it at the audit stage; an arc with a *stop* on it wants Resume, whether or
  * not a card still holds it (a stop keeps the binding); an arc that is running
  * wants Stop; and an arc with no run at all wants Start, if there is anything
  * to start from.
@@ -66,7 +73,7 @@ export interface TransportFaceInput {
 export function transportFace(input: TransportFaceInput): ArcTransportFace {
   const { arc } = input;
   if (arc === null) return input.hasDocument ? "start" : "none";
-  if (arc.done === true) return "none";
+  if (arc.done === true) return input.auditStale === true ? "resume" : "none";
   if (arc.stopped !== undefined) return "resume";
   return "stop";
 }

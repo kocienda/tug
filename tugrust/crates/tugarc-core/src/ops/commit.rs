@@ -16,7 +16,10 @@ use super::identity::{
 use super::listing::{dirty_tracked_paths, has_uncommitted, untracked_paths};
 use super::show::sessions_db_file;
 use crate::error::ArcError;
-use crate::log::{ArcRoundMeta, MarkStage, append_arc_log, append_mark_declaration, is_yield_note};
+use crate::log::{
+    ArcRoundMeta, AuditedPair, MarkStage, append_arc_log, append_mark_declaration, audited_note,
+    is_yield_note,
+};
 use crate::surfaces::{claiming_surface, expand};
 
 /// Outcome of [`commit_in`].
@@ -98,7 +101,29 @@ pub fn mark_in(
             name: name.to_string(),
         });
     }
-    append_mark_declaration(paths, repo_root, name, stage, note.unwrap_or_default())
+    let note = note.unwrap_or_default();
+    // An audit is relative to the tree it read: the arc head and the base tip
+    // it stood on when it marked. Both go into the mark, because readiness is
+    // derived from whether they still stand. They are read live rather than
+    // taken from the last `verified` line: a replay that found the arc
+    // already current re-runs no verify and writes no line, and an older
+    // line in the generation would stamp the audit with a tree it never saw.
+    // A tip that cannot be read writes the mark pair-less, which reads stale.
+    let note = match stage {
+        MarkStage::Audited => {
+            let branch = branch_name(name);
+            let head = git_stdout(repo_root, &["rev-parse", &branch]).ok();
+            let base = arc_base(repo_root, name)
+                .ok()
+                .and_then(|base| git_stdout(repo_root, &["rev-parse", &base]).ok());
+            match (head, base) {
+                (Some(head), Some(base)) => audited_note(&AuditedPair { head, base }, note),
+                _ => note.to_owned(),
+            }
+        }
+        MarkStage::Built => note.to_owned(),
+    };
+    append_mark_declaration(paths, repo_root, name, stage, &note)
         .map_err(|e| ArcError::arc_log(paths, repo_root, e))?;
     let (open_steps, total_steps) = open_ledger_steps(repo_root, name);
     Ok(MarkOutcome {

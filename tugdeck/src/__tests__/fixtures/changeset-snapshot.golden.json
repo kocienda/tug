@@ -49,7 +49,7 @@
         }
       ],
       "join": {
-        "phase": "resolved",
+        "phase": "conflicted",
         "conflicts": [
           "tugrust/crates/tugtool/src/commands/arc.rs"
         ],
@@ -64,18 +64,7 @@
             ],
             "total": 1
           }
-        ],
-        "candidate": "9f1c2d3e4b5a60718293a4b5c6d7e8f901234567",
-        "resolved": [
-          {
-            "path": "tugrust/crates/tugtool/src/commands/arc.rs",
-            "resolved_by": "driver",
-            "diff": "@@ -1,3 +1,3 @@\n-old\n+new\n",
-            "added": 1,
-            "removed": 1
-          }
-        ],
-        "reviewed": false
+        ]
       }
     }
   ],

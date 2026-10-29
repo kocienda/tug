@@ -45,7 +45,7 @@ import {
   ArcFoldRow,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
 import { arcReviewPaints } from "@/lib/arc-review";
-import { documentDisplayPath } from "@/lib/resolve-ledger";
+import { documentDisplayPath } from "@/lib/arc-join-fold";
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";

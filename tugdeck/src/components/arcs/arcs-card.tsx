@@ -750,7 +750,6 @@ function useArcRowVerbs(
             arc: name,
             boundSession: bound,
             message: entry.draft.message,
-            candidate: entry.join?.candidate,
           });
         }
         return;

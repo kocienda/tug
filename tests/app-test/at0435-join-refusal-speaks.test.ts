@@ -84,7 +84,7 @@ const landing = (arc: string): string =>
 // Card-scoped, not row-scoped: the register that reports a join in progress is
 // the composer's live-edge one, not a copy inside the lane row. One arc is
 // bound here, so the card's register is this arc's.
-const CANDIDATE = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
+const READY = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
 const landsAs = (arc: string): string =>
   `${row(arc)} [data-slot="session-changes-arc-lands-as"]`;
 
@@ -123,20 +123,22 @@ afterAll(() => {
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
-async function raiseShade(app: App): Promise<void> {
-  await app.body("A").nativeClickAtElement(EDITOR);
-  await app.nativeType("/commit");
-  await settle();
-  await app.nativeKey("Escape");
-  await settle();
-  await app.nativeKey("Return", ["cmd"]);
+/**
+ * The bound arc's offer reveals the shade by itself, in join mode: the binding
+ * opens the join, and nothing here types a command to reach it.
+ */
+async function awaitReveal(app: App): Promise<void> {
   await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
-    { timeoutMs: 8000 },
+    { timeoutMs: 20000 },
   );
   await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(LANE)}) !== null`,
     { timeoutMs: 40000 },
+  );
+  await app.body("A").waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
+    { timeoutMs: 20000 },
   );
 }
 
@@ -183,7 +185,6 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
         silenceJoinPrompt(projectDir(), ARC);
 
-        await raiseShade(app);
         // A broadcast reaches every page, and the lane's binding store is the
         // card body's own — so the frame is handed to the body as well as the
         // shell.
@@ -192,6 +193,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         await app.body("A").evalJS<null>(
           `(window.__tug.dispatchControlAction("bind_arc_ok", ${JSON.stringify(bindOk)}), null)`,
         );
+        await awaitReveal(app);
         // A landable arc publishes its OFFER — the `lands as` line — so that
         // is what says the fixture is ready. The report section is NOT a
         // readiness signal: it always renders, opening on the arc's fit
@@ -213,27 +215,10 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           "a clean arc's report opens on its fit, and its ledger speaks only with evidence",
         ).toBe(true);
 
-        // `/commit` raised the shade in COMMIT mode, and one composer holds one
-        // landing — so commit has to go before the join can have the document.
-        // Escape is that exit, and it is the whole gesture: a bound arc with
-        // work ready to join enters join mode BY ITSELF once the composer is
-        // free. Nothing types `/arc-join`, which would only open by name a
-        // mode the binding opens on its own.
-        await app.body("A").nativeClickAtElement(EDITOR);
-        await settle();
-        await app.nativeKey("Escape");
+        // Wait for the offer before pressing: a press before it measures the
+        // outcome refusal rather than the empty-message one under test.
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
-          { timeoutMs: 60000 },
-        );
-
-        // Wait for the candidate before pressing. Entering join mode resolved
-        // the arc ([P03]), and the CANDIDATE standing is that resolution
-        // anchoring — a press before it measures the outcome refusal rather
-        // than the empty-message one under test. The resolver's account is not
-        // the signal: a clean join resolves nothing and files no account.
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CANDIDATE)}) !== null`,
+          `document.querySelector(${JSON.stringify(READY)}) !== null`,
           { timeoutMs: 180000 },
         );
 

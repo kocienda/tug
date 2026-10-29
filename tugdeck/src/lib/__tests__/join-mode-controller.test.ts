@@ -19,7 +19,6 @@ import { beforeEach, afterEach, describe, expect, it } from "bun:test";
 
 import {
   JoinModeController,
-  autoResolveHeld,
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
@@ -49,21 +48,10 @@ import type { CommitModeController } from "@/lib/commit-mode-controller";
 import type { ArcChangesetEntry, ArcJoinStateWire } from "@/lib/changeset-types";
 
 /**
- * An arc whose merge is clean and whose candidate stands — the state a join
- * may actually proceed from.
- *
- * The candidate is not decoration. Every join rides one ([P03]): entering join
- * mode on a clean arc reconciles it, and the gate reads the outcome that
- * produces. A bare `{ phase: "previewed" }` is the window before the candidate
- * anchors — see {@link UNRECONCILED_CLEAN}.
+ * An arc whose merge is clean — the state a join may actually proceed from.
+ * The audit owns every conflict, so a clean merge is the whole of it.
  */
-const CLEAN_JOIN: ArcJoinStateWire = {
-  phase: "previewed",
-  candidate: "cafe1234",
-};
-
-/** Clean, and nothing reconciled yet — the auto-resolve window. */
-const UNRECONCILED_CLEAN: ArcJoinStateWire = { phase: "previewed" };
+const CLEAN_JOIN: ArcJoinStateWire = { phase: "previewed" };
 
 describe("joinDisabledReason", () => {
   // The regression this pins: a real `base-dirt` blocker derives `blocked`,
@@ -95,21 +83,9 @@ describe("joinDisabledReason", () => {
 
   it("distinguishes conflicted and empty", () => {
     expect(joinDisabledReason("outcome", "conflicted")).toBe(
-      "Resolve the conflicts first",
+      "The base moved past this arc's audit — it re-audits before it joins",
     );
     expect(joinDisabledReason("outcome", "empty")).toBe("Nothing to join");
-  });
-
-  it("quotes the server's stale sentence, which names which side moved", () => {
-    // The note is the refusal: only the server knows whether the base or the
-    // arc moved, and "resolve again" without that is advice without a cause.
-    expect(
-      joinDisabledReason("outcome", "stale", "main moved since this was resolved — resolve again"),
-    ).toBe("main moved since this was resolved — resolve again");
-    // A stale state whose note did not survive still refuses in words.
-    expect(joinDisabledReason("outcome", "stale")).toBe(
-      "The resolution is out of date — resolve again",
-    );
   });
 });
 
@@ -121,7 +97,6 @@ describe("evaluateJoinGate", () => {
     runLive: false,
     joinPhase: "idle" as const,
     outcome: "clean" as const,
-    candidateCommit: null,
     message: "land it",
   };
 
@@ -153,18 +128,18 @@ describe("evaluateJoinGate", () => {
     ).toEqual({ ok: false, reason: "holder" });
   });
 
-  it("refuses while a run holds the arc, though its candidate already stands", () => {
-    // The 2026-10-28 press: the ladder anchored a candidate within a second,
-    // the run went on for minutes, and the button lit over a press the
-    // server could only refuse.
-    const join = { phase: "resolved" as const, candidate: "cafe1234", run: "resolve" };
+  it("refuses while a run holds the arc, though its merge is clean", () => {
+    // A fold of the base work can run for seconds over a clean merge, and a
+    // button lit over it would offer a press the server could only refuse.
+    const join = { phase: "previewed" as const, run: "resolve-base" };
     expect(joinRunLive(join)).toBe(true);
     const outcome = deriveJoinOutcome(join);
     expect(outcome).toBe("clean");
-    expect(
-      evaluateJoinGate({ ...base, runLive: true, outcome, candidateCommit: "cafe1234" }),
-    ).toEqual({ ok: false, reason: "running" });
-    expect(joinDisabledReason("running", outcome)).toBe("Wait for the resolve to finish");
+    expect(evaluateJoinGate({ ...base, runLive: true, outcome })).toEqual({
+      ok: false,
+      reason: "running",
+    });
+    expect(joinDisabledReason("running", outcome)).toBe("Wait for the run on this arc to finish");
   });
 
   it("puts the run below the holder and above the round trip", () => {
@@ -216,44 +191,22 @@ describe("evaluateJoinGate", () => {
     });
   });
 
-  it("lands a resolved candidate even though the history conflicted", () => {
-    // Driven through the deriver rather than by handing the gate an outcome
-    // and a candidate separately: the candidate's authority lives in
-    // `deriveJoinOutcome` alone, so a pair the deriver cannot produce is not a
-    // state worth asserting about.
-    const outcome = deriveJoinOutcome({
-      phase: "resolved",
-      conflicts: ["a.rs"],
-      candidate: "cafe1234",
-    });
-    expect(outcome).toBe("clean");
-    expect(evaluateJoinGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
-      ok: true,
-    });
+  it("refuses a conflicted merge — the audit resolves it, not the press", () => {
+    const outcome = deriveJoinOutcome({ phase: "conflicted", conflicts: ["a.rs"] });
+    expect(outcome).toBe("conflicted");
+    expect(evaluateJoinGate({ ...base, outcome })).toEqual({ ok: false, reason: "outcome" });
   });
 
-  it("asks nothing about a build — a standing candidate is the whole gate", () => {
-    // What stood here refused an unverified candidate and let a red through to
-    // a confirm. Both are gone: the run's ending verified the tree that lands,
-    // so a reconcile-clean arc joins on the press.
-    expect(
-      evaluateJoinGate({ ...base, outcome: "clean", candidateCommit: "cafe1234" }),
-    ).toEqual({ ok: true });
-  });
-
-  it("refuses a candidate the base still blocks — resolving is not committing", () => {
-    // The ladder resolves conflicts. It does not commit the base's outstanding
-    // changes, so a candidate must not clear a blocker that names them: ranked
-    // the other way the badge read `clean` over its own "commit outstanding
-    // changes" line, and the gate believed the badge.
+  it("refuses an arc the base still blocks, conflicts or not", () => {
+    // A blocker naming the base's outstanding changes outranks the merge: a
+    // clean merge does not commit them.
     const outcome = deriveJoinOutcome({
       phase: "blocked",
       conflicts: ["a.rs"],
       blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "commit outstanding changes", paths: ["x.ts"] }],
-      candidate: "cafe1234",
     });
     expect(outcome).toBe("blocked");
-    expect(evaluateJoinGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
+    expect(evaluateJoinGate({ ...base, outcome })).toEqual({
       ok: false,
       reason: "outcome",
     });
@@ -302,29 +255,8 @@ describe("deriveJoinOutcome", () => {
     ).toBe("empty");
   });
 
-  it("reads conflicting paths as conflicted, and a candidate as landable", () => {
+  it("reads conflicting paths as conflicted", () => {
     expect(deriveJoinOutcome({ ...base, conflicts: ["a.ts"] })).toBe("conflicted");
-    expect(deriveJoinOutcome({ ...base, conflicts: ["a.ts"], candidate: "cafe1234" })).toBe(
-      "clean",
-    );
-  });
-
-  it("refuses a merge that is clean under a candidate the server dropped", () => {
-    // The trap: the base moved, the server invalidated the candidate, and the
-    // merge underneath happens to be clean. Landing it would land an unread
-    // machine merge under a review that answered a different one.
-    expect(
-      deriveJoinOutcome({
-        ...base,
-        stale_note: "main moved since this was resolved — resolve again",
-      }),
-    ).toBe("stale");
-  });
-
-  it("ranks a live candidate over a stale note, so a re-resolve lands", () => {
-    expect(
-      deriveJoinOutcome({ ...base, candidate: "cafe1234", stale_note: "leftover" }),
-    ).toBe("clean");
   });
 });
 
@@ -490,8 +422,7 @@ beforeEach(() => {
   _resetChangesetJoinStoreForTest();
   attachChangesetVerbStore(fakeConnection());
   attachChangesetDraftStore(fakeConnection());
-  // Attached like the other two because the controller now speaks to it on
-  // entry ([P03]) — a clean arc resolves itself so the join rides a candidate.
+  // Attached like the other two because the register reads its land beats.
   attachChangesetJoinStore(fakeConnection());
 });
 
@@ -501,32 +432,6 @@ afterEach(() => {
   _resetChangesetJoinStoreForTest();
 });
 
-describe("autoResolveHeld", () => {
-  it("names the record that holds the send, and nothing when none does", () => {
-    expect(autoResolveHeld(null)).toBeNull();
-    expect(autoResolveHeld({ phase: "previewed" })).toBeNull();
-    expect(autoResolveHeld({ phase: "previewed", stuck: "" })).toBeNull();
-    expect(autoResolveHeld({ phase: "previewed", stuck: "the resolver exited" })).toBe("stuck");
-    const ledger = (outcome: "candidate" | "unresolved" | "stuck" | "error" | "superseded") => ({
-      run: "1",
-      started_ms: 0,
-      ended_ms: 1,
-      events: [{ seq: 0, at_ms: 1, kind: "ended" as const, outcome }],
-    });
-    expect(autoResolveHeld({ phase: "previewed", ledger: ledger("stuck") })).toBe("last run ended stuck");
-    expect(autoResolveHeld({ phase: "previewed", ledger: ledger("error") })).toBe("last run ended error");
-    // A run that anchored a candidate holds nothing — a dropped candidate is a
-    // stale note, which outranks `clean` on its own.
-    expect(autoResolveHeld({ phase: "previewed", ledger: ledger("candidate") })).toBeNull();
-    // A ledger still running has no verdict yet; the live-run arm holds it.
-    expect(
-      autoResolveHeld({
-        phase: "previewed",
-        ledger: { run: "1", started_ms: 0, events: [{ seq: 0, at_ms: 0, kind: "probe", paths: [] }] },
-      }),
-    ).toBeNull();
-  });
-});
 
 describe("JoinModeController", () => {
   function build(canInterrupt = false) {
@@ -600,80 +505,6 @@ describe("JoinModeController", () => {
     controller.dispose();
   });
 
-  it("enter resolves a clean arc, so the join rides a candidate", () => {
-    // The one thing entry *does* ask for ([P03]). A clean arc used to join on
-    // the strength of git finding no overlapping text, which is not the same
-    // claim as the result building; the resolve is what anchors a candidate for
-    // the checks to judge.
-    const { controller, changesController } = build();
-    changesController._setJoin(UNRECONCILED_CLEAN);
-    controller.enter(TARGET);
-    const resolves = sent.filter((s) => s.action === "changeset_join_resolve");
-    expect(resolves).toHaveLength(1);
-    expect(resolves[0]?.body).toMatchObject({
-      project_dir: WORKSPACE_KEY,
-      arc: "join-lane",
-    });
-    controller.dispose();
-  });
-
-  it("leaves an arc that already has a candidate, a live run, or conflicts", () => {
-    const { controller, changesController } = build();
-
-    // Already judged, or already being judged: re-resolving would throw away a
-    // verdict and start the whole ladder again.
-    changesController._setJoin({ phase: "previewed", candidate: "cafe1234" });
-    controller.enter(TARGET);
-    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
-    controller.exit();
-
-    changesController._setJoin({ phase: "previewed", run: "resolve" });
-    controller.enter(TARGET);
-    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
-    controller.exit();
-
-    // A conflicted arc keeps its Resolve control: the press is the user's
-    // acknowledgement that an agent is about to reconcile their divergence.
-    changesController._setJoin({ phase: "previewed", conflicts: ["a.ts"] });
-    controller.enter(TARGET);
-    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
-    controller.dispose();
-  });
-
-  it("holds the entry resolve while a refusal stands or the last run anchored nothing", () => {
-    // A glance at the shade is not consent to another ladder: the deck once
-    // re-sent a four-minute resolve on every entry into an arc whose last
-    // candidate had been withdrawn. The stuck line and a ledger ending with
-    // no candidate are the two records that say the machine already tried.
-    const { controller, changesController } = build();
-
-    changesController._setJoin({ ...UNRECONCILED_CLEAN, stuck: "the resolver's report does not account for a.rs" });
-    controller.enter(TARGET);
-    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
-    controller.exit();
-
-    changesController._setJoin({
-      ...UNRECONCILED_CLEAN,
-      ledger: {
-        run: "1",
-        started_ms: 0,
-        ended_ms: 5,
-        events: [
-          { seq: 0, at_ms: 0, kind: "probe", paths: [] },
-          { seq: 1, at_ms: 5, kind: "ended", outcome: "unresolved" },
-        ],
-      },
-    });
-    controller.enter(TARGET);
-    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
-    controller.exit();
-
-    // The explicit press is the one gesture that re-runs over a refusal.
-    getChangesetJoinStore()?.resolve(WORKSPACE_KEY, "join-lane");
-    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(1);
-    controller.dispose();
-  });
-
   it("aim costs nothing either — opening a row is not a question", () => {
     const { controller } = build();
     controller.aim(TARGET);
@@ -698,34 +529,13 @@ describe("JoinModeController", () => {
 
     changesController._setJoin({ phase: "conflicted", conflicts: ["a.rs"] });
     expect(controller.getSnapshot().outcome).toBe("conflicted");
-    expect(controller.getSnapshot().landBlockedReason).toBe("Resolve the conflicts first");
+    expect(controller.getSnapshot().landBlockedReason).toBe(
+      "The base moved past this arc's audit — it re-audits before it joins",
+    );
 
-    changesController._setJoin({
-      phase: "resolved",
-      candidate: "cafe1234",
-      resolved: [{ path: "a.rs", resolved_by: "driver" }],
-    });
+    changesController._setJoin({ phase: "previewed" });
     expect(controller.getSnapshot().outcome).toBe("clean");
     expect(controller.getSnapshot().canLandIgnoringMessage).toBe(true);
-    controller.dispose();
-  });
-
-  it("carries the server's stale sentence into the composer's refusal", () => {
-    const { controller, changesController } = build();
-    controller.enter(TARGET);
-    changesController._setJoin({
-      phase: "previewed",
-      stale_note: "main moved since this was resolved — resolve again",
-    });
-    expect(controller.getSnapshot().outcome).toBe("stale");
-    expect(controller.getSnapshot().landBlockedReason).toBe(
-      "main moved since this was resolved — resolve again",
-    );
-    const outcome = controller.land("land it");
-    expect(outcome).toEqual({
-      kind: "refused",
-      sentence: "main moved since this was resolved — resolve again",
-    });
     controller.dispose();
   });
 

@@ -4705,30 +4705,11 @@ export function SessionCardBody({
   const arcJoinActions = useMemo<ArcJoinActions>(
     () => ({
       aim: (entry) => joinModeController.aim(joinTargetFromEntry(entry)),
-      // The escalation's answer ([P06]). Addressed by `request_id` rather than
-      // by arc, because the resolve that raised it may already have expired
-      // and a later one may be asking something else — an answer must never
-      // resolve a question it was not written for.
-      answerQuestion: (entry, requestId, answer) =>
-        getChangesetJoinStore()?.answerQuestion(
-          changesController.workspaceKey,
-          entry.display_name,
-          requestId,
-          answer,
-        ),
       // Clear the base-side work refusing this arc's join. It clears the
       // block and stops — landing stays the ⬆ — which is why the control it
       // rides reads `Resolve` rather than `Resolve and join`.
       resolveBase: (entry) =>
         getChangesetJoinStore()?.resolveBase(
-          changesController.workspaceKey,
-          entry.display_name,
-        ),
-      // Run the ladder again over a ledger whose candidate stopped applying.
-      // The pilot has already tried this head pair and will not try it again
-      // unprompted, so this is the one door back in.
-      resolveAgain: (entry) =>
-        getChangesetJoinStore()?.resolveAgain(
           changesController.workspaceKey,
           entry.display_name,
         ),

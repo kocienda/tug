@@ -1,33 +1,18 @@
+
 /**
  * The evidence face as a table: one feed state in, one face out.
  *
- * The face used to also yield the standing readiness line and the ready
- * boolean; both left with the standing line itself ([D142]). The sentence is
- * the register's — `arc-join-register.test.ts` walks that table, state by
- * state — and a refusal rides the control that refuses, which
- * `REFUSAL_REACHABILITY` below pins to the composer or to a named wait. What
- * this file still owns is the pair the report section dispatches on: the
- * outcome the tones follow, and which resolve face the ladder's state has
- * earned.
- *
- * The second half drives the real ladder frames through the real overlay
- * store, because the one ranking that cannot be tested from a hand-built
- * state is the one that matters most: a candidate on the feed outranks
- * whatever the overlay holds, which is what makes a resolution survive a
- * reload.
+ * The sentence is the register's — `arc-join-register.test.ts` walks that
+ * table, state by state — and a refusal rides the control that refuses,
+ * which `REFUSAL_REACHABILITY` below pins to the composer or to a named wait.
+ * What this file owns is the pair the report section dispatches on: the
+ * outcome the tones follow, and whether a base fold is running.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
-  attachChangesetJoinStore,
-  _ingestJoinFrameForTest,
-  _resetChangesetJoinStoreForTest,
-} from "../changeset-join-store";
-import {
-  QUESTION_DECLINED_TO_CHOOSE,
   deriveJoinFace,
-  joinQuestionAsParsed,
   type JoinFace,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-join";
 import {
@@ -37,16 +22,7 @@ import {
 } from "../join-mode-controller";
 import type { ArcJoinStateWire } from "@/lib/changeset-types";
 
-const fakeConn = { onFrame: () => () => {} } as never;
-const K = { project_dir: "/u/src/tugtool", arc: "demo" };
-
 const CONFLICTED: ArcJoinStateWire = { phase: "conflicted", conflicts: ["a.rs"] };
-const RESOLVED: ArcJoinStateWire = {
-  phase: "resolved",
-  conflicts: ["a.rs"],
-  candidate: "cafe1234",
-  resolved: [{ path: "a.rs", resolved_by: "driver" }],
-};
 
 /** The face for a feed state, with everything else at rest. */
 function face(
@@ -60,12 +36,8 @@ function face(
   });
 }
 
-beforeEach(() => _resetChangesetJoinStoreForTest());
-
-describe("the outcome and the resolve face, per state", () => {
+describe("the outcome and the fold face, per state", () => {
   test("blocked derives blocked, and the blockers are the evidence", () => {
-    // The face states nothing above the blockers — each carries its own act
-    // sentence beside its own detail, and the register fronts the word.
     const blocked = face({
       phase: "blocked",
       blockers: [{ kind: "base-dirt", title: "Base work in the way", detail: "commit outstanding changes", paths: ["x.ts"] }],
@@ -74,40 +46,27 @@ describe("the outcome and the resolve face, per state", () => {
     expect(blocked.resolve).toBe("none");
   });
 
-  test("conflicted and untried offers the ladder", () => {
+  test("conflicted is the audit's to resolve, and the face offers nothing", () => {
     const conflicted = face(CONFLICTED);
     expect(conflicted.outcome).toBe("conflicted");
-    expect(conflicted.resolve).toBe("offer");
+    expect(conflicted.resolve).toBe("none");
   });
 
-  test("stale demotes itself, and re-offers", () => {
-    const stale = face({
-      phase: "previewed",
-      stale_note: "main moved since this was resolved — resolve again",
-    });
-    expect(stale.outcome).toBe("stale");
-    expect(stale.resolve).toBe("offer");
+  test("a clean preview is clean", () => {
+    expect(face({ phase: "previewed" }).outcome).toBe("clean");
   });
 
-  test("resolving: a run in flight is progress", () => {
-    const running = face(CONFLICTED, { resolvePhase: "resolving" });
-    expect(running.resolve).toBe("progress");
+  test("a fold reads folding, from the press or from the server's run", () => {
+    expect(face(null, { resolvePhase: "resolving", resolveAct: "resolve-base" }).resolve).toBe(
+      "folding",
+    );
+    // The overlay dies with the page; `run` is the feed's account of what it
+    // is doing right now, so a reload still sees the fold.
+    expect(face({ phase: "blocked", run: "resolve-base" }).resolve).toBe("folding");
   });
 
-  test("a candidate reads resolved, whatever its history was", () => {
-    // A resolved conflict is a joinable arc even though its history is
-    // `conflicted` — the candidate is what would land.
-    const resolved = face(RESOLVED);
-    expect(resolved.outcome).toBe("clean");
-    expect(resolved.resolve).toBe("resolved");
-  });
-
-  test("the server's own run fact reads as progress after a reload", () => {
-    // The overlay phase dies with the page; `run` is the feed's account of
-    // what it is doing right now, so a second deck watching the same arc
-    // still sees the minutes of real work.
-    const running = face({ ...CONFLICTED, run: "resolve" });
-    expect(running.resolve).toBe("progress");
+  test("a refused fold reads error", () => {
+    expect(face({ phase: "blocked" }, { resolvePhase: "error" }).resolve).toBe("error");
   });
 
   test("an arc the feed says nothing about derives blocked", () => {
@@ -154,7 +113,7 @@ describe("every refusal points at the composer, or at a wait ([P09])", () => {
     // exactly why the sentence has to carry the whole answer.
     //
     // `outcome` joined it when the shade was disarmed — a conflicted arc is
-    // the pilot's to reconcile, a blocked one is cleared outside the app, and
+    // the re-audit's to reconcile, a blocked one is cleared outside the app, and
     // each blocker carries its own act sentence where the table used to carry
     // a slot.
     for (const reason of ["turn", "pending", "outcome"] as const) {
@@ -162,10 +121,10 @@ describe("every refusal points at the composer, or at a wait ([P09])", () => {
       expect(REFUSAL_REACHABILITY[reason].where).toBe("time");
     }
     // The sentences themselves, where the control that refuses shows them.
-    expect(joinDisabledReason("turn", "clean", null)).toBe(
+    expect(joinDisabledReason("turn", "clean")).toBe(
       "Wait for the turn to finish",
     );
-    expect(joinDisabledReason("pending", "clean", null)).toBe("Joining…");
+    expect(joinDisabledReason("pending", "clean")).toBe("Joining…");
   });
 
   test("the message's control is the composer, which is where it is typed", () => {
@@ -173,89 +132,5 @@ describe("every refusal points at the composer, or at a wait ([P09])", () => {
       slot: "tug-prompt-entry",
       where: "composer",
     });
-  });
-});
-
-describe("the overlay never outranks what is in git", () => {
-  test("a live run shows progress, and its result comes back from the feed", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    const phase = (): Parameters<typeof deriveJoinFace>[0]["resolvePhase"] =>
-      store.state(K.project_dir, K.arc).phase;
-
-    expect(face(CONFLICTED, { resolvePhase: phase() }).resolve).toBe("offer");
-
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_delta",
-      ...K,
-      run: "100",
-      event: { kind: "scribe", seq: 0, at_ms: 0, path: "a.rs", status: "streaming", text: "merging" },
-    });
-    expect(face(CONFLICTED, { resolvePhase: phase() }).resolve).toBe("progress");
-
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [{ path: "a.rs", resolved_by: "driver" }],
-      unresolved: [],
-      candidate_commit: "cafe1234",
-      shape: "squash",
-    });
-    // The overlay is back to idle; the resolved face is the feed's doing.
-    expect(phase()).toBe("idle");
-    expect(face(RESOLVED, { resolvePhase: phase() }).resolve).toBe("resolved");
-  });
-
-  test("a resolution survives the overlay it was built under", () => {
-    // The reload beat at the derivation layer: the page is new, so the store
-    // holds nothing, and the only thing saying a candidate exists is the feed.
-    // Ranked the other way this reads `none` — a clean arc with no review
-    // panel, landing an unread machine merge.
-    expect(face(RESOLVED, { resolvePhase: "idle" }).resolve).toBe("resolved");
-  });
-
-  test("a run that ends still conflicting says so, and re-offers the ladder", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [{ path: "a.rs", resolved_by: "rerere" }],
-      unresolved: ["b.rs"],
-      shape: "squash",
-    });
-    const state = store.state(K.project_dir, K.arc);
-    expect(state.error).toContain("b.rs");
-    const f = face(CONFLICTED, { resolvePhase: state.phase });
-    expect(f.resolve).toBe("error");
-  });
-});
-
-describe("the escalation, narrowed for the wizard", () => {
-  test("a resolver question becomes one single-select question", () => {
-    // Single-select and never multi: the resolver asks which reconciliation to
-    // make, and two incompatible intents cannot both be taken. The description
-    // rides along because it is what makes an option a *concrete resolution*
-    // rather than a label the reader has to decode.
-    const [parsed] = joinQuestionAsParsed({
-      request_id: "join-demo-7",
-      question: "Which name wins?",
-      options: [
-        { label: "the arc", description: "keep the arc's rename" },
-        { label: "the base", description: "keep what main renamed it to" },
-      ],
-    });
-    expect(parsed.question).toBe("Which name wins?");
-    expect(parsed.multiSelect).toBe(false);
-    expect(parsed.options).toEqual([
-      { label: "the arc", description: "keep the arc's rename" },
-      { label: "the base", description: "keep what main renamed it to" },
-    ]);
-  });
-
-  test("declining to choose is an answer, not a silence", () => {
-    // The wizard always offers Cancel, and a blocked resolver has no turn to
-    // interrupt — so Cancel has to *say something*, or the resolve waits out
-    // its whole deadline over a dialog nobody is looking at any more.
-    expect(QUESTION_DECLINED_TO_CHOOSE).toContain("declined to choose");
-    expect(QUESTION_DECLINED_TO_CHOOSE).toContain("without guessing");
   });
 });

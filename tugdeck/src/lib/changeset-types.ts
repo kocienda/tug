@@ -506,25 +506,6 @@ export interface ArcConflictHistoryWire {
   total: number;
 }
 
-/** One file the resolution ladder resolved, as the review panel reads it. */
-export interface ArcResolvedFileWire {
-  path: string;
-  /**
-   * Which rung decided it: `replay` | `rerere` | `merge-file` | `driver` |
-   * `ai`, or `unknown` when the provenance could not be read back.
-   *
-   * This is why the review exists: every rung above the replay probe is a
-   * machine decision nobody saw, and a diff without its provenance drops the
-   * signal the panel was built to carry.
-   */
-  resolved_by: string;
-  /** The unified diff this resolution lands on the base, capped server-side. */
-  diff?: string;
-  /** Lines added and removed as git counts them — not as the capped diff reads. */
-  added?: number;
-  removed?: number;
-}
-
 /**
  * The join pipeline's server-owned state for one arc.
  *
@@ -533,7 +514,7 @@ export interface ArcResolvedFileWire {
  * reloaded deck, and a relaunched app agree by construction.
  */
 export interface ArcJoinStateWire {
-  /** `blocked` | `previewed` | `conflicted` | `resolved`. Derived, never stored. */
+  /** `blocked` | `previewed` | `conflicted`. Derived, never stored. */
   phase: string;
   /** Non-empty means `phase` is `blocked`. */
   blockers?: ArcJoinBlockerWire[];
@@ -542,60 +523,26 @@ export interface ArcJoinStateWire {
   /** What the base did to each conflicted path. */
   archaeology?: ArcConflictHistoryWire[];
   /**
-   * The resolved candidate commit, present only while it still verifies
-   * against the current base and arc heads. Present means `phase` is
-   * `resolved`.
-   */
-  candidate?: string;
-  /** The ladder's per-file results, for the review panel. */
-  resolved?: ArcResolvedFileWire[];
-  /** Whether the user has read what the ladder decided **for this candidate**. */
-  reviewed?: boolean;
-  /**
-   * A candidate existed but no longer describes the current heads; the
-   * sentence names which side moved. The server drops the stale candidate when
-   * it says this, so the state demotes itself rather than standing as a lie.
-   */
-  stale_note?: string;
-  /**
-   * What the resolver did and why, for the candidate that stands — anchored to
-   * the candidate sha server-side, so it never outlives the resolution it
-   * describes.
-   */
-  report?: ArcJoinReportWire;
-  /**
-   * Why the resolve stopped short, when it did. A join that will not proceed
-   * and cannot say why is the one state the face must never render.
-   */
-  stuck?: string;
-  /**
-   * The intent question the resolver is waiting on. Durable state rather than
-   * a live frame, so a reload re-renders the question instead of losing it and
-   * leaving the resolver blocked on an answer nobody can give.
-   */
-  question?: ArcJoinQuestionWire;
-  /**
-   * What is running on this arc right now — `resolve`, `resolve-base` or
-   * `verify` — absent when nothing is.
+   * What is running on this arc right now — `join` or `resolve-base` —
+   * absent when nothing is.
    *
    * The one join fact that is not durable: occupancy is the server's
    * in-process state, so a restart clears it. It is on the wire because a
-   * reload mid-resolve would otherwise render a running resolve as absence.
+   * reload mid-fold would otherwise render a running fold as absence.
    */
   run?: string;
   /**
    * The join this arc is ready for, standing until it is taken or the work
    * moves on.
    *
-   * Raised once the machine's work is done and a candidate stands. Absent is
-   * the ordinary case — an arc still being worked, and one with nothing
-   * reconciled yet.
+   * Raised while the arc is ready — its audit stands on the live base — and
+   * nothing refuses or occupies it. Absent is the ordinary case: an arc still
+   * being worked, or one whose audit has gone stale.
    */
   offer?: ArcJoinOfferWire;
   /**
-   * What this ready arc needs from the user — its offer stands, its last
-   * resolve is stuck, or a question waits — with a key that changes when the
-   * reason does and is absent while a run is live. The reveal keys on it.
+   * What this ready arc needs from the user: present while its offer stands,
+   * keyed by the arc's work. The reveal keys on it.
    */
   attention?: ArcJoinAttentionWire;
   /**
@@ -608,92 +555,6 @@ export interface ArcJoinStateWire {
    * is in.
    */
   resolved_base?: ArcResolvedBaseWire;
-  /**
-   * The last resolve run's ledger: every act the ladder, the scribe and the
-   * resolver took, in order. Durable — read back on every recompute — so a
-   * reload draws the same blocks the live run drew. Absent when no run has
-   * recorded one, which is every arc a CLI resolved.
-   */
-  ledger?: ArcJoinLedgerWire;
-}
-
-/** One act of a resolve run, as the ledger records it. */
-export type ArcJoinLedgerEventWire = ArcJoinLedgerEventBody & {
-  /** 0-based, assigned by the recorder; a live-only event carries the last persisted seq. */
-  seq: number;
-  /** Wall clock, ms since the epoch. */
-  at_ms: number;
-};
-
-/** The event's own facts, by kind. */
-export type ArcJoinLedgerEventBody =
-  | {
-      kind: "probe";
-      paths: string[];
-      archaeology?: ArcConflictHistoryWire[];
-    }
-  | {
-      /** Something the run has begun and not yet finished, in the server's
-       *  own words (`said`). The verdict that ends it is its own event. */
-      kind: "phase";
-      phase: "rung" | "workshop" | "resolver-turn" | "committing" | "anchoring";
-      /** The rung taking up the work, on a `rung` phase. */
-      rung?: "replay" | "rerere" | "merge-file" | "driver";
-      /** The file, on a per-file `rung` phase. */
-      path?: string;
-      /** The resolver's turn, on a `resolver-turn` phase. */
-      turn?: number;
-      said: string;
-    }
-  | {
-      kind: "rung";
-      rung: "replay" | "salvage" | "rerere" | "merge-file" | "driver";
-      path?: string;
-      outcome: "resolved" | "declined";
-      said: string;
-    }
-  | {
-      kind: "scribe";
-      path: string;
-      status: "started" | "streaming" | "resolved" | "declined";
-      text?: string;
-      said?: string;
-      added?: number;
-      removed?: number;
-    }
-  | {
-      kind: "resolver";
-      turn: number;
-      status: "started" | "streaming" | "turn" | "asked" | "answered" | "reported";
-      text?: string;
-      tool?: string;
-      tools?: string[];
-      question?: string;
-      answer?: string;
-      notes?: string;
-      files?: ArcJoinReportFileWire[];
-    }
-  | {
-      kind: "candidate";
-      sha: string;
-      base_sha: string;
-      files: ArcResolvedFileWire[];
-    }
-  | {
-      kind: "ended";
-      /** `superseded`: a head moved mid-run, so nothing was anchored. */
-      outcome: "candidate" | "unresolved" | "stuck" | "error" | "superseded";
-      detail?: string;
-    };
-
-/** A resolve run's durable ledger. */
-export interface ArcJoinLedgerWire {
-  /** The run's id — its start, ms, as a decimal string. */
-  run: string;
-  started_ms: number;
-  /** Absent while the run is still going. */
-  ended_ms?: number;
-  events: ArcJoinLedgerEventWire[];
 }
 
 /** What a fold did, for the receipt the report renders (Spec S02). */
@@ -712,9 +573,9 @@ export interface ArcResolvedBaseWire {
   folded_from?: Record<string, string>;
 }
 
-/** Why a ready arc needs the user, and a key that moves when the reason does. */
+/** Why a ready arc needs the user — its standing offer — keyed on the work. */
 export interface ArcJoinAttentionWire {
-  kind: "offer" | "stuck" | "question";
+  kind: "offer";
   key: string;
 }
 
@@ -749,46 +610,6 @@ export interface ArcJoinOfferWire {
   message?: string;
   /** `"draft"` | `"description"` | `"fallback"` — which arm the message came from. */
   message_source?: string;
-}
-
-/** An escalation from the resolver, phrased as intent — never as a diff. */
-export interface ArcJoinQuestionWire {
-  /** Identifies this ask, so an answer cannot resolve a different one. */
-  request_id: string;
-  question: string;
-  options: ArcJoinQuestionOptionWire[];
-}
-
-/** One concrete resolution offered on an escalation. */
-export interface ArcJoinQuestionOptionWire {
-  label: string;
-  description?: string;
-}
-
-/** The resolver's account of a candidate — what the review panel's space now shows. */
-export interface ArcJoinReportWire {
-  files: ArcJoinReportFileWire[];
-  question?: ArcJoinReportQuestionWire;
-  notes?: string;
-}
-
-/** One file's account in the resolver's report. */
-export interface ArcJoinReportFileWire {
-  path: string;
-  resolved_by?: string;
-  what_each_side_did?: string;
-  reconciliation?: string;
-  /**
-   * `kept` | `redone` for a path an algorithmic rung decided and the resolver
-   * reviewed; absent for one the resolver finished itself.
-   */
-  audit?: string;
-}
-
-/** The escalation the resolver raised and the answer it was given. */
-export interface ArcJoinReportQuestionWire {
-  question: string;
-  answer?: string;
 }
 
 export type ChangesetEntry = SessionChangesetEntry | ArcChangesetEntry;

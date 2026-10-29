@@ -7,12 +7,13 @@
  * blocker's act and the one control that performs it, on `TugInlineDialog` —
  * the same primitive `PermissionDialog` and `QuestionDialog` are built from,
  * because a refusal with one act to clear it *is* a dialog and Tug has that
- * vocabulary already. Everything a resolve did — the probe that found the
- * conflict, the ladder's rungs, the scribe, the resolver, the audit, the
- * candidate, and the stale note when the candidate stopped applying — is a
- * ledger of tool blocks, the transcript's own `BlockChrome`, folded from the
- * join facts and the run's recorded events by `ledgerBlocks`. Every one of
- * them is something to read.
+ * vocabulary already.
+ *
+ * A ready arc's join is a squash and a land: its audit verified the fit of
+ * exactly the tree the join lands, so there is no resolve to narrate here.
+ * When the base has moved past an arc, the conflicting paths are listed as
+ * the audit's to resolve; the waiting states — re-auditing, waiting for a
+ * card, stopped with a question — are the register's line, one line above.
  *
  * What deliberately does **not** render here ([D142]):
  *
@@ -30,9 +31,7 @@
  *
  * The report always opens on the arc's **fit**: what the last green verify
  * said about the tree a join would land — verified and current, verified but
- * stale naming what moved, or never verified. The join gate is reconcile-clean
- * alone, so this sentence is how the audit's all-clear is seen before the
- * press. It says; it gates nothing.
+ * stale naming what moved, or never verified. It says; it gates nothing.
  *
  * Every value here is read from the arc's server-owned join block, so the
  * face and the join gate answer the same question from the same bytes.
@@ -50,8 +49,8 @@
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
  * [L06] tone paints through `data-outcome` and CSS; [L19] the section
  * composes `TugSectionLabel` rather than hand-rolling an eyebrow, the ledger
- * is `BlockChrome` blocks with `BlockNoticeBand` and the wave, and every
- * line of evidence is the fold's one `ArcFoldRow`; [L31] every
+ * refusal band is `BlockNoticeBand`, and every line of evidence is the
+ * fold's one `ArcFoldRow`; [L31] every
  * refusal is on screen — on the control that refuses, or as the blocker's own
  * sentence here.
  *
@@ -61,7 +60,7 @@
 import "./session-changes-arc-fold.css";
 
 import React from "react";
-import { Check, GitCommitHorizontal, RotateCcw, TriangleAlert } from "lucide-react";
+import { Check, GitCommitHorizontal, TriangleAlert } from "lucide-react";
 
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
@@ -70,11 +69,9 @@ import {
   ArcFoldCell,
   ArcFoldRow,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
-import type { ParsedQuestion } from "@/components/tugways/chrome/session-question-dialog";
 import type {
   ArcChangesetEntry,
   ArcJoinBlockerWire,
-  ArcJoinQuestionWire,
   ArcJoinStateWire,
 } from "@/lib/changeset-types";
 import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
@@ -82,17 +79,9 @@ import {
   foldReceiptKeepStore,
   useFoldReceiptKept,
 } from "@/lib/fold-receipt-keep-store";
-import {
-  foldReceiptText,
-  ledgerBlocks,
-  offersResolveAgain,
-  type LedgerInput,
-} from "@/lib/resolve-ledger";
+import { foldReceiptText } from "@/lib/arc-join-fold";
 import { arcFitSentence } from "@/lib/arc-fit";
-import { ResolveLedgerBlocks } from "@/components/tugways/cards/session-changes/session-changes-resolve-ledger";
 import { BlockNoticeBand } from "@/components/tugways/blocks/block-notice";
-import { JoinRefusalBlock } from "@/components/tugways/cards/session-changes/session-changes-join-refusal";
-import { parseJoinRefusal } from "@/lib/join-refusal";
 import {
   deriveJoinOutcome,
   type JoinOutcome,
@@ -112,18 +101,6 @@ export interface ArcJoinActions {
   /** Point the join mode at this arc without entering it — the row's expand. */
   aim: (entry: ArcChangesetEntry) => void;
   /**
-   * Answer the intent question a blocked resolver raised ([P06]).
-   *
-   * `answer` is an option's label or the user's own words; both reach the
-   * resolver verbatim, because deciding which one the user "really meant" is
-   * not the face's call.
-   */
-  answerQuestion: (
-    entry: ArcChangesetEntry,
-    requestId: string,
-    answer: string,
-  ) => void;
-  /**
    * Clear the base-side work refusing this arc's join.
    *
    * One act for every resolvable blocker, because the server decides what the
@@ -139,64 +116,32 @@ export interface ArcJoinActions {
    * a receipt cannot un-land a join the receipt has already outlived.
    */
   undoResolveBase: (entry: ArcChangesetEntry) => void;
-  /**
-   * Run the resolve again over a ledger that stands but no longer applies
-   * ([B07]): the candidate went stale, or the last run is recorded with no
-   * candidate left on the arc. The server stamps the pilot's head-pair mark
-   * and runs the same ladder a first Resolve runs.
-   */
-  resolveAgain: (entry: ArcChangesetEntry) => void;
 }
 
-/**
- * What the resolve lane shows, derived from the ladder's phase and whether it
- * built anything joinable ([#outcome-derivation]).
- *
- * - `offer` — conflicted and untried: the ladder is the act that clears it.
- * - `progress` — running, streaming per file.
- * - `folding` — the base-work fold is running. Its own face rather than a
- *   second `progress`, because the two acts say different things: the ladder
- *   streams per-file rungs, and a fold has paths and nothing to stream.
- * - `resolved` — a candidate exists; the join is joinable after all.
- * - `error` / `none` — the ladder refused or reached its dead end, or has
- *   nothing to say here.
- */
-export type ResolveFace =
-  | "none"
-  | "offer"
-  | "progress"
-  | "folding"
-  | "resolved"
-  | "error";
 
 /**
- * The candidate outranks the progress phase, and that ordering is what makes a
- * resolution survive a reload: the phase is a live overlay that dies with the
- * page, while the candidate is a git ref the server re-reports on every
- * recompute. Ranked the other way, reopening the deck after a successful
- * Resolve would show a clean arc with no review panel and join it unread.
+ * What the report shows for the base fold, derived from its phase.
+ *
+ * - `folding` — the base-work fold is running: its paths, and nothing to
+ *   stream.
+ * - `error` — the fold or a press beside it was refused.
+ * - `none` — nothing running and nothing refused.
+ */
+export type ResolveFace = "none" | "folding" | "error";
+
+/**
+ * The fold's face. The server's `run` and the client's act both say a fold
+ * is running — the act stands in until the recompute that puts `run` on the
+ * entry arrives.
  */
 export function deriveResolveFace(
-  outcome: JoinOutcome,
   phase: ResolvePhase,
-  candidateCommit: string | null,
   run?: string | null,
-  act?: "resolve" | "resolve-base",
+  act?: "resolve-base",
 ): ResolveFace {
-  // Above the ladder's own face, because the two share the resolving phase:
-  // read only `phase`, a fold would wear the ladder's face and narrate rungs
-  // it has none of. The client's act stands in until the recompute that puts
-  // `run` on the entry arrives.
   if (run === "resolve-base" || act === "resolve-base") return "folding";
-  if (phase === "resolving") return "progress";
-  // The server's own account of what it is doing right now ([P09]). The phase
-  // above it is a client overlay that dies with the page, so without this a
-  // reload during a resolve — or a second deck watching the same arc — renders
-  // minutes of real work as nothing at all.
-  if (run === "resolve") return "progress";
-  if (candidateCommit !== null) return "resolved";
   if (phase === "error") return "error";
-  return outcome === "conflicted" || outcome === "stale" ? "offer" : "none";
+  return "none";
 }
 
 /** What the face shows for one state — evidence, and no acts at all ([P08]). */
@@ -206,93 +151,35 @@ export interface JoinFace {
 }
 
 /**
- * Table T01 as a function: one feed state in, one face out.
- *
- * Pure and exported so the face's shape is testable without a DOM. It used to
- * also yield the standing readiness line and the ready boolean; both left
- * with the standing line itself ([D142]) — the register derivation
- * (`arcJoinRegister`) owns the sentence, and `evaluateJoinGate` owns the
- * press, each already one place. What remains is the pair the evidence panel
- * dispatches on: the outcome the tones follow, and which resolve face the
- * ladder's state has earned.
+ * Table T01 as a function: one feed state in, one face out — the outcome the
+ * tones follow, and the fold's face. Pure and exported so the face's shape is
+ * testable without a DOM; the register derivation (`arcJoinRegister`) owns
+ * the sentence and `evaluateJoinGate` owns the press.
  */
 export function deriveJoinFace(input: {
   join: ArcJoinStateWire | null;
   resolvePhase: ResolvePhase;
-  resolveAct?: "resolve" | "resolve-base";
+  resolveAct?: "resolve-base";
 }): JoinFace {
   const { join, resolvePhase } = input;
-  const outcome = deriveJoinOutcome(join);
-  const candidate =
-    typeof join?.candidate === "string" && join.candidate !== ""
-      ? join.candidate
-      : null;
-  const resolve = deriveResolveFace(
-    outcome,
-    resolvePhase,
-    candidate,
-    join?.run ?? null,
-    input.resolveAct,
-  );
-  return { outcome, resolve };
-}
-
-/**
- * What the resolve's ledger is folded from, for one arc: the join facts, the
- * durable ledger off the entry, and the store's live half, running only while
- * the face has earned its progress state. One builder, so the report's ledger
- * and the shade's run line read the same run.
- */
-export function joinLedgerInput(input: {
-  join: ArcJoinStateWire | null;
-  base: string;
-  resolve: ResolveState;
-}): LedgerInput {
-  const { join, base, resolve } = input;
-  const face = deriveJoinFace({
-    join,
-    resolvePhase: resolve.phase,
-    ...(resolve.act !== undefined ? { resolveAct: resolve.act } : {}),
-  });
   return {
-    join,
-    durable: join?.ledger ?? null,
-    // The store's run is the ledger's live half: what this page heard of
-    // the run since it started, merged past what the entry already holds.
-    live: resolve,
-    base,
-    running: face.resolve === "progress",
+    outcome: deriveJoinOutcome(join),
+    resolve: deriveResolveFace(resolvePhase, join?.run ?? null, input.resolveAct),
   };
-}
-
-/** How many lines the refusal band shows before it clamps. */
-const REFUSAL_MAX_LINES = 8;
-
-/**
- * The band's clamp, grown by one line per path the stuck line names: the
- * paths are rows inside the band, and a clamp that cut the list would hide
- * the files the refusal is about.
- */
-export function refusalMaxLines(stuck: string | null): number {
-  return REFUSAL_MAX_LINES + (stuck === null ? 0 : parseJoinRefusal(stuck).paths.length);
 }
 
 /** One reason the join will not proceed, under the slot that names its source. */
 export interface RefusalReason {
-  slot:
-    | "session-changes-arc-join-stuck"
-    | "session-changes-arc-join-resolve-error"
-    | "session-changes-arc-join-error";
+  slot: "session-changes-arc-join-resolve-error" | "session-changes-arc-join-error";
   text: string;
 }
 
 /**
- * The reasons the refusal band carries, in order — why the last resolve
- * stopped, a refused resolve verb, a refused join verb — each sentence once:
- * a reason already said by an earlier source is not said again.
+ * The reasons the refusal band carries, in order — a refused fold or press,
+ * then a refused join verb — each sentence once: a reason already said by an
+ * earlier source is not said again.
  */
 export function refusalReasons(
-  stuck: string | null,
   resolveError: string | null,
   joinError: string | null,
 ): RefusalReason[] {
@@ -303,7 +190,6 @@ export function refusalReasons(
     said.add(text);
     out.push({ slot, text });
   };
-  add("session-changes-arc-join-stuck", stuck);
   add("session-changes-arc-join-resolve-error", resolveError);
   add("session-changes-arc-join-error", joinError);
   return out;
@@ -314,14 +200,13 @@ export interface SessionChangesArcJoinProps {
   entry: ArcChangesetEntry;
   /**
    * The arc's server-owned join state, straight off its feed entry: blockers,
-   * conflicts, the candidate and what the ladder decided per path. Everything
-   * this face says about a join is read from here, so the face and the join
-   * gate cannot disagree.
+   * conflicts and the offer. Everything this face says about a join is read
+   * from here, so the face and the join gate cannot disagree.
    */
   join: ArcJoinStateWire | null;
   /** A verb-level refusal from an execute, if one came back. */
   error: string | null;
-  /** The resolution ladder's live state for this arc. */
+  /** The base fold's live state for this arc. */
   resolve: ResolveState;
   actions: ArcJoinActions;
 }
@@ -349,30 +234,6 @@ export function reportedBlockers(
   return blockers
     .map((blocker, index) => ({ blocker, index }))
     .filter(({ blocker, index }) => index > 0 || blocker.remedy !== undefined);
-}
-
-export const QUESTION_DECLINED_TO_CHOOSE =
-  "The user declined to choose. Stop and report what you found, without guessing past this conflict.";
-
-/**
- * The resolver's escalation, narrowed to the one question the wizard walks.
- *
- * Single-select and never multi: the resolver is asking which reconciliation
- * to make, and two incompatible intents cannot both be taken.
- */
-export function joinQuestionAsParsed(
-  question: ArcJoinQuestionWire,
-): ParsedQuestion[] {
-  return [
-    {
-      question: question.question,
-      multiSelect: false,
-      options: question.options.map((option) => ({
-        label: option.label,
-        description: option.description,
-      })),
-    },
-  ];
 }
 
 /**
@@ -482,9 +343,7 @@ export function SessionChangesArcJoin({
   actions,
 }: SessionChangesArcJoinProps): React.ReactElement {
   const blockers = join?.blockers ?? [];
-  const stuck =
-    typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
-  const reasons = refusalReasons(stuck, resolve.error, error);
+  const reasons = refusalReasons(resolve.error, error);
   // The fold that stands over this arc, if one does. Durable — read off the
   // entry rather than out of the overlay — so a reload and a second deck show
   // the same receipt as the deck that pressed.
@@ -510,13 +369,7 @@ export function SessionChangesArcJoin({
     resolveAct: resolve.act,
   });
   const { outcome, resolve: resolveFace } = face;
-  // The resolve's ledger: one block per act, from the join facts and whatever
-  // the run has recorded. One pure decision ({@link ledgerBlocks}); the live
-  // block's wave holds its own motion, so nothing here holds one for it.
-  const blocks = ledgerBlocks(joinLedgerInput({ join, base: entry.base, resolve }));
-  // Resolve again rides under the ledger it would redo, and only when that
-  // ledger no longer applies (Spec S05).
-  const again = offersResolveAgain(resolveFace, join);
+  const conflicts = outcome === "conflicted" ? (join?.conflicts ?? []) : [];
 
   // The fit always has something to say — "not verified" is a reading too —
   // so the section always renders, and opens on it.
@@ -545,6 +398,24 @@ export function SessionChangesArcJoin({
           data-slot="session-changes-arc-join-empty"
         >
           Nothing to join — discard this arc.
+        </div>
+      ) : null}
+      {/* The base moved past this arc into the same lines: its audit replays
+          the arc onto the live base and resolves what conflicts there, as
+          ordinary rounds. The paths are what this row can add to that. */}
+      {conflicts.length > 0 ? (
+        <div
+          className="session-changes-arc-join-rungs"
+          data-slot="session-changes-arc-join-conflicts"
+        >
+          <div className="session-changes-arc-join-note">
+            Conflicts with {entry.base} — the audit resolves them
+          </div>
+          {conflicts.map((path) => (
+            <ArcFoldRow key={path} leading={<ArcFoldCell />}>
+              <span className="arc-fold-path">{path}</span>
+            </ArcFoldRow>
+          ))}
         </div>
       ) : null}
       {reported.length > 0 ? (
@@ -601,16 +472,8 @@ export function SessionChangesArcJoin({
                     somebody's uncommitted work has to carry the way back, or
                     the report is a notification and not a remedy.
 
-                    It is disabled while a FOLD is running — the op it would
-                    reverse is the one being written — and the act is what the
-                    guard reads, not the phase. The two acts share `resolving`,
-                    and the ladder is the one that runs *after* a fold: the
-                    fold puts the base and the arc on divergent history, which
-                    is the collision the resolver exists for. A guard on the
-                    phase alone therefore switched the Undo off for the whole
-                    of the run that a successful fold provokes, which is
-                    precisely when a reader has just been told their work was
-                    committed and wants it back. */}
+                    It is disabled while a fold is running — the op it would
+                    reverse is the one being written. */}
                 <TugPushButton
                   size="xs"
                   emphasis="outlined"
@@ -678,63 +541,12 @@ export function SessionChangesArcJoin({
             ))}
         </div>
       ) : null}
-      {/* The ledger: one block per act of the resolve — the probe that found
-          the conflict, the ladder's rungs, the scribe, the resolver and its
-          question, the audit, the candidate — and the stale note when the
-          candidate stopped applying. A running resolve has exactly one live
-          block, carrying the thinking wave; its press has a receipt from the
-          first frame even before any rung reports. */}
-      {blocks.length > 0 ? (
-        <div className="session-changes-ledger" data-slot="session-changes-ledger">
-          <ResolveLedgerBlocks
-            blocks={blocks}
-            base={entry.base}
-            question={{
-              asParsed: joinQuestionAsParsed,
-              onSubmit: (question, answer) =>
-                actions.answerQuestion(entry, question.request_id, answer),
-              onDecline: (question, response) =>
-                actions.answerQuestion(entry, question.request_id, response),
-              onCancel: (question) =>
-                actions.answerQuestion(
-                  entry,
-                  question.request_id,
-                  QUESTION_DECLINED_TO_CHOOSE,
-                ),
-            }}
-          />
-        </div>
-      ) : null}
-      {again ? (
-        <div className="session-changes-arc-join-acts">
-          <TugPushButton
-            size="xs"
-            emphasis="primary"
-            role="action"
-            subtype="icon-text"
-            icon={<RotateCcw size={12} />}
-            disabled={resolve.phase === "resolving"}
-            onClick={() => actions.resolveAgain(entry)}
-            data-slot="session-changes-arc-join-resolve-again"
-          >
-            Resolve again
-          </TugPushButton>
-        </div>
-      ) : null}
       {/* Why the join will not proceed, as one error band at the face's body
-          size: the stuck line, a refused resolve verb, and a refused join verb,
-          each in its own slot and a sentence said once however many of them
-          carry it. The stuck line is drawn as the refusal block — its sentence,
-          then one row per path it names — because a resolver's refusal lists
-          files, and twenty of them in a paragraph is a wall with no red in it.
-          It is durable and server-written, so unlike the
-          overlay's errors it survives a reload — a resolve is minutes long and
-          the deck that started it is often not the deck that comes back to
-          it. Rendered on the reasons, not on the face: a refused answer or
-          override arrives while a candidate stands, and keying this off
-          `resolveFace` swallowed exactly the refusals that have no other way
-          to be seen. A join that will not proceed and cannot say why is the
-          one state this face must never render ([L31]). */}
+          size: a refused fold or press, and a refused join verb, each in its
+          own slot and a sentence said once however many of them carry it.
+          Rendered on the reasons, not on the face, so a refusal that arrives
+          while nothing runs is still seen. A join that will not proceed and
+          cannot say why is the one state this face must never render ([L31]). */}
       {reasons.length > 0 ? (
         <div
           className="session-changes-arc-join-refusal"
@@ -743,16 +555,12 @@ export function SessionChangesArcJoin({
         >
           <BlockNoticeBand
             tone="error"
-            maxLines={refusalMaxLines(stuck)}
-            text={reasons.map(({ slot, text }) =>
-              slot === "session-changes-arc-join-stuck" ? (
-                <JoinRefusalBlock key={slot} detail={text} slot={slot} />
-              ) : (
-                <span key={slot} className="session-changes-arc-join-reason" data-slot={slot}>
-                  {text}
-                </span>
-              ),
-            )}
+            maxLines={8}
+            text={reasons.map(({ slot, text }) => (
+              <span key={slot} className="session-changes-arc-join-reason" data-slot={slot}>
+                {text}
+              </span>
+            ))}
           />
         </div>
       ) : null}

@@ -148,7 +148,10 @@ pub enum LadderEvent {
     /// for the whole-arc replay and for rerere's one batch over every path.
     /// The salvage rung, a lookup, tells only its verdict; the AI rung tells
     /// [`LadderEvent::ScribeStarted`].
-    RungStarted { rung: ResolvedBy, path: Option<String> },
+    RungStarted {
+        rung: ResolvedBy,
+        path: Option<String>,
+    },
     /// One machine rung's verdict. `path` is `None` for the whole-arc replay.
     Rung {
         rung: ResolvedBy,

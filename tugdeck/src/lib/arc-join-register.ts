@@ -270,6 +270,15 @@ export function arcJoinRegister(
   // earlier stage; a stop mid-walk stays silent, because that arc is simply
   // unfinished.
   const run = input.run ?? null;
+  // An audit the head or the base has moved out from under. Not joinable —
+  // the server holds `join_ready` shut over it — and not silent either: the
+  // offer came down because the arc goes back to its audit, and the register
+  // says where that stands.
+  const auditStale = input.stage === "audit-stale";
+  // An arc its stage stopped to ask the user something. The third of the
+  // fold's waiting states: nothing can move until the question is answered,
+  // and it is answered on the arc's own card.
+  const asked = run !== null && run.done !== true && run.stopped === "needs a decision";
   const stoppedUnaudited =
     run !== null &&
     run.done !== true &&
@@ -281,9 +290,9 @@ export function arcJoinRegister(
     (join?.run ?? null) !== null ||
     input.resolvePhase === "resolving" ||
     input.resolveAct === "resolve-base" ||
-    (join?.question ?? null) !== null ||
-    (typeof join?.stuck === "string" && join.stuck !== "") ||
-    stoppedUnaudited;
+    stoppedUnaudited ||
+    asked ||
+    auditStale;
   if (!JOINABLE_STAGES.has(input.stage ?? "") && !acted) return null;
 
   if (!connected) {
@@ -305,6 +314,40 @@ export function arcJoinRegister(
       phase: "in_flight",
       line: `Joining ${arc} into ${base} — ${beat}`,
       word: "joining",
+    };
+  }
+
+  // A stale audit, above the blockers: the join is not on offer, so a
+  // join-time blocker is not the sentence that explains the arc. Three
+  // readings — the re-audit is running, a card holds the arc and the re-audit
+  // is about to be seated on it, or nobody holds it and it waits for a card.
+  // A stop inside the re-audit falls through to the stop's own sentence.
+  if (auditStale && (run?.stopped ?? "") === "") {
+    if (run !== null && run.done !== true) {
+      return {
+        phase: "in_flight",
+        line: `${arc}'s audit is stale — re-auditing`,
+        word: "re-auditing",
+      };
+    }
+    return input.bound === false
+      ? {
+          phase: "awaiting",
+          line: `${arc}'s audit is stale — waiting for a card`,
+          word: "audit-stale",
+        }
+      : {
+          phase: "in_flight",
+          line: `${arc}'s audit is stale — the re-audit starts on its card`,
+          word: "audit-stale",
+        };
+  }
+
+  if (asked) {
+    return {
+      phase: "awaiting",
+      line: `${arc} stopped with a question — answer it on its card`,
+      word: "question",
     };
   }
 
@@ -338,33 +381,9 @@ export function arcJoinRegister(
     };
   }
 
-  if (join?.question !== undefined && join.question !== null) {
-    return {
-      phase: "awaiting",
-      line: "The resolver needs a decision — answer the prompt",
-      word: "question",
-    };
-  }
-
-  if (typeof join?.stuck === "string" && join.stuck !== "") {
-    return { phase: "error", line: join.stuck, word: "stuck" };
-  }
-
-  const running = join?.run ?? (input.resolvePhase === "resolving" ? "resolve" : null);
-  if (running === "resolve") {
-    const files = join?.conflicts?.length ?? 0;
-    return {
-      phase: "in_flight",
-      line:
-        files > 0
-          ? `Reconciling with ${base} — resolving ${files} ${files === 1 ? "file" : "files"}`
-          : `Reconciling with ${base}`,
-      word: "reconciling",
-    };
-  }
   // The run's last word, which rests until a new press replaces it. Below the
-  // blocker, the question and the stated refusal — each of those explains a
-  // failure better than "Join failed" does — and above the readiness line,
+  // blocker — which explains a failure better than "Join failed" does — and
+  // above the readiness line,
   // because a "ready to join" left standing over a join that did not land
   // would read as an invitation to do the thing that just failed.
   if (landing !== null) {
@@ -389,20 +408,9 @@ export function arcJoinRegister(
 
   // A live wheel is the same category as a busy holder: the work is not
   // finished, so the join is not offered. It sits here rather than below the
-  // candidate because everything above this line reports something in motion
-  // and everything below it makes an offer.
-  //
-  // Without it, [P05]'s gate produces a worse sentence than the one it fixes.
-  // `JOINABLE_STAGES` still contains `built` and `derive_stage` still says
-  // `built` mid-audit, so with `join_ready` false there is no candidate and the
-  // fall-through would paint `Reconciling with <base>` — a sentence promising
-  // something imminent — for the whole length of an audit.
-  //
-  // This also speaks for an **unbound** arc, where the `Reconciling`
-  // fall-through below is silent by design. That difference is intended: the
-  // fall-through is silent because the *pilot* never runs for an arc nobody
-  // holds, which is a statement about a promise, whereas a running audit is a
-  // fact about the work and is true whoever is holding it.
+  // offer because everything above this line reports something in motion
+  // and everything below it makes an offer. A running audit is a fact about
+  // the work, so it is said whoever is holding the arc.
   //
   // **Two things it does not speak over.** An arc whose derived stage is
   // already `audited` has had the audit sign off — `derive_stage` returns that
@@ -455,9 +463,9 @@ export function arcJoinRegister(
     };
   }
 
-  // A candidate that stands is the whole readiness fact now. Nothing is built
-  // here: the run's ending verified the tree that lands, so reconcile-clean is
-  // what the arc was waiting for.
+  // The offer is the whole readiness fact. The server raises it only while
+  // the arc's audit stands on the live base, so the fit was verified against
+  // exactly the tree the join lands: there is nothing left to reconcile.
   //
   // The sentence names the base because on the Arcs card it is now the only
   // thing that does: a ready arc reads in the lifecycle line's own words and
@@ -465,28 +473,12 @@ export function arcJoinRegister(
   // alone would have dropped the branch the offer is about. It is derived here
   // rather than composed at any surface, which is what keeps the shade, the
   // composer and the card reading one sentence.
-  if (typeof join?.candidate === "string" && join.candidate !== "") {
+  if (join?.offer !== undefined && join.offer !== null) {
     return {
       phase: "success",
       line: arcJoinReadyLine(base),
       word: ARC_JOIN_READY_WORD,
     };
-  }
-
-  // No candidate, nothing running. On a joinable arc somebody is holding,
-  // that is the gap between the recompute and the pilot's dispatch landing — a
-  // beat away rather than a resting state, so it reads as the reconcile that
-  // is about to happen.
-  //
-  // On an **unbound** one it is not a gap at all: the pilot never runs for a
-  // arc nobody holds, so naming a reconcile would be a promise the machine
-  // has already declined to keep, standing forever. Say nothing instead —
-  // `/arc-join <name>` and binding a card are both still open, and neither is a
-  // thing this line was reporting.
-  if (JOINABLE_STAGES.has(input.stage ?? "")) {
-    return (input.bound ?? true)
-      ? { phase: "in_flight", line: `Reconciling with ${base}`, word: "reconciling" }
-      : null;
   }
 
   // Reachable only through the `acted` exception above: a run that has ended

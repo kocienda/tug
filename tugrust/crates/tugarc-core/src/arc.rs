@@ -622,6 +622,17 @@ pub fn read_arc(paths: &Paths, repo_root: &Path, arc: &str) -> Option<ArcRecord>
                 if let Some(stage) = ArcStage::parse(note.trim()) {
                     record.stopped = None;
                     record.resume = Some(stage);
+                    // A resume on a finished arc reopens it. The one door
+                    // that writes one is a re-audit — a done arc whose audit
+                    // no longer describes its head or its base goes back to
+                    // the audit stage ([`crate::ops::reopen_stale_audit`]) —
+                    // and an arc being re-audited is not done.
+                    //
+                    // **Skew.** A reader older than this arm keeps `done`, so
+                    // it reads a reopened arc as still finished: its runner
+                    // leaves the arc alone and its faces say done. Nothing is
+                    // invented in that direction, only a re-audit not seen.
+                    record.done = false;
                 }
             }
             // The stage is already seated and already moving, so the arc is

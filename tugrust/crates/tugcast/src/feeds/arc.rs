@@ -2542,6 +2542,43 @@ mod tests {
         );
     }
 
+    /// **A done arc reopened at its audit seats the audit.** The re-audit door
+    /// writes `arc-resume audit` over a done record, which clears `done`; the
+    /// resume arm then asks the audit stage again — on its own session when
+    /// the card is still the audit's, on a fresh one when it is not — and the
+    /// stale mark is not read as finished, because a stale audit is not
+    /// declared.
+    #[test]
+    fn a_reopened_done_arc_seats_its_audit() {
+        let mut record = record(&[ArcStage::Implement, ArcStage::Audit]);
+        record.resume = Some(ArcStage::Audit);
+        let mut stale = facts();
+        stale.ledger.run_complete = true;
+        stale.audit_declared = false;
+        assert_eq!(
+            arc_action(&record, &stale),
+            Some(ArcAction::Continue {
+                stage: ArcStage::Audit,
+                steps: None,
+            })
+        );
+        stale.stage_session_current = false;
+        assert_eq!(rotation(arc_action(&record, &stale)).stage, ArcStage::Audit);
+    }
+
+    /// The seam reads a stale audit as no audit at all: a finished walk whose
+    /// mark has gone stale rotates the audit rather than finishing.
+    #[test]
+    fn a_finished_run_with_a_stale_audit_rotates_the_audit() {
+        let mut facts = facts();
+        facts.ledger.run_complete = true;
+        facts.audit_declared = false;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit)))
+        );
+    }
+
     #[test]
     fn a_done_arc_is_not_advanced_by_a_tick() {
         let mut record = record(&[ArcStage::Implement]);

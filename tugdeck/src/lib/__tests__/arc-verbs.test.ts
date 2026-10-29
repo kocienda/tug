@@ -134,6 +134,24 @@ describe("the first slot across an arc's life ([B04])", () => {
     expect(arcVerbs(input({ run: { stage: "audit", done: true } })).next).toBeNull();
   });
 
+  it("is Re-audit for a finished arc whose audit went stale", () => {
+    // The same transport press as Resume, through the same door, worded for
+    // what it does — and never Join, because a stale audit is not joinable.
+    const next = arcVerbs(
+      input({
+        stage: "audit-stale",
+        run: { stage: "audit", done: true },
+        boundSession: "sess-bound",
+        boundCardOpen: true,
+        draft: "Land the demo",
+      }),
+    ).next;
+    expect(next?.kind).toBe("resume");
+    expect(next?.word).toBe("Re-audit");
+    expect(next?.label).toBe("Re-audit arc demo");
+    expect(next?.refusal).toBeNull();
+  });
+
   it("is empty for an arc with nothing to start from", () => {
     expect(arcVerbs(input({ documents: undefined })).next).toBeNull();
   });
@@ -180,12 +198,6 @@ describe("Join's refusals ([B05])", () => {
 
   // The composer's own gate, in its own sentences: a row's Join is the same
   // join through a second door, so it refuses what the composer refuses.
-  it("refuses a conflicted merge", () => {
-    expect(gated({ state: { phase: "conflicted", conflicts: ["a.ts"] } })).toBe(
-      "Resolve the conflicts first",
-    );
-  });
-
   it("refuses a join with blockers, and one with no join state at all", () => {
     expect(
       gated({ state: { phase: "blocked", blockers: [{ kind: "base-dirt", title: "Base dirt", detail: "d" }] } }),
@@ -193,18 +205,10 @@ describe("Join's refusals ([B05])", () => {
     expect(gated({ state: null })).toBe("Clear what blocks this join first");
   });
 
-  it("refuses a stale resolution in the server's own sentence", () => {
+  it("refuses a conflicted merge: the base moved past the audit", () => {
     expect(
-      gated({ state: { phase: "previewed", stale_note: "main moved" } }),
-    ).toBe("main moved");
-  });
-
-  it("admits a conflicted merge whose resolved candidate still verifies", () => {
-    expect(
-      gated({
-        state: { phase: "resolved", conflicts: ["a.ts"], candidate: "abc123" },
-      }),
-    ).toBeNull();
+      gated({ state: { phase: "conflicted", conflicts: ["a.ts"] } }),
+    ).toBe("The base moved past this arc's audit — it re-audits before it joins");
   });
 
   it("refuses while the holder works, a turn runs, or a join is out", () => {
@@ -212,8 +216,8 @@ describe("Join's refusals ([B05])", () => {
     expect(gated({ turnInProgress: true })).toBe("Wait for the turn to finish");
     expect(gated({ pending: true })).toBe("Joining…");
     expect(
-      gated({ state: { phase: "resolved", candidate: "abc123", run: "resolve" } }),
-    ).toBe("Wait for the resolve to finish");
+      gated({ state: { phase: "previewed", run: "resolve-base" } }),
+    ).toBe("Wait for the run on this arc to finish");
   });
 });
 

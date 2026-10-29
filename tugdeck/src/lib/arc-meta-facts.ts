@@ -33,6 +33,9 @@ const STAGES_PAST_THE_WALK = new Set([
   "ready",
   "built",
   "audited",
+  // An audit the head or base has moved out from under: the walk is still
+  // over, only the audit needs doing again.
+  "audit-stale",
   "draft-ready",
   "joining",
   "landing",

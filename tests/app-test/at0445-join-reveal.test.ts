@@ -55,12 +55,10 @@
  *   offer id, and the shade comes back up.
  *
  * And one about reach: an **unbound** arc, with facts identical to the bound
- * one's in the same repository at the same moment, is left alone entirely. Not
- * merely unrevealed — unworked: the pilot reconciles only arcs bound to a
- * live session, so the quiet arc's register never even reaches `ready`. With
- * readiness derived rather than declared, an unbounded pilot would turn a
- * single commit on the base into one reconcile per arc, every one spent on
- * nobody.
+ * one's in the same repository at the same moment, is ready too — readiness is
+ * derived from the arc's facts, and nothing has to work an arc to make it so —
+ * but it is the bound card's offer alone that summons that card's shade, and
+ * the bound card's room never offers to land the arc nobody is working.
  *
  * The join **press** is not this file's subject — at0436 drives it, at the
  * composer's ⬆ where it lives. The offer's disappearance after a landing is
@@ -70,10 +68,10 @@
  * ## The fixture
  *
  * One scratch repository, two arcs, neither conflicting with the base and
- * neither ever marked. The bound one the pilot reconciles without being asked,
- * which is what makes the reveal the *only* thing this file drives; the
- * unbound one is the control. Nothing is built anywhere: the join gates on
- * reconcile-clean alone, so the arc runs at git speed.
+ * neither ever marked. A plan-less arc with no wheel is ready on its first
+ * round, which is what makes the reveal the *only* thing this file drives; the
+ * unbound one is the control. Nothing is built anywhere, so the arc runs at
+ * git speed.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
@@ -88,7 +86,6 @@
  * @covers tugrust/crates/tugarc-core/src/ops/show.rs
  * @covers tugrust/crates/tugarc-core/src/replay.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
- * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
  */
 
@@ -201,17 +198,11 @@ function shadeUp(app: App): Promise<boolean> {
   );
 }
 
-/** An arc's register word on the Arcs card right now, or null if it has none. */
-function registerWord(app: App, arc: string): Promise<string | null> {
-  return kindBody(app, "dashes").evalJS<string | null>(
-    // Read off the ROW rather than off the register band. A ready arc says so
-    // in the lifecycle line's own words and draws no band at all, so the band
-    // is not the element that always carries the reading — the row is.
-    `document.querySelector(${JSON.stringify(arcRow(arc))})?.getAttribute("data-join-word") ?? null`,
-  );
-}
-
-/** Wait for an arc's Arcs-card register to reach a word — the arc, without a gesture. */
+/**
+ * Wait for an arc's Arcs-card register to reach a word — the arc, without a
+ * gesture. Read off the ROW rather than off the register band: a ready arc
+ * says so in the lifecycle line's own words and draws no band at all.
+ */
 async function registerReaches(
   app: App,
   arc: string,
@@ -232,10 +223,10 @@ async function registerReaches(
  * page records its own half:
  *
  *  - `quiet` (Arcs card): every register word the unbound arc's row ever
- *    wore, so "never piloted" is a claim about the whole run rather than
+ *    wore, so "it reached ready" is a claim about the whole run rather than
  *    about a window sampled at its end;
  *  - `bound` (Arcs card): every word the bound arc's row wore since the last
- *    reset, which is how the base move's re-reconcile is seen to have run;
+ *    reset, noted across the base move;
  *  - `sheetSeen` (Session card): whether the shade mounted at any moment
  *    while `armSheet` was set.
  */
@@ -302,7 +293,7 @@ function offerDot(app: App): Promise<boolean> {
 
 describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
   test(
-    "a bound reconciled arc puts the card on the Changes route with no mark and no gesture, the fold names what would land and repaints it live, the segment wears the offer while the room is closed, closing costs nothing across a base move, a new round summons it again, and an unbound arc is never piloted at all",
+    "a bound reconciled arc puts the card on the Changes route with no mark and no gesture, the fold names what would land and repaints it live, the segment wears the offer while the room is closed, closing costs nothing across a base move, a new round summons it again, and an unbound arc is ready without summoning anybody's room",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -514,25 +505,22 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // ── The base moves, and the shade stays down ─────────────────────
         // A full re-run of the arc — not merely a quiet minute. The base sha
         // moves, base motion replays the arc's rounds onto it (a new arc
-        // head), the arc is reconciled again, the candidate is rebuilt, and a
+        // head), the arc's facts are read again, and a
         // new offer id is minted. The card has already shown this work, and a
         // re-reveal on every base push would be the nagging the old dialog was
         // accused of — and, with every ready arc replayed at once, a
         // neighbour's join would reopen this room.
         //
         // The watch is the recorder's, armed from the moment the room closed,
-        // and it ends when the re-reconcile is SEEN to have run — the bound
-        // row leaving `ready` and coming back to it — plus a tail for the
-        // reveal effect, which runs on the commit that carries the new offer.
-        // If the row never visibly leaves `ready`, the watch falls back to the
-        // full fifteen seconds this file always held it for.
+        // and it ends once the replay is SEEN — the arc head moving — and the
+        // row reads `ready` again, plus a tail for the reveal effect, which
+        // runs on the commit that carries the new offer.
         await app.body("A").evalJS<null>(
           `(window.__at0445.armSheet = true, window.__at0445.sheetSeen = false, window.__at0445.tick(), null)`,
         );
         await kindBody(app, "dashes").evalJS<null>(
           `(window.__at0445.bound = [], window.__at0445.tick(), null)`,
         );
-        const baseMovedAt = Date.now();
         const headBefore = git(scratch, "rev-parse", `tugarc/${ARC}`).trim();
         // The fixture disarms auto-replay on every arc it cuts, so no other
         // instance moves a test's branches. This step is about the replay, so
@@ -551,26 +539,9 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         }
         disarmAutoreplay(scratch, ARC);
         await registerReaches(app, ARC, "ready", 240000);
-        const reRan = await kindBody(app, "dashes")
-          .waitForCondition<boolean>(
-            `(function () {
-              var b = window.__at0445.bound;
-              for (var i = 0; i < b.length; i++) {
-                if (b[i] !== "ready") return b.slice(i).indexOf("ready") >= 0;
-              }
-              return false;
-            })()`,
-            { timeoutMs: 15000 },
-          )
-          .then(() => true)
-          .catch(() => false);
-        if (reRan) {
-          await settle(2000);
-        } else {
-          await settle(Math.max(0, 15000 - (Date.now() - baseMovedAt)));
-        }
+        await settle(3000);
         const quietWatch = await readRecording(app);
-        note(`at0445 base move: re-reconcile seen ${reRan}, bound words ${JSON.stringify(quietWatch.bound)}`);
+        note(`at0445 base move: bound words ${JSON.stringify(quietWatch.bound)}`);
         // The replay is the case that matters: a base move that left the head
         // where it was would prove only that nothing changed.
         expect(
@@ -579,7 +550,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         ).not.toBe(headBefore);
         expect(
           quietWatch.sheetSeen || (await shadeUp(app)),
-          "a replay onto a moved base is not new work, so it re-reconciles in silence",
+          "a replay onto a moved base is not new work, so it re-offers in silence",
         ).toBe(false);
         await app.body("A").evalJS<null>(`(window.__at0445.armSheet = false, null)`);
         expect(
@@ -620,35 +591,28 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           "and it needs no apology — these words ARE somebody's",
         ).not.toContain("no draft was written");
 
-        // ── And the unbound arc was left alone entirely ─────────────────
-        // Not merely unrevealed: unworked. The pilot only reconciles arcs
-        // bound to a live session, because a reconcile on an arc nobody is
-        // working is spent on nobody — and one commit on the base would
-        // otherwise re-qualify every arc in the repository at once. So its
-        // register never reaches `ready`, even though its facts are identical
-        // to the bound arc's and the base has moved underneath it.
+        // ── And the unbound arc is ready, and summons nobody ────────────
+        // Readiness is derived from the arc's own facts, so the quiet arc —
+        // whose facts are the bound one's — reads `ready` with nothing working
+        // it. What it must not do is reach the bound card's room: the offer
+        // that reveals a shade is that card's own arc's.
         //
         // Read off the recorder, which has watched the quiet row since the
-        // Arcs card first listed it — across the bind, both reconciles of the
-        // bound arc, the base move and the new round — rather than off a
-        // twenty-second window sampled at the end.
+        // Arcs card first listed it, rather than off a window sampled at the
+        // end.
         const whole = await readRecording(app);
         note(`at0445 the unbound arc's words across the run: ${JSON.stringify(whole.quiet)}`);
         expect(
           whole.quiet.includes("ready"),
-          "an unbound arc is never piloted, so its arc never runs at all",
-        ).toBe(false);
-        expect(
-          await registerWord(app, QUIET_ARC),
-          "and its row promises no check it will never run",
-        ).toBeNull();
+          "an unbound arc's readiness needs nothing to work it",
+        ).toBe(true);
         expect(
           await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"][data-arc="${QUIET_ARC}"] [data-slot="session-changes-arc-lands-as"]`)}) === null`,
           ),
           "and no row in the revealed shade offers to land the arc nobody is working",
         ).toBe(true);
-        note(`at0445 ${at()} unbound: never piloted, and its row says nothing at all`);
+        note(`at0445 ${at()} unbound: ready, and absent from the bound card's room`);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

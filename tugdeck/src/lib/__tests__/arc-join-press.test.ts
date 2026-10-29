@@ -69,9 +69,9 @@ describe("pressArcJoin", () => {
     ).toBe("pending");
   });
 
-  it("lands the ladder's candidate when one verifies", () => {
-    pressArcJoin({ ...PRESS, candidate: "abc123" });
-    expect(sent[0]?.body.candidate).toBe("abc123");
+  it("sends no candidate: a ready arc's join is a squash and a land", () => {
+    pressArcJoin(PRESS);
+    expect(sent[0]?.body.candidate).toBeUndefined();
   });
 
   it("sends nothing while a join is already in flight on that card", () => {

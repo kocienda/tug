@@ -29,7 +29,7 @@
  * @covers tugdeck/src/components/tugways/arc-join-register.css
  * @covers tugdeck/src/components/tugways/arc-join-register.tsx
  * @covers tugdeck/src/lib/fold-receipt-keep-store.ts
- * @covers tugdeck/src/lib/resolve-ledger.ts
+ * @covers tugdeck/src/lib/arc-join-fold.ts
  * @covers tugrust/crates/tugarc-core/src/ops/join.rs
  */
 

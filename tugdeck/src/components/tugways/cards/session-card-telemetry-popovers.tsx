@@ -2478,7 +2478,6 @@ export function useArcPopoverVerbs({
           arc: fact.name,
           boundSession: fact.boundSession,
           message: draft,
-          candidate: arcEntry?.join?.candidate,
         });
         return;
       default:

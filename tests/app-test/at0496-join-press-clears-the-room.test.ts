@@ -122,7 +122,7 @@ const row = (arc: string): string =>
   `${LANE} [data-slot="session-changes-arc-row"][data-arc="${arc}"]`;
 const landsAs = (arc: string): string =>
   `${row(arc)} [data-slot="session-changes-arc-lands-as"]`;
-const CANDIDATE = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
+const READY = `${CARD} [data-slot="arc-join-register"][data-word="ready"]`;
 
 /**
  * A transcript with more turns than the pane can show.
@@ -322,10 +322,10 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
           { timeoutMs: 20000 },
         );
 
-        // Entering join mode resolves the arc; the candidate standing is that
-        // resolution anchoring, and it is what the gate reads.
+        // The register reading `ready` is the offer standing, and it is what
+        // the gate reads.
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CANDIDATE)}) !== null`,
+          `document.querySelector(${JSON.stringify(READY)}) !== null`,
           { timeoutMs: 180000 },
         );
         expect(
@@ -341,7 +341,7 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
           "precondition: the shade is offering this arc",
         ).toBe(true);
 
-        lap("the candidate stands");
+        lap("the offer stands");
         // Scroll the transcript away from its live edge, and leave it there.
         //
         // This is the reader who has been looking back through the session —

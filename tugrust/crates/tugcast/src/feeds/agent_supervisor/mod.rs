@@ -74,8 +74,8 @@ use control::{
     parse_changeset_commit_payload, parse_changeset_delete_documents_payload,
     parse_changeset_discard_payload, parse_changeset_disclaim_payload,
     parse_changeset_draft_request_payload, parse_changeset_join_payload,
-    parse_changeset_join_question_answer_payload, parse_changeset_join_resolve_payload,
-    parse_changeset_replay_payload, parse_landing_receipt_payload,
+    parse_changeset_join_resolve_payload, parse_changeset_replay_payload,
+    parse_landing_receipt_payload,
 };
 mod ledger_entry;
 mod recorder;
@@ -2256,11 +2256,8 @@ impl AgentSupervisor {
             | A::ChangesetDraftSet
             | A::LandingReceipt
             | A::ChangesetJoin
-            | A::ChangesetJoinResolve
-            | A::ChangesetJoinResolveAgain
             | A::ChangesetJoinResolveBase
             | A::ChangesetJoinResolveBaseUndo
-            | A::ChangesetJoinQuestionAnswer
             | A::ChangesetDiscard
             | A::ChangesetDeleteDocuments
             | A::ChangesetReplay => self.handle_changeset_control(action, payload).await,
@@ -5363,47 +5360,6 @@ impl AgentSupervisor {
             inserted += 1;
         }
         Ok(inserted)
-    }
-
-    /// Install this supervisor as the join pilot's runner ([P01]).
-    ///
-    /// Called once from startup, after the supervisor is in its `Arc`. The
-    /// handle is weak: the pilot is a process-global and must not be what keeps
-    /// a supervisor alive.
-    pub fn register_pilot_runner(self: &Arc<Self>) {
-        crate::feeds::join_pilot::register_runner(Box::new(SupervisorPilotRunner {
-            supervisor: Arc::downgrade(self),
-        }));
-    }
-}
-
-/// The join pilot's runner, backed by the supervisor ([P01]).
-///
-/// The pilot's predicate runs on the changeset recompute, which is a cache with
-/// no route back to the supervisor — and the scribe context, the CONTROL
-/// sender, and the recompute bump all live on the supervisor. This is the
-/// bridge, and it is deliberately thin: it performs no admission and no mark
-/// work, both of which the pilot already did under its occupancy guard.
-struct SupervisorPilotRunner {
-    supervisor: std::sync::Weak<AgentSupervisor>,
-}
-
-#[async_trait::async_trait]
-impl crate::feeds::join_pilot::PilotRunner for SupervisorPilotRunner {
-    async fn reconcile(
-        &self,
-        project_dir: &str,
-        arc: &str,
-        occupancy: crate::feeds::join_occupancy::JoinOccupancy,
-    ) {
-        let Some(supervisor) = self.supervisor.upgrade() else {
-            return;
-        };
-        // The very same ladder a `changeset_join_resolve` press runs — scribe
-        // rung and resolver audit, ending at a standing candidate.
-        supervisor
-            .run_resolve_ladder(project_dir, arc, occupancy)
-            .await;
     }
 }
 

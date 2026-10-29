@@ -2212,9 +2212,15 @@ fn read(
         compact_turn_just_ended: memory.compact_turn_just_ended,
         yield_compacted: memory.yield_compacted,
         reask_pending: memory.reask_pending,
+        // Audited *and current*: a mark whose head or base has since moved is
+        // an audit that no longer describes the tree, so a re-audit seated
+        // over it is not finished by the mark it is there to replace.
         audit_declared: matches!(
             declarations.latest,
             Some(tugarc_core::log::ArcDeclaration::Audited)
+        ) && tugarc_core::log::audit_current(
+            &declarations,
+            &tugarc_core::ops::live_tips(project, name),
         ),
         // Runner memory, and the one fact this pass cannot gather: the count
         // is over turns the *previous* tick already saw, so `evaluate` stamps
@@ -3740,8 +3746,10 @@ async fn finish(
     // A finished arc keeps no memory at all. Nothing but the unseated clock's
     // own sweep ever removed an entry, so a completed arc's `last_motion_at`
     // and quiet count outlived it in the map for as long as tugcast ran. There
-    // is no stop to leave marks for here — the arc is done, not resumable —
-    // so the entry goes and nothing replaces it.
+    // is no stop to leave marks for here, so the entry goes and nothing
+    // replaces it. A done arc is resumable only at its audit, when that audit
+    // goes stale, and the `arc-resume audit` that reopens it is a fresh start
+    // the next tick seeds an entry for.
     state.lock().await.remove(key);
 }
 

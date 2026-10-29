@@ -72,11 +72,8 @@ describe("joinDisabledReason", () => {
   });
 
   it("names what the outcome is waiting on", () => {
-    expect(joinDisabledReason("outcome", "stale", "the arc has moved")).toBe(
-      "the arc has moved",
-    );
     expect(joinDisabledReason("outcome", "conflicted")).toBe(
-      "Resolve the conflicts first",
+      "The base moved past this arc's audit — it re-audits before it joins",
     );
     expect(joinDisabledReason("outcome", "blocked")).toBe(
       "Clear what blocks this join first",
@@ -87,33 +84,17 @@ describe("joinDisabledReason", () => {
 
 describe("deriveResolveFace", () => {
   it("gives the fold its own face, from the feed and from the press alike", () => {
-    // The two acts share the resolving phase, so a face read off the phase
-    // alone would dress a fold as the ladder and narrate rungs it has none of.
-    expect(deriveResolveFace("blocked", "resolving", null, "resolve-base")).toBe(
-      "folding",
-    );
+    expect(deriveResolveFace("resolving", "resolve-base")).toBe("folding");
     // And the client's own act stands in for the window before the recompute
     // that puts the hold on the entry.
-    expect(
-      deriveResolveFace("blocked", "resolving", null, null, "resolve-base"),
-    ).toBe("folding");
+    expect(deriveResolveFace("resolving", null, "resolve-base")).toBe("folding");
   });
 
-  it("leaves the ladder's face alone", () => {
-    expect(deriveResolveFace("conflicted", "resolving", null, null)).toBe(
-      "progress",
-    );
-    expect(deriveResolveFace("conflicted", "idle", null, "resolve")).toBe(
-      "progress",
-    );
-  });
-
-  it("keeps the candidate above the running phase", () => {
-    // What makes a resolution survive a reload: the phase is a client overlay
-    // that dies with the page, the candidate is a ref the server re-reports.
-    expect(deriveResolveFace("conflicted", "idle", "cafe1234", null)).toBe(
-      "resolved",
-    );
+  it("shows a refusal, and nothing when nothing runs or refuses", () => {
+    expect(deriveResolveFace("error", null)).toBe("error");
+    expect(deriveResolveFace("idle", null)).toBe("none");
+    // A join holding the arc is not the fold's face to show.
+    expect(deriveResolveFace("idle", "join")).toBe("none");
   });
 });
 
@@ -167,21 +148,20 @@ describe("arcFitSentence", () => {
 
 describe("refusalReasons", () => {
   it("is empty when nothing refuses", () => {
-    expect(refusalReasons(null, null, null)).toEqual([]);
-    expect(refusalReasons("", null, "")).toEqual([]);
+    expect(refusalReasons(null, null)).toEqual([]);
+    expect(refusalReasons("", "")).toEqual([]);
   });
 
-  it("carries each reason under its source's slot, stuck first", () => {
-    expect(refusalReasons("the resolver gave up", "answer refused", "join refused")).toEqual([
-      { slot: "session-changes-arc-join-stuck", text: "the resolver gave up" },
-      { slot: "session-changes-arc-join-resolve-error", text: "answer refused" },
+  it("carries each reason under its source's slot, the fold first", () => {
+    expect(refusalReasons("fold refused", "join refused")).toEqual([
+      { slot: "session-changes-arc-join-resolve-error", text: "fold refused" },
       { slot: "session-changes-arc-join-error", text: "join refused" },
     ]);
   });
 
   it("says a sentence once however many sources carry it", () => {
-    const said = "a resolve is already running for this arc";
-    expect(refusalReasons(null, said, said)).toEqual([
+    const said = "a resolve-base is already running for this arc";
+    expect(refusalReasons(said, said)).toEqual([
       { slot: "session-changes-arc-join-resolve-error", text: said },
     ]);
   });

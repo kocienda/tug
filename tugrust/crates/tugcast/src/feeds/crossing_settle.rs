@@ -230,7 +230,6 @@ async fn compose_once(ctx: &SettleContext, repo: &Path, name: &str, sib_a: &str,
         spawner: spawner.clone(),
         model: ctx.model.clone(),
         handle: tokio::runtime::Handle::current(),
-        recorder: None,
     });
     let result = {
         let paths = ctx.paths.clone();
@@ -278,7 +277,6 @@ pub async fn settle_once(
         spawner: spawner.clone(),
         model: ctx.model.clone(),
         handle: tokio::runtime::Handle::current(),
-        recorder: None,
     });
     let (pair, ladder, intent) = {
         let paths = ctx.paths.clone();

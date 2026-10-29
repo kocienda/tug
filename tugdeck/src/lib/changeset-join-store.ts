@@ -1,53 +1,29 @@
 /**
- * Changeset arc-join resolve overlay store — the `/btw`-style progress layer
- * over the resolution ladder's CONTROL frames (Spec S12, [P31]/[P32]).
+ * Changeset arc-join overlay store — the live layer over the join's own
+ * CONTROL frames: the base fold that clears a join's base-dirt blocker, its
+ * undo, and the join's narration.
  *
- * When the card asks tugcast to resolve a conflicted join, the ladder streams
- * `changeset_join_resolve_delta` frames — one ledger event each, every rung's
- * verdict, the scribe's and the resolver's beats — and finishes with
- * `changeset_join_resolve_ok` or `_err`.
- * This store keys that live state by `(workspace_key, arc)` and exposes it via
- * `useSyncExternalStore` ([L02]); the card renders a mini-transcript overlay
- * while resolving.
+ * A ready arc's join is a squash and a land: its audit verified the fit of
+ * exactly the tree the join lands, so there is nothing to resolve at the join
+ * and no resolve run for this store to follow. What it keys by
+ * `(workspace_key, arc)` and exposes via `useSyncExternalStore` ([L02]) is a
+ * fold in flight and the join's latest beat.
  *
- * **It holds the run, never the result.** The candidate the ladder builds, what
- * it decided per file and by which rung, and whether anybody has read that, are
- * written into git and reported on the arc's feed entry — so an `_ok` frame is
- * an *end-of-run* signal here and nothing more. The run's ledger is written
- * there too, event by event, and rides the entry as `join.ledger`; what this
- * store holds of it is only the **live tail** — the events this page heard
- * since the press, ahead of the recompute that carries them, and the
- * streaming beats that are never kept. That split is what makes the whole
- * overlay disposable: this state can be lost to a dropped socket, a reload,
- * or a relaunch without costing a resolution or its account, because neither
- * was ever only in it.
- *
- * **The client stops guessing at liveness.** There was once a silence clock
- * here — twelve seconds without a frame declared a run lost — and it was
- * removed rather than tuned. Its premise was per-chunk streaming, which is true
- * of the scribe rung and false of every other: the algorithmic rungs are git
- * work, and the resolver rung reports four discrete beats with minutes of
- * legitimate quiet between them. So the clock measured nothing and declared
- * healthy work dead, in a sentence nobody could act on. Liveness for a run is
- * the **server's** to bound — a per-turn silence bound, a tier-0 timeout, an
- * overall deadline, each landing in the durable stuck fact naming which one
- * fired.
- *
- * What survives is the one liveness fact this client can honestly see: **the
- * wire dropping**, which `connectionDidClose` observes the instant it happens
- * and turns into a stated failure. A state left in `resolving` forever would be
- * an arc with a spinner and no way back, so that arm stays.
+ * **It holds the run, never the result.** What a fold committed is in git and
+ * comes back on the arc's feed entry, so this state can be lost to a dropped
+ * socket, a reload or a relaunch without costing anything. The one liveness
+ * fact this client can honestly see is **the wire dropping**, which
+ * `connectionDidClose` observes the instant it happens and turns into a stated
+ * failure, so a fold is never left showing a spinner with no way back.
  *
  * **A press, though, is bounded** ([P03]). Every press arms one timer of
  * {@link PRESS_ACKNOWLEDGEMENT_MS}, cleared by the first frame naming the cell
  * or the first feed snapshot whose `join.run` names the act. It measures
  * whether the *press was heard*, not whether the run is alive — the server
  * takes its occupancy hold before any git work, so acknowledgement arrives
- * seconds after the press however long the act itself runs. That is the whole
- * of the difference from the clock above, and the reason this one may exist
- * while that one may not: a resolve that goes quiet for ten minutes is still
- * working and is left alone, while a press nothing ever answered has no other
- * ending than the spinner this surface may never show.
+ * seconds after the press however long the act itself runs. A press nothing
+ * ever answered has no other ending than the spinner this surface may never
+ * show.
  *
  * **And the ending comes from the feed** ([P02]). {@link
  * ChangesetJoinStore.observeFeed} settles a run from the arc's own entry, so
@@ -55,12 +31,13 @@
  *
  * **The join narrates itself too** ([P03]). `changeset_join_land_delta` frames
  * arrive as the join moves through squash → teardown → release → record, and
- * this store holds the latest beat per arc beside the resolve progress. Same
+ * this store holds the latest beat per arc beside the fold's progress. Same
  * rule applies: a beat is a liveness hint, the feed recompute is the truth, and
  * losing every beat costs the progress line and nothing else.
  *
  * Attached once at boot with {@link attachChangesetJoinStore}; consumed via
- * {@link useChangesetJoinResolve} and {@link useChangesetJoinLand}.
+ * {@link useChangesetJoinResolve} (the fold's overlay) and
+ * {@link useChangesetJoinLand}.
  *
  * @module lib/changeset-join-store
  */
@@ -70,75 +47,37 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
 import type { TugConnection } from "../connection";
-import type {
-  ArcJoinLedgerEventWire,
-  WorkspacesChangesetSnapshot,
-} from "./changeset-types";
+import type { WorkspacesChangesetSnapshot } from "./changeset-types";
 import { FeedId } from "../protocol";
 import { getConnectionLifecycle } from "./connection-lifecycle";
 
 export type ResolvePhase = "idle" | "resolving" | "error";
 
 /**
- * The live-only text each stream holds: replaced on every beat, never kept.
- * The scribe's is the tail of the file it is writing ([P03]).
- */
-export interface ResolveStream {
-  /** `at_ms` is the beat's own wall clock — what a live band counts silence from. */
-  scribe?: { path: string; text: string; at_ms?: number };
-  resolver?: { turn: number; text: string; tool?: string; at_ms?: number };
-}
-
-/** How many lines of the scribe's file a stream holds. */
-export const SCRIBE_STREAM_LINES = 8;
-
-/**
- * The live resolve state for one arc — an overlay, and only an overlay.
- *
- * What the ladder *built* is not here. The candidate, the per-file resolutions
- * and their rungs, and whether anybody has read them all live on the arc's
- * feed entry, written into git by the server before it bumps the feed. So this
- * holds the three things that are genuinely ephemeral: a run is in flight, what
- * it has said so far, and — when it stopped talking — why the client gave up
- * waiting.
+ * The live fold state for one arc — an overlay, and only an overlay: a fold
+ * is in flight, and — when one stopped — why.
  */
 export interface ResolveState {
   phase: ResolvePhase;
-  /** The run the live events belong to, absent before the first delta. */
-  run?: string;
-  /** Kept-kind events received live, in `seq` order. */
-  events: readonly ArcJoinLedgerEventWire[];
-  /** The latest live-only text per stream. */
-  stream: ResolveStream;
   /**
    * Why the last thing the user asked for did not happen.
    *
-   * Set with `phase === "error"` when a run itself failed, and *without*
-   * touching the phase when a side press was refused — answering a question
-   * nobody is waiting on, or overriding a candidate that no longer stands.
-   * Those refusals arrive while a run may still be perfectly healthy, so
-   * routing them through the phase would paint live work as a failure, which
-   * is the false-error class this round exists to remove. What they may never
-   * do is vanish ([L31]).
+   * Set with `phase === "error"` when a fold itself failed, and *without*
+   * touching the phase when a side press was refused — an undo, or a second
+   * press on an arc a run already holds. Those refusals arrive while a run may
+   * still be perfectly healthy, so routing them through the phase would paint
+   * live work as a failure. What they may never do is vanish ([L31]).
    */
   error: string | null;
   /**
    * Which press opened this run ([P02], Spec S05) — absent when none is open.
-   *
-   * The two acts share the resolving phase because the card shows one
-   * register, but they do not share a terminal condition: a `resolve-base` is
-   * over when the base-dirt blocker is gone, a `resolve` when the run the feed
-   * was showing is no longer there. {@link ChangesetJoinStore.observeFeed}
-   * needs to know which of the two it is watching for, and this is the only
-   * place that fact exists.
+   * A `resolve-base` is over when the base-dirt blocker is gone.
    */
-  act?: "resolve" | "resolve-base";
+  act?: "resolve-base";
 }
 
 const IDLE: ResolveState = Object.freeze({
   phase: "idle",
-  events: Object.freeze([]) as readonly ArcJoinLedgerEventWire[],
-  stream: Object.freeze({}) as ResolveStream,
   error: null,
 });
 
@@ -149,9 +88,9 @@ const IDLE: ResolveState = Object.freeze({
  * hold before any git work, so `join.run` names the act on the recompute that
  * follows the press — seconds later, whatever the act itself goes on to cost.
  * That is why this is not the silence clock the docblock above says was
- * removed and stays removed: a resolve is allowed to take minutes in silence,
- * and nothing here will call it dead for doing so. What this catches is the
- * press nothing ever heard, whose only other ending is a spinner forever.
+ * removed and stays removed: a fold may take its time, and nothing here will
+ * call it dead for doing so. What this catches is the press nothing ever
+ * heard, whose only other ending is a spinner forever.
  */
 export const PRESS_ACKNOWLEDGEMENT_MS = 60_000;
 
@@ -202,67 +141,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === "string");
-}
-
-/** The last `n` lines of `text`. */
-function tailLines(text: string, n: number): string {
-  const lines = text.split("\n");
-  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-  return lines.slice(-n).join("\n");
-}
-
-/**
- * Fold one delta frame into a cell's ledger (Spec S02).
- *
- * A new `run` drops what the cell held of the last one. A kept-kind event is
- * appended only past the last `seq` held, so a frame that arrives twice draws
- * once. A streaming beat replaces its stream's slot and is never kept.
- */
-function foldDelta(
-  prev: ResolveState,
-  body: Record<string, unknown>,
-): Pick<ResolveState, "run" | "events" | "stream"> {
-  const run = typeof body.run === "string" ? body.run : prev.run;
-  const fresh = run !== prev.run;
-  let events = fresh ? [] : prev.events;
-  let stream: ResolveStream = fresh ? {} : prev.stream;
-  const event = body.event;
-  if (
-    isRecord(event) &&
-    typeof event.kind === "string" &&
-    typeof event.seq === "number"
-  ) {
-    const wire = event as unknown as ArcJoinLedgerEventWire;
-    if (wire.kind === "scribe" && wire.status === "streaming") {
-      stream = {
-        ...stream,
-        scribe: {
-          path: wire.path,
-          text: tailLines(wire.text ?? "", SCRIBE_STREAM_LINES),
-          at_ms: wire.at_ms,
-        },
-      };
-    } else if (wire.kind === "resolver" && wire.status === "streaming") {
-      stream = {
-        ...stream,
-        resolver: {
-          turn: wire.turn,
-          text: wire.text ?? "",
-          ...(wire.tool !== undefined ? { tool: wire.tool } : {}),
-          at_ms: wire.at_ms,
-        },
-      };
-    } else {
-      const last = events.length > 0 ? events[events.length - 1]!.seq : -1;
-      if (wire.seq > last) events = [...events, wire];
-    }
-  }
-  return { ...(run !== undefined ? { run } : {}), events, stream };
-}
-
 export class ChangesetJoinStore extends Subscribable {
   private readonly _connection: TugConnection;
   private readonly _unsubscribe: () => void;
@@ -290,21 +168,6 @@ export class ChangesetJoinStore extends Subscribable {
     string,
     ReturnType<typeof setTimeout>
   >();
-  /**
-   * The cells whose run the feed has actually shown, which the ladder's settle
-   * rule needs ([P02]): `join.run` absent on the first snapshot after a press
-   * is the server not having recomputed yet, and reading it as "the run ended"
-   * would put the overlay away before the run began.
-   *
-   * **Only the feed writes here.** A CONTROL frame is proof the press was
-   * heard, which is a different fact and stands the deadline down on its own;
-   * it is *not* proof the server has published the hold. Counting a delta as
-   * the seen half would let a recompute that was already in flight when the
-   * press went out — one that predates the hold, so `run` is absent on it —
-   * read as "seen, then gone" and put the overlay away over a ladder with
-   * minutes left to run.
-   */
-  private readonly _runSeenOnFeed = new Set<string>();
 
   constructor(connection: TugConnection) {
     super();
@@ -312,12 +175,12 @@ export class ChangesetJoinStore extends Subscribable {
     this._unsubscribe = connection.onFrame(FeedId.CONTROL, (payload) =>
       this._onControl(payload),
     );
-    // A ladder run is a request whose only answer is a frame. If the wire drops
+    // A fold is a request whose only answer is a frame. If the wire drops
     // between the request and that frame, the answer is gone for good — the
     // server broadcast it to a socket that was already closed, and the
     // post-reconnect handshake replays feeds, not a CONTROL reply that has
     // already been sent. Without this the arc sits in `resolving` for the life
-    // of the page: Resolve gone, no progress, no error, no way back.
+    // of the page: no progress, no error, no way back.
     //
     // Same channel `code-session-store` uses to fail a turn in flight, for the
     // same reason.
@@ -359,20 +222,6 @@ export class ChangesetJoinStore extends Subscribable {
     this._set(k, { ...prev, phase: "error", error: reason });
   }
 
-  /**
-   * The feed named this cell's act as running: stand the deadline down, and
-   * remember that the run was *seen*.
-   *
-   * Both facts at once, and only from the feed. A CONTROL frame acknowledges
-   * the press too — it calls {@link ChangesetJoinStore._clearDeadline}
-   * directly — but it says nothing about whether the server has published the
-   * hold, which is what the ladder's settle rule reads.
-   */
-  private _sawRunOnFeed(k: string): void {
-    this._clearDeadline(k);
-    this._runSeenOnFeed.add(k);
-  }
-
   private _clearDeadline(k: string): void {
     const timer = this._deadlines.get(k);
     if (timer === undefined) return;
@@ -381,7 +230,7 @@ export class ChangesetJoinStore extends Subscribable {
   }
 
   /** Arm the acknowledgement deadline for a press just sent. */
-  private _armDeadline(k: string, act: "resolve" | "resolve-base"): void {
+  private _armDeadline(k: string): void {
     this._clearDeadline(k);
     this._deadlines.set(
       k,
@@ -390,9 +239,7 @@ export class ChangesetJoinStore extends Subscribable {
         if ((this._states.get(k) ?? IDLE).phase !== "resolving") return;
         this._fail(
           k,
-          act === "resolve-base"
-            ? "Resolve got no answer in 60 seconds — the fold may still have run; this row updates when the feed does."
-            : "The resolve got no answer in 60 seconds — it may still be running; this row updates when the feed does.",
+          "Resolve got no answer in 60 seconds — the fold may still have run; this row updates when the feed does.",
         );
       }, _pressAcknowledgementMs),
     );
@@ -408,13 +255,10 @@ export class ChangesetJoinStore extends Subscribable {
     if (!isRecord(body) || typeof body.action !== "string") return;
     const action = body.action;
     if (
-      action !== "changeset_join_resolve_delta" &&
-      action !== "changeset_join_resolve_ok" &&
       action !== "changeset_join_resolve_base_ok" &&
       action !== "changeset_join_resolve_base_undo_ok" &&
       action !== "changeset_join_resolve_base_undo_err" &&
       action !== "changeset_join_resolve_err" &&
-      action !== "changeset_join_question_answer_err" &&
       action !== "changeset_join_land_delta" &&
       action !== "changeset_join_ok" &&
       action !== "changeset_join_err"
@@ -429,12 +273,9 @@ export class ChangesetJoinStore extends Subscribable {
     const arc = typeof body.arc === "string" ? body.arc : null;
     if (workspaceKey === null || arc === null) return;
     const k = key(workspaceKey, arc);
-    const prev = this._states.get(k) ?? IDLE;
     // Any frame naming this cell is proof the press was heard ([P03]) — a
-    // delta, an error, or the result itself. What it says is the next
-    // paragraphs' business; that it exists is this one's. It stands the
-    // deadline down and stops there: whether the *run* has been seen is the
-    // feed's word alone ({@link ChangesetJoinStore._runSeenOnFeed}).
+    // beat, an error, or the result itself. What it says is the next
+    // paragraphs' business; that it exists is this one's.
     this._clearDeadline(k);
 
     // The join's own narration ([P03]). A hint and nothing more: the feed
@@ -472,24 +313,6 @@ export class ChangesetJoinStore extends Subscribable {
       return;
     }
 
-    // A press that changed nothing has to say so. This is a refusal of a
-    // *side* act — the run it belongs to, if there is one, is unharmed — so it
-    // lands as a stated reason and leaves the phase where it was.
-    if (action === "changeset_join_question_answer_err") {
-      const detail = typeof body.detail === "string" ? body.detail : null;
-      this._note(k, detail ?? "That answer was not delivered");
-      return;
-    }
-    if (action === "changeset_join_resolve_delta") {
-      this._set(k, {
-        ...prev,
-        ...foldDelta(prev, body),
-        phase: "resolving",
-        error: null,
-      });
-      return;
-    }
-
     if (action === "changeset_join_resolve_base_ok") {
       // Everything it did is already in git, and the blockers are never
       // cached — so the recompute this triggered is the whole of the update,
@@ -514,34 +337,7 @@ export class ChangesetJoinStore extends Subscribable {
       return;
     }
 
-    if (action === "changeset_join_resolve_ok") {
-      // A late answer still counts. Nothing here ever cancelled anything — the
-      // ladder ran to completion server-side whatever this client believed —
-      // so a result that turns up after a dropped wire is true, and takes the
-      // face back off the error it was showing.
-      const unresolved = readStringArray(body.unresolved);
-      if (unresolved.length > 0) {
-        // The ladder's honest dead end, and the one terminal fact the feed
-        // cannot state: the arc's conflicts will still be there, but nothing
-        // on the entry says a run just tried them and stopped. Re-running
-        // decides nothing new, so the sentence names the files instead.
-        this._set(k, {
-          phase: "error",
-          ...(prev.run !== undefined ? { run: prev.run } : {}),
-          events: prev.events,
-          stream: prev.stream,
-          error: `Still conflicting — resolve by hand: ${unresolved.join(", ")}`,
-        });
-        return;
-      }
-      // Everything else the run produced — the candidate, each file's rung and
-      // diff — is already in git and already on its way back as feed state, so
-      // the overlay's whole job is to get out of the way.
-      this._set(k, IDLE);
-      return;
-    }
-
-    // changeset_join_resolve_err — the ladder's own refusal, which is a better
+    // changeset_join_resolve_err — the fold's own refusal, which is a better
     // answer than any this store could invent, late or not.
     const detail =
       typeof body.detail === "string" ? body.detail : "resolve failed";
@@ -559,9 +355,9 @@ export class ChangesetJoinStore extends Subscribable {
   /**
    * State a reason on an arc without claiming its run failed (`null` clears).
    *
-   * The phase is untouched: a refused answer or a refused override says
-   * something about the press, not about the ladder, and a resolve that is
-   * still working must keep rendering as work.
+   * The phase is untouched: a refused press says something about the press,
+   * not about the run, and a fold that is still working must keep rendering
+   * as work.
    */
   private _note(k: string, reason: string | null): void {
     const prev = this._states.get(k) ?? IDLE;
@@ -584,15 +380,8 @@ export class ChangesetJoinStore extends Subscribable {
     // through the other door.
     if (next.phase !== "resolving") {
       this._clearDeadline(k);
-      this._runSeenOnFeed.delete(k);
       if (next.act !== undefined) {
-        next = {
-          phase: next.phase,
-          ...(next.run !== undefined ? { run: next.run } : {}),
-          events: next.events,
-          stream: next.stream,
-          error: next.error,
-        };
+        next = { phase: next.phase, error: next.error };
       }
     }
     // Idle is the absence of a run, but a stated reason is not absence: a
@@ -607,66 +396,8 @@ export class ChangesetJoinStore extends Subscribable {
   }
 
   /**
-   * Send `changeset_join_resolve` and mark the arc resolving (fresh state),
-   * on a clock.
-   *
-   * Pressing again while a run is live is **refused by the server**, by name.
-   * That used to be free — the ladder built its candidate off to the side and
-   * touched no checkout — but a resolve now owns a workshop worktree that a
-   * second run would `reset --hard` under the first one's live resolver. One
-   * arc admits one run; the refusal arrives as a `changeset_join_resolve_err`
-   * naming what holds it.
-   */
-  resolve(workspaceKey: string, arc: string): void {
-    const k = key(workspaceKey, arc);
-    this._set(k, {
-      phase: "resolving",
-      events: [],
-      stream: {},
-      error: null,
-      act: "resolve",
-    });
-    this._armDeadline(k, "resolve");
-    this._connection.sendControlFrame("changeset_join_resolve", {
-      project_dir: workspaceKey,
-      arc: arc,
-    });
-  }
-
-  /**
-   * Send `changeset_join_resolve_again`: the same run as {@link resolve}, with
-   * the server stamping the join pilot's head-pair mark first.
-   *
-   * It is offered over a ledger whose candidate no longer applies, where the
-   * pilot has already tried this pair and will not try it again on its own;
-   * the press is the user overruling that. Everything on this side is the
-   * ordinary resolve — the same fresh cell, the same act, the same deadline.
-   */
-  resolveAgain(workspaceKey: string, arc: string): void {
-    const k = key(workspaceKey, arc);
-    this._set(k, {
-      phase: "resolving",
-      events: [],
-      stream: {},
-      error: null,
-      act: "resolve",
-    });
-    this._armDeadline(k, "resolve");
-    this._connection.sendControlFrame("changeset_join_resolve_again", {
-      project_dir: workspaceKey,
-      arc: arc,
-    });
-  }
-
-  /**
    * Send `changeset_join_resolve_base`: clear the uncommitted base work that
    * is refusing this arc's join.
-   *
-   * A different act from {@link resolve}, which reconciles a conflicted merge
-   * — this clears what is refusing the merge in the first place. They share
-   * the resolving phase and the error frame, because the card shows one
-   * register and a second vocabulary for "a resolve is running" would be a
-   * second thing to keep in step.
    *
    * It clears the block and stops. Landing stays the user's own gesture.
    */
@@ -674,12 +405,10 @@ export class ChangesetJoinStore extends Subscribable {
     const k = key(workspaceKey, arc);
     this._set(k, {
       phase: "resolving",
-      events: [],
-      stream: {},
       error: null,
       act: "resolve-base",
     });
-    this._armDeadline(k, "resolve-base");
+    this._armDeadline(k);
     this._connection.sendControlFrame("changeset_join_resolve_base", {
       project_dir: workspaceKey,
       arc: arc,
@@ -715,13 +444,8 @@ export class ChangesetJoinStore extends Subscribable {
    * the overlay comes down on the next recompute either way, which is the rule
    * `changeset_join_land_delta` already follows.
    *
-   * Each act has its own ending, which is why the cell records which one it is.
    * A `resolve-base` is over when no `base-dirt` blocker remains and no fold
-   * still holds the arc — the blocker's absence *is* the outcome. A `resolve`
-   * has no such fact to read, so it ends when the run the feed was showing is
-   * no longer showing: seen, then gone. The seen half is not optional, because
-   * the snapshot in hand at the moment of a press predates the server's hold,
-   * and `run` absent on it means "not yet" rather than "finished".
+   * still holds the arc — the blocker's absence *is* the outcome.
    *
    * Wired from `main.tsx` on every `ChangesetAllStore` notification and once at
    * attach, mirroring that store's own initial drain.
@@ -739,27 +463,14 @@ export class ChangesetJoinStore extends Subscribable {
 
         const join = entry.join;
         if (join?.run === act) {
-          this._sawRunOnFeed(k);
+          this._clearDeadline(k);
           continue;
         }
 
-        // A run the server declares stuck has said why, durably, on the entry
-        // the face renders. The overlay has nothing to add and every reason to
-        // get out of the way of a sentence better than any it could invent.
-        if (typeof join?.stuck === "string" && join.stuck !== "") {
-          this._set(k, IDLE);
-          continue;
-        }
-
-        if (act === "resolve-base") {
-          const blocked = (join?.blockers ?? []).some(
-            (blocker) => blocker.kind === "base-dirt",
-          );
-          if (!blocked) this._set(k, IDLE);
-          continue;
-        }
-
-        if (this._runSeenOnFeed.has(k)) this._set(k, IDLE);
+        const blocked = (join?.blockers ?? []).some(
+          (blocker) => blocker.kind === "base-dirt",
+        );
+        if (!blocked) this._set(k, IDLE);
       }
     }
   }
@@ -802,31 +513,6 @@ export class ChangesetJoinStore extends Subscribable {
     }
     this._landingArcs.set(workspaceKey, next);
     return next;
-  }
-
-  /**
-   * Answer the escalation a blocked resolve raised ([P06]).
-   *
-   * `requestId` is what makes the answer safe: the resolver may have expired,
-   * or a later resolve may have asked something else, and an answer must never
-   * resolve a question it was not written for. `answer` is an option label or
-   * the user's own words, and reaches the resolver verbatim either way.
-   *
-   * The reply says whether anybody was still waiting — a question that expired
-   * refuses rather than absorbing the press.
-   */
-  answerQuestion(
-    workspaceKey: string,
-    arc: string,
-    requestId: string,
-    answer: string,
-  ): void {
-    this._connection.sendControlFrame("changeset_join_question_answer", {
-      project_dir: workspaceKey,
-      arc: arc,
-      request_id: requestId,
-      answer,
-    });
   }
 
   /**
@@ -885,7 +571,6 @@ export class ChangesetJoinStore extends Subscribable {
     this._unobserveClose();
     for (const timer of this._deadlines.values()) clearTimeout(timer);
     this._deadlines.clear();
-    this._runSeenOnFeed.clear();
     this._land.clear();
     this.clearListeners();
   }
@@ -926,14 +611,13 @@ export function _ingestJoinFrameForTest(body: unknown): void {
 }
 
 /**
- * React hook: the live resolve state for one arc plus its triggers. Returns
- * idle + no-op triggers when no store is attached (gallery / fixtures).
+ * React hook: the live fold state for one arc plus its clear. Returns idle and
+ * a no-op when no store is attached (gallery / fixtures).
  */
 export function useChangesetJoinResolve(
   workspaceKey: string,
   arc: string,
 ): ResolveState & {
-  resolve: () => void;
   clear: () => void;
 } {
   const state = useSyncExternalStore(
@@ -945,13 +629,10 @@ export function useChangesetJoinResolve(
     () => _activeStore?.state(workspaceKey, arc) ?? IDLE,
     () => IDLE,
   );
-  const resolve = (): void => {
-    _activeStore?.resolve(workspaceKey, arc);
-  };
   const clear = (): void => {
     _activeStore?.clear(workspaceKey, arc);
   };
-  return { ...state, resolve, clear };
+  return { ...state, clear };
 }
 
 /**

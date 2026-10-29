@@ -67,6 +67,29 @@ A present branch and worktree return as-is (`created: false`), so on a healthy r
 
 **Read the arc's `baseline.md` too if the implement stage left one.** It records what was already red before the first step, which is the difference between a defect this arc introduced and one it inherited.
 
+### 1b. A re-audit sizes itself first
+
+An arc comes back to this stage after it was audited once, when its audit has gone stale: a round landed after the mark, or the base moved and the machine could not re-stamp the audit itself — the replay conflicted, the fit was red or refused, or there was nothing it could run. Tell the two apart from the arc's own record:
+
+```bash
+tugtool arc status <name> --json
+```
+
+**`audited_at` present means this is a re-audit.** It carries the `head` and `base` the standing mark was made against; a first audit has none. A re-audit is not a second cold read of the whole arc — that work is done, and its findings are in the mark's note and the draft. It opens by sizing what moved, from the worktree:
+
+```bash
+git range-diff <audited_at.head>...HEAD
+git diff --name-only <audited_at.base> <base_branch>
+```
+
+The first pairs the rounds as the audit saw them with the rounds as they stand, through any replay: `=` is a round unchanged, `!` a round that changed, and an unpaired one landed after the audit. The second is what the base brought in. Name the paths, then replay (§5) and declare **one size before any other work**:
+
+- **re-stamp** — no round landed or changed, the replay is clean, and the fit is green. Verify the fit as §5 says, keep the draft, mark, and stop. This is the machine's own quiet case, reaching you only because it had nothing it could run or could not run here.
+- **fold** — rounds landed or changed, and the replay is clean. Read those rounds' diffs and judge them by §3; verify only the surfaces their paths resolve to — `tugtool arc verify <name> --base <audited_at.head>` when the base did not move, the whole arc's verify when it did, since the replay moved every path. Amend the draft for what the rounds changed, and mark.
+- **full, scoped** — the replay conflicted, or the fit is red or refused. Run the audit flow (§2–§5) over the conflicting and red paths only, resolving and fixing as ordinary rounds, carrying the first audit's findings rather than re-deriving them. Rewrite the draft as §6 says, and mark.
+
+Say the size in **one transcript line** before the work it sizes, naming what moved — `re-audit: fold — one round, two surfaces, draft amended`. A re-audit that reads the whole arc again cold is the waste this rung exists to prevent; one that cannot say which size it chose has not triaged.
+
 ### 2. Read the whole diff, cold
 
 ```bash
@@ -123,7 +146,7 @@ On **`Replayed`** / **`Recorded`** the tree moved — verify it with `tugtool ar
 
 ### 6. Write the join draft
 
-The draft is the squash message the user's join will land, and it is the only durable prose the base will ever carry about this arc. **The audit is its author of record.** The implement stage left a provisional one, and it is the starting text rather than the message: this stage has read the whole diff cold and is the last to touch the tree, so its account is the one that describes what lands — whether or not the audit changed a byte. Rewrite it, always, and do not leave it standing on the grounds that nothing moved:
+The draft is the squash message the user's join will land, and it is the only durable prose the base will ever carry about this arc. **The audit is its author of record.** The implement stage left a provisional one, and it is the starting text rather than the message: this stage has read the whole diff cold and is the last to touch the tree, so its account is the one that describes what lands — whether or not the audit changed a byte. Rewrite it, always, and do not leave it standing on the grounds that nothing moved. The one exception is a re-audit sized **re-stamp** (§1b), whose draft was written by the audit that read these same rounds: it stands. A **fold** amends it for the rounds that moved.
 
 ```bash
 tugtool draft set --owner arc:<name> --message "<subject + durable body>"

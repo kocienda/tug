@@ -31,8 +31,6 @@ export interface ArcJoinPress {
   boundSession: string;
   /** The arc's maintained draft message. */
   message: string;
-  /** A resolved candidate commit from the ladder, when one still verifies. */
-  candidate?: string | undefined;
 }
 
 /** The client-local entry key a session's Changes controller records under. */
@@ -57,11 +55,8 @@ export function pressArcJoin(press: ArcJoinPress): boolean {
     preview: false,
     message: press.message,
     sessionId: press.boundSession,
-    ...(press.candidate !== undefined && press.candidate !== ""
-      ? { candidate: press.candidate }
-      : {}),
   });
-  // On a landing, clear the ladder's candidate as the composer does, so a
+  // On a landing, clear the arc's overlay cell as the composer does, so a
   // reused arc name never inherits a stale one.
   const unsubscribe = verbStore.subscribe(() => {
     const phase = verbStore.joinState(entryKey).phase;

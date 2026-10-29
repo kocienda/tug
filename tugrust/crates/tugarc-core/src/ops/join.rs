@@ -8,10 +8,10 @@ use std::time::{Duration, SystemTime};
 use tugcore::instance::Paths;
 
 use super::{
-    ArcDetail, BRANCH_PREFIX, arc_base, arc_detail_entry_in, arc_owner_key, branch_exists,
-    branch_name, commit_worktree_dirt, config_get, current_branch, dirty_tracked_paths,
-    documents_dir, fit_fact, git_output, git_paths_or_empty, git_stdout, git_write,
-    git_write_on_the_merits, listing_error, main_repo_root, reconcile_branches,
+    ArcDetail, BRANCH_PREFIX, arc_base, arc_detail_entry_in, arc_owner_key, arc_tips,
+    branch_exists, branch_name, commit_worktree_dirt, config_get, current_branch,
+    dirty_tracked_paths, documents_dir, fit_fact, git_output, git_paths_or_empty, git_stdout,
+    git_write, git_write_on_the_merits, listing_error, main_repo_root, reconcile_branches,
     remove_arc_worktree, retry_past_index_lock, untracked_paths, with_arc_trailers, worktree_path,
 };
 use crate::error::ArcError;
@@ -2658,9 +2658,11 @@ fn finish_join_teardown(
     // terminal line written: both are gone by the time the outcome is read,
     // and a fact read afterwards would be no fact at all.
     let fit = fit_fact(
-        repo_root,
-        branch,
-        &arc_base(repo_root, name).unwrap_or_default(),
+        &arc_tips(
+            repo_root,
+            branch,
+            &arc_base(repo_root, name).unwrap_or_default(),
+        ),
         &read_declarations(paths, repo_root, name),
     );
     if progress.phase == crate::oplog::JoinPhase::Integrated {

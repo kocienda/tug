@@ -862,7 +862,7 @@ pub struct ArcFit {
 /// it did, and an older server sends none, which parses as "nothing to say".
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ArcJoinState {
-    /// `blocked` | `previewed` | `conflicted` | `resolved`.
+    /// `blocked` | `previewed` | `conflicted`.
     ///
     /// **Derived on every recompute, never stored.** The board reads git and
     /// assembles; there is no state machine holding a phase that reality could
@@ -881,87 +881,42 @@ pub struct ArcJoinState {
     /// What the base did to each conflicted path since the two sides parted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub archaeology: Vec<ArcConflictHistory>,
-    /// The resolved candidate commit, present only when it still verifies
-    /// against the current base and arc heads. Present means `phase` is
-    /// `resolved`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub candidate: Option<String>,
-    /// The ladder's per-file results — the resolver report's citation layer.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub resolved: Vec<ArcResolvedFile>,
-    /// A candidate existed but no longer describes the current heads: the
-    /// sentence names which side moved. The board drops the stale candidate
-    /// when it says this, so the state demotes itself rather than lying.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stale_note: Option<String>,
-    /// What the resolver did and why, for the candidate that stands ([P10]).
-    ///
-    /// Anchored to the candidate sha the same way the verdict is, so a report
-    /// never outlives the resolution it describes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report: Option<ArcJoinReport>,
-    /// Why the resolve stopped short, when it did.
-    ///
-    /// A resolve that fails must say so in a sentence somebody can act on — a
-    /// protocol violation, an unaccounted path, an exhausted iteration budget.
-    /// Silence here would be the face's worst state: a join that will not
-    /// proceed and cannot say why.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stuck: Option<String>,
-    /// The intent question the resolver is waiting on, if it raised one.
-    ///
-    /// Durable state rather than a live CONTROL frame, because CONTROL is
-    /// droppable by design: a reload during a blocked resolve must re-render
-    /// the question, not lose it and leave the resolver waiting on an answer
-    /// nobody can give.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub question: Option<ArcJoinQuestion>,
-    /// What is running on this arc right now — `"resolve"`, `"resolve-base"`
-    /// or `"verify"` — and absent when nothing is (Spec S01).
+    /// What is running on this arc right now — `"join"` or `"resolve-base"`
+    /// — and absent when nothing is (Spec S01).
     ///
     /// The one fact here that is not durable, deliberately: occupancy is
     /// in-process state, so a restart clears it by construction. It is on the
-    /// wire because a reload mid-resolve otherwise renders a running resolve as
+    /// wire because a reload mid-run otherwise renders a running fold as
     /// absence — the server knows, so the wire should say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<String>,
     /// The join this arc is ready for, standing until it is taken or the work
     /// moves on.
     ///
-    /// Raised once the pilot's work is done and a candidate stands. Durable and
-    /// derived rather than pushed, for the same reason [`ArcJoinQuestion`] is:
-    /// a fact that a reload can lose is a fact that leaves a built arc sitting
+    /// Raised when the arc is ready — its audit stands on the live base, so
+    /// its fit was verified against exactly the tree the join lands — and
+    /// nothing refuses or occupies it. Durable and derived rather than pushed:
+    /// a fact that a reload can lose is a fact that leaves a ready arc sitting
     /// unmentioned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<ArcJoinOffer>,
-    /// What this ready arc needs from the user, if anything: its `offer`
-    /// stands, its last resolve is `stuck`, or a `question` waits.
-    ///
-    /// One fact rather than three to compare, because the surface that
-    /// reveals itself on "this arc needs you" keys on it: the key changes
-    /// when the stuck line or the question changes, so a new refusal after a
-    /// seen offer is new work, and it is absent while a run is live, because
-    /// a machine still working needs nobody. Derived like everything else
-    /// here, on every recompute.
+    /// What this ready arc needs from the user: present while its `offer`
+    /// stands. The surface that reveals itself on "this arc needs you" keys
+    /// on it, by the arc's work rather than its heads, so a replay that
+    /// rewrites the head does not re-reveal the same work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attention: Option<ArcJoinAttention>,
     /// The fold that stands over this arc — the base work committed to clear
     /// its join, when one has been and has not been undone or superseded.
     ///
-    /// Durable, and read from the op log rather than pushed, for the reason
-    /// [`ArcJoinQuestion`] is: a receipt a reload can lose is a receipt the
-    /// user cannot check the act against, and this one names a commit made on
+    /// Durable, and read from the op log rather than pushed: a receipt a
+    /// reload can lose is a receipt the user cannot check the act against,
+    /// and this one names a commit made on
     /// *their* base out of *their* uncommitted work. Reported on the blocked
     /// and unblocked arms alike, because the fold is a thing that happened
     /// rather than a state the arc is in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_base: Option<ArcResolvedBase>,
-    /// The last resolve run's ledger, as it was recorded (Spec S04): every act
-    /// the ladder, the scribe and the resolver took, in order. Durable — it
-    /// rides every recompute, so a reload and a second deck draw the same
-    /// ledger the pressing deck watched being written.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ledger: Option<ArcJoinLedger>,
 }
 
 /// What a fold did, read back from the op it recorded.
@@ -1038,33 +993,12 @@ pub struct ArcJoinOffer {
 /// does.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ArcJoinAttention {
-    /// `offer` | `stuck` | `question`.
+    /// `offer` — the one reason a ready arc needs the user now that the
+    /// join has no resolve run to get stuck or to ask.
     pub kind: String,
-    /// `<work_id>:<kind>` for an offer, with the stuck line's digest or the
-    /// question's request id appended for the other two — so the same work
-    /// refused twice over different lines is two keys, and the same line
-    /// re-derived is one.
+    /// `<work_id>:offer` — names the work, so a replay that rewrites the
+    /// head does not re-reveal the same offer.
     pub key: String,
-}
-
-/// An escalation from the resolver, phrased as intent ([P06]).
-///
-/// What each side was trying to do, and 2–4 concrete resolutions — never a
-/// diff. A diff shown as a question is the workflow this whole round retired.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcJoinQuestion {
-    /// Identifies this ask, so an answer cannot resolve a different one.
-    pub request_id: String,
-    pub question: String,
-    pub options: Vec<ArcJoinQuestionOption>,
-}
-
-/// One concrete resolution offered on an escalation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcJoinQuestionOption {
-    pub label: String,
-    #[serde(default)]
-    pub description: String,
 }
 
 /// The resolver's account of a candidate (Spec S02) — what it finished, what it
@@ -1151,159 +1085,6 @@ pub struct ArcConflictHistory {
 pub struct ArcConflictCommit {
     pub sha: String,
     pub subject: String,
-}
-
-/// One file the resolution ladder resolved, as the review panel reads it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcResolvedFile {
-    pub path: String,
-    /// Which rung decided it: `replay` | `rerere` | `merge-file` | `driver` |
-    /// `ai`, or `unknown` when the provenance could not be read back.
-    ///
-    /// This is the reason the review exists. Every rung above the replay probe
-    /// is a machine decision the user never saw, and the candidate commit
-    /// records the resolved bytes without recording which rung chose them — so
-    /// this half is persisted rather than recomputed, and an entry whose rung
-    /// cannot be recovered still renders, because a resolution nobody can
-    /// attribute is still one that has to be reviewed.
-    pub resolved_by: String,
-    /// The unified diff this resolution lands on the base, capped.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub diff: Option<String>,
-    /// Lines added and removed as **git** counts them — never as anything
-    /// counts the capped `diff` above.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub added: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub removed: Option<u32>,
-}
-
-/// A resolve run's durable ledger (Spec S04): the run's id and clock, and
-/// every event it kept, in `seq` order.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcJoinLedger {
-    /// The run's id — its start, ms, as a decimal string.
-    pub run: String,
-    pub started_ms: u64,
-    /// Absent while the run is still going.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ended_ms: Option<u64>,
-    pub events: Vec<ArcJoinLedgerEvent>,
-}
-
-/// One act of a resolve run, as the run's ledger records it and as the
-/// `changeset_join_resolve_delta` frame carries it.
-///
-/// The live frame and the durable record are this one type, so nothing
-/// translates between them. `seq` is assigned by the run's recorder, 0-based;
-/// a live-only event (a `streaming` scribe or resolver beat) carries the last
-/// persisted `seq` rather than advancing it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcJoinLedgerEvent {
-    pub seq: u32,
-    /// Wall clock, ms since the epoch.
-    pub at_ms: u64,
-    #[serde(flatten)]
-    pub body: ArcJoinLedgerEventBody,
-}
-
-impl ArcJoinLedgerEvent {
-    /// Whether this event is live-only: shown while it streams, never kept.
-    pub fn is_live_only(&self) -> bool {
-        match &self.body {
-            ArcJoinLedgerEventBody::Scribe { status, .. }
-            | ArcJoinLedgerEventBody::Resolver { status, .. } => status == "streaming",
-            _ => false,
-        }
-    }
-}
-
-/// What a ledger event says, by kind.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum ArcJoinLedgerEventBody {
-    /// The squash's conflict set and what the base did to each path.
-    Probe {
-        paths: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        archaeology: Vec<ArcConflictHistory>,
-    },
-    /// Something the run has begun and not yet finished, in its own words:
-    /// `rung` (a machine rung taking up the arc or a file, `rung` and `path`
-    /// naming which), `workshop` (opening the workshop), `resolver-turn` (the
-    /// resolver working turn `turn`), `committing`, and `anchoring`. Kept, so
-    /// a reload mid-run still says what was under way, and so the deck can
-    /// name what the server is doing rather than inventing a phase.
-    ///
-    /// The verdict that ends a phase is its own event — a `rung`, a resolver
-    /// `turn`, a `candidate` — so a phase is only ever the latest thing begun.
-    Phase {
-        phase: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        rung: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        path: Option<String>,
-        #[serde(default, skip_serializing_if = "is_zero")]
-        turn: u32,
-        said: String,
-    },
-    /// One machine rung's verdict: `replay` | `salvage` | `rerere` |
-    /// `merge-file` | `driver`. No `path` for the whole-arc replay.
-    Rung {
-        rung: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        path: Option<String>,
-        /// `resolved` | `declined`.
-        outcome: String,
-        said: String,
-    },
-    /// The AI rung on one file: `started` | `streaming` | `resolved` |
-    /// `declined`. `text` rides only the streaming beats.
-    Scribe {
-        path: String,
-        status: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        text: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        said: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        added: Option<u32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        removed: Option<u32>,
-    },
-    /// The resolver's work: `started` | `streaming` | `turn` | `asked` |
-    /// `answered` | `reported`.
-    Resolver {
-        turn: u32,
-        status: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        text: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        tool: Option<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        tools: Vec<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        question: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        answer: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        notes: Option<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        files: Vec<ArcJoinReportFile>,
-    },
-    /// The candidate the run anchored. Its files carry no diff: the ledger
-    /// says which rung decided each, and the candidate holds the bytes.
-    Candidate {
-        sha: String,
-        base_sha: String,
-        files: Vec<ArcResolvedFile>,
-    },
-    /// The run is over: `candidate` | `unresolved` | `stuck` | `error`.
-    Ended {
-        outcome: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        detail: Option<String>,
-    },
 }
 
 /// `skip_serializing_if` for a count whose zero means "nothing to say".
@@ -2260,12 +2041,14 @@ mod tests {
                 assert_eq!(*rounds, 3);
                 assert!(!worktree_dirty);
                 assert_eq!(files.len(), 1);
-                // The candidate is the same bytes the tugdeck suite reads off
+                // The join block is the same bytes the tugdeck suite reads off
                 // this fixture — drift on either side of the mirror fails one
                 // of the two.
+                let join = join.as_ref().expect("the fixture's join block");
+                assert_eq!(join.phase, "conflicted");
                 assert_eq!(
-                    join.as_ref().and_then(|j| j.candidate.as_deref()),
-                    Some("9f1c2d3e4b5a60718293a4b5c6d7e8f901234567")
+                    join.conflicts,
+                    vec!["tugrust/crates/tugtool/src/commands/arc.rs".to_string()]
                 );
             }
             other => panic!("expected arc entry, got {other:?}"),
@@ -2572,102 +2355,5 @@ mod tests {
             Some("/repo/.tug/arcs/fix-join/plan.md")
         );
         assert!(!documents.is_empty());
-    }
-
-    /// Every ledger kind survives the wire in both directions, flat: `seq`,
-    /// `at_ms` and `kind` sit beside the kind's own fields, as Spec S01 and
-    /// the deck's `ArcJoinLedgerEventWire` read them.
-    #[test]
-    fn ledger_events_round_trip_every_kind() {
-        let bodies = vec![
-            ArcJoinLedgerEventBody::Probe {
-                paths: vec!["Justfile".into()],
-                archaeology: vec![ArcConflictHistory {
-                    path: "Justfile".into(),
-                    commits: vec![ArcConflictCommit {
-                        sha: "f6de104".into(),
-                        subject: "Run capture legs".into(),
-                    }],
-                    total: 1,
-                }],
-            },
-            ArcJoinLedgerEventBody::Rung {
-                rung: "merge-file".into(),
-                path: Some("Justfile".into()),
-                outcome: "declined".into(),
-                said: "conflict blocks remain after a three-way merge".into(),
-            },
-            ArcJoinLedgerEventBody::Scribe {
-                path: "Justfile".into(),
-                status: "resolved".into(),
-                text: None,
-                said: Some("merged clean".into()),
-                added: Some(4),
-                removed: Some(1),
-            },
-            ArcJoinLedgerEventBody::Resolver {
-                turn: 2,
-                status: "reported".into(),
-                text: None,
-                tool: None,
-                tools: vec!["Read Justfile".into()],
-                question: None,
-                answer: None,
-                notes: Some("kept both recipes".into()),
-                files: vec![ArcJoinReportFile {
-                    path: "Justfile".into(),
-                    resolved_by: "ai".into(),
-                    what_each_side_did: String::new(),
-                    reconciliation: "both kept".into(),
-                    audit: Some("kept".into()),
-                }],
-            },
-            ArcJoinLedgerEventBody::Candidate {
-                sha: "9f3c1e2a7".into(),
-                base_sha: "f6de104".into(),
-                files: vec![ArcResolvedFile {
-                    path: "Justfile".into(),
-                    resolved_by: "ai".into(),
-                    diff: None,
-                    added: None,
-                    removed: None,
-                }],
-            },
-            ArcJoinLedgerEventBody::Ended {
-                outcome: "error".into(),
-                detail: Some("resolve task failed".into()),
-            },
-        ];
-        let kinds = ["probe", "rung", "scribe", "resolver", "candidate", "ended"];
-        for (seq, (body, kind)) in bodies.into_iter().zip(kinds).enumerate() {
-            let event = ArcJoinLedgerEvent {
-                seq: seq as u32,
-                at_ms: 1_000 + seq as u64,
-                body,
-            };
-            let json = serde_json::to_value(&event).unwrap();
-            assert_eq!(json["kind"], kind);
-            assert_eq!(json["seq"], seq as u64);
-            let back: ArcJoinLedgerEvent = serde_json::from_value(json).unwrap();
-            assert_eq!(back, event);
-        }
-    }
-
-    #[test]
-    fn only_streaming_beats_are_live_only() {
-        let scribe = |status: &str| ArcJoinLedgerEvent {
-            seq: 0,
-            at_ms: 0,
-            body: ArcJoinLedgerEventBody::Scribe {
-                path: "a".into(),
-                status: status.into(),
-                text: None,
-                said: None,
-                added: None,
-                removed: None,
-            },
-        };
-        assert!(scribe("streaming").is_live_only());
-        assert!(!scribe("started").is_live_only());
     }
 }

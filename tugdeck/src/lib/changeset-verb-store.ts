@@ -136,7 +136,7 @@ const PUSH_IDLE: PushState = Object.freeze({
  * One arc-landing round trip's state, keyed by the initiating card entry.
  *
  * This is the *execute* round trip and nothing else. What a landing would do —
- * blockers, conflicts, the resolved candidate — arrives on the arc's feed
+ * blockers, conflicts, the offer — arrives on the arc's feed
  * entry as server-owned state, so the card asks nothing and the phases here
  * describe only a landing the user pressed for.
  *
@@ -377,8 +377,6 @@ export interface JoinArgs {
   preview: boolean;
   strategy?: "squash" | "merge" | "rebase";
   message?: string;
-  /** Land a pre-resolved candidate commit from the resolution ladder ([P31]). */
-  candidate?: string;
   /** Resume an interrupted teardown from the journal (Spec S04). */
   continueJoin?: boolean;
   /** The card's tug session id, so the landing leaves a receipt ([P06]). */
@@ -1036,7 +1034,6 @@ export class ChangesetVerbStore extends Subscribable {
       preview: args.preview,
       ...(args.strategy !== undefined ? { strategy: args.strategy } : {}),
       ...(args.message !== undefined ? { message: args.message } : {}),
-      ...(args.candidate !== undefined ? { candidate: args.candidate } : {}),
       ...(args.continueJoin === true ? { continue: true } : {}),
       ...(args.sessionId !== undefined ? { session_id: args.sessionId } : {}),
     });

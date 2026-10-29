@@ -38,7 +38,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
  * @covers tugdeck/src/lib/document-arc-entry.ts
- * @covers tugdeck/src/lib/resolve-ledger.ts
+ * @covers tugdeck/src/lib/arc-join-fold.ts
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs

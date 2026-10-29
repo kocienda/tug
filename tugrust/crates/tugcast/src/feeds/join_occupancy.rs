@@ -34,12 +34,7 @@ use std::sync::OnceLock;
 /// What is holding an arc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JoinRunKind {
-    Resolve,
     /// The fold that commits the base-side work refusing this arc's join.
-    ///
-    /// Spelled apart from [`JoinRunKind::Resolve`] rather than folded into it
-    /// because the word reaches the screen: the register gives each act its own
-    /// sentence, and the face keys on this string to decide which one to say.
     ResolveBase,
     Join,
 }
@@ -48,7 +43,6 @@ impl JoinRunKind {
     /// The wire spelling, which is also the word the refusal uses.
     pub fn as_str(self) -> &'static str {
         match self {
-            JoinRunKind::Resolve => "resolve",
             JoinRunKind::ResolveBase => "resolve-base",
             JoinRunKind::Join => "join",
         }
@@ -59,12 +53,6 @@ impl JoinRunKind {
 #[derive(Debug, Clone)]
 struct JoinRun {
     kind: JoinRunKind,
-    /// The arc head this run started against.
-    ///
-    /// A question raised mid-run is matched against this rather than against
-    /// the head as it stands, so a commit landing on the arc while the
-    /// resolver waits does not vanish the wizard the user is looking at.
-    head: Option<String>,
 }
 
 fn registry() -> &'static Mutex<HashMap<String, JoinRun>> {
@@ -90,11 +78,7 @@ impl Drop for JoinOccupancy {
 /// The refusal is a sentence rather than a boolean because it is shown: a
 /// second Resolve press has to explain why nothing happened, and "a resolve is
 /// already running for this arc" is the whole explanation ([L31]).
-pub fn acquire(
-    owner_key: &str,
-    kind: JoinRunKind,
-    head: Option<String>,
-) -> Result<JoinOccupancy, String> {
+pub fn acquire(owner_key: &str, kind: JoinRunKind) -> Result<JoinOccupancy, String> {
     let mut map = registry().lock();
     if let Some(live) = map.get(owner_key) {
         return Err(format!(
@@ -102,7 +86,7 @@ pub fn acquire(
             live.kind.as_str()
         ));
     }
-    map.insert(owner_key.to_string(), JoinRun { kind, head });
+    map.insert(owner_key.to_string(), JoinRun { kind });
     Ok(JoinOccupancy {
         owner_key: owner_key.to_string(),
     })
@@ -114,14 +98,6 @@ pub fn run_kind(owner_key: &str) -> Option<&'static str> {
         .lock()
         .get(owner_key)
         .map(|run| run.kind.as_str())
-}
-
-/// The arc head a live run started against, for matching facts it raised.
-pub fn run_head(owner_key: &str) -> Option<String> {
-    registry()
-        .lock()
-        .get(owner_key)
-        .and_then(|run| run.head.clone())
 }
 
 #[cfg(test)]
@@ -137,15 +113,15 @@ mod tests {
     #[test]
     fn a_second_run_is_refused_by_name_and_admitted_after_the_first_ends() {
         let k = key("second-run");
-        let held = acquire(&k, JoinRunKind::Resolve, None).expect("the arc is free");
-        assert_eq!(run_kind(&k), Some("resolve"));
+        let held = acquire(&k, JoinRunKind::ResolveBase).expect("the arc is free");
+        assert_eq!(run_kind(&k), Some("resolve-base"));
 
-        let refused = acquire(&k, JoinRunKind::Join, None).expect_err("the arc is held");
-        assert_eq!(refused, "a resolve is already running for this arc");
+        let refused = acquire(&k, JoinRunKind::Join).expect_err("the arc is held");
+        assert_eq!(refused, "a resolve-base is already running for this arc");
 
         drop(held);
         assert_eq!(run_kind(&k), None);
-        acquire(&k, JoinRunKind::Join, None).expect("the arc is free again");
+        acquire(&k, JoinRunKind::Join).expect("the arc is free again");
     }
 
     /// A fold holds the arc under its own word, and refuses by that word.
@@ -156,14 +132,14 @@ mod tests {
     #[test]
     fn a_fold_holds_the_arc_as_resolve_base() {
         let k = key("fold-run");
-        let held = acquire(&k, JoinRunKind::ResolveBase, None).expect("the arc is free");
+        let held = acquire(&k, JoinRunKind::ResolveBase).expect("the arc is free");
         assert_eq!(run_kind(&k), Some("resolve-base"));
 
-        let refused = acquire(&k, JoinRunKind::ResolveBase, None).expect_err("the arc is held");
+        let refused = acquire(&k, JoinRunKind::ResolveBase).expect_err("the arc is held");
         assert_eq!(refused, "a resolve-base is already running for this arc");
         // And it refuses the other acts too — one arc admits one run, whatever
         // the second one wanted to be.
-        assert!(acquire(&k, JoinRunKind::Join, None).is_err());
+        assert!(acquire(&k, JoinRunKind::Join).is_err());
 
         drop(held);
         assert_eq!(run_kind(&k), None);
@@ -172,8 +148,8 @@ mod tests {
     /// Two arcs are two holds — the registry gates an arc, not the machine.
     #[test]
     fn holding_one_arc_does_not_hold_another() {
-        let a = acquire(&key("alpha"), JoinRunKind::Resolve, None).expect("free");
-        let b = acquire(&key("beta"), JoinRunKind::Resolve, None).expect("free");
+        let a = acquire(&key("alpha"), JoinRunKind::ResolveBase).expect("free");
+        let b = acquire(&key("beta"), JoinRunKind::ResolveBase).expect("free");
         drop((a, b));
     }
 
@@ -185,7 +161,7 @@ mod tests {
     #[tokio::test]
     async fn a_panicking_run_releases_the_arc() {
         let k = key("panic");
-        let held = acquire(&k, JoinRunKind::Resolve, None).expect("free");
+        let held = acquire(&k, JoinRunKind::ResolveBase).expect("free");
         let died = tokio::spawn(async move {
             let _held = held;
             panic!("the run died mid-flight");

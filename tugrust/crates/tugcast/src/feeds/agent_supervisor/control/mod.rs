@@ -17,6 +17,6 @@ pub(super) use changeset::{
     parse_changeset_commit_payload, parse_changeset_delete_documents_payload,
     parse_changeset_discard_payload, parse_changeset_disclaim_payload,
     parse_changeset_draft_request_payload, parse_changeset_join_payload,
-    parse_changeset_join_question_answer_payload, parse_changeset_join_resolve_payload,
-    parse_changeset_replay_payload, parse_landing_receipt_payload,
+    parse_changeset_join_resolve_payload, parse_changeset_replay_payload,
+    parse_landing_receipt_payload,
 };

@@ -19,7 +19,7 @@ use super::{
     untracked_paths,
 };
 use crate::error::ArcError;
-use crate::log::{ArcDeclaration, ArcDeclarations, FitFact, read_declarations};
+use crate::log::{ArcDeclaration, ArcDeclarations, ArcTips, FitFact, read_declarations};
 
 /// One entry in the [`list_in`] outcome.
 ///
@@ -646,6 +646,9 @@ pub fn arc_detail_entries_in(paths: &Paths, repo_root: &Path) -> Vec<ArcDetail> 
         let documents = ArcDocuments::read(repo_root, name);
         // Every input is already in hand from this arc's own composition, so
         // readiness costs no extra git call on the recompute's hot path ([P04]).
+        // The tips are the one exception, read once and shared with the fit
+        // fact, which read them already.
+        let tips = arc_tips(repo_root, branch, &base);
         let join_ready = crate::log::join_ready(
             rounds,
             crate::log::unfinished_tracked_dirt(&worktree_dirt_tracked),
@@ -653,7 +656,9 @@ pub fn arc_detail_entries_in(paths: &Paths, repo_root: &Path) -> Vec<ArcDetail> 
             &declarations,
             documents.plan.is_some(),
             wheel,
+            &tips,
         );
+        let audit_stale = crate::log::audit_stale(&declarations, &tips);
 
         entries.push(ArcDetail {
             owner_key: arc_owner_key(repo_root, name),
@@ -666,6 +671,7 @@ pub fn arc_detail_entries_in(paths: &Paths, repo_root: &Path) -> Vec<ArcDetail> 
                 joining,
                 declarations.latest,
                 join_ready,
+                audit_stale,
             )
             .to_owned(),
             join_ready,
@@ -682,7 +688,7 @@ pub fn arc_detail_entries_in(paths: &Paths, repo_root: &Path) -> Vec<ArcDetail> 
             base_overlap_untracked: overlap.untracked,
             worktree_dirty_tracked,
             last_replay: declarations.last_replay.clone(),
-            fit: fit_fact(repo_root, branch, &base, &declarations),
+            fit: fit_fact(&tips, &declarations),
             last_activity: declarations.last_activity.clone(),
             arc,
             kind: arc_kind,
@@ -712,24 +718,40 @@ pub fn arc_detail_entry_in(paths: &Paths, repo_root: &Path, name: &str) -> Optio
         .find(|d| d.name == name)
 }
 
+/// The arc branch's head and the base branch's tip, as full shas — what an
+/// arc's verify and audit facts are judged against. One `rev-parse` each.
+pub fn arc_tips(repo: &Path, branch: &str, base_branch: &str) -> ArcTips {
+    ArcTips {
+        head: git_stdout(repo, &["rev-parse", branch]).ok(),
+        base: git_stdout(repo, &["rev-parse", base_branch]).ok(),
+    }
+}
+
+/// [`arc_tips`] for an arc named by its name alone: its own branch and the
+/// base it was cut from. A base that cannot be read leaves `base` unread,
+/// which every reader of the tips takes as nothing vouched for.
+pub fn live_tips(repo: &Path, name: &str) -> ArcTips {
+    let branch = branch_name(name);
+    match arc_base(repo, name) {
+        Ok(base) => arc_tips(repo, &branch, &base),
+        Err(_) => ArcTips {
+            head: git_stdout(repo, &["rev-parse", &branch]).ok(),
+            base: None,
+        },
+    }
+}
+
 /// The fit fact an arc's declarations carry, with its currency resolved
 /// against the live tips.
 ///
 /// Both endpoints are compared, because a base that moved invalidates a
 /// verified head just as surely as a new round does. An unparseable note
 /// yields `None` rather than a fact with half its pair.
-pub(crate) fn fit_fact(
-    repo: &Path,
-    branch: &str,
-    base_branch: &str,
-    declarations: &ArcDeclarations,
-) -> Option<FitFact> {
+pub(crate) fn fit_fact(tips: &ArcTips, declarations: &ArcDeclarations) -> Option<FitFact> {
     let note = declarations.last_verified.as_deref()?;
     let (head, base) = crate::log::parse_verified_note(note)?;
-    let live_head = git_stdout(repo, &["rev-parse", branch]).ok();
-    let live_base = git_stdout(repo, &["rev-parse", base_branch]).ok();
-    let head_moved = live_head.as_deref() != Some(head.as_str());
-    let base_moved = live_base.as_deref() != Some(base.as_str());
+    let head_moved = tips.head.as_deref() != Some(head.as_str());
+    let base_moved = tips.base.as_deref() != Some(base.as_str());
     Some(FitFact {
         head,
         base,
@@ -780,6 +802,12 @@ pub struct ArcStatus {
     /// which is the honest record of "not verified". It gates nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fit: Option<FitFact>,
+    /// The arc head and base tip the standing `audited` mark was made
+    /// against, when the latest declaration is one and it carries its pair.
+    /// A re-audit diffs from these to size its work: the head side says which
+    /// rounds landed after the audit, the base side what the base brought in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audited_at: Option<crate::log::AuditedPair>,
     /// The standing conflict, when this arc has one.
     ///
     /// Derived at read time from `refs/tug/conflict/<name>` and absent — not
@@ -831,13 +859,17 @@ pub fn conflict_summary(repo_root: &Path, name: &str) -> Option<ConflictSummary>
 /// The stage an arc is in, from what git derives and what the arc declared.
 ///
 /// Precedence is
-/// `joining > built|audited > ready > implementing > draft-ready > working >
-/// created` ([P03], [P07]): a join in flight outranks everything; otherwise a
+/// `joining > built|audit-stale|audited > ready > implementing > draft-ready >
+/// working > created` ([P03], [P07]): a join in flight outranks everything; otherwise a
 /// declared mark wins, because the last thing a run said about itself is the
 /// truest current answer; an arc the machine derives as joinable reads `ready`;
 /// only an undeclared arc falls through to the derived chain, where an
 /// authored draft outranks mere activity and any round or worktree dirt
 /// outranks a freshly created arc.
+///
+/// `audit-stale` is the `audited` mark read against the live tips: the audit
+/// stands, but the head or the base it was made against has moved, so it no
+/// longer vouches for the tree a join would land. It is not a joinable stage.
 ///
 /// `ready` sits above `implementing` because a finished run's latest
 /// declaration is a `step-done` — left below, a completed selection would read
@@ -856,11 +888,14 @@ pub fn derive_stage(
     joining: bool,
     declared: Option<ArcDeclaration>,
     join_ready: bool,
+    audit_stale: bool,
 ) -> &'static str {
     if joining {
         "joining"
     } else if matches!(declared, Some(ArcDeclaration::Built)) {
         "built"
+    } else if audit_stale {
+        "audit-stale"
     } else if matches!(declared, Some(ArcDeclaration::Audited)) {
         "audited"
     } else if join_ready {
@@ -998,7 +1033,8 @@ pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatu
     let bound_session = bound_session_for(paths, &id);
     let declarations = read_declarations(paths, repo_root, name);
     let run_span = crate::log::run_fraction(&declarations);
-    let fit = fit_fact(repo_root, &branch, &base_branch, &declarations);
+    let tips = arc_tips(repo_root, &branch, &base_branch);
+    let fit = fit_fact(&tips, &declarations);
     // The read this path does not otherwise make. `arc status` must not
     // disagree with the feed about the same arc, and the feed derives this
     // from the record — so this path reads the record too. It is the CLI, not
@@ -1011,6 +1047,7 @@ pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatu
         &declarations,
         documents.plan.is_some(),
         wheel,
+        &tips,
     );
 
     Ok(ArcStatus {
@@ -1021,6 +1058,7 @@ pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatu
             join_journal_phase.is_some(),
             declarations.latest,
             join_ready,
+            crate::log::audit_stale(&declarations, &tips),
         )
         .to_string(),
         name: name.to_string(),
@@ -1041,6 +1079,9 @@ pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatu
         documents,
         last_activity: declarations.last_activity.clone(),
         fit,
+        audited_at: matches!(declarations.latest, Some(ArcDeclaration::Audited))
+            .then(|| declarations.audited_at.clone())
+            .flatten(),
         conflict: conflict_summary(repo_root, name),
         disagreements: crate::doctor::diagnose(paths, repo_root, name).sentences(),
     })
@@ -1322,7 +1363,8 @@ mod tests {
             false,
             &decls,
             true,
-            crate::log::WheelReading::Off
+            crate::log::WheelReading::Off,
+            &crate::log::ArcTips::default()
         ));
     }
 
@@ -1412,6 +1454,123 @@ mod tests {
                 .join_ready,
             "the audit's declaration is the one that arms it"
         );
+    }
+
+    /// **An audit is relative to a head and a base.** The mark stamps both
+    /// from the live tips, the arc is ready while they stand, and a round
+    /// after the audit — or the base moving — makes it `audit-stale` and takes
+    /// the offer down, with no declaration from anyone.
+    #[test]
+    fn an_audit_goes_stale_when_its_head_or_its_base_moves() {
+        let read = |root: &Path, paths: &Paths, name: &str| {
+            arc_detail_entry_in(paths, root, name).unwrap()
+        };
+
+        let (_temp, root, paths) = wheeled_arc("stale-head-arc");
+        mark_in(&paths, &root, "stale-head-arc", MarkStage::Audited, None).unwrap();
+        let fresh = read(&root, &paths, "stale-head-arc");
+        assert!(fresh.join_ready, "fresh: ready");
+        assert_eq!(fresh.stage, "audited");
+        let worktree = worktree_path(&root, "stale-head-arc");
+        fs::write(worktree.join("two.txt"), "second\n").unwrap();
+        commit_in(&paths, &root, "stale-head-arc", "r2", None, None).unwrap();
+        let after_round = read(&root, &paths, "stale-head-arc");
+        assert!(!after_round.join_ready, "a round after the audit un-audits");
+        assert_eq!(after_round.stage, "audit-stale");
+
+        let (_temp, root, paths) = wheeled_arc("stale-base-arc");
+        mark_in(&paths, &root, "stale-base-arc", MarkStage::Audited, None).unwrap();
+        assert!(read(&root, &paths, "stale-base-arc").join_ready);
+        fs::write(root.join("base.txt"), "the base moved\n").unwrap();
+        commit_all(&root, "base moves");
+        let after_base = read(&root, &paths, "stale-base-arc");
+        assert!(!after_base.join_ready, "a base move un-audits");
+        assert_eq!(after_base.stage, "audit-stale");
+    }
+
+    /// **A done arc is resumable at its audit, and only when that audit is
+    /// stale.** A current one is refused; a stale one writes `arc-resume
+    /// audit`, which reopens the record; and a second run is a no-op, because
+    /// the arc is no longer done.
+    #[test]
+    fn a_done_arc_reopens_at_its_audit_only_when_stale() {
+        let (_temp, root, paths) = wheeled_arc("reaudit-arc");
+        mark_in(&paths, &root, "reaudit-arc", MarkStage::Audited, None).unwrap();
+        crate::arc::append_arc_done(&paths, &root, "reaudit-arc").unwrap();
+
+        let refused = crate::ops::open_arc(&paths, &root, "reaudit-arc");
+        assert!(
+            matches!(&refused, Err(ArcError::Refused(why)) if why.contains("nothing to re-audit")),
+            "done and current: refused, got {refused:?}"
+        );
+        assert!(!crate::ops::reopen_stale_audit(&paths, &root, "reaudit-arc").unwrap());
+
+        fs::write(root.join("base.txt"), "the base moved\n").unwrap();
+        commit_all(&root, "base moves");
+        let reopened = crate::ops::open_arc(&paths, &root, "reaudit-arc").unwrap();
+        assert!(reopened.resumed && reopened.reaudit);
+        assert!(!reopened.record.done, "the resume reopens the record");
+        assert_eq!(reopened.record.resume, Some(crate::arc::ArcStage::Audit));
+        assert!(
+            log_text(&paths, &root).contains("arc-resume  audit"),
+            "through the stopped-arc resume path's own line"
+        );
+        assert_eq!(
+            crate::log::WheelReading::of(Some(&reopened.record)),
+            crate::log::WheelReading::Live,
+            "a reopened arc is a live wheel again"
+        );
+
+        let again = crate::ops::open_arc(&paths, &root, "reaudit-arc").unwrap();
+        assert!(!again.resumed, "the door is idempotent");
+        assert!(!crate::ops::reopen_stale_audit(&paths, &root, "reaudit-arc").unwrap());
+    }
+
+    /// **A re-stamp makes a stale done arc ready again with no turn.** The
+    /// mark carries the live pair, so the stage derives from it as it would
+    /// from the first audit; an arc whose audit stands, or that is not done,
+    /// is not written to.
+    #[test]
+    fn a_restamped_audit_stands_on_the_live_tips() {
+        let (_temp, root, paths) = wheeled_arc("restamp-arc");
+        mark_in(&paths, &root, "restamp-arc", MarkStage::Audited, None).unwrap();
+        assert!(
+            !crate::ops::restamp_audit(&paths, &root, "restamp-arc").unwrap(),
+            "not done: nothing to re-stamp"
+        );
+        crate::arc::append_arc_done(&paths, &root, "restamp-arc").unwrap();
+        assert!(
+            !crate::ops::restamp_audit(&paths, &root, "restamp-arc").unwrap(),
+            "the audit still stands"
+        );
+
+        fs::write(root.join("base.txt"), "the base moved\n").unwrap();
+        commit_all(&root, "base moves");
+        let stale = arc_detail_entry_in(&paths, &root, "restamp-arc").unwrap();
+        assert_eq!(stale.stage, "audit-stale");
+        // A re-audit sizes its work from the pair the stale mark was made
+        // against, so the status reports it: the head still stands, the base
+        // does not.
+        let status = status_in(&paths, &root, "restamp-arc").unwrap();
+        let pair = status.audited_at.expect("the stale mark's pair");
+        let tips = live_tips(&root, "restamp-arc");
+        assert_eq!(Some(pair.head), tips.head);
+        assert_ne!(Some(pair.base), tips.base);
+
+        assert!(crate::ops::restamp_audit(&paths, &root, "restamp-arc").unwrap());
+        let feed = arc_detail_entry_in(&paths, &root, "restamp-arc").unwrap();
+        assert_ne!(
+            feed.stage, "audit-stale",
+            "the re-stamp stands on the live tips"
+        );
+        assert!(feed.join_ready);
+        assert!(
+            crate::arc::read_arc(&paths, &root, "restamp-arc")
+                .unwrap()
+                .done,
+            "a re-stamp leaves the arc done: no stage is seated"
+        );
+        assert!(log_text(&paths, &root).contains("re-stamped"));
     }
 
     /// **A stopped wheel holds the offer until the audit marks.** An arc
@@ -1990,22 +2149,37 @@ mod tests {
     #[test]
     fn stage_derivation_follows_its_precedence() {
         // An undeclared arc derives exactly what it always did.
-        assert_eq!(derive_stage(0, false, false, false, None, false), "created");
-        assert_eq!(derive_stage(1, false, false, false, None, false), "working");
-        assert_eq!(derive_stage(0, true, false, false, None, false), "working");
         assert_eq!(
-            derive_stage(2, true, true, false, None, false),
+            derive_stage(0, false, false, false, None, false, false),
+            "created"
+        );
+        assert_eq!(
+            derive_stage(1, false, false, false, None, false, false),
+            "working"
+        );
+        assert_eq!(
+            derive_stage(0, true, false, false, None, false, false),
+            "working"
+        );
+        assert_eq!(
+            derive_stage(2, true, true, false, None, false, false),
             "draft-ready"
         );
         // A draft with no work yet is still draft-ready — the draft is the
         // stronger signal.
         assert_eq!(
-            derive_stage(0, false, true, false, None, false),
+            derive_stage(0, false, true, false, None, false, false),
             "draft-ready"
         );
         // A join in flight outranks everything below it.
-        assert_eq!(derive_stage(3, true, true, true, None, false), "joining");
-        assert_eq!(derive_stage(0, false, false, true, None, false), "joining");
+        assert_eq!(
+            derive_stage(3, true, true, true, None, false, false),
+            "joining"
+        );
+        assert_eq!(
+            derive_stage(0, false, false, true, None, false, false),
+            "joining"
+        );
 
         let stepping = Some(ArcDeclaration::Step {
             current: 3,
@@ -2014,20 +2188,36 @@ mod tests {
         // Declarations outrank a draft — a planned run writes its draft before
         // the audit, so a draft that won would hide `built` and `audited`.
         assert_eq!(
-            derive_stage(2, true, true, false, stepping, false),
+            derive_stage(2, true, true, false, stepping, false, false),
             "implementing"
         );
         assert_eq!(
-            derive_stage(2, true, true, false, Some(ArcDeclaration::Built), false),
+            derive_stage(
+                2,
+                true,
+                true,
+                false,
+                Some(ArcDeclaration::Built),
+                false,
+                false
+            ),
             "built"
         );
         assert_eq!(
-            derive_stage(2, true, true, false, Some(ArcDeclaration::Audited), false),
+            derive_stage(
+                2,
+                true,
+                true,
+                false,
+                Some(ArcDeclaration::Audited),
+                false,
+                false
+            ),
             "audited"
         );
         // …and a join still outranks a declaration.
         assert_eq!(
-            derive_stage(2, true, true, true, stepping, false),
+            derive_stage(2, true, true, true, stepping, false, false),
             "joining"
         );
 
@@ -2035,20 +2225,68 @@ mod tests {
         // outrank `implementing` or a completed selection reads as step three
         // of nine forever ([P07]).
         assert_eq!(
-            derive_stage(2, false, false, false, stepping, true),
+            derive_stage(2, false, false, false, stepping, true, false),
             "ready"
         );
         // An arc somebody marked keeps its own word, ready or not.
         assert_eq!(
-            derive_stage(2, false, false, false, Some(ArcDeclaration::Built), true),
+            derive_stage(
+                2,
+                false,
+                false,
+                false,
+                Some(ArcDeclaration::Built),
+                true,
+                false
+            ),
             "built"
         );
         assert_eq!(
-            derive_stage(2, false, false, false, Some(ArcDeclaration::Audited), true),
+            derive_stage(
+                2,
+                false,
+                false,
+                false,
+                Some(ArcDeclaration::Audited),
+                true,
+                false
+            ),
             "audited"
         );
         // And a plan-less ready arc reads `ready` rather than `working`.
-        assert_eq!(derive_stage(1, false, false, false, None, true), "ready");
+        assert_eq!(
+            derive_stage(1, false, false, false, None, true, false),
+            "ready"
+        );
+
+        // An audit whose head or base has moved since reads `audit-stale`,
+        // which outranks the mark's own word — the mark no longer describes
+        // the tree — and is not `ready`, whatever readiness says.
+        assert_eq!(
+            derive_stage(
+                2,
+                false,
+                false,
+                false,
+                Some(ArcDeclaration::Audited),
+                false,
+                true
+            ),
+            "audit-stale"
+        );
+        // A join in flight still outranks it.
+        assert_eq!(
+            derive_stage(
+                2,
+                false,
+                false,
+                true,
+                Some(ArcDeclaration::Audited),
+                false,
+                true
+            ),
+            "joining"
+        );
     }
 
     /// Table T01 — what arms and what stays dark, one assertion per row.
@@ -2067,6 +2305,10 @@ mod tests {
         let marked = |stage: ArcDeclaration| ArcDeclarations {
             latest: Some(stage),
             step: Some((8, 15)),
+            audited_at: matches!(stage, ArcDeclaration::Audited).then(|| crate::log::AuditedPair {
+                head: "aaaaaaa".to_owned(),
+                base: "bbbbbbb".to_owned(),
+            }),
             ..ArcDeclarations::default()
         };
         // Every row of this matrix is the **wheel-absent** case — a
@@ -2088,6 +2330,10 @@ mod tests {
                 decls,
                 has_plan,
                 crate::log::WheelReading::Off,
+                &crate::log::ArcTips {
+                    head: Some("aaaaaaa".to_owned()),
+                    base: Some("bbbbbbb".to_owned()),
+                },
             )
         }
 
