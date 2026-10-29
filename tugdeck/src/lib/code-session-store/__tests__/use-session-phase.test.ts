@@ -26,7 +26,6 @@ import {
 } from "../session-phase-visual";
 import {
   joinOfferStands,
-  joinOfferArcName,
   joinOfferBase,
   reportedPhaseOf,
   sessionPhaseFromSnapshot,
@@ -234,7 +233,7 @@ describe("the fold folds the offer in", () => {
   });
 });
 
-describe("joinOfferBase and joinOfferArcName — what stands, and about what", () => {
+describe("joinOfferBase — what stands, and where it lands", () => {
   const offer = {
     request_id: "ready:base1:head1",
     base_sha: "base1",
@@ -257,23 +256,12 @@ describe("joinOfferBase and joinOfferArcName — what stands, and about what", (
     ).toBe(null);
   });
 
-  test("the name is the arc the standing offer is about", () => {
-    expect(joinOfferArcName("tugarc/ready#a1", standing)).toBe("ready");
-  });
-
-  test("no offer, no name", () => {
-    expect(joinOfferArcName("tugarc/ready#a1", [arcRow({ base: "main" })])).toBe(
-      null,
-    );
-  });
-
-  test("all three readings agree about whether an offer stands", () => {
-    // The receipt's Join, the beat's sentence and the dot's key are three
-    // surfaces of one fact; a row where they could disagree is the bug.
+  test("both readings agree about whether an offer stands", () => {
+    // The beat's sentence and the dot's key are two surfaces of one fact; a
+    // row where they could disagree is the bug.
     for (const arcs of [standing, [arcRow({ base: "main" })], []]) {
       const stands = joinOfferStands("tugarc/ready#a1", arcs);
       expect(joinOfferBase("tugarc/ready#a1", arcs) !== null).toBe(stands);
-      expect(joinOfferArcName("tugarc/ready#a1", arcs) !== null).toBe(stands);
     }
   });
 });

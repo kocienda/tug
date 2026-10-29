@@ -54,14 +54,11 @@ import { arcTrackModel } from "@/components/tugways/tug-arc-track";
 import { formatDurationMs } from "@/lib/session-telemetry-format";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { arcPressStore } from "@/lib/arc-press-store";
 import { arcNoteParts } from "@/lib/arc-note-command";
 import { CardIdContext } from "@/lib/card-id-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { formatTokensApprox } from "@/lib/code-session-store/compaction";
-import { useCardJoinReadyArc } from "@/lib/code-session-store/use-session-phase";
 import { useCitedSession } from "@/lib/session-citation-store";
 import { useSessionUsage } from "@/lib/session-usage-store";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
@@ -326,16 +323,6 @@ export function arcRecordFindParts({
  */
 export const ARC_RESUME_OFFER_TITLE = "Resume this arc";
 
-/**
- * The finished row's Join label, and the `data-slot` its button wears.
- *
- * Exported for the same reason the resume title is: the deck's tests are
- * pure-logic `bun:test` with no fake DOM, so a string only the JSX holds is a
- * string nothing can assert.
- */
-export const ARC_FINISH_JOIN_LABEL = "Join";
-export const ARC_FINISH_JOIN_SLOT = "arc-finish-join";
-
 /** `N stages`, singular when there is one. */
 export function arcStagesPhrase(count: number): string {
   return `${count} ${count === 1 ? "stage" : "stages"}`;
@@ -449,31 +436,12 @@ function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
 }
 
 /**
- * The finished row, and — while the offer stands — the act it calls for
- * ([B04]).
+ * The finished row: the quiet line and nothing more.
  *
- * **It performs no join.** The press routes through this card's one reveal
- * path ([D152]): the same `REVEAL_CHANGES` the Z2 ARC placard and the Arcs
- * card row send, which opens the Changes room armed and, on a folded card,
- * opens the fold first ([B07]). The join itself has one act and it lives in
- * Z5; this button takes the reader to it. A second place to press Join would
- * be a second join.
- *
- * **This is the one live reading a receipt makes**, and it is deliberate. Every
- * other fact on this row is parsed from the bytes the server wrote, because a
- * receipt reports a past moment and has to still read correctly after a
- * relaunch weeks later. An *offer* is not a fact about that moment — it is the
- * standing state of the work the moment named, and an offer that has been
- * taken, discarded or reopened is gone ([B09]). Painting a Join over one would
- * be exactly the lie the frozen-record rule exists to prevent, so the button
- * is gated on the live register instead: present while the offer stands, gone
- * the instant the head is spent.
- *
- * Matched by NAME, not merely by presence: this row reports one arc and the
- * card may have moved on to another since, and the Join must be about the arc
- * the row is about.
- *
- * Its own component because of the hooks, the same reason `ArcResumeOffer` is.
+ * It carries no act. A standing join offer already has its doors — the Z2
+ * ARC cell, the Changes segment's dot and the composer's placeholder — and a
+ * Join here was a fourth that kept reading as an offer while the join it
+ * pointed at was already running.
  */
 function ArcFinishLine({
   parsed,
@@ -483,18 +451,7 @@ function ArcFinishLine({
   atMs: number;
 }): React.ReactElement {
   const finish = arcFinishNote(parsed);
-  const cardId = useContext(CardIdContext);
-  const readyArc = useCardJoinReadyArc(cardId);
-  const chain = useResponderChain();
-  const join = useCallback((): void => {
-    const target = `${cardId}-card-content`;
-    if (cardId === null || chain === null || !chain.hasResponder(target)) return;
-    chain.sendToTarget(target, {
-      action: TUG_ACTIONS.REVEAL_CHANGES,
-      phase: "discrete",
-    });
-  }, [chain, cardId]);
-  const line = (
+  return (
     <ArcNoteLine
       command={finish.command}
       sentence={finish.sentence}
@@ -502,24 +459,6 @@ function ArcFinishLine({
       className="session-arc-note-line"
       slot={ARC_FINISH_SLOT}
     />
-  );
-  // No offer, no wrapper: the ordinary finished row is byte-for-byte the row it
-  // has always been, and the layout that carries a button exists only on the
-  // rows that have one.
-  if (readyArc === null || readyArc !== parsed.arc) return line;
-  return (
-    <div className="arc-finish-row" data-slot="arc-finish-row">
-      {line}
-      <TugPushButton
-        emphasis="primary"
-        role="action"
-        size="xs"
-        data-slot={ARC_FINISH_JOIN_SLOT}
-        onClick={join}
-      >
-        {ARC_FINISH_JOIN_LABEL}
-      </TugPushButton>
-    </div>
   );
 }
 

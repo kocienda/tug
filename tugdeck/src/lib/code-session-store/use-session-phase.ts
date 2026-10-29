@@ -134,25 +134,6 @@ export function joinOfferBase(
   return entry.base;
 }
 
-/**
- * The display name of the arc whose offer stands for this card, or `null`.
- *
- * The third reading off the same pair of subscriptions, for the one surface
- * that has to know *which* arc the standing offer is about: the finished arc's
- * transcript receipt ([B04]). That row names the arc it reports, and a card
- * may well have moved on to another one since — so the Join it offers appears
- * only when the offer standing now is this row's.
- */
-export function joinOfferArcName(
-  arcId: string | null,
-  arcs: readonly ArcChangesetEntry[],
-): string | null {
-  if (arcId === null) return null;
-  const entry = arcs.find((row) => row.owner_id === arcId);
-  if (entry === undefined || (entry.join?.offer ?? null) === null) return null;
-  return entry.display_name;
-}
-
 /** The arc bound to a card, read once. */
 function arcIdForCard(cardId: string | null): string | null {
   if (cardId === null) return null;
@@ -365,18 +346,6 @@ export function useCardJoinReady(cardId: string | null): boolean {
   );
   const join = useCardArcJoin(cardId, services?.changesController ?? null);
   return joinOfferStands(join.arcId, join.arcs);
-}
-
-/**
- * Which arc's offer stands for a card, by display name, or `null` when none
- * does — {@link joinOfferArcName}, live.
- */
-export function useCardJoinReadyArc(cardId: string | null): string | null {
-  const services = useSyncExternalStore(cardServicesStore.subscribe, () =>
-    cardId === null ? null : cardServicesStore.getServices(cardId),
-  );
-  const join = useCardArcJoin(cardId, services?.changesController ?? null);
-  return joinOfferArcName(join.arcId, join.arcs);
 }
 
 /**

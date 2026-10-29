@@ -7,25 +7,16 @@
  * The folded form's side of Ready is at0559's. This is the open form's, and it
  * is two surfaces the reader meets without going anywhere:
  *
- *   1. **The finished receipt grows a Join** ([B04]). The transcript row that
- *      reported the arc's ending is a frozen record of a past moment, and it
- *      makes exactly one live reading: whether the offer it would act on is
- *      still standing, for the arc THIS row names. So the same row carries a
- *      Join while the offer stands, and a receipt naming a different arc — a
- *      card that has moved on — carries none, in the same transcript at the
- *      same instant. That negative is the whole of why the match is by arc
- *      rather than by mere presence.
+ *   1. **The finished receipt stays a quiet line.** It once grew a Join while
+ *      the offer stood ([B04]); that button was a fourth door to the one room
+ *      and kept reading as an offer while the join it pointed at was already
+ *      running, so it was removed. The row reporting the arc's ending carries
+ *      no act, offer or not.
  *   2. **The composer says what is being waited for** ([B05]). A state that
  *      calls for the user and does not say what they are called for is a dot
  *      with no sentence under it, so the placeholder says both halves — that
  *      the work is done, and the one act that lands it — while keeping the
  *      composer's own invitation, because Ready is not a block.
- *
- * And one about the Join's reach: it performs no join. It routes through the
- * card's one reveal path ([D152]) and arms the room, which is the same room
- * the passive reveal and ⌃⌘C open — so pressing it puts the card on the
- * Changes route with the Z5 that lands, and the decision is still the user's
- * to make in front of the diff.
  *
  * The arc is real — a scratch repository, one arc, one committed round, the
  * pilot deriving readiness with nothing marked. The shade reveals itself first,
@@ -68,17 +59,15 @@ const TEST_TIMEOUT_MS = 420_000;
 const SID = "a7c0d1ea-0000-4000-8000-000000000560";
 /** The arc this card is mated to — the one whose offer stands. */
 const ARC = "at0560-bound";
-/** An arc name this card is not on: the receipt that must grow nothing. */
-const OTHER_ARC = "at0560-elsewhere";
 
 const CARD = '[data-card-id="A"]';
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 const PLACEHOLDER = `${CARD} [data-slot="tug-prompt-entry"] .cm-placeholder`;
-/** Every finished-arc row in the transcript, and the Join a standing offer grows on one. */
-const FINISH_ROW = `${CARD} [data-slot="arc-finish-row"]`;
-const FINISH_JOIN = `${CARD} [data-slot="arc-finish-join"]`;
+/** The finished-arc row in the transcript, and any push button it might carry. */
+const FINISH_LINE = `${CARD} [data-slot="arc-finish-line"]`;
+const FINISH_BUTTONS = `${FINISH_LINE} [data-slot="tug-push-button"]`;
 
 /** The line the composer shows while the arc has finished and the offer stands. */
 const READY_PLACEHOLDER = "Arc finished. /arc-join to land it, or keep working";
@@ -124,22 +113,16 @@ function receiptText(arc: string): string {
   ].join("\n");
 }
 
-/** How many Joins stand on finished rows naming `arc` right now. */
-function joinsFor(app: App, arc: string): Promise<number> {
+/** How many push buttons stand on the finished row right now. */
+function finishButtons(app: App): Promise<number> {
   return app.body("A").evalJS<number>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(FINISH_ROW)}))
-       .filter(function (row) {
-         return (row.textContent || "").indexOf(${JSON.stringify(arc)}) !== -1;
-       })
-       .filter(function (row) {
-         return row.querySelector('[data-slot="arc-finish-join"]') !== null;
-       }).length`,
+    `document.querySelectorAll(${JSON.stringify(FINISH_BUTTONS)}).length`,
   );
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
   test(
-    "the finished row for THIS arc grows a Join and another arc's does not, the composer says what is waited for, and the Join arms the room rather than landing anything",
+    "the finished row stays a quiet line while the offer stands, and the composer says what is waited for",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -157,32 +140,23 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The two rows the card will carry: the arc it is on, and one naming
-        // an arc it is not. Both are filed before the offer exists, so neither
-        // can be said to have been rendered into a state it already knew.
-        for (const [arc, exchangeId] of [
-          [ARC, "at0560-finish-bound"],
-          [OTHER_ARC, "at0560-finish-other"],
-        ] as const) {
-          await app.driveSession("A", {
-            op: "shellExchange",
-            exchangeId,
-            command: "/arc-run",
-            output: receiptText(arc),
-            cwd: scratch,
-            exitCode: 0,
-            startedAtMs: 1_700_000_000_000,
-          });
-        }
+        // The row reporting the arc's ending, filed before the offer exists.
+        await app.driveSession("A", {
+          op: "shellExchange",
+          exchangeId: "at0560-finish-bound",
+          command: "/arc-run",
+          output: receiptText(ARC),
+          cwd: scratch,
+          exitCode: 0,
+          startedAtMs: 1_700_000_000_000,
+        });
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelectorAll('${CARD} [data-slot="arc-finish-line"]').length === 2`,
+          `document.querySelectorAll(${JSON.stringify(FINISH_LINE)}).length === 1`,
           { timeoutMs: 30000 },
         );
         expect(
-          await app.body("A").evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(FINISH_JOIN)}).length`,
-          ),
-          "a finished arc with no standing offer is the quiet line it has always been",
+          await finishButtons(app),
+          "a finished arc with no standing offer is a quiet line",
         ).toBe(0);
 
         // The real `arc bind` verb: the pilot works from the LEDGER row.
@@ -220,21 +194,6 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
           { timeoutMs: 30000 },
         );
 
-        // ── The receipt grows a Join, for its own arc only ───────────────
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(FINISH_JOIN)}).length === 1`,
-          { timeoutMs: 30000 },
-        );
-        expect(
-          await joinsFor(app, ARC),
-          "the row reporting the arc whose offer stands carries the act",
-        ).toBe(1);
-        expect(
-          await joinsFor(app, OTHER_ARC),
-          "and a row about an arc this card is not on carries nothing",
-        ).toBe(0);
-        note("at0560 receipt", (await app.screenshot()).path);
-
         // ── The composer says what is being waited for ───────────────────
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLACEHOLDER)}) !== null`,
@@ -246,33 +205,13 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
         note("at0560 placeholder", placeholder);
         expect(placeholder).toBe(READY_PLACEHOLDER);
 
-        // ── The Join arms the room; it does not land ─────────────────────
-        // The full click sequence, which is what the button's own handler
-        // conditions on. Where the room ends up is the claim, and the route
-        // is what carries it.
-        await app.body("A").click(FINISH_JOIN);
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector('${ROUTE_GROUP} button[data-choice-value="changes"]')?.getAttribute("data-state") === "active"`,
-          { timeoutMs: 20000 },
-        );
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
-          { timeoutMs: 30000 },
-        );
+        // ── The finished row stays a quiet line ──────────────────────────
+        // Read after the placeholder, so the offer is known to be standing.
         expect(
-          await app.body("A").evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
-          ),
-          "the room it opens is the armed one, and the landing is still the user's press",
-        ).toBe(true);
-        // Nothing landed: the offer is still standing, which is what the row's
-        // own Join still being there says.
-        expect(
-          await app.body("A").evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(FINISH_JOIN)}).length`,
-          ),
-          "the button routed, it did not spend the offer",
-        ).toBe(1);
+          await finishButtons(app),
+          "the finished row carries no act while the offer stands",
+        ).toBe(0);
+        note("at0560 receipt", (await app.screenshot()).path);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
