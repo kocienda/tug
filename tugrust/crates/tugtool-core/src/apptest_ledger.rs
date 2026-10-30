@@ -438,6 +438,46 @@ pub fn file_history(
     Ok(out)
 }
 
+/// One recorded outcome of a file — what `apptest history --chart` plots,
+/// a dot per run.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FileRun {
+    pub status: String,
+    pub ended_at: i64,
+}
+
+/// The newest `n` outcomes of `file` under `base_root`, newest first by
+/// the run's `ended_at`. `SKIP`, `STALLED` and the old `WEDGED` rows are
+/// left out for the reasons [`file_history`] gives: neither says anything
+/// about the file.
+pub fn recent_file_runs(
+    conn: &Connection,
+    base_root: &str,
+    file: &str,
+    n: usize,
+) -> Result<Vec<FileRun>, ApptestLedgerError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.status, u.ended_at
+           FROM results r JOIN runs u ON u.id = r.run_id
+          WHERE u.base_root = ?1 AND r.file = ?2
+            AND r.status NOT IN ('SKIP', 'WEDGED', 'STALLED')
+          ORDER BY u.ended_at DESC, u.id DESC
+          LIMIT ?3",
+    )?;
+    let runs = stmt
+        .query_map(
+            params![base_root, ledger_file_name(file), n as i64],
+            |row| {
+                Ok(FileRun {
+                    status: row.get(0)?,
+                    ended_at: row.get(1)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(runs)
+}
+
 fn answer_from(outcomes: &[Outcome]) -> History {
     let Some(newest) = outcomes.first() else {
         return History::NoHistory;

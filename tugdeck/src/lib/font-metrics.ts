@@ -39,6 +39,20 @@ export function whenFaceLoaded(el: HTMLElement, text: string): Promise<void> {
     .catch(() => undefined);
 }
 
+/**
+ * Whether the face `el` renders in is already available for `text`, read
+ * synchronously. True also when no declared face matches, which is the
+ * fallback case `whenFaceLoaded` resolves on; so a true here is exactly
+ * "waiting would return at once", and a caller can skip the wait.
+ */
+export function faceLoaded(el: HTMLElement, text: string): boolean {
+  try {
+    return document.fonts.check(fontShorthand(window.getComputedStyle(el)), text);
+  } catch {
+    return false;
+  }
+}
+
 /** A width function for `el`'s exact rendered type, or null with no canvas. */
 export function textMeasurer(el: HTMLElement): ((s: string) => number) | null {
   const ctx = document.createElement("canvas").getContext("2d");
@@ -48,4 +62,34 @@ export function textMeasurer(el: HTMLElement): ((s: string) => number) | null {
   const tracking = parseFloat(style.letterSpacing);
   const perChar = Number.isFinite(tracking) ? tracking : 0;
   return (s: string) => ctx.measureText(s).width + perChar * s.length;
+}
+
+/** A measured run: advance width, and the font box's ascent and descent. */
+export interface TextBoxMetrics {
+  w: number;
+  a: number;
+  d: number;
+}
+
+/**
+ * Like {@link textMeasurer}, but also reports the font bounding box's
+ * ascent and descent above and below the alphabetic baseline — what a
+ * layout needs to stack lines and place text by its top or bottom edge.
+ * Null with no canvas.
+ */
+export function textBoxMeasurer(el: HTMLElement): ((s: string) => TextBoxMetrics) | null {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (ctx === null) return null;
+  const style = window.getComputedStyle(el);
+  ctx.font = fontShorthand(style);
+  const tracking = parseFloat(style.letterSpacing);
+  const perChar = Number.isFinite(tracking) ? tracking : 0;
+  return (s: string) => {
+    const m = ctx.measureText(s);
+    return {
+      w: m.width + perChar * s.length,
+      a: m.fontBoundingBoxAscent,
+      d: m.fontBoundingBoxDescent,
+    };
+  };
 }

@@ -72,6 +72,107 @@
       "blocks": [
         {
           "depth": 0,
+          "endChar": 34,
+          "hash": "c25898941e5bb989",
+          "html": "<p>A closed chart fence is promoted:</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 0
+        },
+        {
+          "depth": 0,
+          "endChar": 108,
+          "hash": "0bca14f771aef589",
+          "html": "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\">{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [1, 2, 3]}</div>",
+          "itemCount": 0,
+          "kind": "tug-chart",
+          "rowCount": 0,
+          "startChar": 35
+        },
+        {
+          "depth": 0,
+          "endChar": 140,
+          "hash": "2ac37eaf6e2c0c89",
+          "html": "<p>A look-alike language is not:</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 110
+        },
+        {
+          "depth": 0,
+          "endChar": 173,
+          "hash": "44b6431bf3e8ef40",
+          "html": "<pre><code class=\"language-tugchartx\">{\"tugchart\": 1}\n</code></pre>\n",
+          "itemCount": 0,
+          "kind": "code",
+          "rowCount": 0,
+          "startChar": 141
+        },
+        {
+          "depth": 0,
+          "endChar": 242,
+          "hash": "35ab5116aaa76287",
+          "html": "<p>A four-backtick fence holds a three-backtick line without closing:</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 175
+        },
+        {
+          "depth": 0,
+          "endChar": 368,
+          "hash": "3aabe8db0bf3856b",
+          "html": "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\">{\"tugchart\": 1, \"form\": \"bar\", \"title\": \"a &lt; b &amp; c\",\n```\n \"categories\": [\"x\"], \"series\": [{\"values\": [1]}]}</div>",
+          "itemCount": 0,
+          "kind": "tug-chart",
+          "rowCount": 0,
+          "startChar": 243
+        },
+        {
+          "depth": 0,
+          "endChar": 427,
+          "hash": "8762d87f8a9b4bdf",
+          "html": "<p>An unclosed fence at the end of the document stays code:</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 370
+        },
+        {
+          "depth": 0,
+          "endChar": 493,
+          "hash": "3aeee93fefd0e2ee",
+          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [4, 5\n</code></pre>\n",
+          "itemCount": 0,
+          "kind": "code",
+          "rowCount": 0,
+          "startChar": 428
+        }
+      ],
+      "name": "constructs/charts.md",
+      "prefixes": [
+        {
+          "blocks": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "end": 493
+        }
+      ],
+      "text": "A closed chart fence is promoted:\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [1, 2, 3]}\n```\n\nA look-alike language is not:\n\n```tugchartx\n{\"tugchart\": 1}\n```\n\nA four-backtick fence holds a three-backtick line without closing:\n\n````tugchart\n{\"tugchart\": 1, \"form\": \"bar\", \"title\": \"a < b & c\",\n```\n \"categories\": [\"x\"], \"series\": [{\"values\": [1]}]}\n````\n\nAn unclosed fence at the end of the document stays code:\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [4, 5\n"
+    },
+    {
+      "blocks": [
+        {
+          "depth": 0,
           "endChar": 94,
           "hash": "e6744f64b793cf12",
           "html": "<pre><code class=\"language-ts\">const x: Array&lt;number&gt; = [1, 2, 3];\nif (x.length &gt; 0 &amp;&amp; x[0] &lt; 2) console.log(\"ok\");\n</code></pre>\n",
@@ -729,36 +830,16 @@
         },
         {
           "depth": 0,
-          "endChar": 211,
-          "hash": "2d3b82171426ce2f",
-          "html": "<div class=\"tugx-mermaid\" data-tugx-mermaid-pending=\"true\">graph TD\n  A[\"start\"] --> B{decide}\n  B -->|yes| C</div>",
-          "itemCount": 0,
-          "kind": "tug-mermaid",
-          "rowCount": 0,
-          "startChar": 146
-        },
-        {
-          "depth": 0,
-          "endChar": 234,
+          "endChar": 167,
           "hash": "b99e9da07d4d3b1a",
           "html": "<p>$$<br>\n\\int_0^1 x,dx<br>\n$$</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 213
-        },
-        {
-          "depth": 0,
-          "endChar": 264,
-          "hash": "7cd907101c4abbb5",
-          "html": "<pre><code class=\"language-mermaidx\">not a diagram\n</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 235
+          "startChar": 146
         }
       ],
-      "name": "constructs/math-mermaid.md",
+      "name": "constructs/math.md",
       "prefixes": [
         {
           "blocks": [
@@ -766,14 +847,12 @@
             1,
             2,
             3,
-            4,
-            5,
-            6
+            4
           ],
-          "end": 265
+          "end": 167
         }
       ],
-      "text": "Inline math $x^2 + y^2 = z^2$ and a price of $5.\n\n```math\nE = mc^2 \\quad a < b && c > d\n```\n\n```latex\n\\frac{1}{2}\n```\n\n```TeX\n\\sum_{i=0}^n i\n```\n\n```mermaid\ngraph TD\n  A[\"start\"] --> B{decide}\n  B -->|yes| C\n```\n\n$$\n\\int_0^1 x\\,dx\n$$\n\n```mermaidx\nnot a diagram\n```\n"
+      "text": "Inline math $x^2 + y^2 = z^2$ and a price of $5.\n\n```math\nE = mc^2 \\quad a < b && c > d\n```\n\n```latex\n\\frac{1}{2}\n```\n\n```TeX\n\\sum_{i=0}^n i\n```\n\n$$\n\\int_0^1 x\\,dx\n$$\n"
     },
     {
       "blocks": [
@@ -2987,392 +3066,392 @@
         {
           "depth": 0,
           "endChar": 1231,
-          "hash": "82b8b58fffa633ca",
-          "html": "<div class=\"tugx-mermaid\" data-tugx-mermaid-pending=\"true\"></div>",
+          "hash": "65091a8763f4e821",
+          "html": "<pre><code class=\"language-tugchar\"></code></pre>\n",
           "itemCount": 0,
-          "kind": "tug-mermaid",
+          "kind": "code",
           "rowCount": 0,
           "startChar": 1221
         },
         {
           "depth": 0,
           "endChar": 1250,
-          "hash": "456aa8d5c88b9f31",
-          "html": "<div class=\"tugx-mermaid\" data-tugx-mermaid-pending=\"true\">graph LR\n  delta -</div>",
+          "hash": "aac5d2e41a7fbd15",
+          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"</code></pre>\n",
           "itemCount": 0,
-          "kind": "tug-mermaid",
-          "rowCount": 0,
-          "startChar": 1221
-        },
-        {
-          "depth": 0,
-          "endChar": 1271,
-          "hash": "aeb0217104ffc8d5",
-          "html": "<div class=\"tugx-mermaid\" data-tugx-mermaid-pending=\"true\">graph LR\n  delta --> stage --> page</div>",
-          "itemCount": 0,
-          "kind": "tug-mermaid",
+          "kind": "code",
           "rowCount": 0,
           "startChar": 1221
         },
         {
           "depth": 0,
           "endChar": 1274,
-          "hash": "af64004c860229b8",
-          "html": "<p>M</p>\n",
+          "hash": "3bca13a65124b577",
+          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"form\": \"sparkline\", \"val</code></pre>\n",
           "itemCount": 0,
-          "kind": "paragraph",
+          "kind": "code",
           "rowCount": 0,
-          "startChar": 1273
+          "startChar": 1221
         },
         {
           "depth": 0,
           "endChar": 1297,
-          "hash": "4a86d27f0c252cc9",
-          "html": "<p>Multi-byte text streams</p>\n",
+          "hash": "640671121d8b2575",
+          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [3, 5, 4, 8, 6]}\n</code></pre>\n",
           "itemCount": 0,
-          "kind": "paragraph",
+          "kind": "code",
           "rowCount": 0,
-          "startChar": 1273
+          "startChar": 1221
         },
         {
           "depth": 0,
-          "endChar": 1312,
-          "hash": "70f85af80b08e77e",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀</p>\n",
+          "endChar": 1300,
+          "hash": "82674c8c950c3687",
+          "html": "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\">{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [3, 5, 4, 8, 6]}</div>",
           "itemCount": 0,
-          "kind": "paragraph",
+          "kind": "tug-chart",
           "rowCount": 0,
-          "startChar": 1273
+          "startChar": 1221
         },
         {
           "depth": 0,
-          "endChar": 1330,
-          "hash": "a327f2bc30d52009",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across delta</p>\n",
+          "endChar": 1318,
+          "hash": "43b6089eed05aeea",
+          "html": "<p>Multi-byte text</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1273
+          "startChar": 1302
         },
         {
           "depth": 0,
-          "endChar": 1347,
-          "hash": "83acd4124a15b22e",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-</p>\n",
+          "endChar": 1333,
+          "hash": "aa2d6f8a9b610268",
+          "html": "<p>Multi-byte text streams too: 漢字</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1273
+          "startChar": 1302
         },
         {
           "depth": 0,
-          "endChar": 1376,
-          "hash": "9fadd62f872c8be5",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta bo</p>\n",
+          "endChar": 1348,
+          "hash": "804dc2c8a1a31b79",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split a</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1273
+          "startChar": 1302
         },
         {
           "depth": 0,
-          "endChar": 1403,
-          "hash": "9a735b4be0238682",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the ne</p>\n",
+          "endChar": 1377,
+          "hash": "d45ea813e2ddf8d7",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-c</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1273
+          "startChar": 1302
         },
         {
           "depth": 0,
-          "endChar": 1417,
+          "endChar": 1404,
+          "hash": "4f4c05c5d8e18068",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta b</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 1302
+        },
+        {
+          "depth": 0,
+          "endChar": 1422,
+          "hash": "5c6bcf929192a4a5",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 1302
+        },
+        {
+          "depth": 0,
+          "endChar": 1442,
+          "hash": "29f874702bd99f2a",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next charact</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 1302
+        },
+        {
+          "depth": 0,
+          "endChar": 1446,
           "hash": "da8875c78472d8d9",
           "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next character.</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1273
+          "startChar": 1302
         },
         {
           "depth": 0,
-          "endChar": 1421,
-          "hash": "fa95b519a0caa9a6",
-          "html": "<p>A f</p>\n",
+          "endChar": 1474,
+          "hash": "442991f39f31f1e6",
+          "html": "<p>A footnote[^pace] closes th</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1418
+          "startChar": 1447
         },
         {
           "depth": 0,
-          "endChar": 1441,
-          "hash": "268cca07b8741459",
-          "html": "<p>A footnote[^pace] close</p>\n",
+          "endChar": 1493,
+          "hash": "58028f17e8456ecd",
+          "html": "<p>A footnote[^pace] closes the reference chain,</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1418
+          "startChar": 1447
         },
         {
           "depth": 0,
-          "endChar": 1473,
-          "hash": "1ab95da519c5c5f1",
-          "html": "<p>A footnote[^pace] closes the reference chain, and a [re</p>\n",
+          "endChar": 1513,
+          "hash": "2f51e148aa17b52a",
+          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference lin</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1418
+          "startChar": 1447
         },
         {
           "depth": 0,
-          "endChar": 1492,
-          "hash": "800e101a6c019096",
-          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference link][feed]</p>\n",
+          "endChar": 1534,
+          "hash": "9433f834305cfb79",
+          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference link][feed] resolves acr</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1418
+          "startChar": 1447
         },
         {
           "depth": 0,
-          "endChar": 1512,
-          "hash": "d8b4fd54842d96d3",
-          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference link][feed] resolves across blo</p>\n",
+          "endChar": 1546,
+          "hash": "a86a046da0dcb726",
+          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference link][feed] resolves across blocks.</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1418
+          "startChar": 1447
         },
         {
           "depth": 0,
-          "endChar": 1517,
+          "endChar": 1552,
+          "hash": "573f15ff0076e064",
+          "html": "<p>[^pac</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 1547
+        },
+        {
+          "depth": 0,
+          "endChar": 1546,
           "hash": "a86a046da0dcb726",
           "html": "<p>A footnote<sup class=\"footnote-reference\"><a href=\"#tugfn-pace\">1</a></sup> closes the reference chain, and a [reference link][feed] resolves across blocks.</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1418
+          "startChar": 1447
         },
         {
           "depth": 0,
-          "endChar": 1533,
-          "hash": "509e0dd026d27456",
-          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pa</p>\n</div>\n",
+          "endChar": 1585,
+          "hash": "e5d01a3eb9cf98cc",
+          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pace is the display perio</p>\n</div>\n",
           "itemCount": 0,
           "kind": "other",
           "rowCount": 0,
-          "startChar": 1518
+          "startChar": 1547
         },
         {
           "depth": 0,
-          "endChar": 1551,
-          "hash": "dcb319e201879121",
-          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pace is the display</p>\n</div>\n",
-          "itemCount": 0,
-          "kind": "other",
-          "rowCount": 0,
-          "startChar": 1518
-        },
-        {
-          "depth": 0,
-          "endChar": 1577,
+          "endChar": 1606,
           "hash": "58aeb19a29bcfcc9",
           "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pace is the display period the page reports.</p>\n</div>\n",
           "itemCount": 0,
           "kind": "other",
           "rowCount": 0,
-          "startChar": 1518
+          "startChar": 1547
         },
         {
           "depth": 0,
-          "endChar": 1584,
-          "hash": "b480ad9c774d22f5",
-          "html": "<p>[feed]:</p>\n",
+          "endChar": 1611,
+          "hash": "8728a9d0450660e2",
+          "html": "<p>[feed</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1577
+          "startChar": 1606
         },
         {
           "depth": 0,
-          "endChar": 1517,
+          "endChar": 1546,
           "hash": "a86a046da0dcb726",
-          "html": "<p>A footnote<sup class=\"footnote-reference\"><a href=\"#tugfn-pace\">1</a></sup> closes the reference chain, and a <a href=\"https://example.invalid/f\">reference link</a> resolves across blocks.</p>\n",
+          "html": "<p>A footnote<sup class=\"footnote-reference\"><a href=\"#tugfn-pace\">1</a></sup> closes the reference chain, and a <a href=\"https://example.invalid/feeds\">reference link</a> resolves across blocks.</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1418
+          "startChar": 1447
         },
         {
           "depth": 0,
-          "endChar": 1517,
+          "endChar": 1546,
           "hash": "a86a046da0dcb726",
           "html": "<p>A footnote<sup class=\"footnote-reference\"><a href=\"#tugfn-pace\">1</a></sup> closes the reference chain, and a <a href=\"https://example.invalid/feeds/rendered\" title=\"RENDERED\">reference link</a> resolves across blocks.</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1418
+          "startChar": 1447
         },
         {
           "depth": 0,
-          "endChar": 1640,
+          "endChar": 1669,
           "hash": "2933808e68367724",
           "html": "<hr>\n",
           "itemCount": 0,
           "kind": "hr",
           "rowCount": 0,
-          "startChar": 1636
-        },
-        {
-          "depth": 1,
-          "endChar": 1642,
-          "hash": "af639e4c86018332",
-          "html": "<h1></h1>\n",
-          "itemCount": 0,
-          "kind": "heading",
-          "rowCount": 0,
-          "startChar": 1641
+          "startChar": 1665
         },
         {
           "depth": 3,
-          "endChar": 1663,
-          "hash": "da7dd96e44101781",
-          "html": "<h3>Edge cases worth s</h3>\n",
+          "endChar": 1691,
+          "hash": "46e759f6d65f5f88",
+          "html": "<h3>Edge cases worth</h3>\n",
           "itemCount": 0,
           "kind": "heading",
           "rowCount": 0,
-          "startChar": 1641
+          "startChar": 1670
         },
         {
           "depth": 3,
-          "endChar": 1672,
+          "endChar": 1701,
           "hash": "0c72a02dacda638e",
           "html": "<h3>Edge cases worth streaming</h3>\n",
           "itemCount": 0,
           "kind": "heading",
           "rowCount": 0,
-          "startChar": 1641
+          "startChar": 1670
         },
         {
           "depth": 0,
-          "endChar": 1690,
-          "hash": "f3325980045332a8",
-          "html": "<p>An unclosed **bol</p>\n",
+          "endChar": 1715,
+          "hash": "49f1200d6589b0bb",
+          "html": "<p>An unclosed *</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1673
+          "startChar": 1702
         },
         {
           "depth": 0,
-          "endChar": 1714,
-          "hash": "0d2b19398781d7df",
-          "html": "<p>An unclosed **bold run keeps going until</p>\n",
+          "endChar": 1745,
+          "hash": "c8a7a662855edc1b",
+          "html": "<p>An unclosed **bold run keeps going until th</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1673
+          "startChar": 1702
         },
         {
           "depth": 0,
-          "endChar": 1744,
-          "hash": "2e07e44f824823cc",
-          "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and a</p>\n",
+          "endChar": 1775,
+          "hash": "506dc1d21c6a9152",
+          "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and an</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1673
+          "startChar": 1702
         },
         {
           "depth": 0,
-          "endChar": 1774,
-          "hash": "525ea44e82717dc8",
-          "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows ever</p>\n",
+          "endChar": 1799,
+          "hash": "878e02e0b2e102a0",
+          "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1673
+          "startChar": 1702
         },
         {
           "depth": 0,
-          "endChar": 1791,
+          "endChar": 1820,
           "hash": "92cda9ecc7bdb9e0",
           "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows everything after it:</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1673
+          "startChar": 1702
         },
         {
           "depth": 0,
-          "endChar": 1798,
-          "hash": "9517a588b2ad6ddc",
-          "html": "<pre><code class=\"language-ts\"></code></pre>\n",
+          "endChar": 1823,
+          "hash": "089f6807b5480b6d",
+          "html": "<p>``</p>\n",
           "itemCount": 0,
-          "kind": "code",
+          "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 1792
+          "startChar": 1821
         },
         {
           "depth": 0,
-          "endChar": 1822,
-          "hash": "525ecdf67a120046",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n//</code></pre>\n",
+          "endChar": 1854,
+          "hash": "e1f0710159f71dce",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// th</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
-          "startChar": 1792
+          "startChar": 1821
         },
         {
           "depth": 0,
-          "endChar": 1853,
-          "hash": "61a83ecaf4874d15",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrive</code></pre>\n",
+          "endChar": 1888,
+          "hash": "536274e239fca8d8",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
-          "startChar": 1792
+          "startChar": 1821
         },
         {
           "depth": 0,
-          "endChar": 1887,
-          "hash": "27660e28acb7f3bb",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and</code></pre>\n",
+          "endChar": 1914,
+          "hash": "995e7907a69a26a1",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, a</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
-          "startChar": 1792
-        },
-        {
-          "depth": 0,
-          "endChar": 1913,
-          "hash": "fafbbf2313a7351b",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph re</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 1792
-        },
-        {
-          "depth": 0,
-          "endChar": 1947,
-          "hash": "5a166dd4af2cce0a",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that s</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 1792
+          "startChar": 1821
         },
         {
           "depth": 0,
           "endChar": 1948,
-          "hash": "40eb1e65a922e01a",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that st</code></pre>\n",
+          "hash": "6d00c69ae12e92db",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns </code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
-          "startChar": 1792
+          "startChar": 1821
+        },
+        {
+          "depth": 0,
+          "endChar": 1949,
+          "hash": "66e4282ca2233f5d",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns t</code></pre>\n",
+          "itemCount": 0,
+          "kind": "code",
+          "rowCount": 0,
+          "startChar": 1821
         }
       ],
       "name": "streams/test-10-long-streaming-300-words",
@@ -3913,8 +3992,7 @@
             51,
             55,
             57,
-            60,
-            61
+            60
           ],
           "end": 1274
         },
@@ -3930,8 +4008,7 @@
             51,
             55,
             57,
-            60,
-            62
+            61
           ],
           "end": 1297
         },
@@ -3947,10 +4024,10 @@
             51,
             55,
             57,
-            60,
+            62,
             63
           ],
-          "end": 1312
+          "end": 1318
         },
         {
           "blocks": [
@@ -3964,10 +4041,10 @@
             51,
             55,
             57,
-            60,
+            62,
             64
           ],
-          "end": 1330
+          "end": 1333
         },
         {
           "blocks": [
@@ -3981,10 +4058,10 @@
             51,
             55,
             57,
-            60,
+            62,
             65
           ],
-          "end": 1347
+          "end": 1348
         },
         {
           "blocks": [
@@ -3998,10 +4075,10 @@
             51,
             55,
             57,
-            60,
+            62,
             66
           ],
-          "end": 1376
+          "end": 1377
         },
         {
           "blocks": [
@@ -4015,10 +4092,10 @@
             51,
             55,
             57,
-            60,
+            62,
             67
           ],
-          "end": 1403
+          "end": 1404
         },
         {
           "blocks": [
@@ -4032,11 +4109,27 @@
             51,
             55,
             57,
-            60,
-            68,
+            62,
+            68
+          ],
+          "end": 1422
+        },
+        {
+          "blocks": [
+            1,
+            8,
+            11,
+            19,
+            29,
+            37,
+            43,
+            51,
+            55,
+            57,
+            62,
             69
           ],
-          "end": 1421
+          "end": 1442
         },
         {
           "blocks": [
@@ -4050,29 +4143,11 @@
             51,
             55,
             57,
-            60,
-            68,
-            70
-          ],
-          "end": 1441
-        },
-        {
-          "blocks": [
-            1,
-            8,
-            11,
-            19,
-            29,
-            37,
-            43,
-            51,
-            55,
-            57,
-            60,
-            68,
+            62,
+            70,
             71
           ],
-          "end": 1473
+          "end": 1474
         },
         {
           "blocks": [
@@ -4086,11 +4161,11 @@
             51,
             55,
             57,
-            60,
-            68,
+            62,
+            70,
             72
           ],
-          "end": 1492
+          "end": 1493
         },
         {
           "blocks": [
@@ -4104,11 +4179,11 @@
             51,
             55,
             57,
-            60,
-            68,
+            62,
+            70,
             73
           ],
-          "end": 1512
+          "end": 1513
         },
         {
           "blocks": [
@@ -4122,12 +4197,11 @@
             51,
             55,
             57,
-            60,
-            68,
-            74,
-            75
+            62,
+            70,
+            74
           ],
-          "end": 1533
+          "end": 1534
         },
         {
           "blocks": [
@@ -4141,12 +4215,12 @@
             51,
             55,
             57,
-            60,
-            68,
-            74,
+            62,
+            70,
+            75,
             76
           ],
-          "end": 1551
+          "end": 1552
         },
         {
           "blocks": [
@@ -4160,13 +4234,12 @@
             51,
             55,
             57,
-            60,
-            68,
-            74,
+            62,
+            70,
             77,
             78
           ],
-          "end": 1584
+          "end": 1585
         },
         {
           "blocks": [
@@ -4180,12 +4253,13 @@
             51,
             55,
             57,
-            60,
-            68,
+            62,
+            70,
+            77,
             79,
-            77
+            80
           ],
-          "end": 1610
+          "end": 1611
         },
         {
           "blocks": [
@@ -4199,14 +4273,12 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
+            62,
+            70,
             81,
-            82
+            79
           ],
-          "end": 1642
+          "end": 1643
         },
         {
           "blocks": [
@@ -4220,14 +4292,12 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            83
+            62,
+            70,
+            82,
+            79
           ],
-          "end": 1663
+          "end": 1664
         },
         {
           "blocks": [
@@ -4241,15 +4311,14 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            85
+            62,
+            70,
+            82,
+            79,
+            83,
+            84
           ],
-          "end": 1690
+          "end": 1691
         },
         {
           "blocks": [
@@ -4263,15 +4332,15 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
             86
           ],
-          "end": 1714
+          "end": 1715
         },
         {
           "blocks": [
@@ -4285,15 +4354,15 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
             87
           ],
-          "end": 1744
+          "end": 1745
         },
         {
           "blocks": [
@@ -4307,15 +4376,15 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
             88
           ],
-          "end": 1774
+          "end": 1775
         },
         {
           "blocks": [
@@ -4329,16 +4398,15 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            89,
-            90
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
+            89
           ],
-          "end": 1798
+          "end": 1799
         },
         {
           "blocks": [
@@ -4352,16 +4420,16 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            89,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
+            90,
             91
           ],
-          "end": 1822
+          "end": 1823
         },
         {
           "blocks": [
@@ -4375,16 +4443,16 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            89,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
+            90,
             92
           ],
-          "end": 1853
+          "end": 1854
         },
         {
           "blocks": [
@@ -4398,16 +4466,16 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            89,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
+            90,
             93
           ],
-          "end": 1887
+          "end": 1888
         },
         {
           "blocks": [
@@ -4421,16 +4489,16 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            89,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
+            90,
             94
           ],
-          "end": 1913
+          "end": 1914
         },
         {
           "blocks": [
@@ -4444,37 +4512,14 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            89,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
+            90,
             95
-          ],
-          "end": 1947
-        },
-        {
-          "blocks": [
-            1,
-            8,
-            11,
-            19,
-            29,
-            37,
-            43,
-            51,
-            55,
-            57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            89,
-            96
           ],
           "end": 1948
         },
@@ -4490,19 +4535,42 @@
             51,
             55,
             57,
-            60,
-            68,
-            80,
-            77,
-            81,
-            84,
-            89,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
+            90,
             96
+          ],
+          "end": 1949
+        },
+        {
+          "blocks": [
+            1,
+            8,
+            11,
+            19,
+            29,
+            37,
+            43,
+            51,
+            55,
+            57,
+            62,
+            70,
+            82,
+            79,
+            83,
+            85,
+            90,
+            95
           ],
           "end": 1948
         }
       ],
-      "text": "## Reading the render stage\n\nThe stage keeps **one document per message** and re-parses it on every tick. That sounds wasteful — it isn't, because a tick is bounded by the display period and the parse is linear in the text.\n\nThree things decide what a tick emits:\n\n1. The *accumulated* text, which grows by partial deltas.\n2. The previous emission's block hashes, so unchanged blocks ship without HTML.\n3. Whether a motion hold is open, in which case the batch waits.\n\n```rust\nfn tick(&mut self) -> Vec<RenderedBlock> {\n    let blocks = render_blocks(&self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.insert(b.hash)).collect()\n}\n```\n\n| Input | Effect | Cost |\n|:------|:------:|-----:|\n| partial delta | append | O(n) |\n| final text | replace | O(n) |\n| motion open | hold | 0 |\n\n> A hold is a promise, not a pause: the stage still parses, it only stops publishing.\n> Releasing the hold publishes the merged batch as one bundle.\n\n- [x] hashes match the page's\n- [ ] highlighting lands later\n- nested:\n  - the first block keeps its hash\n  - the growing tail block changes every tick\n\nInline math like $a^2 + b^2$ stays in the paragraph, while a fence promotes:\n\n```math\n\\sum_{i=1}^{n} t_i \\le P\n```\n\n```mermaid\ngraph LR\n  delta --> stage --> page\n```\n\nMulti-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next character.\n\nA footnote[^pace] closes the reference chain, and a [reference link][feed] resolves across blocks.\n\n[^pace]: The pace is the display period the page reports.\n\n[feed]: https://example.invalid/feeds/rendered \"RENDERED\"\n\n---\n\n### Edge cases worth streaming\n\nAn unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows everything after it:\n\n```ts\nconst open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that st"
+      "text": "## Reading the render stage\n\nThe stage keeps **one document per message** and re-parses it on every tick. That sounds wasteful — it isn't, because a tick is bounded by the display period and the parse is linear in the text.\n\nThree things decide what a tick emits:\n\n1. The *accumulated* text, which grows by partial deltas.\n2. The previous emission's block hashes, so unchanged blocks ship without HTML.\n3. Whether a motion hold is open, in which case the batch waits.\n\n```rust\nfn tick(&mut self) -> Vec<RenderedBlock> {\n    let blocks = render_blocks(&self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.insert(b.hash)).collect()\n}\n```\n\n| Input | Effect | Cost |\n|:------|:------:|-----:|\n| partial delta | append | O(n) |\n| final text | replace | O(n) |\n| motion open | hold | 0 |\n\n> A hold is a promise, not a pause: the stage still parses, it only stops publishing.\n> Releasing the hold publishes the merged batch as one bundle.\n\n- [x] hashes match the page's\n- [ ] highlighting lands later\n- nested:\n  - the first block keeps its hash\n  - the growing tail block changes every tick\n\nInline math like $a^2 + b^2$ stays in the paragraph, while a fence promotes:\n\n```math\n\\sum_{i=1}^{n} t_i \\le P\n```\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [3, 5, 4, 8, 6]}\n```\n\nMulti-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next character.\n\nA footnote[^pace] closes the reference chain, and a [reference link][feed] resolves across blocks.\n\n[^pace]: The pace is the display period the page reports.\n\n[feed]: https://example.invalid/feeds/rendered \"RENDERED\"\n\n---\n\n### Edge cases worth streaming\n\nAn unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows everything after it:\n\n```ts\nconst open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns t"
     }
   ],
   "catalog": "v2.1.311",

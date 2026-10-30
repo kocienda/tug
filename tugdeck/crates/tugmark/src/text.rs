@@ -4,7 +4,11 @@
 //!
 //! Per block: the text of its sanitized HTML with every `.tugx-katex`
 //! subtree removed (fenced math, whose placeholder holds LaTeX the painter
-//! skips), then unfenced `$…$` / `$$…$$` math removed exactly where the
+//! skips), every `.tugx-chart` subtree replaced by the chart's find text
+//! (the fence's spec holds JSON the page never shows; what it shows, once
+//! rendered, is the table alternative, and `tuggraphics::find_text` is
+//! that table's text, or the source itself for a spec the validator
+//! refuses), then unfenced `$…$` / `$$…$$` math removed exactly where the
 //! page's inline-math walk would promote it — node by node, because a text
 //! node boundary decides what that walk can see (`mathStrippedText` in
 //! `inline-math-walker.ts`). The blocks are joined with nothing, and atom
@@ -27,27 +31,58 @@ fn has_class(attrs: &[(&str, String)], class: &str) -> bool {
     attr(attrs, "class").is_some_and(|value| value.split_ascii_whitespace().any(|c| c == class))
 }
 
+/// What an open element does to the text under it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Text is emitted as the page shows it.
+    Prose,
+    /// A `.tugx-katex` subtree: nothing under it is emitted.
+    Katex,
+    /// A `.tugx-chart` subtree: its text is the chart source, gathered and
+    /// replaced by the chart's find text when the subtree closes.
+    Chart,
+}
+
 /// One block's text, per the module's rule.
 fn block_text(html: &str) -> String {
-    // The open elements: name, and whether the element is (or is inside) a
-    // `.tugx-katex` subtree.
-    let mut stack: Vec<(&str, bool)> = Vec::new();
+    // The open elements: name, and the mode the element is (or is inside).
+    let mut stack: Vec<(&str, Mode)> = Vec::new();
     let mut out = String::new();
+    // The source of the chart subtree being read, already entity-decoded
+    // by the scanner: the placeholder escaped it for text content, and
+    // `Token::Text` undoes exactly that.
+    let mut chart_source = String::new();
     scan(html, |token| match token {
         Token::Start { name, attrs, .. } => {
-            let in_katex = stack.last().is_some_and(|(_, k)| *k) || has_class(&attrs, "tugx-katex");
+            let mode = match stack.last().map(|(_, m)| *m) {
+                Some(inherited) if inherited != Mode::Prose => inherited,
+                _ if has_class(&attrs, "tugx-katex") => Mode::Katex,
+                _ if has_class(&attrs, "tugx-chart") => Mode::Chart,
+                _ => Mode::Prose,
+            };
             if !is_void(name) {
-                stack.push((name, in_katex));
+                stack.push((name, mode));
             }
         }
         Token::End { name } => {
             if let Some(at) = stack.iter().rposition(|(open, _)| *open == name) {
+                let closes_chart =
+                    stack[at].1 == Mode::Chart && (at == 0 || stack[at - 1].1 != Mode::Chart);
                 stack.truncate(at);
+                if closes_chart {
+                    out.push_str(&tuggraphics::find_text(&chart_source, tuggraphics::Layers::Chart));
+                    chart_source.clear();
+                }
             }
         }
         Token::Text(text) => {
-            if stack.last().is_some_and(|(_, k)| *k) {
-                return;
+            match stack.last().map(|(_, m)| *m) {
+                Some(Mode::Katex) => return,
+                Some(Mode::Chart) => {
+                    chart_source.push_str(&text);
+                    return;
+                }
+                _ => {}
             }
             // Text at the top level sits in the page's scratch `div`.
             let parent = stack.last().map_or("div", |(n, _)| *n);
@@ -225,6 +260,28 @@ mod tests {
     #[test]
     fn atom_placeholders_are_removed() {
         assert_eq!(text_of("a\u{fffc}b\n"), "ab\n");
+    }
+
+    #[test]
+    fn a_chart_yields_its_table_text() {
+        // The fence's `<` is escaped in the placeholder and decoded on the
+        // way back, so the spec `find_text` reads is the author's.
+        let markdown = concat!(
+            "before\n\n```tugchart\n",
+            "{\"tugchart\":1,\"form\":\"bar\",\"title\":\"a < b\",",
+            "\"categories\":[\"x\",\"y\"],\"series\":[{\"name\":\"n\",\"values\":[1,null]}]}\n",
+            "```\n\nafter\n"
+        );
+        let spec = "{\"tugchart\":1,\"form\":\"bar\",\"title\":\"a < b\",\"categories\":[\"x\",\"y\"],\"series\":[{\"name\":\"n\",\"values\":[1,null]}]}";
+        let expected = tuggraphics::find_text(spec, tuggraphics::Layers::Chart);
+        assert_eq!(expected, "a < bnx1y");
+        assert_eq!(text_of(markdown), format!("before\n{expected}after\n"));
+    }
+
+    #[test]
+    fn an_invalid_chart_yields_its_source() {
+        let markdown = "```tugchart\n{\"tugchart\":1,\"form\":\"pie\"}\n```\n";
+        assert_eq!(text_of(markdown), "{\"tugchart\":1,\"form\":\"pie\"}");
     }
 
     #[test]

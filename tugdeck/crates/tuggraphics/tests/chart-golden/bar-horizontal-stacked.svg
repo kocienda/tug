@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 128" width="560" height="128" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Time per stage</text>
+<text x="0" y="56" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">devise</text>
+<text x="0" y="76" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">implement</text>
+<text x="0" y="96" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">audit</text>
+<text x="72.8" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0s</text>
+<text x="233.87" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">8m20s</text>
+<text x="394.93" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">16m40s</text>
+<text x="540.2" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">25m00s</text>
+<path d="M72.8 46 L72.8 106 M233.87 46 L233.87 106 M394.93 46 L394.93 106 M556 46 L556 106" class="tgs-grid" fill="none" stroke-width="1"/>
+<path d="M0 27 L10 27 L10 37 L0 37 Z" class="tgf-series-1"/>
+<text x="14" y="32" class="tgt-label tgf-ink" text-anchor="start" dominant-baseline="central">model</text>
+<path d="M62 27 L72 27 L72 37 L62 37 Z" class="tgf-series-2"/>
+<text x="76" y="32" class="tgt-label tgf-ink" text-anchor="start" dominant-baseline="central">tests</text>
+<path d="M72.8 48 L111.46 48 L111.46 64 L72.8 64 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:0"/>
+<text x="115.46" y="56" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">2m00s</text>
+<path d="M72.8 68 L362.72 68 L362.72 84 L72.8 84 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:0"/>
+<path d="M362.72 68 L556 68 L556 84 L362.72 84 Z" class="tgf-series-2 tge-grow tge-from-left" style="--tg-i:1"/>
+<text x="552" y="76" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="end" dominant-baseline="central">25m00s</text>
+<path d="M72.8 88 L137.23 88 L137.23 104 L72.8 104 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:0"/>
+<path d="M137.23 88 L151.72 88 L151.72 104 L137.23 104 Z" class="tgf-series-2 tge-grow tge-from-left" style="--tg-i:1"/>
+<text x="155.72" y="96" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">4m05s</text>
+<path d="M72.8 46 L72.8 106" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+</svg>

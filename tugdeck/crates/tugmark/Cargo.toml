@@ -13,10 +13,12 @@ license.workspace = true
 [features]
 default = []
 # What only tugcast links: the sanitizer, the block renderer, the
-# highlighter. Nothing behind it may enter the WASM build.
+# highlighter, and the chart compiler the find extraction reads a chart's
+# text through. Nothing behind it may enter the WASM build.
 native = [
     "dep:ammonia",
     "dep:serde_json",
+    "dep:tuggraphics",
     "dep:tree-sitter",
     "dep:tree-sitter-highlight",
     "dep:tree-sitter-javascript",
@@ -43,6 +45,9 @@ native = [
 pulldown-cmark = { version = "=0.12.2", default-features = false, features = ["html", "simd"] }
 ammonia = { version = "4", optional = true }
 serde_json = { version = "1", optional = true }
+# The find extraction's reading of a chart: `find_text` over the fence's
+# spec, the same string the page's index projects through the WASM engine.
+tuggraphics = { path = "../tuggraphics", optional = true }
 # The fence highlighter. Every grammar crate is MIT. A language with no
 # permissively licensed crate on this tree-sitter (dockerfile, astro), whose
 # grammar needs injections (markdown), or whose queries are written for

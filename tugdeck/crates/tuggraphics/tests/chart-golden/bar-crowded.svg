@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 240" width="560" height="240" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Sixty days</text>
+<text x="13.2" y="220" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">0</text>
+<text x="13.2" y="157.67" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">5</text>
+<text x="13.2" y="95.33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">10</text>
+<text x="13.2" y="33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">15</text>
+<path d="M21.2 220 L556 220 M21.2 157.67 L556 157.67 M21.2 95.33 L556 95.33 M21.2 33 L556 33" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="25.66" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 01</text>
+<text x="79.14" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 07</text>
+<text x="132.62" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 13</text>
+<text x="186.1" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 19</text>
+<text x="239.58" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 25</text>
+<text x="293.06" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 31</text>
+<text x="346.54" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 37</text>
+<text x="400.02" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 43</text>
+<text x="453.5" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 49</text>
+<text x="506.98" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">day 55</text>
+<path d="M22.09 120.27 L29.22 120.27 L29.22 220 L22.09 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:0"/>
+<text x="25.66" y="111.27" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="central">8</text>
+<path d="M31 195.07 L38.14 195.07 L38.14 220 L31 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:1"/>
+<text x="34.57" y="186.07" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="central">2</text>
+<path d="M39.92 107.8 L47.05 107.8 L47.05 220 L39.92 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:2"/>
+<text x="43.48" y="98.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="central">9</text>
+<path d="M48.83 182.6 L55.96 182.6 L55.96 220 L48.83 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:3"/>
+<text x="52.4" y="173.6" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">3</text>
+<path d="M57.74 95.33 L64.88 95.33 L64.88 220 L57.74 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:4"/>
+<path d="M66.66 170.13 L73.79 170.13 L73.79 220 L66.66 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:5"/>
+<text x="70.22" y="161.13" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:5" text-anchor="middle" dominant-baseline="central">4</text>
+<path d="M75.57 82.87 L82.7 82.87 L82.7 220 L75.57 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:6"/>
+<path d="M84.48 157.67 L91.62 157.67 L91.62 220 L84.48 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:7"/>
+<text x="88.05" y="148.67" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:7" text-anchor="middle" dominant-baseline="central">5</text>
+<path d="M93.4 70.4 L100.53 70.4 L100.53 220 L93.4 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:8"/>
+<path d="M102.31 145.2 L109.44 145.2 L109.44 220 L102.31 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:9"/>
+<text x="105.88" y="136.2" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:9" text-anchor="middle" dominant-baseline="central">6</text>
+<path d="M111.22 57.93 L118.36 57.93 L118.36 220 L111.22 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:10"/>
+<path d="M120.14 132.73 L127.27 132.73 L127.27 220 L120.14 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:11"/>
+<text x="123.7" y="123.73" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:11" text-anchor="middle" dominant-baseline="central">7</text>
+<path d="M129.05 207.53 L136.18 207.53 L136.18 220 L129.05 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:12"/>
+<text x="132.62" y="198.53" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:12" text-anchor="middle" dominant-baseline="central">1</text>
+<path d="M137.96 120.27 L145.1 120.27 L145.1 220 L137.96 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:13"/>
+<text x="141.53" y="111.27" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:13" text-anchor="middle" dominant-baseline="central">8</text>
+<path d="M146.88 195.07 L154.01 195.07 L154.01 220 L146.88 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:14"/>
+<text x="150.44" y="186.07" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:14" text-anchor="middle" dominant-baseline="central">2</text>
+<path d="M155.79 107.8 L162.92 107.8 L162.92 220 L155.79 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:15"/>
+<text x="159.36" y="98.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:15" text-anchor="middle" dominant-baseline="central">9</text>
+<path d="M164.7 182.6 L171.84 182.6 L171.84 220 L164.7 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:16"/>
+<text x="168.27" y="173.6" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:16" text-anchor="middle" dominant-baseline="central">3</text>
+<path d="M173.62 95.33 L180.75 95.33 L180.75 220 L173.62 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:17"/>
+<path d="M182.53 170.13 L189.66 170.13 L189.66 220 L182.53 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:18"/>
+<text x="186.1" y="161.13" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:18" text-anchor="middle" dominant-baseline="central">4</text>
+<path d="M191.44 82.87 L198.58 82.87 L198.58 220 L191.44 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:19"/>
+<path d="M200.36 157.67 L207.49 157.67 L207.49 220 L200.36 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:20"/>
+<text x="203.92" y="148.67" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:20" text-anchor="middle" dominant-baseline="central">5</text>
+<path d="M209.27 70.4 L216.4 70.4 L216.4 220 L209.27 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:21"/>
+<path d="M218.18 145.2 L225.32 145.2 L225.32 220 L218.18 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:22"/>
+<text x="221.75" y="136.2" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:22" text-anchor="middle" dominant-baseline="central">6</text>
+<path d="M227.1 57.93 L234.23 57.93 L234.23 220 L227.1 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:23"/>
+<path d="M236.01 132.73 L243.14 132.73 L243.14 220 L236.01 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:24"/>
+<text x="239.58" y="123.73" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:24" text-anchor="middle" dominant-baseline="central">7</text>
+<path d="M244.92 207.53 L252.06 207.53 L252.06 220 L244.92 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:25"/>
+<text x="248.49" y="198.53" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:25" text-anchor="middle" dominant-baseline="central">1</text>
+<path d="M253.84 120.27 L260.97 120.27 L260.97 220 L253.84 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:26"/>
+<text x="257.4" y="111.27" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:26" text-anchor="middle" dominant-baseline="central">8</text>
+<path d="M262.75 195.07 L269.88 195.07 L269.88 220 L262.75 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:27"/>
+<text x="266.32" y="186.07" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:27" text-anchor="middle" dominant-baseline="central">2</text>
+<path d="M271.66 107.8 L278.8 107.8 L278.8 220 L271.66 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:28"/>
+<text x="275.23" y="98.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:28" text-anchor="middle" dominant-baseline="central">9</text>
+<path d="M280.58 182.6 L287.71 182.6 L287.71 220 L280.58 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:29"/>
+<text x="284.14" y="173.6" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:29" text-anchor="middle" dominant-baseline="central">3</text>
+<path d="M289.49 95.33 L296.62 95.33 L296.62 220 L289.49 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:30"/>
+<path d="M298.4 170.13 L305.54 170.13 L305.54 220 L298.4 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:31"/>
+<text x="301.97" y="161.13" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:31" text-anchor="middle" dominant-baseline="central">4</text>
+<path d="M307.32 82.87 L314.45 82.87 L314.45 220 L307.32 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:32"/>
+<path d="M316.23 157.67 L323.36 157.67 L323.36 220 L316.23 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:33"/>
+<text x="319.8" y="148.67" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:33" text-anchor="middle" dominant-baseline="central">5</text>
+<path d="M325.14 70.4 L332.28 70.4 L332.28 220 L325.14 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:34"/>
+<path d="M334.06 145.2 L341.19 145.2 L341.19 220 L334.06 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:35"/>
+<text x="337.62" y="136.2" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:35" text-anchor="middle" dominant-baseline="central">6</text>
+<path d="M342.97 57.93 L350.1 57.93 L350.1 220 L342.97 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:36"/>
+<path d="M351.88 132.73 L359.02 132.73 L359.02 220 L351.88 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:37"/>
+<text x="355.45" y="123.73" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:37" text-anchor="middle" dominant-baseline="central">7</text>
+<path d="M360.8 207.53 L367.93 207.53 L367.93 220 L360.8 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:38"/>
+<text x="364.36" y="198.53" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:38" text-anchor="middle" dominant-baseline="central">1</text>
+<path d="M369.71 120.27 L376.84 120.27 L376.84 220 L369.71 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:39"/>
+<text x="373.28" y="111.27" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:39" text-anchor="middle" dominant-baseline="central">8</text>
+<path d="M378.62 195.07 L385.76 195.07 L385.76 220 L378.62 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:40"/>
+<text x="382.19" y="186.07" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:40" text-anchor="middle" dominant-baseline="central">2</text>
+<path d="M387.54 107.8 L394.67 107.8 L394.67 220 L387.54 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:41"/>
+<text x="391.1" y="98.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:41" text-anchor="middle" dominant-baseline="central">9</text>
+<path d="M396.45 182.6 L403.58 182.6 L403.58 220 L396.45 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:42"/>
+<text x="400.02" y="173.6" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:42" text-anchor="middle" dominant-baseline="central">3</text>
+<path d="M405.36 95.33 L412.5 95.33 L412.5 220 L405.36 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:43"/>
+<path d="M414.28 170.13 L421.41 170.13 L421.41 220 L414.28 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:44"/>
+<text x="417.84" y="161.13" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:44" text-anchor="middle" dominant-baseline="central">4</text>
+<path d="M423.19 82.87 L430.32 82.87 L430.32 220 L423.19 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:45"/>
+<path d="M432.1 157.67 L439.24 157.67 L439.24 220 L432.1 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:46"/>
+<text x="435.67" y="148.67" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:46" text-anchor="middle" dominant-baseline="central">5</text>
+<path d="M441.02 70.4 L448.15 70.4 L448.15 220 L441.02 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:47"/>
+<path d="M449.93 145.2 L457.06 145.2 L457.06 220 L449.93 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:48"/>
+<text x="453.5" y="136.2" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:48" text-anchor="middle" dominant-baseline="central">6</text>
+<path d="M458.84 57.93 L465.98 57.93 L465.98 220 L458.84 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:49"/>
+<path d="M467.76 132.73 L474.89 132.73 L474.89 220 L467.76 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:50"/>
+<text x="471.32" y="123.73" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:50" text-anchor="middle" dominant-baseline="central">7</text>
+<path d="M476.67 207.53 L483.8 207.53 L483.8 220 L476.67 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:51"/>
+<text x="480.24" y="198.53" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:51" text-anchor="middle" dominant-baseline="central">1</text>
+<path d="M485.58 120.27 L492.72 120.27 L492.72 220 L485.58 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:52"/>
+<text x="489.15" y="111.27" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:52" text-anchor="middle" dominant-baseline="central">8</text>
+<path d="M494.5 195.07 L501.63 195.07 L501.63 220 L494.5 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:53"/>
+<text x="498.06" y="186.07" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:53" text-anchor="middle" dominant-baseline="central">2</text>
+<path d="M503.41 107.8 L510.54 107.8 L510.54 220 L503.41 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:54"/>
+<text x="506.98" y="98.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:54" text-anchor="middle" dominant-baseline="central">9</text>
+<path d="M512.32 182.6 L519.46 182.6 L519.46 220 L512.32 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:55"/>
+<text x="515.89" y="173.6" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:55" text-anchor="middle" dominant-baseline="central">3</text>
+<path d="M521.24 95.33 L528.37 95.33 L528.37 220 L521.24 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:56"/>
+<path d="M530.15 170.13 L537.28 170.13 L537.28 220 L530.15 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:57"/>
+<text x="533.72" y="161.13" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:57" text-anchor="middle" dominant-baseline="central">4</text>
+<path d="M539.06 82.87 L546.2 82.87 L546.2 220 L539.06 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:58"/>
+<path d="M547.98 157.67 L555.11 157.67 L555.11 220 L547.98 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:59"/>
+<text x="551.54" y="148.67" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:59" text-anchor="middle" dominant-baseline="central">5</text>
+<path d="M21.2 220 L556 220" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+</svg>

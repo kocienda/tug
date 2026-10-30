@@ -214,9 +214,9 @@ export function buildByteToCharMap(text: string): Uint32Array {
  *   transformer flat-maps over the (current) block list and may
  *   replace, drop, or split a block. See `block-transformers/index.ts`.
  * - `isComplete` — passed through into each `BlockTransformContext`.
- *   Streaming-aware transformers (e.g. `mermaid`) defer their
- *   promotion until completion; for static documents callers leave
- *   this `true` (the default).
+ *   Streaming-aware transformers may defer their promotion until
+ *   completion; for static documents callers leave this `true` (the
+ *   default).
  */
 export interface ParseMarkdownOptions {
   transformers?: ReadonlyArray<BlockTransformer>;
@@ -235,8 +235,8 @@ export interface ParseMarkdownOptions {
  * If `options.transformers` is supplied, the result of the lex →
  * parse → sanitize pipeline runs through `applyBlockTransformers`
  * before being returned. Transformers may change a block's `type`
- * (e.g. promote a `code` block with `lang === "mermaid"` to a
- * `tug-mermaid` block), drop a block, or split it into siblings —
+ * (e.g. promote a `code` block with `lang === "tugchart"` to a
+ * `tug-chart` block), drop a block, or split it into siblings —
  * see Spec S04.
  */
 export function parseMarkdownToSanitizedBlocks(
@@ -295,5 +295,6 @@ export function parseMarkdownToSanitizedBlocks(
   if (transformers === undefined || transformers.length === 0) return result;
   return applyBlockTransformers(result, transformers, {
     isComplete: options?.isComplete,
+    text,
   });
 }

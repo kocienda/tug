@@ -1,0 +1,13 @@
+{
+  "tugchart": 1,
+  "form": "bar",
+  "orient": "horizontal",
+  "layout": "stacked",
+  "title": "Time per stage",
+  "format": "secs",
+  "categories": ["devise", "implement", "audit"],
+  "series": [
+    {"name": "model", "values": [120, 900, 200]},
+    {"name": "tests", "values": [0, 600, 45]}
+  ]
+}

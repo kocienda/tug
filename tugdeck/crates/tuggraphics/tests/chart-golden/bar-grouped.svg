@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 240" width="560" height="240" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Tests by suite</text>
+<text x="19.8" y="220" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">-1k</text>
+<text x="19.8" y="164.33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">0</text>
+<text x="19.8" y="108.67" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">1k</text>
+<text x="19.8" y="53" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">2k</text>
+<path d="M27.8 220 L556 220 M27.8 164.33 L556 164.33 M27.8 108.67 L556 108.67 M27.8 53 L556 53" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="93.83" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">Mon</text>
+<text x="225.88" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">Tue</text>
+<text x="357.93" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">Wed</text>
+<text x="489.98" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">Thursday-long-la…</text>
+<path d="M0 27 L10 27 L10 37 L0 37 Z" class="tgf-series-1"/>
+<text x="14" y="32" class="tgt-label tgf-ink" text-anchor="start" dominant-baseline="central">rust</text>
+<path d="M54.8 27 L64.8 27 L64.8 37 L54.8 37 Z" class="tgf-series-2"/>
+<text x="68.8" y="32" class="tgt-label tgf-ink" text-anchor="start" dominant-baseline="central">deck</text>
+<path d="M109.6 27 L119.6 27 L119.6 37 L109.6 37 Z" class="tgf-accent"/>
+<text x="123.6" y="32" class="tgt-label tgf-ink" text-anchor="start" dominant-baseline="central">app</text>
+<path d="M41.01 97.53 L75.55 97.53 L75.55 164.33 L41.01 164.33 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:0"/>
+<text x="58.28" y="88.53" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="central">1.2k</text>
+<path d="M76.55 114.23 L111.1 114.23 L111.1 164.33 L76.55 164.33 Z" class="tgf-series-2 tge-grow tge-from-bottom" style="--tg-i:0"/>
+<text x="93.83" y="105.23" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="central">900</text>
+<path d="M112.1 157.65 L146.65 157.65 L146.65 164.33 L112.1 164.33 Z" class="tgf-accent tge-grow tge-from-bottom" style="--tg-i:0"/>
+<text x="129.37" y="148.65" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="central">120</text>
+<path d="M173.06 89.18 L207.6 89.18 L207.6 164.33 L173.06 164.33 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:1"/>
+<text x="190.33" y="80.18" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="central">1.4k</text>
+<path d="M208.6 112.01 L243.15 112.01 L243.15 164.33 L208.6 164.33 Z" class="tgf-series-2 tge-grow tge-from-bottom" style="--tg-i:1"/>
+<text x="225.88" y="103.01" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="central">940</text>
+<path d="M244.15 156.54 L278.7 156.54 L278.7 164.33 L244.15 164.33 Z" class="tgf-accent tge-grow tge-from-bottom" style="--tg-i:1"/>
+<text x="261.42" y="147.54" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="central">140</text>
+<path d="M305.11 86.4 L339.65 86.4 L339.65 164.33 L305.11 164.33 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:2"/>
+<text x="322.38" y="77.4" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="central">1.4k</text>
+<path d="M340.65 110.89 L375.2 110.89 L375.2 164.33 L340.65 164.33 Z" class="tgf-series-2 tge-grow tge-from-bottom" style="--tg-i:2"/>
+<text x="357.93" y="101.89" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="central">960</text>
+<path d="M376.2 164.33 L410.75 164.33 L410.75 166 L376.2 166 Z" class="tgf-accent tge-grow tge-from-top" style="--tg-i:2"/>
+<text x="393.47" y="175" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="central">-30</text>
+<path d="M437.16 79.72 L471.7 79.72 L471.7 164.33 L437.16 164.33 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:3"/>
+<text x="454.43" y="70.72" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">1.5k</text>
+<path d="M472.7 108.11 L507.25 108.11 L507.25 164.33 L472.7 164.33 Z" class="tgf-series-2 tge-grow tge-from-bottom" style="--tg-i:3"/>
+<text x="489.98" y="99.11" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">1k</text>
+<path d="M508.25 155.98 L542.8 155.98 L542.8 164.33 L508.25 164.33 Z" class="tgf-accent tge-grow tge-from-bottom" style="--tg-i:3"/>
+<text x="525.52" y="146.98" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">150</text>
+<path d="M27.8 164.33 L556 164.33" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+</svg>

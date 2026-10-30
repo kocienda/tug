@@ -1,0 +1,311 @@
+/* @tug-pairings:
+   - --tugx-chart-series-1 … --tugx-chart-series-8 / --tug7-surface-global-primary-normal-content-rest
+                                                          (series marks on the transcript block)
+   - --tugx-chart-good / --tug7-surface-global-primary-normal-content-rest
+   - --tugx-chart-bad / --tug7-surface-global-primary-normal-content-rest
+   - --tugx-chart-grid / --tug7-surface-global-primary-normal-content-rest
+                                                          (decorative plot rules)
+   A chart's marks and text paint on the content surface the transcript
+   block sits on. Each series token and good/bad is registered against it
+   in theme-pairings.ts at the informational role, the grid at decorative.
+*/
+
+/**
+ * chart-block.css — the chart body kind's tokens and role classes.
+ *
+ * The chart engine writes colour and type as roles, never values: a fill
+ * is `class="tgf-<role>"`, a stroke `class="tgs-<role>"`, text
+ * `class="tgt-<role> tgf-<fill>"`. This file is the one place those
+ * classes meet the theme, so a theme switch restyles a chart already on
+ * screen with no re-render, and the SVG carries no colour value and no
+ * `<style>`.
+ *
+ * Token sources:
+ *  - `--tugx-chart-*` component tokens, each aliasing one `--tug7-*` or
+ *    `--tug-*` base token in one hop [L17]. The series and grid tokens are
+ *    the theme's `--tug7-element-chart-*` group.
+ *  - Type roles read the deck's own font families and size scale, and set
+ *    no property the measurers cannot reproduce: canvas `measureText` sees
+ *    only `font-style font-weight font-size font-family`, so a role with
+ *    `font-variant-numeric` would render at a width it was not laid out at.
+ *
+ * Tuglaw cross-check:
+ *  - [L06] appearance through CSS: role classes over custom properties.
+ *  - [L17] every `--tugx-chart-*` alias resolves in one hop.
+ *  - [L20] component-token sovereignty: the chart owns `--tugx-chart-*`,
+ *    the theme owns `--tug7-*`.
+ */
+
+/* ---- Component-tier aliases [L17] ---- */
+
+body {
+  --tugx-chart-ink:       var(--tug7-element-global-text-normal-default-rest);
+  --tugx-chart-ink-muted: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-chart-grid:      var(--tug7-element-chart-stroke-normal-grid-rest);
+  --tugx-chart-surface:   var(--tug7-surface-global-primary-normal-content-rest);
+  --tugx-chart-accent:    var(--tug7-element-global-fill-normal-accent-rest);
+  --tugx-chart-good:      var(--tug7-element-tone-fill-normal-success-rest);
+  --tugx-chart-bad:       var(--tug7-element-tone-fill-normal-danger-rest);
+  --tugx-chart-series-1:  var(--tug7-element-chart-fill-normal-series1-rest);
+  --tugx-chart-series-2:  var(--tug7-element-chart-fill-normal-series2-rest);
+  --tugx-chart-series-3:  var(--tug7-element-chart-fill-normal-series3-rest);
+  --tugx-chart-series-4:  var(--tug7-element-chart-fill-normal-series4-rest);
+  --tugx-chart-series-5:  var(--tug7-element-chart-fill-normal-series5-rest);
+  --tugx-chart-series-6:  var(--tug7-element-chart-fill-normal-series6-rest);
+  --tugx-chart-series-7:  var(--tug7-element-chart-fill-normal-series7-rest);
+  --tugx-chart-series-8:  var(--tug7-element-chart-fill-normal-series8-rest);
+}
+
+/* ---- Colour roles: fill ---- */
+
+.tgf-ink       { fill: var(--tugx-chart-ink); }
+.tgf-ink-muted { fill: var(--tugx-chart-ink-muted); }
+.tgf-grid      { fill: var(--tugx-chart-grid); }
+.tgf-surface   { fill: var(--tugx-chart-surface); }
+.tgf-accent    { fill: var(--tugx-chart-accent); }
+.tgf-good      { fill: var(--tugx-chart-good); }
+.tgf-bad       { fill: var(--tugx-chart-bad); }
+.tgf-series-1  { fill: var(--tugx-chart-series-1); }
+.tgf-series-2  { fill: var(--tugx-chart-series-2); }
+.tgf-series-3  { fill: var(--tugx-chart-series-3); }
+.tgf-series-4  { fill: var(--tugx-chart-series-4); }
+.tgf-series-5  { fill: var(--tugx-chart-series-5); }
+.tgf-series-6  { fill: var(--tugx-chart-series-6); }
+.tgf-series-7  { fill: var(--tugx-chart-series-7); }
+.tgf-series-8  { fill: var(--tugx-chart-series-8); }
+
+/* ---- Colour roles: stroke ---- */
+
+.tgs-ink       { stroke: var(--tugx-chart-ink); }
+.tgs-ink-muted { stroke: var(--tugx-chart-ink-muted); }
+.tgs-grid      { stroke: var(--tugx-chart-grid); }
+.tgs-surface   { stroke: var(--tugx-chart-surface); }
+.tgs-accent    { stroke: var(--tugx-chart-accent); }
+.tgs-good      { stroke: var(--tugx-chart-good); }
+.tgs-bad       { stroke: var(--tugx-chart-bad); }
+.tgs-series-1  { stroke: var(--tugx-chart-series-1); }
+.tgs-series-2  { stroke: var(--tugx-chart-series-2); }
+.tgs-series-3  { stroke: var(--tugx-chart-series-3); }
+.tgs-series-4  { stroke: var(--tugx-chart-series-4); }
+.tgs-series-5  { stroke: var(--tugx-chart-series-5); }
+.tgs-series-6  { stroke: var(--tugx-chart-series-6); }
+.tgs-series-7  { stroke: var(--tugx-chart-series-7); }
+.tgs-series-8  { stroke: var(--tugx-chart-series-8); }
+
+/* ---- Type roles ---- */
+
+.tgt-title { font-family: var(--tug-font-family-sans); font-weight: 600; font-size: var(--tug-font-size-sm); }
+.tgt-label { font-family: var(--tug-font-family-sans); font-weight: 400; font-size: var(--tug-font-size-xs); }
+.tgt-value { font-family: var(--tug-font-family-sans); font-weight: 400; font-size: var(--tug-font-size-2xs); }
+.tgt-mono  { font-family: var(--tug-font-family-mono); font-weight: 400; font-size: var(--tug-font-size-2xs); }
+
+/* ---- Figure tokens [L17] ---- */
+
+body {
+  --tugx-chart-margin:           var(--tugx-block-margin);
+  --tugx-chart-body-padding:     var(--tug-space-sm) var(--tug-space-md);
+  --tugx-chart-source-font:      var(--tug-font-family-mono);
+  --tugx-chart-source-font-size: var(--tug-font-size-sm);
+  --tugx-chart-note-color:       var(--tugx-block-text-color-muted);
+  --tugx-chart-note-size:        var(--tug-font-size-xs);
+  --tugx-chart-table-size:       var(--tug-font-size-xs);
+}
+
+/* ---- Figure --------------------------------------------------------------
+ *
+ * `.tugx-chart` is the figure on every door: the fence placeholder the
+ * enhancer renders into, and `ChartBlock`'s root. Its header is the shared
+ * markdown block chrome (`.tugx-md-chrome-header`, styled in
+ * `tug-markdown-view.css`), so it reads as the same family as a fenced
+ * code block and a tool block.
+ *
+ * States, each a `data-tugx-chart-state` the renderer stamps [L06]:
+ *  - `pending`     — the source as text, until the engine and faces arrive.
+ *  - `rendered`    — header, SVG body, table alternative.
+ *  - `invalid`     — the source in a `<pre>`, the errors beneath it, on the
+ *                    shared caution band.
+ *  - `unavailable` — the source in a `<pre>` and one note: the engine did
+ *                    not load within its horizon.
+ */
+
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-chart {
+  position: relative;
+  display: block;
+  margin: var(--tugx-chart-margin);
+  background: var(--tugx-block-chrome-bg);
+  color: var(--tugx-block-text-color);
+  border: 1px solid var(--tugx-block-border);
+  border-radius: var(--tugx-block-radius);
+  /* Clips to the radius without forming a scroll container, which would
+   * capture the header's sticky positioning. */
+  overflow: clip;
+}
+
+.tugx-chart[data-tugx-chart-state="pending"] {
+  padding: var(--tugx-chart-body-padding);
+  font-family: var(--tugx-chart-source-font);
+  font-size: var(--tugx-chart-source-font-size);
+  color: var(--tugx-chart-note-color);
+  white-space: pre-wrap;
+}
+
+.tugx-chart-source {
+  margin: 0;
+  padding: var(--tugx-chart-body-padding);
+  background: transparent;
+  border: 0;
+  font-family: var(--tugx-chart-source-font);
+  font-size: var(--tugx-chart-source-font-size);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* Tug's words beneath the source — the error list, the engine note. Find
+ * excludes them: they are not the author's text. */
+.tugx-chart-note {
+  margin: 0;
+  padding: 0 var(--tug-space-md) var(--tug-space-sm);
+  list-style: none;
+  font-size: var(--tugx-chart-note-size);
+  color: var(--tugx-chart-note-color);
+}
+
+/* @tug-renders-on(var(--tugx-block-tone-caution-bg)) */
+.tugx-chart[data-tugx-chart-state="invalid"] {
+  background: var(--tugx-block-tone-caution-bg);
+  color: var(--tugx-block-tone-caution-color);
+}
+.tugx-chart[data-tugx-chart-state="invalid"] .tugx-chart-note {
+  color: inherit;
+}
+
+.tugx-chart-title {
+  color: var(--tugx-block-text-color);
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.tugx-chart-view-toggle[aria-pressed="true"] {
+  background-color: var(--tug7-surface-control-primary-ghost-action-hover);
+  border-color: var(--tug7-element-control-border-ghost-action-hover);
+}
+
+.tugx-chart-body {
+  padding: var(--tugx-chart-body-padding);
+}
+
+/* No recompile on resize: a narrower card scales the figure down. */
+.tugx-chart-body > .tugx-chart-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---- Table alternative ---------------------------------------------------
+ *
+ * Always in the DOM, so Find counts it. Visually clipped while the view is
+ * `chart`, unless Find lifted the clamp for the active match
+ * (`data-tugx-find-unclamp`, the mechanism the header clamp already uses).
+ */
+
+.tugx-chart-table {
+  border-collapse: collapse;
+  margin: var(--tug-space-sm) var(--tug-space-md);
+  font-size: var(--tugx-chart-table-size);
+}
+.tugx-chart-table caption {
+  text-align: start;
+  padding-bottom: var(--tug-space-xs);
+  font-weight: var(--tug-font-weight-semibold);
+}
+.tugx-chart-table th,
+.tugx-chart-table td {
+  padding: var(--tug-space-2xs) var(--tug-space-sm);
+  border-bottom: 1px solid var(--tugx-block-hairline);
+  text-align: start;
+}
+.tugx-chart-table th:not(:first-child),
+.tugx-chart-table td:not(:first-child) {
+  text-align: end;
+}
+
+.tugx-chart:not([data-tugx-chart-view="table"]) > .tugx-chart-table:not([data-tugx-find-unclamp]) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tugx-chart[data-tugx-chart-view="table"] > .tugx-chart-body {
+  display: none;
+}
+
+/* ---- Entrances -----------------------------------------------------------
+ *
+ * The engine writes an op's entrance as a class, `tge-<kind>` (plus
+ * `tge-from-<edge>` for `grow`), and a stagger index `--tg-i`; the SVG
+ * never animates itself. The keyframes run on `transform`, `opacity` and
+ * `stroke-dashoffset` only. They play only under
+ * `data-tugx-chart-animate`, which the renderer sets the first time a
+ * source is rendered on the page and never inside a hidden space layer.
+ *
+ * Under motion-off and reduced motion the global rule zeroes only the
+ * duration, which would leave a delayed op held in its `from` state, so
+ * the animation is removed outright here.
+ */
+
+@keyframes tge-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes tge-grow-y {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+@keyframes tge-grow-x {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes tge-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes tge-rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tugx-chart[data-tugx-chart-animate] :is(.tge-fade, .tge-grow, .tge-draw, .tge-rise) {
+  animation-duration: var(--tug-motion-duration-moderate);
+  animation-timing-function: var(--tug-motion-easing-enter);
+  animation-delay: calc(var(--tg-i, 0) * var(--tug-motion-duration-fast) / 4);
+  animation-fill-mode: backwards;
+}
+.tugx-chart[data-tugx-chart-animate] .tge-fade { animation-name: tge-fade; }
+.tugx-chart[data-tugx-chart-animate] .tge-rise { animation-name: tge-rise; }
+.tugx-chart[data-tugx-chart-animate] .tge-grow {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation-name: tge-grow-y;
+}
+.tugx-chart[data-tugx-chart-animate] .tge-grow.tge-from-top   { transform-origin: 50% 0; }
+.tugx-chart[data-tugx-chart-animate] .tge-grow.tge-from-left  { transform-origin: 0 50%;   animation-name: tge-grow-x; }
+.tugx-chart[data-tugx-chart-animate] .tge-grow.tge-from-right { transform-origin: 100% 50%; animation-name: tge-grow-x; }
+.tugx-chart[data-tugx-chart-animate] .tge-draw {
+  stroke-dasharray: 1;
+  animation-name: tge-draw;
+}
+
+body[data-tug-motion="off"] .tugx-chart :is(.tge-fade, .tge-grow, .tge-draw, .tge-rise) {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tugx-chart :is(.tge-fade, .tge-grow, .tge-draw, .tge-rise) {
+    animation: none;
+  }
+}

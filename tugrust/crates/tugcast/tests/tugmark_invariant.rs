@@ -128,7 +128,7 @@ fn post_sanitize(tag: &str, attrs: &[(String, String)], attr: Option<&str>) -> b
         ("div", Some("data-tugx-math" | "data-tugx-math-pending")) => {
             class_has(attrs, "tugx-katex")
         }
-        ("div", Some("data-tugx-mermaid-pending")) => class_has(attrs, "tugx-mermaid"),
+        ("div", Some("data-tugx-chart-pending")) => class_has(attrs, "tugx-chart"),
         _ => false,
     }
 }
@@ -171,7 +171,8 @@ fn class_fits(policy: &Policy, tag: &str, value: &str) -> bool {
             .iter()
             .any(|p| t.starts_with(p.as_str()))
             || (tag == "span" && t.starts_with("tug-syn-"))
-            || (tag == "div" && (t.starts_with("tugx-katex") || t == "tugx-mermaid"))
+            || (tag == "div"
+                && (t.starts_with("tugx-katex") || t == "tugx-chart"))
     })
 }
 
@@ -297,8 +298,12 @@ fn the_invariant_catches_what_it_names() {
             "class \"tugx-katex\" on <p>",
         ),
         (
-            "<span class=\"tugx-mermaid\">a</span>",
-            "class \"tugx-mermaid\" on <span>",
+            "<span class=\"tugx-chart\">a</span>",
+            "class \"tugx-chart\" on <span>",
+        ),
+        (
+            "<p data-tugx-chart-pending=\"true\">a</p>",
+            "attribute data-tugx-chart-pending on <p>",
         ),
         ("<h1 id=\"top\">a</h1>", "id \"top\" on <h1>"),
         (

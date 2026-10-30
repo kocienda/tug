@@ -73,6 +73,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The charts a command's stdout carried (`TUG-CHART:` lines), stacked
+ * beneath the body in stdout order, and the muted count of any past the
+ * limit. The figures paint themselves from `--tugx-chart-*`. */
+.bash-tool-block-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.bash-tool-block-charts-dropped {
+  font-style: italic;
+  color: var(--tugx-block-footer-color);
+}
+
 /* A settled run's strip is the collapsed block's one line; expanded, the
    finished panel in the body says everything it does. */
 [data-slot="bash-tool-block"]:not([data-block-collapsed="true"]) .bash-report-strip {

@@ -64,8 +64,12 @@ const TURN_MS = 120_000;
 /** Past both of the engine's finishers, so a late `null` would have landed. */
 const AFTER_TURN_MS = 1_000;
 
-/** Every fourth of DOMPurify's payloads: a cross-section that streams in seconds. */
-const PAYLOAD_STRIDE = 4;
+/**
+ * Every eighth of DOMPurify's payloads: a cross-section that streams in
+ * seconds. At `STREAM_PACE_MS` a word, every fourth ran the file past its
+ * 20 s budget, and the whole set is held natively by `tugmark_invariant`.
+ */
+const PAYLOAD_STRIDE = 8;
 
 /** Hand-written: each line reaches for one hole a sanitizer miss would open. */
 const HOSTILE = [
@@ -93,7 +97,7 @@ const HOSTILE = [
   "",
   '<div class="tugx-katex" data-tugx-math="display" data-tugx-math-pending="true">x^2</div>',
   "",
-  '<p data-tugx-mermaid-pending="true" data-x="1" aria-label="y" style="color:red">forged placeholders</p>',
+  '<p class="tugx-chart" data-tugx-chart-pending="true">a forged chart placeholder</p>',
   "",
   '<details open ontoggle=alert(1)><summary>s</summary></details><base href=javascript:alert(1)//><meta http-equiv=refresh content="0;url=javascript:alert(1)">',
   "",
@@ -145,7 +149,7 @@ function watchScript(): string {
       watch.checked += 1;
       var tag = el.localName.toLowerCase();
       if (BANNED.indexOf(tag) >= 0) report("element <" + tag + ">");
-      if (tag === "style" && el.closest(".tugx-mermaid") === null) report("element <style>");
+      if (tag === "style") report("element <style>");
       for (var i = 0; i < el.attributes.length; i++) {
         var a = el.attributes[i];
         var name = a.name.toLowerCase();

@@ -81,6 +81,7 @@
 
 import { ensureParsed } from "@/lib/markdown/parse-cache";
 import { mathStrippedText } from "@/lib/markdown/block-transformers/inline-math-walker";
+import { chartFindText } from "@/lib/chart/chart-find-text";
 import { stripAnsi } from "@/lib/ansi/strip-ansi";
 import type { RowSegment } from "@/lib/transcript-search";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
@@ -140,6 +141,16 @@ function htmlToText(html: string): string {
   // LaTeX source as text (e.g. `\varepsilon_0`). The painter skips the rendered
   // `.tugx-katex` in the DOM, so excluding it here keeps them aligned.
   for (const el of htmlScratch.querySelectorAll(".tugx-katex")) el.remove();
+  // A chart: the parse-time `.tugx-chart` placeholder carries the fence's
+  // spec as text, which the page never shows. What it shows, once rendered,
+  // is the table alternative, and the engine's `find_text` is that table's
+  // text in DOM order (or the source itself for a spec the validator
+  // refuses, which is what its error surface shows). Before the engine has
+  // loaded the projection is "" and the load is started; the painter heals
+  // a mounted row from its DOM text ([P03]) once the chart is on screen.
+  for (const el of htmlScratch.querySelectorAll(".tugx-chart")) {
+    el.replaceWith(document.createTextNode(chartFindText(el.textContent ?? "", "chart")));
+  }
   // Drop UNFENCED `$…$` / `$$…$$` math, which cmark leaves as literal text —
   // but only where the renderer's own walk would promote it, which is a
   // question about text-node boundaries rather than about the block's text.
@@ -236,7 +247,10 @@ function terminalText(stdout: string, stderr: string): string {
  *  - **Bash** (`BashToolBlock`): the terminal body's stdout-then-stderr
  *    text. The wrapper's smart-pick routing is mirrored via the SAME
  *    exported helpers it uses: a streaming call has no body and a
- *    diff-routed body renders `DiffBlock`, which is out of scope.
+ *    diff-routed body renders `DiffBlock`, which is out of scope. Then one
+ *    unit per `TUG-CHART:` line the composer stripped from stdout — each a
+ *    `ChartBlock` beneath the body, marked findable, whose text is the
+ *    chart's table (`chartFindText`), in the order the lines came.
  *  - **Default-routed tools** (`DefaultToolBlock`): the markdown text
  *    result (`pickOutputBody`'s `markdown` branch) on a `done` call. The
  *    JSON input tree is fold-dependent and stays unsearchable.
@@ -291,15 +305,18 @@ function toolUseSegments(
     }
     // Streaming has no body; a diff-routed body renders `DiffBlock`
     // (unmarked). Otherwise the body is the marked terminal — keyed so
-    // navigation can open its internal fold.
-    if (
-      message.status !== "pending" &&
-      tryParseBashDiff(terminal.stdout) === null
-    ) {
+    // navigation can open its internal fold. The charts the stdout
+    // carried stand beneath whichever body rendered, so they follow it.
+    if (message.status === "pending") return [];
+    const segments: RowSegment[] = [];
+    if (tryParseBashDiff(terminal.stdout) === null) {
       const text = terminalText(terminal.stdout ?? "", terminal.stderr ?? "");
-      if (text !== "") return [{ kind: "dom", text, key: toolUseId }];
+      if (text !== "") segments.push({ kind: "dom", text, key: toolUseId });
     }
-    return [];
+    for (const source of terminal.charts) {
+      segments.push({ kind: "dom", text: chartFindText(source, "any") });
+    }
+    return segments;
   }
   if (factory === DefaultToolBlock && message.status === "done") {
     const output = pickOutputBody(

@@ -364,7 +364,7 @@ interface Block {
 // Reading blocks out of a file
 // ---------------------------------------------------------------------------
 
-/** Strip `/* … *​/` comments, so a rule quoted in prose is not read as code. */
+/** Strip block comments (slash-star to star-slash), so a rule quoted in prose is not read as code. */
 function stripComments(css: string): string {
   // Replaced with equal-length whitespace rather than removed, so every byte
   // offset below still maps to the line it came from in the original file.
@@ -1335,6 +1335,13 @@ export const MOTION_CARVE_OUTS: ReadonlyMap<string, string> = new Map([
   [
     "tugdeck/src/components/tugways/cards/session-card.css",
     "the restoring panel's fade-in",
+  ],
+  // A chart's entrances are CSS keyframes over the op classes the chart
+  // engine writes (`tge-*`), played once per source and never by JS: the
+  // figure is complete before it is inserted, so nothing lands mid-motion.
+  [
+    "tugdeck/src/components/tugways/body-kinds/chart-block.css",
+    "a chart's op entrances, CSS over the engine's classes, once per source",
   ],
   [
     "tugdeck/src/components/tugways/tug-control-bar.css",

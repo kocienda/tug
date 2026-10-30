@@ -537,7 +537,16 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // `sanitize-allowlist.json`, the sanitizer's allow-list lifted out of
     // `dompurify-instance.ts` as data so tugcast reads the same file. Each is
     // code the subtree's declarers already drove before it moved.
-    "tugdeck/src/lib/markdown/": 22,
+    // Re-keyed at 24 for two files of the chart fence, which is the same
+    // pipeline: `block-transformers/tugchart.ts`, the transformer that runs in
+    // `applyBlockTransformers` beside `math.ts`, and
+    // `enhance-chart.ts`, the enhancer in the post-`innerHTML` pass that
+    // `render-incremental.ts` runs over every block beside `enhance-math.ts`.
+    // `at0225` names `tug-markdown-block.tsx`, whose every reconcile runs both
+    // passes, so the declaration's reach is unchanged. Mermaid's transformer
+    // and enhancer have since left the subtree, so it holds 22 files under a
+    // ceiling of 24.
+    "tugdeck/src/lib/markdown/": 24,
 
     // `tugdeck/styles/themes/` was here at 7 and is gone: the directory grew to
     // ten themes, and its one declaration — `at0109`'s, since deleted — booted under the base

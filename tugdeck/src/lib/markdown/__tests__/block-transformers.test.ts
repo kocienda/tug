@@ -9,13 +9,13 @@
  *  - return `[block]`            — pass through unchanged
  *  - return `[]`                  — drop the block
  *  - return `[modified]`          — replace it (e.g., promote `code` →
- *                                   `tug-mermaid` based on lang hint)
+ *                                   `tug-chart` based on lang hint)
  *  - return `[a, b, c]`           — split into siblings
  *
  * This file exercises composition behavior with synthetic transformers
- * — the four real transformers (`mermaid`, `math`, `diff`,
- * `large-json`) ship as no-op stubs in #step-3 and are populated in
- * later steps; their per-transformer behavior is covered then.
+ * — the real transformers' per-transformer behaviour is covered in
+ * their own files; `diff` and `large-json` are still pass-through
+ * stubs and are pinned as such here.
  *
  * Also confirms:
  *  - Empty `transformers` array is a no-op.
@@ -41,8 +41,6 @@ import {
 import {
   diffTransformer,
   largeJsonTransformer,
-  mathTransformer,
-  mermaidTransformer,
 } from "../block-transformers";
 import {
   parseMarkdownToSanitizedBlocks,
@@ -84,13 +82,13 @@ function noopTransformer(): BlockTransformer & {
   };
 }
 
-/** Rewrites the `type` of every code block to `tug-mermaid`. */
-function swapCodeToMermaidTransformer(): BlockTransformer {
+/** Rewrites the `type` of every code block to `tug-chart`. */
+function swapCodeToChartTransformer(): BlockTransformer {
   return {
-    name: "swap-code-to-mermaid",
+    name: "swap-code-to-chart",
     transform(block) {
       if (block.type !== "code") return [block];
-      return [{ ...block, type: "tug-mermaid" }];
+      return [{ ...block, type: "tug-chart" }];
     },
   };
 }
@@ -122,14 +120,14 @@ function dropTransformer(targetType: string): BlockTransformer {
 
 /** Captures the `BlockTransformContext` for assertion. */
 function contextCapturingTransformer(): BlockTransformer & {
-  contexts: Array<{ isComplete: boolean; index: number }>;
+  contexts: Array<{ isComplete: boolean; index: number; source: string }>;
 } {
-  const contexts: Array<{ isComplete: boolean; index: number }> = [];
+  const contexts: Array<{ isComplete: boolean; index: number; source: string }> = [];
   return {
     name: "context-capture",
     contexts,
     transform(block, ctx) {
-      contexts.push({ isComplete: ctx.isComplete, index: ctx.index });
+      contexts.push({ isComplete: ctx.isComplete, index: ctx.index, source: ctx.source });
       return [block];
     },
   };
@@ -164,9 +162,9 @@ describe("parseMarkdownToSanitizedBlocks — block-transformer pass", () => {
   test("a swap-type transformer replaces the block's type", () => {
     const out = parseMarkdownToSanitizedBlocks(
       "para\n\n```ts\nconst x = 1;\n```\n",
-      { transformers: [swapCodeToMermaidTransformer()] },
+      { transformers: [swapCodeToChartTransformer()] },
     );
-    expect(out.map((b) => b.type)).toEqual(["paragraph", "tug-mermaid"]);
+    expect(out.map((b) => b.type)).toEqual(["paragraph", "tug-chart"]);
     // The replacement preserves the html — the renderer is responsible
     // for picking a different surface based on type alone.
     expect(out[1].html).toContain("const x = 1;");
@@ -196,15 +194,15 @@ describe("parseMarkdownToSanitizedBlocks — block-transformer pass", () => {
   });
 
   test("transformer order is preserved when chained — second sees first's output", () => {
-    // First transformer: code → tug-mermaid.
-    // Second transformer: drop tug-mermaid.
+    // First transformer: code → tug-chart.
+    // Second transformer: drop tug-chart.
     // Net effect: code blocks disappear; non-code blocks pass through.
     const out = parseMarkdownToSanitizedBlocks(
       "para\n\n```ts\nx\n```\n",
       {
         transformers: [
-          swapCodeToMermaidTransformer(),
-          dropTransformer("tug-mermaid"),
+          swapCodeToChartTransformer(),
+          dropTransformer("tug-chart"),
         ],
       },
     );
@@ -228,6 +226,28 @@ describe("parseMarkdownToSanitizedBlocks — block-transformer pass", () => {
     parseMarkdownToSanitizedBlocks("# a\n", { transformers: [tr] });
     expect(tr.contexts.length).toBe(1);
     expect(tr.contexts[0].isComplete).toBe(true);
+  });
+
+  test("each block's source is its own slice of the text", () => {
+    const tr = contextCapturingTransformer();
+    const text = "# a\n\n```tugchart\n{}\n```\n\nlast ✓ para\n";
+    parseMarkdownToSanitizedBlocks(text, { transformers: [tr] });
+    // A fenced block's range ends at its closing fence, before the newline.
+    expect(tr.contexts.map((c) => c.source)).toEqual(["# a\n", "```tugchart\n{}\n```", "last ✓ para\n"]);
+    // Through the helper with no text, source is "".
+    const bare = contextCapturingTransformer();
+    const block: SanitizedMarkdownBlock = {
+      html: "<p>a</p>",
+      type: "paragraph",
+      startChar: 0,
+      endChar: 1,
+      depth: 0,
+      itemCount: 0,
+      rowCount: 0,
+      contentHash: 0n,
+    };
+    applyBlockTransformers([block], [bare]);
+    expect(bare.contexts[0].source).toBe("");
   });
 });
 
@@ -287,13 +307,11 @@ describe("stub transformers (#step-3 ship-as-no-op contract)", () => {
   }
 
   test.each([
-    ["mermaid", mermaidTransformer],
-    ["math", mathTransformer],
     ["diff", diffTransformer],
     ["large-json", largeJsonTransformer],
   ])("`%s` transformer is a pass-through stub", (_label, transformer) => {
     const block = makeBlock("code", "<pre><code>x</code></pre>");
-    const out = transformer.transform(block, { isComplete: true, index: 0 });
+    const out = transformer.transform(block, { isComplete: true, index: 0, source: "" });
     expect(out.length).toBe(1);
     expect(out[0]).toBe(block);
   });

@@ -1,0 +1,11 @@
+{
+  "tugchart": 1,
+  "form": "dots",
+  "title": "App-test history",
+  "subtitle": "newest 20 runs, oldest left",
+  "rows": [
+    {"label": "at0602-find-fidelity-sweep.test.ts", "items": ["good", "good", "bad", "good", "good", "neutral", "good"]},
+    {"label": "at0765-tugchart-fence.test.ts", "items": ["good", "good", "good"]},
+    {"label": "at0766-bash-tug-chart.test.ts", "items": ["bad", "bad", "good", "good", "good", "good", "good", "good", "good", "good"]}
+  ]
+}

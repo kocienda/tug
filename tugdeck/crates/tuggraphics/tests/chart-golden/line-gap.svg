@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 240" width="560" height="240" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Wall time per run</text>
+<text x="33" y="220" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">20s</text>
+<text x="33" y="157.67" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">40s</text>
+<text x="33" y="95.33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">1m00s</text>
+<text x="33" y="33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">1m20s</text>
+<path d="M41 220 L525.6 220 M41 157.67 L525.6 157.67 M41 95.33 L525.6 95.33 M41 33 L525.6 33" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="81.38" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">5</text>
+<text x="162.15" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">4</text>
+<text x="242.92" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">3</text>
+<text x="323.68" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2</text>
+<text x="404.45" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1</text>
+<text x="485.22" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0</text>
+<path d="M81.38 64.17 L162.15 57.93 M323.68 67.28 L404.45 33 L485.22 48.58" class="tgs-series-1 tge-draw" style="--tg-i:0" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<path d="M487.22 176.37 A2 2 0 0 1 483.22 176.37 A2 2 0 0 1 487.22 176.37 Z" class="tgf-series-2 tge-fade" style="--tg-i:1"/>
+<path d="M81.38 188.83 L162.15 185.72 L242.92 179.48 L323.68 182.6" class="tgs-series-2 tge-draw" style="--tg-i:1" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<text x="491.22" y="48.58" class="tgt-value tgf-series-1" text-anchor="start" dominant-baseline="central">rust</text>
+<text x="491.22" y="176.37" class="tgt-value tgf-series-2" text-anchor="start" dominant-baseline="central">deck</text>
+</svg>

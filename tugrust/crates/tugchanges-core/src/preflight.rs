@@ -40,11 +40,16 @@ impl Default for PreflightOptions {
     }
 }
 
-/// One recent commit (Spec S02/S04): abbreviated sha + subject.
+/// One recent commit (Spec S02/S04): abbreviated sha, subject, and the
+/// committer date as `YYYY-MM-DD` (`%cs`). The committer date, not the
+/// author's, because git's `--since` window filters on it: bucketing on
+/// the same date is what lets the window's edge days hold every commit
+/// they should. On `main` the committer date is the landing day.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LogEntry {
     pub sha: String,
     pub subject: String,
+    pub date: String,
 }
 
 /// The `preflight` result (Spec S01). `files` is the `attributed` bucket;
@@ -64,6 +69,10 @@ pub struct PreflightReport {
 }
 
 const DEFAULT_LOG_LIMIT: u32 = 10;
+
+/// The one `git log` record format every reader here parses: sha, subject
+/// and committer date, NUL between fields, one commit per line.
+const LOG_FORMAT: &str = "--format=%h%x00%s%x00%cs";
 
 /// Run the `preflight` operation (Spec S02) — the session's changed files
 /// (always diffed) plus branch/head and recent commits. Surfaces the exit-2
@@ -98,25 +107,25 @@ pub fn preflight(opts: PreflightOptions) -> Result<PreflightReport, ChangesError
     })
 }
 
-/// The `limit` most-recent commits as `{sha, subject}`, via
-/// `git log --format=%h%x00%s -n <limit>`. Empty on any git failure (an unborn
+/// The `limit` most-recent commits as `{sha, subject, date}`, via
+/// `git log` in [`LOG_FORMAT`]. Empty on any git failure (an unborn
 /// HEAD, a non-repo) — the preflight still composes, just without history.
 fn recent_commits(repo_root: &Path, limit: u32) -> Vec<LogEntry> {
     let limit_arg = format!("-n{limit}");
-    let out = match git::git_stdout(repo_root, &["log", "--format=%h%x00%s", &limit_arg]) {
+    let out = match git::git_stdout(repo_root, &["log", LOG_FORMAT, &limit_arg]) {
         Ok(o) => o,
         Err(_) => return Vec::new(),
     };
     parse_log(&out)
 }
 
-/// Parse `%h%x00%s` records (one commit per line, NUL between sha and subject)
-/// into [`LogEntry`]s.
+/// Parse [`LOG_FORMAT`] records (one commit per line, NUL between sha,
+/// subject and date) into [`LogEntry`]s.
 fn parse_log(output: &str) -> Vec<LogEntry> {
     output
         .lines()
         .filter_map(|line| {
-            let mut parts = line.splitn(2, '\0');
+            let mut parts = line.splitn(3, '\0');
             let sha = parts.next()?.trim();
             if sha.is_empty() {
                 return None;
@@ -124,6 +133,7 @@ fn parse_log(output: &str) -> Vec<LogEntry> {
             Some(LogEntry {
                 sha: sha.to_string(),
                 subject: parts.next().unwrap_or("").to_string(),
+                date: parts.next().unwrap_or("").trim().to_string(),
             })
         })
         .collect()
@@ -134,11 +144,14 @@ fn parse_log(output: &str) -> Vec<LogEntry> {
 // ---------------------------------------------------------------------------
 
 /// Options for [`log`] (Spec S04). `range` (two-dot `a..b`) overrides the plain
-/// `--limit N` most-recent read.
+/// `--limit N` most-recent read; `days` (with neither) reads the commits
+/// whose committer date falls within the last `N` days, through git's own
+/// `--since`, which is the window `log --chart` buckets.
 #[derive(Debug, Clone, Default)]
 pub struct LogOptions {
     pub limit: Option<u32>,
     pub range: Option<String>,
+    pub days: Option<u32>,
 }
 
 /// The `log` result (Spec S04).
@@ -149,27 +162,33 @@ pub struct LogReport {
 }
 
 /// Run the `log` operation (Spec S04). With `--range a..b`, log that range;
+/// with `--days N` and no range or limit, the last `N` days on HEAD;
 /// otherwise the `--limit N` (default 10) most-recent commits.
 pub fn log(opts: LogOptions) -> Result<LogReport, String> {
     let repo_root = std::env::current_dir().map_err(|e| format!("cannot resolve cwd: {e}"))?;
     let repo_root = git::repo_root_for(&repo_root);
 
-    let (range, args): (String, Vec<String>) = match &opts.range {
-        Some(range) => (
+    let (range, args): (String, Vec<String>) = match (&opts.range, opts.limit, opts.days) {
+        (Some(range), _, _) => (
             range.clone(),
+            vec!["log".to_string(), LOG_FORMAT.to_string(), range.clone()],
+        ),
+        (None, None, Some(days)) => (
+            format!("last {days} days"),
             vec![
                 "log".to_string(),
-                "--format=%h%x00%s".to_string(),
-                range.clone(),
+                LOG_FORMAT.to_string(),
+                format!("--since={days} days ago"),
+                "HEAD".to_string(),
             ],
         ),
-        None => {
-            let limit = opts.limit.unwrap_or(DEFAULT_LOG_LIMIT);
+        (None, limit, _) => {
+            let limit = limit.unwrap_or(DEFAULT_LOG_LIMIT);
             (
                 format!("HEAD~{limit}..HEAD"),
                 vec![
                     "log".to_string(),
-                    "--format=%h%x00%s".to_string(),
+                    LOG_FORMAT.to_string(),
                     format!("-n{limit}"),
                 ],
             )
@@ -290,13 +309,15 @@ mod tests {
 
     #[test]
     fn parse_log_splits_sha_and_subject_on_nul() {
-        let out = "abc1234\u{0}first subject\ndef5678\u{0}second\n";
+        let out = "abc1234\u{0}first subject\u{0}2026-10-28\ndef5678\u{0}second\u{0}2026-10-27\n";
         let entries = parse_log(out);
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].sha, "abc1234");
         assert_eq!(entries[0].subject, "first subject");
+        assert_eq!(entries[0].date, "2026-10-28");
         assert_eq!(entries[1].sha, "def5678");
         assert_eq!(entries[1].subject, "second");
+        assert_eq!(entries[1].date, "2026-10-27");
     }
 
     #[test]

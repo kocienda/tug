@@ -5,6 +5,7 @@ mod arc;
 mod arc_turn;
 mod brief;
 mod changes;
+mod chart;
 mod cli;
 mod commands;
 mod deck;
@@ -105,9 +106,16 @@ fn main() -> ExitCode {
             json,
             changes::run_disclaim(paths, session, project, json),
         ),
-        Some(Commands::Log { limit, range }) => {
-            changes::finish("log", json, changes::run_log(limit, range, json))
-        }
+        Some(Commands::Log {
+            limit,
+            range,
+            days,
+            chart,
+        }) => changes::finish(
+            "log",
+            json,
+            changes::run_log(limit, range, days, chart, json),
+        ),
         Some(Commands::Diff {
             range,
             staged,
@@ -181,9 +189,10 @@ fn main() -> ExitCode {
         Some(Commands::Apptest(cmd)) => {
             let (command, result) = match cmd {
                 cli::ApptestCommands::Record => ("apptest record", apptest::run_record()),
-                cli::ApptestCommands::History { root, files } => {
-                    ("apptest history", apptest::run_history(root, files))
-                }
+                cli::ApptestCommands::History { root, files, chart } => (
+                    "apptest history",
+                    apptest::run_history(root, files, chart, json),
+                ),
                 cli::ApptestCommands::Reach { command } => match command {
                     cli::ReachCommands::Record => {
                         ("apptest reach record", apptest::run_reach_record())
@@ -195,6 +204,18 @@ fn main() -> ExitCode {
             };
             changes::finish(command, json, result)
         }
+
+        // A standalone chart file.
+        Some(Commands::Chart(cli::ChartCommands::Render {
+            spec,
+            out,
+            theme,
+            width,
+        })) => changes::finish(
+            "chart render",
+            json,
+            chart::run_render(&spec, &out, &theme, width, json),
+        ),
 
         // The unit-test results ledger.
         Some(Commands::Test(cmd)) => {
@@ -242,7 +263,8 @@ fn main() -> ExitCode {
                     suite,
                     call,
                     root,
-                } => test_ledger_cli::run_last(failures, suite, call, root, json),
+                    chart,
+                } => test_ledger_cli::run_last(failures, suite, call, root, chart, json),
             };
             changes::finish(command, json, result)
         }

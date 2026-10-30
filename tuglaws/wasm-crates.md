@@ -11,7 +11,7 @@ Tugdeck is a JS/TypeScript app. Most parsing, formatting, and rendering work sta
 - **Markdown lexing / parsing.** `tugmark-wasm` wraps `pulldown-cmark`, the fastest correct CommonMark+GFM lexer available. A streaming assistant message no longer pays it: tugcast renders live text with the same `tugmark` core and the page draws those rows from its records. The page parse still serves every path tugcast does not render — restored (replayed) rows, static `initialText` blocks, `TugMarkdownView`, the beat line, transcript copy HTML, find's projection of user bodies and notes, and any streamed row whose record is missing or stale.
 - **Diff computation.** `tugdiff-wasm` wraps `imara-diff`. 10–30× faster than JS alternatives on large inputs; pathological-input safe via histogram + Myers heuristics.
 
-If a candidate workload doesn't have that profile (ANSI parsing, JSON-tree rendering, KaTeX, Mermaid), it stays in JS.
+If a candidate workload doesn't have that profile (ANSI parsing, JSON-tree rendering, KaTeX), it stays in JS.
 
 ---
 
@@ -24,12 +24,16 @@ All WASM crates live as members of a virtual Cargo workspace at `tugdeck/crates/
 | `tugmark` | `pulldown-cmark` (pinned `=0.12.2`) | the block walk, block hashes, per-block HTML — a plain `rlib`, not a WASM crate | — the shared core: `tugmark-wasm` wraps it for the page, tugcast links it natively with its `native` feature |
 | `tugmark-wasm` | `tugmark` | `lex_blocks`, `lex_block_hashes`, `parse_to_html`, `parse_blocks_to_html` | No — Session card boot dependency |
 | `tugdiff-wasm` | `imara-diff` | `parse_unified_diff`, `two_text_diff` | Yes — first `DiffBlock` mount |
+| `tuggraphics` | — | the layer 0 drawing language (`parse_program`, `render_svg`), the measurement contract (`Measure`, `FixedMetrics`, `MeasureTable`, `fit_text`) and the layer 1 chart compiler (`validate`, `compile_with`, `compile_round`, `find_text`) — a plain `rlib`, not a WASM crate | — the shared core: `tuggraphics-wasm` wraps it for the page, and tugcast and tugtool link it natively |
+| `tuggraphics-wasm` | `tuggraphics` | `render_program`, `validate`, `compile_round`, `find_text` | Yes — first chart |
 
 ```
 tugdeck/crates/
 ├── Cargo.toml          # virtual workspace; lists members; owns the release profile
 ├── Cargo.lock          # workspace-wide lock; the only Cargo.lock in tugdeck
 ├── tugmark/            # shared core, plain rlib: no pkg/, skipped by build-wasm.sh
+├── tuggraphics/        # shared core, plain rlib: no pkg/, skipped by build-wasm.sh
+├── tuggraphics-wasm/   # the chart engine's page shell, lazy-loaded
 ├── tugmark-wasm/
 │   ├── .gitignore      # one line: "target/"
 │   ├── Cargo.toml      # [package] only — no [profile], no [workspace]

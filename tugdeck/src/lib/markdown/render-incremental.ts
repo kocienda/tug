@@ -67,7 +67,7 @@ import { DEFAULT_BLOCK_TRANSFORMERS } from "./block-transformers";
 import { enhanceFencedCode, type FenceHighlightOptions } from "./enhance-fenced-code";
 import { enhanceImg } from "./enhance-img";
 import { enhanceMath } from "./enhance-math";
-import { enhanceMermaid } from "./enhance-mermaid";
+import { enhanceChart } from "./enhance-chart";
 import { enhanceTable } from "./enhance-table";
 import {
   parseMarkdownToSanitizedBlocks,
@@ -212,8 +212,26 @@ function buildBlockElement(
   annotateContent(el, annotation);
   enhanceTable(el);
   void enhanceMath(el);
-  void enhanceMermaid(el);
   return el;
+}
+
+/**
+ * Build a block's wrapper, attach it, then hand its charts to the renderer.
+ * The chart renderer reads computed style off the wrapper's subtree — the
+ * type faces it measures against — and a detached node has none, which
+ * would send a warm render down its waiting path and leave the placeholder
+ * on screen for a tick. Attached first, a chart on a warm page is drawn in
+ * the same call that mounted it.
+ */
+function appendBlockElement(
+  container: HTMLElement,
+  block: SanitizedMarkdownBlock,
+  annotation?: AnnotationContext,
+  fence?: FenceHighlightOptions,
+): void {
+  const el = buildBlockElement(block, annotation, fence);
+  container.appendChild(el);
+  void enhanceChart(el);
 }
 
 function updateBlockElement(
@@ -230,7 +248,7 @@ function updateBlockElement(
   annotateContent(el, annotation);
   enhanceTable(el);
   void enhanceMath(el);
-  void enhanceMermaid(el);
+  void enhanceChart(el);
 }
 
 /**
@@ -366,7 +384,7 @@ export function renderIncrementalFromBlocks(
     if (child === undefined) {
       // Defensive: state and DOM disagreed (unexpected). Treat the
       // missing slot as an append so the new content still lands.
-      container.appendChild(buildBlockElement(blocks[i], annotation, fence));
+      appendBlockElement(container, blocks[i], annotation, fence);
       continue;
     }
     updateBlockElement(child, blocks[i], annotation, fence);
@@ -378,7 +396,7 @@ export function renderIncrementalFromBlocks(
     i < prevHashes.length + plan.appendCount;
     i += 1
   ) {
-    container.appendChild(buildBlockElement(blocks[i], annotation, fence));
+    appendBlockElement(container, blocks[i], annotation, fence);
   }
 
   // Phase 3 — remove trailing wrappers past the new length. Walked

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 240" width="560" height="240" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Open files by card</text>
+<text x="13.2" y="220" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">0</text>
+<text x="13.2" y="126.5" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">5</text>
+<text x="13.2" y="33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">10</text>
+<path d="M21.2 220 L505.8 220 M21.2 126.5 L505.8 126.5 M21.2 33 L505.8 33" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="61.58" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1</text>
+<text x="142.35" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2</text>
+<text x="223.12" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">3</text>
+<text x="303.88" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">4</text>
+<text x="384.65" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">5</text>
+<text x="465.42" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">6</text>
+<path d="M61.58 163.9 L142.35 126.5 L223.12 145.2 L223.12 220 L142.35 220 L61.58 220 Z" class="tgf-series-1 tge-fade" style="--tg-i:0" opacity="0.35"/>
+<path d="M384.65 107.8 L465.42 89.1 L465.42 220 L384.65 220 Z" class="tgf-series-1 tge-fade" style="--tg-i:0" opacity="0.35"/>
+<path d="M61.58 163.9 L142.35 126.5 L223.12 145.2 M384.65 107.8 L465.42 89.1" class="tgs-series-1 tge-draw" style="--tg-i:0" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<path d="M61.58 201.3 L142.35 182.6 L223.12 182.6 L303.88 163.9 L384.65 182.6 L465.42 201.3 L465.42 220 L384.65 220 L303.88 220 L223.12 220 L142.35 220 L61.58 220 Z" class="tgf-series-2 tge-fade" style="--tg-i:1" opacity="0.35"/>
+<path d="M61.58 201.3 L142.35 182.6 L223.12 182.6 L303.88 163.9 L384.65 182.6 L465.42 201.3" class="tgs-series-2 tge-draw" style="--tg-i:1" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<text x="471.42" y="89.1" class="tgt-value tgf-series-1" text-anchor="start" dominant-baseline="central">session</text>
+<text x="471.42" y="201.3" class="tgt-value tgf-series-2" text-anchor="start" dominant-baseline="central">changes</text>
+</svg>

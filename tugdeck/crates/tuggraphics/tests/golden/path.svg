@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 200 120" width="200" height="120" aria-hidden="true">
+<path d="M10 10 L60 10 C70 10 80 30 90 40 Z" class="tgs-ink" fill="none" stroke-width="1"/>
+<path d="M120 40 A30 30 0 0 1 180 40 Z" class="tgf-series-2"/>
+<path d="M10 100 L40 100 A20 20 0 0 1 60 80 L100 80" class="tgs-accent" fill="none" stroke-width="1"/>
+<path d="M110 70 L150 70 L150 100 L110 100 Z" class="tgf-series-1"/>
+<path d="M166 70 L184 70 A6 6 0 0 1 190 76 L190 94 A6 6 0 0 1 184 100 L166 100 A6 6 0 0 1 160 94 L160 76 A6 6 0 0 1 166 70 Z" class="tgf-surface"/>
+<path d="M42 60 A12 12 0 0 1 18 60 A12 12 0 0 1 42 60 Z" class="tgf-good"/>
+<path d="M60 60 L70 50 L80 65 L90 55" class="tgs-bad" fill="none" stroke-width="1"/>
+</svg>

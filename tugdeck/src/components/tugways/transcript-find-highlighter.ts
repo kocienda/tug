@@ -27,7 +27,9 @@
  * `.tug-atom-chip-host` (atom chips render their label inside an SVG) and
  * `.tugx-md-chrome-header` (the header the markdown enhancers build over a
  * fenced code block or a table — a language badge and two buttons, none of
- * it in the parsed HTML) subtrees are excluded, as is anything under
+ * it in the parsed HTML) subtrees are excluded, as are a chart's figure
+ * (`.tugx-chart-svg`) and its notes (`.tugx-chart-note`) — its findable
+ * text is its table — and anything under
  * `data-tugx-find-hidden` (mounted but not visible). A collapsed tool block
  * needs no guard: its body is unmounted, so the only marked containers left
  * in it are its header's name and target — exactly what the index projects
@@ -94,7 +96,7 @@ const MATCH_HIGHLIGHT = "transcript-find-match";
 const ACTIVE_HIGHLIGHT = "transcript-find-active";
 
 /**
- * Stamped on the collapsed-header clamp that holds the ACTIVE match, and
+ * Stamped on the clamp that holds the ACTIVE match, and
  * nowhere else. A collapsed tool header clamps its command to a few lines
  * (`tool-call-header-clamp`), but the text past the clamp is still in the
  * DOM and still projected, so a match there is counted, addressed and
@@ -102,9 +104,14 @@ const ACTIVE_HIGHLIGHT = "transcript-find-active";
  * rows below. `block-header.css` lifts the clamp while this attribute is
  * present, so the header grows to show the match and shrinks back when the
  * active match moves on. Appearance through the DOM only ([L06]).
+ *
+ * A chart's table (`tugx-chart-table`) is the second clamp: it is always in
+ * the DOM and always projected, but visually clipped while the figure is
+ * in chart view, and `chart-block.css` shows it under the same attribute,
+ * so the active match reveals the row it landed in.
  */
 const FIND_UNCLAMP_ATTR = "data-tugx-find-unclamp";
-const HEADER_CLAMP_SELECTOR = ".tool-call-header-clamp";
+const HEADER_CLAMP_SELECTOR = ".tool-call-header-clamp, .tugx-chart-table";
 
 /** What the painter needs each paint — supplied by the transcript host. */
 export interface FindPaintInput {
@@ -276,6 +283,11 @@ export function compareRowUnits(
  *    Copy and its fold cue. None of it is in `block.html`, so the projection
  *    cannot hold it; and none of it is the author's text, which is the same
  *    reason a tool header's result summary is neither marked nor projected.
+ *  - `.tugx-chart-svg` — a chart's figure: its labels are drawn text, and
+ *    the same strings are in the chart's table, which is what the index
+ *    projects for it. Counting both would count every label twice.
+ *  - `.tugx-chart-note` — a chart's error list or "engine did not load"
+ *    note: Tug's words, not the author's, like a block's chrome.
  *
  * Excluding these mirrors the index so count ↔ paint stay aligned.
  */
@@ -285,7 +297,9 @@ function isInExcludedSubtree(node: Node): boolean {
     if (
       el.classList.contains("tugx-katex") ||
       el.classList.contains("tug-atom-chip-host") ||
-      el.classList.contains("tugx-md-chrome-header")
+      el.classList.contains("tugx-md-chrome-header") ||
+      el.classList.contains("tugx-chart-svg") ||
+      el.classList.contains("tugx-chart-note")
     ) {
       return true;
     }

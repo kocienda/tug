@@ -1,0 +1,28 @@
+[package]
+name = "tuggraphics"
+version = "0.1.0"
+edition = "2021"
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# Tug's graphics language: the layer 0 drawing language and its SVG
+# renderer, and the measurement contract the chart compiler lays text out
+# against. `tuggraphics-wasm` wraps it for the page; tugcast (through
+# `tugmark`) and tugtool reach it natively as a path dependency from
+# outside this workspace, so nothing here may lean on the `tugrust`
+# workspace. A plain rlib: `scripts/build-wasm.sh` builds only the crates
+# that declare a `cdylib`, so this one has no `pkg/`.
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unicode-segmentation = "1"
+# The standalone measurer: parses the deck's woff2 faces, shapes with
+# GPOS kerning and sums advances, so `tugtool chart render` lays text out
+# against the very bytes the page serves. Behind a feature because the
+# WASM build measures through the page's canvas and must not carry it.
+allsorts = { version = "0.17", default-features = false, features = ["flate2_rust"], optional = true }
+
+[features]
+font = ["dep:allsorts"]

@@ -1,0 +1,21 @@
+{
+  "name": "tuggraphics-wasm",
+  "type": "module",
+  "description": "Tug: An IDE for AI coding",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kocienda/tug"
+  },
+  "files": [
+    "tuggraphics_wasm_bg.wasm",
+    "tuggraphics_wasm.js",
+    "tuggraphics_wasm.d.ts"
+  ],
+  "main": "tuggraphics_wasm.js",
+  "types": "tuggraphics_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

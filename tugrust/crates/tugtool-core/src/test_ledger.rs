@@ -510,6 +510,32 @@ pub fn latest_per_suite(
     Ok(runs)
 }
 
+/// The newest `per_suite` runs of every suite recorded for `base_root` — or
+/// of one suite, when `suite` names it — newest first across suites. What
+/// `test last --chart` plots: a wall-time trend per suite. The runs come
+/// without their file and failure rows, which a trend does not read.
+pub fn recent_runs(
+    conn: &Connection,
+    base_root: &str,
+    suite: Option<&str>,
+    per_suite: usize,
+) -> Result<Vec<SuiteRun>, TestLedgerError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {RUN_COLUMNS}
+           FROM (SELECT runs.*,
+                        ROW_NUMBER() OVER (PARTITION BY suite ORDER BY id DESC) AS nth
+                   FROM runs
+                  WHERE base_root = ?1
+                    AND (?2 IS NULL OR suite = ?2)) r
+          WHERE r.nth <= ?3
+          ORDER BY r.id DESC"
+    ))?;
+    let runs: Vec<SuiteRun> = stmt
+        .query_map(params![base_root, suite, per_suite as i64], suite_run_of)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(runs)
+}
+
 /// The median wall time, in seconds, of a suite's newest `recent` runs under
 /// `base_root` — what the suite usually takes here, which is what a
 /// foreground timeout for it is read from. `None` when no run is recorded.

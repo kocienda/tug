@@ -1,0 +1,11 @@
+{
+  "tugchart": 1,
+  "form": "line",
+  "title": "Wall time per run",
+  "format": "secs",
+  "x": ["5", "4", "3", "2", "1", "0"],
+  "series": [
+    {"name": "rust", "values": [70, 72, null, 69, 80, 75]},
+    {"name": "deck", "values": [30, 31, 33, 32, null, 34]}
+  ]
+}

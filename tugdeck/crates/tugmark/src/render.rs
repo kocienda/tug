@@ -19,7 +19,7 @@ pub struct RenderedBlock {
     /// FNV-1a 64 over the block's source byte range.
     pub hash: u64,
     /// The page's block `type`: "heading" … "other", or a transformer's
-    /// "tug-math-display" / "tug-mermaid".
+    /// "tug-math-display" / "tug-chart".
     pub kind: String,
     /// UTF-16 offsets into the source, as JS string indices.
     pub start_char: u32,
@@ -106,7 +106,7 @@ pub fn render_blocks_with(text: &str, highlight: impl Fn(u64) -> bool) -> Vec<Re
         .map(|(i, meta)| {
             let mut kind = kind_name(meta.kind).to_string();
             let mut html = sanitize(htmls.get(i).map_or("", String::as_str));
-            apply_default_transformers(&mut kind, &mut html);
+            apply_default_transformers(&mut kind, &mut html, &text[meta.start..meta.end]);
             let hash = fnv1a64(&bytes[meta.start..meta.end]);
             // A fence nests in a list or a quote as well as standing alone.
             if highlight(hash) {
@@ -173,19 +173,14 @@ mod tests {
     }
 
     #[test]
-    fn fenced_math_and_mermaid_are_transformed() {
+    fn fenced_math_is_transformed() {
         let blocks = render_blocks(
-            "```math\nx^2\n```\n\n```mermaid\nA-->B\n```\n",
+            "```math\nx^2\n```\n\n```js\nA-->B\n```\n",
             Highlight::Off,
         );
         assert_eq!(blocks[0].kind, "tug-math-display");
         assert!(blocks[0].html.contains(">x^2</div>"), "{}", blocks[0].html);
-        assert_eq!(blocks[1].kind, "tug-mermaid");
-        assert!(
-            blocks[1].html.contains(">A-->B</div>"),
-            "{}",
-            blocks[1].html
-        );
+        assert_eq!(blocks[1].kind, "code");
     }
 
     #[test]

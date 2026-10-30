@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 128" width="560" height="128" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Arc steps</text>
+<text x="0" y="28" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">minutes from start</text>
+<text x="0" y="50" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">Spec and validator</text>
+<text x="0" y="66" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">Forms</text>
+<text x="0" y="82" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">Find</text>
+<text x="0" y="98" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">Verdict</text>
+<text x="137.6" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0</text>
+<text x="242.2" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">20</text>
+<text x="346.8" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">40</text>
+<text x="451.4" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">60</text>
+<text x="553.4" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">80</text>
+<path d="M137.6 42 L137.6 106 M242.2 42 L242.2 106 M346.8 42 L346.8 106 M451.4 42 L451.4 106 M556 42 L556 106" class="tgs-grid" fill="none" stroke-width="1"/>
+<path d="M137.6 45.2 L231.74 45.2 L231.74 54.8 L137.6 54.8 Z" class="tgf-good tge-grow tge-from-left" style="--tg-i:0"/>
+<path d="M231.74 61.2 L425.25 61.2 L425.25 70.8 L231.74 70.8 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:1"/>
+<path d="M425.25 77.2 L514.16 77.2 L514.16 86.8 L425.25 86.8 Z" class="tgf-bad tge-grow tge-from-left" style="--tg-i:2"/>
+<path d="M514.16 93.2 L515.16 93.2 L515.16 102.8 L514.16 102.8 Z" class="tgf-accent tge-grow tge-from-left" style="--tg-i:3"/>
+</svg>

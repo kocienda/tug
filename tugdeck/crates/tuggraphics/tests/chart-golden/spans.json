@@ -1,0 +1,12 @@
+{
+  "tugchart": 1,
+  "form": "spans",
+  "title": "Arc steps",
+  "unit": "minutes from start",
+  "items": [
+    {"label": "Spec and validator", "start": 0, "end": 18, "status": "good"},
+    {"label": "Forms", "start": 18, "end": 55},
+    {"label": "Find", "start": 55, "end": 72, "status": "bad"},
+    {"label": "Verdict", "start": 72, "end": 72, "status": "accent"}
+  ]
+}

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 176" width="560" height="176" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Report gaps by command</text>
+<text x="0" y="28" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">calls over 20 s that reported nothing · calls</text>
+<text x="0" y="53.2" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">just app-test</text>
+<text x="0" y="75.6" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">cargo nextest</text>
+<text x="0" y="98" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">bun test</text>
+<text x="0" y="120.4" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">a command head far too long fo…</text>
+<text x="0" y="142.8" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">git log</text>
+<text x="232" y="169" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">-5</text>
+<text x="313" y="169" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0</text>
+<text x="394" y="169" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">5</text>
+<text x="475" y="169" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">10</text>
+<text x="553.4" y="169" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">15</text>
+<path d="M232 42 L232 154 M313 42 L313 154 M394 42 L394 154 M475 42 L475 154 M556 42 L556 154" class="tgs-grid" fill="none" stroke-width="1"/>
+<path d="M313 44.24 L539.8 44.24 L539.8 62.16 L313 62.16 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:0"/>
+<text x="535.8" y="53.2" class="tgt-value tgf-surface tge-fade" style="--tg-i:0" text-anchor="end" dominant-baseline="central">14</text>
+<path d="M313 66.64 L458.8 66.64 L458.8 84.56 L313 84.56 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:1"/>
+<text x="462.8" y="75.6" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">9</text>
+<path d="M313 89.04 L410.2 89.04 L410.2 106.96 L313 106.96 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:2"/>
+<text x="414.2" y="98" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">6</text>
+<path d="M313 111.44 L345.4 111.44 L345.4 129.36 L313 129.36 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:3"/>
+<text x="349.4" y="120.4" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="central">2</text>
+<path d="M296.8 133.84 L313 133.84 L313 151.76 L296.8 151.76 Z" class="tgf-series-1 tge-grow tge-from-right" style="--tg-i:4"/>
+<text x="292.8" y="142.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="end" dominant-baseline="central">-1</text>
+<path d="M313 42 L313 154" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+<path d="M475 42 L475 154" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="478" y="49" class="tgt-value tgf-ink-muted" text-anchor="start" dominant-baseline="central">budget</text>
+</svg>

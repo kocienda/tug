@@ -20,6 +20,15 @@
  * comparable (the painter's comparison only runs under a query with at
  * least one match).
  *
+ * The last turn is a ` ```tugchart ` fence: a chart's findable text is its
+ * table, which the index projects through the chart engine and the painter
+ * reads from the DOM with the figure and the chrome excluded. It is last so
+ * it is in the window the transcript rests in after seeding — the engine
+ * loads when a chart first renders, and the index projects a chart's text
+ * only once the engine is there, so the chart has to render before the
+ * sweep's query is typed. `CHART_LABEL` is a category found nowhere else in
+ * the fixture, for the assertion that the active match lifts the table.
+ *
  * ## Kinds deliberately NOT covered here, and why
  *
  *  - **`refs_result` rows.** A refs run is produced by the refs pipeline
@@ -139,6 +148,29 @@ export const JOIN_RECEIPT = [
   "The join receipt body, rendered by its own block.",
 ].join("\n");
 
+/** A chart category that appears nowhere else in the fixture. */
+export const CHART_LABEL = "bravo";
+
+/**
+ * The chart turn's markdown: a line of prose and a closed ` ```tugchart `
+ * fence. Its findable text is the table's — title, head, rows, joined with
+ * nothing: `Elements per dayelementsalpha3bravo5charlie2`.
+ */
+export const CHART_MARKDOWN = [
+  "The elements, charted.",
+  "",
+  "```tugchart",
+  JSON.stringify({
+    tugchart: 1,
+    form: "bar",
+    title: "Elements per day",
+    categories: ["alpha", CHART_LABEL, "charlie"],
+    series: [{ name: "elements", values: [3, 5, 2] }],
+  }),
+  "```",
+  "",
+].join("\n");
+
 /**
  * The ordered steps that build the fixture transcript. `at0602` walks these
  * in order, feeding frames through `ingestFrame` and drives through their
@@ -255,6 +287,20 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
     },
     { id: "tc-diff", command: "git diff -- src/one.ts", output: DIFF_OUTPUT },
     { id: "tc-commit", command: 'git commit -m "settle the element"', output: COMMIT_OUTPUT },
+    // A `TUG-CHART:` line: stripped from the terminal text, and a findable
+    // chart beneath the body once the block is expanded (it mounts
+    // collapsed, so the sweep compares its header alone).
+    {
+      id: "tc-chart",
+      command: "tugtool log --chart",
+      output: `the element count, charted\nTUG-CHART: ${JSON.stringify({
+        tugchart: 1,
+        form: "bar",
+        title: "Elements by day",
+        categories: ["one", "two"],
+        series: [{ name: "elements", values: [1, 2] }],
+      })}`,
+    },
   ];
   for (const c of bashCases) {
     const mb = nextMsg();
@@ -373,6 +419,25 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
       startedAtMs: 1_700_000_000_002,
     }),
   );
+
+  // --- 8. A chart, last so it renders in the resting window (see above). ---
+  steps.push(d({ op: "send", text: "chart the element" }));
+  const mc = nextMsg();
+  steps.push(f({ type: "prompt_anchor", promptUuid: `${sessionId}-u-chart` }));
+  steps.push(f({ type: "content_block_start", msg_id: mc, block_index: 0, kind: "text" }));
+  steps.push(
+    f({
+      type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
+      msg_id: mc,
+      block_index: 0,
+      text: CHART_MARKDOWN,
+      is_partial: false,
+    }),
+  );
+  steps.push(f({ type: "turn_complete", seq: 0, msg_id: mc, result: "success" }));
 
   return steps;
 }

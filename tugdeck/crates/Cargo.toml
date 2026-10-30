@@ -10,7 +10,7 @@
 
 [workspace]
 resolver = "2"
-members = ["tugmark", "tugmark-wasm", "tugdiff-wasm"]
+members = ["tugmark", "tugmark-wasm", "tugdiff-wasm", "tuggraphics", "tuggraphics-wasm"]
 
 [workspace.package]
 description = "Tug: An IDE for AI coding"

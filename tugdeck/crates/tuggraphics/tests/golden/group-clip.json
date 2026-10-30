@@ -1,0 +1,16 @@
+{
+  "tugdraw": 1,
+  "frame": [240, 160],
+  "ops": [
+    ["group", {"translate": [40, 20], "clip": [0, 0, 160, 100]}],
+      ["rect", -10, 10, 200, 40], ["fill", "series-1"],
+      ["width", 3],
+      ["group", {"rotate": 45, "scale": [2, 0.5], "clip": [0, 0, 20, 20]}],
+        ["rect", 0, 0, 40, 40], ["stroke", "series-2"],
+      ["end"],
+      ["move", 0, 90], ["line", 160, 90], ["stroke", "grid"],
+    ["end"],
+    ["group", {"scale": 1.5}], ["circle", 140, 90, 8], ["fill", "accent"], ["end"],
+    ["move", 0, 150], ["line", 240, 150], ["stroke", "ink"]
+  ]
+}

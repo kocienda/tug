@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 240 120" width="240" height="120" aria-hidden="true">
+<path d="M20 20 L80 20 L80 80 L20 80 L20 20" class="tgs-ink" fill="none" stroke-width="1"/>
+<path d="M170 60 L175 60 L175 70 L160 70 L160 50 L185 50 L185 80 L150 80 L150 40" class="tgs-series-5" fill="none" stroke-width="1"/>
+<path d="M100 100 L117.32 90 M125.98 85 L143.3 75" class="tgs-accent" fill="none" stroke-width="1"/>
+</svg>

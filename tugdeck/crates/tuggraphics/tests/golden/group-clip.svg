@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 240 160" width="240" height="160" aria-hidden="true">
+<defs>
+<clipPath id="g-c0"><rect x="0" y="0" width="160" height="100"/></clipPath>
+<clipPath id="g-c1"><rect x="0" y="0" width="20" height="20"/></clipPath>
+</defs>
+<g transform="translate(40 20)" clip-path="url(#g-c0)">
+<path d="M-10 10 L190 10 L190 50 L-10 50 Z" class="tgf-series-1"/>
+<g transform="rotate(45) scale(2 0.5)" clip-path="url(#g-c1)">
+<path d="M0 0 L40 0 L40 40 L0 40 Z" class="tgs-series-2" fill="none" stroke-width="3"/>
+</g>
+<path d="M0 90 L160 90" class="tgs-grid" fill="none" stroke-width="3"/>
+</g>
+<g transform="scale(1.5 1.5)">
+<path d="M148 90 A8 8 0 0 1 132 90 A8 8 0 0 1 148 90 Z" class="tgf-accent"/>
+</g>
+<path d="M0 150 L240 150" class="tgs-ink" fill="none" stroke-width="1"/>
+</svg>

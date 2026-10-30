@@ -508,8 +508,11 @@ body {
  * / `FileBlock` / `TerminalBlock`, so it telescopes under the entry
  * header instead of forming a nested scroller. `z-index: 2` so a block's
  * own inner sticky header (a table `<thead>`) passes under it. */
+/* `.tugx-chart` is admitted beside `.tugx-md-block` throughout the chrome
+ * rules: a chart figure wears this same header on every door, and the
+ * `ChartBlock` body kind mounts outside any markdown block. */
 /* @tug-renders-on: --tugx-block-strip-bg */
-.tugx-md-block .tugx-md-chrome-header {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-header {
   position: sticky;
   top: var(--tugx-pin-stack-top, 0);
   z-index: 2;
@@ -540,7 +543,7 @@ body {
   text-transform: lowercase;
 }
 
-.tugx-md-block .tugx-md-chrome-spacer {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-spacer {
   flex: 1 1 auto;
 }
 
@@ -548,7 +551,7 @@ body {
  * edge of the identity header. The imperative-DOM counterpart of the
  * React `BlockActionsCluster`: `flex: 0 0 auto`, no sticky (the cluster
  * rides the header that hosts it). */
-.tugx-md-block .tugx-md-chrome-actions {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-actions {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -568,7 +571,7 @@ body {
  * rest/hover surface + icon tokens — so they read as the same control,
  * same size, same hover, as the tool-block header buttons. */
 /* @tug-renders-on: --tug7-surface-control-primary-ghost-action-rest */
-.tugx-md-block .tugx-md-chrome-btn {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -592,21 +595,21 @@ body {
     border-color var(--tug-motion-duration-fast) var(--tug-motion-easing-standard);
 }
 
-.tugx-md-block .tugx-md-chrome-btn svg {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-btn svg {
   width: var(--tug-button-xs-icon-size);
   height: var(--tug-button-xs-icon-size);
   color: var(--tug7-element-control-icon-ghost-action-rest);
 }
 
 /* @tug-renders-on: --tug7-surface-control-primary-ghost-action-hover */
-.tugx-md-block .tugx-md-chrome-btn:hover {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-btn:hover {
   background-color: var(--tug7-surface-control-primary-ghost-action-hover);
   color: var(--tug7-element-control-text-ghost-action-hover);
   border-color: var(--tug7-element-control-border-ghost-action-hover);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.tugx-md-block .tugx-md-chrome-btn:hover svg {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-btn:hover svg {
   color: var(--tug7-element-control-icon-ghost-action-hover);
 }
 
@@ -615,7 +618,7 @@ body {
    controls); these DOM buttons aren't engine-tracked, so without this a
    mouse click would paint a stray native ring — the React header buttons
    show none. */
-.tugx-md-block .tugx-md-chrome-btn:focus {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-btn:focus {
   outline: none;
 }
 
@@ -624,15 +627,15 @@ body {
 /* Icon-only Copy: the button toggles `is-copied` for ~1.2s after a
    successful clipboard write; CSS swaps the Copy glyph for a Check —
    matching the tool-block header's `BlockCopyButton subtype="icon"`. */
-.tugx-md-block .tugx-md-chrome-copy-icon--copied {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-copy-icon--copied {
   display: none;
 }
 
-.tugx-md-block .tugx-md-chrome-copy.is-copied .tugx-md-chrome-copy-icon--default {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-copy.is-copied .tugx-md-chrome-copy-icon--default {
   display: none;
 }
 
-.tugx-md-block .tugx-md-chrome-copy.is-copied .tugx-md-chrome-copy-icon--copied {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-copy.is-copied .tugx-md-chrome-copy-icon--copied {
   display: inline;
   /* No success-green tint — the confirmed Check uses the same ghost-action
      icon color as the Copy glyph, matching the tool-block header's Copy
@@ -642,7 +645,7 @@ body {
 /* Fold-cue chevron icon swap — keyed off the frame's `data-collapsed`.
    Default (expanded): ChevronsUp ("collapse me"). Collapsed: ChevronsDown
    ("expand me"). Mirrors the tool-header `BlockFoldCue` direction. */
-.tugx-md-block .tugx-md-chrome-fold-icon--collapsed {
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-fold-icon--collapsed {
   display: none;
 }
 .tugx-md-block [data-collapsed] .tugx-md-chrome-fold-icon--expanded {

@@ -16,7 +16,7 @@
  *   - return `[block]` — leave the block unchanged
  *   - return `[]` — drop the block from the output
  *   - return `[modified]` — replace it (typical: change `type` from
- *     `code` to `tug-mermaid`, `tug-math-display`, `tug-diff`,
+ *     `code` to `tug-chart`, `tug-math-display`, `tug-diff`,
  *     `tug-json-tree`, etc.)
  *   - return `[a, b, c]` — split it into multiple sibling blocks
  *
@@ -29,15 +29,14 @@
  * Streaming-aware: `BlockTransformContext.isComplete` is `true` only
  * for blocks whose source text has reached `complete` status, so a
  * transformer can stay as a plain code block while content is still
- * flowing in (mermaid, for example, only promotes on `complete` per
- * [D07]).
+ * flowing in. `BlockTransformContext.source` is the block's own slice
+ * of the text, for a transformer whose gate is the block itself rather
+ * than the text's status (tugchart promotes only a closed fence, the
+ * same answer tugcast's port gives mid-stream).
  *
- * The barrel re-exports the four initial transformers (`mermaid`,
- * `math`, `diff`, `large-json`) per [List L02]. They ship as no-op
- * stubs in [#step-3] — the spec contract is in place so the pipeline
- * compiles and the tests prove transformer composition works — and
- * are populated in their consuming steps ([#step-12], [#step-13],
- * [#step-10] / [#step-11], [#step-15]).
+ * The barrel re-exports every transformer (`math`, `tugchart`, `diff`,
+ * `large-json`); `diff` and `large-json` are still pass-through stubs
+ * awaiting their consuming surfaces.
  */
 
 import type { SanitizedMarkdownBlock } from "../parse-markdown-to-sanitized-blocks";
@@ -48,13 +47,18 @@ import type { SanitizedMarkdownBlock } from "../parse-markdown-to-sanitized-bloc
 export interface BlockTransformContext {
   /**
    * Whether the source text has reached `complete` status. Streaming
-   * transformers (e.g. `mermaid`) defer their promotion until this is
-   * `true` so a partially-streamed diagram doesn't render as broken
-   * SVG; a renderer that doesn't care reads it as `true` always.
+   * transformers may defer their promotion until this is `true` so a
+   * partially-streamed body doesn't render broken; a renderer that
+   * doesn't care reads it as `true` always.
    */
   isComplete: boolean;
   /** Block index in the parent block list (post-flatten order). */
   index: number;
+  /**
+   * The block's own slice of the source text, `text.slice(startChar,
+   * endChar)`; `""` when the caller supplied no text.
+   */
+  source: string;
 }
 
 /**
@@ -86,15 +90,18 @@ export interface BlockTransformer {
 export function applyBlockTransformers(
   blocks: SanitizedMarkdownBlock[],
   transformers: ReadonlyArray<BlockTransformer>,
-  options?: { isComplete?: boolean },
+  options?: { isComplete?: boolean; text?: string },
 ): SanitizedMarkdownBlock[] {
   if (transformers.length === 0) return blocks;
   const isComplete = options?.isComplete ?? true;
+  const text = options?.text;
   let current = blocks;
   for (const transformer of transformers) {
     const next: SanitizedMarkdownBlock[] = [];
     for (let i = 0; i < current.length; i += 1) {
-      const out = transformer.transform(current[i], { isComplete, index: i });
+      const block = current[i];
+      const source = text === undefined ? "" : text.slice(block.startChar, block.endChar);
+      const out = transformer.transform(block, { isComplete, index: i, source });
       for (let j = 0; j < out.length; j += 1) next.push(out[j]);
     }
     current = next;
@@ -102,13 +109,13 @@ export function applyBlockTransformers(
   return current;
 }
 
-export { mermaidTransformer } from "./mermaid";
 export { mathTransformer } from "./math";
+export { tugchartTransformer } from "./tugchart";
 export { diffTransformer } from "./diff";
 export { largeJsonTransformer } from "./large-json";
 
 import { mathTransformer } from "./math";
-import { mermaidTransformer } from "./mermaid";
+import { tugchartTransformer } from "./tugchart";
 
 /**
  * The default transformer list applied by the shared markdown
@@ -119,11 +126,10 @@ import { mermaidTransformer } from "./mermaid";
  * Order is significant in principle — `applyBlockTransformers` flat-
  * maps in array order — but the populated transformers' input
  * predicates (lang === "math" / "latex" / "tex" for math; lang ===
- * "mermaid" for mermaid; future fences for the others) don't
- * overlap. Adding a new transformer here lights it up across the
- * whole markdown pipeline.
+ * "tugchart" for charts) don't overlap. Adding a new transformer here
+ * lights it up across the whole markdown pipeline.
  */
 export const DEFAULT_BLOCK_TRANSFORMERS: ReadonlyArray<BlockTransformer> = [
   mathTransformer,
-  mermaidTransformer,
+  tugchartTransformer,
 ];

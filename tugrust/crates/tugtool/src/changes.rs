@@ -507,9 +507,40 @@ fn print_left_behind(left_behind: &tugchanges_core::LeftBehind) {
     }
 }
 
-pub fn run_log(limit: Option<u32>, range: Option<String>, json: bool) -> Result<(), AppError> {
-    let report = tugchanges_core::log(LogOptions { limit, range })?;
-    if json {
+/// `tugtool log`. Under `--chart`, the window is `--days` (default 30) when
+/// neither `--range` nor `--limit` was given, and the output is one summary
+/// line and the `TUG-CHART:` line of commits per committer day.
+pub fn run_log(
+    limit: Option<u32>,
+    range: Option<String>,
+    days: Option<u32>,
+    chart: bool,
+    json: bool,
+) -> Result<(), AppError> {
+    if chart {
+        crate::chart::refuse_json(json)?;
+    }
+    let days = match (chart, &range, limit, days) {
+        (true, None, None, None) => Some(30),
+        _ => days,
+    };
+    let report = tugchanges_core::log(LogOptions { limit, range, days })?;
+    if chart {
+        let subtitle = report.range.clone();
+        match crate::chart::commits_per_day(&report.commits, "Commits per day", &subtitle) {
+            Some(spec) => {
+                let days_shown = spec["categories"].as_array().map_or(0, Vec::len);
+                println!(
+                    "{} commit(s) over {} day(s), {}",
+                    report.commits.len(),
+                    days_shown,
+                    report.range
+                );
+                println!("{}", crate::chart::chart_line(&spec)?);
+            }
+            None => println!("no commits, {}", report.range),
+        }
+    } else if json {
         print_ok("log", &report);
     } else {
         for commit in &report.commits {

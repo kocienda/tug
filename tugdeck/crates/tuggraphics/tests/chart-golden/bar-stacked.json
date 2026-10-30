@@ -1,0 +1,13 @@
+{
+  "tugchart": 1,
+  "form": "bar",
+  "layout": "stacked",
+  "title": "Lines changed per day",
+  "format": "int",
+  "categories": ["Mon", "Tue", "Wed", "Thu"],
+  "series": [
+    {"name": "added", "values": [120, 80, null, 40], "role": "good"},
+    {"name": "removed", "values": [-30, -60, -10, 0], "role": "bad"},
+    {"name": "moved", "values": [20, 15, 25, 5]}
+  ]
+}

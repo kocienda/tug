@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 300 120" width="300" height="120" aria-hidden="true">
+<text x="10" y="20" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="alphabetic">Commits per day</text>
+<text x="150" y="40" class="tgt-label tgf-ink" text-anchor="middle" dominant-baseline="text-before-edge">middle top</text>
+<text x="290" y="60" class="tgt-label tgf-ink-muted" text-anchor="end" dominant-baseline="central">end middle</text>
+<text x="10" y="80" class="tgt-value tgf-ink" text-anchor="start" dominant-baseline="text-after-edge">1,204</text>
+<text x="10" y="100" class="tgt-mono tgf-accent" text-anchor="start" dominant-baseline="alphabetic">tugtool log</text>
+<text x="150" y="110" class="tgt-label tgf-ink" text-anchor="start" dominant-baseline="alphabetic" opacity="0.5">a &lt; b &amp; &quot;c&quot;</text>
+</svg>

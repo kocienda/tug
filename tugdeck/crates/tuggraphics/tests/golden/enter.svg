@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 200 100" width="200" height="100" aria-hidden="true">
+<path d="M10 40 L30 40 L30 90 L10 90 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:0"/>
+<path d="M40 20 L60 20 L60 90 L40 90 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:1"/>
+<path d="M70 60 L120 60 L120 80 L70 80 Z" class="tgf-series-2 tge-grow tge-from-left" style="--tg-i:2"/>
+<path d="M10 30 L60 10 L110 20" class="tgs-series-3 tge-draw" style="--tg-i:0" fill="none" stroke-width="1" pathLength="1"/>
+<path d="M113 20 A3 3 0 0 1 107 20 A3 3 0 0 1 113 20 Z" class="tgf-series-3 tge-fade" style="--tg-i:3"/>
+<text x="190" y="90" class="tgt-label tgf-ink tge-rise" style="--tg-i:4" text-anchor="end" dominant-baseline="alphabetic">rises</text>
+<g class="tge-fade" style="--tg-i:5">
+<path d="M150 10 L190 10 L190 30 L150 30 Z" class="tgf-surface"/>
+</g>
+</svg>

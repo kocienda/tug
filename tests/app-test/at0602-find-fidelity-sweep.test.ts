@@ -62,12 +62,15 @@
  * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
  * @covers tugdeck/src/lib/find-trace.ts
  * @covers tugdeck/src/lib/transcript-find-engine.ts
+ * @covers tugdeck/src/lib/chart/render-chart.ts
+ * @covers tugdeck/crates/tugmark/src/text.rs
  */
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
 import {
   SCROLLER,
+  chord,
   markTrace,
   openFindBar,
   sessionDeckShape,
@@ -75,7 +78,7 @@ import {
   standUpSession,
   traceSince,
 } from "./find-probes";
-import { fidelityFixtureSteps } from "./find-fidelity-fixture";
+import { CHART_LABEL, fidelityFixtureSteps } from "./find-fidelity-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -270,6 +273,31 @@ describe.skipIf(!SHOULD_RUN)("AT0602: the index and the DOM agree on every row",
           `these (row, unit) pairs diverged more than once over a static ` +
             `transcript, which means the heal is not settling: ${JSON.stringify(repeated)}`,
         ).toEqual([]);
+
+        // A chart's labels are findable through its table, and the active
+        // match lifts the table's clip (`data-tugx-find-unclamp`, the clamp
+        // the collapsed tool header already uses) without switching the
+        // figure to table view. The label is in the fixture once.
+        await app.body("A").focusElement(SEL.findInput);
+        await chord(app.body("A"), "KeyA", "a", { meta: true });
+        await app.nativeType(CHART_LABEL);
+        await app.body("A").waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(SEL.chip)})?.textContent || "").trim() === "1 of 1"`,
+          { timeoutMs: 15_000 },
+        );
+        const TABLE = `${SEL.card} .tugx-chart table.tugx-chart-table`;
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(TABLE)})?.hasAttribute("data-tugx-find-unclamp") === true`,
+          { timeoutMs: 15_000 },
+        );
+        const lifted = await app.body("A").evalJS<{ view: string | null; height: number }>(`(function () {
+  var table = document.querySelector(${JSON.stringify(TABLE)});
+  return { view: table.parentElement.getAttribute("data-tugx-chart-view"),
+           height: table.getBoundingClientRect().height };
+})()`);
+        note(`chart label match: view ${lifted.view}, lifted table height ${lifted.height}`);
+        expect(lifted.view, "the figure stays in chart view; the lift is Find's").toBe("chart");
+        expect(lifted.height, "the lifted table takes its box").toBeGreaterThan(20);
       } finally {
         await app.close();
       }

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 94" width="560" height="94" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">App-test history</text>
+<text x="0" y="28" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">newest 20 runs, oldest left</text>
+<text x="0" y="50" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">at0602-find-fidelity-sweep.tes…</text>
+<text x="0" y="66" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">at0765-tugchart-fence.test.ts</text>
+<text x="0" y="82" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">at0766-bash-tug-chart.test.ts</text>
+<path d="M244 50 A5 5 0 0 1 234 50 A5 5 0 0 1 244 50 Z" class="tgf-good tge-fade" style="--tg-i:0"/>
+<path d="M258 50 A5 5 0 0 1 248 50 A5 5 0 0 1 258 50 Z" class="tgf-good tge-fade" style="--tg-i:1"/>
+<path d="M272 50 A5 5 0 0 1 262 50 A5 5 0 0 1 272 50 Z" class="tgf-bad tge-fade" style="--tg-i:2"/>
+<path d="M286 50 A5 5 0 0 1 276 50 A5 5 0 0 1 286 50 Z" class="tgf-good tge-fade" style="--tg-i:3"/>
+<path d="M300 50 A5 5 0 0 1 290 50 A5 5 0 0 1 300 50 Z" class="tgf-good tge-fade" style="--tg-i:4"/>
+<path d="M314 50 A5 5 0 0 1 304 50 A5 5 0 0 1 314 50 Z" class="tgf-ink-muted tge-fade" style="--tg-i:5"/>
+<path d="M328 50 A5 5 0 0 1 318 50 A5 5 0 0 1 328 50 Z" class="tgf-good tge-fade" style="--tg-i:6"/>
+<path d="M244 66 A5 5 0 0 1 234 66 A5 5 0 0 1 244 66 Z" class="tgf-good tge-fade" style="--tg-i:0"/>
+<path d="M258 66 A5 5 0 0 1 248 66 A5 5 0 0 1 258 66 Z" class="tgf-good tge-fade" style="--tg-i:1"/>
+<path d="M272 66 A5 5 0 0 1 262 66 A5 5 0 0 1 272 66 Z" class="tgf-good tge-fade" style="--tg-i:2"/>
+<path d="M244 82 A5 5 0 0 1 234 82 A5 5 0 0 1 244 82 Z" class="tgf-bad tge-fade" style="--tg-i:0"/>
+<path d="M258 82 A5 5 0 0 1 248 82 A5 5 0 0 1 258 82 Z" class="tgf-bad tge-fade" style="--tg-i:1"/>
+<path d="M272 82 A5 5 0 0 1 262 82 A5 5 0 0 1 272 82 Z" class="tgf-good tge-fade" style="--tg-i:2"/>
+<path d="M286 82 A5 5 0 0 1 276 82 A5 5 0 0 1 286 82 Z" class="tgf-good tge-fade" style="--tg-i:3"/>
+<path d="M300 82 A5 5 0 0 1 290 82 A5 5 0 0 1 300 82 Z" class="tgf-good tge-fade" style="--tg-i:4"/>
+<path d="M314 82 A5 5 0 0 1 304 82 A5 5 0 0 1 314 82 Z" class="tgf-good tge-fade" style="--tg-i:5"/>
+<path d="M328 82 A5 5 0 0 1 318 82 A5 5 0 0 1 328 82 Z" class="tgf-good tge-fade" style="--tg-i:6"/>
+<path d="M342 82 A5 5 0 0 1 332 82 A5 5 0 0 1 342 82 Z" class="tgf-good tge-fade" style="--tg-i:7"/>
+<path d="M356 82 A5 5 0 0 1 346 82 A5 5 0 0 1 356 82 Z" class="tgf-good tge-fade" style="--tg-i:8"/>
+<path d="M370 82 A5 5 0 0 1 360 82 A5 5 0 0 1 370 82 Z" class="tgf-good tge-fade" style="--tg-i:9"/>
+</svg>

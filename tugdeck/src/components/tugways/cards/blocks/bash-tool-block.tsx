@@ -102,6 +102,8 @@ import {
   type TerminalData,
 } from "@/components/tugways/body-kinds/terminal-block";
 import { DiffBlock } from "@/components/tugways/body-kinds/diff-block";
+import { ChartBlock } from "@/components/tugways/body-kinds/chart-block";
+import { splitChartLines } from "@/lib/chart/chart-lines";
 import { parseUnifiedDiffText } from "@/lib/diff/parse-unified-diff";
 import type { DiffHunk } from "@/lib/diff/types";
 import {
@@ -181,17 +183,30 @@ export function narrowStructured(value: unknown): BashStructuredResult {
 }
 
 /**
+ * The body's terminal data plus the charts its stdout carried: every
+ * `TUG-CHART:` line is stripped from `stdout` and kept here as a source,
+ * at most `CHART_LINE_LIMIT` of them, with the count of the rest.
+ */
+export interface BashTerminalData extends TerminalData {
+  charts: string[];
+  chartsDropped: number;
+}
+
+/**
  * Compose the `TerminalData` payload for the body. Prefer the
  * structured result; fall back to `textOutput` for `stdout` if the
- * structured shape is absent (older catalogs / drift).
+ * structured shape is absent (older catalogs / drift). The `TUG-CHART:`
+ * lines come out of stdout here, so the block and the search index — the
+ * two callers — see the same terminal text and the same charts.
  */
 export function composeTerminalData(
   structured: BashStructuredResult | undefined,
   textOutput: string | undefined,
   isError: boolean,
-): TerminalData {
-  const stdout =
+): BashTerminalData {
+  const raw =
     structured?.stdout ?? (textOutput !== undefined ? textOutput : "");
+  const { text: stdout, charts, dropped } = splitChartLines(raw);
   const stderr = structured?.stderr ?? "";
   const interrupted = structured?.interrupted === true;
   // Synthesize an exit code: Anthropic's Bash tool result carries
@@ -205,6 +220,8 @@ export function composeTerminalData(
     stderr,
     exitCode,
     interrupted: interrupted ? true : undefined,
+    charts,
+    chartsDropped: dropped,
   };
 }
 
@@ -440,6 +457,7 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   const noBody =
     (terminalData.stdout?.length ?? 0) === 0 &&
     (terminalData.stderr?.length ?? 0) === 0 &&
+    terminalData.charts.length === 0 &&
     status !== "streaming";
   // In preview mode the command has not run — there is no result yet, so
   // the "(no output)" hint would read as a finished, output-less call. Hold
@@ -540,6 +558,24 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
       </div>
     );
   }
+  // The charts the stdout carried, one `ChartBlock` each beneath the body,
+  // in stdout order. Not in preview (the command has not run) and not while
+  // streaming (the body is withheld too); a tool's stdout may carry a
+  // drawing, so the door takes any layer. Each root is a Find unit, which
+  // the index projects after the terminal's.
+  const charts =
+    !preview && status !== "streaming" && commit === null && terminalData.charts.length > 0 ? (
+      <div data-slot="bash-tool-block-charts" className="bash-tool-block-charts">
+        {terminalData.charts.map((source, i) => (
+          <ChartBlock key={i} source={source} layers="any" findable />
+        ))}
+        {terminalData.chartsDropped > 0 ? (
+          <span data-slot="bash-tool-block-charts-dropped" className="bash-tool-block-charts-dropped">
+            {terminalData.chartsDropped} more chart{terminalData.chartsDropped === 1 ? "" : "s"} not shown
+          </span>
+        ) : null}
+      </div>
+    ) : null;
 
   // Header one-line result: only `interrupted`. No exit-code badge — the
   // Anthropic Bash result carries `is_error`, not the real shell exit code,
@@ -607,6 +643,7 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
       footerBadges={footerBadges}
     >
       {body}
+      {charts}
     </BlockChrome>
   );
 };

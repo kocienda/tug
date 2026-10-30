@@ -144,9 +144,16 @@ pub fn run_last(
     suite: Option<String>,
     call: Option<String>,
     root: Option<PathBuf>,
+    chart: bool,
     json: bool,
 ) -> Result<(), AppError> {
+    if chart {
+        crate::chart::refuse_json(json)?;
+    }
     let base_root = resolve_base_root(&test_ledger::run_root_for(&root_or_cwd(root)?));
+    if chart {
+        return run_last_chart(&base_root, suite.as_deref());
+    }
     let runs = test_ledger::open_ledger(test_ledger::default_path())
         .and_then(|conn| match &call {
             Some(id) => test_ledger::runs_for_call(&conn, id, suite.as_deref()),
@@ -165,6 +172,41 @@ pub fn run_last(
         crate::output::print_ok("test last", &report);
     } else {
         print!("{}", render_last(&report, failures_only));
+    }
+    Ok(())
+}
+
+/// `test last --chart`: each suite's wall time over its newest runs, as one
+/// summary line and a `TUG-CHART:` line. A reader, like `test last`: with
+/// nothing recorded it says so and exits 0.
+fn run_last_chart(base_root: &str, suite: Option<&str>) -> Result<(), AppError> {
+    let runs = test_ledger::open_ledger(test_ledger::default_path())
+        .and_then(|conn| {
+            test_ledger::recent_runs(&conn, base_root, suite, crate::chart::RUNS_PER_SUITE)
+        })
+        .unwrap_or_else(|err| {
+            eprintln!("[test] cannot read the test results ledger: {err}");
+            Vec::new()
+        });
+    let spec = crate::chart::suite_wall_times(
+        &runs,
+        crate::chart::RUNS_PER_SUITE,
+        crate::chart::MAX_SUITES,
+        "Wall time per run",
+    );
+    match spec {
+        Some(spec) => {
+            let suites = spec["series"].as_array().map_or(0, Vec::len);
+            println!(
+                "{} run(s) across {} suite(s) for {}, newest {} per suite",
+                runs.len(),
+                suites,
+                base_root,
+                crate::chart::RUNS_PER_SUITE
+            );
+            println!("{}", crate::chart::chart_line(&spec)?);
+        }
+        None => println!("no recorded test runs for {base_root}"),
     }
     Ok(())
 }

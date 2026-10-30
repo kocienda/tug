@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 240" width="560" height="240" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Tests by suite</text>
+<text x="13.2" y="220" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">0</text>
+<text x="13.2" y="157.67" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">1k</text>
+<text x="13.2" y="95.33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">2k</text>
+<text x="13.2" y="33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">3k</text>
+<path d="M21.2 220 L525.6 220 M21.2 157.67 L525.6 157.67 M21.2 95.33 L525.6 95.33 M21.2 33 L525.6 33" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="84.25" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2,021</text>
+<text x="210.35" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2,022</text>
+<text x="336.45" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2,023</text>
+<text x="462.55" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2,024</text>
+<path d="M84.25 195.07 L210.35 179.48 L336.45 163.9 L462.55 145.2 L462.55 220 L336.45 220 L210.35 220 L84.25 220 Z" class="tgf-series-1 tge-fade" style="--tg-i:0"/>
+<path d="M84.25 195.07 L210.35 179.48 L336.45 163.9 L462.55 145.2" class="tgs-series-1 tge-draw" style="--tg-i:0" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<path d="M84.25 188.83 L210.35 179.48 L336.45 132.73 L462.55 101.57 L462.55 145.2 L336.45 163.9 L210.35 179.48 L84.25 195.07 Z" class="tgf-series-2 tge-fade" style="--tg-i:1"/>
+<path d="M84.25 188.83 L210.35 179.48 L336.45 132.73 L462.55 101.57" class="tgs-series-2 tge-draw" style="--tg-i:1" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<path d="M84.25 188.83 L210.35 178.24 L336.45 128.99 L462.55 94.09 L462.55 101.57 L336.45 132.73 L210.35 179.48 L84.25 188.83 Z" class="tgf-series-3 tge-fade" style="--tg-i:2"/>
+<path d="M84.25 188.83 L210.35 178.24 L336.45 128.99 L462.55 94.09" class="tgs-series-3 tge-draw" style="--tg-i:2" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<text x="468.55" y="94.09" class="tgt-value tgf-series-3" text-anchor="start" dominant-baseline="central">app</text>
+<text x="468.55" y="108.09" class="tgt-value tgf-series-2" text-anchor="start" dominant-baseline="central">deck</text>
+<text x="468.55" y="145.2" class="tgt-value tgf-series-1" text-anchor="start" dominant-baseline="central">rust</text>
+</svg>

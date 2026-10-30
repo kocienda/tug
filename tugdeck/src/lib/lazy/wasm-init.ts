@@ -46,17 +46,21 @@
  * - `shape` projects the loaded module into the typed engine the
  *   consumer wants. Cast types here, not at every call site.
  *
- * Returns `{ load, reset, inject }`:
+ * Returns `{ load, getSync, reset, inject }`:
  *
  * - `load()` returns the singleton promise. The first call kicks off
  *   the import + wasm init; subsequent calls share the same promise.
  *   On rejection, the cache resets so a future caller can retry.
+ * - `getSync()` returns the engine once a load has settled (or after
+ *   `inject`), and `null` before then — for a caller that must answer
+ *   synchronously and can start a load for next time.
  * - `reset()` clears the cache. Use only from test setup.
  * - `inject(engine)` pre-populates the cache with a stub engine so
  *   tests can run synchronously without a real wasm runtime.
  */
 export interface WasmLoader<TEngine> {
   load(): Promise<TEngine>;
+  getSync(): TEngine | null;
   reset(): void;
   inject(engine: TEngine): void;
 }
@@ -70,28 +74,45 @@ export function wasmInit<TEngine, TModule extends WasmModuleInit>(
   shape: (mod: TModule) => TEngine,
 ): WasmLoader<TEngine> {
   let inflight: Promise<TEngine> | null = null;
+  let resolved: TEngine | null = null;
 
   function load(): Promise<TEngine> {
     if (inflight === null) {
-      inflight = (async () => {
+      const pending = (async () => {
         const mod = await importer();
         await mod.default();
         return shape(mod);
       })();
-      inflight.catch(() => {
-        inflight = null;
-      });
+      inflight = pending;
+      // A load superseded by `reset` or `inject` settles into nothing.
+      pending.then(
+        (engine) => {
+          if (inflight === pending) resolved = engine;
+        },
+        () => {
+          if (inflight === pending) {
+            inflight = null;
+            resolved = null;
+          }
+        },
+      );
     }
     return inflight;
   }
 
+  function getSync(): TEngine | null {
+    return resolved;
+  }
+
   function reset(): void {
     inflight = null;
+    resolved = null;
   }
 
   function inject(engine: TEngine): void {
     inflight = Promise.resolve(engine);
+    resolved = engine;
   }
 
-  return { load, reset, inject };
+  return { load, getSync, reset, inject };
 }

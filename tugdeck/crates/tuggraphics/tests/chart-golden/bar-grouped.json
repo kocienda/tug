@@ -1,0 +1,12 @@
+{
+  "tugchart": 1,
+  "form": "bar",
+  "title": "Tests by suite",
+  "format": "count",
+  "categories": ["Mon", "Tue", "Wed", "Thursday-long-label"],
+  "series": [
+    {"name": "rust", "values": [1200, 1350, 1400, 1520]},
+    {"name": "deck", "values": [900, 940, 960, 1010]},
+    {"name": "app", "values": [120, 140, -30, 150], "role": "accent"}
+  ]
+}

@@ -57,18 +57,61 @@ fn base_root(root: Option<PathBuf>) -> Result<String, AppError> {
     Ok(apptest_ledger::resolve_base_root(Path::new(&root)))
 }
 
-/// Answer each named file's history for the run root's base checkout.
-pub fn run_history(root: Option<PathBuf>, files: Vec<String>) -> Result<(), AppError> {
+/// Answer each named file's history for the run root's base checkout —
+/// as JSON, or with `--chart` as a `dots` chart of each file's newest runs.
+pub fn run_history(
+    root: Option<PathBuf>,
+    files: Vec<String>,
+    chart: bool,
+    json: bool,
+) -> Result<(), AppError> {
+    if chart {
+        crate::chart::refuse_json(json)?;
+    }
     let base_root = base_root(root)?;
     let conn = apptest_ledger::open_ledger(ledger_path()).map_err(|err| {
         AppError::Exit1("failed", format!("cannot open the results ledger: {err}"))
     })?;
+    if chart {
+        return run_history_chart(&conn, &base_root, &files);
+    }
     let answers = apptest_ledger::file_history(&conn, &base_root, &files).map_err(|err| {
         AppError::Exit1("failed", format!("cannot read the results ledger: {err}"))
     })?;
     // JSON is this verb's only rendering, so it is the envelope with or
     // without `--json`.
     crate::output::print_ok("apptest history", serde_json::json!({ "files": answers }));
+    Ok(())
+}
+
+/// The summary line and `TUG-CHART:` line for `files`: one `dots` row per
+/// file with a recorded run, its newest runs oldest left.
+fn run_history_chart(
+    conn: &rusqlite::Connection,
+    base_root: &str,
+    files: &[String],
+) -> Result<(), AppError> {
+    let per_file = crate::chart::RUNS_PER_FILE;
+    let mut rows = Vec::with_capacity(files.len());
+    for file in files {
+        let runs =
+            apptest_ledger::recent_file_runs(conn, base_root, file, per_file).map_err(|err| {
+                AppError::Exit1("failed", format!("cannot read the results ledger: {err}"))
+            })?;
+        rows.push((file.clone(), runs));
+    }
+    let subtitle = format!("newest {per_file} runs per file, oldest left");
+    match crate::chart::file_outcomes(&rows, "App-test history", &subtitle) {
+        Some(spec) => {
+            let plotted = spec["rows"].as_array().map_or(0, Vec::len);
+            println!(
+                "{plotted} of {} file(s) with recorded runs for {base_root}, newest {per_file} each",
+                files.len()
+            );
+            println!("{}", crate::chart::chart_line(&spec)?);
+        }
+        None => println!("no recorded app-test runs for {base_root}"),
+    }
     Ok(())
 }
 

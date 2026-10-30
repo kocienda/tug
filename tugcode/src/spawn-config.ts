@@ -187,7 +187,9 @@ export interface ClaudeSpawnConfig {
  * output — how its prose is rendered, what a tool call's exit status tells the
  * reader, and the shape a question must have to arrive — then what a session
  * reference in a prompt means and how to read the session it names, and what
- * a landings block reports, then the working rules that hold on every project.
+ * a landings block reports, then the working rules that hold on every project,
+ * and last the charts the card draws: when to chart, the fence and its forms,
+ * and the verbs that emit one.
  */
 export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "work-grammar.md",
@@ -198,6 +200,7 @@ export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "session-references.md",
   "landings.md",
   "working-rules.md",
+  "graphics.md",
 ];
 
 /**

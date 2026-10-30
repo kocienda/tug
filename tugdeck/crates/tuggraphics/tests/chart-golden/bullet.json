@@ -1,0 +1,11 @@
+{
+  "tugchart": 1,
+  "form": "bullet",
+  "title": "Suite wall time against budget",
+  "format": "secs",
+  "items": [
+    {"label": "rust", "value": 72, "range": [60, 90], "target": 80, "history": [70, 72, 69, 80, 75, 72]},
+    {"label": "deck", "value": 31, "range": [25, 40], "target": 30},
+    {"label": "app-tests", "value": 310, "target": 240, "history": [200, 220, null, 260, 310]}
+  ]
+}

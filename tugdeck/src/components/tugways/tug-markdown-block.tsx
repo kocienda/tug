@@ -102,6 +102,9 @@
  */
 
 import "./tug-markdown-block.css";
+// The chart figure's stylesheet, for the ```tugchart fences this block's
+// enhancer renders; the `ChartBlock` body kind imports the same file.
+import "./body-kinds/chart-block.css";
 
 import React from "react";
 import { flushSync } from "@/lib/gesture-scope";

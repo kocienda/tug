@@ -1,0 +1,12 @@
+{
+  "tugchart": 1,
+  "form": "bar",
+  "orient": "horizontal",
+  "title": "Report gaps by command",
+  "subtitle": "calls over 20 s that reported nothing",
+  "unit": "calls",
+  "format": "int",
+  "categories": ["just app-test", "cargo nextest", "bun test", "a command head far too long for its column", "git log"],
+  "series": [{"name": "calls", "values": [14, 9, 6, 2, -1]}],
+  "annotations": [{"kind": "rule", "value": 10, "label": "budget"}]
+}

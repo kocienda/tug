@@ -1,0 +1,1 @@
+{"tugchart": 1, "form": "sparkline", "title": "latency", "format": "secs", "values": [0.3, 0.5, null, 0.2, 0.8, 0.4], "highlight": "min-max"}

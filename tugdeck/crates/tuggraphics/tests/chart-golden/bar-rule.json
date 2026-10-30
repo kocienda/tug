@@ -1,0 +1,10 @@
+{
+  "tugchart": 1,
+  "form": "bar",
+  "title": "Build seconds",
+  "format": "secs",
+  "categories": ["a", "b", "c", "d", "e"],
+  "series": [{"name": "wall", "values": [42.5, 61, 38, 95, 50]}],
+  "annotations": [{"kind": "rule", "value": 50, "label": "median"}, {"kind": "mark", "at": 3, "label": "regression"}],
+  "motion": "none"
+}

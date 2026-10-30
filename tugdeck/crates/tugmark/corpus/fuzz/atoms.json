@@ -13,7 +13,6 @@
     "```",
     "```js",
     "```rust",
-    "```mermaid",
     "```math",
     "~~~",
     "    indented",
@@ -104,7 +103,6 @@
     "<span>",
     "</span>",
     "<div class=\"tugx-katex\" data-tugx-math=\"display\" data-tugx-math-pending=\"true\">",
-    "<div class=\"tugx-mermaid\" data-tugx-mermaid-pending=\"true\">",
     "<p data-tugx-math=\"display\">",
     "<code data-tug-highlighted=\"\">",
     "<pre data-tug-highlighted=\"\">",
@@ -154,10 +152,10 @@
   "sample": {
     "seed": 8,
     "cases": [
-      "<link rel=stylesheet href=x>\n\n<div class=\"tugx-mermaid\" data-tugx-mermaid\t<pre data-tug-highlighted=\"\"><!",
-      "$x < y$</SCRIPT> ",
-      "<pre data-tug-highlighted=\"\">\n\n<iframe srcdoc=\"<script>alert(1)</script>\">\n\n</b><style>p{color:red}</style><a href=\"&#14;javascript:alert(1)\">\n<IFRAME SRCDOC=\"<SCRIPT>ALERT(1)</SCRIPT>\">",
-      "## &lt;\n\n<malignmark>"
+      "'\n\n```math\t<img src=\"data:image/svg+xml,<svg onload=alert(1)>\"><details open ontoggle=alert(1)>",
+      "<ol start=3><A HREF=\"JAV&#X09;ASCRIPT:ALERT(1)\"> <scr",
+      "'\n\n<p title=\"</noscript><img src=x onerror=alert(1)>\">\n\n</xm<img src=x onerror=alert(1)>$$\n<SCRIPT>ALERT(1)</SCRIPT>",
+      "<!-     indented\n\n~~~"
     ]
   }
 }

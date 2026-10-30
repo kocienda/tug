@@ -685,12 +685,16 @@ Every third-party library the bundle carries, generated from the lockfiles named
 
 ### Rust crates compiled into tugcast, tugtool, and the other tugrust binaries
 
-From `tugrust/Cargo.lock` — 275 packages.
+From `tugrust/Cargo.lock` — 303 packages.
 
 | Package | Version | License | Repository |
 |---|---|---|---|
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | https://github.com/oyvindln/adler2 |
 | aho-corasick | 1.1.4 | Unlicense OR MIT | https://github.com/BurntSushi/aho-corasick |
+| aliasable | 0.1.3 | MIT | https://github.com/avitex/rust-aliasable |
+| alloc-no-stdlib | 2.0.4 | BSD-3-Clause | https://github.com/dropbox/rust-alloc-no-stdlib |
+| alloc-stdlib | 0.2.4 | BSD-3-Clause | https://github.com/dropbox/rust-alloc-no-stdlib |
+| allsorts | 0.17.0 | Apache-2.0 | https://github.com/yeslogic/allsorts |
 | ammonia | 4.2.3 | MIT OR Apache-2.0 | https://github.com/rust-ammonia/ammonia |
 | anstream | 1.0.0 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle |
 | anstyle | 1.0.14 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle |
@@ -703,8 +707,11 @@ From `tugrust/Cargo.lock` — 275 packages.
 | axum-core | 0.5.6 | MIT | https://github.com/tokio-rs/axum |
 | base64 | 0.22.1 | MIT OR Apache-2.0 | https://github.com/marshallpierce/rust-base64 |
 | bitflags | 2.11.0 | MIT OR Apache-2.0 | https://github.com/bitflags/bitflags |
+| bitreader | 0.3.11 | MIT OR Apache-2.0 | https://github.com/irauta/bitreader |
 | block-buffer | 0.10.4 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils |
+| brotli-decompressor | 5.0.3 | BSD-3-Clause/MIT | https://github.com/dropbox/rust-brotli-decompressor |
 | bstr | 1.12.1 | MIT OR Apache-2.0 | https://github.com/BurntSushi/bstr |
+| byteorder | 1.5.0 | Unlicense OR MIT | https://github.com/BurntSushi/byteorder |
 | bytes | 1.11.1 | MIT | https://github.com/tokio-rs/bytes |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 | https://github.com/rust-lang/cfg-if |
 | chacha20 | 0.10.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/stream-ciphers |
@@ -717,6 +724,7 @@ From `tugrust/Cargo.lock` — 275 packages.
 | cookie | 0.18.1 | MIT OR Apache-2.0 | https://github.com/SergioBenitez/cookie-rs |
 | cookie_store | 0.22.1 | MIT OR Apache-2.0 | https://github.com/pfernie/cookie_store |
 | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | https://github.com/servo/core-foundation-rs |
+| core_detect | 1.0.0 | MIT/Apache-2.0 | https://github.com/thomcc/core_detect |
 | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils |
 | cpufeatures | 0.3.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils |
 | crc32fast | 1.5.0 | MIT OR Apache-2.0 | https://github.com/srijs/rust-crc32fast |
@@ -736,6 +744,9 @@ From `tugrust/Cargo.lock` — 275 packages.
 | dtoa | 1.0.11 | MIT OR Apache-2.0 | https://github.com/dtolnay/dtoa |
 | dtoa-short | 0.3.5 | MPL-2.0 | https://github.com/upsuper/dtoa-short |
 | either | 1.16.0 | MIT OR Apache-2.0 | https://github.com/rayon-rs/either |
+| encoding_rs | 0.8.42 | (Apache-2.0 OR MIT) AND BSD-3-Clause | https://github.com/hsivonen/encoding_rs |
+| enumflags2 | 0.7.12 | MIT OR Apache-2.0 | https://github.com/meithecatte/enumflags2 |
+| enumflags2_derive | 0.7.12 | MIT OR Apache-2.0 | https://github.com/meithecatte/enumflags2 |
 | equivalent | 1.0.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/equivalent |
 | errno | 0.3.14 | MIT OR Apache-2.0 | https://github.com/lambda-fairy/rust-errno |
 | fallible-iterator | 0.3.0 | MIT/Apache-2.0 | https://github.com/sfackler/rust-fallible-iterator |
@@ -761,10 +772,12 @@ From `tugrust/Cargo.lock` — 275 packages.
 | getrandom | 0.4.2 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | glob | 0.3.3 | MIT OR Apache-2.0 | https://github.com/rust-lang/glob |
 | globset | 0.4.18 | Unlicense OR MIT | https://github.com/BurntSushi/ripgrep/tree/master/crates/globset |
+| glyph-names | 0.2.0 | BSD-3-Clause | https://github.com/yeslogic/glyph-names |
 | h2 | 0.4.15 | MIT | https://github.com/hyperium/h2 |
 | hashbrown | 0.15.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
 | hashbrown | 0.16.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
 | hashlink | 0.10.0 | MIT OR Apache-2.0 | https://github.com/kyren/hashlink |
+| heck | 0.4.1 | MIT OR Apache-2.0 | https://github.com/withoutboats/heck |
 | heck | 0.5.0 | MIT OR Apache-2.0 | https://github.com/withoutboats/heck |
 | html5ever | 0.40.1 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |
 | http | 1.4.0 | MIT OR Apache-2.0 | https://github.com/hyperium/http |
@@ -791,6 +804,7 @@ From `tugrust/Cargo.lock` — 275 packages.
 | ipnet | 2.12.0 | MIT OR Apache-2.0 | https://github.com/krisprice/ipnet |
 | iri-string | 0.7.14 | MIT OR Apache-2.0 | https://github.com/lo48576/iri-string |
 | is_terminal_polyfill | 1.70.2 | MIT OR Apache-2.0 | https://github.com/polyfill-rs/is_terminal_polyfill |
+| itertools | 0.14.0 | MIT OR Apache-2.0 | https://github.com/rust-itertools/itertools |
 | itoa | 1.0.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa |
 | lazy_static | 1.5.0 | MIT OR Apache-2.0 | https://github.com/rust-lang-nursery/lazy-static.rs |
 | libc | 0.2.183 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc |
@@ -809,6 +823,7 @@ From `tugrust/Cargo.lock` — 275 packages.
 | mime_guess | 2.0.5 | MIT | https://github.com/abonander/mime_guess |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide |
 | mio | 1.2.0 | MIT | https://github.com/tokio-rs/mio |
+| multiversion_no_op | 1.0.0 | Apache-2.0 OR MIT | https://github.com/hsivonen/multiversion_no_op |
 | new_debug_unreachable | 1.0.6 | MIT | https://github.com/mbrubeck/rust-debug-unreachable |
 | notify | 8.2.0 | CC0-1.0 | https://github.com/notify-rs/notify |
 | notify-types | 2.1.0 | MIT OR Apache-2.0 | https://github.com/notify-rs/notify |
@@ -818,8 +833,12 @@ From `tugrust/Cargo.lock` — 275 packages.
 | objc2-core-foundation | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | https://github.com/matklad/once_cell |
 | option-ext | 0.2.0 | MPL-2.0 | https://github.com/soc/option-ext |
+| ouroboros | 0.18.5 | MIT OR Apache-2.0 | https://github.com/someguynamedjosh/ouroboros |
+| ouroboros_macro | 0.18.5 | MIT OR Apache-2.0 | https://github.com/someguynamedjosh/ouroboros |
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
 | parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
+| pathfinder_geometry | 0.5.1 | MIT/Apache-2.0 | https://github.com/servo/pathfinder |
+| pathfinder_simd | 0.5.6 | MIT OR Apache-2.0 | https://github.com/servo/pathfinder |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
 | phf | 0.14.0 | MIT | https://github.com/rust-phf/rust-phf |
 | phf_shared | 0.14.0 | MIT | https://github.com/rust-phf/rust-phf |
@@ -829,6 +848,7 @@ From `tugrust/Cargo.lock` — 275 packages.
 | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 | https://github.com/cryptocorrosion/cryptocorrosion |
 | precomputed-hash | 0.1.1 | MIT | https://github.com/emilio/precomputed-hash |
 | proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | https://github.com/dtolnay/proc-macro2 |
+| proc-macro2-diagnostics | 0.10.1 | MIT/Apache-2.0 | https://github.com/SergioBenitez/proc-macro2-diagnostics |
 | pty-process | 0.5.3 | MIT | https://git.tozt.net/pty-process |
 | pulldown-cmark | 0.12.2 | MIT | https://github.com/raphlinus/pulldown-cmark |
 | pulldown-cmark-escape | 0.11.0 | MIT | https://github.com/raphlinus/pulldown-cmark |
@@ -871,12 +891,14 @@ From `tugrust/Cargo.lock` — 275 packages.
 | sharded-slab | 0.1.7 | MIT | https://github.com/hawkw/sharded-slab |
 | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | https://github.com/vorner/signal-hook |
 | simd-adler32 | 0.3.9 | MIT | https://github.com/mcountryman/simd-adler32 |
+| simdutf8 | 0.1.5 | MIT OR Apache-2.0 | https://github.com/rusticstuff/simdutf8 |
 | similar | 2.7.0 | Apache-2.0 | https://github.com/mitsuhiko/similar |
 | siphasher | 1.0.4 | MIT OR Apache-2.0 | https://github.com/jedisct1/rust-siphash |
 | slab | 0.4.12 | MIT | https://github.com/tokio-rs/slab |
 | smallvec | 1.15.1 | MIT OR Apache-2.0 | https://github.com/servo/rust-smallvec |
 | socket2 | 0.6.3 | MIT OR Apache-2.0 | https://github.com/rust-lang/socket2 |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait |
+| static_assertions | 1.1.0 | MIT OR Apache-2.0 | https://github.com/nvzqz/static-assertions-rs |
 | streaming-iterator | 0.1.9 | MIT OR Apache-2.0 | https://github.com/sfackler/streaming-iterator |
 | string_cache | 0.11.0 | MIT OR Apache-2.0 | https://github.com/servo/string-cache |
 | strsim | 0.11.1 | MIT | https://github.com/rapidfuzz/strsim-rs |
@@ -937,8 +959,13 @@ From `tugrust/Cargo.lock` — 275 packages.
 | try-lock | 0.2.5 | MIT | https://github.com/seanmonstar/try-lock |
 | tungstenite | 0.28.0 | MIT OR Apache-2.0 | https://github.com/snapview/tungstenite-rs |
 | typenum | 1.19.0 | MIT OR Apache-2.0 | https://github.com/paholg/typenum |
+| ucd-trie | 0.1.7 | MIT OR Apache-2.0 | https://github.com/BurntSushi/ucd-generate |
 | unicase | 2.9.0 | MIT OR Apache-2.0 | https://github.com/seanmonstar/unicase |
+| unicode-canonical-combining-class | 1.0.0 | Apache-2.0 | https://github.com/yeslogic/unicode-canonical-combining-class |
+| unicode-general-category | 1.1.0 | Apache-2.0 | https://github.com/yeslogic/unicode-general-category |
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/dtolnay/unicode-ident |
+| unicode-joining-type | 1.0.0 | Apache-2.0 | https://github.com/yeslogic/unicode-joining-type |
+| unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | https://github.com/unicode-rs/unicode-segmentation |
 | untrusted | 0.9.0 | ISC | https://github.com/briansmith/untrusted |
 | ureq | 3.3.0 | MIT OR Apache-2.0 | https://github.com/algesten/ureq |
 | ureq-proto | 0.6.0 | MIT OR Apache-2.0 | https://github.com/algesten/ureq-proto |
@@ -954,6 +981,7 @@ From `tugrust/Cargo.lock` — 275 packages.
 | webpki-roots | 1.0.6 | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |
 | winnow | 0.7.15 | MIT | https://github.com/winnow-rs/winnow |
 | writeable | 0.6.2 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
+| yansi | 1.0.1 | MIT OR Apache-2.0 | https://github.com/SergioBenitez/yansi |
 | yoke | 0.8.1 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | yoke-derive | 0.8.1 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | zerocopy | 0.8.48 | BSD-2-Clause OR Apache-2.0 OR MIT | https://github.com/google/zerocopy |
@@ -969,7 +997,7 @@ From `tugrust/Cargo.lock` — 275 packages.
 
 ### Rust crates compiled to WebAssembly for tugdeck
 
-From `tugdeck/crates/Cargo.lock` — 29 packages.
+From `tugdeck/crates/Cargo.lock` — 33 packages.
 
 | Package | Version | License | Repository |
 |---|---|---|---|
@@ -982,6 +1010,7 @@ From `tugdeck/crates/Cargo.lock` — 29 packages.
 | futures-util | 0.3.32 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | hashbrown | 0.15.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
 | imara-diff | 0.2.0 | Apache-2.0 | https://github.com/pascalkuthe/imara-diff |
+| itoa | 1.0.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa |
 | js-sys | 0.3.98 | MIT OR Apache-2.0 | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys |
 | memchr | 2.8.0 | Unlicense OR MIT | https://github.com/BurntSushi/memchr |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | https://github.com/matklad/once_cell |
@@ -994,26 +1023,26 @@ From `tugdeck/crates/Cargo.lock` — 29 packages.
 | serde-wasm-bindgen | 0.6.5 | MIT | https://github.com/RReverser/serde-wasm-bindgen |
 | serde_core | 1.0.228 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
 | serde_derive | 1.0.228 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
+| serde_json | 1.0.154 | MIT OR Apache-2.0 | https://github.com/serde-rs/json |
 | slab | 0.4.12 | MIT | https://github.com/tokio-rs/slab |
 | syn | 2.0.117 | MIT OR Apache-2.0 | https://github.com/dtolnay/syn |
 | unicase | 2.9.0 | MIT OR Apache-2.0 | https://github.com/seanmonstar/unicase |
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/dtolnay/unicode-ident |
+| unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 | https://github.com/unicode-rs/unicode-segmentation |
 | wasm-bindgen | 0.2.121 | MIT OR Apache-2.0 | https://github.com/wasm-bindgen/wasm-bindgen |
 | wasm-bindgen-macro | 0.2.121 | MIT OR Apache-2.0 | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro |
 | wasm-bindgen-macro-support | 0.2.121 | MIT OR Apache-2.0 | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro-support |
 | wasm-bindgen-shared | 0.2.121 | MIT OR Apache-2.0 | https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/shared |
+| zmij | 1.0.23 | MIT | https://github.com/dtolnay/zmij |
 
 ---
 
 ### npm packages bundled into tugdeck
 
-From `tugdeck/bun.lock` — 229 packages.
+From `tugdeck/bun.lock` — 121 packages.
 
 | Package | Version | License | Repository |
 |---|---|---|---|
-| @antfu/install-pkg | 1.1.0 | MIT | https://github.com/antfu/install-pkg |
-| @braintree/sanitize-url | 7.1.2 | MIT | https://github.com/braintree/sanitize-url |
-| @chevrotain/types | 11.1.2 | Apache-2.0 | https://github.com/Chevrotain/chevrotain |
 | @codemirror/autocomplete | 6.20.3 | MIT | https://code.haverbeke.berlin/codemirror/autocomplete |
 | @codemirror/commands | 6.10.3 | MIT | https://github.com/codemirror/commands |
 | @codemirror/lang-css | 6.3.1 | MIT | https://github.com/codemirror/lang-css |
@@ -1036,8 +1065,6 @@ From `tugdeck/bun.lock` — 229 packages.
 | @floating-ui/dom | 1.7.6 | MIT | https://github.com/floating-ui/floating-ui |
 | @floating-ui/react-dom | 2.1.8 | MIT | https://github.com/floating-ui/floating-ui |
 | @floating-ui/utils | 0.2.11 | MIT | https://github.com/floating-ui/floating-ui |
-| @iconify/types | 2.0.0 | MIT | https://github.com/iconify/iconify |
-| @iconify/utils | 3.1.3 | MIT | https://github.com/iconify/iconify |
 | @lezer/common | 1.5.2 | MIT | https://github.com/lezer-parser/common |
 | @lezer/css | 1.3.4 | MIT | https://code.haverbeke.berlin/lezer/css |
 | @lezer/go | 1.0.1 | MIT | https://github.com/lezer-parser/go |
@@ -1051,7 +1078,6 @@ From `tugdeck/bun.lock` — 229 packages.
 | @lezer/python | 1.1.19 | MIT | https://code.haverbeke.berlin/lezer/python |
 | @lezer/rust | 1.0.2 | MIT | https://github.com/lezer-parser/rust |
 | @marijn/find-cluster-break | 1.0.2 | MIT | https://github.com/marijnh/find-cluster-break |
-| @mermaid-js/parser | 1.1.1 | MIT | https://github.com/mermaid-js/mermaid |
 | @radix-ui/number | 1.1.1 | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/primitive | 1.1.3 | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-accordion | 1.2.12 | MIT | https://github.com/radix-ui/primitives |
@@ -1105,39 +1131,6 @@ From `tugdeck/bun.lock` — 229 packages.
 | @radix-ui/react-use-size | 1.1.1 | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/react-visually-hidden | 1.2.3 | MIT | https://github.com/radix-ui/primitives |
 | @radix-ui/rect | 1.1.1 | MIT | https://github.com/radix-ui/primitives |
-| @types/d3 | 7.4.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-array | 3.2.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-axis | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-brush | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-chord | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-color | 3.1.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-contour | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-delaunay | 6.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-dispatch | 3.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-drag | 3.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-dsv | 3.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-ease | 3.0.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-fetch | 3.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-force | 3.0.10 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-format | 3.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-geo | 3.1.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-hierarchy | 3.1.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-interpolate | 3.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-path | 3.1.1 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-polygon | 3.0.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-quadtree | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-random | 3.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-scale | 4.0.9 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-scale-chromatic | 3.1.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-selection | 3.0.11 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-shape | 3.1.8 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-time | 3.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-time-format | 4.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-timer | 3.0.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-transition | 3.0.9 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/d3-zoom | 3.0.8 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @types/geojson | 7946.0.16 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
-| @upsetjs/venn.js | 2.0.0 | MIT | https://github.com/upsetjs/venn.js |
 | @xterm/addon-fit | 0.11.0 | MIT | https://github.com/xtermjs/xterm.js/tree/master/addons/addon-fit |
 | @xterm/addon-web-links | 0.12.0 | MIT | https://github.com/xtermjs/xterm.js/tree/master/addons/addon-web-links |
 | @xterm/addon-webgl | 0.19.0 | MIT | https://github.com/xtermjs/xterm.js/tree/master/addons/addon-webgl |
@@ -1145,100 +1138,31 @@ From `tugdeck/bun.lock` — 229 packages.
 | ansi_up | 6.0.6 | MIT | https://github.com/drudru/ansi_up |
 | aria-hidden | 1.2.6 | MIT | https://github.com/theKashey/aria-hidden |
 | clsx | 2.1.1 | MIT | https://github.com/lukeed/clsx |
-| commander | 7.2.0 | MIT | https://github.com/tj/commander.js |
 | commander | 8.3.0 | MIT | https://github.com/tj/commander.js |
-| cose-base | 1.0.3 | MIT | https://github.com/iVis-at-Bilkent/cose-base |
-| cose-base | 2.2.0 | MIT | https://github.com/iVis-at-Bilkent/cose-base |
 | crelt | 1.0.6 | MIT | https://github.com/marijnh/crelt |
-| cytoscape | 3.33.4 | MIT | https://github.com/cytoscape/cytoscape.js |
-| cytoscape-cose-bilkent | 4.1.0 | MIT | https://github.com/cytoscape/cytoscape.js-cose-bilkent |
-| cytoscape-fcose | 2.2.0 | MIT | https://github.com/iVis-at-Bilkent/cytoscape.js-fcose |
-| d3 | 7.9.0 | ISC | https://github.com/d3/d3 |
-| d3-array | 2.12.1 | BSD-3-Clause | https://github.com/d3/d3-array |
-| d3-array | 3.2.4 | ISC | https://github.com/d3/d3-array |
-| d3-axis | 3.0.0 | ISC | https://github.com/d3/d3-axis |
-| d3-brush | 3.0.0 | ISC | https://github.com/d3/d3-brush |
-| d3-chord | 3.0.1 | ISC | https://github.com/d3/d3-chord |
-| d3-color | 3.1.0 | ISC | https://github.com/d3/d3-color |
-| d3-contour | 4.0.2 | ISC | https://github.com/d3/d3-contour |
-| d3-delaunay | 6.0.4 | ISC | https://github.com/d3/d3-delaunay |
-| d3-dispatch | 3.0.1 | ISC | https://github.com/d3/d3-dispatch |
-| d3-drag | 3.0.0 | ISC | https://github.com/d3/d3-drag |
-| d3-dsv | 3.0.1 | ISC | https://github.com/d3/d3-dsv |
-| d3-ease | 3.0.1 | BSD-3-Clause | https://github.com/d3/d3-ease |
-| d3-fetch | 3.0.1 | ISC | https://github.com/d3/d3-fetch |
-| d3-force | 3.0.0 | ISC | https://github.com/d3/d3-force |
-| d3-format | 3.1.2 | ISC | https://github.com/d3/d3-format |
-| d3-geo | 3.1.1 | ISC | https://github.com/d3/d3-geo |
-| d3-hierarchy | 3.1.2 | ISC | https://github.com/d3/d3-hierarchy |
-| d3-interpolate | 3.0.1 | ISC | https://github.com/d3/d3-interpolate |
-| d3-path | 1.0.9 | BSD-3-Clause | https://github.com/d3/d3-path |
-| d3-path | 3.1.0 | ISC | https://github.com/d3/d3-path |
-| d3-polygon | 3.0.1 | ISC | https://github.com/d3/d3-polygon |
-| d3-quadtree | 3.0.1 | ISC | https://github.com/d3/d3-quadtree |
-| d3-random | 3.0.1 | ISC | https://github.com/d3/d3-random |
-| d3-sankey | 0.12.3 | BSD-3-Clause | https://github.com/d3/d3-sankey |
-| d3-scale | 4.0.2 | ISC | https://github.com/d3/d3-scale |
-| d3-scale-chromatic | 3.1.0 | ISC | https://github.com/d3/d3-scale-chromatic |
-| d3-selection | 3.0.0 | ISC | https://github.com/d3/d3-selection |
-| d3-shape | 1.3.7 | BSD-3-Clause | https://github.com/d3/d3-shape |
-| d3-shape | 3.2.0 | ISC | https://github.com/d3/d3-shape |
-| d3-time | 3.1.0 | ISC | https://github.com/d3/d3-time |
-| d3-time-format | 4.1.0 | ISC | https://github.com/d3/d3-time-format |
-| d3-timer | 3.0.1 | ISC | https://github.com/d3/d3-timer |
-| d3-transition | 3.0.1 | ISC | https://github.com/d3/d3-transition |
-| d3-zoom | 3.0.0 | ISC | https://github.com/d3/d3-zoom |
-| dagre-d3-es | 7.0.14 | MIT | https://github.com/tbo47/dagre-es |
-| dayjs | 1.11.20 | MIT | https://github.com/iamkun/dayjs |
-| delaunator | 5.1.0 | ISC | https://github.com/mapbox/delaunator |
 | detect-node-es | 1.1.0 | MIT | https://github.com/thekashey/detect-node |
 | diff-match-patch | 1.0.5 | Apache-2.0 | https://github.com/JackuB/diff-match-patch |
 | dompurify | 3.3.3 | (MPL-2.0 OR Apache-2.0) | https://github.com/cure53/DOMPurify |
-| es-toolkit | 1.46.1 | MIT | https://github.com/toss/es-toolkit |
 | get-nonce | 1.0.1 | MIT | https://github.com/theKashey/get-nonce |
-| hachure-fill | 0.5.2 | MIT | https://github.com/pshihn/hachure-fill |
-| iconv-lite | 0.6.3 | MIT | https://github.com/ashtuchkin/iconv-lite |
-| import-meta-resolve | 4.2.0 | MIT | https://github.com/wooorm/import-meta-resolve |
-| internmap | 1.0.1 | ISC | https://github.com/mbostock/internmap |
-| internmap | 2.0.3 | ISC | https://github.com/mbostock/internmap |
-| katex | 0.16.47 | MIT | https://github.com/KaTeX/KaTeX |
 | katex | 0.17.0 | MIT | https://github.com/KaTeX/KaTeX |
-| khroma | 2.1.0 | MIT | https://github.com/fabiospampinato/khroma |
-| layout-base | 1.0.2 | MIT | https://github.com/iVis-at-Bilkent/layout-base |
-| layout-base | 2.0.1 | MIT | https://github.com/iVis-at-Bilkent/layout-base |
 | linkify-element | 4.3.3 | MIT | https://github.com/nfrasser/linkifyjs |
 | linkifyjs | 4.3.3 | MIT | https://github.com/nfrasser/linkifyjs |
-| lodash-es | 4.18.1 | MIT | https://github.com/lodash/lodash |
 | lucide | 0.564.0 | ISC | https://github.com/lucide-icons/lucide |
 | lucide-react | 1.21.0 | ISC | https://github.com/lucide-icons/lucide |
 | marked | 15.0.12 | MIT | https://github.com/markedjs/marked |
-| marked | 16.4.2 | MIT | https://github.com/markedjs/marked |
-| mermaid | 11.15.0 | MIT | https://github.com/mermaid-js/mermaid |
-| package-manager-detector | 1.6.0 | MIT | https://github.com/antfu-collective/package-manager-detector |
-| path-data-parser | 0.1.0 | MIT | https://github.com/pshihn/path-data-parser |
 | pdfjs-dist | 6.2.108 | Apache-2.0 | https://github.com/mozilla/pdf.js |
-| points-on-curve | 0.2.0 | MIT | https://github.com/pshihn/bezier-points |
-| points-on-path | 0.2.1 | MIT | https://github.com/pshihn/points-on-path |
 | react | 19.2.4 | MIT | https://github.com/facebook/react |
 | react-dom | 19.2.4 | MIT | https://github.com/facebook/react |
 | react-remove-scroll | 2.7.2 | MIT | https://github.com/theKashey/react-remove-scroll |
 | react-remove-scroll-bar | 2.3.8 | MIT | https://github.com/theKashey/react-remove-scroll-bar |
 | react-resizable-panels | 4.10.0 | MIT | https://github.com/bvaughn/react-resizable-panels |
 | react-style-singleton | 2.2.3 | MIT | https://github.com/theKashey/react-style-singleton |
-| robust-predicates | 3.0.3 | Unlicense | https://github.com/mourner/robust-predicates |
-| roughjs | 4.6.6 | MIT | https://github.com/pshihn/rough |
-| rw | 1.3.3 | BSD-3-Clause | http://github.com/mbostock/rw |
-| safer-buffer | 2.1.2 | MIT | https://github.com/ChALkeR/safer-buffer |
 | scheduler | 0.27.0 | MIT | https://github.com/facebook/react |
 | sonner | 2.0.7 | MIT | https://github.com/emilkowalski/sonner |
 | style-mod | 4.1.3 | MIT | https://github.com/marijnh/style-mod |
-| stylis | 4.4.0 | MIT | https://github.com/thysultan/stylis.js |
-| tinyexec | 1.1.2 | MIT | https://github.com/tinylibs/tinyexec |
-| ts-dedent | 2.2.0 | MIT | https://github.com/tamino-martinius/node-ts-dedent |
 | tslib | 2.8.1 | 0BSD | https://github.com/Microsoft/tslib |
 | use-callback-ref | 1.3.3 | MIT | https://github.com/theKashey/use-callback-ref |
 | use-sidecar | 1.1.3 | MIT | https://github.com/theKashey/use-sidecar |
-| uuid | 14.0.0 | MIT | https://github.com/uuidjs/uuid |
 | w3c-keyname | 2.2.8 | MIT | https://github.com/marijnh/w3c-keyname |
 
 ---
@@ -1667,7 +1591,7 @@ indirectly from a Data Provider and agrees to the terms of this agreement.
 including for example machine learning models and models' insights.
 ```
 
-#### CC0-1.0, Unlicense
+#### CC0-1.0
 
 ```
 Dedicated to the public domain; no notice is required. Listed so the set of licenses the bundle carries is complete.

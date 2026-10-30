@@ -228,6 +228,14 @@ pub enum Commands {
         /// Two-dot range `a..b`.
         #[arg(long)]
         range: Option<String>,
+        /// With neither `--range` nor `--limit`: the commits of the last N
+        /// days on HEAD (default 30 under `--chart`).
+        #[arg(long)]
+        days: Option<u32>,
+        /// Print a summary line and a `TUG-CHART:` line charting commits per
+        /// day, instead of the commit list. Not with `--json`.
+        #[arg(long)]
+        chart: bool,
     },
     /// Per-file diff stats for the working tree, the index, a range, or the session.
     Diff {
@@ -287,6 +295,11 @@ pub enum Commands {
     /// failures the last one named.
     #[command(subcommand)]
     Test(TestCommands),
+
+    /// Render a chart spec or a drawing to a standalone SVG file, laid out
+    /// against the deck's own faces and coloured by one of its themes.
+    #[command(subcommand)]
+    Chart(ChartCommands),
 
     /// Tell the block this command runs under how far it has got — the
     /// report that draws the Bash block's report panel.
@@ -706,6 +719,11 @@ pub enum ApptestCommands {
         /// Test files to answer for, as the report names them.
         #[arg(required = true, num_args = 1..)]
         files: Vec<String>,
+        /// Print a summary line and a `TUG-CHART:` line instead of the
+        /// JSON: a `dots` chart with a row per file, its newest runs oldest
+        /// left, green for `PASS` and red for a failure. Not with `--json`.
+        #[arg(long)]
+        chart: bool,
     },
     /// Record or read which functions each test file executed.
     ///
@@ -731,6 +749,27 @@ pub enum ReachCommands {
         /// Test files to answer for, as the report names them.
         #[arg(required = true, num_args = 1..)]
         files: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ChartCommands {
+    /// Render one source — a `tugchart` spec or a `tugdraw` program — to an
+    /// SVG that stands on its own: text is measured with the faces the deck
+    /// serves, and one `<style>` resolves the chart's colour and type
+    /// classes to the named theme, so the file reads the same in any viewer.
+    Render {
+        /// The source file, or `-` for stdin.
+        spec: String,
+        /// Where to write the SVG.
+        #[arg(long)]
+        out: PathBuf,
+        /// The deck theme whose palette colours the figure.
+        #[arg(long, default_value = "ironclad")]
+        theme: String,
+        /// The width available, in px; the spec's or the form's when omitted.
+        #[arg(long)]
+        width: Option<f64>,
     },
 }
 
@@ -843,6 +882,10 @@ pub enum TestCommands {
         /// run's root is.
         #[arg(long)]
         root: Option<PathBuf>,
+        /// Print a summary line and a `TUG-CHART:` line charting each
+        /// suite's wall time over its newest runs. Not with `--json`.
+        #[arg(long)]
+        chart: bool,
     },
 }
 

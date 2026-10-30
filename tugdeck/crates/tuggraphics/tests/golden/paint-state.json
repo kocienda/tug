@@ -1,0 +1,11 @@
+{
+  "tugdraw": 1,
+  "frame": [200, 80],
+  "ops": [
+    ["move", 10, 10], ["line", 190, 10], ["stroke", "grid"],
+    ["width", 2.5], ["dash", [4, 2]], ["move", 10, 30], ["line", 190, 30], ["stroke", "ink-muted", {"cap": "round"}],
+    ["dash", []], ["opacity", 0.4], ["polyline", [[10, 70], [50, 40], [90, 70]]], ["stroke", "series-3", {"join": "bevel", "cap": "square"}],
+    ["rect", 120, 40, 30, 30], ["fill", "series-4"],
+    ["opacity", 1], ["width", 1], ["rect", 160, 40, 30, 30], ["stroke", "ink", {"join": "miter", "cap": "butt"}]
+  ]
+}

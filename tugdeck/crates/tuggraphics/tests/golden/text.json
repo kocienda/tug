@@ -1,0 +1,12 @@
+{
+  "tugdraw": 1,
+  "frame": [300, 120],
+  "ops": [
+    ["text", 10, 20, "Commits per day", {"role": "title"}],
+    ["text", 150, 40, "middle top", {"anchor": "middle", "baseline": "top"}],
+    ["text", 290, 60, "end middle", {"anchor": "end", "baseline": "middle", "fill": "ink-muted"}],
+    ["text", 10, 80, "1,204", {"role": "value", "baseline": "bottom"}],
+    ["text", 10, 100, "tugtool log", {"role": "mono", "baseline": "alphabetic", "fill": "accent"}],
+    ["opacity", 0.5], ["text", 150, 110, "a < b & \"c\"", {"anchor": "start"}]
+  ]
+}

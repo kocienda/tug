@@ -1,0 +1,16 @@
+{
+  "tugdraw": 1,
+  "frame": [240, 120],
+  "ops": [
+    ["pen", 20, 20, 0],
+    ["forward", 60], ["turn", 90], ["forward", 60], ["turn", 90], ["forward", 60], ["turn", 90], ["forward", 60],
+    ["stroke", "ink"],
+    ["pen", 170, 60, 0],
+    ["forward", 5], ["turn", 90], ["forward", 10], ["turn", 90], ["forward", 15], ["turn", 90],
+    ["forward", 20], ["turn", 90], ["forward", 25], ["turn", 90], ["forward", 30], ["turn", 90],
+    ["forward", 35], ["turn", 90], ["forward", 40],
+    ["stroke", "series-5"],
+    ["pen", 100, 100, -30], ["forward", 20], ["pen", {"up": true}], ["forward", 10], ["pen", {"up": false}], ["forward", 20],
+    ["stroke", "accent"]
+  ]
+}

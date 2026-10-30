@@ -132,7 +132,7 @@ describe("buildMathPlaceholderHtml", () => {
 describe("mathTransformer.transform", () => {
   test("promotes a math fence to tug-math-display", () => {
     const block = codeBlock("math", "E=mc^2\n");
-    const out = mathTransformer.transform(block, { isComplete: true, index: 0 });
+    const out = mathTransformer.transform(block, { isComplete: true, index: 0, source: "" });
     expect(out.length).toBe(1);
     expect(out[0].type).toBe("tug-math-display");
     expect(out[0].html).toContain(`data-tugx-math="display"`);
@@ -141,19 +141,19 @@ describe("mathTransformer.transform", () => {
 
   test("promotes a latex fence to tug-math-display", () => {
     const block = codeBlock("latex", "\\alpha\n");
-    const out = mathTransformer.transform(block, { isComplete: true, index: 0 });
+    const out = mathTransformer.transform(block, { isComplete: true, index: 0, source: "" });
     expect(out[0].type).toBe("tug-math-display");
   });
 
   test("promotes a tex fence to tug-math-display", () => {
     const block = codeBlock("tex", "\\beta\n");
-    const out = mathTransformer.transform(block, { isComplete: true, index: 0 });
+    const out = mathTransformer.transform(block, { isComplete: true, index: 0, source: "" });
     expect(out[0].type).toBe("tug-math-display");
   });
 
   test("passes a non-math fenced code block through unchanged", () => {
     const block = codeBlock("ts", "const x = 1;\n");
-    const out = mathTransformer.transform(block, { isComplete: true, index: 0 });
+    const out = mathTransformer.transform(block, { isComplete: true, index: 0, source: "" });
     expect(out.length).toBe(1);
     expect(out[0]).toBe(block);
   });
@@ -163,7 +163,7 @@ describe("mathTransformer.transform", () => {
       ...codeBlock("ts", "x\n"),
       html: `<pre><code>x\n</code></pre>\n`,
     };
-    const out = mathTransformer.transform(block, { isComplete: true, index: 0 });
+    const out = mathTransformer.transform(block, { isComplete: true, index: 0, source: "" });
     expect(out[0]).toBe(block);
   });
 
@@ -178,13 +178,13 @@ describe("mathTransformer.transform", () => {
       rowCount: 0,
       contentHash: 0n,
     };
-    const out = mathTransformer.transform(block, { isComplete: true, index: 0 });
+    const out = mathTransformer.transform(block, { isComplete: true, index: 0, source: "" });
     expect(out[0]).toBe(block);
   });
 
   test("defers promotion while streaming (isComplete: false)", () => {
     const block = codeBlock("math", "E=mc^2\n");
-    const out = mathTransformer.transform(block, { isComplete: false, index: 0 });
+    const out = mathTransformer.transform(block, { isComplete: false, index: 0, source: "" });
     expect(out.length).toBe(1);
     expect(out[0]).toBe(block);
     expect(out[0].type).toBe("code");
@@ -192,7 +192,7 @@ describe("mathTransformer.transform", () => {
 
   test("decodes HTML entities embedded in the source", () => {
     const block = codeBlock("math", "x &lt; y\n");
-    const out = mathTransformer.transform(block, { isComplete: true, index: 0 });
+    const out = mathTransformer.transform(block, { isComplete: true, index: 0, source: "" });
     expect(out[0].html).toContain("x &lt; y");
     // The HTML attribute is re-escaped so the textContent round-trip
     // reads back as `x < y` — that's what KaTeX will receive.

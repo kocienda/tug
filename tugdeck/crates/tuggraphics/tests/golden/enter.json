@@ -1,0 +1,13 @@
+{
+  "tugdraw": 1,
+  "frame": [200, 100],
+  "ops": [
+    ["rect", 10, 40, 20, 50], ["fill", "series-1", {"enter": "grow", "delay": 0}],
+    ["rect", 40, 20, 20, 70], ["fill", "series-1", {"enter": "grow", "delay": 1}],
+    ["rect", 70, 60, 50, 20], ["fill", "series-2", {"enter": "grow", "from": "left", "delay": 2}],
+    ["polyline", [[10, 30], [60, 10], [110, 20]]], ["stroke", "series-3", {"enter": "draw"}],
+    ["circle", 110, 20, 3], ["fill", "series-3", {"enter": "fade", "delay": 3}],
+    ["text", 190, 90, "rises", {"anchor": "end", "enter": "rise", "delay": 4}],
+    ["group", {"enter": "fade", "delay": 5}], ["rect", 150, 10, 40, 20], ["fill", "surface"], ["end"]
+  ]
+}

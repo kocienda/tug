@@ -40,6 +40,11 @@ tugbank-core.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
 ureq = { version = "3", features = ["json"] }
+# The chart engine, for `--chart`: a verb's data as one validated
+# `TUG-CHART:` line, and for `chart render`, which measures with the
+# deck's own faces through the `font` feature. A path dependency from
+# outside the `tugdeck/crates` workspace, like tugcast's `tugmark`.
+tuggraphics = { path = "../../../tugdeck/crates/tuggraphics", features = ["font"] }
 
 [dev-dependencies]
 tempfile.workspace = true

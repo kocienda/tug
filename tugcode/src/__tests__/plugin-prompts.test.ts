@@ -35,6 +35,7 @@ describe("readPluginPrompts", () => {
         "session-references.md": "# Session references\n",
         "landings.md": "# Landings\n",
         "working-rules.md": "# Working rules\n",
+        "graphics.md": "# Charts the Session card draws\n",
       },
       (dir) => {
         expect(readPluginPrompts(dir)).toEqual([
@@ -46,6 +47,7 @@ describe("readPluginPrompts", () => {
           "# Session references",
           "# Landings",
           "# Working rules",
+          "# Charts the Session card draws",
         ]);
       },
     );

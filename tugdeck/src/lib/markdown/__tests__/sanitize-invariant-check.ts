@@ -68,7 +68,7 @@ function classFits(tag: string, value: string): boolean {
     (t) =>
       ALLOWLIST.CLASS_PREFIXES.some((p) => t.startsWith(p))
       || (tag === "span" && t.startsWith("tug-syn-"))
-      || (tag === "div" && (t.startsWith("tugx-katex") || t === "tugx-mermaid")),
+      || (tag === "div" && (t.startsWith("tugx-katex") || t === "tugx-chart")),
   );
 }
 
@@ -83,7 +83,7 @@ function postSanitize(tag: string, attrs: Attr[], attr?: string): boolean {
   if (tag === "span") return attr === undefined ? classHas(attrs, "tug-syn-") : attr === "class";
   if (tag === "code") return attr === "data-tug-highlighted";
   if (tag === "div" && (attr === "data-tugx-math" || attr === "data-tugx-math-pending")) return classHas(attrs, "tugx-katex");
-  if (tag === "div" && attr === "data-tugx-mermaid-pending") return classHas(attrs, "tugx-mermaid");
+  if (tag === "div" && attr === "data-tugx-chart-pending") return classHas(attrs, "tugx-chart");
   return false;
 }
 

@@ -1,0 +1,7 @@
+{
+  "tugchart": 1,
+  "form": "histogram",
+  "title": "Flat sample, six bins",
+  "bins": 6,
+  "values": [7, 7, 7, 7]
+}

@@ -36,9 +36,8 @@ Inline math like $a^2 + b^2$ stays in the paragraph, while a fence promotes:
 \sum_{i=1}^{n} t_i \le P
 ```
 
-```mermaid
-graph LR
-  delta --> stage --> page
+```tugchart
+{"tugchart": 1, "form": "sparkline", "values": [3, 5, 4, 8, 6]}
 ```
 
 Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next character.

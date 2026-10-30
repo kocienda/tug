@@ -1,0 +1,13 @@
+{
+  "tugchart": 1,
+  "form": "area",
+  "layout": "stacked",
+  "title": "Tests by suite",
+  "format": "count",
+  "x": [2021, 2022, 2023, 2024],
+  "series": [
+    {"name": "rust", "values": [400, 650, 900, 1200]},
+    {"name": "deck", "values": [100, null, 500, 700]},
+    {"name": "app", "values": [0, 20, 60, 120]}
+  ]
+}

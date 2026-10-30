@@ -1,0 +1,13 @@
+{
+  "tugdraw": 1,
+  "frame": [200, 120],
+  "ops": [
+    ["move", 10, 10], ["line", 60, 10], ["curve", 70, 10, 80, 30, 90, 40], ["close"], ["stroke", "ink"],
+    ["arc", 150, 40, 30, 180, 360], ["close"], ["fill", "series-2"],
+    ["move", 10, 100], ["arc", 60, 100, 20, 180, 270], ["line", 100, 80], ["stroke", "accent"],
+    ["rect", 110, 70, 40, 30], ["fill", "series-1"],
+    ["rect", 160, 70, 30, 30, {"r": 6}], ["fill", "surface"],
+    ["circle", 30, 60, 12], ["fill", "good"],
+    ["polyline", [[60, 60], [70, 50], [80, 65], [90, 55]]], ["stroke", "bad"]
+  ]
+}

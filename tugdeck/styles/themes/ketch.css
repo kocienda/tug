@@ -280,6 +280,24 @@ body {
   --tug7-element-highlight-fill-normal-drop-rest: --tug-color(iris, l: 790, c: 260);
   --tug7-element-highlight-stroke-normal-drop-rest: var(--tugx-accent);
 
+  /* Element — Chart. Eight categorical series and the plot grid. Series hues
+     are fixed across themes, like the signals, and kept clear of caution,
+     danger and the orange accent; on paper they are marks, darker so each
+     holds 3:1 on the content surface. Odd series are lighter and even ones
+     darker, so adjacent series stay apart under every colour-vision
+     deficiency. */
+  --tug7-element-chart-fill-normal-series1-rest: --tug-color(cobalt, l: 560, c: 340);
+  --tug7-element-chart-fill-normal-series2-rest: --tug-color(magenta, l: 450, c: 340);
+  --tug7-element-chart-fill-normal-series3-rest: --tug-color(aqua, l: 600, c: 300);
+  --tug7-element-chart-fill-normal-series4-rest: --tug-color(purple, l: 440, c: 320);
+  --tug7-element-chart-fill-normal-series5-rest: --tug-color(lime, l: 610, c: 320);
+  --tug7-element-chart-fill-normal-series6-rest: --tug-color(jade, l: 440, c: 280);
+  --tug7-element-chart-fill-normal-series7-rest: --tug-color(pink, l: 620, c: 300);
+  --tug7-element-chart-fill-normal-series8-rest: --tug-color(sky, l: 440, c: 280);
+  /* Between the canvas grid line and the muted border: a rule a reader
+     sees only when looking for it. */
+  --tug7-element-chart-stroke-normal-grid-rest: --tug-color(orchid, l: 860, c: 8);
+
   /* Surface — Highlight */
   --tug7-surface-highlight-primary-normal-drop-rest: --tug-color(iris, l: 770, c: 280, a: 180);
   --tug7-surface-highlight-primary-normal-flash-rest: --tug-color(orange, l: 780, c: 300, a: 350);

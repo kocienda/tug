@@ -49,6 +49,9 @@
 
 import "./tug-markdown-block.css";
 import "./tug-markdown-view.css";
+// The chart figure's stylesheet, for the ```tugchart fences this view's
+// enhancer renders; the `ChartBlock` body kind imports the same file.
+import "./body-kinds/chart-block.css";
 
 import React, { useCallback, useId, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import {
@@ -59,7 +62,7 @@ import { DEFAULT_BLOCK_TRANSFORMERS } from "@/lib/markdown/block-transformers";
 import { enhanceFencedCode } from "@/lib/markdown/enhance-fenced-code";
 import { enhanceTable } from "@/lib/markdown/enhance-table";
 import { enhanceMath } from "@/lib/markdown/enhance-math";
-import { enhanceMermaid } from "@/lib/markdown/enhance-mermaid";
+import { enhanceChart } from "@/lib/markdown/enhance-chart";
 import {
   buildByteToCharMap,
   decodeBlocks,
@@ -375,7 +378,7 @@ export const TugMarkdownView = React.forwardRef<TugMarkdownViewHandle, TugMarkdo
     enhanceFencedCode(el);
     enhanceTable(el);
     void enhanceMath(el);
-    void enhanceMermaid(el);
+    void enhanceChart(el);
 
     // Find the first child with a higher block index to insert before it.
     // This preserves ascending document order regardless of insertion sequence.
@@ -765,7 +768,7 @@ export const TugMarkdownView = React.forwardRef<TugMarkdownViewHandle, TugMarkdo
           enhanceFencedCode(existingEl);
           enhanceTable(existingEl);
           void enhanceMath(existingEl);
-          void enhanceMermaid(existingEl);
+          void enhanceChart(existingEl);
           // Store estimate here; real measurement happens in doSetRegion's
           // consolidated measurement pass (one forced layout for all blocks).
           engine.heightIndex.setHeight(globalIdx, estimateBlockHeight(newRegionBlocks[i]));
