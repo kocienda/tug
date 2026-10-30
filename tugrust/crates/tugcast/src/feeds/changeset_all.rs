@@ -359,9 +359,9 @@ pub(crate) async fn compose_aggregate(
 /// `project_dir` order — so a transient `git status` failure on one project
 /// never takes the whole repo's arc list off the frame while a sibling could
 /// carry it. A project whose probe fails composes its own list, exactly as
-/// every project did before grouping existed. `join_board::sweep` and
-/// `sweep_workshops` ride inside `arc_entries`, so under this grouping they
-/// run once per repo, on the owner.
+/// every project did before grouping existed. `join_board::sweep_residue_once`
+/// rides inside `arc_entries`, so under this grouping it runs once per repo,
+/// on the owner.
 async fn attach_arcs_per_repo(
     projects: &mut [ProjectChangeset],
     compose_facts: &[(std::path::PathBuf, bool, bool)],

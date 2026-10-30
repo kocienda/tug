@@ -635,6 +635,13 @@ pub enum ChangesetEntry {
         /// one arc, one card.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bound_session: Option<String>,
+        /// The bound card's callsign, beside its session id, so a sentence
+        /// about where the arc is working can name the card a person reads
+        /// on screen — "re-auditing on `odd-kiln`" — without a second lookup.
+        /// Absent exactly when `bound_session` is, or when the ledger has not
+        /// named the line yet.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound_callsign: Option<String>,
         /// Whether any session holding this arc is still working — mid-turn,
         /// or waiting on a background job it launched (a test sweep, an agent).
         ///
@@ -762,6 +769,18 @@ pub enum ChangesetEntry {
         /// an attempt rather than about a state.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         replay_conflict_paths: Vec<String>,
+        /// The base-motion engine's quiet re-stamp on this arc: a job running
+        /// now and its horizon, or why the last one handed the arc to its
+        /// audit stage. Held by the engine for the same reason as
+        /// `replay_conflict_paths` — it is about an attempt. Absent when there
+        /// is nothing to say.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        restamp: Option<ArcRestamp>,
+        /// Why the arc's audit no longer stands, when it is stale: `head` (a
+        /// round landed after it), `base` (the base moved), or `both`. The
+        /// same derivation as `stage == "audit-stale"`, split by endpoint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        audit_staleness: Option<String>,
         /// The join's state for this arc — its blockers, the paths a merge onto
         /// the base conflicts on, what runs on it, and the offer.
         ///
@@ -847,6 +866,24 @@ pub struct ArcFit {
     /// The base branch has moved past `base` since the verify.
     #[serde(default)]
     pub base_moved: bool,
+}
+
+/// The quiet re-stamp's state on one arc ([L33]'s three parts on the wire):
+/// a job that is running says since when and when its horizon falls, so a
+/// face can say "re-stamp running" rather than "stale" and a Re-audit press
+/// can refuse with it; a job that seated the audit says why.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArcRestamp {
+    /// When the running job began, RFC 3339. Absent when none is running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running_since: Option<String>,
+    /// When the running job's horizon falls, RFC 3339: at it the verify is
+    /// killed, and past it a Re-audit press takes the arc back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline: Option<String>,
+    /// Why the last quiet job could not re-stamp and seated the audit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seated_why: Option<String>,
 }
 
 /// The join pipeline's state for one arc — the single durable source every
@@ -1003,17 +1040,17 @@ pub struct ArcJoinAttention {
 /// (Spec S02): each file and how it was reconciled, and any question it asked
 /// instead of finishing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcJoinReport {
-    pub files: Vec<ArcJoinReportFile>,
+pub struct CrossingReport {
+    pub files: Vec<CrossingReportFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub question: Option<ArcJoinReportQuestion>,
+    pub question: Option<CrossingReportQuestion>,
     #[serde(default)]
     pub notes: String,
 }
 
 /// One file's account in the resolver's report.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcJoinReportFile {
+pub struct CrossingReportFile {
     pub path: String,
     #[serde(default)]
     pub resolved_by: String,
@@ -1030,7 +1067,7 @@ pub struct ArcJoinReportFile {
 /// The escalation the resolver raised and the answer it was given, kept so the
 /// question survives past the dialog that answered it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArcJoinReportQuestion {
+pub struct CrossingReportQuestion {
     pub question: String,
     #[serde(default)]
     pub answer: String,
@@ -2063,6 +2100,7 @@ mod tests {
             stage: Some("working".to_string()),
             task_list: false,
             bound_session: Some("sess-1".to_string()),
+            bound_callsign: Some("odd-kiln".to_string()),
             holders_busy: false,
             step_current: None,
             step_total: None,
@@ -2093,6 +2131,8 @@ mod tests {
             last_replay: None,
             fit: None,
             replay_conflict_paths: vec![],
+            restamp: None,
+            audit_staleness: None,
             join: None,
             arc: None,
         };

@@ -73,7 +73,7 @@ describe("what the register says", () => {
   });
 
   test("an arc whose session is still working is not offered", () => {
-    // The same arc, same standing candidate — the only difference is that
+    // The same arc, same standing offer — the only difference is that
     // whoever built it has not stopped. A turn ends when the model stops
     // speaking; the tests it backgrounded are still deciding whether the work
     // is any good, and "Ready to join" in that window invites the user to land
@@ -136,7 +136,7 @@ describe("what the register says", () => {
   test("the front of the run has words too, and they outrank the standing offer", () => {
     // Both beats describe the span before the squash: `requested` is written
     // by the press itself, `preflight` by the server the moment it accepts
-    // one. Without them this same input rests on the standing candidate and
+    // one. Without them this same input rests on the standing offer and
     // reads "Ready to join" while the join is running.
     const pressed = reg(reconciled(), {
       landBeat: { beat: "requested", status: "start" },
@@ -360,7 +360,7 @@ describe("the register a landed receipt reproduces", () => {
  * falsifiable rather than leaving it to be read off the `if`s.
  */
 describe("a live arc holds the offer", () => {
-  test("an audit in flight outranks a standing candidate", () => {
+  test("an audit in flight outranks a standing offer", () => {
     const auditing = reg(reconciled(), { run: { stage: "audit" } });
     expect(auditing?.phase).toBe("in_flight");
     expect(auditing?.line).toBe("imposer2 is being audited — the join waits for it");
@@ -401,6 +401,43 @@ describe("a live arc holds the offer", () => {
       expect(unaudited?.line).toBe("imposer2's audit stopped — resume it, or land it unaudited");
       expect(unaudited?.word).toBe("unaudited");
     }
+  });
+
+  test("the server's not-ready blocker waits under the readings that explain it", () => {
+    const notReady = {
+      kind: "not-ready",
+      title: "Not audited",
+      detail: "arc 'imposer2' has not been audited yet",
+    };
+    // A stop before the audit marked explains the shut join better than the
+    // blocker restating it: the row reads unaudited, never blocked.
+    const stopped = reg(
+      { phase: "blocked", blockers: [notReady] },
+      {
+        stage: "implementing",
+        run: { stage: "audit", stopped: "audit did not mark", stopped_stage: "audit" },
+      },
+    );
+    expect(stopped?.word).toBe("unaudited");
+    // So does a wheel still running its audit.
+    const auditing = reg({ phase: "blocked", blockers: [notReady] }, { run: { stage: "audit" } });
+    expect(auditing?.word).toBe("auditing");
+    // With nothing above to say why, the blocker speaks in its own words.
+    const alone = reg({ phase: "blocked", blockers: [notReady] });
+    expect(alone?.word).toBe("blocked");
+    expect(alone?.line).toBe("arc 'imposer2' has not been audited yet");
+    // An act elsewhere still outranks every reading below it.
+    const dirtFirst = reg(
+      {
+        phase: "blocked",
+        blockers: [
+          notReady,
+          { kind: "base-dirt", title: "Base work", detail: "main has uncommitted a.ts" },
+        ],
+      },
+      { run: { stage: "audit" } },
+    );
+    expect(dirtFirst?.word).toBe("blocked");
   });
 
   test("a stopped audit speaks below the joinable stages, where the server now holds it", () => {
@@ -450,8 +487,8 @@ describe("a live arc holds the offer", () => {
 
   test("an unbound arc under a live wheel says so, where today it says nothing", () => {
     // The `Reconciling` fall-through is silent for an unbound arc because the
-    // pilot never runs for one. A running audit is a fact about the work, not a
-    // promise about the pilot, so it speaks whoever is holding the arc.
+    // wheel never drives one. A running audit is a fact about the work, not a
+    // promise about the wheel, so it speaks whoever is holding the arc.
     expect(reg(null, { bound: false })).toBeNull();
     const auditing = reg(null, { bound: false, run: { stage: "audit" } });
     expect(auditing?.word).toBe("auditing");
@@ -583,7 +620,9 @@ describe("a stale audit takes the offer down and says where the re-audit is", ()
       bound: false,
     });
     expect(waiting?.phase).toBe("awaiting");
-    expect(waiting?.line).toBe("imposer2's audit is stale — waiting for a card");
+    expect(waiting?.line).toBe(
+      "imposer2's audit is stale — waiting for a card: bind one, or tugtool arc run imposer2",
+    );
     expect(waiting?.word).toBe("audit-stale");
   });
 
@@ -594,14 +633,47 @@ describe("a stale audit takes the offer down and says where the re-audit is", ()
       bound: true,
     });
     expect(seating?.phase).toBe("in_flight");
-    expect(seating?.line).toBe("imposer2's audit is stale — the re-audit starts on its card");
+    expect(seating?.line).toBe(
+      "imposer2's audit is stale — the re-audit starts on its card, or press Re-audit",
+    );
+    const named = reg(reconciled(), {
+      ...stale,
+      run: { stage: "audit", done: true },
+      bound: true,
+      boundCallsign: "odd-kiln",
+    });
+    expect(named?.line).toBe(
+      "imposer2's audit is stale — the re-audit starts on odd-kiln, or press Re-audit",
+    );
   });
 
   test("reopened: re-auditing", () => {
     const running = reg(reconciled(), { ...stale, run: { stage: "audit" } });
     expect(running?.phase).toBe("in_flight");
-    expect(running?.line).toBe("imposer2's audit is stale — re-auditing");
+    expect(running?.line).toBe("imposer2's audit is stale — re-auditing on its card");
     expect(running?.word).toBe("re-auditing");
+    const named = reg(reconciled(), {
+      ...stale,
+      run: { stage: "audit" },
+      boundCallsign: "odd-kiln",
+    });
+    expect(named?.line).toBe("imposer2's audit is stale — re-auditing on odd-kiln");
+  });
+
+  test("the quiet re-stamp running: the machine is answering, no card needed", () => {
+    for (const bound of [true, false]) {
+      const restamping = reg(reconciled(), {
+        ...stale,
+        run: { stage: "audit", done: true },
+        bound,
+        restampRunning: true,
+      });
+      expect(restamping?.phase).toBe("in_flight");
+      expect(restamping?.word).toBe("re-stamping");
+      expect(restamping?.line).toBe(
+        "imposer2's audit is stale — re-stamping it onto the moved base",
+      );
+    }
   });
 
   test("a re-audit stopped with a question reads as the question", () => {

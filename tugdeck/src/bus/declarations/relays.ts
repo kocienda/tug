@@ -144,10 +144,17 @@ export const overviewDraft = defineSharedStore<OverviewComposerDraftState | null
  */
 export type ArcTransportVerb = "start" | "resume" | "stop";
 
+/**
+ * The verbs a refusal can name: the three transport presses, and a row's
+ * Join, whose press is the composer's `changeset_join` rather than one of
+ * this store's frames but whose refusal speaks in the same voice ([L31]).
+ */
+export type ArcRefusedVerb = ArcTransportVerb | "join";
+
 /** A refused press: the arc, the verb, the reason the server gave, and when. */
 export interface ArcPressRefusal {
   readonly arc: string;
-  readonly verb: ArcTransportVerb;
+  readonly verb: ArcRefusedVerb;
   readonly reason: string;
   /** Bumped on every refusal so two identical reasons in a row still notify. */
   readonly seq: number;
@@ -170,11 +177,11 @@ export interface ArcPressState {
 /** What a body asks of the shell's store. */
 export type ArcPressPatch =
   | { op: "press"; arc: string; verb: ArcTransportVerb; actor: ArcPressActor }
-  | { op: "refuse"; voice: string; arc: string; verb: ArcTransportVerb; reason: string }
+  | { op: "refuse"; voice: string; arc: string; verb: ArcRefusedVerb; reason: string }
   | { op: "clear"; sessionId: string; seq: number | null };
 
 /** One pending press, keyed so two verbs on one arc are two presses. */
-export function arcPressKey(arc: string, verb: ArcTransportVerb): string {
+export function arcPressKey(arc: string, verb: ArcRefusedVerb): string {
   return `${verb}:${arc}`;
 }
 
@@ -205,11 +212,15 @@ function isTransportVerb(value: unknown): value is ArcTransportVerb {
   return value === "start" || value === "resume" || value === "stop";
 }
 
+function isRefusedVerb(value: unknown): value is ArcRefusedVerb {
+  return isTransportVerb(value) || value === "join";
+}
+
 function isPressRefusal(value: unknown): value is ArcPressRefusal {
   return (
     isRecord(value) &&
     typeof value.arc === "string" &&
-    isTransportVerb(value.verb) &&
+    isRefusedVerb(value.verb) &&
     typeof value.reason === "string" &&
     typeof value.seq === "number"
   );
@@ -240,7 +251,7 @@ function isArcPressPatch(value: unknown): value is ArcPressPatch {
       return (
         typeof value.arc === "string" &&
         typeof value.voice === "string" &&
-        isTransportVerb(value.verb) &&
+        isRefusedVerb(value.verb) &&
         typeof value.reason === "string"
       );
     case "clear":

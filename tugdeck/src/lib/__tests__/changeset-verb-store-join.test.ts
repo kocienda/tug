@@ -16,9 +16,13 @@
  * encoded payloads, so `_onControl` itself is under test.
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 
-import { ChangesetVerbStore } from "../changeset-verb-store";
+import { ChangesetVerbStore, JOIN_UNACKNOWLEDGED } from "../changeset-verb-store";
+import {
+  PRESS_ACKNOWLEDGEMENT_MS,
+  _setPressAcknowledgementMsForTest,
+} from "../changeset-join-store";
 
 const ENTRY = "session:s1";
 const PROJECT = "/proj";
@@ -206,5 +210,63 @@ describe("changeset join payload", () => {
       action: "changeset_discard",
       body: { project_dir: PROJECT, arc: ARC },
     });
+  });
+});
+
+describe("the press horizon", () => {
+  const settle = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  afterEach(() => {
+    _setPressAcknowledgementMsForTest(PRESS_ACKNOWLEDGEMENT_MS);
+  });
+
+  test("a join nothing answers ends in a named error at the deadline", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
+    let released = false;
+    const unsubscribe = h.store.subscribe(() => {
+      if (h.store.joinState(ENTRY).phase === "pending") return;
+      unsubscribe();
+      released = true;
+    });
+
+    await settle(40);
+
+    const state = h.store.joinState(ENTRY);
+    expect(state.phase).toBe("error");
+    expect(state.error).toBe(JOIN_UNACKNOWLEDGED);
+    expect(released).toBe(true);
+  });
+
+  test("a beat of the join's narration is acknowledgement", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
+    h.reply({
+      action: "changeset_join_land_delta",
+      project_dir: PROJECT,
+      arc: ARC,
+      beat: "squash",
+      status: "start",
+    });
+
+    await settle(40);
+
+    expect(h.store.joinState(ENTRY).phase).toBe("pending");
+  });
+
+  test("an answer that arrives after the deadline still settles the phase", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
+    await settle(40);
+    h.reply({
+      action: "changeset_join_ok",
+      project_dir: PROJECT,
+      arc: ARC,
+      previewed: false,
+      conflicts: [],
+      commit_hash: "abc1234",
+    });
+    expect(h.store.joinState(ENTRY).phase).toBe("done");
   });
 });

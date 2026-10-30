@@ -155,6 +155,15 @@ pub struct ArcConfig {
     #[serde(default)]
     pub arc_stall_secs: Option<u64>,
 
+    /// How long the base-motion engine's quiet re-stamp of a finished arc may
+    /// run, in seconds, before its verify is killed and the arc's audit is
+    /// seated instead. Absent means [`RESTAMP_HORIZON_SECS_DEFAULT`], which
+    /// [`ArcConfig::restamp_horizon`] applies. Every wait has a horizon, and
+    /// this is the quiet verify's: a check that wedges is answered by a card
+    /// within it rather than never.
+    #[serde(default)]
+    pub restamp_horizon_secs: Option<u64>,
+
     /// How long an idle reading must stay idle before the runner will spend it
     /// on an act, in seconds. Absent means [`IDLE_SETTLE_SECS_DEFAULT`], which
     /// [`ArcConfig::idle_settle`] applies; `0` turns the settle off.
@@ -368,6 +377,12 @@ fn share_or(declared: Option<f64>, default: f64) -> f64 {
 /// pacing device: it exists so an arc that has genuinely gone silent says so.
 pub const ARC_STALL_SECS_DEFAULT: u64 = 1_800;
 
+/// How long a quiet re-stamp may run before its verify is killed — long
+/// enough for a project's whole declared verify (a workspace test run and an
+/// app-test selection), short enough that a wedged check is answered within
+/// the arc's own stall horizon rather than by a tugcast restart.
+pub const RESTAMP_HORIZON_SECS_DEFAULT: u64 = 1_800;
+
 /// How long an idle reading must hold before the runner acts on it, when a
 /// project declares nothing ([P01]).
 ///
@@ -427,6 +442,17 @@ impl ArcConfig {
     pub fn stall_timeout(&self) -> Option<std::time::Duration> {
         let secs = self.arc_stall_secs.unwrap_or(ARC_STALL_SECS_DEFAULT);
         (secs > 0).then(|| std::time::Duration::from_secs(secs))
+    }
+
+    /// The quiet re-stamp's horizon to actually use: the declaration, or the
+    /// default. A declared `0` is read as the default rather than as no
+    /// horizon, because a quiet wait with none is the defect this bounds.
+    pub fn restamp_horizon(&self) -> std::time::Duration {
+        let secs = match self.restamp_horizon_secs {
+            Some(0) | None => RESTAMP_HORIZON_SECS_DEFAULT,
+            Some(secs) => secs,
+        };
+        std::time::Duration::from_secs(secs)
     }
 
     /// The settle to actually use: the declaration, or the default. `None` is
@@ -1529,6 +1555,24 @@ mod tests {
 
         // The token line is untouched by either.
         assert_eq!(arc.compact_tokens(), IMPLEMENT_COMPACT_TOKENS_DEFAULT);
+    }
+
+    /// The quiet re-stamp's horizon parses from the declaration, defaults when
+    /// absent, and reads a declared `0` as the default — a quiet wait is never
+    /// declared unbounded.
+    #[test]
+    fn the_restamp_horizon_parses_and_never_turns_off() {
+        let declared: Config =
+            toml::from_str("[tugtool.arc]\nrestamp_horizon_secs = 15\n").expect("parses");
+        assert_eq!(
+            declared.tugtool.arc.restamp_horizon(),
+            std::time::Duration::from_secs(15)
+        );
+        let default = std::time::Duration::from_secs(RESTAMP_HORIZON_SECS_DEFAULT);
+        let silent: Config = toml::from_str("[tugtool.arc]\n").unwrap();
+        assert_eq!(silent.tugtool.arc.restamp_horizon(), default);
+        let zero: Config = toml::from_str("[tugtool.arc]\nrestamp_horizon_secs = 0\n").unwrap();
+        assert_eq!(zero.tugtool.arc.restamp_horizon(), default);
     }
 
     #[test]

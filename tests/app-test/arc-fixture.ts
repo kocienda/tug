@@ -552,7 +552,7 @@ export function createArc(
 }
 
 /**
- * Turn the join pilot's auto-replay off for an arc, by name.
+ * Turn the base-motion engine's auto-replay off for an arc, by name.
  *
  * A branch config key hangs off the arc's *name*, so this is valid before
  * any branch exists — which is what lets a wheel-driven fixture arc skip
@@ -600,7 +600,7 @@ export function commitRound(
 /**
  * Declare an arc `built` — which is what starts the join.
  *
- * The pilot acts on a `built` arc and on nothing else: reconciling it with its
+ * The server drives a `built` arc on its own: it replays it onto its moving
  * base, unprompted. So a
  * fixture that wants the machine to do its work says so here, and then asserts
  * with no gesture at all. A fixture that wants an arc left alone simply does
@@ -848,8 +848,8 @@ export function recordStampedPlan(
  * Record that a session is working this arc — a **ledger** binding, through
  * the real verb.
  *
- * Not optional for any test whose arc the server has to drive: the join pilot
- * reconciles and Tier-0-checks only arcs bound to a live session ([D147]),
+ * Not optional for any test whose arc the server has to drive: the wheel and
+ * the base-motion engine drive only arcs bound to a live session ([D147]),
  * so an unbound fixture arc simply sits there and every wait on its register
  * times out. A `bind_arc_ok` control action is **not** a substitute — it moves
  * the deck's own store and writes no row, so the server still believes nobody
@@ -952,38 +952,6 @@ export function bindArcAtTheDoor(
     }
     sleepSync(500);
   }
-}
-
-/**
- * Answer the join prompt in advance, so it never raises.
- *
- * Binding an arc for real ([D147]) hands it to the pilot, and a reconciled
- * arc raises the join modal on the bound card. That modal takes the card's
- * sheet host — so a test about the **shade** (the arc lane, the join face, a
- * press in the composer) finds the host occupied and every wait on it times
- * out.
- *
- * This writes the same durable dismissal "Not yet" writes:
- * `branch.tugarc/<name>.tugjoinprompted`. The re-ask policy compares the
- * **arc head**, so the value is the head as it stands — which means a fixture
- * that lands another round after calling this will be asked again, correctly.
- * Call it after the last round, or call it again.
- *
- * at0445 is the file that *is* about the prompt; everywhere else it is an
- * interruption the fixture should have already answered.
- */
-export function silenceJoinPrompt(projectDir: string, name: string): void {
-  const head = gitRetry(
-    projectDir,
-    "rev-parse",
-    `${ARC_BRANCH_PREFIX}${name}`,
-  ).trim();
-  gitRetry(
-    projectDir,
-    "config",
-    `branch.${ARC_BRANCH_PREFIX}${name}.tugjoinprompted`,
-    head,
-  );
 }
 
 /**
@@ -1307,7 +1275,7 @@ export interface JoinScratchOpts {
   fork: string;
   base: string;
   arcBody: string;
-  /** The resolver stub's script body, with `$1` the workshop path. */
+  /** The resolver stub's script body, with `$1` the pair checkout's path. */
   resolver: string;
   /**
    * Put the base's rewrite in a file of its own, so the squash has nothing to
@@ -1323,11 +1291,11 @@ export interface JoinScratchOpts {
   mergeDriver?: string;
   /**
    * Declare the arc `built` once the round is in — which hands it to the
-   * pilot ({@link markArcBuilt}).
+   * server ({@link markArcBuilt}).
    *
    * A fixture asserting that the machine reconciles and checks an arc *with no
    * gesture* sets this and then presses nothing. A fixture about an arc still
-   * being worked leaves it off, and the pilot never looks at it.
+   * being worked leaves it off, and the server leaves it alone.
    */
   built?: boolean;
 }
@@ -1391,9 +1359,9 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
   }
 
   // Last, and after the resolver is configured: `built` is what hands the arc
-  // to the pilot, and the pilot may start reconciling the moment a tugcast
+  // to the server, which may start replaying it the moment a tugcast
   // process sees the stage move. An arc declared built before its resolver
-  // exists would be reconciled by whatever `tugarc.joinresolver` said then,
+  // exists would be replayed with whatever `tugarc.joinresolver` said then,
   // which is nothing.
   if (opts.built === true) markArcBuilt(repo, opts.arc, base.cli);
 

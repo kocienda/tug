@@ -1,12 +1,10 @@
 //! One arc admits one run (Spec S01).
 //!
-//! Every act that touches an arc's workshop — a resolve, a fold of the base
-//! work refusing its join, a verification, a non-preview join — takes the arc
-//! first, and is refused by name while somebody else holds it. Before this,
-//! two of them could share one worktree:
-//! a second resolve `reset --hard`ing under the first one's live resolver, a
-//! verification resetting the tree a resolve was mid-edit in, a join tearing
-//! the workshop down and a straggling task creating it again as an orphan.
+//! Every act that touches an arc's trees — a fold of the base work refusing
+//! its join, a verification, a non-preview join — takes the arc first, and is
+//! refused by name while somebody else holds it, so two of them never share
+//! one worktree: a verification resetting the tree a fold was mid-write in, or
+//! a join tearing the worktree down under a task still working in it.
 //!
 //! **In memory, deliberately.** An on-disk lock would need staleness detection
 //! — who holds this, are they alive, when may it be broken — which is exactly
@@ -20,12 +18,9 @@
 //! to the supervisor. Occupancy is not cacheable — it is the one thing on the
 //! wire that is true only right now.
 //!
-//! **This is the fast path, not the whole answer.** A second *process* — a
-//! `tugtool arc join`, `discard`, or `join --resolve` — has no registry to
-//! ask, and reads liveness off the conflict chain instead:
-//! `tugarc_core::resolve::resolve_lease` ([D160]). The two compose rather than
-//! compete: a run this process holds suppresses the lease, because the exact
-//! answer beats the derived one wherever it exists.
+//! **A second process has no registry to ask.** A `tugtool arc join` or
+//! `discard` is answered from git alone: a join in flight is its op-log
+//! record, which refuses a second join whoever started it ([D226]).
 
 use parking_lot::Mutex;
 use std::collections::HashMap;

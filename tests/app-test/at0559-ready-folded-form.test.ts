@@ -41,7 +41,7 @@
  *      one that was declined.
  *
  * The arc is real: a scratch repository, one arc, one committed round, and
- * the join pilot deriving readiness on its own with nothing marked — the same
+ * the server deriving readiness on its own with nothing marked — the same
  * fixture shape at0445 drives the open card through. The card is folded
  * **before** the arc is bound, so the offer can never have arrived on an open
  * card first; what this file watches is the first reveal of its life meeting a
@@ -347,7 +347,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         await app.body("A").evalJS<null>(RECORDER_INSTALL);
         await app.body("A").evalJS<null>(`(window.__at0559.armSheet = true, window.__at0559.tick(), null)`);
 
-        // The real `arc bind` verb: the pilot works from the LEDGER row, so a
+        // The real `arc bind` verb: the server works from the LEDGER row, so a
         // client-side broadcast would leave the server thinking nobody holds
         // this arc and nothing downstream would ever run.
         tugtool(["arc", "bind", ARC], {

@@ -555,7 +555,7 @@ pub(crate) fn ops_for(paths: &Paths, repo: &Path, name: &str) -> Vec<crate::oplo
         .collect()
 }
 
-// ---- the resolve lease ([P03], [P04]) ----
+// ---- an arc with a committed round ----
 
 /// Helper: a fresh repo with an arc carrying one commit that adds `f.txt`.
 pub(crate) fn repo_with_committed_arc(name: &str) -> (TempDir, std::path::PathBuf, Paths) {

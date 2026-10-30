@@ -1428,6 +1428,20 @@ fn arcs_hidden_for(repo_root: &Path) -> bool {
     root == universe
 }
 
+/// The engine's quiet re-stamp fact as the wire's, or `None` when it has
+/// nothing to say.
+fn wire_restamp(
+    fact: crate::feeds::base_motion::QuietFact,
+) -> Option<tugcast_core::types::ArcRestamp> {
+    let stamp = |at: std::time::SystemTime| chrono::DateTime::<chrono::Utc>::from(at).to_rfc3339();
+    let restamp = tugcast_core::types::ArcRestamp {
+        running_since: fact.running.as_ref().map(|run| stamp(run.since)),
+        deadline: fact.running.as_ref().map(|run| stamp(run.deadline)),
+        seated_why: fact.seated_why,
+    };
+    (restamp != tugcast_core::types::ArcRestamp::default()).then_some(restamp)
+}
+
 /// The engine's timeline as the wire's, with the project's typical audit
 /// riding beside it — one number for every arc, carried on each so a face that
 /// holds one arc needs nothing else.
@@ -1733,6 +1747,15 @@ async fn arc_entries(
             (arc_id.clone(), line)
         })
         .collect();
+    // The bound card's callsign, read in the same pass as its line so a
+    // sentence naming the card costs no query per arc per frame.
+    let callsign_by_arc: std::collections::HashMap<String, String> = bound_by_arc
+        .iter()
+        .filter_map(|(arc_id, session)| {
+            let row = ledger?.get(session).ok().flatten()?;
+            Some((arc_id.clone(), row.tag?))
+        })
+        .collect();
     // Who is still working. Read once for the whole recompute, from the
     // supervisor's in-memory ledger — the only place a session's turn and its
     // open background jobs are known ([P08]).
@@ -1758,10 +1781,8 @@ async fn arc_entries(
         // Every arc's time from one read of the log, for the same reason: per
         // arc it would be one whole-log read per arc in the loop below.
         let mut timelines = tugarc_core::timeline::read_timelines(&Paths::from_env(), &root);
-        let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
-        crate::feeds::join_board::sweep(&live);
-        // The same idea one level down: what the retired join pipeline left in
-        // this repository is collected once per process ([P07]).
+        // What the retired join pipeline left in this repository is collected
+        // once per process ([P07]).
         crate::feeds::join_board::sweep_residue_once(&root);
         details
             .into_iter()
@@ -1817,12 +1838,16 @@ async fn arc_entries(
                     holder_line_of(&holder_lines, &detail.owner_key),
                 ),
                 bound_session: bound_by_arc.get(&detail.owner_key).cloned(),
+                bound_callsign: callsign_by_arc.get(&detail.owner_key).cloned(),
                 // Whether an *attempt* to replay conflicted is knowledge only the
                 // engine that attempted it has; the library composes everything
                 // else. Empty when no engine is running, which is the truth then.
                 replay_conflict_paths: crate::feeds::base_motion::conflict_paths_for(
                     &detail.owner_key,
                 ),
+                restamp: crate::feeds::base_motion::quiet_fact_for(&detail.owner_key)
+                    .and_then(wire_restamp),
+                audit_staleness: detail.audit_staleness.map(|kind| kind.as_str().to_string()),
                 owner_id: detail.owner_key,
                 display_name: detail.name,
                 branch: Some(detail.branch),
@@ -4408,6 +4433,7 @@ Some context.
             stage: None,
             task_list: false,
             bound_session: None,
+            bound_callsign: None,
             holders_busy: false,
             step_current: None,
             step_total: None,
@@ -4432,6 +4458,8 @@ Some context.
             last_replay: None,
             fit: None,
             replay_conflict_paths: Vec::new(),
+            restamp: None,
+            audit_staleness: None,
             join: None,
             arc: None,
         };
@@ -4501,6 +4529,7 @@ Some context.
                     stage: Some("working".to_owned()),
                     task_list: false,
                     bound_session: None,
+                    bound_callsign: None,
                     holders_busy: false,
                     step_current: None,
                     step_total: None,
@@ -4525,6 +4554,8 @@ Some context.
                     last_replay: None,
                     fit: None,
                     replay_conflict_paths: Vec::new(),
+                    restamp: None,
+                    audit_staleness: None,
                     join: None,
                     arc: None,
                 },

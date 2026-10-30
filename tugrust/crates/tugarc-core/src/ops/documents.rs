@@ -206,8 +206,12 @@ fn read_back(paths: &Paths, root: &Path, name: &str) -> Result<crate::arc::ArcRe
 /// describes it — the one door every re-audit takes.
 ///
 /// Writes `arc-resume audit` when the arc stands audited and the head or base
-/// that audit was made against has moved, and returns whether it did. That one
-/// line is the whole act: it clears `done` in the record, and the runner seats
+/// that audit was made against has moved, and returns whether it did. The
+/// arc is finished, or stopped at its audit by the window between a mark and
+/// the runner's tick ([`crate::arc::reaudit_admits`]): an audit that went
+/// stale there is as much the door's as one that went stale after `done`.
+/// That one line is the whole act: it clears `done` and the stop in the
+/// record, and the runner seats
 /// the audit on the bound card's next idle, through the same resume arm a
 /// stopped arc takes. `tugtool arc run`, the fold's Re-audit, and the
 /// base-motion engine's bind wake all come here, so the three cannot disagree
@@ -219,7 +223,11 @@ pub fn reopen_stale_audit(paths: &Paths, root: &Path, name: &str) -> Result<bool
     let Some(record) = crate::arc::read_arc(paths, root, name) else {
         return Ok(false);
     };
-    if !record.done {
+    let stopped = record
+        .stopped
+        .as_ref()
+        .map(|(stage, word)| (*stage, word.as_str()));
+    if !crate::arc::reaudit_admits(record.done, stopped) {
         return Ok(false);
     }
     let declarations = crate::log::read_declarations(paths, root, name);
@@ -256,7 +264,7 @@ pub fn restamp_audit(paths: &Paths, root: &Path, name: &str) -> Result<bool, Arc
         root,
         name,
         crate::log::MarkStage::Audited,
-        Some("re-stamped: the base moved, the replay was clean, the fit verified"),
+        Some("by: engine · re-stamped: the base moved, the replay was clean, the fit verified"),
     )?;
     Ok(true)
 }

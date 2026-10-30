@@ -420,6 +420,7 @@ function ArcRow({
     // is this shade's own card — open, because the reader is looking at it.
     boundCardOpen: boundSession !== null,
     stage: entry.stage,
+    restamp: entry.restamp ?? null,
     draft: entry.draft?.message ?? null,
     joinGate: {
       state: entry.join ?? null,
@@ -554,10 +555,12 @@ function ArcRow({
           // from the press rather than waiting for the recompute.
           {...(resolve.act !== undefined ? { resolveAct: resolve.act } : {})}
           landBeat={landBeat}
-          // The lane shows unfronted, unheld arcs too, and the pilot never
-          // works one ([D147]) — so this is the difference between "the check
+          // The lane shows unfronted, unheld arcs too, and the wheel never
+          // drives one ([D147]) — so this is the difference between "the check
           // is a beat away" and a promise nothing will ever keep.
           bound={entry.bound_session !== undefined}
+          boundCallsign={entry.bound_callsign ?? null}
+          restampRunning={entry.restamp?.running_since !== undefined}
           // The shade is where the offer is actually pressed, so a stage the
           // wheel still has seated is named here rather than read around.
           run={entry.arc ?? null}

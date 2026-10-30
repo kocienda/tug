@@ -248,6 +248,10 @@ pub(crate) fn bind(
             // A bind is a wake for the base-motion engine: a done arc whose
             // audit went stale while no card held it has been waiting for
             // exactly this card, and the engine is what seats its re-audit.
+            // It is also a press on the quiet re-stamp's door: a job past its
+            // horizon is released, so the wake decides the arc afresh rather
+            // than skipping it behind a job that will not end.
+            let _ = crate::feeds::base_motion::release_restamp(&arc_id);
             crate::feeds::base_motion::wake_on_bind();
             ArcApiOutcome::Bound {
                 session_id: tug_session_id.to_string(),
@@ -364,6 +368,17 @@ pub(crate) fn arc_resume(
     // audit still stands is refused rather than bound as though something
     // were about to happen.
     if record.done {
+        // A quiet re-stamp inside its horizon is already answering the stale
+        // audit, so the press refuses and says when it may come back; a job
+        // past its horizon is released here and the press goes on.
+        if let crate::feeds::base_motion::RestampRelease::Running { deadline, .. } =
+            crate::feeds::base_motion::release_restamp(&arc_id)
+        {
+            let by = chrono::DateTime::<chrono::Local>::from(deadline).format("%H:%M:%S");
+            return ArcApiOutcome::Error(format!(
+                "{arc} is re-stamping its audit quietly — wait for it to finish, or press again after {by}"
+            ));
+        }
         match tugarc_core::ops::reopen_stale_audit(&Paths::from_env(), project_dir, arc) {
             Ok(true) => {}
             Ok(false) => {
@@ -1778,6 +1793,57 @@ mod tests {
         assert!(!record.done, "the re-audit reopens the arc");
         assert_eq!(record.resume, Some(tugarc_core::arc::ArcStage::Audit));
         assert_eq!(bound_arc(&ledger).as_deref(), Some("alpha"));
+    }
+
+    /// A Re-audit press while the engine's quiet re-stamp holds the arc is
+    /// refused with the job's horizon, and nothing is written: the job is
+    /// already answering the stale audit, and a reopen beside it would seat
+    /// a second answer on the same tree.
+    #[test]
+    #[serial_test::serial]
+    fn a_re_audit_press_during_a_quiet_re_stamp_refuses() {
+        let home = tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let ledger = on_arc_card(root);
+        let paths = Paths::from_env();
+        tugarc_core::arc::append_arc_stage(
+            &paths,
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Audit,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::log::append_mark_declaration(
+            &paths,
+            root,
+            "alpha",
+            tugarc_core::log::MarkStage::Audited,
+            "good shape",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_done(&paths, root, "alpha").unwrap();
+        let arc_id = tugarc_core::ops::ensure_arc_id(root, "alpha").unwrap();
+        let generation = crate::feeds::base_motion::hold_restamp_for_test(
+            &arc_id,
+            std::time::Duration::from_secs(600),
+        );
+
+        let outcome = arc_resume(&ledger, root, "claude-1", "alpha");
+        crate::feeds::base_motion::end_restamp_for_test(&arc_id, generation);
+        assert!(
+            matches!(&outcome, ArcApiOutcome::Error(why) if why.contains("re-stamping its audit")),
+            "refused while the quiet job holds the arc",
+        );
+        assert_eq!(resume_lines(root), 0, "and nothing written");
+        let record = tugarc_core::arc::read_arc(&paths, root, "alpha").expect("the arc");
+        assert!(record.done, "the arc is not reopened under the job");
     }
 
     /// [B06]: pressing Resume on an arc that carries no stop binds and writes

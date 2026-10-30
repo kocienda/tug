@@ -22,6 +22,7 @@ import {
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
+  joinModeOpenRefusal,
   joinRunLive,
   joinTargetFromEntry,
   type JoinTarget,
@@ -95,6 +96,7 @@ describe("evaluateJoinGate", () => {
     turnInProgress: false,
     holderBusy: false,
     runLive: false,
+    auditStale: false,
     joinPhase: "idle" as const,
     outcome: "clean" as const,
     message: "land it",
@@ -223,6 +225,59 @@ describe("evaluateJoinGate", () => {
       ok: false,
       reason: "empty-message",
     });
+  });
+
+  it("refuses a stale audit, over a clean merge, above the outcome", () => {
+    // The server refuses a join its audit does not cover, so a lit button
+    // could only bring back that refusal; and a stale arc's blockers carry
+    // the readiness refusal, which is not the sentence that explains it.
+    expect(evaluateJoinGate({ ...base, auditStale: true })).toEqual({
+      ok: false,
+      reason: "stale",
+    });
+    expect(evaluateJoinGate({ ...base, auditStale: true, outcome: "blocked" })).toEqual({
+      ok: false,
+      reason: "stale",
+    });
+    expect(evaluateJoinGate({ ...base, auditStale: true, joinPhase: "pending" })).toEqual({
+      ok: false,
+      reason: "pending",
+    });
+    expect(joinDisabledReason("stale", "clean")).toBe(
+      "The audit is stale — it re-audits before it joins",
+    );
+  });
+});
+
+describe("joinModeOpenRefusal", () => {
+  it("opens on an arc whose audit is not stale", () => {
+    expect(joinModeOpenRefusal({ ...ARC_ENTRY, stage: "audited" })).toBeNull();
+    expect(joinModeOpenRefusal(ARC_ENTRY)).toBeNull();
+  });
+
+  it("speaks the register's line for a stale arc, by who holds it", () => {
+    const stale = { ...ARC_ENTRY, stage: "audit-stale" };
+    expect(joinModeOpenRefusal({ ...stale, bound_session: "sess-1" })).toBe(
+      "join-lane's audit is stale — the re-audit starts on its card, or press Re-audit",
+    );
+    expect(joinModeOpenRefusal(stale)).toBe(
+      "join-lane's audit is stale — waiting for a card: bind one, or tugtool arc run join-lane",
+    );
+    expect(
+      joinModeOpenRefusal({
+        ...stale,
+        bound_session: "sess-1",
+        arc: { stage: "audit", done: false },
+      }),
+    ).toBe("join-lane's audit is stale — re-auditing on its card");
+    expect(
+      joinModeOpenRefusal({
+        ...stale,
+        bound_session: "sess-1",
+        bound_callsign: "odd-kiln",
+        arc: { stage: "audit", done: false },
+      }),
+    ).toBe("join-lane's audit is stale — re-auditing on odd-kiln");
   });
 });
 

@@ -185,6 +185,13 @@ impl Lab {
 
     /// Land the arc on its base.
     pub fn land(&mut self, name: &str) -> Result<(), String> {
+        self.land_with(name, false)
+    }
+
+    /// Land the arc on its base through the given door: the bare verb, or
+    /// with `--unaudited`, the hand door that lands an arc its audit does
+    /// not cover.
+    fn land_with(&mut self, name: &str, unaudited: bool) -> Result<(), String> {
         self.seat(name)?;
         let mut cmd = self.tugtool(&self.project.root);
         cmd.args([
@@ -195,6 +202,9 @@ impl Lab {
             &format!("lab lands {name}"),
             "--json",
         ]);
+        if unaudited {
+            cmd.arg("--unaudited");
+        }
         let out = run_capturing(&mut cmd)?;
         let value: serde_json::Value = serde_json::from_str(&out).unwrap_or_default();
         let sha = value["data"]["commit_hash"]
@@ -204,6 +214,32 @@ impl Lab {
             .to_string();
         self.timeline.act(name, format!("landed {sha}"));
         Ok(())
+    }
+
+    /// Press `tugtool arc join` and require it refused with a refusal that
+    /// says `says` — a press that lands is the failure.
+    fn land_refused(&mut self, name: &str, says: &str) -> Result<(), String> {
+        self.seat(name)?;
+        let mut cmd = self.tugtool(&self.project.root);
+        cmd.args([
+            "arc",
+            "join",
+            name,
+            "--message",
+            &format!("lab lands {name}"),
+        ]);
+        match run_capturing(&mut cmd) {
+            Ok(out) => Err(format!(
+                "the join of {name} was expected refused and landed: {out}"
+            )),
+            Err(refusal) if refusal.contains(says) && refusal.contains("--unaudited") => {
+                self.timeline.act(name, "join refused".to_string());
+                Ok(())
+            }
+            Err(refusal) => Err(format!(
+                "the join of {name} was refused, but not with \"{says}\" and the hand door: {refusal}"
+            )),
+        }
     }
 
     /// Discard the arc: `tugtool arc discard`, deleting its worktree and
@@ -310,6 +346,53 @@ impl Lab {
         Ok(())
     }
 
+    /// Leave an uncommitted file in the arc's worktree.
+    fn dirty(&mut self, name: &str, path: &str) -> Result<(), String> {
+        let full = self.seat(name)?.worktree.join(path);
+        std::fs::write(&full, "scratch the lab left\n")
+            .map_err(|e| format!("writing {}: {e}", full.display()))?;
+        self.timeline.act(name, format!("dirtied {path}"));
+        Ok(())
+    }
+
+    /// Remove the file [`Lab::dirty`] left.
+    fn clean(&mut self, name: &str, path: &str) -> Result<(), String> {
+        let full = self.seat(name)?.worktree.join(path);
+        std::fs::remove_file(&full).map_err(|e| format!("removing {}: {e}", full.display()))?;
+        self.timeline.act(name, format!("cleaned {path}"));
+        Ok(())
+    }
+
+    /// Press Re-audit through its CLI door, `tugtool arc run` on the arc's
+    /// own session, and require it refused with a refusal that says `says` —
+    /// a press that reopens the arc is the failure.
+    fn reaudit_refused(&mut self, name: &str, says: &str) -> Result<(), String> {
+        let session = self.seat(name)?.session.clone();
+        let root = self.project.root.to_string_lossy().into_owned();
+        let mut cmd = self.tugtool(&self.project.root);
+        cmd.args([
+            "arc",
+            "run",
+            name,
+            "--project",
+            &root,
+            "--session",
+            &session,
+        ]);
+        match run_capturing(&mut cmd) {
+            Ok(out) => Err(format!(
+                "the re-audit of {name} was expected refused and ran: {out}"
+            )),
+            Err(refusal) if refusal.contains(says) => {
+                self.timeline.act(name, "re-audit refused".to_string());
+                Ok(())
+            }
+            Err(refusal) => Err(format!(
+                "the re-audit of {name} was refused, but not with \"{says}\": {refusal}"
+            )),
+        }
+    }
+
     /// A commit on `main` that no arc made: the base moves under every arc
     /// with no crossing to settle first, so a conflict it brings is one the
     /// cache has never seen.
@@ -388,12 +471,17 @@ impl Lab {
                 } => self.round(arc, subject, edits)?,
                 Act::Say { arc, text } => self.say(arc, text)?,
                 Act::Land(arc) => self.land(arc)?,
+                Act::LandUnaudited(arc) => self.land_with(arc, true)?,
+                Act::LandRefused { arc, says } => self.land_refused(arc, says)?,
                 Act::Discard(arc) => self.discard(arc)?,
                 Act::Finish(arc) => self.finish(arc)?,
                 Act::MarkAudited(arc) => self.mark_audited(arc)?,
                 Act::Stop(arc) => self.stop(arc)?,
                 Act::Unbind(arc) => self.unbind(arc)?,
                 Act::Rebind(arc) => self.rebind(arc)?,
+                Act::Dirty { arc, path } => self.dirty(arc, path)?,
+                Act::Clean { arc, path } => self.clean(arc, path)?,
+                Act::ReauditRefused { arc, says } => self.reaudit_refused(arc, says)?,
                 Act::BaseCommit { subject, edits } => self.base_commit(subject, edits)?,
                 Act::Expect(probe) => {
                     self.expect(probe)?;

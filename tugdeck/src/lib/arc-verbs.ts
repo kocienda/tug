@@ -35,10 +35,12 @@ import {
   type TransportActor,
 } from "@/lib/arc-transport";
 import type { ArcTransportVerb } from "@/lib/arc-press-store";
-import type {
-  ArcDocuments,
-  ArcJoinStateWire,
-  ArcRunState,
+import {
+  ARC_STAGE_AUDIT_STALE,
+  type ArcDocuments,
+  type ArcJoinStateWire,
+  type ArcRestampWire,
+  type ArcRunState,
 } from "@/lib/changeset-types";
 import { JOINABLE_STAGES } from "@/lib/arc-join-register";
 import {
@@ -167,6 +169,12 @@ export interface ArcVerbInput {
   boundCardOpen: boolean;
   /** The arc's derived stage word (`ready`, `built`, `audited`, …). */
   stage: string | undefined;
+  /**
+   * The engine's quiet re-stamp on this arc, off the feed's `restamp`, or
+   * absent. A job running refuses the Re-audit press, as the server does:
+   * the machine is already answering the stale audit.
+   */
+  restamp?: ArcRestampWire | null;
   /** The join message drafted for the arc — what a Join would land — or null. */
   draft: string | null;
   /**
@@ -228,6 +236,7 @@ function joinRefusal(input: ArcVerbInput): string | null {
     turnInProgress,
     holderBusy,
     runLive: joinRunLive(state),
+    auditStale: input.stage === ARC_STAGE_AUDIT_STALE,
     joinPhase: pending ? "pending" : "idle",
     outcome,
     message: input.draft,
@@ -238,7 +247,7 @@ function joinRefusal(input: ArcVerbInput): string | null {
 
 /** The first slot ([B04]). */
 function nextVerb(input: ArcVerbInput): ArcVerbSet["next"] {
-  const auditStale = input.stage === "audit-stale";
+  const auditStale = input.stage === ARC_STAGE_AUDIT_STALE;
   const face = transportFace({
     arc: input.run,
     boundSession: input.boundSession,
@@ -270,17 +279,36 @@ function nextVerb(input: ArcVerbInput): ArcVerbSet["next"] {
   });
   // A Resume on a done arc is the re-audit: the same press and the same
   // door, named for what it does.
-  const word =
-    face === "resume" && auditStale && input.run?.done === true
-      ? "Re-audit"
-      : TRANSPORT_WORD[face];
+  const reaudit = face === "resume" && auditStale && input.run?.done === true;
+  const word = reaudit ? "Re-audit" : TRANSPORT_WORD[face];
+  // …and refused while the quiet re-stamp holds the arc, in the server's own
+  // terms: a press then would seat a second answer beside the machine's.
+  const refusal =
+    reaudit && input.restamp?.running_since !== undefined
+      ? restampRefusal(input.restamp.deadline)
+      : actor.reason;
   return {
     kind: face,
     word,
-    label: withRefusal(`${word} arc ${input.arc}`, actor.reason),
-    refusal: actor.reason,
+    label: withRefusal(`${word} arc ${input.arc}`, refusal),
+    refusal,
     actor,
   };
+}
+
+/**
+ * Why Re-audit is refused while the quiet re-stamp runs: the job is the
+ * answer already under way, and its horizon is when the press opens again.
+ */
+export function restampRefusal(deadline: string | undefined): string {
+  const at = deadline === undefined ? Number.NaN : Date.parse(deadline);
+  if (Number.isNaN(at)) return "a quiet re-stamp is running";
+  const by = new Date(at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  return `a quiet re-stamp is running — it ends by ${by}`;
 }
 
 /** The view slot ([B06]): Changes on the Arcs card and the popover, Diff in

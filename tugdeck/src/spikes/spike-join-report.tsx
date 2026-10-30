@@ -194,7 +194,7 @@ const COMPACT_RECAP =
 const PROSE_BEFORE =
   "The audit is green and the arc has walked all ten rounds. Landing it whenever you are ready.";
 const PROSE_AFTER =
-  "Picking up on `main`: the arc's branch is released and the workshop is torn down.";
+  "Picking up on `main`: the arc's branch is released and its worktree is removed.";
 
 function exchange(command: string, output: string, id: string): CommandBlockProps {
   const message: ShellExchangeMessage = {

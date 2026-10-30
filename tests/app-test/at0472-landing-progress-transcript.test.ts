@@ -160,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
           "an idle card puts no progress row at its live edge",
         ).toBe(true);
 
-        // The bind is the whole gesture. The pilot reconciles it, the offer
+        // The bind is the whole gesture. The server derives it ready, the offer
         // stands, and the card fronts the Changes route on its own — which is
         // what enters join mode, and the register follows the mode.
         bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});

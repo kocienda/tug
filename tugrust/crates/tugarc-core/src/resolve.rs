@@ -1281,7 +1281,7 @@ fn scan_conflict_blocks(bytes: &[u8], mut on_block: impl FnMut()) -> bool {
 
 /// Whether text carries a complete `git` conflict block.
 ///
-/// The one predicate — the workshop's marker scan and the ladder's clean-merge
+/// The one predicate — the pair checkout's marker scan and the ladder's clean-merge
 /// test both ask it, so "does this file still conflict" cannot be answered two
 /// ways by two callers.
 ///

@@ -16,7 +16,10 @@
  * @module lib/arc-order
  */
 
-import type { ArcChangesetEntry } from "@/lib/changeset-types";
+import {
+  ARC_STAGE_AUDIT_STALE,
+  type ArcChangesetEntry,
+} from "@/lib/changeset-types";
 
 /**
  * How far along an arc is, as a sortable rank.
@@ -30,7 +33,7 @@ export const ARC_STAGE_RANK: Record<string, number> = {
   audited: 4,
   // An audit whose head or base has since moved: as far along as `audited`,
   // and no longer joinable until it is re-audited.
-  "audit-stale": 4,
+  [ARC_STAGE_AUDIT_STALE]: 4,
   built: 3,
   implementing: 2,
   working: 1,

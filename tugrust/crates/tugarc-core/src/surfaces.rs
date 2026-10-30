@@ -15,6 +15,7 @@
 use serde::Serialize;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Instant;
 use tugcore::instance::Paths;
 use tugtool_core::config::{Config, Surface};
 
@@ -255,7 +256,7 @@ pub struct VerifyReport {
     /// The range's head sha, full.
     pub head: String,
     /// What the resolution came to, as a word: `verified`, `red`,
-    /// `unclaimed`, `declares-none`, or `nothing-in-range`.
+    /// `timed-out`, `unclaimed`, `declares-none`, or `nothing-in-range`.
     pub verdict: String,
     /// The paths no surface claimed. Empty unless the verdict is `unclaimed`.
     pub unclaimed: Vec<String>,
@@ -272,10 +273,11 @@ pub struct VerifyReport {
 
 impl VerifyReport {
     /// The process exit status: 0 verified / declared-none / nothing in
-    /// range, 1 a red check, 2 an unclaimed path.
+    /// range, 1 a red check or a run its deadline stopped, 2 an unclaimed
+    /// path.
     pub fn exit_code(&self) -> u8 {
         match self.verdict.as_str() {
-            "red" => 1,
+            "red" | "timed-out" => 1,
             "unclaimed" => 2,
             _ => 0,
         }
@@ -308,8 +310,10 @@ pub struct CommandResult {
     pub command: String,
     /// The surface whose `check` list declared it.
     pub declared_by: String,
-    /// `ran`, `already-run`, or `not-reached` — a command after a red one in
-    /// the same surface.
+    /// `ran`, `already-run`, `not-reached` — a command after a red one in
+    /// the same surface, or any command after a deadline passed — or
+    /// `timed-out`, a check that was still running at the run's deadline and
+    /// was killed.
     pub status: String,
     /// The process exit code, when it ran.
     pub exit_code: Option<i32>,
@@ -370,10 +374,15 @@ pub enum VerifyEvent<'a> {
 ///
 /// A red command ends its own surface and nothing else: every surface runs, so
 /// one report names every failure rather than the first one.
+///
+/// A `deadline` ends the whole run: a check still running when it passes is
+/// killed and reads `timed-out`, and every command after it, in any surface,
+/// is `not-reached`.
 fn run_plans(
     worktree: &Path,
     plans: Vec<SurfacePlan>,
     quiet: bool,
+    deadline: Option<Instant>,
     wrap: &dyn Fn(&str) -> String,
     verdict: &mut dyn FnMut(&str) -> Option<ChildVerdict>,
     watch: &mut dyn FnMut(VerifyEvent<'_>),
@@ -384,12 +393,13 @@ fn run_plans(
         .collect();
     watch(VerifyEvent::Planned(&planned));
     let mut results = Vec::new();
+    let mut expired = false;
     for plan in plans {
         watch(VerifyEvent::Started(&plan.name));
         let mut commands = Vec::new();
         let mut red = false;
         for planned in plan.commands {
-            if red {
+            if red || expired {
                 commands.push(CommandResult {
                     command: planned.command,
                     declared_by: planned.declared_by,
@@ -424,19 +434,16 @@ fn run_plans(
             if quiet {
                 cmd.stdout(Stdio::null()).stderr(Stdio::null());
             }
-            let status = cmd.status();
-            let exit_code = match status {
-                Ok(s) => s.code().unwrap_or(-1),
-                Err(_) => -1,
-            };
-            if exit_code != 0 {
+            let (exit_code, timed_out) = run_check(cmd, deadline);
+            if exit_code != 0 || timed_out {
                 red = true;
             }
+            expired |= timed_out;
             let child = verdict(&planned.command).unwrap_or_default();
             commands.push(CommandResult {
                 command: planned.command,
                 declared_by: planned.declared_by,
-                status: "ran".to_string(),
+                status: if timed_out { "timed-out" } else { "ran" }.to_string(),
                 exit_code: Some(exit_code),
                 already_run_for: None,
                 passed: child.passed,
@@ -467,6 +474,49 @@ fn run_plans(
         results.push(result);
     }
     results
+}
+
+/// Run one check to its exit, or to `deadline` if that comes first, and
+/// answer its exit code and whether the deadline ended it.
+///
+/// With a deadline the check runs in a process group of its own, and a
+/// watchdog thread waits out the time left on a channel the exit closes. If
+/// the time runs out first it kills the whole group — `sh -c` and everything
+/// the check started, which is what a wedged test run is made of — and the
+/// wait below it returns. A deadline already past runs nothing.
+fn run_check(mut cmd: Command, deadline: Option<Instant>) -> (i32, bool) {
+    let code_of = |status: std::io::Result<std::process::ExitStatus>| match status {
+        Ok(s) => s.code().unwrap_or(-1),
+        Err(_) => -1,
+    };
+    let Some(deadline) = deadline else {
+        return (code_of(cmd.status()), false);
+    };
+    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+        return (-1, true);
+    };
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    let Ok(mut child) = cmd.spawn() else {
+        return (-1, false);
+    };
+    let group = child.id() as libc::pid_t;
+    let (exited, exit_seen) = std::sync::mpsc::channel::<()>();
+    let watchdog = std::thread::spawn(move || {
+        match exit_seen.recv_timeout(remaining) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // SAFETY: `killpg` takes plain integers and touches no memory
+                // of ours; the group is the one `process_group(0)` made for
+                // this check, whose leader has not been waited on yet.
+                unsafe { libc::killpg(group, libc::SIGKILL) };
+                true
+            }
+            _ => false,
+        }
+    });
+    let status = child.wait();
+    let _ = exited.send(());
+    let timed_out = watchdog.join().unwrap_or(false);
+    (code_of(status), timed_out)
 }
 
 /// The paths a range moved, in the order git reported them, with a rename
@@ -502,7 +552,7 @@ pub fn verify_in(
     base_override: Option<&str>,
     head_override: Option<&str>,
 ) -> Result<VerifyReport, ArcError> {
-    verify_watched(
+    verify_run(
         paths,
         repo_root,
         name,
@@ -513,6 +563,33 @@ pub fn verify_in(
             verdict: &mut |_| None,
             watch: &mut |_| {},
         },
+        None,
+    )
+}
+
+/// [`verify_in`] over the arc's own range, with a horizon: a check still
+/// running at `deadline` is killed, nothing after it runs, and the report's
+/// verdict is `timed-out`. This is the verify a caller nobody is watching
+/// runs — the base-motion engine's quiet re-stamp — for which a wedged check
+/// would otherwise be a wait with no end.
+pub fn verify_by(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    deadline: Instant,
+) -> Result<VerifyReport, ArcError> {
+    verify_run(
+        paths,
+        repo_root,
+        name,
+        None,
+        None,
+        VerifyHooks {
+            wrap: &|command| command.to_string(),
+            verdict: &mut |_| None,
+            watch: &mut |_| {},
+        },
+        Some(deadline),
     )
 }
 
@@ -530,6 +607,27 @@ pub fn verify_watched(
     base_override: Option<&str>,
     head_override: Option<&str>,
     hooks: VerifyHooks<'_>,
+) -> Result<VerifyReport, ArcError> {
+    verify_run(
+        paths,
+        repo_root,
+        name,
+        base_override,
+        head_override,
+        hooks,
+        None,
+    )
+}
+
+/// The one body behind [`verify_in`], [`verify_by`] and [`verify_watched`].
+fn verify_run(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    base_override: Option<&str>,
+    head_override: Option<&str>,
+    hooks: VerifyHooks<'_>,
+    deadline: Option<Instant>,
 ) -> Result<VerifyReport, ArcError> {
     let repo = crate::ops::main_repo_root(repo_root);
     let branch = crate::ops::branch_name(name);
@@ -609,6 +707,7 @@ pub fn verify_watched(
                 &worktree,
                 plans,
                 false,
+                deadline,
                 hooks.wrap,
                 hooks.verdict,
                 hooks.watch,
@@ -616,7 +715,16 @@ pub fn verify_watched(
             let checked = results.iter().filter(|r| !r.commands.is_empty()).count();
             let claimed_unchecked = results.iter().filter(|r| r.commands.is_empty()).count();
             let reds: Vec<&SurfaceResult> = results.iter().filter(|r| r.red).collect();
-            let receipt = if reds.is_empty() {
+            let expired = results
+                .iter()
+                .flat_map(|r| r.commands.iter().map(move |c| (r, c)))
+                .find(|(_, c)| c.status == "timed-out");
+            let receipt = if let Some((surface, command)) = expired {
+                format!(
+                    "TUG-VERIFY-RECEIPT: timed out · {}: `{}` was still running at the deadline and was stopped",
+                    surface.name, command.command
+                )
+            } else if reds.is_empty() {
                 format!(
                     "TUG-VERIFY-RECEIPT: verified {} · {} surfaces checked · {} claimed unchecked",
                     short(&head),
@@ -649,7 +757,14 @@ pub fn verify_watched(
             VerifyReport {
                 base,
                 head,
-                verdict: if reds.is_empty() { "verified" } else { "red" }.to_string(),
+                verdict: if expired.is_some() {
+                    "timed-out"
+                } else if reds.is_empty() {
+                    "verified"
+                } else {
+                    "red"
+                }
+                .to_string(),
                 unclaimed: Vec::new(),
                 surfaces: results,
                 checked,
@@ -1228,6 +1343,59 @@ mod fit_tests {
         assert!(
             verified_lines(&paths, &root).is_empty(),
             "a refused run records nothing"
+        );
+    }
+
+    /// **A hung check ends at the deadline.** The quiet re-stamp runs its
+    /// verify with nobody watching, so a check that never exits must not be
+    /// a wait that never ends: at the deadline the check's whole process
+    /// group is killed, nothing after it runs — in its surface or any other —
+    /// and the report says it timed out, records no fit, and exits red.
+    #[test]
+    fn a_check_still_running_at_the_deadline_is_killed_and_nothing_after_it_runs() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let config = "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"sleep 30 & wait\", \"touch after-in-src\"]\n\n\
+                      [[tugtool.arc.surface]]\nname = \"docs\"\npaths = [\"docs/\"]\ncheck = [\"touch after-in-docs\"]\n";
+        let worktree = project(&root, config, &[("src/a.rs", "a\n"), ("docs/a.md", "a\n")]);
+
+        let started = Instant::now();
+        let report = verify_by(
+            &paths,
+            &root,
+            "demo",
+            started + std::time::Duration::from_millis(300),
+        )
+        .expect("the verify runs");
+        // The verdict is the deadline's, not the check's: a check that ran to
+        // its own end would have been read as passed or failed.
+        assert_eq!(report.verdict, "timed-out");
+        assert_eq!(report.exit_code(), 1);
+        assert!(
+            report
+                .receipt
+                .contains("src: `sleep 30 & wait` was still running at the deadline"),
+            "{}",
+            report.receipt
+        );
+        let statuses = |name: &str| -> Vec<String> {
+            report
+                .surfaces
+                .iter()
+                .find(|s| s.name == name)
+                .map(|s| s.commands.iter().map(|c| c.status.clone()).collect())
+                .unwrap_or_default()
+        };
+        assert_eq!(statuses("src"), ["timed-out", "not-reached"]);
+        assert_eq!(statuses("docs"), ["not-reached"]);
+        assert!(!worktree.join("after-in-src").exists());
+        assert!(!worktree.join("after-in-docs").exists());
+        assert!(
+            verified_lines(&paths, &root).is_empty(),
+            "a timed-out run records nothing"
         );
     }
 

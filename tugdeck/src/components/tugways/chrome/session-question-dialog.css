@@ -147,7 +147,8 @@ body {
 }
 
 /* The control cluster — pushed to the trailing edge; each button a uniform
- * width with a comfortable gap so the four read as a balanced set. The
+ * minimum width with a comfortable gap so the four read as a balanced set,
+ * and a long label grows its own box rather than overflowing. The
  * trailing margin aligns the cluster's right edge with the question rows'
  * right edge (their own inline padding token) and gives Submit air off the
  * block edge. */
@@ -160,7 +161,7 @@ body {
 }
 
 .session-question-dialog-actionbar-buttons .tug-button {
-  width: var(--tugx-idialog-action-w, 5rem);
+  min-width: var(--tugx-idialog-action-w, 5rem);
 }
 
 /* ---- Wizard rail ----

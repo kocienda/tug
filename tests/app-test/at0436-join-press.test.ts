@@ -19,8 +19,8 @@
  * This file once made the join *fail* instead, on the reasoning that an arc in
  * the developer's checkout must not be landed. It owns its repository now, for
  * two reasons. That base branch is one somebody works on. And entering join
- * mode on a clean arc *resolves* it, which runs the project's own declared
- * checks over the candidate — aimed at the checkout, that is the corpus
+ * mode on a clean arc once verified it, which ran the project's own declared
+ * checks over the tree — aimed at the checkout, that was the corpus
  * building itself in the developer's tree on the way to a button press. Here it
  * is a sentinel grep over a two-file repo.
  *
@@ -66,7 +66,6 @@ import {
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  silenceJoinPrompt,
   type JoinScratchRepo,
 } from "./arc-fixture";
 
@@ -205,12 +204,10 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         // changeset aggregate enumerates.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        // The join face is what the pilot found, and the pilot works only a
-        // arc somebody holds ([D147]) — a client-side `bind_arc_ok` writes
-        // no ledger row for it to read. The prompt that follows a standing
-        // candidate is answered in advance: this file is about the shade.
+        // Bound for real, in the ledger ([D147]): the wheel drives only an
+        // arc somebody holds, and a client-side `bind_arc_ok` writes no row
+        // for the server to read.
         bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(projectDir(), ARC);
 
         // A broadcast reaches every page, and the lane's binding store is the
         // card body's own — so the frame is handed to the body as well as the
@@ -226,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         // readiness signal: it always renders, opening on the arc's fit
         // ([D224]). What a clean join has nothing of is evidence — no
         // conflict, blocker, question or account — so its ledger settles to
-        // nothing once the run that anchored the candidate has ended.
+        // nothing.
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(landsAs(ARC))}) !== null`,
           { timeoutMs: 20000 },

@@ -12,7 +12,10 @@
  * @module lib/arc-meta-facts
  */
 
-import type { ArcChangesetEntry } from "@/lib/changeset-types";
+import {
+  ARC_STAGE_AUDIT_STALE,
+  type ArcChangesetEntry,
+} from "@/lib/changeset-types";
 
 /**
  * What a planned arc's kind MEANS, in one sentence.
@@ -35,7 +38,7 @@ const STAGES_PAST_THE_WALK = new Set([
   "audited",
   // An audit the head or base has moved out from under: the walk is still
   // over, only the audit needs doing again.
-  "audit-stale",
+  ARC_STAGE_AUDIT_STALE,
   "draft-ready",
   "joining",
   "landing",

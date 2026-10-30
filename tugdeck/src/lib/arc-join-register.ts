@@ -1,8 +1,8 @@
 /**
  * arc-join-register — what the join says, in one sentence, everywhere.
  *
- * An arc on its way to landing passes through reconciling, ready, question,
- * joining, blocked. Three surfaces show that: the Arcs card's
+ * An arc on its way to landing passes through its audit, a stale audit's
+ * re-audit, ready, joining, blocked. Three surfaces show that: the Arcs card's
  * row, the Changes shade's arc row, and the composer's status row. Before
  * this, each derived its own words, which is how two surfaces come to disagree
  * about one arc — and one of the sentences named a control that had been
@@ -25,7 +25,11 @@
  */
 
 import type { ToolCallPhase } from "@/lib/code-session-store/tool-call-phase-visual";
-import type { ArcJoinStateWire, ArcRunState } from "@/lib/changeset-types";
+import {
+  ARC_STAGE_AUDIT_STALE,
+  type ArcJoinStateWire,
+  type ArcRunState,
+} from "@/lib/changeset-types";
 
 /** What one arc's join reads as right now. */
 export interface ArcJoinRegister {
@@ -133,11 +137,23 @@ export interface ArcJoinRegisterInput {
   /**
    * Whether any live session holds this arc.
    *
-   * The pilot works only for bound arcs ([D147]), so an unbound one is not
+   * The wheel drives only bound arcs ([D147]), so an unbound one is not
    * mid-check — nothing is going to happen to it at all. Defaults to `true`
    * for the callers that only ever render an arc they are holding.
    */
   bound?: boolean;
+  /**
+   * The bound card's callsign, straight off the feed's `bound_callsign`. A
+   * stale audit's waiting states name the card the re-audit runs on, so the
+   * reader knows which card to look at; absent, they say "its card".
+   */
+  boundCallsign?: string | null;
+  /**
+   * Whether the engine's quiet re-stamp holds the arc right now — the feed's
+   * `restamp.running_since` is present. A stale audit the machine is already
+   * answering says so, rather than reading as a wait on a card.
+   */
+  restampRunning?: boolean;
   /**
    * The run driving this arc, when one is — the wheel's own record of which
    * stage is seated and whether it has finished ([P06]).
@@ -221,7 +237,9 @@ export const BEAT_WORDS: Record<string, string> = {
  *    past the question the blocker it is clearing asks, so the blocker's
  *    refusal must not paint over the act clearing it.
  * 6. **blocked** — an act somebody must take elsewhere, in the blocker's own
- *    sentence.
+ *    sentence. The `not-ready` blocker is not one of these: it restates why
+ *    `join_ready` is shut, which 8–10 explain, so it speaks after 10 and only
+ *    when none of them did.
  * 7. **the join's last word** — joined, or failed with the arc still here,
  *    resting until a new press replaces it.
  * 8. **still working** — above the offer only. An arc whose holder has not
@@ -270,7 +288,7 @@ export function arcJoinRegister(
   // the server holds `join_ready` shut over it — and not silent either: the
   // offer came down because the arc goes back to its audit, and the register
   // says where that stands.
-  const auditStale = input.stage === "audit-stale";
+  const auditStale = input.stage === ARC_STAGE_AUDIT_STALE;
   // An arc its stage stopped to ask the user something. The third of the
   // fold's waiting states: nothing can move until the question is answered,
   // and it is answered on the arc's own card.
@@ -315,26 +333,40 @@ export function arcJoinRegister(
 
   // A stale audit, above the blockers: the join is not on offer, so a
   // join-time blocker is not the sentence that explains the arc. Three
-  // readings — the re-audit is running, a card holds the arc and the re-audit
+  // waiting readings — the re-audit is running, a card holds the arc and the re-audit
   // is about to be seated on it, or nobody holds it and it waits for a card.
-  // A stop inside the re-audit falls through to the stop's own sentence.
+  // Each names its card and its door, so the reader knows where to look and
+  // what to press. Beside them the machine's own answer: a quiet re-stamp
+  // already running needs no card at all. A stop inside the re-audit falls
+  // through to the stop's own sentence.
   if (auditStale && (run?.stopped ?? "") === "") {
+    const card =
+      input.boundCallsign !== undefined && input.boundCallsign !== null && input.boundCallsign !== ""
+        ? input.boundCallsign
+        : "its card";
     if (run !== null && run.done !== true) {
       return {
         phase: "in_flight",
-        line: `${arc}'s audit is stale — re-auditing`,
+        line: `${arc}'s audit is stale — re-auditing on ${card}`,
         word: "re-auditing",
+      };
+    }
+    if (input.restampRunning === true) {
+      return {
+        phase: "in_flight",
+        line: `${arc}'s audit is stale — re-stamping it onto the moved base`,
+        word: "re-stamping",
       };
     }
     return input.bound === false
       ? {
           phase: "awaiting",
-          line: `${arc}'s audit is stale — waiting for a card`,
+          line: `${arc}'s audit is stale — waiting for a card: bind one, or tugtool arc run ${arc}`,
           word: "audit-stale",
         }
       : {
           phase: "in_flight",
-          line: `${arc}'s audit is stale — the re-audit starts on its card`,
+          line: `${arc}'s audit is stale — the re-audit starts on ${card}, or press Re-audit`,
           word: "audit-stale",
         };
   }
@@ -348,6 +380,14 @@ export function arcJoinRegister(
   }
 
   const blockers = join?.blockers ?? [];
+  // The `not-ready` blocker is the server restating that `join_ready` is shut,
+  // and the arms below the blockers are the register's readings of why — a
+  // holder still working, a wheel still running, a stop before the audit
+  // marked. So it waits beneath them, and speaks only when none of them does
+  // (a dirty worktree, say); every other blocker names an act elsewhere and
+  // outranks them as before.
+  const notReady = blockers.find((blocker) => blocker.kind === "not-ready") ?? null;
+  const gating = blockers.filter((blocker) => blocker.kind !== "not-ready");
   // The fold, above the blocker it is clearing (2a). Its own act is read
   // beside the feed's, because the recompute that puts `run` on the entry
   // lands a moment after the press and the register may not go quiet in
@@ -367,12 +407,12 @@ export function arcJoinRegister(
     };
   }
 
-  if (blockers.length > 0) {
+  if (gating.length > 0) {
     return {
       phase: "error",
       // The blocker's own sentence, which names the act that clears it — a
       // sentence composed here instead would be a second, worse copy.
-      line: blockers[0]?.detail ?? "This join is blocked",
+      line: gating[0]?.detail ?? "This join is blocked",
       word: "blocked",
     };
   }
@@ -457,6 +497,11 @@ export function arcJoinRegister(
           : `${arc} stopped before its audit — resume it, or land it unaudited`,
       word: "unaudited",
     };
+  }
+
+  // The server's not-ready reason, when no reading above explains it.
+  if (notReady !== null) {
+    return { phase: "error", line: notReady.detail, word: "blocked" };
   }
 
   // The offer is the whole readiness fact. The server raises it only while

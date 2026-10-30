@@ -79,7 +79,6 @@ import {
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  silenceJoinPrompt,
   type JoinScratchRepo,
 } from "./arc-fixture";
 
@@ -304,7 +303,6 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(projectDir(), ARC);
 
         // A broadcast reaches every page, and the lane's binding store is the
         // card body's own — so the frame is handed to the body as well as the

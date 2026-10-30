@@ -249,3 +249,42 @@ describe("JoinOfferRevealReceipts — once per key and reason", () => {
     ).toBe(false);
   });
 });
+
+describe("JoinOfferMemory.observe — the edges that make the same work new", () => {
+  const shownAt = (key: string) => {
+    const memory = new JoinOfferMemory();
+    memory.spendOnEntry("arc-1", { ownerId: "arc-1", key });
+    return memory;
+  };
+
+  test("a stale spell that ends at the same key forgets", () => {
+    // A re-stamp after a base move returns the key the arc had, because the
+    // work id is stable across a replay: the spell without attention is what
+    // says the user was told it was not ready.
+    const memory = shownAt("w:offer");
+    expect(memory.observe({ blocked: false, attentionKey: "w:offer" })).toBe(false);
+    expect(memory.observe({ blocked: false, attentionKey: null })).toBe(false);
+    expect(memory.has("w:offer")).toBe(true);
+    expect(memory.observe({ blocked: false, attentionKey: "w:offer" })).toBe(true);
+    expect(memory.has("w:offer")).toBe(false);
+  });
+
+  test("a cleared block forgets", () => {
+    const memory = shownAt("w:offer");
+    memory.observe({ blocked: true, attentionKey: null });
+    expect(memory.observe({ blocked: false, attentionKey: null })).toBe(true);
+    expect(memory.has("w:offer")).toBe(false);
+  });
+
+  test("a standing state is no edge, and neither is the first reading", () => {
+    const memory = shownAt("w:offer");
+    expect(memory.observe({ blocked: false, attentionKey: "w:offer" })).toBe(false);
+    expect(memory.observe({ blocked: false, attentionKey: "w:offer" })).toBe(false);
+    expect(memory.observe({ blocked: false, attentionKey: "w2:offer" })).toBe(false);
+    expect(memory.has("w:offer")).toBe(true);
+
+    const fresh = shownAt("w:offer");
+    expect(fresh.observe({ blocked: false, attentionKey: "w:offer" })).toBe(false);
+    expect(fresh.has("w:offer")).toBe(true);
+  });
+});

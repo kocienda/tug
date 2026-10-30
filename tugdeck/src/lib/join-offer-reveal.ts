@@ -239,4 +239,38 @@ export class JoinOfferMemory {
   forget(): void {
     this.shown.clear();
   }
+
+  private last: RevealEdgeFacts | null = null;
+
+  /**
+   * Read the room's facts for this frame, and forget on an edge that makes the
+   * same work new to show. Returns whether it forgot.
+   *
+   * Two edges, and each is a moment the user was told the arc was not ready
+   * and now it is: a block clearing, and the attention fact coming back after
+   * a spell without it — a stale audit re-stamped onto a moved base returns
+   * the very key it had, because the work id is stable across a replay, so a
+   * memory keyed on it alone would keep the room shut on the arc that just
+   * came back. The edge is what is remembered, not the state:
+   * forgetting on every clear frame would re-open the room on every recompute.
+   * The first reading is no edge.
+   */
+  observe(facts: RevealEdgeFacts): boolean {
+    const last = this.last;
+    this.last = facts;
+    if (last === null) return false;
+    const unblocked = last.blocked && !facts.blocked;
+    const attentionBack = last.attentionKey === null && facts.attentionKey !== null;
+    if (!unblocked && !attentionBack) return false;
+    this.forget();
+    return true;
+  }
+}
+
+/** The two facts the reveal memory's forgetting edges are read off. */
+export interface RevealEdgeFacts {
+  /** The bound arc's join carries a blocker. */
+  readonly blocked: boolean;
+  /** The bound arc's attention key, or null while nothing stands for it. */
+  readonly attentionKey: string | null;
 }

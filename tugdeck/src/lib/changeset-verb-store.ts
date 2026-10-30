@@ -60,6 +60,7 @@ import {
   type ArcReplayOutcomeWord,
 } from "./arc-replay-outcome-store";
 import { gitLogStore } from "./git-log-store";
+import { pressAcknowledgementMs } from "./changeset-join-store";
 
 export type GitInitPhase = "idle" | "pending" | "error";
 
@@ -168,6 +169,14 @@ const JOIN_IDLE: JoinState = Object.freeze({
   summary: null,
   receiptId: null,
 });
+
+/**
+ * The sentence a join press ends on when nothing answered it by the press
+ * horizon. It claims no outcome: the join may have run, and the arc's feed
+ * entry is what says whether it landed.
+ */
+export const JOIN_UNACKNOWLEDGED =
+  "Join got no answer in 60 seconds — it may still have run; this updates when the feed does.";
 
 export type ClaimPhase = "idle" | "pending" | "error" | "done";
 
@@ -418,6 +427,12 @@ export class ChangesetVerbStore extends Subscribable {
   private _joins = new Map<string, JoinState>();
   /** `verbKey(project_dir, arc)` → the entry key whose join is in flight. */
   private _joinInflight = new Map<string, string>();
+  /**
+   * `verbKey(project_dir, arc)` → the unacknowledged-press timer of a join
+   * in flight, armed at the press and cleared by the first frame naming the
+   * join — a beat of its narration, or its ending.
+   */
+  private _joinDeadlines = new Map<string, ReturnType<typeof setTimeout>>();
   /** entry key → claim round-trip state. Absent ⇒ idle. */
   private _claims = new Map<string, ClaimState>();
   /** project_dir → the entry key whose claim is in flight. */
@@ -468,6 +483,16 @@ export class ChangesetVerbStore extends Subscribable {
     // the workspace's canonical key ([L29]), which is what makes it exact.
     const sentDir = typeof body.project_dir === "string" ? body.project_dir : null;
     if (sentDir === null) return;
+    // Any frame naming a join is proof the press was heard: the server took
+    // its occupancy hold before the first beat, however long the land runs.
+    if (
+      (body.action === "changeset_join_land_delta" ||
+        body.action === "changeset_join_ok" ||
+        body.action === "changeset_join_err") &&
+      typeof body.arc === "string"
+    ) {
+      this._clearJoinDeadline(verbKey(sentDir, body.arc));
+    }
 
     if (body.action === "changeset_git_init_ok") {
       // Success: the aggregate recompute (server bump) removes this project's
@@ -1020,6 +1045,7 @@ export class ChangesetVerbStore extends Subscribable {
    */
   join(entryKey: string, workspaceKey: string, arc: string, args: JoinArgs): void {
     this._joinInflight.set(verbKey(workspaceKey, arc), entryKey);
+    this._armJoinDeadline(entryKey, verbKey(workspaceKey, arc));
     this._setJoin(entryKey, {
       phase: "pending",
       error: null,
@@ -1037,6 +1063,39 @@ export class ChangesetVerbStore extends Subscribable {
       ...(args.continueJoin === true ? { continue: true } : {}),
       ...(args.sessionId !== undefined ? { session_id: args.sessionId } : {}),
     });
+  }
+
+  private _clearJoinDeadline(k: string): void {
+    const timer = this._joinDeadlines.get(k);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this._joinDeadlines.delete(k);
+  }
+
+  /**
+   * Bound the press ([L33]): a join nothing ever answered ends at
+   * {@link PRESS_ACKNOWLEDGEMENT_MS} in a named `error` the register and the
+   * Join verb already render, so neither holds "Joining…" forever and every
+   * subscription waiting on the phase releases. The correlation stays: an
+   * answer that arrives late still settles the phase it names.
+   */
+  private _armJoinDeadline(entryKey: string, k: string): void {
+    this._clearJoinDeadline(k);
+    this._joinDeadlines.set(
+      k,
+      setTimeout(() => {
+        this._joinDeadlines.delete(k);
+        if (this.joinState(entryKey).phase !== "pending") return;
+        this._setJoin(entryKey, {
+          phase: "error",
+          error: JOIN_UNACKNOWLEDGED,
+          conflicts: [],
+          commitHash: null,
+          summary: null,
+          receiptId: null,
+        });
+      }, pressAcknowledgementMs()),
+    );
   }
 
   /**
@@ -1184,6 +1243,8 @@ export class ChangesetVerbStore extends Subscribable {
 
   dispose(): void {
     this._unsubscribe();
+    for (const timer of this._joinDeadlines.values()) clearTimeout(timer);
+    this._joinDeadlines.clear();
     this.clearListeners();
   }
 }

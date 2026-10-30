@@ -120,6 +120,17 @@ pub enum ArcStopReason {
     /// mark is the stage's whole product, exactly as the stamp is the
     /// review's, so a turn that ends without one has answered nothing.
     AuditDidNotMark,
+    /// The audit marked the arc, and the mark had already gone stale — a
+    /// round landed or the base moved between the mark and the runner's
+    /// tick — with no live card to seat the audit on again.
+    ///
+    /// Distinct from [`ArcStopReason::AuditDidNotMark`] because the audit
+    /// *did* mark, and a stop saying otherwise sends the reader looking for a
+    /// failure that never happened. With a card the runner seats the audit
+    /// again instead of stopping; this is the reason for the one case it
+    /// cannot. Admitted by the re-audit door ([`reaudit_admits`]), so the
+    /// bind that brings a card reopens it with no hand `arc run`.
+    AuditWentStale,
     DocumentMissing,
     PlanMissing,
     SessionGone,
@@ -242,6 +253,7 @@ impl ArcStopReason {
         ArcStopReason::ApiError,
         ArcStopReason::ReviewDidNotStamp,
         ArcStopReason::AuditDidNotMark,
+        ArcStopReason::AuditWentStale,
         ArcStopReason::DocumentMissing,
         ArcStopReason::PlanMissing,
         ArcStopReason::SessionGone,
@@ -274,6 +286,7 @@ impl ArcStopReason {
             ArcStopReason::ApiError => "api error",
             ArcStopReason::ReviewDidNotStamp => "review did not stamp",
             ArcStopReason::AuditDidNotMark => "audit did not mark",
+            ArcStopReason::AuditWentStale => "audit went stale",
             ArcStopReason::DocumentMissing => "document missing",
             ArcStopReason::PlanMissing => "plan missing",
             ArcStopReason::SessionGone => "session gone",
@@ -338,6 +351,22 @@ impl ArcStopReason {
         )
     }
 
+    /// Whether an arc stopped at its audit for this reason may be reopened
+    /// there by the re-audit door when its audit is stale.
+    ///
+    /// The two are the audit's own endings: a mark that went stale before
+    /// the runner could seat the audit again, and the older reading of that
+    /// same window, which wrote `audit did not mark` over a mark that was
+    /// there. Every other stop at the audit stands — a person's act, a
+    /// refusal to guess, or a machine failure the user is owed the sentence
+    /// for — and is resumed by hand.
+    pub fn admits_reaudit(&self) -> bool {
+        matches!(
+            self,
+            ArcStopReason::AuditWentStale | ArcStopReason::AuditDidNotMark
+        )
+    }
+
     /// What the receipt says, in the second person, as the tail of
     /// "the arc stopped … because …".
     pub fn sentence(&self) -> &'static str {
@@ -346,6 +375,9 @@ impl ArcStopReason {
             ArcStopReason::ApiError => "its turn ended in an API error, not a response",
             ArcStopReason::ReviewDidNotStamp => "two review rounds ended without stamping the plan",
             ArcStopReason::AuditDidNotMark => "the audit ended without marking the arc audited",
+            ArcStopReason::AuditWentStale => {
+                "the audit went stale after it marked — a round landed or the base moved — and no card was there to seat it again"
+            }
             ArcStopReason::DocumentMissing => "the document it opened on is gone",
             ArcStopReason::PlanMissing => "the plan is gone",
             ArcStopReason::SessionGone => "its session ended",
@@ -389,6 +421,21 @@ impl ArcStopReason {
     pub fn is_resumable(&self) -> bool {
         !matches!(self, ArcStopReason::Discarded | ArcStopReason::Joined)
     }
+}
+
+/// Whether the re-audit door admits an arc's record, given that its audit is
+/// stale: a finished arc, or one stopped at its audit for a reason
+/// [`ArcStopReason::admits_reaudit`] names.
+///
+/// One predicate for both readers of the door — [`crate::ops::reopen_stale_audit`]
+/// over the arc record, and the base-motion engine over the wire's run
+/// detail — so the two cannot disagree about which stopped arcs go back.
+/// `stopped` is the stop's stage and its log word.
+pub fn reaudit_admits(done: bool, stopped: Option<(ArcStage, &str)>) -> bool {
+    done || stopped.is_some_and(|(stage, word)| {
+        stage == ArcStage::Audit
+            && ArcStopReason::parse(word).is_some_and(|reason| reason.admits_reaudit())
+    })
 }
 
 /// The model the project declared for a stage, or `None` for the account

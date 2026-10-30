@@ -43,7 +43,6 @@ import {
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  silenceJoinPrompt,
   tugtool,
   type JoinScratchRepo,
 } from "./arc-fixture";
@@ -169,7 +168,6 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(projectDir(), ARC);
         await app.dispatchControlAction("bind_arc_ok", {
           tug_session_id: SID,
           arc_id: arcId,

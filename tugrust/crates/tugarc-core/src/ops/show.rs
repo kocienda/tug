@@ -363,6 +363,10 @@ pub struct ArcDetail {
     /// Derived stage ([P03]); `joining` requires a join in flight, so callers
     /// that can also see a draft recompute with [`derive_stage`].
     pub stage: String,
+    /// The same stage as a value, for the machine to match on. `stage` is the
+    /// wire's word and a display's; nothing that decides reads it.
+    #[serde(skip)]
+    pub stage_word: ArcStageWord,
     /// How far a stepped run has got, from the latest step declaration.
     pub step_current: Option<u32>,
     pub step_total: Option<u32>,
@@ -400,10 +404,17 @@ pub struct ArcDetail {
     /// empty, while one whose only dirt is an untracked scratch file is.
     pub worktree_dirty_tracked: bool,
     /// Whether this arc has finished the work somebody asked it for, derived
-    /// by [`crate::log::join_ready`] ([P04]). The join pilot and the standing
-    /// prompt both act on this and nothing else, so what a face says and what
-    /// the arc does cannot disagree.
+    /// by [`crate::log::join_ready`] ([P04]). The join board's offer and the
+    /// join's own gate both read this and nothing else, so what a face says
+    /// and what the join does cannot disagree.
     pub join_ready: bool,
+    /// Why the standing audit no longer describes the arc — a round landed
+    /// after it (`head`), the base moved (`base`), or both — or absent when it
+    /// is current or there is none. The fact a re-audit sizes itself from, and
+    /// the one a waiting state names, read off the same derivation as
+    /// [`Self::stage`]'s `audit-stale`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit_staleness: Option<crate::log::AuditStaleness>,
     /// The final step of the run's declared selection ([P01]), for display and
     /// for tests. `None` for a generation that declared no run.
     pub run_through: Option<u32>,
@@ -658,23 +669,26 @@ pub fn arc_detail_entries_in(paths: &Paths, repo_root: &Path) -> Vec<ArcDetail> 
             wheel,
             &tips,
         );
-        let audit_stale = crate::log::audit_stale(&declarations, &tips);
+        let audit_staleness = crate::log::audit_staleness(&declarations, &tips);
+        let audit_stale = audit_staleness.is_some();
+        let stage_word = stage_word(
+            rounds as i64,
+            worktree_dirty,
+            false,
+            joining,
+            declarations.latest,
+            join_ready,
+            audit_stale,
+        );
 
         entries.push(ArcDetail {
             owner_key: arc_owner_key(repo_root, name),
             name: name.to_owned(),
             branch: branch.to_owned(),
-            stage: derive_stage(
-                rounds as i64,
-                worktree_dirty,
-                false,
-                joining,
-                declarations.latest,
-                join_ready,
-                audit_stale,
-            )
-            .to_owned(),
+            stage: stage_word.as_str().to_owned(),
+            stage_word,
             join_ready,
+            audit_staleness,
             run_through: declarations.run_through,
             run_complete: declarations.run_complete,
             run_position: run_span.map(|(position, _)| position),
@@ -744,12 +758,18 @@ pub fn live_tips(repo: &Path, name: &str) -> ArcTips {
 /// The fit fact an arc's declarations carry, with its currency resolved
 /// against the live tips.
 ///
+/// While an audit stands, its pair is the fit: the mark refuses unless the
+/// last verify saw exactly that pair, so the two cannot be two facts. Before
+/// any audit, the last verify's pair is the only one there is.
+///
 /// Both endpoints are compared, because a base that moved invalidates a
 /// verified head just as surely as a new round does. An unparseable note
 /// yields `None` rather than a fact with half its pair.
 pub(crate) fn fit_fact(tips: &ArcTips, declarations: &ArcDeclarations) -> Option<FitFact> {
-    let note = declarations.last_verified.as_deref()?;
-    let (head, base) = crate::log::parse_verified_note(note)?;
+    let (head, base) = match (&declarations.latest, &declarations.audited_at) {
+        (Some(ArcDeclaration::Audited), Some(pair)) => (pair.head.clone(), pair.base.clone()),
+        _ => crate::log::parse_verified_note(declarations.last_verified.as_deref()?)?,
+    };
     let head_moved = tips.head.as_deref() != Some(head.as_str());
     let base_moved = tips.base.as_deref() != Some(base.as_str());
     Some(FitFact {
@@ -808,6 +828,11 @@ pub struct ArcStatus {
     /// rounds landed after the audit, the base side what the base brought in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audited_at: Option<crate::log::AuditedPair>,
+    /// Which side of [`Self::audited_at`] moved — `head`, `base` or `both` —
+    /// when the audit is stale; absent when it stands or there is none. A
+    /// re-audit declares its size from this rather than guessing it from git.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit_staleness: Option<crate::log::AuditStaleness>,
     /// Where this arc's five records disagree, one sentence each — the
     /// read-only core of `arc doctor`, run on every status call.
     ///
@@ -855,27 +880,85 @@ pub fn derive_stage(
     join_ready: bool,
     audit_stale: bool,
 ) -> &'static str {
+    stage_word(
+        rounds,
+        worktree_dirty,
+        has_draft,
+        joining,
+        declared,
+        join_ready,
+        audit_stale,
+    )
+    .as_str()
+}
+
+/// One of the words [`derive_stage`] can answer, as a value.
+///
+/// The word is what the wire carries and a display shows; this is what code
+/// that decides on the stage matches, so a renamed word cannot silently turn
+/// a comparison false.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ArcStageWord {
+    Joining,
+    Built,
+    AuditStale,
+    Audited,
+    Ready,
+    Implementing,
+    DraftReady,
+    Working,
+    #[default]
+    Created,
+}
+
+impl ArcStageWord {
+    /// The wire's word for this stage.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Joining => "joining",
+            Self::Built => "built",
+            Self::AuditStale => "audit-stale",
+            Self::Audited => "audited",
+            Self::Ready => "ready",
+            Self::Implementing => "implementing",
+            Self::DraftReady => "draft-ready",
+            Self::Working => "working",
+            Self::Created => "created",
+        }
+    }
+}
+
+/// [`derive_stage`]'s answer as a value; see it for the precedence.
+pub fn stage_word(
+    rounds: i64,
+    worktree_dirty: bool,
+    has_draft: bool,
+    joining: bool,
+    declared: Option<ArcDeclaration>,
+    join_ready: bool,
+    audit_stale: bool,
+) -> ArcStageWord {
     if joining {
-        "joining"
+        ArcStageWord::Joining
     } else if matches!(declared, Some(ArcDeclaration::Built)) {
-        "built"
+        ArcStageWord::Built
     } else if audit_stale {
-        "audit-stale"
+        ArcStageWord::AuditStale
     } else if matches!(declared, Some(ArcDeclaration::Audited)) {
-        "audited"
+        ArcStageWord::Audited
     } else if join_ready {
         // Above the step arm: a finished run's latest declaration is a
         // `step-done`, which would otherwise read `implementing` forever. Below
         // `built`/`audited` so an arc somebody marked keeps its own word ([P07]).
-        "ready"
+        ArcStageWord::Ready
     } else if declared.is_some() {
-        "implementing"
+        ArcStageWord::Implementing
     } else if has_draft {
-        "draft-ready"
+        ArcStageWord::DraftReady
     } else if rounds > 0 || worktree_dirty {
-        "working"
+        ArcStageWord::Working
     } else {
-        "created"
+        ArcStageWord::Created
     }
 }
 
@@ -1014,6 +1097,7 @@ pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatu
         wheel,
         &tips,
     );
+    let audit_staleness = crate::log::audit_staleness(&declarations, &tips);
 
     Ok(ArcStatus {
         stage: derive_stage(
@@ -1023,7 +1107,7 @@ pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatu
             join_journal_phase.is_some(),
             declarations.latest,
             join_ready,
-            crate::log::audit_stale(&declarations, &tips),
+            audit_staleness.is_some(),
         )
         .to_string(),
         name: name.to_string(),
@@ -1047,6 +1131,7 @@ pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatu
         audited_at: matches!(declarations.latest, Some(ArcDeclaration::Audited))
             .then(|| declarations.audited_at.clone())
             .flatten(),
+        audit_staleness,
         disagreements: crate::doctor::diagnose(paths, repo_root, name).sentences(),
     })
 }
@@ -1435,12 +1520,31 @@ mod tests {
         let fresh = read(&root, &paths, "stale-head-arc");
         assert!(fresh.join_ready, "fresh: ready");
         assert_eq!(fresh.stage, "audited");
+        assert_eq!(
+            fresh.audit_staleness, None,
+            "a standing audit names no kind"
+        );
         let worktree = worktree_path(&root, "stale-head-arc");
         fs::write(worktree.join("two.txt"), "second\n").unwrap();
         commit_in(&paths, &root, "stale-head-arc", "r2", None, None).unwrap();
         let after_round = read(&root, &paths, "stale-head-arc");
         assert!(!after_round.join_ready, "a round after the audit un-audits");
         assert_eq!(after_round.stage, "audit-stale");
+        assert_eq!(
+            after_round.audit_staleness,
+            Some(crate::log::AuditStaleness::Head)
+        );
+        let status = status_in(&paths, &root, "stale-head-arc").unwrap();
+        assert_eq!(
+            status.audit_staleness,
+            Some(crate::log::AuditStaleness::Head),
+            "the status a re-audit reads names the same kind"
+        );
+        assert_eq!(
+            serde_json::to_value(&status).unwrap()["audit_staleness"],
+            "head",
+            "spelled as the wire spells it"
+        );
 
         let (_temp, root, paths) = wheeled_arc("stale-base-arc");
         mark_in(&paths, &root, "stale-base-arc", MarkStage::Audited, None).unwrap();
@@ -1450,6 +1554,10 @@ mod tests {
         let after_base = read(&root, &paths, "stale-base-arc");
         assert!(!after_base.join_ready, "a base move un-audits");
         assert_eq!(after_base.stage, "audit-stale");
+        assert_eq!(
+            after_base.audit_staleness,
+            Some(crate::log::AuditStaleness::Base)
+        );
     }
 
     /// **A done arc is resumable at its audit, and only when that audit is
@@ -1488,6 +1596,53 @@ mod tests {
         let again = crate::ops::open_arc(&paths, &root, "reaudit-arc").unwrap();
         assert!(!again.resumed, "the door is idempotent");
         assert!(!crate::ops::reopen_stale_audit(&paths, &root, "reaudit-arc").unwrap());
+    }
+
+    /// **A stopped audit whose mark went stale is inside the door.** The
+    /// window between a mark and the runner's tick stops the arc at its
+    /// audit, not done; the door reopens it once the audit is stale, as it
+    /// would a done arc. A person's stop at the same stage stands.
+    #[test]
+    fn a_stopped_audit_whose_mark_went_stale_reopens_at_its_audit() {
+        use crate::arc::{ArcStage, ArcStopReason, append_arc_stop};
+        let (_temp, root, paths) = wheeled_arc("window-arc");
+        mark_in(&paths, &root, "window-arc", MarkStage::Audited, None).unwrap();
+        append_arc_stop(
+            &paths,
+            &root,
+            "window-arc",
+            ArcStage::Audit,
+            ArcStopReason::AuditWentStale,
+        )
+        .unwrap();
+        assert!(
+            !crate::ops::reopen_stale_audit(&paths, &root, "window-arc").unwrap(),
+            "a current mark has nothing to re-audit"
+        );
+
+        fs::write(root.join("base.txt"), "the base moved\n").unwrap();
+        commit_all(&root, "base moves");
+        assert!(crate::ops::reopen_stale_audit(&paths, &root, "window-arc").unwrap());
+        let record = crate::arc::read_arc(&paths, &root, "window-arc").unwrap();
+        assert_eq!(record.stopped, None, "the resume clears the stop");
+        assert_eq!(record.resume, Some(ArcStage::Audit));
+
+        let (_temp, root, paths) = wheeled_arc("person-arc");
+        mark_in(&paths, &root, "person-arc", MarkStage::Audited, None).unwrap();
+        append_arc_stop(
+            &paths,
+            &root,
+            "person-arc",
+            ArcStage::Audit,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        fs::write(root.join("base.txt"), "the base moved\n").unwrap();
+        commit_all(&root, "base moves");
+        assert!(
+            !crate::ops::reopen_stale_audit(&paths, &root, "person-arc").unwrap(),
+            "a person's stop is resumed by hand"
+        );
     }
 
     /// **A re-stamp makes a stale done arc ready again with no turn.** The
@@ -2105,6 +2260,37 @@ mod tests {
             !Path::new(&entry.worktree_abs).starts_with(&base),
             "and never under the checkout that owns the common dir"
         );
+    }
+
+    /// Every stage the derivation can answer is a value whose word is the
+    /// wire's, so a decision that matches the value and a display that shows
+    /// the word read the same stage.
+    #[test]
+    fn the_stage_word_and_the_wire_word_agree() {
+        let declared = [
+            None,
+            Some(ArcDeclaration::Step {
+                current: 1,
+                total: 2,
+            }),
+            Some(ArcDeclaration::Built),
+            Some(ArcDeclaration::Audited),
+        ];
+        let mut seen = std::collections::BTreeSet::new();
+        for rounds in [0, 1] {
+            for flags in 0..32u8 {
+                for latest in declared {
+                    let bit = |n: u8| flags & (1 << n) != 0;
+                    let word = stage_word(rounds, bit(0), bit(1), bit(2), latest, bit(3), bit(4));
+                    assert_eq!(
+                        word.as_str(),
+                        derive_stage(rounds, bit(0), bit(1), bit(2), latest, bit(3), bit(4))
+                    );
+                    seen.insert(word.as_str());
+                }
+            }
+        }
+        assert!(seen.contains("audit-stale") && seen.contains("implementing"));
     }
 
     /// The stage precedence table ([P03]): a join outranks a declaration, a

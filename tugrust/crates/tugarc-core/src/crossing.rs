@@ -126,7 +126,7 @@ impl Crossing {
 /// The live arcs on `name`'s base, other than `name` itself, in name order.
 ///
 /// Live is an arc branch that exists: a join or a discard deletes it, and the
-/// workshop's branch sits outside the arc namespace, so it is never listed.
+/// pair checkout is detached, outside the arc namespace, so it is never listed.
 pub fn live_siblings(repo_root: &Path, name: &str) -> Result<Vec<String>, ArcError> {
     let repo = main_repo_root(repo_root);
     let base = arc_base(&repo, name)?;

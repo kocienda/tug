@@ -4,76 +4,33 @@
 //! entire durable state, computed here. The client holds no durable copy: it
 //! renders what this says.
 //!
-//! # What is cached, and what is deliberately not
+//! # One authority for readiness
 //!
-//! This split is the whole of this module, and getting it backwards would
-//! rebuild the bug the feature exists to remove.
+//! The board reads readiness and runs no derivation of its own. Whether the
+//! join is offered is `tugarc-core`'s `join_ready`, carried on the detail, and
+//! what refuses it is `join_blockers_from_detail`, read live on every
+//! recompute. A ready arc's audit verified the fit against exactly this base,
+//! so there is no conflict probe here: a second, weaker answer to a settled
+//! question would only be one more thing that could disagree with it. The
+//! race between a base move and the next recompute is closed at press time,
+//! where the join compares the audited pair before it lands.
 //!
-//! **Cached, keyed by `(base_sha, arc_head_sha)`** — the `merge-tree` conflict
-//! probe. It is a pure function of those two commits, so a hit is sound and a miss costs one
-//! probe per actual movement.
-//!
-//! **Never cached** — the blockers, and every ref and config read. Blockers
-//! answer to working-tree dirt, to which branch the base checkout has out, and
-//! to whether a teardown is under way; none of those move a SHA. A blocker set cached against
-//! the two heads would keep refusing a join whose real answer changed the
-//! moment the user cleaned their checkout — a face that lies, which is exactly
-//! what this whole seam was built to stop.
-//!
-//! The expensive half is also skipped when it would not be shown: while
-//! blockers stand, the state is `blocked` and no conflict list is rendered, so
-//! the probe does not run at all.
+//! **Nothing here is cached.** Blockers answer to working-tree dirt, to which
+//! branch the base checkout has out, and to whether a teardown is under way;
+//! none of those move a SHA, so a blocker set cached against the two heads
+//! would keep refusing a join whose real answer changed the moment the user
+//! cleaned their checkout.
 
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use tugcore::instance::Paths;
 
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
     ArcJoinAttention, ArcJoinBlocker, ArcJoinOffer, ArcJoinState, ArcResolvedBase,
 };
-
-/// The cacheable half of one arc's join facts, and the head pair it describes.
-#[derive(Clone)]
-struct CachedProbe {
-    base_sha: String,
-    arc_sha: String,
-    conflicts: Vec<String>,
-}
-
-#[derive(Default)]
-pub struct JoinBoard {
-    by_arc: Mutex<HashMap<String, CachedProbe>>,
-}
-
-static BOARD: OnceLock<Arc<JoinBoard>> = OnceLock::new();
-
-/// How many times the expensive probe has actually run.
-///
-/// A cache whose only evidence is "the answer looks right" is untested: the
-/// wrong-but-plausible implementation returns the same answer while paying the
-/// cost every time. Counting the probes is what lets a test tell a hit from a
-/// miss, and what lets one assert the blocked path skips the probe entirely.
-static PROBE_RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// The probe counter's current value.
-#[cfg(test)]
-pub fn probe_runs() -> u64 {
-    PROBE_RUNS.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-fn board() -> Arc<JoinBoard> {
-    Arc::clone(BOARD.get_or_init(|| Arc::new(JoinBoard::default())))
-}
-
-/// Drop cache entries for arcs that no longer exist.
-pub fn sweep(live_owner_keys: &[String]) {
-    let board = board();
-    let mut map = board.by_arc.lock();
-    map.retain(|key, _| live_owner_keys.iter().any(|k| k == key));
-}
 
 /// The repositories this process has already swept for the retired join
 /// pipeline's residue.
@@ -165,22 +122,14 @@ pub fn join_state_for(
         };
     }
 
-    let probe = cached_probe(repo_root, detail);
-    let conflicts = probe.map(|p| p.conflicts).unwrap_or_default();
-    let phase = if conflicts.is_empty() {
-        "previewed"
-    } else {
-        "conflicted"
-    };
-
     // The first reason the offer is withheld, named rather than folded into
-    // one flag so the log can say which one held a ready arc's room shut. A
-    // conflict on a ready arc is the base having moved past its audit faster
-    // than the readiness read caught up; the re-audit answers it.
+    // one flag so the log can say which one held the room shut. An arc the
+    // derivation does not call ready is withheld here as well as by its
+    // blocker, because a hand arc that is not ready carries no blocker.
     let withheld = if run.is_some() {
         Some("run-held")
-    } else if !conflicts.is_empty() {
-        Some("conflicted")
+    } else if !detail.join_ready {
+        Some("not-ready")
     } else {
         None
     };
@@ -200,9 +149,11 @@ pub fn join_state_for(
     );
 
     ArcJoinState {
-        phase: phase.to_string(),
+        phase: "previewed".to_string(),
         blockers,
-        conflicts,
+        // The audit verified the fit, so a standing offer has no conflicts to
+        // show; the field stays on the wire for the join's own answer.
+        conflicts: Vec::new(),
         run,
         offer,
         attention,
@@ -324,9 +275,7 @@ fn offer_receipt(detail: &ArcDetail, withheld: Option<&'static str>) {
 /// Everything this reads is already computed by the caller, with one exception:
 /// the two head shas, which cost a `rev-parse` each. They are paid for only in
 /// the narrow branch that is actually going to offer — an arc that is
-/// join-ready, with nothing running and nothing else standing in the way —
-/// and `cached_probe` has already paid the same two on the path that reaches
-/// here, so in practice the answers are warm.
+/// join-ready, with nothing running and nothing else standing in the way.
 ///
 /// **Readiness is the whole gate.** A ready arc's audit verified the fit of
 /// exactly the tree the join lands, so a ready arc is an offer, immediately,
@@ -342,9 +291,8 @@ fn standing_offer(repo_root: &Path, detail: &ArcDetail, quiet: bool) -> Option<A
     // The arc's decision belongs at the end of the arc. An arc that has not
     // finished the work somebody asked it for is still being worked, and there
     // is nothing to decide about. Readiness is derived rather than declared
-    // ([D147]) — see `join_pilot`'s module docstring for why the `built` mark
-    // stopped being the gate.
-    if !detail.join_ready || !quiet {
+    // ([D147]), and `quiet` already folds it in.
+    if !quiet {
         return None;
     }
     let name = detail.name.as_str();
@@ -369,35 +317,6 @@ fn standing_offer(repo_root: &Path, detail: &ArcDetail, quiet: bool) -> Option<A
         message,
         message_source: message_source.as_str().to_string(),
     })
-}
-
-/// The conflict probe, from cache when the head pair is unmoved.
-fn cached_probe(repo_root: &Path, detail: &ArcDetail) -> Option<CachedProbe> {
-    let key = detail.owner_key.clone();
-    let board = board();
-
-    // A cheap pair of reads decides whether the expensive probe is needed.
-    let base_sha = ops::rev_parse(repo_root, &detail.base).ok()?;
-    let arc_sha = ops::rev_parse(repo_root, &detail.branch).ok()?;
-
-    {
-        let map = board.by_arc.lock();
-        if let Some(hit) = map.get(&key) {
-            if hit.base_sha == base_sha && hit.arc_sha == arc_sha {
-                return Some(hit.clone());
-            }
-        }
-    }
-
-    PROBE_RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let probed = ops::join_conflicts_in(repo_root, &detail.name).ok()?;
-    let fresh = CachedProbe {
-        base_sha: probed.base_sha,
-        arc_sha: probed.arc_sha,
-        conflicts: probed.conflicts,
-    };
-    board.by_arc.lock().insert(key, fresh.clone());
-    Some(fresh)
 }
 
 #[cfg(test)]
@@ -432,11 +351,11 @@ mod tests {
     fn a_withheld_reason_is_said_once_per_change() {
         let mut said = SaidOnce::default();
         assert!(
-            said.say("offer:a", Some("conflicted")),
+            said.say("offer:a", Some("run-held")),
             "the first word is said"
         );
         assert!(
-            !said.say("offer:a", Some("conflicted")),
+            !said.say("offer:a", Some("run-held")),
             "a recompute is not a change"
         );
         assert!(
@@ -459,35 +378,61 @@ mod tests {
     }
 
     fn compose(repo: &Path) -> ArcJoinState {
-        let detail = detail_for(repo);
+        compose_with(repo, &detail_for(repo))
+    }
+
+    fn compose_with(repo: &Path, detail: &ArcDetail) -> ArcJoinState {
         let branch = ops::current_branch(repo).unwrap();
         join_state_for(
             repo,
-            &detail,
+            detail,
             &branch,
             &std::collections::BTreeMap::new(),
             &standing_resolve_receipts(repo),
         )
     }
 
+    /// The detail as the derivation would read it on an arc it does not call
+    /// ready, whatever the fixture's own reading.
+    fn not_ready(repo: &Path) -> ArcDetail {
+        let mut detail = detail_for(repo);
+        detail.join_ready = false;
+        detail
+    }
+
+    /// The board shows the base as it is, with no conflict probe of its own:
+    /// the fixture's arc and base disagree over `f.txt`, and the face says
+    /// nothing about it, because the audit is what verified the fit.
     #[test]
-    fn the_probe_is_cached_by_the_head_pair_but_blockers_are_not() {
+    fn the_board_runs_no_conflict_probe() {
         let temp = fixture();
         let repo = temp.path();
+        let state = compose(repo);
+        assert_eq!(state.phase, "previewed");
+        assert!(state.conflicts.is_empty(), "{:?}", state.conflicts);
+    }
 
-        let before = probe_runs();
-        let first = compose(repo);
-        let after_first = probe_runs();
-        assert_eq!(after_first, before + 1, "the first compose probes");
-        assert_eq!(first.phase, "conflicted");
-
-        let second = compose(repo);
-        assert_eq!(
-            probe_runs(),
-            after_first,
-            "an unmoved head pair is a cache hit"
+    /// Readiness is the derivation's: an arc it does not call ready offers
+    /// nothing and needs nobody, and the same arc read ready offers.
+    #[test]
+    fn the_offer_is_withheld_while_the_derivation_says_not_ready() {
+        let temp = fixture();
+        let repo = temp.path();
+        reconciled(repo);
+        let withheld = compose_with(repo, &not_ready(repo));
+        assert!(withheld.offer.is_none(), "not ready, so nothing is offered");
+        assert!(withheld.attention.is_none(), "and nobody is needed");
+        assert!(
+            compose(repo).offer.is_some(),
+            "the same arc, read ready, offers"
         );
-        assert_eq!(second.conflicts, first.conflicts);
+    }
+
+    #[test]
+    fn blockers_are_read_live_on_every_compose() {
+        let temp = fixture();
+        let repo = temp.path();
+        assert!(compose(repo).blockers.is_empty(), "precondition: unblocked");
 
         // Now dirty the base over a path the arc also changes. NO sha moves —
         // and the blockers must change anyway. This is the exact case a
@@ -519,38 +464,19 @@ mod tests {
         let cleared = compose(repo);
         assert_eq!(pinned, heads(repo), "still no sha moved");
         assert!(cleared.blockers.is_empty(), "the refusal lifts");
-        assert_eq!(cleared.phase, "conflicted");
-    }
+        assert_eq!(cleared.phase, "previewed");
 
-    #[test]
-    fn a_blocked_arc_never_pays_for_the_probe() {
-        let temp = fixture();
-        let repo = temp.path();
-
-        // Block it before anything has been probed for this arc.
+        // And a base checkout on another branch blocks the same way.
         git(repo, &["switch", "-q", "-c", "scratch"]);
-
-        let before = probe_runs();
-        let blocked = compose(repo);
-        assert_eq!(blocked.phase, "blocked");
-        assert!(blocked.blockers.iter().any(|b| b.kind == "off-base"));
-        assert_eq!(
-            probe_runs(),
-            before,
-            "the expensive half is skipped when its answer would not be shown"
-        );
-
-        // Clearing the blocker makes the conflicts appear on the next compose.
-        git(repo, &["switch", "-q", "main"]);
-        let conflicted = compose(repo);
-        assert_eq!(conflicted.phase, "conflicted");
-        assert!(!conflicted.conflicts.is_empty());
-        assert!(probe_runs() > before, "and the probe runs then");
+        let off_base = compose(repo);
+        assert_eq!(off_base.phase, "blocked");
+        assert!(off_base.blockers.iter().any(|b| b.kind == "off-base"));
+        assert!(off_base.offer.is_none(), "a blocked arc offers nothing");
     }
 
     // ── The join offer ──────────────────────────────────────────────────────
 
-    /// Clear the fixture's conflict — the base takes the arc's side of
+    /// Clear the fixture's overlap — the base takes the arc's side of
     /// `f.txt` — so the arc is a ready arc with a clean merge, the only state
     /// it offers a join in.
     ///
@@ -581,14 +507,11 @@ mod tests {
         let temp = fixture();
         let repo = temp.path();
 
-        // Conflicted: the base moved past the arc, so there is nothing to
-        // offer.
-        assert!(
-            compose(repo).offer.is_none(),
-            "a conflicted arc offers nothing: its audit has not seen this base"
-        );
-
         reconciled(repo);
+        assert!(
+            compose_with(repo, &not_ready(repo)).offer.is_none(),
+            "an arc still being worked offers nothing"
+        );
         let offer = compose(repo)
             .offer
             .expect("a clean ready arc offers its join");
@@ -676,18 +599,17 @@ mod tests {
     }
 
     /// The attention fact is the offer's: a ready arc whose offer stands needs
-    /// the user, under a key that names the work; a conflicted arc and an arc
-    /// with a run in flight need nobody.
+    /// the user, under a key that names the work; an arc that is not ready and
+    /// an arc with a run in flight need nobody.
     #[test]
     fn attention_follows_the_offer() {
         let temp = fixture();
         let repo = temp.path();
-        assert!(
-            compose(repo).attention.is_none(),
-            "a conflicted arc offers nothing, so needs nobody"
-        );
-
         reconciled(repo);
+        assert!(
+            compose_with(repo, &not_ready(repo)).attention.is_none(),
+            "an arc that is not ready offers nothing, so needs nobody"
+        );
         let work = detail_for(repo).work_id.clone();
         let offered = compose(repo).attention.expect("an offer is attention");
         assert_eq!(offered.kind, "offer");

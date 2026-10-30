@@ -59,7 +59,6 @@ import {
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  silenceJoinPrompt,
   type JoinScratchRepo,
 } from "./arc-fixture";
 
@@ -210,7 +209,6 @@ describe.skipIf(!SHOULD_RUN)("AT0753: a hand-opened room stays closed after its 
         // hand door does.
         await toggleFolded(app, true);
         bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
-        silenceJoinPrompt(projectDir(), ARC);
         const bindOk = { tug_session_id: SID, arc_id: arcId, arc_name: ARC };
         await app.dispatchControlAction("bind_arc_ok", bindOk);
         await app.body("A").evalJS<null>(

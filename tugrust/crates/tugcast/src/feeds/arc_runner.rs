@@ -2,7 +2,7 @@
 //!
 //! [`super::arc::arc_action`] decides; this gathers the facts it decides
 //! over, performs what it returns, and records the result in the arc log. The
-//! split is `join_pilot`'s, for `join_pilot`'s reason: a decision made on one
+//! split is the base-motion engine's, for its reason: a decision made on one
 //! scheduling hop and acted on the next is a time-of-check/time-of-use window,
 //! so the act re-reads under a guard and the decision stays pure.
 //!
@@ -2032,6 +2032,10 @@ struct ArcReading {
     /// The open step's waiting `yield:` hand-off, which the implement stage's
     /// `where` line names ([B10]). Retired by the record when the step closes.
     latest_yield: Option<String>,
+    /// Which side of a standing audit mark has moved, when it has: the fact
+    /// an audit stage's prompt opens a re-audit with. `None` with no mark, or
+    /// with one that still describes the tree.
+    audit_staleness: Option<tugarc_core::log::AuditStaleness>,
 }
 
 /// The runner's per-arc memory as one tick reads it — the facts no document
@@ -2160,6 +2164,11 @@ fn read(
             .zip(run_through)
             .is_some_and(|(next, through)| next <= through);
 
+    let audit_marked = matches!(
+        declarations.latest,
+        Some(tugarc_core::log::ArcDeclaration::Audited)
+    );
+
     let facts = ArcFacts {
         document_exists,
         input_is_plan,
@@ -2215,13 +2224,12 @@ fn read(
         // Audited *and current*: a mark whose head or base has since moved is
         // an audit that no longer describes the tree, so a re-audit seated
         // over it is not finished by the mark it is there to replace.
-        audit_declared: matches!(
-            declarations.latest,
-            Some(tugarc_core::log::ArcDeclaration::Audited)
-        ) && tugarc_core::log::audit_current(
-            &declarations,
-            &tugarc_core::ops::live_tips(project, name),
-        ),
+        audit_declared: audit_marked
+            && tugarc_core::log::audit_current(
+                &declarations,
+                &tugarc_core::ops::live_tips(project, name),
+            ),
+        audit_marked,
         // Runner memory, and the one fact this pass cannot gather: the count
         // is over turns the *previous* tick already saw, so `evaluate` stamps
         // it after this read returns.
@@ -2243,6 +2251,16 @@ fn read(
     // Where devise writes: the arc's own `plan.md`, repo-relative, which is
     // also what the record and the stage divider carry.
     let devise_target = Some(format!(".tug/arcs/{name}/plan.md"));
+    // Read only under a mark: an arc never audited has nothing to be stale,
+    // and the tips are a git read the tick need not pay for it.
+    let audit_staleness = audit_marked
+        .then(|| {
+            tugarc_core::log::audit_staleness(
+                &declarations,
+                &tugarc_core::ops::live_tips(project, name),
+            )
+        })
+        .flatten();
 
     Some(ArcReading {
         name: name.to_string(),
@@ -2258,6 +2276,7 @@ fn read(
         wake_turns_ended: session.wake_turns_ended,
         config,
         latest_yield: declarations.latest_yield.clone(),
+        audit_staleness,
     })
 }
 
@@ -2344,6 +2363,7 @@ fn opening_prompt(
         steps_in_hand,
         reading.latest_yield.as_deref(),
     );
+    let place = with_reaudit(place, rotation.stage, reading);
     // A stopped arc that is rotating again is resuming, and the stage it opens
     // is owed that fact: it is the difference between starting the work and
     // picking it back up.
@@ -2378,6 +2398,18 @@ fn opening_prompt(
         resume,
         dirty,
     ))
+}
+
+/// An audit stage's `where` line, carrying the re-audit clause when the mark
+/// it answers has gone stale — the stage-aware sentence the transcript shows
+/// before the triage it sizes. Every other stage's line is returned as is.
+fn with_reaudit(place: String, stage: ArcStage, reading: &ArcReading) -> String {
+    match (stage, reading.audit_staleness) {
+        (ArcStage::Audit, Some(kind)) => {
+            format!("{place}\n\n{}", wheel::prompt::reaudit_clause(kind))
+        }
+        _ => place,
+    }
 }
 
 /// The seat a stage is handed on its `where` line — made, not computed.
@@ -3361,6 +3393,7 @@ async fn continue_stage(
         steps,
         reading.latest_yield.as_deref(),
     );
+    let place = with_reaudit(place, stage, reading);
     let resume = reading
         .record
         .last_stop

@@ -31,11 +31,11 @@ use tugarc_core::resolve::{FileMerger, PairCheckout, PairResolution};
 use tugcore::instance::Paths;
 
 use super::agent_supervisor::AgentSupervisor;
-use super::join_resolve::ScribeFileMerger;
-use super::join_resolver::{
-    CharterInputs, JoinResolverSpawner, RESOLVE_DEADLINE, ResolverRun, ResolverTurn,
+use super::crossing_resolver::{
+    CharterInputs, CrossingResolverSpawner, RESOLVE_DEADLINE, ResolverRun, ResolverTurn,
     compose_charter, spawner_for, validate_report,
 };
+use super::join_resolve::ScribeFileMerger;
 use crate::scribe::ScribeSpawner;
 
 /// What a settle runs with: the scribe for the AI rung, and the resolver's
@@ -45,7 +45,7 @@ pub struct SettleContext {
     pub paths: Arc<Paths>,
     pub scribe: Option<Arc<dyn ScribeSpawner>>,
     pub model: Arc<dyn Fn() -> String + Send + Sync>,
-    pub production: Option<Arc<dyn JoinResolverSpawner>>,
+    pub production: Option<Arc<dyn CrossingResolverSpawner>>,
 }
 
 impl SettleContext {
@@ -61,8 +61,8 @@ impl SettleContext {
                 None => Arc::new(|| "sonnet".to_string()),
             },
             production: scribe.map(|_| {
-                Arc::new(super::join_resolver::ClaudeJoinResolverSpawner)
-                    as Arc<dyn JoinResolverSpawner>
+                Arc::new(super::crossing_resolver::ClaudeCrossingResolverSpawner)
+                    as Arc<dyn CrossingResolverSpawner>
             }),
         }
     }
@@ -371,7 +371,7 @@ async fn resolve_in(
     pair: &tugarc_core::crossing::CrossingPair,
     ladder: &PairResolution,
     intent: &str,
-    spawner: &dyn JoinResolverSpawner,
+    spawner: &dyn CrossingResolverSpawner,
     checkout: &Arc<PairCheckout>,
 ) -> Result<(), String> {
     let mut run = ResolverRun::open(spawner, checkout.path(), (ctx.model)())?;

@@ -830,6 +830,82 @@ async fn a_join_narrates_its_beats_on_the_wire() {
     cancel.cancel();
 }
 
+/// **The press follows readiness.** A Wheel arc whose audit went stale on a
+/// round is refused at the press, and the refusal is the card's
+/// `changeset_join_err` carrying the sentence that names why ([L31]); the
+/// arc's branch is still there, because nothing landed.
+#[tokio::test]
+async fn a_press_on_a_stale_wheel_arc_is_refused_with_why() {
+    use tugcore::test_fixtures::git::{GitFixture, git};
+
+    let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    GitFixture::init(&root);
+    std::fs::write(root.join("keep.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+    git(&root, &["branch", "tugarc/demo"]);
+    git(&root, &["config", "branch.tugarc/demo.tugbase", "main"]);
+    let wt = root.join(".tug/worktrees/demo");
+    git(
+        &root,
+        &["worktree", "add", wt.to_str().unwrap(), "tugarc/demo"],
+    );
+    std::fs::write(wt.join("round.txt"), "round\n").unwrap();
+    git(&wt, &["add", "-A"]);
+    git(&wt, &["commit", "-m", "round 1"]);
+
+    // A Wheel arc, audited on this head — and then a round after the audit.
+    let paths = tugcore::instance::Paths::from_env();
+    tugarc_core::arc::append_arc_start(&paths, &root, "demo", ".tug/arcs/demo/tasks.md").unwrap();
+    tugarc_core::mark_in(&paths, &root, "demo", tugarc_core::MarkStage::Audited, None).unwrap();
+    std::fs::write(wt.join("round.txt"), "round, again\n").unwrap();
+    git(&wt, &["commit", "-qam", "round 2"]);
+
+    let cancel = CancellationToken::new();
+    let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "changeset_join",
+        "project_dir": root.to_string_lossy(),
+        "arc": "demo",
+        "preview": false,
+    }))
+    .unwrap();
+    sup.handle_control("changeset_join", &payload, 1).await;
+
+    let refusal = loop {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        match body["action"].as_str() {
+            Some("changeset_join_err") => break body,
+            Some("changeset_join_ok") => panic!("a stale arc landed: {body}"),
+            _ => {}
+        }
+    };
+    let detail = refusal["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("a round landed on arc 'demo' after its audit"),
+        "{refusal}"
+    );
+    assert!(
+        !detail.contains("--unaudited"),
+        "the press names no terminal door: {refusal}"
+    );
+    let branch = tugcore::test_fixtures::git::command()
+        .arg("-C")
+        .arg(&root)
+        .args(["rev-parse", "--verify", "tugarc/demo"])
+        .output()
+        .unwrap();
+    assert!(branch.status.success(), "the arc is still there");
+    cancel.cancel();
+}
+
 /// The documents-delete round trip: the paperwork goes, the receipt names
 /// what went, and nothing else about the repo moves. A press on a ghost
 /// row is the case — no branch, no worktree, documents nothing else can

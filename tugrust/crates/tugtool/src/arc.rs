@@ -61,6 +61,7 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             strategy,
             preview,
             continue_join,
+            unaudited,
             resolve: _,
             break_lease: _,
         } => run_join(
@@ -76,6 +77,7 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
                 // `TUG_SESSION_ID` is the answer, read here at the edge.
                 session_id: crate::session_identity::trailer_session_id(),
                 caller_cwd: std::env::current_dir().ok(),
+                unaudited,
             },
             json,
             quiet,
@@ -483,6 +485,23 @@ fn capture_owner_key(repo: &std::path::Path, name: &str) -> String {
     tugarc_core::ops::arc_owner_key(repo, name)
 }
 
+/// A readiness refusal at a terminal names the door that lands anyway. The
+/// card's press refuses with the bare sentence; a person at the CLI is the
+/// one caller who may decide to land an arc its audit does not cover.
+fn name_the_hand_door(error: ArcError, name: &str) -> ArcError {
+    match error {
+        ArcError::Blocked(mut blockers) => {
+            for blocker in blockers.iter_mut().filter(|b| b.kind == "not-ready") {
+                blocker.detail.push_str(&format!(
+                    " To land it anyway: tugtool arc join {name} --unaudited"
+                ));
+            }
+            ArcError::Blocked(blockers)
+        }
+        other => other,
+    }
+}
+
 fn run_join(
     paths: &Paths,
     name: &str,
@@ -493,7 +512,7 @@ fn run_join(
     let repo = arc_repo_root()?;
     let previewing = opts.preview;
     let captured = (!previewing).then(|| capture_owner_key(&repo, name));
-    let data = ops::join_in(paths, &repo, name, opts)?;
+    let data = ops::join_in(paths, &repo, name, opts).map_err(|e| name_the_hand_door(e, name))?;
     // Only a real join that landed tore the arc down.
     if !data.previewed
         && data.conflicts.is_empty()
@@ -1461,7 +1480,7 @@ fn print_undo(outcome: &tugarc_core::UndoOutcome) {
         );
     }
     if outcome.restored_unbound {
-        println!("  restored unbound — bind it to resume piloting");
+        println!("  restored unbound — bind it to a card to resume it");
     }
     for w in &outcome.warnings {
         println!("  warning: {}", w);
@@ -1680,6 +1699,46 @@ fn run_arc_run(
     // stage to go, so this refuses rather than recording an arc nobody can run.
     let session = calling_session_id("an arc", session.as_deref())?;
     let root = arc_project_root(project.clone())?;
+    // A done arc is a re-audit, and the re-audit is the server's to open: it
+    // holds the engine's quiet re-stamp, and a press while that job runs
+    // inside its horizon must refuse rather than seat a second answer beside
+    // it. So the CLI takes the Re-audit button's own door, and the refusal
+    // reads the same from both.
+    if tugarc_core::arc::read_arc(paths, &root, name).is_some_and(|record| record.done) {
+        let response = post_arc_api(serde_json::json!({
+            "op": "arc_resume",
+            "tug_session_id": session.session_id,
+            "project_dir": binding_project(project)?.to_string_lossy(),
+            "arc": name,
+        }))
+        .map_err(|e| refuse(&session, e))?;
+        let seated = answered_session(&response, &session);
+        let arc = tugarc_core::arc::read_arc(paths, &root, name).ok_or_else(|| {
+            AppError::Exit1(
+                "arc_unreadable",
+                format!("re-audited '{name}' but could not read its arc back"),
+            )
+        })?;
+        if json {
+            print_ok(
+                "arc run",
+                ArcRunPayload {
+                    name: name.to_string(),
+                    started: false,
+                    resumed: true,
+                    arc,
+                    tug_session_id: seated.clone(),
+                },
+            );
+        } else if !quiet {
+            println!("Arc on '{name}' is done but its audit is stale — re-auditing");
+            println!(
+                "Session {seated} is bound to it; the first stage rotates when this turn ends."
+            );
+            print_rotation_note(&session, &seated);
+        }
+        return Ok(());
+    }
     let tugarc_core::OpenOutcome {
         started,
         resumed,
@@ -2304,8 +2363,8 @@ impl Claim {
 /// same mistake [D147] removed from the join's other end. `commit` is
 /// deliberately not among them: see the note there. An arc whose worker
 /// nobody recorded shows no worker on its Arcs card row, on the session masthead or
-/// in the shade, and — since the pilot works only for bound arcs — is never
-/// offered for joining at all.
+/// in the shade, and — since the wheel drives only bound arcs — is never
+/// carried on to its audit at all.
 ///
 /// Two of the three no-ops are real and stay silent: there is nothing to claim
 /// without a calling session, and nowhere to put it without a live instance.
@@ -3034,6 +3093,7 @@ mod tests {
             last_activity: Some("2026-09-26T00:00:00Z".to_string()),
             fit: None,
             audited_at: None,
+            audit_staleness: None,
             disagreements: Vec::new(),
         }
     }

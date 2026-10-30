@@ -39,6 +39,9 @@ pub enum Probe {
     /// moved. Readiness to join is relative to the audit, so this is the
     /// reading the offer follows.
     Stage { arc: String, stage: String },
+    /// A process whose command line contains `pattern` is running — the
+    /// quiet re-stamp's verify, while a scenario needs it to be.
+    Process { pattern: String },
     /// `inner` still does not hold after `after_secs` — the negative reading,
     /// for "no conflict turn was injected".
     Absent { inner: Box<Probe>, after_secs: u64 },
@@ -108,6 +111,12 @@ impl Probe {
         Probe::arc_log(arc, "arc-resume  audit")
     }
 
+    pub fn process(pattern: &str) -> Self {
+        Probe::Process {
+            pattern: pattern.to_string(),
+        }
+    }
+
     pub fn absent(inner: Probe, after_secs: u64) -> Self {
         Probe::Absent {
             inner: Box::new(inner),
@@ -125,6 +134,7 @@ impl Probe {
             Probe::Transcript { arc, grep } => format!("transcript {arc} ∋ {grep}"),
             Probe::BaseLog { contains } => format!("base log ∋ {contains}"),
             Probe::Stage { arc, stage } => format!("stage {arc} = {stage}"),
+            Probe::Process { pattern } => format!("process ∋ {pattern}"),
             Probe::Absent { inner, after_secs } => {
                 format!("absent after {after_secs}s: {}", inner.label())
             }
@@ -182,6 +192,7 @@ impl Probe {
                 arc = sh_str(arc),
                 needle = sh_str(&format!("\"stage\": \"{stage}\"")),
             ),
+            Probe::Process { pattern } => format!("pgrep -f -- {} >/dev/null", sh_str(pattern)),
             Probe::Absent { inner, .. } => inner.shell(env)?,
         })
     }

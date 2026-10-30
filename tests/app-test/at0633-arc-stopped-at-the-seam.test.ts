@@ -23,7 +23,7 @@
  *    its sentence names the seam — `stopped before its audit` — rather than
  *    an audit that never began; `Ready to join` stands nowhere on the row;
  *  - the card never enters the Changes route on its own: no offer is minted
- *    (`join_ready` is shut on the server, so the pilot never runs), the route
+ *    (`join_ready` is shut on the server, so the board offers nothing), the route
  *    segment wears no offer, and the shade stays down;
  *  - and the escape the sentence promises is real: `/arc-join` opens the room
  *    in join mode on the stopped arc, the register still refuses to call it
@@ -307,8 +307,8 @@ describe.skipIf(!SHOULD_RUN)("AT0633: a stop at the seam is not an offer", () =>
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // The card holds the arc, through the real ledger verb: `arc stop`
-        // stops the arc the calling card is bound to, and the pilot — were
-        // the gate ever to open — works only a bound arc ([D147]). Binding
+        // stops the arc the calling card is bound to, and the wheel — were
+        // the gate ever to open — drives only a bound arc ([D147]). Binding
         // is also what makes this the incident's shape: a bound, finished
         // implement stage sitting at the seam.
         bindArc(projectDir(), ARC_NAME, SID, scratch?.cli ?? {});

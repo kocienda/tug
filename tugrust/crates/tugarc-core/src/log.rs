@@ -961,6 +961,52 @@ pub fn audit_stale_on_base_only(decls: &ArcDeclarations, tips: &ArcTips) -> bool
     audit_stale(decls, tips) && tips.head.as_deref() == Some(pair.head.as_str())
 }
 
+/// Which of the audited pair's two endpoints no longer stands.
+///
+/// Serialized as its [`AuditStaleness::as_str`] word, so the status a re-audit
+/// reads and the wire the deck reads spell it the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AuditStaleness {
+    /// A round landed after the audit: the arc head moved, the base did not.
+    Head,
+    /// The base moved under the audit, and no round landed after it.
+    Base,
+    /// Both moved — or the mark names no pair, or a tip cannot be read, so
+    /// nothing can say which one did.
+    Both,
+}
+
+impl AuditStaleness {
+    /// The word the wire and the logs spell it with.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Head => "head",
+            Self::Base => "base",
+            Self::Both => "both",
+        }
+    }
+}
+
+/// Why a standing audit no longer describes the arc, or `None` when it is
+/// current or there is no audit to be stale. The same reading as
+/// [`audit_stale`], split by endpoint.
+pub fn audit_staleness(decls: &ArcDeclarations, tips: &ArcTips) -> Option<AuditStaleness> {
+    if !audit_stale(decls, tips) {
+        return None;
+    }
+    let Some(pair) = decls.audited_at.as_ref() else {
+        return Some(AuditStaleness::Both);
+    };
+    let head_moved = tips.head.as_deref() != Some(pair.head.as_str());
+    let base_moved = tips.base.as_deref() != Some(pair.base.as_str());
+    Some(match (head_moved, base_moved) {
+        (true, false) => AuditStaleness::Head,
+        (false, true) => AuditStaleness::Base,
+        _ => AuditStaleness::Both,
+    })
+}
+
 /// How far through the *declared run* a stepped arc has got: `(position,
 /// length)`, both 1-based, position within the selection rather than within
 /// the plan.

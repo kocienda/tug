@@ -59,7 +59,7 @@ Under `--json` the human `error: …` line on stderr is suppressed, because the 
 | `unresolved` | the `plan` verbs, for a document that does not resolve or parse | 2 |
 | `not_a_repository`, `git_unavailable` | arc verbs that check the repository and git before they start (others outside a repository answer `arc_refused`) | 1 |
 | `arc_invalid_name`, `arc_not_found` | arc verbs | 2 |
-| `arc_blocked`, `arc_conflicted`, `arc_refused`, `arc_unresolved` | arc verbs (`arc_refused` includes a resolve lease another resolver holds) | 3 |
+| `arc_blocked`, `arc_conflicted`, `arc_refused`, `arc_unresolved` | arc verbs | 3 |
 | `git_index_locked` | arc verbs, when another git process holds `index.lock` (worth retrying) | 1 |
 | `git_lock_held` | arc verbs, when another git process holds some other lock — a ref, a config file (worth retrying) | 1 |
 | `git_failed`, `io_failed` | arc verbs | 1 |

@@ -19,7 +19,7 @@
  *      composer's own invitation, because Ready is not a block.
  *
  * The arc is real — a scratch repository, one arc, one committed round, the
- * pilot deriving readiness with nothing marked. The shade reveals itself first,
+ * server deriving readiness with nothing marked. The shade reveals itself first,
  * as at0445 pins; this file closes it and works in the transcript the reader is
  * returned to, which is where both of its subjects live.
  *
@@ -159,7 +159,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
           "a finished arc with no standing offer is a quiet line",
         ).toBe(0);
 
-        // The real `arc bind` verb: the pilot works from the LEDGER row.
+        // The real `arc bind` verb: the server works from the LEDGER row.
         tugtool(["arc", "bind", ARC], {
           cwd: scratch,
           binaryRoot: cli.binaryRoot,

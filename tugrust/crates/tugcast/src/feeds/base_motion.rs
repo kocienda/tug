@@ -40,7 +40,9 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 use tugcore::instance::Paths;
 
 use tokio::sync::{Notify, broadcast, mpsc};
@@ -96,12 +98,15 @@ pub struct ArcInputs {
     pub mid_plan: bool,
     /// The live session bound to this arc — one arc, one card.
     pub session: Option<BoundSession>,
-    /// A replay for this arc is already running.
+    /// A replay for this arc is already running — an ordinary one, or a
+    /// quiet re-stamp the board publishes as `restamping`.
     pub in_flight: bool,
     /// The last replay attempt at the current base tip stopped on a conflict.
     pub conflicted: bool,
-    /// The arc is done and its audit has gone stale: the head or the base the
-    /// `audited` mark was made against has moved since.
+    /// The arc's audit has gone stale — the head or the base the `audited`
+    /// mark was made against has moved since — and the record is one the
+    /// re-audit door admits: done, or stopped at its audit for a reason the
+    /// door may answer ([`tugarc_core::arc::reaudit_admits`]).
     pub audit_stale_done: bool,
     /// The stale audit went stale on the base alone: the head it was made
     /// against still stands, so no round landed after it.
@@ -172,8 +177,14 @@ pub fn decide_for_arc(inputs: &ArcInputs) -> Decision {
             None => None,
         };
         // Only the base moved: the machine keeps that case, with or
-        // without a card, so a join on the base costs no turn per arc.
+        // without a card, so a join on the base costs no turn per arc. Not
+        // over dirt, which `replay_onto` would only defer: the quiet path
+        // waits for a clean tree as the ordinary one does, rather than
+        // spending a turn on scratch bytes.
         if inputs.audit_base_only && !inputs.quiet_failed {
+            if inputs.worktree_dirty {
+                return Decision::Skip("dirty-worktree");
+            }
             return Decision::Restamp(idle);
         }
         return match idle {
@@ -209,9 +220,12 @@ pub fn decide_for_arc(inputs: &ArcInputs) -> Decision {
 pub enum QuietReplay {
     /// The arc stands on the moved base: replayed, recorded, or already current.
     Clean,
-    /// The replay stopped — a conflict, or a gate inside `replay_onto` (dirt,
-    /// a head that moved under it) deferred it.
+    /// The replay stopped on a conflict.
     Stopped,
+    /// A gate inside `replay_onto` (dirt, a join in flight, a head that moved
+    /// under it) deferred the replay. Transient: nothing is wrong with the
+    /// arc, so a later wake tries again.
+    Deferred,
     /// The replay could not run at all.
     Failed,
 }
@@ -228,7 +242,9 @@ pub enum QuietEnd {
 }
 
 /// The quiet path's verdict, with no IO: a clean replay and a green fit
-/// re-stamp; anything a reader has to look at seats the audit.
+/// re-stamp; a conflict, or a fit that ran and was not green, seats the
+/// audit; a deferral or a replay that could not run leaves the arc for the
+/// next wake, because neither is anything a reader has to look at.
 ///
 /// `verdict` is the verify report's word, `None` when the verify could not
 /// run. Only `verified` and `nothing-in-range` are green here. A project
@@ -237,7 +253,7 @@ pub enum QuietEnd {
 /// seated, as a red or an unclaimed path is.
 pub fn quiet_end(replay: QuietReplay, verdict: Option<&str>) -> QuietEnd {
     match replay {
-        QuietReplay::Failed => QuietEnd::Leave,
+        QuietReplay::Failed | QuietReplay::Deferred => QuietEnd::Leave,
         QuietReplay::Stopped => QuietEnd::Seat,
         QuietReplay::Clean => match verdict {
             Some("verified" | "nothing-in-range") => QuietEnd::Restamp,
@@ -251,6 +267,9 @@ pub fn quiet_end(replay: QuietReplay, verdict: Option<&str>) -> QuietEnd {
 /// What the engine remembers about an arc between wakes.
 #[derive(Debug, Default, Clone)]
 struct ArcState {
+    /// An ordinary replay is running. A quiet re-stamp's latch is not here:
+    /// it is the board's published `restamping` fact, so the wire and a
+    /// Re-audit press read the very thing the engine decides on.
     in_flight: bool,
     /// The paths the last conflicted attempt stopped on, and the base tip it
     /// stopped against. Cleared when the arc becomes current.
@@ -416,6 +435,46 @@ const NOTICE_ORIGIN: &str = "base-motion";
 #[derive(Default)]
 pub struct ConflictBoard {
     by_arc: Mutex<HashMap<String, Vec<String>>>,
+    /// The quiet re-stamp, per arc: the job running now, if one is, and why
+    /// the last one handed the arc to its audit stage.
+    quiet: Mutex<HashMap<String, QuietFact>>,
+    /// Mints each quiet job's generation, so a job a press released cannot
+    /// end — or write for — the job that took the arc after it.
+    generation: AtomicU64,
+}
+
+/// The quiet re-stamp's state on one arc, as the wire reads it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct QuietFact {
+    /// The job running now.
+    pub running: Option<RestampRun>,
+    /// Why the last quiet job could not re-stamp and handed the arc to its
+    /// audit stage. Kept while the arc reads `audit-stale`.
+    pub seated_why: Option<String>,
+}
+
+/// One running quiet job: when it began, and the horizon past which nothing
+/// it is waiting on is worth waiting for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestampRun {
+    pub since: SystemTime,
+    pub deadline: SystemTime,
+    generation: u64,
+}
+
+/// What a press on the Re-audit door finds about the quiet job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RestampRelease {
+    /// No quiet job holds the arc.
+    NotRunning,
+    /// A quiet job holds it and its horizon has not fallen: the press
+    /// refuses, and this is what it says.
+    Running {
+        since: SystemTime,
+        deadline: SystemTime,
+    },
+    /// The job ran past its horizon, so the press took the arc back from it.
+    Released,
 }
 
 impl ConflictBoard {
@@ -426,6 +485,95 @@ impl ConflictBoard {
         } else {
             board.insert(owner_key.to_string(), paths);
         }
+    }
+
+    /// Take the arc for a quiet job and publish it as running, answering the
+    /// job's generation — or `None` when a quiet job already holds the arc.
+    fn begin_restamp(&self, owner_key: &str, horizon: Duration) -> Option<u64> {
+        let mut quiet = self.quiet.lock();
+        let fact = quiet.entry(owner_key.to_string()).or_default();
+        if fact.running.is_some() {
+            return None;
+        }
+        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let since = SystemTime::now();
+        fact.running = Some(RestampRun {
+            since,
+            deadline: since + horizon,
+            generation,
+        });
+        fact.seated_why = None;
+        Some(generation)
+    }
+
+    /// A quiet job holds the arc.
+    fn restamping(&self, owner_key: &str) -> bool {
+        self.quiet
+            .lock()
+            .get(owner_key)
+            .is_some_and(|fact| fact.running.is_some())
+    }
+
+    /// The job `generation` started still holds the arc.
+    fn holds(&self, owner_key: &str, generation: u64) -> bool {
+        self.quiet
+            .lock()
+            .get(owner_key)
+            .and_then(|fact| fact.running.as_ref())
+            .is_some_and(|run| run.generation == generation)
+    }
+
+    /// End the job `generation` started, recording why it seated the audit
+    /// when it did. Answers false, and changes nothing, when a press already
+    /// released that job.
+    fn end_restamp(&self, owner_key: &str, generation: u64, seated_why: Option<String>) -> bool {
+        let mut quiet = self.quiet.lock();
+        let Some(fact) = quiet.get_mut(owner_key) else {
+            return false;
+        };
+        if fact.running.as_ref().map(|run| run.generation) != Some(generation) {
+            return false;
+        }
+        fact.running = None;
+        fact.seated_why = seated_why;
+        true
+    }
+
+    /// The Re-audit door's read: a job inside its horizon refuses the press,
+    /// and one past it is released, so the next wake decides afresh.
+    fn release_restamp(&self, owner_key: &str, now: SystemTime) -> RestampRelease {
+        let mut quiet = self.quiet.lock();
+        let Some(fact) = quiet.get_mut(owner_key) else {
+            return RestampRelease::NotRunning;
+        };
+        match fact.running.as_ref() {
+            None => RestampRelease::NotRunning,
+            Some(run) if now < run.deadline => RestampRelease::Running {
+                since: run.since,
+                deadline: run.deadline,
+            },
+            Some(_) => {
+                fact.running = None;
+                fact.seated_why =
+                    Some("the quiet re-stamp ran past its deadline and was released".to_string());
+                RestampRelease::Released
+            }
+        }
+    }
+
+    /// Drop the seat reason of an arc that no longer reads `audit-stale`.
+    fn forget_seated(&self, owner_key: &str) {
+        let mut quiet = self.quiet.lock();
+        if let Some(fact) = quiet.get_mut(owner_key) {
+            fact.seated_why = None;
+            if fact.running.is_none() {
+                quiet.remove(owner_key);
+            }
+        }
+    }
+
+    fn quiet_fact(&self, owner_key: &str) -> Option<QuietFact> {
+        self.quiet.lock().get(owner_key).cloned()
     }
 }
 
@@ -438,6 +586,46 @@ pub fn conflict_paths_for(owner_key: &str) -> Vec<String> {
         .get()
         .and_then(|board| board.by_arc.lock().get(owner_key).cloned())
         .unwrap_or_default()
+}
+
+/// The quiet re-stamp's published fact for this arc: whether a job is
+/// running and since when, and why the last one seated the audit. `None`
+/// when there is nothing to say or no engine is running.
+pub fn quiet_fact_for(owner_key: &str) -> Option<QuietFact> {
+    BOARD.get().and_then(|board| board.quiet_fact(owner_key))
+}
+
+/// The Re-audit door's call on the engine. A quiet job inside its horizon
+/// refuses the press; one past it is released and the engine woken, so the
+/// arc is decided afresh instead of waiting behind a job that will not end.
+pub fn release_restamp(owner_key: &str) -> RestampRelease {
+    let Some(board) = BOARD.get() else {
+        return RestampRelease::NotRunning;
+    };
+    let answer = board.release_restamp(owner_key, SystemTime::now());
+    if answer == RestampRelease::Released {
+        crossing_notices().wake.notify_one();
+    }
+    answer
+}
+
+/// Publish a quiet job on `owner_key` as running, for a test of a press that
+/// must meet one; answers the generation [`end_restamp_for_test`] ends.
+#[cfg(test)]
+pub(crate) fn hold_restamp_for_test(owner_key: &str, horizon: Duration) -> u64 {
+    BOARD
+        .get_or_init(|| Arc::new(ConflictBoard::default()))
+        .begin_restamp(owner_key, horizon)
+        .expect("no quiet job already holds the arc")
+}
+
+/// End the job [`hold_restamp_for_test`] published.
+#[cfg(test)]
+pub(crate) fn end_restamp_for_test(owner_key: &str, generation: u64) {
+    if let Some(board) = BOARD.get() {
+        board.end_restamp(owner_key, generation, None);
+        board.forget_seated(owner_key);
+    }
 }
 
 // MARK: - Crossing notices
@@ -567,7 +755,8 @@ enum Wake {
     /// A session bound to an arc, so a stale audit that was waiting for a
     /// card may now have one. Every open workspace, as for a turn ending.
     Bind,
-    /// Startup, or a periodic level read.
+    /// Startup, a lagged event stream, or a settled crossing: every open
+    /// workspace, because nothing says which arc moved.
     All,
 }
 
@@ -730,7 +919,7 @@ async fn evaluate_workspace(
             let map = state.lock();
             match map.get(&owner_key) {
                 Some(st) => (
-                    st.in_flight,
+                    st.in_flight || board.restamping(&owner_key),
                     // A conflict stands only while the cache knows what it
                     // knew when the replay stopped; anything it has learned
                     // since is a reason to try again.
@@ -741,9 +930,14 @@ async fn evaluate_workspace(
                     // that moves again is a new chance for the quiet path.
                     st.quiet_failed_tip.as_deref() == Some(reading.base_tip.as_str()),
                 ),
-                None => (false, false, false),
+                None => (board.restamping(&owner_key), false, false),
             }
         };
+        // A seat reason speaks for a stale audit; once a mark answers it, it
+        // says nothing true.
+        if detail.stage_word != tugarc_core::ops::ArcStageWord::AuditStale {
+            board.forget_seated(&owner_key);
+        }
 
         let inputs = ArcInputs {
             autoreplay,
@@ -751,13 +945,25 @@ async fn evaluate_workspace(
             base_ahead: detail.base_ahead,
             worktree_dirty: detail.worktree_dirty,
             join_journal: reading.join_journal,
-            mid_plan: detail.stage == "implementing",
+            mid_plan: detail.stage_word == tugarc_core::ops::ArcStageWord::Implementing,
             session,
             in_flight,
             conflicted,
-            audit_stale_done: detail.stage == "audit-stale"
+            audit_stale_done: detail.stage_word == tugarc_core::ops::ArcStageWord::AuditStale
+                && detail.arc.as_ref().is_some_and(|run| {
+                    tugarc_core::arc::reaudit_admits(
+                        run.done,
+                        run.stopped_stage
+                            .as_deref()
+                            .and_then(tugarc_core::arc::ArcStage::parse)
+                            .zip(run.stopped.as_deref()),
+                    )
+                }),
+            // A stopped record has only the one door back: its audit seated
+            // again. A re-stamp would write a current mark over a stop, and
+            // the arc would read audited while nothing ran it.
+            audit_base_only: reading.audit_base_only
                 && detail.arc.as_ref().is_some_and(|run| run.done),
-            audit_base_only: reading.audit_base_only,
             quiet_failed,
         };
 
@@ -816,6 +1022,9 @@ async fn evaluate_workspace(
                         Some(QuietJob {
                             seat: seat.clone(),
                             base_tip: reading.base_tip.clone(),
+                            horizon: tugtool_core::config::Config::load_from_project(&repo_dir)
+                                .map(|config| config.tugtool.arc.restamp_horizon())
+                                .unwrap_or(QUIET_HORIZON),
                         }),
                     ),
                     _ => (None, None),
@@ -871,15 +1080,25 @@ struct QuietJob {
     seat: Option<String>,
     /// The base tip the wake read, which a failure is latched against.
     base_tip: String,
+    /// How long the job may run before its verify is killed and a Re-audit
+    /// press may take the arc back from it.
+    horizon: Duration,
 }
 
-/// Take the in-flight lock and run one replay on the blocking pool.
+/// How long a quiet re-stamp may run when the project declares nothing
+/// readable — `restamp_horizon_secs` under `[tugtool.arc]` is the setting.
+const QUIET_HORIZON: Duration =
+    Duration::from_secs(tugtool_core::config::RESTAMP_HORIZON_SECS_DEFAULT);
+
+/// Take the arc's lock and run one replay on the blocking pool.
 ///
 /// The lock is per arc and is taken *before* the spawn, so a second signal
-/// arriving while a replay runs finds `in_flight` set and decides `Skip`. A
-/// quiet-path job holds it through its verify and its mark as well, because
-/// until the mark lands the arc still reads stale and a second wake would
-/// start the same work again.
+/// arriving while a replay runs finds it held and decides `Skip`. An
+/// ordinary replay's lock is `in_flight`; a quiet-path job's is the board's
+/// published `restamping` fact, held through its verify and its mark,
+/// because until the mark lands the arc still reads stale and a second wake
+/// would start the same work again. The quiet job's verify runs to its
+/// horizon and no further.
 fn spawn_replay(
     ctx: &BaseMotionContext,
     board: &Arc<ConflictBoard>,
@@ -889,10 +1108,27 @@ fn spawn_replay(
     {
         let mut map = state.lock();
         let entry = map.entry(job.owner_key.clone()).or_default();
-        if entry.in_flight {
+        if entry.in_flight || board.restamping(&job.owner_key) {
             return;
         }
-        entry.in_flight = true;
+    }
+    let quiet_run = match job.quiet.as_ref() {
+        Some(quiet) => match board.begin_restamp(&job.owner_key, quiet.horizon) {
+            Some(generation) => Some((generation, Instant::now() + quiet.horizon)),
+            None => return,
+        },
+        None => {
+            state
+                .lock()
+                .entry(job.owner_key.clone())
+                .or_default()
+                .in_flight = true;
+            None
+        }
+    };
+    // The running fact is on the wire from the moment it is true.
+    if quiet_run.is_some() {
+        ctx.bump.notify_one();
     }
 
     let board = Arc::clone(board);
@@ -927,7 +1163,7 @@ fn spawn_replay(
         // What to say, decided under the lock; saying it happens after, because
         // the channel send is async and the state mutex is not.
         let mut notice: Option<Notice> = None;
-        let (mut refresh, replay) = {
+        let (mut refresh, replay, stop_why) = {
             let mut map = state.lock();
             let entry = map.entry(job.owner_key.clone()).or_default();
             if job.quiet.is_none() {
@@ -952,12 +1188,12 @@ fn spawn_replay(
                             oldest_round_before: mapping.first().map(|(old, _)| old.clone()),
                         });
                     }
-                    (true, QuietReplay::Clean)
+                    (true, QuietReplay::Clean, None)
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Recorded { .. })) => {
                     entry.conflict = None;
                     board.set(&job.owner_key, Vec::new());
-                    (true, QuietReplay::Clean)
+                    (true, QuietReplay::Clean, None)
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Conflicted {
                     base_head,
@@ -972,6 +1208,11 @@ fn spawn_replay(
                         "base-motion: replay conflicts",
                     );
                     board.set(&job.owner_key, paths.clone());
+                    let why = format!(
+                        "the replay onto {} conflicts on {}",
+                        short(&base_head),
+                        paths.join(", ")
+                    );
                     entry.conflict = Some(ConflictRecord {
                         base_head,
                         round,
@@ -979,24 +1220,24 @@ fn spawn_replay(
                         paths,
                         cache_learned,
                     });
-                    (true, QuietReplay::Stopped)
+                    (true, QuietReplay::Stopped, Some(why))
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Current)) => {
                     entry.conflict = None;
                     board.set(&job.owner_key, Vec::new());
-                    (false, QuietReplay::Clean)
+                    (false, QuietReplay::Clean, None)
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Deferred { reason, detail })) => {
                     debug!(arc = %arc, reason = %reason, detail = %detail, "base-motion: deferred");
-                    (false, QuietReplay::Stopped)
+                    (false, QuietReplay::Deferred, None)
                 }
                 Ok(Err(err)) => {
                     warn!(arc = %arc, error = %err, "base-motion: replay failed");
-                    (false, QuietReplay::Failed)
+                    (false, QuietReplay::Failed, None)
                 }
                 Err(err) => {
                     warn!(arc = %arc, error = %err, "base-motion: replay task died");
-                    (false, QuietReplay::Failed)
+                    (false, QuietReplay::Failed, None)
                 }
             }
         };
@@ -1006,13 +1247,22 @@ fn spawn_replay(
             inject.send(session, &text, Some(&facts)).await;
         }
 
-        if let Some(quiet) = job.quiet.as_ref() {
-            let (moved, end) = finish_quiet(&job, quiet, replay).await;
-            refresh |= moved;
-            let mut map = state.lock();
-            let entry = map.entry(job.owner_key.clone()).or_default();
-            entry.in_flight = false;
-            entry.quiet_failed_tip = (end == QuietEnd::Seat).then(|| quiet.base_tip.clone());
+        if let (Some(quiet), Some((generation, deadline))) = (job.quiet.as_ref(), quiet_run) {
+            let held = QuietHold {
+                board: &board,
+                generation,
+                deadline,
+            };
+            let (_, end, seated_why) = finish_quiet(&job, quiet, replay, stop_why, &held).await;
+            // A job a press released ends nothing: the arc is no longer its.
+            if board.end_restamp(&job.owner_key, generation, seated_why) {
+                let mut map = state.lock();
+                let entry = map.entry(job.owner_key.clone()).or_default();
+                entry.quiet_failed_tip = (end == QuietEnd::Seat).then(|| quiet.base_tip.clone());
+            }
+            // The running fact came down, so the wire moved whether or not
+            // the record did.
+            refresh = true;
         }
 
         if refresh {
@@ -1023,35 +1273,61 @@ fn spawn_replay(
 
 /// The rest of a stale audit's quiet path, after its replay: verify a clean
 /// one and re-stamp a green fit, or seat the audit. Returns whether the arc's
-/// record moved, and how the path ended — a `Seat` is latched by the caller
-/// against the base tip, so a later wake (the bind that brings a card, most
-/// often) seats the audit rather than replaying and verifying again.
-async fn finish_quiet(job: &ReplayJob, quiet: &QuietJob, replay: QuietReplay) -> (bool, QuietEnd) {
+/// record moved, how the path ended, and — for a `Seat` — why, in a sentence
+/// the wire carries. A `Seat` is latched by the caller against the base tip,
+/// so a later wake (the bind that brings a card, most often) seats the audit
+/// rather than replaying and verifying again.
+///
+/// The verify runs to the job's deadline and no further, and nothing is
+/// written by a job a press released while it ran.
+async fn finish_quiet(
+    job: &ReplayJob,
+    quiet: &QuietJob,
+    replay: QuietReplay,
+    stop_why: Option<String>,
+    held: &QuietHold<'_>,
+) -> (bool, QuietEnd, Option<String>) {
     let (repo, name) = (job.repo_dir.clone(), job.name.clone());
-    let verdict = match replay {
+    let deadline = held.deadline;
+    let (verdict, verify_why) = match replay {
         QuietReplay::Clean => {
             let (repo, name) = (repo.clone(), name.clone());
             let report = tokio::task::spawn_blocking(move || {
-                tugarc_core::surfaces::verify_in(&Paths::from_env(), &repo, &name, None, None)
+                tugarc_core::surfaces::verify_by(&Paths::from_env(), &repo, &name, deadline)
             })
             .await;
             match report {
-                Ok(Ok(report)) => Some(report.verdict),
+                Ok(Ok(report)) => {
+                    let why = report
+                        .receipt
+                        .strip_prefix("TUG-VERIFY-RECEIPT: ")
+                        .unwrap_or(&report.receipt)
+                        .to_string();
+                    (
+                        Some(report.verdict),
+                        format!("the fit did not verify: {why}"),
+                    )
+                }
                 Ok(Err(e)) => {
                     warn!(arc = %job.name, error = %e, "base-motion: verify refused");
-                    None
+                    (None, format!("the fit's verify could not run: {e}"))
                 }
                 Err(e) => {
                     warn!(arc = %job.name, error = %e, "base-motion: verify task died");
-                    None
+                    (None, format!("the fit's verify died: {e}"))
                 }
             }
         }
-        _ => None,
+        _ => (None, String::new()),
     };
     let end = quiet_end(replay, verdict.as_deref());
+    let seated_why = (end == QuietEnd::Seat).then(|| stop_why.unwrap_or(verify_why));
+    if !held.board.holds(&job.owner_key, held.generation) {
+        info!(arc = %job.name, "base-motion: quiet job released mid-run, writing nothing");
+        return (false, QuietEnd::Leave, None);
+    }
     let wrote = match end {
-        QuietEnd::Leave => return (false, end),
+        QuietEnd::Leave => return (false, end, None),
         QuietEnd::Restamp => {
             tokio::task::spawn_blocking(move || {
                 tugarc_core::ops::restamp_audit(&Paths::from_env(), &repo, &name)
@@ -1061,7 +1337,7 @@ async fn finish_quiet(job: &ReplayJob, quiet: &QuietJob, replay: QuietReplay) ->
         QuietEnd::Seat => {
             if quiet.seat.is_none() {
                 debug!(arc = %job.name, "base-motion: audit stale, waiting for a card");
-                return (false, end);
+                return (false, end, seated_why);
             }
             tokio::task::spawn_blocking(move || {
                 tugarc_core::ops::reopen_stale_audit(&Paths::from_env(), &repo, &name)
@@ -1088,7 +1364,15 @@ async fn finish_quiet(job: &ReplayJob, quiet: &QuietJob, replay: QuietReplay) ->
             false
         }
     };
-    (moved, end)
+    (moved, end, seated_why)
+}
+
+/// A quiet job's hold on its arc: the board that publishes it, the
+/// generation it was minted, and the deadline its verify runs to.
+struct QuietHold<'a> {
+    board: &'a ConflictBoard,
+    generation: u64,
+    deadline: Instant,
 }
 
 /// A clean replay under a live plan run, as the notice tells it.
@@ -1414,11 +1698,52 @@ mod tests {
         );
     }
 
+    /// **The Re-audit door's release.** A press past the horizon takes the
+    /// arc back from a job that will not end: the running fact comes down
+    /// with a reason, the released job can neither end nor write for the arc,
+    /// and the next job takes it afresh.
+    #[test]
+    fn a_press_past_the_horizon_releases_the_quiet_job() {
+        let board = ConflictBoard::default();
+        assert_eq!(
+            board.release_restamp("a", SystemTime::now()),
+            RestampRelease::NotRunning
+        );
+        let first = board
+            .begin_restamp("a", Duration::from_secs(60))
+            .expect("the arc is free");
+        assert_eq!(
+            board.begin_restamp("a", Duration::from_secs(60)),
+            None,
+            "one quiet job per arc"
+        );
+        let later = SystemTime::now() + Duration::from_secs(61);
+        assert_eq!(board.release_restamp("a", later), RestampRelease::Released);
+        assert!(!board.restamping("a") && !board.holds("a", first));
+        assert!(
+            board
+                .quiet_fact("a")
+                .and_then(|fact| fact.seated_why)
+                .is_some_and(|why| why.contains("deadline"))
+        );
+
+        let second = board
+            .begin_restamp("a", Duration::from_secs(60))
+            .expect("a released arc is free again");
+        assert!(
+            !board.end_restamp("a", first, Some("stale".to_string())),
+            "the released job ends nothing"
+        );
+        assert!(board.holds("a", second));
+        assert!(board.end_restamp("a", second, None));
+        assert!(!board.restamping("a"));
+    }
+
     /// The quiet path's verdict: a clean replay with a green fit re-stamps; a
-    /// conflicted or deferred replay, a red fit, an unclaimed path, a project
-    /// with no surfaces to run, or a verify that could not run seats the
-    /// audit; a replay that could not run at all leaves the arc for the next
-    /// wake.
+    /// conflicted replay, a red fit, an unclaimed path, a project with no
+    /// surfaces to run, or a verify that could not run seats the audit; a
+    /// deferred replay, or one that could not run at all, leaves the arc for
+    /// the next wake.
     #[test]
     fn the_quiet_path_restamps_only_a_clean_green_fit() {
         use QuietEnd::*;
@@ -1431,6 +1756,33 @@ mod tests {
         assert_eq!(quiet_end(Clean, None), Seat);
         assert_eq!(quiet_end(Stopped, None), Seat);
         assert_eq!(quiet_end(Failed, None), Leave);
+        assert_eq!(
+            quiet_end(Deferred, None),
+            Leave,
+            "a deferral is transient: it seats nothing and latches nothing"
+        );
+    }
+
+    /// **The quiet path waits for a clean tree.** A base-only stale audit over
+    /// a dirty worktree is skipped, as an ordinary replay is, rather than
+    /// replayed into a deferral; a stale head still seats, dirt or no dirt.
+    #[test]
+    fn a_dirty_base_only_stale_audit_waits_for_a_clean_tree() {
+        let dirty = |audit_base_only| ArcInputs {
+            audit_stale_done: true,
+            audit_base_only,
+            worktree_dirty: true,
+            session: Some(idle("s1")),
+            ..behind()
+        };
+        assert_eq!(
+            decide_for_arc(&dirty(true)),
+            Decision::Skip("dirty-worktree")
+        );
+        assert_eq!(
+            decide_for_arc(&dirty(false)),
+            Decision::SeatAudit("s1".to_string())
+        );
     }
 
     /// The bind wake keeps its permit: a bind while the engine is busy is
@@ -1882,6 +2234,7 @@ mod tests {
             quiet: Some(QuietJob {
                 seat: Some("sess-1".to_string()),
                 base_tip: repo.tip("main"),
+                horizon: QUIET_HORIZON,
             }),
             ..demo_job(repo)
         }
@@ -1897,11 +2250,7 @@ mod tests {
         let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
         spawn_replay(&ctx, &board, &state, quiet_job(repo));
         assert!(
-            settles(|| state
-                .lock()
-                .get("tugarc/demo")
-                .is_some_and(|st| !st.in_flight))
-            .await,
+            settles(|| !board.restamping("tugarc/demo")).await,
             "the quiet path runs to its end"
         );
         cancel.cancel();
@@ -2388,6 +2737,76 @@ mod tests {
             state.lock()["tugarc/demo"].quiet_failed_tip,
             Some(repo.tip("main"))
         );
+    }
+
+    /// **A hung verify ends at its horizon.** The quiet path's check never
+    /// exits. While it runs the board publishes the job — when it began and
+    /// when its horizon falls — and a Re-audit press inside the horizon is
+    /// refused with that fact; at the horizon the check is killed, the job
+    /// ends as a seat, and the reason it seated is what the wire carries.
+    #[tokio::test]
+    #[serial]
+    async fn a_hung_verify_ends_at_its_horizon_and_seats_with_its_reason() {
+        let repo = repo_with_a_stale_audit("sleep 30 & wait", false);
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        let bump = Arc::new(Notify::new());
+        let ctx = test_context(&registry, &bump, &cancel);
+        let board = Arc::new(ConflictBoard::default());
+        let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        spawn_replay(
+            &ctx,
+            &board,
+            &state,
+            ReplayJob {
+                quiet: Some(QuietJob {
+                    seat: Some("sess-1".to_string()),
+                    base_tip: repo.tip("main"),
+                    horizon: Duration::from_millis(1500),
+                }),
+                ..demo_job(&repo)
+            },
+        );
+        let running = board
+            .quiet_fact("tugarc/demo")
+            .and_then(|fact| fact.running)
+            .expect("the job is published while it runs");
+        assert_eq!(
+            board.release_restamp("tugarc/demo", SystemTime::now()),
+            RestampRelease::Running {
+                since: running.since,
+                deadline: running.deadline,
+            },
+            "a press inside the horizon refuses with the running fact"
+        );
+
+        assert!(
+            settles(|| !board.restamping("tugarc/demo")).await,
+            "the horizon ends the job"
+        );
+        // The seat's reason is what says the deadline, not the check, ended
+        // it: a check that ran to its own end would not read as timed out.
+        let why = board
+            .quiet_fact("tugarc/demo")
+            .and_then(|fact| fact.seated_why)
+            .expect("a seat carries its reason");
+        assert!(
+            why.contains("timed out") && why.contains("sleep 30 & wait"),
+            "{why}"
+        );
+        assert_eq!(
+            state.lock()["tugarc/demo"].quiet_failed_tip,
+            Some(repo.tip("main")),
+            "the seat is latched at this base tip"
+        );
+        let record = tugarc_core::read_arc(&Paths::from_env(), repo.path(), "demo").unwrap();
+        assert_eq!(
+            record.resume,
+            Some(tugarc_core::ArcStage::Audit),
+            "the audit is seated"
+        );
+        cancel.cancel();
     }
 
     /// The in-flight lock, at the seam a second wake actually hits: a replay

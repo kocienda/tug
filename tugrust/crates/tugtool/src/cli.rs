@@ -1031,6 +1031,11 @@ pub enum ArcCommands {
         /// Resume an interrupted join's teardown from the journal.
         #[arg(long = "continue")]
         continue_join: bool,
+        /// Land a Wheel arc its audit does not cover — a stale audit, or none
+        /// yet. Without it the join refuses such an arc, as the card's press
+        /// does; a hand arc needs no flag.
+        #[arg(long)]
+        unaudited: bool,
         /// Retired. The join no longer resolves conflicts: a conflicted arc is
         /// replayed onto its base and resolved by its audit, on its card. Kept
         /// so the old spelling lands on a sentence rather than on clap's error.

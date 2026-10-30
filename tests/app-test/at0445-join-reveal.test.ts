@@ -334,8 +334,8 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // Bound first, so the offer has a card to arrive on. Both arcs reach
         // the same state; only this one is this card's.
         //
-        // The real `arc bind` verb, not a `bind_arc_ok` broadcast: the pilot
-        // works only for arcs bound in the **ledger**, and a client-side
+        // The real `arc bind` verb, not a `bind_arc_ok` broadcast: the wheel
+        // drives only arcs bound in the **ledger**, and a client-side
         // broadcast moves the deck's store without writing a row. Faking it
         // here would leave the server thinking nobody holds this arc, and
         // nothing downstream would ever run.
@@ -346,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         });
         // Read from the Arcs card rather than from the verb's own exit: the row
         // grows the bound worker's atom, which is the deck seeing the ledger
-        // row the pilot will read. The atom is the positive signal — an absent
+        // row the server will read. The atom is the positive signal — an absent
         // Bind would also be true of a row that never rendered.
         await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${arcRow(ARC)} [data-slot="tug-arc-lifecycle-worker"]') !== null`,

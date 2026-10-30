@@ -34,19 +34,23 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 
 ## The stages, and derive vs declare
 
-`derive_stage(rounds, worktree_dirty, has_draft, joining, declared)` returns one of seven words, in this precedence:
+`derive_stage(rounds, worktree_dirty, has_draft, joining, declared, join_ready, audit_stale)` returns one of nine words, in this precedence:
 
 | Stage | When | Kind |
 |---|---|---|
 | `joining` | an incomplete join op — an interrupted teardown | derived |
+| `built` | `arc mark built` is the latest declaration | declared |
+| `audit-stale` | `arc mark audited` is the latest, and the head or the base it was made against has moved | declared, read against git |
+| `audited` | `arc mark audited` is the latest, and its pair still stands | declared |
+| `ready` | `join_ready` derives the arc joinable without a standing mark — a finished run, or a plan-less arc with a round | derived |
 | `implementing` | an `arc step` declaration is the latest | declared |
-| `built` | `arc mark built` | declared |
-| `audited` | `arc mark audited` | declared |
 | `draft-ready` | a maintained join draft exists | derived |
 | `working` | rounds past base, or a dirty worktree | derived |
 | `created` | none of the above | derived |
 
-`joining` outranks everything, including a declaration, because an interrupted teardown is the one state that actively needs a person.
+`joining` outranks everything, including a declaration, because an interrupted teardown is the one state that actively needs a person. The word is the wire's and a display's; code that decides on the stage matches `ArcStageWord`, the same answer as a value, so a renamed word cannot turn a comparison silently false.
+
+**`audit-stale` waits in one of three states, and each names its card and its door.** The re-audit is running (`re-auditing on <callsign>`); a card holds the arc and the re-audit is about to be seated on it (`the re-audit starts on <callsign>, or press Re-audit`); or nobody holds it, and it waits for a card (`waiting for a card: bind one, or tugtool arc run <name>`). The callsign rides the arc's feed entry as `bound_callsign`. A stale audit whose base alone moved under a finished arc is answered by the engine without a turn — a replay, a verify, and a fresh mark noted `by: engine` — and while that quiet re-stamp runs the arc reads `re-stamping it onto the moved base` instead of a wait on a card. Its verify runs under a horizon, `restamp_horizon_secs` under `[tugtool.arc]` (thirty minutes unless declared); at the horizon the check is killed and the audit is seated with the reason. One whose head moved, or whose replay was not clean, goes back to its audit stage, and the wheel's opening prompt for that stage carries a `re-audit:` clause naming which side moved, which is the sentence the transcript shows before the stage sizes its triage.
 
 **The rule: anything git can see is derived on every read and never stored; anything it cannot is declared once, in the arc log, by a verb** ([D138]). Rounds and dirt are visible to git, so they are recomputed every time and cannot go stale; an interrupted teardown is not, and is declared on the operation record the same verb already writes. "This build succeeded" and "I am on step 4 of 9" are not visible to git at all, so a verb writes them down. **A stage is never written to a config key** — that would make the derived half stale-able and the declared half duplicated.
 
@@ -109,11 +113,13 @@ The side-question row is the **only** one whose middle cell is not a receipt, an
 
 The vocabulary is closed, and the compiler enforces it: `ArcStopReason` in `tugarc-core/src/arc.rs` carries every reason an arc can stop for, `append_arc_stop` takes it, and the receipt formatter matches it exhaustively with no fallback arm. A reason the receipt cannot explain is a reason the arc must not write.
 
-`lint` · `api error` · `compact failed` · `implement idle` · `stalled` · `needs a decision` · `records disagree` · `seat unavailable` · `review did not stamp` · `audit did not mark` · `document missing` · `plan missing` · `session gone` · `card taken` · `card closed` · `stopped by user` · `discarded` · `joined` · `prompt unavailable` · `session idle` · `session errored` · `session closed` · `spawn queue full` · `no stdin` · `stdin closed` · `arc running`
+`lint` · `api error` · `compact failed` · `implement idle` · `stalled` · `needs a decision` · `records disagree` · `seat unavailable` · `review did not stamp` · `audit did not mark` · `audit went stale` · `document missing` · `plan missing` · `session gone` · `card taken` · `card closed` · `stopped by user` · `discarded` · `joined` · `prompt unavailable` · `session idle` · `session errored` · `session closed` · `spawn queue full` · `no stdin` · `stdin closed` · `arc running`
 
 The last seven are the wheel's own refusals, mapped through `Refusal::stop_reason`. `discarded` and `joined` exist for their sentence alone — nothing writes them to the arc log, because the ending's own terminal line has already closed the arc's generation.
 
 Five are **judged silence** — `implement idle`, `stalled`, `lint`, `review did not stamp`, `audit did not mark` — and only those five reverse when the stopped stage turns out to be working. `implement idle` in particular means exactly what its sentence says: the stage was **asked twice** and closed no step either time, the first ask being the wheel's own and the second the re-ask that answers a quiet turn. Every other reason records a person's act or a refusal to guess, and reversing one would be guessing.
+
+`audit went stale` is the audit's other ending: it marked, and the head or the base moved before the wheel could seat it again, with no card idle to seat it on. It is not judged silence — the audit did its work — but it and `audit did not mark` are the two stops at the audit that the re-audit door reopens when the audit is stale; every other stop at the audit is resumed by hand.
 
 ## Binding
 
@@ -209,6 +215,8 @@ An arc joins by `/arc-join <name>` into its base: a preview runs on entry, the s
 **The audit is the author of record for the join message.** The implement stage writes a provisional draft before its final step closes — the message an arc carries if it stops short of its audit — and the audit rewrites it unconditionally after reading the whole diff cold, whether or not it changed a byte, because it is the last stage to touch the tree. The join lands whatever draft stands when the user presses; the audit's is the one that describes what lands.
 
 The doctrine — the two beats, the one-slot `LandingMode`, and the five outcomes a join can reach — is held in [tracking-changes.md](tracking-changes.md#the-landing-workflow), where the capture and commit layer beneath it already lives. It is law where it stands and is deliberately not restated here.
+
+**A stale audit is not a ready arc, and the join refuses it.** The board withholds the offer and the join's own gate refuses a wheel-driven arc whose audit no longer stands on the live tips, naming which side moved. The way back is the re-audit, seated on the arc's card. **Re-audit** is the explicit door to it: the button on the Arcs row, the popover and the shade's arc lane, and `tugtool arc run <name>` on a done arc, which both reach the server's one resume door. It refuses while the engine's quiet re-stamp holds the arc inside its horizon, naming when the horizon falls, because the machine is already answering the stale audit; a press past the horizon releases the job and proceeds. The explicit hand door is `tugtool arc join --unaudited`, which is the user's act and never called ready. A stopped wheel whose audit is not stale is not refused by the readiness gate, from the card or the bare verb: that is the unaudited escape the paragraph above keeps, and what the gate refuses is a wheel still running or an audit gone stale. An `audited` mark is refused over a tree the last verify did not see, so the audit's pair and the verify's are one pair.
 
 ## Naming
 

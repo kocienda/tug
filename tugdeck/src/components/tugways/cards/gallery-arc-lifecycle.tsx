@@ -1189,8 +1189,8 @@ export function GalleryArcLifecycle(): React.ReactElement {
           once the arc's newest operation is anything but a fold. When the
           block clears, the
           card's quiet-moment reveal raises the shade on the now-ready arc —
-          the reveal memory is keyed on the arc head, and a resolve moves the
-          base, so the blocked-to-ready edge is what forgets the spent head.
+          the reveal memory is keyed on the work, which a fold does not move,
+          so the blocked-to-ready edge is what forgets it.
         </p>
       </section>
     </div>

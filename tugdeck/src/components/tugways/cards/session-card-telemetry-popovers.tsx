@@ -2434,6 +2434,7 @@ export function useArcPopoverVerbs({
     // This card is the bound card, and it is open: it is hosting the popup.
     boundCardOpen: true,
     stage: fact.stage ?? undefined,
+    restamp: arcEntry?.restamp ?? null,
     draft,
     joinGate: {
       state: arcEntry?.join ?? null,

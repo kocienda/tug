@@ -257,6 +257,28 @@ pub fn where_clause(
     out
 }
 
+/// A re-audit's opening fact, for the audit stage's `where` line: that the
+/// standing mark no longer describes the tree, and which side moved. The
+/// prompt is the wheel's row in the transcript, so this is the sentence the
+/// reader sees before the stage sizes its triage — and the stage's skill sizes
+/// it from the same word ([`tugarc_core::log::AuditStaleness`]). Like the
+/// citations clause it names what is true, not what to do about it.
+pub fn reaudit_clause(staleness: tugarc_core::log::AuditStaleness) -> String {
+    use tugarc_core::log::AuditStaleness;
+    let what = match staleness {
+        AuditStaleness::Head => "a round landed after the audit",
+        // Not "the quiet re-stamp could not answer it": a mark that went
+        // stale before the runner's tick, or a stopped record the engine
+        // seats, reaches here with no re-stamp ever tried.
+        AuditStaleness::Base => "the base moved under the audit",
+        AuditStaleness::Both => "a round landed and the base moved since the audit",
+    };
+    format!(
+        "re-audit: the audit's mark is stale — {what} (staleness: {})",
+        staleness.as_str()
+    )
+}
+
 /// The stage's opening prompt.
 ///
 /// Six clauses, each dropped when its fact is absent: the ask, where the
@@ -505,6 +527,20 @@ mod tests {
             composed.find("where:").unwrap() < composed.find("citations:").unwrap(),
             "{composed}"
         );
+    }
+
+    /// A re-audit's clause names which side of the audit moved, in the same
+    /// word the wire and `arc status` spell it, so the transcript and the
+    /// triage rung read one fact.
+    #[test]
+    fn the_reaudit_clause_names_what_moved() {
+        use tugarc_core::log::AuditStaleness;
+        let head = reaudit_clause(AuditStaleness::Head);
+        assert!(head.starts_with("re-audit:"), "{head}");
+        assert!(head.contains("a round landed after the audit"), "{head}");
+        assert!(head.ends_with("(staleness: head)"), "{head}");
+        assert!(reaudit_clause(AuditStaleness::Base).ends_with("(staleness: base)"));
+        assert!(reaudit_clause(AuditStaleness::Both).ends_with("(staleness: both)"));
     }
 
     /// A seated implement stage walks one step and stops, because that is

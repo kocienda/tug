@@ -75,14 +75,14 @@ An arc comes back to this stage after it was audited once, when its audit has go
 tugtool arc status <name> --json
 ```
 
-**`audited_at` present means this is a re-audit.** It carries the `head` and `base` the standing mark was made against; a first audit has none. A re-audit is not a second cold read of the whole arc — that work is done, and its findings are in the mark's note and the draft. It opens by sizing what moved, from the worktree:
+**`audited_at` present means this is a re-audit**, and the prompt that seated you says so first: its `re-audit:` line, under the `where` line, names which side moved in the same word as `audit_staleness`. `audited_at` carries the `head` and `base` the standing mark was made against; a first audit has none. Beside it, `audit_staleness` says which of the two no longer stands: `head` (a round landed after the audit), `base` (the base moved and no round landed), or `both`. A re-audit is not a second cold read of the whole arc — that work is done, and its findings are in the mark's note and the draft. It opens by sizing what moved, from the worktree:
 
 ```bash
-git range-diff <audited_at.head>...HEAD
-git diff --name-only <audited_at.base> <base_branch>
+git range-diff <audited_at.base>..<audited_at.head> <base_branch>..HEAD
+git diff <audited_at.base>..<base_branch> --stat
 ```
 
-The first pairs the rounds as the audit saw them with the rounds as they stand, through any replay: `=` is a round unchanged, `!` a round that changed, and an unpaired one landed after the audit. The second is what the base brought in. Name the paths, then replay (§5) and declare **one size before any other work**:
+The first pairs the rounds as the audit saw them with the rounds as they stand, through any replay. Name both ranges explicitly: the three-dot form diffs from a merge-base, and once the arc has been replayed onto a moved base that merge-base is the old fork point, so the base's own commits land in the right-hand range and read as rounds nobody audited. In the explicit form `=` is a round unchanged, `!` a round that changed, and a right-hand round with no partner landed after the audit. The second is what the base brought in. The kind is where the size starts: `base` cannot be more than a re-stamp until the replay or the fit says otherwise, and `head` or `both` is at least a fold. Name the paths, then replay (§5) and declare **one size before any other work**:
 
 - **re-stamp** — no round landed or changed, the replay is clean, and the fit is green. Verify the fit as §5 says, keep the draft, mark, and stop. This is the machine's own quiet case, reaching you only because it had nothing it could run or could not run here.
 - **fold** — rounds landed or changed, and the replay is clean. Read those rounds' diffs and judge them by §3; verify only the surfaces their paths resolve to — `tugtool arc verify <name> --base <audited_at.head>` when the base did not move, the whole arc's verify when it did, since the replay moved every path. Amend the draft for what the rounds changed, and mark.
@@ -164,7 +164,7 @@ Read a good one before writing yours: `git log` on the base shows the project's 
 tugtool arc mark <name> audited --note "<one line: what was checked, and what was fixed>"
 ```
 
-**The mark is the stage's whole product**, exactly as the stamp is the review's. It is the one fact that says the audit ran, it is read from the arc's own record rather than from anything you say about yourself, and an audit that ends without it has answered nothing — the wheel stops the arc there and says the audit did not mark. So it is the last thing you do, after every round is committed and the fit is verified.
+**The mark is the stage's whole product**, exactly as the stamp is the review's. It is the one fact that says the audit ran, it is read from the arc's own record rather than from anything you say about yourself, and an audit that ends without it has answered nothing — the wheel stops the arc there and says the audit did not mark. So it is the last thing you do, after every round is committed and the fit is verified — and verified on this exact tree, because the mark is refused when the last verify ran at another head or onto another base. A mark that goes stale before the wheel reads it is not a missing one: the wheel seats the audit again, or, with no card idle to seat it on, stops the arc as `audit went stale`, which the re-audit reopens.
 
 Then report what you found and what you changed, in a few lines, and **stop. Do not join.** Landing is the user's act, always.
 

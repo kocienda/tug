@@ -706,6 +706,7 @@ function useArcRowVerbs(
     boundSession: bound,
     boundCardOpen: workerCardOpen,
     stage: entry.stage,
+    restamp: entry.restamp ?? null,
     draft: entry.draft?.message ?? null,
     joinGate: {
       state: entry.join ?? null,
@@ -750,6 +751,7 @@ function useArcRowVerbs(
             arc: name,
             boundSession: bound,
             message: entry.draft.message,
+            voice: followed?.tugSessionId ?? bound,
           });
         }
         return;
@@ -912,6 +914,8 @@ function ArcRowCell({
     // The Arcs card is the one surface that renders arcs nobody is holding,
     // so it is the one that has to hand the register that fact ([D147]).
     bound: entry.bound_session !== undefined,
+    boundCallsign: entry.bound_callsign ?? null,
+    restampRunning: entry.restamp?.running_since !== undefined,
     // A live wheel outranks the offer: the section shows the stage that is
     // running rather than a readiness the audit has not signed off on.
     run: entry.arc ?? null,

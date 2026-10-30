@@ -1,17 +1,19 @@
-//! The resolver: the agent that finishes a join ([P02], Specs S01/S02/S04).
+//! The resolver: the agent that finishes a crossing's merge ([P02], Specs
+//! S01/S02/S04).
 //!
 //! The resolution ladder ([`tugarc_core::resolve`]) works a conflict three
 //! blobs at a time and stops where blob arithmetic stops. The resolver picks up
-//! there, in the workshop ([`tugarc_core::workshop`]) where the merge is a
+//! there, in the crossing's pair checkout (`PairCheckout`) where the merge is a
 //! real tree: it finishes what the rungs left, **audits what the rungs
 //! decided** ([P10]), asks at most one intent question when the two sides
 //! genuinely disagree, and ends with a report that accounts for every path in
-//! the candidate's resolution set.
+//! the merge's resolution set. Its finished files teach the rerere cache; it
+//! commits nothing and moves no branch.
 //!
 //! Three seams live here and nothing else does — the orchestration that drives
 //! them is the agent supervisor's:
 //!
-//! - [`JoinResolverSpawner`], the substrate seam. Production spawns a
+//! - [`CrossingResolverSpawner`], the substrate seam. Production spawns a
 //!   multi-turn headless `claude` under the Spec S04 turn protocol; tests
 //!   configure a command in `tugarc.joinresolver` speaking the same two
 //!   terminal shapes over plain stdio, exactly as the merge-driver rung already
@@ -75,7 +77,7 @@ pub struct ResolverAsk {
 /// parallel one. The report the resolver writes is the report the face renders;
 /// a second shape here would be a translation layer whose only product is
 /// drift.
-pub use tugcast_core::types::ArcJoinReport as ResolverReport;
+pub use tugcast_core::types::CrossingReport as ResolverReport;
 
 /// What a resolver turn may terminate as. There is no third shape: prose, a
 /// fenced block, and a half-object are all protocol violations.
@@ -136,7 +138,7 @@ pub fn parse_turn(text: &str) -> Result<ResolverTurn, String> {
     ))
 }
 
-/// Every path the candidate's resolution set holds must be accounted for
+/// Every path the merge's resolution set holds must be accounted for
 /// ([P10]) — the ones the resolver finished and the ones it audited and kept.
 ///
 /// This is the whole weight the retired human review gate used to carry. A
@@ -397,10 +399,10 @@ pub fn resolver_stream_events(value: &serde_json::Value) -> Vec<ResolverStreamEv
 /// its reason: one stdio pipe means turns are answered strictly in order, which
 /// makes "one turn at a time" true by construction rather than by a lock.
 /// Dropping the sender ends the spawn.
-pub trait JoinResolverSpawner: Send + Sync + 'static {
+pub trait CrossingResolverSpawner: Send + Sync + 'static {
     fn spawn(
         &self,
-        workshop: &Path,
+        checkout: &Path,
         model: String,
     ) -> Result<mpsc::Sender<ResolverTurnRequest>, String>;
 }
@@ -412,16 +414,16 @@ pub struct ResolverRun {
 }
 
 impl ResolverRun {
-    /// Start a resolver over a workshop. The spawn is live but silent until the
+    /// Start a resolver over a checkout. The spawn is live but silent until the
     /// first [`ResolverRun::send`] — which the orchestrator makes with the
     /// charter.
     pub fn open(
-        spawner: &dyn JoinResolverSpawner,
-        workshop: &Path,
+        spawner: &dyn CrossingResolverSpawner,
+        checkout: &Path,
         model: String,
     ) -> Result<Self, String> {
         Ok(Self {
-            tx: spawner.spawn(workshop, model)?,
+            tx: spawner.spawn(checkout, model)?,
             asked: false,
         })
     }
@@ -468,10 +470,10 @@ impl ResolverRun {
 /// genuinely has none.
 pub fn spawner_for(
     repo: &Path,
-    production: Option<Arc<dyn JoinResolverSpawner>>,
-) -> Result<Arc<dyn JoinResolverSpawner>, String> {
+    production: Option<Arc<dyn CrossingResolverSpawner>>,
+) -> Result<Arc<dyn CrossingResolverSpawner>, String> {
     if let Some(command) = tugarc_core::resolver_program(repo) {
-        return Ok(Arc::new(StubJoinResolverSpawner {
+        return Ok(Arc::new(StubCrossingResolverSpawner {
             command,
             turn_timeout: RESOLVER_TURN_TIMEOUT,
         }));
@@ -480,13 +482,13 @@ pub fn spawner_for(
 }
 
 /// The production spawn (Spec S04): a persistent streaming-input `claude` in
-/// the workshop, with tools enough to read and edit and nothing else.
-pub struct ClaudeJoinResolverSpawner;
+/// the checkout, with tools enough to read and edit and nothing else.
+pub struct ClaudeCrossingResolverSpawner;
 
-impl JoinResolverSpawner for ClaudeJoinResolverSpawner {
+impl CrossingResolverSpawner for ClaudeCrossingResolverSpawner {
     fn spawn(
         &self,
-        workshop: &Path,
+        checkout: &Path,
         model: String,
     ) -> Result<mpsc::Sender<ResolverTurnRequest>, String> {
         // `claude_command` rather than `Command::new("claude")`: it is what
@@ -510,7 +512,7 @@ impl JoinResolverSpawner for ClaudeJoinResolverSpawner {
             "--allowedTools",
             RESOLVER_TOOLS,
         ]);
-        cmd.current_dir(workshop)
+        cmd.current_dir(checkout)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -609,13 +611,13 @@ async fn drive_claude(
     }
 }
 
-/// The stub spawn: the configured command, with the workshop path as `$1`.
+/// The stub spawn: the configured command, with the checkout path as `$1`.
 ///
 /// It speaks the same two terminal shapes over plain stdio — one JSON line per
 /// user message in, one JSON line per terminal turn out — so the orchestrator's
 /// parse-and-wait path is byte-for-byte the one production takes. Only the
 /// transport differs.
-pub struct StubJoinResolverSpawner {
+pub struct StubCrossingResolverSpawner {
     pub command: String,
     /// The silence bound for one turn. Production reads
     /// [`RESOLVER_TURN_TIMEOUT`]; a test that drives the bound itself sets it
@@ -623,10 +625,10 @@ pub struct StubJoinResolverSpawner {
     pub turn_timeout: Duration,
 }
 
-impl JoinResolverSpawner for StubJoinResolverSpawner {
+impl CrossingResolverSpawner for StubCrossingResolverSpawner {
     fn spawn(
         &self,
-        workshop: &Path,
+        checkout: &Path,
         _model: String,
     ) -> Result<mpsc::Sender<ResolverTurnRequest>, String> {
         let mut parts = self.command.split_whitespace();
@@ -635,8 +637,8 @@ impl JoinResolverSpawner for StubJoinResolverSpawner {
         for arg in parts {
             cmd.arg(arg);
         }
-        cmd.arg(workshop)
-            .current_dir(workshop)
+        cmd.arg(checkout)
+            .current_dir(checkout)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -746,8 +748,8 @@ async fn died(stderr: Option<tokio::process::ChildStderr>) -> String {
 /// resolver is still working through and short of a wedge nobody would notice.
 pub const RESOLVER_TURN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
-/// The ceiling on one whole resolve, from opening the workshop to the anchored
-/// candidate.
+/// The ceiling on one whole resolve, from opening the checkout to the
+/// resolver's report.
 ///
 /// Every inner bound can be paid in full and still add up to a finite number:
 /// one resolver turn plus one expired question is well inside it. This catches
@@ -766,7 +768,7 @@ fn silent_turn(bound: Duration) -> String {
 mod tests {
     use super::*;
 
-    fn stub(body: &str) -> (tempfile::TempDir, StubJoinResolverSpawner) {
+    fn stub(body: &str) -> (tempfile::TempDir, StubCrossingResolverSpawner) {
         let temp = tempfile::tempdir().unwrap();
         let script = temp.path().join("stub-resolver.sh");
         std::fs::write(&script, body).unwrap();
@@ -775,7 +777,7 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let spawner = StubJoinResolverSpawner {
+        let spawner = StubCrossingResolverSpawner {
             command: script.to_string_lossy().to_string(),
             turn_timeout: RESOLVER_TURN_TIMEOUT,
         };
@@ -909,12 +911,12 @@ mod tests {
     #[test]
     fn a_text_frame_is_the_resolver_speaking() {
         let v = frame(
-            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Reading Justfile at the candidate."}]}}"#,
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Reading Justfile at the merge."}]}}"#,
         );
         assert_eq!(
             resolver_stream_events(&v),
             vec![ResolverStreamEvent::Text(
-                "Reading Justfile at the candidate.".to_string()
+                "Reading Justfile at the merge.".to_string()
             )]
         );
     }
@@ -971,8 +973,8 @@ mod tests {
         let (_temp, spawner) = stub(
             "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"files\":[{\"path\":\"a.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"both renamed\",\"reconciliation\":\"kept both\"}],\"notes\":\"ok\"}'\n",
         );
-        let workshop = tempfile::tempdir().unwrap();
-        let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        let mut run = ResolverRun::open(&spawner, checkout.path(), "model".into()).unwrap();
 
         let turn = run.send("charter".to_string(), None).await.unwrap();
         match turn {
@@ -989,8 +991,8 @@ mod tests {
         let (_temp, spawner) = stub(
             "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"ask\":{\"question\":\"which?\",\"options\":[{\"label\":\"a\"},{\"label\":\"b\"}]}}'\nread -r answer\nprintf '%s\\n' '{\"files\":[{\"path\":\"a.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"x\",\"reconciliation\":\"y\"}],\"notes\":\"asked\"}'\n",
         );
-        let workshop = tempfile::tempdir().unwrap();
-        let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        let mut run = ResolverRun::open(&spawner, checkout.path(), "model".into()).unwrap();
 
         match run.send("charter".to_string(), None).await.unwrap() {
             ResolverTurn::Ask(ask) => assert_eq!(ask.question, "which?"),
@@ -1007,8 +1009,8 @@ mod tests {
         let (_temp, spawner) = stub(
             "#!/bin/sh\nwhile read -r _line; do printf '%s\\n' '{\"ask\":{\"question\":\"again?\",\"options\":[{\"label\":\"a\"},{\"label\":\"b\"}]}}'; done\n",
         );
-        let workshop = tempfile::tempdir().unwrap();
-        let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        let mut run = ResolverRun::open(&spawner, checkout.path(), "model".into()).unwrap();
 
         assert!(matches!(
             run.send("charter".to_string(), None).await.unwrap(),
@@ -1025,8 +1027,8 @@ mod tests {
     async fn a_stub_that_speaks_prose_is_a_protocol_violation() {
         let (_temp, spawner) =
             stub("#!/bin/sh\nread -r _charter\nprintf '%s\\n' 'I resolved everything, boss.'\n");
-        let workshop = tempfile::tempdir().unwrap();
-        let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        let mut run = ResolverRun::open(&spawner, checkout.path(), "model".into()).unwrap();
 
         let err = run
             .send("charter".to_string(), None)
@@ -1038,8 +1040,8 @@ mod tests {
     #[tokio::test]
     async fn a_stub_that_dies_reports_rather_than_hangs() {
         let (_temp, spawner) = stub("#!/bin/sh\nexit 3\n");
-        let workshop = tempfile::tempdir().unwrap();
-        let mut run = ResolverRun::open(&spawner, workshop.path(), "model".into()).unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        let mut run = ResolverRun::open(&spawner, checkout.path(), "model".into()).unwrap();
 
         let err = run
             .send("charter".to_string(), None)

@@ -104,11 +104,12 @@ pub fn mark_in(
     let note = note.unwrap_or_default();
     // An audit is relative to the tree it read: the arc head and the base tip
     // it stood on when it marked. Both go into the mark, because readiness is
-    // derived from whether they still stand. They are read live rather than
-    // taken from the last `verified` line: a replay that found the arc
-    // already current re-runs no verify and writes no line, and an older
-    // line in the generation would stamp the audit with a tree it never saw.
-    // A tip that cannot be read writes the mark pair-less, which reads stale.
+    // derived from whether they still stand. They are read live, and the last
+    // `verified` line is cross-checked against them: a verify that ran at
+    // another head or onto another base refuses the mark, because the mark
+    // would otherwise vouch for a tree no verify saw. A generation that never
+    // verified has nothing to cross-check. A tip that cannot be read writes
+    // the mark pair-less, which reads stale.
     let note = match stage {
         MarkStage::Audited => {
             let branch = branch_name(name);
@@ -117,7 +118,13 @@ pub fn mark_in(
                 .ok()
                 .and_then(|base| git_stdout(repo_root, &["rev-parse", &base]).ok());
             match (head, base) {
-                (Some(head), Some(base)) => audited_note(&AuditedPair { head, base }, note),
+                (Some(head), Some(base)) => {
+                    let pair = AuditedPair { head, base };
+                    if let Some(refusal) = verified_elsewhere(paths, repo_root, name, &pair) {
+                        return Err(ArcError::Refused(refusal));
+                    }
+                    audited_note(&pair, note)
+                }
                 _ => note.to_owned(),
             }
         }
@@ -132,6 +139,32 @@ pub fn mark_in(
         open_steps,
         total_steps,
     })
+}
+
+/// The sentence that refuses an `audited` mark over a tree the last verify did
+/// not see, or `None` when the verify saw exactly `live` or nothing verified.
+fn verified_elsewhere(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    live: &AuditedPair,
+) -> Option<String> {
+    let declarations = crate::log::read_declarations(paths, repo_root, name);
+    let (head, base) = crate::log::parse_verified_note(declarations.last_verified.as_deref()?)?;
+    let moved = match (head != live.head, base != live.base) {
+        (false, false) => return None,
+        (true, false) => "a round landed since",
+        (false, true) => "the base moved since",
+        (true, true) => "the head and the base both moved since",
+    };
+    let short = |sha: &str| sha.chars().take(9).collect::<String>();
+    Some(format!(
+        "Cannot mark '{name}' audited: the last verify ran at {} onto {}, and {moved} (now {} onto {}). Run `tugtool arc verify {name}` on this tree first.",
+        short(&head),
+        short(&base),
+        short(&live.head),
+        short(&live.base),
+    ))
 }
 
 /// Commit the arc worktree (if dirty) and append an arc log line. `round_meta`
@@ -812,6 +845,57 @@ mod tests {
             "message was: {message}"
         );
         assert!(message.contains("Tug-Sweep: 1"), "message was: {message}");
+    }
+
+    /// An `audited` mark refuses a tree the last verify did not see, and a
+    /// verify of exactly the live pair lets it through. The fit the arc then
+    /// reports is the audit's own pair, so the two cannot disagree.
+    #[test]
+    fn an_audit_mark_refuses_a_base_the_verify_did_not_see() {
+        let (_temp, root, paths) = stepped_arc("verified-arc");
+        let tips = live_tips(&root, "verified-arc");
+        let (head, base) = (tips.head.clone().unwrap(), tips.base.clone().unwrap());
+        let elsewhere = "0".repeat(40);
+
+        crate::log::append_arc_log(
+            &paths,
+            &root,
+            "verified-arc",
+            "verified",
+            &format!("{head} onto {elsewhere} · 1 surfaces checked"),
+        )
+        .unwrap();
+        let refusal = mark_in(&paths, &root, "verified-arc", MarkStage::Audited, None)
+            .expect_err("a verify onto another base cannot vouch for this one");
+        let sentence = refusal.to_string();
+        assert!(sentence.contains("the base moved since"), "{sentence}");
+        assert!(
+            sentence.contains("tugtool arc verify verified-arc"),
+            "{sentence}"
+        );
+        assert!(
+            !matches!(
+                crate::log::read_declarations(&paths, &root, "verified-arc").latest,
+                Some(crate::log::ArcDeclaration::Audited)
+            ),
+            "a refused mark writes nothing"
+        );
+
+        crate::log::append_arc_log(
+            &paths,
+            &root,
+            "verified-arc",
+            "verified",
+            &format!("{head} onto {base} · 1 surfaces checked"),
+        )
+        .unwrap();
+        mark_in(&paths, &root, "verified-arc", MarkStage::Audited, None)
+            .expect("a verify of the live pair lets the mark through");
+        let declarations = crate::log::read_declarations(&paths, &root, "verified-arc");
+        let fit = super::super::show::fit_fact(&tips, &declarations).expect("a fit");
+        let audited = declarations.audited_at.expect("the mark carries its pair");
+        assert_eq!((fit.head, fit.base), (audited.head, audited.base));
+        assert!(fit.current);
     }
 
     /// `mark` says when it is claiming more than the ledger does.

@@ -43,7 +43,10 @@ pub fn config_toml(surfaces: &[Surface]) -> String {
     let mut out = String::from(
         "# Written by the arc crossing lab for one run. The surfaces are the\n\
          # scenario's; `tugtool arc verify` runs their checks over an arc.\n\
-         [tugtool.arc]\n",
+         # The quiet re-stamp's horizon is short, so a wedged verify ends\n\
+         # inside one expectation's wait.\n\
+         [tugtool.arc]\n\
+         restamp_horizon_secs = 15\n",
     );
     for surface in surfaces {
         out.push_str("\n[[tugtool.arc.surface]]\n");

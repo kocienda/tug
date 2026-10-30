@@ -1693,7 +1693,7 @@ impl AgentSupervisor {
         // terminal line is already appended, comes back with nothing.
         let arc_record = tugarc_core::read_arc(&Paths::from_env(), dir, &request.arc);
 
-        // A join tears the workshop down and deletes the branch under it, so it
+        // A join tears the worktree down and deletes the branch under it, so it
         // cannot share the arc with a resolve or a verification (Spec S01). A
         // **preview** touches nothing and never takes the arc — it is the one
         // join shape that is safe to ask for mid-run, and the face asks for it
@@ -1734,6 +1734,10 @@ impl AgentSupervisor {
             // tugcast's cwd is the server's, not the card's, so it stands
             // nowhere and the inside-the-worktree refusal does not apply.
             caller_cwd: None,
+            // The press is the offer's act, and the offer follows readiness:
+            // a Wheel arc its audit does not cover is refused here, and the
+            // refusal reaches the card as `changeset_join_err`.
+            unaudited: false,
         };
         // The join's own narration ([P03]). It takes real seconds and used to
         // say nothing for all of them — the press landed and the next word was

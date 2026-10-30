@@ -40,6 +40,15 @@ pub enum Act {
     },
     /// Land the arc on its base through `tugtool arc join`.
     Land(&'static str),
+    /// Land the arc through the hand door, `tugtool arc join --unaudited`,
+    /// which lands a Wheel arc its audit does not cover.
+    LandUnaudited(&'static str),
+    /// Press `tugtool arc join` and expect it refused, with a refusal that
+    /// carries this text.
+    LandRefused {
+        arc: &'static str,
+        says: &'static str,
+    },
     /// Discard the arc through `tugtool arc discard`: its worktree and branch
     /// gone without merging, the crossing it stood in forgotten, and the arc
     /// dropped from the run so a later act may cut one of the same name
@@ -61,6 +70,23 @@ pub enum Act {
     Unbind(&'static str),
     /// Bind the arc's session to it again.
     Rebind(&'static str),
+    /// Leave an uncommitted file in the arc's worktree — scratch bytes the
+    /// machine must not spend a turn or a replay on.
+    Dirty {
+        arc: &'static str,
+        path: &'static str,
+    },
+    /// Remove the file a [`Act::Dirty`] left, so the worktree is clean again.
+    Clean {
+        arc: &'static str,
+        path: &'static str,
+    },
+    /// Press Re-audit — `tugtool arc run` on the done arc, the button's own
+    /// door — and expect it refused with a refusal carrying this text.
+    ReauditRefused {
+        arc: &'static str,
+        says: &'static str,
+    },
     /// A commit on `main` that no arc made: the base moves with no crossing
     /// settled first, so a conflict it brings is one the cache never saw.
     BaseCommit {
@@ -199,7 +225,7 @@ fn disjoint() -> LabScenario {
 }
 
 /// Both arcs rewrite line five: the watcher records a conflicted crossing,
-/// the pilot's settle teaches the pair's resolution to the cache, and the
+/// the crossing settle teaches the pair's resolution to the cache, and the
 /// standing record names the file. Real model work, so it waits longest.
 fn conflict_settles() -> LabScenario {
     LabScenario {
@@ -847,13 +873,14 @@ fn stale_waits_for_a_card() -> LabScenario {
     }
 }
 
-/// The hand door still lands an arc that is not ready. A finished arc goes
-/// stale on a round while no card holds it, so nothing re-audits it, and
-/// `tugtool arc join` lands it anyway — only the offer follows readiness.
+/// The join follows readiness, and the hand door is explicit. A finished arc
+/// goes stale on a round while no card holds it, so nothing re-audits it:
+/// the bare `tugtool arc join` refuses it and names why and the door, and
+/// `--unaudited` lands it.
 fn hand_joins_a_stale_arc() -> LabScenario {
     LabScenario {
         name: "hand_joins_a_stale_arc",
-        why: "tugtool arc join lands an audit-stale arc; only the offer follows readiness",
+        why: "tugtool arc join refuses an audit-stale arc; --unaudited lands it",
         files: ten_lines(),
         surfaces: whole_tree(&["true"]),
         acts: vec![
@@ -871,9 +898,123 @@ fn hand_joins_a_stale_arc() -> LabScenario {
                 edits: vec![("g.txt", Edit::Write("g by b, twice\n".to_string()))],
             },
             Act::Expect(Probe::stage("rb", "audit-stale")),
-            Act::Land("rb"),
+            Act::LandRefused {
+                arc: "rb",
+                says: "a round landed on arc 'rb' after its audit",
+            },
+            Act::Expect(Probe::stage("rb", "audit-stale")),
+            Act::LandUnaudited("rb"),
             Act::Expect(Probe::base_log("lab lands rb")),
             Act::Expect(Probe::arc_log("rb", "joined")),
+        ],
+    }
+}
+
+/// The quiet re-stamp's verify, wedged: a check that sleeps far past the lab
+/// project's horizon, with a duration no other process carries so the probe
+/// that waits for it finds this one.
+const HUNG_CHECK: &str = "sleep 917";
+
+/// A Re-audit press while the quiet re-stamp holds the arc refuses, naming
+/// the job; at the job's horizon the wedged verify is killed and the audit
+/// is seated on its card instead.
+fn press_during_restamp_refuses() -> LabScenario {
+    LabScenario {
+        name: "press_during_restamp_refuses",
+        why: "Re-audit is refused while the quiet re-stamp runs; its horizon seats the audit",
+        files: ten_lines(),
+        surfaces: whole_tree(&[HUNG_CHECK]),
+        acts: vec![
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g",
+                edits: vec![("g.txt", Edit::Write("g by b\n".to_string()))],
+            },
+            Act::Finish("rb"),
+            Act::BaseCommit {
+                subject: "main edits line one",
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 1, "main one")))],
+            },
+            Act::Expect(Probe::process(HUNG_CHECK)),
+            Act::ReauditRefused {
+                arc: "rb",
+                says: "re-stamping its audit",
+            },
+            Act::Expect(Probe::reaudit("rb")),
+            Act::Stop("rb"),
+        ],
+    }
+}
+
+/// A stale audit on an arc whose worktree holds scratch bytes waits: no
+/// replay, no seat. Once the tree is clean, the next base move re-stamps it.
+fn dirty_worktree_waits() -> LabScenario {
+    LabScenario {
+        name: "dirty_worktree_waits",
+        why: "a base move under a finished arc with a dirty worktree waits; clean, the next move re-stamps",
+        files: ten_lines(),
+        surfaces: whole_tree(&["true"]),
+        acts: vec![
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g",
+                edits: vec![("g.txt", Edit::Write("g by b\n".to_string()))],
+            },
+            Act::Finish("rb"),
+            Act::Dirty {
+                arc: "rb",
+                path: "scratch.txt",
+            },
+            Act::BaseCommit {
+                subject: "main edits line one",
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 1, "main one")))],
+            },
+            Act::Expect(Probe::absent(Probe::arc_log_marker("rb", "replayed"), 10)),
+            Act::Expect(Probe::absent(Probe::reaudit("rb"), 1)),
+            Act::Clean {
+                arc: "rb",
+                path: "scratch.txt",
+            },
+            Act::BaseCommit {
+                subject: "main edits line two",
+                edits: vec![(
+                    "f.txt",
+                    Edit::Write(edit(&edit(&lines(10), 1, "main one"), 2, "main two")),
+                )],
+            },
+            Act::Expect(Probe::arc_log_marker("rb", "replayed")),
+            Act::Expect(Probe::stage("rb", "audited")),
+        ],
+    }
+}
+
+/// A quiet re-stamp whose verify hangs ends at its horizon: the check is
+/// killed and the audit is seated with the reason, so the arc never waits on
+/// a job that will not end.
+fn hung_verify_ends_at_deadline() -> LabScenario {
+    LabScenario {
+        name: "hung_verify_ends_at_deadline",
+        why: "a wedged quiet verify is killed at its horizon and the audit is seated",
+        files: ten_lines(),
+        surfaces: whole_tree(&[HUNG_CHECK]),
+        acts: vec![
+            Act::Arc("rb"),
+            Act::Round {
+                arc: "rb",
+                subject: "b edits g",
+                edits: vec![("g.txt", Edit::Write("g by b\n".to_string()))],
+            },
+            Act::Finish("rb"),
+            Act::BaseCommit {
+                subject: "main edits line one",
+                edits: vec![("f.txt", Edit::Write(edit(&lines(10), 1, "main one")))],
+            },
+            Act::Expect(Probe::process(HUNG_CHECK)),
+            Act::Expect(Probe::reaudit("rb")),
+            Act::Expect(Probe::absent(Probe::process(HUNG_CHECK), 2)),
+            Act::Stop("rb"),
         ],
     }
 }
@@ -903,6 +1044,9 @@ pub fn scenarios() -> Vec<LabScenario> {
         round_after_audit(),
         stale_waits_for_a_card(),
         hand_joins_a_stale_arc(),
+        press_during_restamp_refuses(),
+        dirty_worktree_waits(),
+        hung_verify_ends_at_deadline(),
     ]
 }
 
@@ -947,10 +1091,16 @@ mod tests {
             for act in &scenario.acts {
                 match act {
                     Act::Arc(name) => cut.push(name),
-                    Act::Round { arc, .. } | Act::Say { arc, .. } => {
+                    Act::Round { arc, .. }
+                    | Act::Say { arc, .. }
+                    | Act::LandRefused { arc, .. }
+                    | Act::Dirty { arc, .. }
+                    | Act::Clean { arc, .. }
+                    | Act::ReauditRefused { arc, .. } => {
                         assert!(cut.contains(arc), "{}: {arc} not cut", scenario.name)
                     }
                     Act::Land(arc)
+                    | Act::LandUnaudited(arc)
                     | Act::Finish(arc)
                     | Act::MarkAudited(arc)
                     | Act::Stop(arc)

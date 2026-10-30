@@ -67,6 +67,7 @@ import { getChangesetJoinStore, useChangesetJoinLand } from "@/lib/changeset-joi
 import { CommitModeController } from "@/lib/commit-mode-controller";
 import {
   JoinModeController,
+  joinModeOpenRefusal,
   joinTargetFromEntry,
 } from "@/lib/join-mode-controller";
 import {
@@ -1873,6 +1874,13 @@ export function SessionCardBody({
             .getSnapshot()
             .arcs.find((row) => row.owner_id === arcId);
     if (entry !== undefined) {
+      // A stale arc is not on offer, and the mode would open on a press the
+      // server refuses. The door speaks the register's line instead.
+      const refusal = joinModeOpenRefusal(entry);
+      if (refusal !== null) {
+        paneBulletinRef.current?.caution(refusal);
+        return;
+      }
       joinModeController.enter(joinTargetFromEntry(entry));
       return;
     }
@@ -3236,23 +3244,21 @@ export function SessionCardBody({
   const revealMemoryRef = useRef<JoinOfferMemory | null>(null);
   if (revealMemoryRef.current === null) revealMemoryRef.current = new JoinOfferMemory();
   const revealMemory = revealMemoryRef.current;
-  // **A cleared block is new work to show, even at the same work id.**
+  // **A cleared block, or attention back after a spell without it, is new
+  // work to show, even at the same work id.**
   //
   // The memory above is keyed on the attention key because that is the fact
   // that means "work you have not seen" — a base move must not re-open the room.
-  // A resolve is the one thing that moves the BASE and changes the answer: a
-  // arc blocked by uncommitted work on the base carries a standing offer its
-  // work already spent, so without this the room would stay shut on the arc
-  // the user just unblocked, which is the moment they most want it open.
-  //
-  // The edge is what is remembered, not the state: forgetting on every clean
-  // frame would re-open the room on every recompute.
+  // But the user can be told an arc is not ready and then have it come back
+  // ready at the very key it had: a block cleared by a resolve, or a stale
+  // audit re-stamped onto a moved base with no round landed. Without the edge
+  // the room would stay shut on the arc that just came back, which is the
+  // moment they most want it open. The memory reads the edges itself
+  // (`JoinOfferMemory.observe`), so the rule is unit-tested where it lives.
   const joinBlocked = (boundArcEntry?.join?.blockers ?? []).length > 0;
-  const wasBlockedRef = useRef(false);
   useEffect(() => {
-    if (wasBlockedRef.current && !joinBlocked) revealMemory.forget();
-    wasBlockedRef.current = joinBlocked;
-  }, [joinBlocked, revealMemory]);
+    revealMemory.observe({ blocked: joinBlocked, attentionKey: joinAttentionKey });
+  }, [joinBlocked, joinAttentionKey, revealMemory]);
   // This card's own join of the offered arc, from the press to its terminal
   // frame. The press exits the mode and hides the shade, so in the commit
   // right after it every other gate input reads clear; this is the one that
@@ -4269,6 +4275,11 @@ export function SessionCardBody({
         return;
       }
       const seed = (named === undefined ? rest : tail.join(" ")).trim();
+      const refusal = joinModeOpenRefusal(entry);
+      if (refusal !== null) {
+        notify?.caution(refusal);
+        return;
+      }
       joinModeController.enter(
         joinTargetFromEntry(entry),
         seed.length > 0 ? seed : undefined,

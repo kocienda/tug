@@ -20,7 +20,7 @@
 //!
 //! No filesystem, no git, no process spawn, no clock. Every fact it reads is
 //! one the dispatcher already gathered on a path that was going to read the
-//! arc log and the plan anyway — the same split `join_pilot` uses, and
+//! arc log and the plan anyway — the same split the base-motion engine uses, and
 //! for the same reason: a fact checked here and acted on a scheduling hop later
 //! is a time-of-check/time-of-use window a second tick walks straight through,
 //! so the *act* re-reads under its guard and the *decision* stays testable
@@ -249,6 +249,14 @@ pub struct ArcFacts {
     /// Read from the arc log's declarations rather than from anything the
     /// stage said: a stage announces nothing and is believed about nothing.
     pub audit_declared: bool,
+    /// The arc's latest declaration is an `audited` mark, current or not.
+    ///
+    /// [`Self::audit_declared`] is the mark *and* its currency; this is the
+    /// mark alone, and the two apart are what tell an audit that never marked
+    /// from one whose mark went stale between the mark and the tick — a
+    /// sibling joined in that window, or a round landed — which is a re-audit
+    /// owed, not a failure.
+    pub audit_marked: bool,
     /// How many turns the seated stage has ended in a row without closing a
     /// step — the runner's count, because only a caller holding the previous
     /// reading can say a turn *ended*, exactly as with
@@ -579,9 +587,18 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // ([B09]) — a resume is the one fact on the record that is a person's live
     // instruction rather than a reading of what already happened.
     if !facts.session_live {
+        // An audit whose mark went stale with no card left to seat it again
+        // stops saying so, and inside the re-audit door: the bind that brings
+        // a card reopens it. `session gone` is true too, but it is a stop
+        // only a hand resume answers.
+        let reason = if stage == Some(ArcStage::Audit) && audit_went_stale(facts) {
+            ArcStopReason::AuditWentStale
+        } else {
+            ArcStopReason::SessionGone
+        };
         return Some(ArcAction::Stop {
             stage: stage.unwrap_or(ArcStage::Devise),
-            reason: ArcStopReason::SessionGone,
+            reason,
         });
     }
 
@@ -989,7 +1006,8 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
     })
 }
 
-/// The audit stage's one question: did it mark the arc?
+/// The audit stage's one question: did it mark the arc, against the tips the
+/// arc stands on now?
 ///
 /// The mark is the stage's product, exactly as the stamp is the review's, and
 /// the stage's own turn has ended by the time this is asked — so an arc still
@@ -1002,15 +1020,28 @@ fn implement_action(facts: &ArcFacts) -> Option<ArcAction> {
 /// leaves committed code and a run that is finished — the honest end is to
 /// stop and say the audit did not happen, because the alternative is an arc
 /// that offers its join wearing a word nothing earned.
+///
+/// A mark that is there and no longer current is neither of those. The audit
+/// did its work and something moved after it — a round, or a sibling's join
+/// on the base — so the audit is owed again, exactly as `implement_action`
+/// rotates it over a stale mark at the seam. The card is live and idle by the
+/// time this is asked; the case with no card is the `session_live` arm's.
 fn audit_action(facts: &ArcFacts) -> ArcAction {
     if facts.audit_declared {
         ArcAction::Done
+    } else if audit_went_stale(facts) {
+        ArcAction::Rotate(Rotation::plain(ArcStage::Audit))
     } else {
         ArcAction::Stop {
             stage: ArcStage::Audit,
             reason: ArcStopReason::AuditDidNotMark,
         }
     }
+}
+
+/// The audit marked the arc and the mark is no longer current.
+fn audit_went_stale(facts: &ArcFacts) -> bool {
+    facts.audit_marked && !facts.audit_declared
 }
 
 /// The continue prompt for whatever the ledger says is left, or `None` when
@@ -1093,6 +1124,7 @@ mod tests {
             compacted_since_below: false,
             compact_turn_just_ended: false,
             audit_declared: false,
+            audit_marked: false,
             quiet_turns: 0,
             reask_pending: false,
             stalled: false,
@@ -1730,6 +1762,47 @@ mod tests {
             Some(ArcAction::Stop {
                 stage: ArcStage::Audit,
                 reason: ArcStopReason::AuditDidNotMark,
+            })
+        );
+    }
+
+    /// **A mark that went stale before the tick is a re-audit, not a
+    /// failure.** The audit marked; a sibling joined, or a round landed,
+    /// before the runner read it. On a live card the audit is seated again;
+    /// with no card the arc stops saying the audit went stale, which is a
+    /// reason the re-audit door admits — never `audit did not mark`.
+    #[test]
+    fn an_audit_whose_mark_went_stale_before_the_tick_is_seated_again() {
+        let mut facts = facts();
+        facts.ledger.run_complete = true;
+        facts.audit_marked = true;
+        facts.audit_declared = false;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Audit]), &facts),
+            Some(ArcAction::Rotate(Rotation::plain(ArcStage::Audit)))
+        );
+
+        facts.session_live = false;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Audit]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Audit,
+                reason: ArcStopReason::AuditWentStale,
+            })
+        );
+        assert!(tugarc_core::arc::reaudit_admits(
+            false,
+            Some((ArcStage::Audit, ArcStopReason::AuditWentStale.as_str()))
+        ));
+
+        // A dead card at any other stage, or under an audit that never
+        // marked, is the session's ending as before.
+        facts.audit_marked = false;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Audit]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Audit,
+                reason: ArcStopReason::SessionGone,
             })
         );
     }

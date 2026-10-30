@@ -15,7 +15,10 @@ use super::{
     remove_arc_worktree, retry_past_index_lock, untracked_paths, with_arc_trailers, worktree_path,
 };
 use crate::error::ArcError;
-use crate::log::{FitFact, append_arc_log, read_declarations};
+use crate::log::{
+    ArcDeclaration, ArcDeclarations, AuditStaleness, AuditedPair, FitFact, append_arc_log,
+    audit_staleness, read_declarations,
+};
 
 /// How [`join_in`] integrates an arc into its base branch ([P14]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -70,6 +73,11 @@ pub struct JoinOptions {
     /// refused. `None` skips that check — tugcast's process cwd is the
     /// server's and says nothing about the card that asked.
     pub caller_cwd: Option<std::path::PathBuf>,
+    /// Land an arc its audit does not cover — the hand door. A Wheel arc
+    /// joins only while its audit is current, and the press and the bare
+    /// verb both refuse one that is not; this names what it does instead of
+    /// doing it quietly. A hand arc, which no audit ever covered, needs none.
+    pub unaudited: bool,
 }
 
 /// Outcome of [`join_in`].
@@ -98,7 +106,7 @@ pub struct JoinOutcome {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fit: Option<FitFact>,
     /// The squash/merge message the join actually landed with — the maintained
-    /// draft, the caller's override, or the candidate's own subject. Present
+    /// draft, the caller's override, or the branch description. Present
     /// only on a landed join, because it is the receipt's body and a receipt
     /// that paraphrased the message would be a different document from the
     /// commit. Additive: absent from the JSON when there is none.
@@ -703,6 +711,102 @@ fn empty_detail(name: &str, base_branch: &str) -> String {
     )
 }
 
+/// What refuses a Wheel arc its audit does not cover, and why, or `None` when
+/// the arc is ready or no wheel drives it.
+///
+/// Readiness is [`crate::log::join_ready`]'s, read off the detail, so the
+/// face that offers the join and the act that refuses it are the same
+/// answer. A hand arc — no record — was never offered by an audit and is not
+/// refused by one; an arc with no rounds is the `empty` blocker's. The
+/// sentence names which endpoint moved, because what the arc does next (a
+/// quiet re-stamp on a base move, a re-audit on a round) turns on it.
+///
+/// A **stopped** wheel whose audit is not stale is not refused either. Its
+/// wheel will not move again until somebody resumes it, and landing it
+/// unaudited is the escape from a broken wheel that `arc-lifecycle.md`
+/// keeps: the user's act, always possible from the card and the bare verb
+/// alike, and never called ready. What this gate refuses is a wheel still
+/// running, which would land a tree its own audit may yet change, and an
+/// audit that went stale, which would land a tree no audit read.
+fn readiness_blocker(paths: &Paths, repo_root: &Path, detail: &ArcDetail) -> Option<JoinBlocker> {
+    if detail.arc.is_none() || detail.join_ready || detail.rounds == 0 {
+        return None;
+    }
+    let stopped = detail
+        .arc
+        .as_ref()
+        .is_some_and(|run| !run.done && run.stopped.is_some());
+    if stopped && detail.audit_staleness.is_none() {
+        return None;
+    }
+    let name = detail.name.as_str();
+    let decls = read_declarations(paths, repo_root, name);
+    let tips = arc_tips(repo_root, &detail.branch, &detail.base);
+    let (title, sentence) = not_ready_detail(name, &detail.base, detail, &decls, &tips);
+    Some(plain_blocker("not-ready", title, sentence))
+}
+
+/// The title and sentence of the `not-ready` blocker.
+fn not_ready_detail(
+    name: &str,
+    base_branch: &str,
+    detail: &ArcDetail,
+    decls: &ArcDeclarations,
+    tips: &crate::log::ArcTips,
+) -> (&'static str, String) {
+    if detail.worktree_dirty_tracked {
+        return (
+            "The audit has not read this tree",
+            format!(
+                "Cannot join: arc '{name}' has uncommitted changes in its worktree that its audit never read; commit them as a round, which its audit then reads, or discard them."
+            ),
+        );
+    }
+    match audit_staleness(decls, tips) {
+        Some(AuditStaleness::Head) => (
+            "The audit is stale",
+            format!(
+                "Cannot join: a round landed on arc '{name}' after its audit; it re-audits before it joins."
+            ),
+        ),
+        Some(AuditStaleness::Base) => (
+            "The audit is stale",
+            format!(
+                "Cannot join: '{base_branch}' moved since arc '{name}' was audited; it re-audits onto the new base before it joins."
+            ),
+        ),
+        Some(AuditStaleness::Both) => (
+            "The audit is stale",
+            format!(
+                "Cannot join: a round landed on arc '{name}' and '{base_branch}' moved since its audit; it re-audits before it joins."
+            ),
+        ),
+        None => (
+            "Not audited yet",
+            format!(
+                "Cannot join: arc '{name}' has not been audited; its audit marks it ready to join."
+            ),
+        ),
+    }
+}
+
+/// The pair a Wheel arc's join must land on: the audited head onto the
+/// audited base. `None` when no audit stands over the arc.
+fn audited_pair_to_land(decls: &ArcDeclarations) -> Option<AuditedPair> {
+    if !matches!(decls.latest, Some(ArcDeclaration::Audited)) {
+        return None;
+    }
+    decls.audited_at.clone()
+}
+
+/// The refusal when the base or the arc moved between the readiness check
+/// and the integrate: the gate is held, and the tips are not the audit's.
+fn moved_under_detail(name: &str, base_branch: &str) -> String {
+    format!(
+        "Cannot join: arc '{name}' or '{base_branch}' moved after the join was checked, so the tree is no longer the one its audit verified; it re-audits before it joins."
+    )
+}
+
 /// A blocker with no paths and no remedy — the shape of every kind but base
 /// dirt. One constructor per kind, so the preview that reports a blocker and
 /// the execute path that refuses with it say the same title and sentence.
@@ -1176,8 +1280,8 @@ pub fn join_preflight_in(
     let current = current_branch(repo_root)?;
     // No occupancy view from a CLI process, and none wanted: a join in flight
     // refuses a join started from here whether or not the server is mid-join.
-    // Which is exactly why the resolve lease exists — the one occupancy fact a
-    // second process can still read, because it is written in git.
+    // The op-log record of a join in flight is the one occupancy fact a
+    // second process can read, because it is written to disk.
     Ok(join_blockers_from_detail(
         paths,
         repo_root,
@@ -1613,7 +1717,7 @@ fn base_dirt_blockers(
 /// answers. It is the one input the caller must supply: see the in-flight note
 /// in the body for why the answer cannot be read from disk. A caller with no
 /// occupancy view passes `None` and is answered from git alone, which is what
-/// the resolve lease below is for.
+/// the op-log's join record below is for.
 ///
 /// `live_dirt` is the second such input, and the second for the same reason:
 /// base paths another live session holds, mapped to its display name, already
@@ -1642,14 +1746,23 @@ pub fn join_blockers_from_detail(
     // running over a crashed join's leavings, and the refusal is still right.
     //
     // `held` is passed rather than read because the holder registry is
-    // in-process and lives a crate away — the same reason `pilot_action` takes
-    // its facts rather than fetching them.
+    // in-process and lives a crate away — the same reason the engine's
+    // `decide_for_arc` takes its facts rather than fetching them.
     if held != Some("join") && crate::oplog::join_in_flight(paths, repo_root, name).is_some() {
         blockers.push(stale_journal_blocker(name));
     }
 
     if current_branch != base_branch {
         blockers.push(off_base_blocker(current_branch, base_branch));
+    }
+
+    // Readiness is the join's own gate ([L31]: the refusal names why). A
+    // join holding the arc reads `join_ready` false by construction, and is
+    // the one reader this must not refuse.
+    if held != Some("join")
+        && let Some(blocker) = readiness_blocker(paths, repo_root, detail)
+    {
+        blockers.push(blocker);
     }
 
     // Only the paths that are somebody's work. A base copy the arc already
@@ -1912,6 +2025,26 @@ pub fn join_in_with_progress(
         )]));
     }
 
+    // A Wheel arc lands only while its audit is current: the offer follows
+    // readiness, and so does the act, whichever door pressed it. The pair it
+    // was audited on is carried to the integrate, which lands on that pair or
+    // not at all.
+    let audited_pair = if opts.unaudited {
+        None
+    } else {
+        let detail =
+            arc_detail_entry_in(paths, &repo_root, name).ok_or_else(|| ArcError::NotFound {
+                name: name.to_string(),
+            })?;
+        if let Some(blocker) = readiness_blocker(paths, &repo_root, &detail) {
+            return Err(ArcError::Blocked(vec![blocker]));
+        }
+        detail
+            .arc
+            .as_ref()
+            .and_then(|_| audited_pair_to_land(&read_declarations(paths, &repo_root, name)))
+    };
+
     // Intersection preflight ([P14]): base dirt blocks only when it touches a
     // file this arc also changed (`base...branch` diff ∪ worktree dirt).
     // Disjoint base dirt is fine — the squash-merge only writes the arc's files.
@@ -2054,7 +2187,15 @@ pub fn join_in_with_progress(
         let _ = crate::oplog::record_stranded(paths, &repo_root, op_seq, stranded);
         Some(tail)
     };
-    let integration = match integrate_join(paths, &repo_root, name, &branch, &base_branch, &opts) {
+    let integration = match integrate_join(
+        paths,
+        &repo_root,
+        name,
+        &branch,
+        &base_branch,
+        &opts,
+        audited_pair.as_ref(),
+    ) {
         Ok(integration) => integration,
         Err(e) => {
             return Err(match settle_unlanded() {
@@ -2370,11 +2511,28 @@ fn integrate_join(
     branch: &str,
     base_branch: &str,
     opts: &JoinOptions,
+    audited: Option<&AuditedPair>,
 ) -> Result<Integration, ArcError> {
     // Every integrate moves the base, so every one holds the base's gate: two
     // joins reading the base first and landing second is a lost update, one
     // process apart.
     let _gate = join_gate(repo_root, base_branch)?;
+
+    // And under the gate, the compare-and-swap on the audited pair: the arc
+    // head and the base tip are the ones its audit verified, or the join
+    // lands nothing. A base that moved after the readiness check is a tree
+    // no audit saw, and a round that landed is work none read.
+    if let Some(pair) = audited {
+        let base_head = git_stdout(repo_root, &["rev-parse", base_branch])?;
+        let arc_head = git_stdout(repo_root, &["rev-parse", branch])?;
+        if base_head != pair.base || arc_head != pair.head {
+            return Err(ArcError::Blocked(vec![plain_blocker(
+                "not-ready",
+                "The audit is stale",
+                moved_under_detail(name, base_branch),
+            )]));
+        }
+    }
 
     let final_msg = integrate_message(
         paths,
@@ -2588,6 +2746,7 @@ fn base_branch_of(paths: &Paths, repo_root: &Path, op_seq: u64, name: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MarkStage;
     use crate::ops::test_support::*;
     use crate::ops::*;
     use serial_test::serial;
@@ -3128,8 +3287,8 @@ mod tests {
     }
 
     /// The join's preconditions are what the execution enforces, and nothing
-    /// else: a candidate rides along when one stands, the merge either applies
-    /// or does not, and no verdict is consulted anywhere.
+    /// else: the merge either applies or does not, and no verdict is consulted
+    /// anywhere.
     ///
     /// This pins the deletion rather than the deleted thing. A stale verdict
     /// left on a live branch by an older build must not resurface as a
@@ -5882,5 +6041,172 @@ mod tests {
 
         let outcome = join_in(&paths, repo, "standing", mechanics()).unwrap();
         assert!(outcome.commit_hash.is_some(), "no cwd named, no refusal");
+    }
+
+    /// The `not-ready` blocker's sentence, from a refused join.
+    fn not_ready_refusal(result: Result<JoinOutcome, ArcError>) -> String {
+        match result {
+            Err(ArcError::Blocked(blockers)) => blockers
+                .iter()
+                .find(|b| b.kind == "not-ready")
+                .map(|b| b.detail.clone())
+                .unwrap_or_else(|| panic!("no not-ready blocker in {blockers:?}")),
+            other => panic!("expected a readiness refusal, got {other:?}"),
+        }
+    }
+
+    /// **A Wheel arc joins only while its audit is current.** A round after
+    /// the audit makes it stale: the join refuses, naming the round, the
+    /// preview lists the same blocker, and nothing lands — until the hand
+    /// door names what it does.
+    #[test]
+    #[serial]
+    fn a_stale_wheel_arc_is_refused_and_the_hand_door_lands_it() {
+        let (_temp, root, paths) = wheeled_arc("stale-join");
+        mark_in(&paths, &root, "stale-join", MarkStage::Audited, None).unwrap();
+        let worktree = worktree_path(&root, "stale-join");
+        fs::write(worktree.join("two.txt"), "second\n").unwrap();
+        commit_in(&paths, &root, "stale-join", "r2", None, None).unwrap();
+        let base_before = head_sha(&root);
+
+        let why = not_ready_refusal(join_in(&paths, &root, "stale-join", mechanics()));
+        assert!(
+            why.contains("a round landed on arc 'stale-join' after its audit"),
+            "{why}"
+        );
+        assert_eq!(head_sha(&root), base_before, "a refused join lands nothing");
+        let preflight = join_preflight_in(&paths, &root, "stale-join").unwrap();
+        assert!(
+            preflight
+                .iter()
+                .any(|b| b.kind == "not-ready" && b.detail == why),
+            "the preview and the act say the same thing: {preflight:?}"
+        );
+
+        let landed = join_in(
+            &paths,
+            &root,
+            "stale-join",
+            JoinOptions {
+                unaudited: true,
+                ..mechanics()
+            },
+        )
+        .unwrap();
+        assert!(landed.commit_hash.is_some(), "the hand door lands it");
+    }
+
+    /// The refusal says which endpoint moved: a base move is a different
+    /// sentence from a round, and an arc never audited says that.
+    #[test]
+    #[serial]
+    fn the_readiness_refusal_names_what_moved() {
+        let (_temp, root, paths) = wheeled_arc("base-moved");
+        mark_in(&paths, &root, "base-moved", MarkStage::Audited, None).unwrap();
+        fs::write(root.join("base.txt"), "the base moved\n").unwrap();
+        commit_all(&root, "base moves");
+        let why = not_ready_refusal(join_in(&paths, &root, "base-moved", mechanics()));
+        assert!(
+            why.contains("moved since arc 'base-moved' was audited"),
+            "{why}"
+        );
+
+        let (_temp, root, paths) = wheeled_arc("never-audited");
+        let why = not_ready_refusal(join_in(&paths, &root, "never-audited", mechanics()));
+        assert!(
+            why.contains("arc 'never-audited' has not been audited"),
+            "{why}"
+        );
+    }
+
+    /// A current audit is what the join lands on.
+    #[test]
+    #[serial]
+    fn a_current_audit_joins() {
+        let (_temp, root, paths) = wheeled_arc("ready-join");
+        mark_in(&paths, &root, "ready-join", MarkStage::Audited, None).unwrap();
+        let landed = join_in(&paths, &root, "ready-join", mechanics()).unwrap();
+        assert!(landed.commit_hash.is_some());
+    }
+
+    /// **A stopped wheel keeps its unaudited escape.** An arc stopped before
+    /// its audit marked is never called ready, and landing it anyway is the
+    /// user's act from the card and the bare verb alike; a stop over an audit
+    /// that went stale is still refused, because that tree is one no audit
+    /// read.
+    #[test]
+    #[serial]
+    fn a_stopped_wheel_lands_unaudited_and_a_stale_stop_does_not() {
+        use crate::arc::{ArcStage, ArcStopReason, append_arc_stop};
+        let (_temp, root, paths) = wheeled_arc("stopped-join");
+        append_arc_stop(
+            &paths,
+            &root,
+            "stopped-join",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        assert!(
+            !join_preflight_in(&paths, &root, "stopped-join")
+                .unwrap()
+                .iter()
+                .any(|b| b.kind == "not-ready"),
+            "the preview names no readiness refusal over a stopped wheel"
+        );
+        let landed = join_in(&paths, &root, "stopped-join", mechanics()).unwrap();
+        assert!(landed.commit_hash.is_some(), "the escape lands it");
+
+        let (_temp, root, paths) = wheeled_arc("stale-stop");
+        mark_in(&paths, &root, "stale-stop", MarkStage::Audited, None).unwrap();
+        append_arc_stop(
+            &paths,
+            &root,
+            "stale-stop",
+            ArcStage::Audit,
+            ArcStopReason::AuditWentStale,
+        )
+        .unwrap();
+        fs::write(root.join("base.txt"), "the base moved\n").unwrap();
+        commit_all(&root, "base moves");
+        let why = not_ready_refusal(join_in(&paths, &root, "stale-stop", mechanics()));
+        assert!(why.contains("moved since arc 'stale-stop' was audited"), "{why}");
+    }
+
+    /// **The integrate lands on the audited pair or not at all.** Under the
+    /// gate the tips are compared with the pair the readiness check carried;
+    /// a base that moved in between is refused, and the base is left exactly
+    /// as it was.
+    #[test]
+    #[serial]
+    fn the_integrate_refuses_tips_that_are_not_the_audited_pair() {
+        let (_temp, root, paths) = wheeled_arc("cas-join");
+        let base_branch = arc_base(&root, "cas-join").unwrap();
+        let branch = branch_name("cas-join");
+        let pair = AuditedPair {
+            head: git_stdout(&root, &["rev-parse", &branch]).unwrap(),
+            base: "0000000000000000000000000000000000000000".to_string(),
+        };
+        let base_before = head_sha(&root);
+        let result = integrate_join(
+            &paths,
+            &root,
+            "cas-join",
+            &branch,
+            &base_branch,
+            &mechanics(),
+            Some(&pair),
+        );
+        match result {
+            Err(ArcError::Blocked(blockers)) => assert!(
+                blockers[0]
+                    .detail
+                    .contains("moved after the join was checked"),
+                "{blockers:?}"
+            ),
+            Err(other) => panic!("expected the pair refusal, got {other:?}"),
+            Ok(_) => panic!("expected the pair refusal, and it integrated"),
+        }
+        assert_eq!(head_sha(&root), base_before, "nothing landed");
     }
 }

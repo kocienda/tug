@@ -101,6 +101,11 @@ export function _setPressAcknowledgementMsForTest(ms: number): void {
   _pressAcknowledgementMs = ms;
 }
 
+/** The press deadline in force — {@link PRESS_ACKNOWLEDGEMENT_MS} outside a test. */
+export function pressAcknowledgementMs(): number {
+  return _pressAcknowledgementMs;
+}
+
 /** One beat of a join in flight ([P03], Spec S02). */
 export interface LandProgress {
   /** `squash` | `teardown` | `release` | `record`, or `joined` / `failed`. */

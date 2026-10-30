@@ -291,7 +291,7 @@ The workflow layer over the soundness axioms above ([D116]): every change lands 
 | Outcome | Where it comes from | What the row offers |
 |---|---|---|
 | clean | a preview with no conflicts and no blockers | Join — the message editor is the rest of the gesture |
-| conflicted | conflicting paths, from the preview or an execute that cleanly aborted | Resolve; on a candidate, the ordinary Join lands it |
+| conflicted | conflicting paths, from an execute that cleanly aborted | nothing to land yet: the arc re-audits before it joins, and the offer returns when its audit stands on the live base |
 | blocked | the preview's preflight (`off-base`, `base-dirt`, `stale-journal`), or a verb-level refusal | the server's own sentence, plus the one act that clears it |
 | empty | `Empty` from the preflight, or `rounds === 0` before any round trip | nothing to join — Release |
 | interrupted teardown | the arc's stage is `joining`, i.e. a join journal survives | Resume teardown, whatever the other four say |

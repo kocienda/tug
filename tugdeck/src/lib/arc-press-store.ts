@@ -76,6 +76,7 @@ import {
   type ArcPressPatch,
   type ArcPressRefusal,
   type ArcPressState,
+  type ArcRefusedVerb,
   type ArcTransportVerb,
 } from "../bus/declarations/relays";
 import { pageBus, type PageBus } from "../bus/page-bus";
@@ -83,7 +84,14 @@ import type { StoreView } from "../bus/shared-store";
 import { getConnection } from "./connection-singleton";
 import { Subscribable } from "./subscribable";
 
-export type { ArcPressActor, ArcPressPatch, ArcPressRefusal, ArcPressState, ArcTransportVerb };
+export type {
+  ArcPressActor,
+  ArcPressPatch,
+  ArcPressRefusal,
+  ArcPressState,
+  ArcRefusedVerb,
+  ArcTransportVerb,
+};
 
 /** The CONTROL action each transport verb sends. */
 export const ACTION_FOR: Record<ArcTransportVerb, ControlAction> = {
@@ -246,7 +254,7 @@ export class ArcPressStore extends Subscribable {
   refuse = (
     sessionId: string | null,
     arc: string,
-    verb: ArcTransportVerb,
+    verb: ArcRefusedVerb,
     reason: string,
   ): void => {
     if (this._replica !== null) {

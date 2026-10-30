@@ -136,6 +136,28 @@ describe("changeset wire contract", () => {
     // millisecond count, the plausible drift — is not a date this side parses.
     expect(isChangesetEntry({ ...base, last_activity: "2026-08-14T12:00:00Z" })).toBe(true);
     expect(isChangesetEntry({ ...base, last_activity: 1_755_000_000_000 })).toBe(false);
+    // The quiet re-stamp's fact: a running job's two times, or a seat's
+    // reason, each an optional string; a bare number is drift.
+    expect(
+      isChangesetEntry({
+        ...base,
+        restamp: {
+          running_since: "2026-10-29T12:00:00+00:00",
+          deadline: "2026-10-29T12:30:00+00:00",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isChangesetEntry({ ...base, restamp: { seated_why: "the fit did not verify" } }),
+    ).toBe(true);
+    expect(isChangesetEntry({ ...base, restamp: { deadline: 1_755_000_000_000 } })).toBe(false);
+    expect(isChangesetEntry({ ...base, restamp: "running" })).toBe(false);
+    // The staleness kind: one of three words, or absent.
+    for (const kind of ["head", "base", "both"]) {
+      expect(isChangesetEntry({ ...base, audit_staleness: kind })).toBe(true);
+    }
+    expect(isChangesetEntry({ ...base, audit_staleness: "stale" })).toBe(false);
+    expect(isChangesetEntry({ ...base, audit_staleness: true })).toBe(false);
   });
 
   test("guards reject shape drift", () => {

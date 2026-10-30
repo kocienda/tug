@@ -304,6 +304,12 @@ export interface ArcRunState {
   waiting?: string;
 }
 
+/** The stage word for an audit whose head or base has moved since it was
+ *  made — tugarc-core's `ArcStageWord::AuditStale`. A stage is compared
+ *  against this rather than against the word spelled out, so a renamed word
+ *  is one edit and not a set of comparisons that silently turn false. */
+export const ARC_STAGE_AUDIT_STALE = "audit-stale";
+
 /** An arc worktree branch and its accumulated base..branch changes. */
 export interface ArcChangesetEntry {
   kind: "arc";
@@ -347,6 +353,9 @@ export interface ArcChangesetEntry {
    * version of the bug this rename exists to make impossible.
    */
   bound_session?: string;
+  /** The bound card's callsign, so a sentence about where the arc works can
+   *  name the card on screen. Absent when unbound or not yet named. */
+  bound_callsign?: string;
   /**
    * Whether any session holding this arc is still working — mid-turn, or
    * waiting on a background job it launched (a test sweep, an agent).
@@ -443,6 +452,13 @@ export interface ArcChangesetEntry {
   fit?: ArcFitWire;
   /** Paths the last replay attempt stopped on, when it conflicted. */
   replay_conflict_paths?: string[];
+  /** The engine's quiet re-stamp on this arc: a job running now and its
+   *  horizon, or why the last one seated the audit. Absent when there is
+   *  nothing to say. */
+  restamp?: ArcRestampWire;
+  /** Why the audit no longer stands, when the arc is `audit-stale`: a round
+   *  landed after it (`head`), the base moved (`base`), or both. */
+  audit_staleness?: ArcAuditStaleness;
   /**
    * The join pipeline's entire durable state for this arc.
    *
@@ -463,6 +479,17 @@ export interface ArcFitWire {
   head_moved?: boolean;
   /** The base branch has moved past `base` since the verify. */
   base_moved?: boolean;
+}
+
+/** The quiet re-stamp's state — {@link ArcChangesetEntry.restamp}. A job
+ *  that is running carries `running_since` and `deadline` (RFC 3339); one
+ *  that handed the arc to its audit stage carries `seated_why`. */
+export interface ArcRestampWire {
+  running_since?: string;
+  /** When the running job's horizon falls: its verify is killed there, and
+   *  past it a Re-audit press takes the arc back. */
+  deadline?: string;
+  seated_why?: string;
 }
 
 /** One reason a join would be refused right now. */
@@ -709,6 +736,30 @@ function isOptionalArcFit(
   );
 }
 
+/** {@link ArcChangesetEntry.audit_staleness}'s three words. */
+export type ArcAuditStaleness = "head" | "base" | "both";
+
+function isOptionalArcAuditStaleness(
+  value: unknown,
+): value is ArcAuditStaleness | undefined {
+  return (
+    value === undefined || value === "head" || value === "base" || value === "both"
+  );
+}
+
+function isOptionalArcRestamp(
+  value: unknown,
+): value is ArcRestampWire | undefined {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return (
+    (value.running_since === undefined ||
+      typeof value.running_since === "string") &&
+    (value.deadline === undefined || typeof value.deadline === "string") &&
+    (value.seated_why === undefined || typeof value.seated_why === "string")
+  );
+}
+
 function isOptionalArcJoinState(
   value: unknown,
 ): value is ArcJoinStateWire | undefined {
@@ -851,6 +902,8 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.bound_session === undefined ||
         typeof value.bound_session === "string") &&
       value.bound_sessions === undefined &&
+      (value.bound_callsign === undefined ||
+        typeof value.bound_callsign === "string") &&
       (value.holders_busy === undefined ||
         typeof value.holders_busy === "boolean") &&
       (value.step_current === undefined ||
@@ -878,6 +931,8 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
         typeof value.last_replay === "string") &&
       isOptionalArcFit(value.fit) &&
       isOptionalStringArray(value.replay_conflict_paths) &&
+      isOptionalArcRestamp(value.restamp) &&
+      isOptionalArcAuditStaleness(value.audit_staleness) &&
       isOptionalArcJoinState(value.join)
     );
   }

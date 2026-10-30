@@ -152,6 +152,38 @@ describe("the first slot across an arc's life ([B04])", () => {
     expect(next?.refusal).toBeNull();
   });
 
+  it("refuses Re-audit while the quiet re-stamp holds the arc", () => {
+    // The server refuses the same press; the button says so before it is
+    // pressed, and the job's horizon is when it opens again.
+    const next = arcVerbs(
+      input({
+        stage: "audit-stale",
+        run: { stage: "audit", done: true },
+        boundSession: "sess-bound",
+        boundCardOpen: true,
+        restamp: {
+          running_since: "2026-10-29T10:00:00Z",
+          deadline: "2026-10-29T10:30:00Z",
+        },
+      }),
+    ).next;
+    expect(next?.word).toBe("Re-audit");
+    expect(next?.refusal?.startsWith("a quiet re-stamp is running — it ends by ")).toBe(true);
+    expect(next?.label.startsWith("Re-audit arc demo — a quiet re-stamp is running")).toBe(true);
+
+    // A job that seated the audit is over: the press is open.
+    const seated = arcVerbs(
+      input({
+        stage: "audit-stale",
+        run: { stage: "audit", done: true },
+        boundSession: "sess-bound",
+        boundCardOpen: true,
+        restamp: { seated_why: "the fit did not verify" },
+      }),
+    ).next;
+    expect(seated?.refusal).toBeNull();
+  });
+
   it("is empty for an arc with nothing to start from", () => {
     expect(arcVerbs(input({ documents: undefined })).next).toBeNull();
   });

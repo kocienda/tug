@@ -27,10 +27,11 @@ import { Subscribable } from "@/lib/subscribable";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
-import type {
-  ArcChangesetEntry,
-  ArcJoinBlockerWire,
-  ArcJoinStateWire,
+import {
+  ARC_STAGE_AUDIT_STALE,
+  type ArcChangesetEntry,
+  type ArcJoinBlockerWire,
+  type ArcJoinStateWire,
 } from "@/lib/changeset-types";
 import type { JoinPhase } from "@/lib/changeset-verb-store";
 import type {
@@ -100,6 +101,14 @@ export interface JoinGateInput {
    * server is bound to refuse.
    */
   runLive: boolean;
+  /**
+   * The arc's audit no longer describes it — the feed's `audit-stale` stage.
+   *
+   * The server refuses such a join, so the offer is down and a press could
+   * only come back as that refusal: the arc re-audits, quietly or on its
+   * card, before it is joinable again.
+   */
+  auditStale: boolean;
   /** The current join round-trip phase for this entry. */
   joinPhase: JoinPhase;
   /** The derived join outcome. */
@@ -114,6 +123,7 @@ export type JoinGateReason =
   | "holder"
   | "running"
   | "pending"
+  | "stale"
   | "outcome"
   | "empty-message";
 
@@ -140,6 +150,10 @@ export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   // per arc — a press here could only come back as its refusal.
   if (input.runLive) return { ok: false, reason: "running" };
   if (input.joinPhase === "pending") return { ok: false, reason: "pending" };
+  // Above the outcome: a stale arc's blockers carry the server's own
+  // readiness refusal, and the sentence that explains the arc is the
+  // re-audit's, not a blocker's.
+  if (input.auditStale) return { ok: false, reason: "stale" };
   if (input.outcome !== "clean") return { ok: false, reason: "outcome" };
   // Nothing about a build is asked here. The audit verified the tree that
   // lands, so what is left between a press and the base is the message.
@@ -166,6 +180,10 @@ export function joinDisabledReason(reason: JoinGateReason, outcome: JoinOutcome)
   // `pending` is the execute round trip and nothing else now that the card
   // never previews, so the sentence says the only thing it can mean.
   if (reason === "pending") return "Joining…";
+  // The composer and the row put the register's own line here, which names
+  // the arc and what the re-audit is doing; this is the fallback when no
+  // register is to hand.
+  if (reason === "stale") return "The audit is stale — it re-audits before it joins";
   // Without its own arm this falls to the outcome switch and, on a clean
   // preview, reads "This join is not ready yet" — which names nothing the user
   // can act on when all that is missing is the message.
@@ -225,6 +243,9 @@ export const REFUSAL_REACHABILITY = {
   // needs no control of its own: with nothing to press twice, a second press
   // cannot double-submit a join.
   pending: { slot: null, where: "time" },
+  // Nor a stale audit: the re-audit is seated unprompted, or the quiet
+  // re-stamp runs, and either way the arc comes back on offer by itself.
+  stale: { slot: null, where: "time" },
   // Every reading of `outcome` is now a wait. Conflicted is the re-audit's to
   // clear and it is seated unprompted; blocked is cleared outside the
   // app entirely, which is why each blocker carries its own act sentence; and
@@ -251,6 +272,7 @@ export function joinGateFacts(input: JoinGateInput): Record<string, unknown> {
     turnInProgress: input.turnInProgress,
     holderBusy: input.holderBusy,
     runLive: input.runLive,
+    auditStale: input.auditStale,
     joinPhase: input.joinPhase,
     outcome: input.outcome,
     messageLen: input.message.trim().length,
@@ -432,6 +454,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
       turnInProgress,
       holderBusy: entry?.holders_busy === true,
       runLive: joinRunLive(join),
+      auditStale: entry?.stage === ARC_STAGE_AUDIT_STALE,
       joinPhase,
       outcome,
       message: "x", // ignore message emptiness here (CSS-gated on data-commit-empty)
@@ -441,7 +464,9 @@ export class JoinModeController extends Subscribable implements LandingMode {
     // actually looking, and which otherwise reports a constant.
     const landBlockedReason = gate.ok
       ? null
-      : joinDisabledReason(gate.reason, outcome);
+      : gate.reason === "stale" && entry !== null
+        ? joinModeOpenRefusal(entry) ?? joinDisabledReason(gate.reason, outcome)
+        : joinDisabledReason(gate.reason, outcome);
     const messagePresent = this.active && (this.messageProvider?.() ?? "").trim().length > 0;
     // The aimed arc while there is one, the arc this composer last fired at
     // once the press has taken the mode down. Only the register reads it —
@@ -471,6 +496,8 @@ export class JoinModeController extends Subscribable implements LandingMode {
               // The composer says the same thing the two rows do, so a live
               // wheel holds this surface's offer shut too.
               run: entry?.arc ?? null,
+              boundCallsign: entry?.bound_callsign ?? null,
+              restampRunning: entry?.restamp?.running_since !== undefined,
               runComplete: entry?.run_complete === true,
               resolvePhase: getChangesetJoinStore()?.state(
                 changesController.workspaceKey,
@@ -557,7 +584,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
    * rows apart and identical. The rest exists so a success cannot vanish on
    * its own terminal frame; a durable receipt taking its place is not
    * vanishing, so the receipt cuts the rest short. The timer stays for the
-   * join whose receipt lands somewhere else — the pilot's, on an arc another
+   * join whose receipt lands somewhere else — one pressed on an arc another
    * card holds — where nothing in this transcript will ever speak for it.
    */
   private scheduleNarrationRetirement(): void {
@@ -780,7 +807,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
     if (!gate.ok) {
       return this.refuse(
         "gate",
-        joinDisabledReason(gate.reason, input.outcome),
+        this.refusalSentence(gate.reason, input, target),
         gate.reason,
         input,
       );
@@ -867,10 +894,29 @@ export class JoinModeController extends Subscribable implements LandingMode {
       turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
       holderBusy: this.entryFor(target.ownerId)?.holders_busy === true,
       runLive: joinRunLive(join),
+      auditStale: this.entryFor(target.ownerId)?.stage === ARC_STAGE_AUDIT_STALE,
       joinPhase: getChangesetVerbStore()?.joinState(changesController.entryKey).phase ?? "idle",
       outcome: deriveJoinOutcome(join),
       message,
     };
+  }
+
+  /**
+   * The sentence a refused press speaks: the register's own line for a stale
+   * arc, which names it and what its re-audit is doing, and the gate's
+   * sentence for everything else.
+   */
+  private refusalSentence(
+    reason: JoinGateReason,
+    input: JoinGateInput,
+    target: JoinTarget,
+  ): string {
+    const entry = this.entryFor(target.ownerId);
+    if (reason === "stale" && entry !== null) {
+      const line = joinModeOpenRefusal(entry);
+      if (line !== null) return line;
+    }
+    return joinDisabledReason(reason, input.outcome);
   }
 
   /**
@@ -889,7 +935,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
       if (!this.active) this.enter(target);
       this.refuse(
         "gate",
-        joinDisabledReason(gate.reason, input.outcome),
+        this.refusalSentence(gate.reason, input, target),
         gate.reason,
         input,
       );
@@ -1067,6 +1113,32 @@ function sameBlockers(
       );
     })
   );
+}
+
+/**
+ * Why join mode will not open on this arc, or `null` when it may.
+ *
+ * A stale audit is the one such state. The server refuses the join, so the
+ * mode would open on a press that can only come back refused; what the user
+ * is owed instead is the register's own line — the same sentence the Arcs
+ * row and the lane show — saying the audit is stale and what its re-audit is
+ * doing. The door that would have opened the mode speaks it.
+ */
+export function joinModeOpenRefusal(entry: ArcChangesetEntry): string | null {
+  if (entry.stage !== ARC_STAGE_AUDIT_STALE) return null;
+  const register = arcJoinRegister({
+    arc: entry.display_name,
+    base: entry.base,
+    stage: entry.stage,
+    join: entry.join ?? null,
+    holdersBusy: entry.holders_busy === true,
+    bound: entry.bound_session !== undefined && entry.bound_session !== null,
+    boundCallsign: entry.bound_callsign ?? null,
+    restampRunning: entry.restamp?.running_since !== undefined,
+    run: entry.arc ?? null,
+    runComplete: entry.run_complete === true,
+  });
+  return register?.line ?? `${entry.display_name}'s audit is stale — it re-audits before it joins`;
 }
 
 /** Build a {@link JoinTarget} from an arc changeset entry. */
