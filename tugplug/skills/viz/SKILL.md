@@ -22,7 +22,7 @@ Work down these rungs in order. A recipe that answers ends the request at the fi
 
 A recipe computes its numbers from the project's own records, so you never retype one.
 
-1. Run `tugtool chart list --json`. Each recipe carries its `question`, its `form`, the `data` it reads, and its `args`.
+1. Run `tugtool chart list --json`. Each recipe carries its `question`, what its data `tells`, its `group`, its `form`, the `data` it reads, its `args`, and a `sample` spec.
 2. Choose the recipe whose question and data match the request. Take `--days`, `--path` and any subjects from the request's own words, and leave the rest to the recipe's defaults. `--path` is relative to the repository root.
 3. Run the recipe with `--json`. This reads the summary and the numbers and draws nothing, so it is where you learn what the chart says. A `spec` of `null` means there is nothing to draw: report the `summary` in one sentence and stop.
 4. Draw it once, by running the same line without `--json`. Either pass `--title "<the finding>"`, or say the finding in one sentence beside the chart. Keep each to one figure: a second run draws a second chart.

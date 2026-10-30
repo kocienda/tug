@@ -222,8 +222,9 @@ fn arg_usage(arg: &Arg) -> String {
     }
 }
 
-/// `tugtool chart list`: a line per recipe and an indented line of its
-/// arguments, or the catalog as a `--json` envelope.
+/// `tugtool chart list`: a line per recipe, an indented line of its arguments
+/// and an indented line of its group and what its data tells, or the catalog as
+/// a `--json` envelope, which alone carries each recipe's sample.
 pub fn run_list(json: bool) -> Result<(), AppError> {
     if json {
         print_ok("chart list", catalog_json());
@@ -233,6 +234,7 @@ pub fn run_list(json: bool) -> Result<(), AppError> {
         println!("{}  {}  {}", recipe.name, recipe.form, recipe.question);
         let args: Vec<String> = recipe.args.iter().map(arg_usage).collect();
         println!("    {}", args.join("  "));
+        println!("    {}: {}", recipe.group, recipe.tells);
     }
     Ok(())
 }

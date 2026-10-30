@@ -833,6 +833,57 @@ mod tests {
         ));
     }
 
+    /// A commit made on `when`, a local date and time.
+    fn commit_at(root: &std::path::Path, when: &str) {
+        std::fs::write(root.join("f.txt"), when).unwrap();
+        git(root, &["add", "-A"]);
+        let out = std::process::Command::new("git")
+            .current_dir(root)
+            .args(["commit", "-q", "-m", when])
+            .env("GIT_COMMITTER_DATE", when)
+            .env("GIT_AUTHOR_DATE", when)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+    }
+
+    /// The window is calendar days: the last moment of the day before it is
+    /// out, the first of its oldest day is in, and the summary and the figure
+    /// both say how many days that is.
+    #[test]
+    fn a_window_of_n_days_draws_n_days_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        GitFixture::init(&root);
+        let today = chrono::Local::now().date_naive();
+        let back = |days: u64| (today - chrono::Days::new(days)).format("%Y-%m-%d");
+        commit_at(&root, &format!("{} 23:59:00", back(3)));
+        commit_at(&root, &format!("{} 00:01:00", back(2)));
+        commit_at(&root, &format!("{} 00:01:00", back(0)));
+
+        let ctx = RecipeContext::for_project(&root);
+        let args = RecipeArgs {
+            days: Some(3),
+            ..Default::default()
+        };
+        for (name, axis) in [
+            ("commits", "categories"),
+            ("churn", "x"),
+            ("commit-kinds", "x"),
+        ] {
+            let outcome = crate::find(name).unwrap().run(&ctx, &args).unwrap();
+            let RecipeOutcome::Chart { spec, summary } = outcome else {
+                panic!("{name} found nothing to draw");
+            };
+            assert_eq!(spec[axis].as_array().unwrap().len(), 3, "{name}");
+            assert!(
+                summary.contains("in 2 commit(s) over 3 day(s), last 3 days")
+                    || summary.starts_with("2 commit(s) over 3 day(s), last 3 days"),
+                "{summary}"
+            );
+        }
+    }
+
     #[test]
     fn a_range_naming_no_commit_is_an_error() {
         let dir = tempfile::tempdir().unwrap();

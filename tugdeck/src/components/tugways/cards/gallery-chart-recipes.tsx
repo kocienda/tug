@@ -45,10 +45,12 @@ export function GalleryChartRecipes(): React.ReactElement {
   let content: React.ReactNode;
   if (projectDir === null) {
     content = <TugLabel emphasis="calm">No project is open.</TugLabel>;
-  } else if (listFailure !== null) {
-    content = <TugLabel emphasis="calm">{`Could not read the recipes: ${listFailure}`}</TugLabel>;
   } else if (rows === null) {
-    content = <TugLabel emphasis="calm">Reading the recipes…</TugLabel>;
+    content = (
+      <TugLabel emphasis="calm">
+        {listFailure !== null ? `Could not read the recipes: ${listFailure}` : "Reading the recipes…"}
+      </TugLabel>
+    );
   } else {
     content = rows.map((row, i) => (
       <React.Fragment key={row.name}>

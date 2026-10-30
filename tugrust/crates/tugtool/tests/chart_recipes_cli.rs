@@ -599,14 +599,20 @@ fn list_names_every_recipe_with_its_arguments() {
     let recipes = envelope["data"].as_array().unwrap();
     assert_eq!(recipes.len(), 12);
     assert_eq!(recipes[0]["name"], "commits");
+    assert_eq!(recipes[0]["group"], "Activity");
+    assert_eq!(recipes[0]["sample"]["form"], "bar");
 
     let out = project.run(&["chart", "list"]);
     assert!(out.status.success(), "{}", stderr(&out));
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 24, "{text}");
+    assert_eq!(lines.len(), 36, "{text}");
     assert_eq!(lines[0], "commits  bar  How active has this been?");
     assert_eq!(lines[1], "    --days N  --path TEXT  --title TEXT");
+    assert_eq!(
+        lines[2],
+        "    Activity: How steady the work is, and which days spiked."
+    );
     assert!(
         text.contains("    [name]  --title TEXT"),
         "the arc's positional: {text}"

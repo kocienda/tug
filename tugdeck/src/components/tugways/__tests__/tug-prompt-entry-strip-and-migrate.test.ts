@@ -92,6 +92,36 @@ describe("buildCommitModeState", () => {
 describe("computeCommandChipInsert", () => {
   const A = TUG_ATOM_CHAR;
 
+  it("an argument stands first among the args and the draft survives after it", () => {
+    const file = { position: 4, type: "file", label: "a", value: "/a" };
+    const result = computeCommandChipInsert(
+      { text: `see ${A}`, atoms: [{ ...file }], selection: { start: 5, end: 5 } },
+      "tugplug:viz",
+      "commits",
+    );
+    expect(result.text).toBe(`${A} commits see ${A}`);
+    expect(result.atoms).toEqual([
+      { position: 0, type: "command", label: "tugplug:viz", value: "tugplug:viz" },
+      { ...file, position: 4 + 2 + 8 },
+    ]);
+    expect(result.selection).toEqual({ start: 10, end: 10 });
+  });
+
+  it("an argument over a head command takes its place and keeps the args", () => {
+    const result = computeCommandChipInsert(
+      {
+        text: `${A} --days 7`,
+        atoms: [{ position: 0, type: "command", label: "shell", value: "shell" }],
+        selection: null,
+      },
+      "tugplug:viz",
+      "commits",
+    );
+    expect(result.text).toBe(`${A} commits --days 7`);
+    expect(result.atoms[0]?.value).toBe("tugplug:viz");
+    expect(result.selection).toEqual({ start: 10, end: 10 });
+  });
+
   it("empty draft → a lone command atom + trailing space, caret after it", () => {
     const result = computeCommandChipInsert(
       { text: "", atoms: [], selection: null },

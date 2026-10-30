@@ -203,6 +203,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘R | `toggle-arcs` | Show Arcs | menu bar (swept) |
 | ⌃⌘S | `toggle-sidebars` | Hide Sidebars | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
+| ⌃⌘V | `run-slash-command:data-visualization` | Data Visualization… | menu bar (swept) |
 | ⌃⌘W | `toggle-cards` | Show Workspaces | menu bar (swept) |
 | ⌃⌘Y | `toggle-card-fold` | Fold Card | menu bar (swept) |
 | ⌃⌘[ | `previous-turn` | Previous Turn | menu bar (swept) |
@@ -366,6 +367,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.commit` | `run-slash-command:commit` | key card | registry gate |
 | `session.compact` | `run-slash-command:compact` | key card | registry gate |
 | `session.context` | `run-slash-command:context` | key card | registry gate |
+| `session.dataVisualization` | `run-slash-command:data-visualization` | key card | registry gate |
 | `session.dictate` | `toggle-dictation` | first responder | registry gate |
 | `session.dictateAndSend` | `stop-dictation-and-send` | first responder | registry gate |
 | `session.diff` | `run-slash-command:diff` | key card | registry gate |

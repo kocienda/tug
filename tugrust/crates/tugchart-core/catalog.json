@@ -1,0 +1,781 @@
+[
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "path",
+        "help": "Only commits touching this path, relative to the repository root",
+        "takes": "text"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git log",
+    "form": "bar",
+    "group": "Activity",
+    "name": "commits",
+    "question": "How active has this been?",
+    "sample": {
+      "categories": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "form": "bar",
+      "format": "int",
+      "series": [
+        {
+          "name": "commits",
+          "values": [
+            6,
+            9,
+            4,
+            12,
+            7,
+            1,
+            0
+          ]
+        }
+      ],
+      "title": "Commits per day",
+      "tugchart": 1,
+      "unit": "commits"
+    },
+    "tells": "How steady the work is, and which days spiked."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "path",
+        "help": "Only commits touching this path, relative to the repository root",
+        "takes": "text"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git log --numstat, per day",
+    "form": "stacked area",
+    "group": "Activity",
+    "name": "churn",
+    "question": "How much changed here, over time?",
+    "sample": {
+      "form": "area",
+      "format": "count",
+      "layout": "stacked",
+      "series": [
+        {
+          "name": "added",
+          "role": "good",
+          "values": [
+            420,
+            910,
+            260,
+            1340,
+            700,
+            40,
+            0
+          ]
+        },
+        {
+          "name": "removed",
+          "role": "bad",
+          "values": [
+            150,
+            380,
+            90,
+            720,
+            310,
+            10,
+            0
+          ]
+        }
+      ],
+      "title": "Lines added and removed per day",
+      "tugchart": 1,
+      "unit": "lines",
+      "x": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ]
+    },
+    "tells": "How many lines were added and removed each day, so size shows where commit counts can't."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "path",
+        "help": "Only commits touching this path, relative to the repository root",
+        "takes": "text"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git log subjects",
+    "form": "stacked area",
+    "group": "Activity",
+    "name": "commit-kinds",
+    "question": "What kind of work was it, by day?",
+    "sample": {
+      "form": "area",
+      "format": "int",
+      "layout": "stacked",
+      "series": [
+        {
+          "name": "feat",
+          "values": [
+            3,
+            5,
+            2,
+            7,
+            4,
+            1,
+            0
+          ]
+        },
+        {
+          "name": "fix",
+          "values": [
+            2,
+            3,
+            1,
+            4,
+            2,
+            0,
+            0
+          ]
+        },
+        {
+          "name": "docs",
+          "values": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0
+          ]
+        }
+      ],
+      "title": "Commits by kind per day",
+      "tugchart": 1,
+      "unit": "commits",
+      "x": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ]
+    },
+    "tells": "Which areas of the project each day's work went to."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "path",
+        "help": "Only commits touching this path, relative to the repository root",
+        "takes": "text"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git log committer times",
+    "form": "heat",
+    "group": "Activity",
+    "name": "commit-hours",
+    "question": "When does work land?",
+    "sample": {
+      "categories": [
+        "00",
+        "01",
+        "02",
+        "03",
+        "04",
+        "05",
+        "06",
+        "07",
+        "08",
+        "09",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23"
+      ],
+      "form": "heat",
+      "format": "int",
+      "title": "Commits by hour of day",
+      "tugchart": 1,
+      "unit": "commits",
+      "values": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        3,
+        6,
+        9,
+        11,
+        7,
+        8,
+        12,
+        14,
+        10,
+        8,
+        4,
+        3,
+        5,
+        6,
+        3,
+        2
+      ]
+    },
+    "tells": "Which hours of the day work tends to land."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "path",
+        "help": "Only commits touching this path, relative to the repository root",
+        "takes": "text"
+      },
+      {
+        "flag": "depth",
+        "help": "Path components to group by (default 2)",
+        "takes": "number"
+      },
+      {
+        "flag": "limit",
+        "help": "Most rows to draw (default 20)",
+        "takes": "number"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git log --numstat, per path",
+    "form": "horizontal bar",
+    "group": "Changes",
+    "name": "hotspots",
+    "question": "Which files or directories change most?",
+    "sample": {
+      "categories": [
+        "src/render",
+        "tests/app",
+        "src/parser",
+        "src/cli",
+        "docs/guide"
+      ],
+      "form": "bar",
+      "format": "count",
+      "orient": "horizontal",
+      "series": [
+        {
+          "name": "lines",
+          "values": [
+            4200,
+            2600,
+            1800,
+            640,
+            210
+          ]
+        }
+      ],
+      "title": "Most changed paths, last 30 days",
+      "tugchart": 1,
+      "unit": "lines changed"
+    },
+    "tells": "Where changes concentrate, which is often where the risk is."
+  },
+  {
+    "args": [
+      {
+        "flag": "range",
+        "help": "A two-dot range a..b, in place of the working tree",
+        "takes": "text"
+      },
+      {
+        "flag": "staged",
+        "help": "The index, in place of the working tree",
+        "takes": "nothing"
+      },
+      {
+        "flag": "session",
+        "help": "Only this session's changed files",
+        "takes": "nothing"
+      },
+      {
+        "flag": "depth",
+        "help": "Path components to group by (default 1)",
+        "takes": "number"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git diff --numstat",
+    "form": "horizontal stacked bar",
+    "group": "Changes",
+    "name": "landed",
+    "question": "Where did this change land?",
+    "sample": {
+      "categories": [
+        "src",
+        "tests",
+        "docs"
+      ],
+      "form": "bar",
+      "format": "count",
+      "layout": "stacked",
+      "orient": "horizontal",
+      "series": [
+        {
+          "name": "added",
+          "role": "good",
+          "values": [
+            320,
+            180,
+            40
+          ]
+        },
+        {
+          "name": "removed",
+          "role": "bad",
+          "values": [
+            140,
+            30,
+            5
+          ]
+        }
+      ],
+      "title": "Lines changed by directory",
+      "tugchart": 1,
+      "unit": "lines changed"
+    },
+    "tells": "How a change spreads across the tree, and whether it stayed where you meant it to."
+  },
+  {
+    "args": [
+      {
+        "flag": "name",
+        "help": "The arc (default: the one started most recently)",
+        "takes": "positional"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the arc log",
+    "form": "spans",
+    "group": "Arcs",
+    "name": "arc-timeline",
+    "question": "Where did this arc's time go?",
+    "sample": {
+      "form": "spans",
+      "format": "secs",
+      "items": [
+        {
+          "end": 420,
+          "label": "devise",
+          "start": 0
+        },
+        {
+          "end": 660,
+          "label": "review",
+          "start": 420
+        },
+        {
+          "end": 1500,
+          "label": "step 1",
+          "start": 660,
+          "status": "good"
+        },
+        {
+          "end": 2700,
+          "label": "step 2",
+          "start": 1500,
+          "status": "good"
+        },
+        {
+          "end": 3300,
+          "label": "audit",
+          "start": 2700
+        }
+      ],
+      "title": "Arc sample: stages and steps",
+      "tugchart": 1,
+      "unit": "seconds"
+    },
+    "tells": "Which stages and steps an arc's time went to."
+  },
+  {
+    "args": [
+      {
+        "flag": "suite",
+        "help": "Plot exactly this suite; repeatable",
+        "takes": "text, repeatable"
+      },
+      {
+        "flag": "all",
+        "help": "Plot every suite, however small beside the slowest",
+        "takes": "nothing"
+      },
+      {
+        "flag": "runs",
+        "help": "Newest runs per suite (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the test ledger",
+    "form": "line",
+    "group": "Tests",
+    "name": "suite-times",
+    "question": "Are the suites getting slower?",
+    "sample": {
+      "form": "line",
+      "format": "secs",
+      "series": [
+        {
+          "name": "unit",
+          "values": [
+            41.0,
+            43.0,
+            42.0,
+            58.0,
+            61.0,
+            60.0
+          ]
+        },
+        {
+          "name": "integration",
+          "values": [
+            122.0,
+            120.0,
+            124.0,
+            171.0,
+            168.0,
+            176.0
+          ]
+        }
+      ],
+      "subtitle": "runs ago",
+      "title": "Suite wall time, newest 6 runs",
+      "tugchart": 1,
+      "unit": "s",
+      "x": [
+        "5",
+        "4",
+        "3",
+        "2",
+        "1",
+        "0"
+      ]
+    },
+    "tells": "Whether each suite is slowing down, and when that started."
+  },
+  {
+    "args": [
+      {
+        "flag": "suite",
+        "help": "Only this suite",
+        "takes": "text"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the test ledger's latest runs",
+    "form": "histogram",
+    "group": "Tests",
+    "name": "test-distribution",
+    "question": "How are test times spread?",
+    "sample": {
+      "form": "histogram",
+      "format": "secs",
+      "title": "Test file wall times, latest run",
+      "tugchart": 1,
+      "unit": "wall time",
+      "values": [
+        0.2,
+        0.3,
+        0.3,
+        0.4,
+        0.4,
+        0.4,
+        0.5,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        1.1,
+        1.3,
+        1.6,
+        2.2,
+        3.1,
+        4.8,
+        7.5,
+        12.0
+      ]
+    },
+    "tells": "Whether test time is evenly spread or dominated by a few slow files."
+  },
+  {
+    "args": [
+      {
+        "flag": "limit",
+        "help": "Most files to draw (default 12)",
+        "takes": "number"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the app-test ledger",
+    "form": "bullet",
+    "group": "Tests",
+    "name": "test-budget",
+    "question": "Which tests are near their budget?",
+    "sample": {
+      "form": "bullet",
+      "format": "secs",
+      "items": [
+        {
+          "history": [
+            12,
+            14,
+            16,
+            18,
+            18.5
+          ],
+          "label": "resume.test.ts",
+          "range": [
+            0,
+            30
+          ],
+          "target": 20,
+          "value": 18.5
+        },
+        {
+          "history": [
+            11,
+            12,
+            13,
+            14,
+            14.2
+          ],
+          "label": "find.test.ts",
+          "range": [
+            0,
+            30
+          ],
+          "target": 20,
+          "value": 14.2
+        },
+        {
+          "history": [
+            8,
+            9,
+            8,
+            8.5,
+            8.3
+          ],
+          "label": "settle.test.ts",
+          "range": [
+            0,
+            30
+          ],
+          "target": 20,
+          "value": 8.3
+        }
+      ],
+      "title": "App-test files nearest the budget",
+      "tugchart": 1,
+      "unit": "seconds"
+    },
+    "tells": "Which app-test files are closest to going over their time budget."
+  },
+  {
+    "args": [
+      {
+        "flag": "files",
+        "help": "App-test files (default: the 20 most recently red)",
+        "takes": "positional, repeatable"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the app-test ledger",
+    "form": "dots",
+    "group": "Tests",
+    "name": "test-history",
+    "question": "What has been red, and when?",
+    "sample": {
+      "form": "dots",
+      "rows": [
+        {
+          "items": [
+            "good",
+            "good",
+            "good",
+            "bad",
+            "bad",
+            "bad",
+            "bad"
+          ],
+          "label": "resume.test.ts"
+        },
+        {
+          "items": [
+            "good",
+            "good",
+            "bad",
+            "good",
+            "good",
+            "good",
+            "good"
+          ],
+          "label": "settle.test.ts"
+        },
+        {
+          "items": [
+            "good",
+            "good",
+            "good",
+            "good",
+            "good",
+            "good",
+            "good"
+          ],
+          "label": "find.test.ts"
+        }
+      ],
+      "subtitle": "newest 7 runs per file, oldest left",
+      "title": "App-test history",
+      "tugchart": 1
+    },
+    "tells": "Which files have been red, and whether a failure is new or persistent."
+  },
+  {
+    "args": [
+      {
+        "flag": "limit",
+        "help": "Most rows to draw (default 12)",
+        "takes": "number"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the report-gaps record",
+    "form": "horizontal bar",
+    "group": "Telemetry",
+    "name": "gaps",
+    "question": "Which long commands report nothing?",
+    "sample": {
+      "categories": [
+        "make build",
+        "npm run",
+        "cargo build"
+      ],
+      "form": "bar",
+      "format": "secs",
+      "orient": "horizontal",
+      "series": [
+        {
+          "name": "wall time",
+          "values": [
+            1860,
+            940,
+            420
+          ]
+        }
+      ],
+      "title": "Long calls that reported nothing",
+      "tugchart": 1,
+      "unit": "wall time"
+    },
+    "tells": "Which long commands ran without reporting progress, so which to fix next."
+  }
+]

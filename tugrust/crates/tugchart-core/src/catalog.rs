@@ -30,13 +30,19 @@ pub struct Arg {
     pub help: &'static str,
 }
 
-/// One well-known chart.
+/// One well-known chart. `tells` is one sentence on what its data tells the
+/// reader. `group` names the section it sits in, and sections read in the order
+/// the catalog first names them. `sample` is a small spec to draw when a project
+/// has no data for the recipe yet, so it shows what the recipe produces.
 pub struct Recipe {
     pub name: &'static str,
     pub question: &'static str,
+    pub tells: &'static str,
+    pub group: &'static str,
     pub form: &'static str,
     pub data: &'static str,
     pub args: &'static [Arg],
+    pub sample: fn() -> Value,
     run: fn(&RecipeContext, &RecipeArgs) -> Result<RecipeOutcome, RecipeError>,
 }
 
@@ -66,26 +72,100 @@ const TITLE: Arg = Arg {
     help: "The chart's title, in place of the recipe's own",
 };
 
+/// The categories of a sample that covers days.
+const WEEK: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
 pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "commits",
         question: "How active has this been?",
+        tells: "How steady the work is, and which days spiked.",
+        group: "Activity",
         form: "bar",
         data: "git log",
         args: &[DAYS, PATH, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bar",
+                "title": "Commits per day", "unit": "commits", "format": "int",
+                "categories": WEEK,
+                "series": [{ "name": "commits", "values": [6, 9, 4, 12, 7, 1, 0] }],
+            })
+        },
         run: commits::commits,
     },
     Recipe {
         name: "churn",
         question: "How much changed here, over time?",
+        tells: "How many lines were added and removed each day, so size shows where commit counts can't.",
+        group: "Activity",
         form: "stacked area",
         data: "git log --numstat, per day",
         args: &[DAYS, PATH, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "area", "layout": "stacked",
+                "title": "Lines added and removed per day", "unit": "lines", "format": "count",
+                "x": WEEK,
+                "series": [
+                    { "name": "added", "values": [420, 910, 260, 1340, 700, 40, 0], "role": "good" },
+                    { "name": "removed", "values": [150, 380, 90, 720, 310, 10, 0], "role": "bad" },
+                ],
+            })
+        },
         run: commits::churn,
+    },
+    Recipe {
+        name: "commit-kinds",
+        question: "What kind of work was it, by day?",
+        tells: "Which areas of the project each day's work went to.",
+        group: "Activity",
+        form: "stacked area",
+        data: "git log subjects",
+        args: &[DAYS, PATH, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "area", "layout": "stacked",
+                "title": "Commits by kind per day", "unit": "commits", "format": "int",
+                "x": WEEK,
+                "series": [
+                    { "name": "feat", "values": [3, 5, 2, 7, 4, 1, 0] },
+                    { "name": "fix", "values": [2, 3, 1, 4, 2, 0, 0] },
+                    { "name": "docs", "values": [1, 1, 1, 1, 1, 0, 0] },
+                ],
+            })
+        },
+        run: commits::commit_kinds,
+    },
+    Recipe {
+        name: "commit-hours",
+        question: "When does work land?",
+        tells: "Which hours of the day work tends to land.",
+        group: "Activity",
+        form: "heat",
+        data: "git log committer times",
+        args: &[DAYS, PATH, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "heat",
+                "title": "Commits by hour of day", "unit": "commits", "format": "int",
+                "categories": [
+                    "00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11",
+                    "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+                ],
+                "values": [
+                    1, 0, 0, 0, 0, 0, 0, 1, 3, 6, 9, 11,
+                    7, 8, 12, 14, 10, 8, 4, 3, 5, 6, 3, 2,
+                ],
+            })
+        },
+        run: commits::commit_hours,
     },
     Recipe {
         name: "hotspots",
         question: "Which files or directories change most?",
+        tells: "Where changes concentrate, which is often where the risk is.",
+        group: "Changes",
         form: "horizontal bar",
         data: "git log --numstat, per path",
         args: &[
@@ -103,11 +183,21 @@ pub static RECIPES: [Recipe; 12] = [
             },
             TITLE,
         ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bar", "orient": "horizontal",
+                "title": "Most changed paths, last 30 days", "unit": "lines changed", "format": "count",
+                "categories": ["src/render", "tests/app", "src/parser", "src/cli", "docs/guide"],
+                "series": [{ "name": "lines", "values": [4200, 2600, 1800, 640, 210] }],
+            })
+        },
         run: commits::hotspots,
     },
     Recipe {
         name: "landed",
         question: "Where did this change land?",
+        tells: "How a change spreads across the tree, and whether it stayed where you meant it to.",
+        group: "Changes",
         form: "horizontal stacked bar",
         data: "git diff --numstat",
         args: &[
@@ -133,27 +223,24 @@ pub static RECIPES: [Recipe; 12] = [
             },
             TITLE,
         ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bar", "orient": "horizontal", "layout": "stacked",
+                "title": "Lines changed by directory", "unit": "lines changed", "format": "count",
+                "categories": ["src", "tests", "docs"],
+                "series": [
+                    { "name": "added", "values": [320, 180, 40], "role": "good" },
+                    { "name": "removed", "values": [140, 30, 5], "role": "bad" },
+                ],
+            })
+        },
         run: commits::landed,
-    },
-    Recipe {
-        name: "commit-kinds",
-        question: "What kind of work was it, by day?",
-        form: "stacked area",
-        data: "git log subjects",
-        args: &[DAYS, PATH, TITLE],
-        run: commits::commit_kinds,
-    },
-    Recipe {
-        name: "commit-hours",
-        question: "When does work land?",
-        form: "heat",
-        data: "git log committer times",
-        args: &[DAYS, PATH, TITLE],
-        run: commits::commit_hours,
     },
     Recipe {
         name: "arc-timeline",
         question: "Where did this arc's time go?",
+        tells: "Which stages and steps an arc's time went to.",
+        group: "Arcs",
         form: "spans",
         data: "the arc log",
         args: &[
@@ -164,11 +251,26 @@ pub static RECIPES: [Recipe; 12] = [
             },
             TITLE,
         ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "spans",
+                "title": "Arc sample: stages and steps", "unit": "seconds", "format": "secs",
+                "items": [
+                    { "label": "devise", "start": 0, "end": 420 },
+                    { "label": "review", "start": 420, "end": 660 },
+                    { "label": "step 1", "start": 660, "end": 1500, "status": "good" },
+                    { "label": "step 2", "start": 1500, "end": 2700, "status": "good" },
+                    { "label": "audit", "start": 2700, "end": 3300 },
+                ],
+            })
+        },
         run: arcs::arc_timeline,
     },
     Recipe {
         name: "suite-times",
         question: "Are the suites getting slower?",
+        tells: "Whether each suite is slowing down, and when that started.",
+        group: "Tests",
         form: "line",
         data: "the test ledger",
         args: &[
@@ -189,11 +291,25 @@ pub static RECIPES: [Recipe; 12] = [
             },
             TITLE,
         ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "line",
+                "title": "Suite wall time, newest 6 runs",
+                "subtitle": "runs ago", "unit": "s", "format": "secs",
+                "x": ["5", "4", "3", "2", "1", "0"],
+                "series": [
+                    { "name": "unit", "values": [41.0, 43.0, 42.0, 58.0, 61.0, 60.0] },
+                    { "name": "integration", "values": [122.0, 120.0, 124.0, 171.0, 168.0, 176.0] },
+                ],
+            })
+        },
         run: test_recipes::suite_times,
     },
     Recipe {
         name: "test-distribution",
         question: "How are test times spread?",
+        tells: "Whether test time is evenly spread or dominated by a few slow files.",
+        group: "Tests",
         form: "histogram",
         data: "the test ledger's latest runs",
         args: &[
@@ -204,11 +320,23 @@ pub static RECIPES: [Recipe; 12] = [
             },
             TITLE,
         ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "histogram",
+                "title": "Test file wall times, latest run", "unit": "wall time", "format": "secs",
+                "values": [
+                    0.2, 0.3, 0.3, 0.4, 0.4, 0.4, 0.5, 0.5, 0.6, 0.7,
+                    0.8, 0.9, 1.1, 1.3, 1.6, 2.2, 3.1, 4.8, 7.5, 12.0,
+                ],
+            })
+        },
         run: test_recipes::test_distribution,
     },
     Recipe {
         name: "test-budget",
         question: "Which tests are near their budget?",
+        tells: "Which app-test files are closest to going over their time budget.",
+        group: "Tests",
         form: "bullet",
         data: "the app-test ledger",
         args: &[
@@ -219,11 +347,24 @@ pub static RECIPES: [Recipe; 12] = [
             },
             TITLE,
         ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bullet",
+                "title": "App-test files nearest the budget", "unit": "seconds", "format": "secs",
+                "items": [
+                    { "label": "resume.test.ts", "value": 18.5, "range": [0, 30], "target": 20, "history": [12, 14, 16, 18, 18.5] },
+                    { "label": "find.test.ts", "value": 14.2, "range": [0, 30], "target": 20, "history": [11, 12, 13, 14, 14.2] },
+                    { "label": "settle.test.ts", "value": 8.3, "range": [0, 30], "target": 20, "history": [8, 9, 8, 8.5, 8.3] },
+                ],
+            })
+        },
         run: test_recipes::test_budget,
     },
     Recipe {
         name: "test-history",
         question: "What has been red, and when?",
+        tells: "Which files have been red, and whether a failure is new or persistent.",
+        group: "Tests",
         form: "dots",
         data: "the app-test ledger",
         args: &[
@@ -234,11 +375,24 @@ pub static RECIPES: [Recipe; 12] = [
             },
             TITLE,
         ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "dots",
+                "title": "App-test history", "subtitle": "newest 7 runs per file, oldest left",
+                "rows": [
+                    { "label": "resume.test.ts", "items": ["good", "good", "good", "bad", "bad", "bad", "bad"] },
+                    { "label": "settle.test.ts", "items": ["good", "good", "bad", "good", "good", "good", "good"] },
+                    { "label": "find.test.ts", "items": ["good", "good", "good", "good", "good", "good", "good"] },
+                ],
+            })
+        },
         run: test_recipes::test_history,
     },
     Recipe {
         name: "gaps",
         question: "Which long commands report nothing?",
+        tells: "Which long commands ran without reporting progress, so which to fix next.",
+        group: "Telemetry",
         form: "horizontal bar",
         data: "the report-gaps record",
         args: &[
@@ -249,6 +403,14 @@ pub static RECIPES: [Recipe; 12] = [
             },
             TITLE,
         ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bar", "orient": "horizontal",
+                "title": "Long calls that reported nothing", "unit": "wall time", "format": "secs",
+                "categories": ["make build", "npm run", "cargo build"],
+                "series": [{ "name": "wall time", "values": [1860, 940, 420] }],
+            })
+        },
         run: gaps::gaps,
     },
 ];
@@ -333,9 +495,12 @@ pub fn catalog_json() -> Value {
             json!({
                 "name": recipe.name,
                 "question": recipe.question,
+                "tells": recipe.tells,
+                "group": recipe.group,
                 "form": recipe.form,
                 "data": recipe.data,
                 "args": args,
+                "sample": (recipe.sample)(),
             })
         })
         .collect();
@@ -345,6 +510,7 @@ pub fn catalog_json() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::context::test_support::assert_valid;
 
     /// An argv naming every argument `recipe` takes.
     fn argv(recipe: &Recipe) -> Vec<String> {
@@ -437,6 +603,44 @@ mod tests {
     }
 
     #[test]
+    fn every_recipe_says_what_it_tells_and_draws_a_sample_of_its_own_form() {
+        for recipe in &RECIPES {
+            assert!(recipe.tells.ends_with('.'), "{}", recipe.name);
+            assert!(!recipe.group.is_empty(), "{}", recipe.name);
+            let sample = (recipe.sample)();
+            assert_valid(&sample);
+            let form = sample["form"].as_str().unwrap();
+            assert!(recipe.form.contains(form), "{}: {form}", recipe.name);
+        }
+    }
+
+    #[test]
+    fn a_group_sits_together_and_sections_read_in_catalog_order() {
+        let mut sections: Vec<&str> = RECIPES.iter().map(|r| r.group).collect();
+        sections.dedup();
+        assert_eq!(
+            sections,
+            vec!["Activity", "Changes", "Arcs", "Tests", "Telemetry"]
+        );
+    }
+
+    /// The deck's sample test reads this dump, so a new recipe changes no deck
+    /// source. `TUGCHART_BLESS=1` rewrites it.
+    #[test]
+    fn the_catalog_dump_is_the_catalog() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("catalog.json");
+        let want = serde_json::to_string_pretty(&catalog_json()).unwrap() + "\n";
+        if std::env::var_os("TUGCHART_BLESS").is_some() {
+            std::fs::write(&path, &want).unwrap();
+        }
+        assert!(
+            std::fs::read_to_string(&path).unwrap_or_default() == want,
+            "`{}` is stale: rewrite it with `TUGCHART_BLESS=1 cargo nextest run -p tugchart-core the_catalog_dump`",
+            path.display()
+        );
+    }
+
+    #[test]
     fn the_catalog_lists_every_recipe_with_its_arguments() {
         let catalog = catalog_json();
         let recipes = catalog.as_array().unwrap();
@@ -444,6 +648,9 @@ mod tests {
         assert_eq!(recipes[0]["name"], "commits");
         assert_eq!(recipes[0]["args"][0]["flag"], "days");
         assert_eq!(recipes[0]["args"][0]["takes"], "number");
+        assert_eq!(recipes[0]["group"], "Activity");
+        assert_eq!(recipes[0]["tells"], RECIPES[0].tells);
+        assert_eq!(recipes[0]["sample"]["form"], "bar");
         assert_eq!(recipes[11]["name"], "gaps");
         assert!(find("commits").is_some());
         assert!(find("nothing").is_none());

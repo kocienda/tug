@@ -114,6 +114,7 @@ import { useAgentsSheet } from "./agents-sheet";
 import { useMemorySheet } from "./memory-sheet";
 import { useHooksSheet } from "./hooks-sheet";
 import { useUsageSheet } from "./usage-sheet";
+import { useDataVisualizationSheet, VIZ_SKILL_COMMAND } from "./data-visualization-sheet";
 import { useHelpSheet } from "./help-sheet";
 import { useRenameSessionSheet } from "./rename-session-sheet";
 import { useResumeSheet } from "./resume-sheet";
@@ -3438,6 +3439,19 @@ export function SessionCardBody({
     showSheet: cardPickerSheet.showSheet,
   });
 
+  // The Data Visualization sheet, card-scoped per [D15]. It reads the card's own
+  // project when it opens, and Draw leaves the recipe's command in the composer.
+  const dataVisualizationSheet = useDataVisualizationSheet({
+    projectDir: useCallback(
+      () => cardSessionBindingStore.getBinding(cardId)?.projectDir ?? null,
+      [cardId],
+    ),
+    placeRecipe: useCallback((name: string) => {
+      entryDelegateRef.current?.insertCommandChip(VIZ_SKILL_COMMAND, name);
+    }, [entryDelegateRef]),
+    showSheet: cardPickerSheet.showSheet,
+  });
+
   // `/help` tabbed sheet ([#step-13b2]) per [D16], card-scoped per [D15]. A
   // General tab (Dev + shortcuts + the unsupported-commands doc link) over a
   // Commands / Custom-commands browse of the session catalog, projected through
@@ -3856,6 +3870,7 @@ export function SessionCardBody({
     memory: () => memorySheet.openMemorySheet(),
     hooks: () => hooksSheet.openHooksSheet(),
     usage: () => usageSheet.openUsageSheet(),
+    "data-visualization": () => dataVisualizationSheet.openDataVisualizationSheet(),
     // Copy the most recent assistant message (committed transcript only, read
     // live at click time per [L07]) to the clipboard, with a pane-scoped
     // confirmation bulletin. No message yet → caution; clipboard failure →

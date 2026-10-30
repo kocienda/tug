@@ -1,0 +1,133 @@
+/**
+ * data-visualization-sheet.css — layout for the Data Visualization sheet
+ * (data-visualization-sheet.tsx).
+ *
+ * One section per recipe group, one row per recipe: its text on the left and its
+ * figure on the right, in a column as wide as a chart's default frame, so a
+ * figure is drawn at its real size ([L20]: the figure keeps its own paint). A
+ * sheet too narrow for both stacks them, and the figure takes the column whole.
+ */
+
+.data-visualization-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xl);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.4;
+  padding-bottom: var(--tug-space-md);
+  container-type: inline-size;
+}
+
+/* The scrollbar paints inside the scaffold's body, so inset the content by a
+   lane of its own, or the figures run under the thumb. */
+.data-visualization-sheet .tug-sheet-scaffold-body {
+  padding-inline-end: var(--tug-space-md);
+}
+
+.data-visualization-sheet .tug-sheet-scaffold-footer {
+  padding-block-start: var(--tug-space-xl);
+}
+
+.data-visualization-sheet-footer {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-notice {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  text-align: center;
+  margin: var(--tug-space-xl) 0;
+}
+
+.data-visualization-sheet-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-lg);
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-section-title {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  padding-bottom: 3px;
+}
+
+.data-visualization-sheet-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 600px;
+  column-gap: var(--tug-space-xl);
+  align-items: start;
+}
+
+/* The text's least useful width beside the figure's column. A container query
+   cannot read a custom property, so this is the literal sum. */
+@container (max-width: 860px) {
+  .data-visualization-sheet-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--tug-space-md);
+  }
+}
+
+.data-visualization-sheet-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-name {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-family: var(--tug-font-family-mono);
+  font-weight: var(--tug-font-weight-medium);
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-question {
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-tells {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-line {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.data-visualization-sheet-actions {
+  margin-top: var(--tug-space-xs);
+}
+
+.data-visualization-sheet-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-sample-mark {
+  align-self: flex-end;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-running {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-xs);
+}

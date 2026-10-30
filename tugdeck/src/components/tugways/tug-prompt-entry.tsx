@@ -575,12 +575,28 @@ export function buildEditingStateFromDraftRestore(
  * command atom + a trailing space is inserted at document position 0 and the
  * whole existing draft becomes the args. The seed shape matches a typed /
  * completed command byte-for-byte (`TUG_ATOM_CHAR` + a space), so submit-time
- * recognition is identical. Pure; exported for unit tests.
+ * recognition is identical. With `arg`, it stands first among the args, the
+ * draft after it, and the caret lands just after it. Pure; exported for unit
+ * tests.
  */
 export function computeCommandChipInsert(
   current: TugTextEditingState,
   name: string,
+  arg?: string,
 ): TugTextEditingState {
+  if (arg !== undefined) {
+    const seeded = computeCommandChipInsert(current, name);
+    const inserted = `${arg} `;
+    const at = seeded.text[1] === " " ? 2 : 1;
+    const lead = at === 2 ? "" : " ";
+    const caret = 2 + inserted.length;
+    const shift = lead.length + inserted.length;
+    return {
+      text: `${seeded.text.slice(0, at)}${lead}${inserted}${seeded.text.slice(at)}`,
+      atoms: seeded.atoms.map((a, i) => (i === 0 ? a : { ...a, position: a.position + shift })),
+      selection: { start: caret, end: caret },
+    };
+  }
   const head = current.atoms[0];
   if (head !== undefined && head.position === 0 && head.type === "command") {
     // Replace the head command atom in place; args (the rest of the draft)
@@ -1124,9 +1140,10 @@ export interface TugPromptEntryDelegate {
   /**
    * Insert (or replace) the leading `/<name>` command chip. A head command
    * atom is swapped in place, preserving typed args; otherwise a command atom +
-   * trailing space is inserted at document position 0. Focuses the editor.
+   * trailing space is inserted at document position 0. `arg`, when given,
+   * stands first among the args with the caret after it. Focuses the editor.
    */
-  insertCommandChip(name: string): void;
+  insertCommandChip(name: string, arg?: string): void;
   /**
    * Open the command picker ([P06]): focus the editor and, unless the draft
    * already leads with a `/` or a command atom, seed a leading `/` at
@@ -3825,10 +3842,10 @@ export const TugPromptEntry = React.forwardRef<
   // the entry does not own text state.
   // Seed (or replace) the leading command chip ([P07]) — the shared sink for
   // the ⌃⌘ chords, the picker menu, and the delegate method.
-  const seedCommandChip = useCallback((name: string) => {
+  const seedCommandChip = useCallback((name: string, arg?: string) => {
     const editor = textEditorRef.current;
     if (editor === null) return;
-    editor.restoreState(computeCommandChipInsert(editor.captureState(), name));
+    editor.restoreState(computeCommandChipInsert(editor.captureState(), name, arg));
     editor.focus();
   }, []);
 
@@ -3875,8 +3892,8 @@ export const TugPromptEntry = React.forwardRef<
       isEmpty() {
         return isEffectivelyEmpty(textEditorRef.current?.view() ?? null);
       },
-      insertCommandChip(name: string) {
-        seedCommandChip(name);
+      insertCommandChip(name: string, arg?: string) {
+        seedCommandChip(name, arg);
       },
       insertFilePaths(paths: readonly string[]) {
         insertFilePaths(paths);

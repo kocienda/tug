@@ -194,6 +194,8 @@ final class MenuBarBuilderTests: XCTestCase {
         "Session ▸ Inspect | Agents… | - | runCardCommand: | session.agents",
         "Session ▸ Inspect | Hooks… | - | runCardCommand: | session.hooks",
         "Session ▸ Inspect | Memory… | - | runCardCommand: | session.memory",
+        "Session | ---",
+        "Session | Data Visualization… | - | runCardCommand: | session.dataVisualization",
         "Bar | Go ▸ | - | - | -",
         "Go | Previous Card | ⇧⌘[ | previousCard: | go.previousCard",
         "Go | Next Card | ⇧⌘] | nextCard: | go.nextCard",

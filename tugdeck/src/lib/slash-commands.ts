@@ -141,6 +141,10 @@ export const LOCAL_SLASH_COMMANDS = [
     description: "Show subscription usage limits and this session's cost",
   },
   {
+    name: "data-visualization",
+    description: "Show every chart recipe, with a figure and what its data tells",
+  },
+  {
     name: "copy",
     description: "Copy the most recent assistant message to the clipboard",
   },

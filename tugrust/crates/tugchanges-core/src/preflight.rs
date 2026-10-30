@@ -12,6 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use chrono::{Days, Local, NaiveDate};
 use serde::Serialize;
 
 use crate::changes::{Change, ChangesError, ChangesOptions, ForeignChange, resolve_changes};
@@ -143,14 +144,32 @@ fn parse_log(output: &str) -> Vec<LogEntry> {
         .collect()
 }
 
+/// The `--since` of the last `days` calendar days, today among them: from local
+/// midnight on the oldest. Git's `N days ago` is a rolling N×24 hours, which
+/// touches N+1 calendar days, so a chart of it draws one more day than it says.
+/// A commit whose own offset differs from the local one can still bucket a day
+/// outside the window, since `%cs` reads the committer's offset.
+fn since_arg(days: u32) -> String {
+    since_on(Local::now().date_naive(), days)
+}
+
+fn since_on(today: NaiveDate, days: u32) -> String {
+    // Git reads no date before its epoch, and every offset has reached this one.
+    let floor = NaiveDate::from_ymd_opt(1970, 1, 2).unwrap_or_default();
+    let oldest = today
+        .checked_sub_days(Days::new(u64::from(days.max(1) - 1)))
+        .map_or(floor, |day| day.max(floor));
+    format!("--since={} 00:00:00", oldest.format("%Y-%m-%d"))
+}
+
 // ---------------------------------------------------------------------------
 // log
 // ---------------------------------------------------------------------------
 
 /// Options for [`log`] (Spec S04). `range` (two-dot `a..b`) overrides the plain
 /// `--limit N` most-recent read; `days` (with neither) reads the commits
-/// whose committer date falls within the last `N` days, through git's own
-/// `--since`, which is the window `log --chart` buckets. `project` is the
+/// whose committer date falls within the last `N` calendar days, through git's
+/// own `--since`, which is the window `log --chart` buckets. `project` is the
 /// directory whose repository is read, the cwd when `None`; `path`, relative
 /// to that repository's root, narrows every form to the commits touching it.
 #[derive(Debug, Clone, Default)]
@@ -189,7 +208,7 @@ pub fn log(opts: LogOptions) -> Result<LogReport, String> {
             vec![
                 "log".to_string(),
                 LOG_FORMAT.to_string(),
-                format!("--since={days} days ago"),
+                since_arg(days),
                 "HEAD".to_string(),
             ],
         ),
@@ -254,7 +273,7 @@ struct NumstatFile {
     deleted: u64,
 }
 
-/// The commits of the last `days` days on HEAD, summed per committer day,
+/// The commits of the last `days` calendar days on HEAD, summed per committer day,
 /// oldest first; `path` narrows the read to it. A day with no commits has no
 /// row: filling the gaps takes a calendar, which belongs to the caller.
 pub fn numstat_by_day(
@@ -284,7 +303,7 @@ fn read_numstat_log(
     days: u32,
     path: Option<&str>,
 ) -> Result<Vec<NumstatCommit>, String> {
-    let since = format!("--since={days} days ago");
+    let since = since_arg(days);
     let mut args = vec![
         "log",
         since.as_str(),
@@ -628,6 +647,15 @@ mod tests {
         assert_eq!(days.len(), 1);
         assert_eq!(days[0].commits, 4);
         assert_eq!(days[0].added, 6);
+    }
+
+    #[test]
+    fn a_window_of_n_days_starts_at_midnight_on_the_nth_day_back() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 30).unwrap();
+        assert_eq!(since_on(today, 1), "--since=2026-10-30 00:00:00");
+        assert_eq!(since_on(today, 30), "--since=2026-10-01 00:00:00");
+        assert_eq!(since_on(today, 0), "--since=2026-10-30 00:00:00");
+        assert_eq!(since_on(today, u32::MAX), "--since=1970-01-02 00:00:00");
     }
 
     #[test]

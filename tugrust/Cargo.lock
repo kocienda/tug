@@ -3198,6 +3198,7 @@ dependencies = [
 name = "tugchanges-core"
 version = "0.8.20"
 dependencies = [
+ "chrono",
  "dirs",
  "rusqlite",
  "serde",
