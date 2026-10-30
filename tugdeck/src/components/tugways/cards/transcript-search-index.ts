@@ -65,7 +65,8 @@
  * call contributes its HEADER (`toolHeaderParts` — the name and the target)
  * in both collapse states, because the header is on screen in both; a
  * collapsed block's BODY is unmounted by `BlockChrome` and projects
- * nothing. Shell exchanges follow the same split: the header command
+ * nothing, while the charts a Bash call drew stand outside the collapse and
+ * project in both. Shell exchanges follow the same split: the header command
  * always, the output only while expanded. Embedded-editor content joins as
  * `editor` segments.
  *
@@ -239,6 +240,53 @@ function terminalText(stdout: string, stderr: string): string {
 }
 
 /**
+ * A Bash call's segments, split by what the collapse does to them: `body` is
+ * unmounted while the block is collapsed, and `charts` stand outside the
+ * collapse, so they count in both states. A commit receipt carries neither,
+ * because `CommitBlock` is unmarked and the block draws no chart beside it.
+ */
+function bashSegments(
+  message: ToolUseMessage,
+  toolUseId: string,
+): { body: RowSegment[]; charts: RowSegment[] } {
+  const input = message.input as Record<string, unknown> | null;
+  const command =
+    input !== null && typeof input === "object" && typeof input.command === "string"
+      ? input.command
+      : undefined;
+  const structured = narrowBashStructured(message.structuredResult);
+  const textOutput = extractTextOutput(message.result);
+  const isError = message.status === "error";
+  const terminal = composeTerminalData(structured, textOutput, isError);
+  // Commit receipt: the body is `CommitBlock`, which is unmarked.
+  if (
+    message.status === "done" &&
+    command !== undefined &&
+    /\bgit\b[\s\S]*\bcommit\b/.test(command) &&
+    parseGitCommit(command, terminal.stdout ?? "") !== null
+  ) {
+    return { body: [], charts: [] };
+  }
+  // Streaming has no body; a diff-routed body renders `DiffBlock`
+  // (unmarked). Otherwise the body is the marked terminal — keyed so
+  // navigation can open its internal fold.
+  if (message.status === "pending") return { body: [], charts: [] };
+  const body: RowSegment[] = [];
+  if (tryParseBashDiff(terminal.stdout) === null) {
+    const text = terminalText(terminal.stdout ?? "", terminal.stderr ?? "");
+    if (text !== "") body.push({ kind: "dom", text, key: toolUseId });
+  }
+  // One unit per `TUG-CHART:` line the composer stripped from stdout — each a
+  // `ChartBlock` marked findable, whose text is the chart's table, in the
+  // order the lines came.
+  const charts: RowSegment[] = terminal.charts.map((source) => ({
+    kind: "dom",
+    text: chartFindText(source, "any"),
+  }));
+  return { body, charts };
+}
+
+/**
  * Search segments of one EXPANDED tool call's BODY, mirroring what its
  * wrapper marks `data-tugx-findable` below the header (plus `editor`
  * segments for embedded editors). The header is projected separately by
@@ -247,10 +295,9 @@ function terminalText(stdout: string, stderr: string): string {
  *  - **Bash** (`BashToolBlock`): the terminal body's stdout-then-stderr
  *    text. The wrapper's smart-pick routing is mirrored via the SAME
  *    exported helpers it uses: a streaming call has no body and a
- *    diff-routed body renders `DiffBlock`, which is out of scope. Then one
- *    unit per `TUG-CHART:` line the composer stripped from stdout — each a
- *    `ChartBlock` beneath the body, marked findable, whose text is the
- *    chart's table (`chartFindText`), in the order the lines came.
+ *    diff-routed body renders `DiffBlock`, which is out of scope. The
+ *    `TUG-CHART:` lines are not here: `bashSegments` carries them apart,
+ *    because they are on screen in both collapse states.
  *  - **Default-routed tools** (`DefaultToolBlock`): the markdown text
  *    result (`pickOutputBody`'s `markdown` branch) on a `done` call. The
  *    JSON input tree is fold-dependent and stays unsearchable.
@@ -285,38 +332,7 @@ function toolUseSegments(
     return [{ kind: "editor", key: toolUseId, text: content }];
   }
   if (factory === BashToolBlock) {
-    const input = message.input as Record<string, unknown> | null;
-    const command =
-      input !== null && typeof input === "object" && typeof input.command === "string"
-        ? input.command
-        : undefined;
-    const structured = narrowBashStructured(message.structuredResult);
-    const textOutput = extractTextOutput(message.result);
-    const isError = message.status === "error";
-    const terminal = composeTerminalData(structured, textOutput, isError);
-    // Commit receipt: the body is `CommitBlock`, which is unmarked.
-    if (
-      message.status === "done" &&
-      command !== undefined &&
-      /\bgit\b[\s\S]*\bcommit\b/.test(command) &&
-      parseGitCommit(command, terminal.stdout ?? "") !== null
-    ) {
-      return [];
-    }
-    // Streaming has no body; a diff-routed body renders `DiffBlock`
-    // (unmarked). Otherwise the body is the marked terminal — keyed so
-    // navigation can open its internal fold. The charts the stdout
-    // carried stand beneath whichever body rendered, so they follow it.
-    if (message.status === "pending") return [];
-    const segments: RowSegment[] = [];
-    if (tryParseBashDiff(terminal.stdout) === null) {
-      const text = terminalText(terminal.stdout ?? "", terminal.stderr ?? "");
-      if (text !== "") segments.push({ kind: "dom", text, key: toolUseId });
-    }
-    for (const source of terminal.charts) {
-      segments.push({ kind: "dom", text: chartFindText(source, "any") });
-    }
-    return segments;
+    return bashSegments(message, toolUseId).body;
   }
   if (factory === DefaultToolBlock && message.status === "done") {
     const output = pickOutputBody(
@@ -438,18 +454,23 @@ function messageSegments(
       // Subagent children render inside their parent Agent block (out of
       // scope). A top-level call's HEADER is on screen in both collapse
       // states — it is the whole block when collapsed — so it projects
-      // unconditionally; only the body, which `BlockChrome` unmounts while
-      // collapsed, is expansion-gated.
+      // unconditionally, and so do a Bash call's charts, which stand beneath
+      // the body outside the collapse; only the body, which `BlockChrome`
+      // unmounts while collapsed, is expansion-gated.
       if (message.parentToolUseId !== undefined) return [];
       const segments: RowSegment[] = domSegments(toolHeaderParts(message));
       const collapsed = expansion.resolve(
         message.toolUseId,
         collapseDefaultForMessage(message),
       );
-      if (collapsed) return segments;
-      segments.push(
-        ...toolUseSegments(message, message.toolUseId, streamingStore),
-      );
+      if (!collapsed) {
+        segments.push(
+          ...toolUseSegments(message, message.toolUseId, streamingStore),
+        );
+      }
+      if (renderedToolBlock(message) === BashToolBlock) {
+        segments.push(...bashSegments(message, message.toolUseId).charts);
+      }
       return segments;
     }
     default:

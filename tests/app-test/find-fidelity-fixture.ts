@@ -288,8 +288,8 @@ export function fidelityFixtureSteps(sessionId: string): FixtureStep[] {
     { id: "tc-diff", command: "git diff -- src/one.ts", output: DIFF_OUTPUT },
     { id: "tc-commit", command: 'git commit -m "settle the element"', output: COMMIT_OUTPUT },
     // A `TUG-CHART:` line: stripped from the terminal text, and a findable
-    // chart beneath the body once the block is expanded (it mounts
-    // collapsed, so the sweep compares its header alone).
+    // chart that stands beneath the block while it is collapsed, so the
+    // sweep compares the header and the chart's table.
     {
       id: "tc-chart",
       command: "tugtool log --chart",

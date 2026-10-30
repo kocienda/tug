@@ -74,8 +74,9 @@
 }
 
 /* The charts a command's stdout carried (`TUG-CHART:` lines), stacked
- * beneath the body in stdout order, and the muted count of any past the
- * limit. The figures paint themselves from `--tugx-chart-*`. */
+ * beneath the body in stdout order in both collapse states, and the muted
+ * count of any past the limit. The figures paint themselves from
+ * `--tugx-chart-*`. */
 .bash-tool-block-charts {
   display: flex;
   flex-direction: column;
@@ -86,6 +87,12 @@
 .bash-tool-block-charts-dropped {
   font-style: italic;
   color: var(--tugx-block-footer-color);
+}
+
+/* With no body above, the header draws no bottom rule, so the charts take
+ * the header-to-content divider themselves. */
+[data-slot="bash-tool-block"]:is([data-block-collapsed="true"], [data-empty-body]) > .bash-tool-block-charts {
+  border-top: 1px solid var(--tugx-block-hairline);
 }
 
 /* A settled run's strip is the collapsed block's one line; expanded, the

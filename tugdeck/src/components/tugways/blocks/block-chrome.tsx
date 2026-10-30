@@ -283,6 +283,14 @@ export interface BlockChromeProps {
    */
   liveBand?: React.ReactNode;
   /**
+   * Optional figures — what the block's result drew, rendered beneath the
+   * body and footer, outside the collapse guard, so a collapsed block still
+   * shows them. A figure is the answer rather than the detail behind it, and
+   * folding it away would hide the answer. Figures do not make a block
+   * expandable: they are on screen in both states, as the notice band is.
+   */
+  figures?: React.ReactNode;
+  /**
    * Body content — typically a body-kind component
    * (`TerminalBlock`, `DiffBlock`, etc.). The chrome hosts it
    * inside a region with `data-slot="tool-block-body"`.
@@ -349,6 +357,7 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
   footerBadges,
   notice,
   liveBand,
+  figures,
   variant = "tool",
   altitude = "leaf",
   flowTrailing = false,
@@ -568,6 +577,7 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
           ) : null}
         </BlockFoldSuppressedContext.Provider>
       )}
+      {figures}
     </div>
   );
 };

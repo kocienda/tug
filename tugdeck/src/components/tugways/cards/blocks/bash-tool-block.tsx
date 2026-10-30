@@ -523,6 +523,14 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
     // No body while streaming — the header's lifecycle dot is the
     // in-flight signal ([D02]).
     body = null;
+  } else if (
+    terminalData.charts.length > 0 &&
+    (bodyData.stdout?.length ?? 0) === 0 &&
+    (bodyData.stderr?.length ?? 0) === 0
+  ) {
+    // The stdout was only its charts, which stand outside the body, so an
+    // expand would reveal an empty terminal.
+    body = null;
   } else if (diffHunks !== null) {
     body = (
       <DiffBlock
@@ -559,10 +567,11 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
     );
   }
   // The charts the stdout carried, one `ChartBlock` each beneath the body,
-  // in stdout order. Not in preview (the command has not run) and not while
-  // streaming (the body is withheld too); a tool's stdout may carry a
-  // drawing, so the door takes any layer. Each root is a Find unit, which
-  // the index projects after the terminal's.
+  // in stdout order, on screen whether or not the block is collapsed: a
+  // chart is the answer the command was run for. Not in preview (the command
+  // has not run) and not while streaming (the body is withheld too); a
+  // tool's stdout may carry a drawing, so the door takes any layer. Each root
+  // is a Find unit, which the index projects after the terminal's.
   const charts =
     !preview && status !== "streaming" && commit === null && terminalData.charts.length > 0 ? (
       <div data-slot="bash-tool-block-charts" className="bash-tool-block-charts">
@@ -641,9 +650,9 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
         ) : undefined
       }
       footerBadges={footerBadges}
+      figures={charts}
     >
       {body}
-      {charts}
     </BlockChrome>
   );
 };

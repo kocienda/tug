@@ -285,9 +285,9 @@ describe.skipIf(!SHOULD_RUN)("AT0602: the index and the DOM agree on every row",
           `(document.querySelector(${JSON.stringify(SEL.chip)})?.textContent || "").trim() === "1 of 1"`,
           { timeoutMs: 15_000 },
         );
-        const TABLE = `${SEL.card} .tugx-chart table.tugx-chart-table`;
+        const TABLE = `${SEL.card} .tugx-chart table.tugx-chart-table[data-tugx-find-unclamp]`;
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(TABLE)})?.hasAttribute("data-tugx-find-unclamp") === true`,
+          `document.querySelector(${JSON.stringify(TABLE)}) !== null`,
           { timeoutMs: 15_000 },
         );
         const lifted = await app.body("A").evalJS<{ view: string | null; height: number }>(`(function () {

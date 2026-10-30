@@ -5,13 +5,15 @@
  *
  * The drive: a Bash `tool_use` and its result, as `at0707` does, with stdout
  * carrying a line of prose and one `TUG-CHART:` line. The block mounts
- * collapsed; expanding it mounts the body and the chart. Then:
+ * collapsed, and the chart stands beneath it anyway: a chart is the answer
+ * the command was run for, and folding it away hides the answer. Then:
  *
- *  - the terminal's text holds the prose and not the chart line,
- *  - exactly one chart stands beneath it and reaches `rendered`,
+ *  - exactly one chart reaches `rendered` with the block still collapsed,
  *  - a Find query on one of the chart's category labels — a word nowhere
- *    else in the transcript — counts one match, so the index projects the
- *    chart's table the way the painter walks it.
+ *    else in the transcript — counts one match while collapsed, so the index
+ *    projects the chart's table the way the painter walks it,
+ *  - expanding the block keeps the one chart beneath the body, and the
+ *    terminal's text holds the prose and not the chart line.
  *
  * @covers tugdeck/src/components/tugways/cards/blocks/bash-tool-block.tsx
  * @covers tugdeck/src/lib/chart/chart-lines.ts
@@ -92,33 +94,36 @@ describe.skipIf(!SHOULD_RUN)("AT0766: a TUG-CHART line renders beneath the Bash 
         await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(BLOCK)})`, {
           timeoutMs: 15_000,
         });
-        // The block mounts collapsed; the body and the charts come with the expand.
-        await card.click(`${BLOCK} [data-slot="tool-call-header-disclosure"]`);
+        // The block mounts collapsed, and the chart is there without an expand.
+        expect(
+          await card.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(BLOCK)}).getAttribute("data-block-collapsed") === "true"`,
+          ),
+          "the block is collapsed",
+        ).toBe(true);
         await card.waitForCondition<boolean>(
           `(function(){ var charts = document.querySelectorAll(${JSON.stringify(CHART)}); return charts.length === 1 && charts[0].getAttribute("data-tugx-chart-state") === "rendered"; })()`,
           { timeoutMs: 20_000 },
         );
 
-        const facts = await card.evalJS<{ terminal: string; charts: number; findable: boolean; svg: boolean }>(
+        const facts = await card.evalJS<{ charts: number; findable: boolean; svg: boolean; height: number }>(
           `(function(){
-            var term = document.querySelector(${JSON.stringify(TERMINAL)});
             var charts = document.querySelectorAll(${JSON.stringify(CHART)});
             return {
-              terminal: term === null ? "" : term.textContent || "",
               charts: charts.length,
               findable: charts.length === 1 && charts[0].hasAttribute("data-tugx-findable"),
               svg: charts.length === 1 && charts[0].querySelector("svg.tugx-chart-svg") !== null,
+              height: charts.length === 1 ? charts[0].getBoundingClientRect().height : 0,
             };
           })()`,
         );
-        note(`at0766 terminal text: ${JSON.stringify(facts.terminal)}`);
-        expect(facts.terminal, "the prose stays").toContain(PROSE);
-        expect(facts.terminal, "the chart line leaves the terminal").not.toContain("TUG-CHART");
-        expect(facts.charts, "one chart beneath the body").toBe(1);
+        note(`at0766 collapsed chart height: ${facts.height}`);
+        expect(facts.charts, "one chart beneath the collapsed header").toBe(1);
         expect(facts.findable, "the chart is a Find unit").toBe(true);
         expect(facts.svg, "the chart drew").toBe(true);
+        expect(facts.height, "the chart takes its box on screen").toBeGreaterThan(100);
 
-        // Find: the label is in the chart's table and nowhere else.
+        // Find, still collapsed: the label is in the chart's table and nowhere else.
         await openFindBar(app);
         await app.nativeType(LABEL);
         await card.waitForCondition<boolean>(
@@ -130,6 +135,28 @@ describe.skipIf(!SHOULD_RUN)("AT0766: a TUG-CHART line renders beneath the Bash 
         );
         note(`at0766 find chip for ${JSON.stringify(LABEL)}: ${JSON.stringify(chip)}`);
         expect(chip).toBe("1 of 1");
+
+        // Expanded: the body opens above the chart, which stays.
+        await card.click(`${BLOCK} [data-slot="tool-call-header-disclosure"]`);
+        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(TERMINAL)})`, {
+          timeoutMs: 15_000,
+        });
+        const expanded = await card.evalJS<{ terminal: string; charts: number; chartBelowBody: boolean }>(
+          `(function(){
+            var term = document.querySelector(${JSON.stringify(TERMINAL)});
+            var charts = document.querySelectorAll(${JSON.stringify(CHART)});
+            return {
+              terminal: term.textContent || "",
+              charts: charts.length,
+              chartBelowBody: charts.length === 1 && charts[0].getBoundingClientRect().top >= term.getBoundingClientRect().bottom,
+            };
+          })()`,
+        );
+        note(`at0766 terminal text: ${JSON.stringify(expanded.terminal)}`);
+        expect(expanded.terminal, "the prose stays").toContain(PROSE);
+        expect(expanded.terminal, "the chart line leaves the terminal").not.toContain("TUG-CHART");
+        expect(expanded.charts, "one chart, the same one").toBe(1);
+        expect(expanded.chartBelowBody, "the chart stands beneath the body").toBe(true);
       } finally {
         await app.close();
       }
