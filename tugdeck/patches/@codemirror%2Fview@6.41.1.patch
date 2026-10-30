@@ -1,0 +1,76 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 0a2374effcd135ba9be38756ec0244997344afcb..80e374df189b186b4150600f3c7c938d4c2965c8 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -515,6 +515,20 @@ function windowRect(win) {
+     return { left: 0, right: win.innerWidth,
+         top: 0, bottom: win.innerHeight };
+ }
++// Tug patch: `getScale` divides by `offsetHeight`, an integer, so on a short
++// document the ratio is off by far more than a transform's real noise: one
++// 24.14px line at a 0.8 transform reads 19.31 / 24 = 0.8047. That sits inside
++// the 0.005 the measure pass requires before it adopts a new scale, so the
++// wrong value then outlives the document's growth, and every height conversion
++// in the view is 0.6% out for good. The computed size is unrounded, so the ratio
++// is exact and the adoption threshold can be tight enough to mean it.
++function exactScale(elt, rect, style) {
++    let width = parseFloat(style.width), height = parseFloat(style.height);
++    if (!(width > 0) || !(height > 0))
++        return getScale(elt, rect);
++    return { scaleX: rect.width / width, scaleY: rect.height / height };
++}
++
+ function getScale(elt, rect) {
+     let scaleX = rect.width / elt.offsetWidth;
+     let scaleY = rect.height / elt.offsetHeight;
+@@ -6271,9 +6285,9 @@ class ViewState {
+         this.mustMeasureContent = false;
+         let result = 0, bias = 0;
+         if (domRect.width && domRect.height) {
+-            let { scaleX, scaleY } = getScale(dom, domRect);
+-            if (scaleX > .005 && Math.abs(this.scaleX - scaleX) > .005 ||
+-                scaleY > .005 && Math.abs(this.scaleY - scaleY) > .005) {
++            let { scaleX, scaleY } = exactScale(dom, domRect, style);
++            if (scaleX > .005 && Math.abs(this.scaleX - scaleX) > .0001 ||
++                scaleY > .005 && Math.abs(this.scaleY - scaleY) > .0001) {
+                 this.scaleX = scaleX;
+                 this.scaleY = scaleY;
+                 result |= 16 /* UpdateFlag.Geometry */;
+diff --git a/dist/index.js b/dist/index.js
+index ac1464a31c3e4aa2858546d59d81228d07c6e4c2..e4aa67fbfc50fb8d2aee83534c0f1953785e8819 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -512,6 +512,20 @@ function windowRect(win) {
+     return { left: 0, right: win.innerWidth,
+         top: 0, bottom: win.innerHeight };
+ }
++// Tug patch: `getScale` divides by `offsetHeight`, an integer, so on a short
++// document the ratio is off by far more than a transform's real noise: one
++// 24.14px line at a 0.8 transform reads 19.31 / 24 = 0.8047. That sits inside
++// the 0.005 the measure pass requires before it adopts a new scale, so the
++// wrong value then outlives the document's growth, and every height conversion
++// in the view is 0.6% out for good. The computed size is unrounded, so the ratio
++// is exact and the adoption threshold can be tight enough to mean it.
++function exactScale(elt, rect, style) {
++    let width = parseFloat(style.width), height = parseFloat(style.height);
++    if (!(width > 0) || !(height > 0))
++        return getScale(elt, rect);
++    return { scaleX: rect.width / width, scaleY: rect.height / height };
++}
++
+ function getScale(elt, rect) {
+     let scaleX = rect.width / elt.offsetWidth;
+     let scaleY = rect.height / elt.offsetHeight;
+@@ -6266,9 +6280,9 @@ class ViewState {
+         this.mustMeasureContent = false;
+         let result = 0, bias = 0;
+         if (domRect.width && domRect.height) {
+-            let { scaleX, scaleY } = getScale(dom, domRect);
+-            if (scaleX > .005 && Math.abs(this.scaleX - scaleX) > .005 ||
+-                scaleY > .005 && Math.abs(this.scaleY - scaleY) > .005) {
++            let { scaleX, scaleY } = exactScale(dom, domRect, style);
++            if (scaleX > .005 && Math.abs(this.scaleX - scaleX) > .0001 ||
++                scaleY > .005 && Math.abs(this.scaleY - scaleY) > .0001) {
+                 this.scaleX = scaleX;
+                 this.scaleY = scaleY;
+                 result |= 16 /* UpdateFlag.Geometry */;
