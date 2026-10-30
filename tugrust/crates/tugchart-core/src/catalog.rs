@@ -79,7 +79,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "commits",
         question: "How active has this been?",
-        tells: "How steady the work is, and which days spiked.",
+        tells: "Commits per day.",
         group: "Activity",
         form: "bar",
         data: "git log",
@@ -97,7 +97,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "churn",
         question: "How much changed here, over time?",
-        tells: "How many lines were added and removed each day, so size shows where commit counts can't.",
+        tells: "Lines added and removed per day.",
         group: "Activity",
         form: "stacked area",
         data: "git log --numstat, per day",
@@ -118,7 +118,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "commit-kinds",
         question: "What kind of work was it, by day?",
-        tells: "Which areas of the project each day's work went to.",
+        tells: "Commits per day, split by the prefix of each subject.",
         group: "Activity",
         form: "stacked area",
         data: "git log subjects",
@@ -140,7 +140,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "commit-hours",
         question: "When does work land?",
-        tells: "Which hours of the day work tends to land.",
+        tells: "Commits by hour of day.",
         group: "Activity",
         form: "heat",
         data: "git log committer times",
@@ -164,7 +164,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "hotspots",
         question: "Which files or directories change most?",
-        tells: "Where changes concentrate, which is often where the risk is.",
+        tells: "The paths with the most lines changed.",
         group: "Changes",
         form: "horizontal bar",
         data: "git log --numstat, per path",
@@ -196,7 +196,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "landed",
         question: "Where did this change land?",
-        tells: "How a change spreads across the tree, and whether it stayed where you meant it to.",
+        tells: "Lines changed per directory in the working tree or a range.",
         group: "Changes",
         form: "horizontal stacked bar",
         data: "git diff --numstat",
@@ -239,7 +239,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "arc-timeline",
         question: "Where did this arc's time go?",
-        tells: "Which stages and steps an arc's time went to.",
+        tells: "Time spent in each stage and step of an arc.",
         group: "Arcs",
         form: "spans",
         data: "the arc log",
@@ -269,7 +269,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "suite-times",
         question: "Are the suites getting slower?",
-        tells: "Whether each suite is slowing down, and when that started.",
+        tells: "Wall time of each test suite, run by run.",
         group: "Tests",
         form: "line",
         data: "the test ledger",
@@ -308,7 +308,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "test-distribution",
         question: "How are test times spread?",
-        tells: "Whether test time is evenly spread or dominated by a few slow files.",
+        tells: "How test file wall times spread across the latest runs.",
         group: "Tests",
         form: "histogram",
         data: "the test ledger's latest runs",
@@ -335,7 +335,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "test-budget",
         question: "Which tests are near their budget?",
-        tells: "Which app-test files are closest to going over their time budget.",
+        tells: "App-test files closest to their time budget.",
         group: "Tests",
         form: "bullet",
         data: "the app-test ledger",
@@ -363,7 +363,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "test-history",
         question: "What has been red, and when?",
-        tells: "Which files have been red, and whether a failure is new or persistent.",
+        tells: "Which files passed or failed, run by run.",
         group: "Tests",
         form: "dots",
         data: "the app-test ledger",
@@ -391,7 +391,7 @@ pub static RECIPES: [Recipe; 12] = [
     Recipe {
         name: "gaps",
         question: "Which long commands report nothing?",
-        tells: "Which long commands ran without reporting progress, so which to fix next.",
+        tells: "Long commands that reported no progress.",
         group: "Telemetry",
         form: "horizontal bar",
         data: "the report-gaps record",

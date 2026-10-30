@@ -81,13 +81,13 @@ describe("chart recipes — narrowing", () => {
 describe("chart recipes — what a row shows", () => {
   const row = (outcome: RecipeOutcome) => ({ ...recipe("commits"), outcome });
 
-  test("a chart draws live, with its summary", () => {
+  test("a chart draws live, with no line beside it", () => {
     const spec = { form: "line" };
     expect(recipeFace(row({ kind: "chart", summary: "3 commits", spec }))).toEqual({
       state: "live",
       spec,
       sampled: false,
-      line: "3 commits",
+      line: null,
     });
   });
 

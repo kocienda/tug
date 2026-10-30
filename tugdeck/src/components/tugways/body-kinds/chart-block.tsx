@@ -66,16 +66,22 @@ export interface ChartBlockProps {
    * A fence's chart needs none of this — its message body is the unit.
    */
   findable?: boolean;
+  /**
+   * Draw the figure alone, scaled to fit this block, with no header, no table
+   * and never an entrance. The consumer gives the block its size through a
+   * wrapping element of definite height.
+   */
+  thumbnail?: boolean;
 }
 
-export const ChartBlock: React.FC<ChartBlockProps> = ({ source, layers, className, findable = false }) => {
+export const ChartBlock: React.FC<ChartBlockProps> = ({ source, layers, className, findable = false, thumbnail = false }) => {
   const ref = React.useRef<HTMLDivElement | null>(null);
 
   React.useLayoutEffect(() => {
     const el = ref.current;
     if (el === null) return;
-    void renderChartInto(el, source, { layers });
-  }, [source, layers]);
+    void renderChartInto(el, source, { layers, thumbnail });
+  }, [source, layers, thumbnail]);
 
   const baseClass = "tugx-chart";
   const composed = className === undefined ? baseClass : `${baseClass} ${className}`;

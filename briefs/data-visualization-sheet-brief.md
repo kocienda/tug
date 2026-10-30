@@ -59,7 +59,7 @@ The last sentence is a requirement on the design, not a note about the future: a
 - `group` names the section a recipe sits in. Sections and their order come from the catalog, so a longer list stays readable.
 - `sample` is a small built-in spec, drawn when the project has no data for that recipe.
 
-**[B06] A row shows the recipe's name, question, `tells` line and live summary as text on the left, and the figure on the right.** The figure is drawn at real size by the normal chart renderer, with hover and the enter animation intact. Shrunken thumbnails are ruled out because labels are laid out by exact text measurement, so a shrunk figure misrepresents the chart. The form's default size is the starting point, and the fit is an open question [F06].
+**[B06] A row shows an icon for the recipe's form and its name as its title, then its `tells` line on the left and a thumbnail of its figure on the right.** The user reversed the first version of this decision, which drew each figure at real size and ruled thumbnails out, because a sheet of full-size figures was overwhelming and hard to read. A thumbnail is laid out by the normal chart renderer at one fixed width and scaled to fit its box, so its shape stays true and its small text is not meant to be read. It keeps hover and never animates, and Draw gives the full figure. A live row shows no summary, because its numbers read as unexplained beside a thumbnail. A form the deck does not know wears a plain chart icon, so a new form needs no deck change. The question stays in the catalog for `tugtool chart list` and `/viz`, and the sheet does not show it.
 
 **[B07] A preview is live when the recipe has data, and otherwise the recipe's sample, marked "Sample".** A sample keeps the sheet useful on a clean tree or a new project [F05], and the mark keeps it from being read as the project's numbers. A `noData` row shows the recipe's summary beside its sample; a `failed` row shows the failure message there instead.
 
@@ -73,18 +73,18 @@ The last sentence is a requirement on the design, not a note about the future: a
 
 | Group | Recipe | `tells` |
 |---|---|---|
-| Activity | `commits` | How steady the work is, and which days spiked. |
-| Activity | `churn` | How many lines were added and removed each day, so size shows where commit counts can't. |
-| Activity | `commit-kinds` | Which areas of the project each day's work went to. |
-| Activity | `commit-hours` | Which hours of the day work tends to land. |
-| Changes | `hotspots` | Where changes concentrate, which is often where the risk is. |
-| Changes | `landed` | How a change spreads across the tree, and whether it stayed where you meant it to. |
-| Arcs | `arc-timeline` | Which stages and steps an arc's time went to. |
-| Tests | `suite-times` | Whether each suite is slowing down, and when that started. |
-| Tests | `test-distribution` | Whether test time is evenly spread or dominated by a few slow files. |
-| Tests | `test-budget` | Which app-test files are closest to going over their time budget. |
-| Tests | `test-history` | Which files have been red, and whether a failure is new or persistent. |
-| Telemetry | `gaps` | Which long commands ran without reporting progress, so which to fix next. |
+| Activity | `commits` | Commits per day. |
+| Activity | `churn` | Lines added and removed per day. |
+| Activity | `commit-kinds` | Commits per day, split by the prefix of each subject. |
+| Activity | `commit-hours` | Commits by hour of day. |
+| Changes | `hotspots` | The paths with the most lines changed. |
+| Changes | `landed` | Lines changed per directory in the working tree or a range. |
+| Arcs | `arc-timeline` | Time spent in each stage and step of an arc. |
+| Tests | `suite-times` | Wall time of each test suite, run by run. |
+| Tests | `test-distribution` | How test file wall times spread across the latest runs. |
+| Tests | `test-budget` | App-test files closest to their time budget. |
+| Tests | `test-history` | Which files passed or failed, run by run. |
+| Telemetry | `gaps` | Long commands that reported no progress. |
 
 **[B12] The day-count wording is fixed in this work.** The summary and the figure must agree on how many days they cover [F10]. The sheet makes the flaw permanent and visible, so it is fixed here rather than left for the recipe revisit.
 
@@ -103,7 +103,7 @@ The last sentence is a requirement on the design, not a note about the future: a
 - **New or expanded recipes.** The user will revisit the recipes after this lands. This work gives the existing twelve their new fields and changes nothing else about what they compute, apart from [B12].
 - **Replacing `/viz` or its skill.** `/viz` with no arguments still prints `tugtool chart list`, and a request still goes through the skill's rungs.
 - **Running the recipe or sending from the sheet.** Draw places the command and stops [B08].
-- **Thumbnails or a grid of small multiples.** Rejected in [B06] because a shrunk figure misrepresents the chart.
+- **A grid of small multiples.** Each recipe keeps its own row with its description [B06].
 - **Empty rows for a recipe with no data.** Rejected in [B07] because a sheet of blanks on a new project shows nothing of what the recipes do.
 - **Hard-coded recipe descriptions or a deck-side recipe list.** Rejected in [B04] because that is exactly what would make the next recipe a deck change.
 

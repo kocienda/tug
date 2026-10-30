@@ -219,6 +219,28 @@ body {
   height: auto;
 }
 
+/* ---- Thumbnail -----------------------------------------------------------
+ *
+ * The figure alone, filling a host of definite height. The SVG keeps its
+ * viewBox, so it scales to fit with its aspect kept.
+ */
+
+.tugx-chart[data-tugx-chart-thumbnail] {
+  height: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+.tugx-chart[data-tugx-chart-thumbnail] > .tugx-chart-body {
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--tug-space-xs);
+}
+.tugx-chart[data-tugx-chart-thumbnail] > .tugx-chart-body > .tugx-chart-svg {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
 /* ---- Hover ---------------------------------------------------------------
  *
  * The compiler's hit targets are invisible and the renderer marks the one being

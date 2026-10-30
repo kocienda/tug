@@ -609,10 +609,7 @@ fn list_names_every_recipe_with_its_arguments() {
     assert_eq!(lines.len(), 36, "{text}");
     assert_eq!(lines[0], "commits  bar  How active has this been?");
     assert_eq!(lines[1], "    --days N  --path TEXT  --title TEXT");
-    assert_eq!(
-        lines[2],
-        "    Activity: How steady the work is, and which days spiked."
-    );
+    assert_eq!(lines[2], "    Activity: Commits per day.");
     assert!(
         text.contains("    [name]  --title TEXT"),
         "the arc's positional: {text}"

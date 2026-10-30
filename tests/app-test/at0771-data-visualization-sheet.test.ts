@@ -15,9 +15,8 @@
  *  - ⌃⌘V closes the sheet, and re-opening it keeps the results it held.
  *  - Draw closes the sheet and leaves `/tugplug:viz <recipe>` in the composer, with
  *    the caret there, unsent.
- *  - Every figure is drawn at its laid-out size beside its text at `xl`. In a slim
- *    card, where both do not fit, the row stacks: the text keeps a readable width
- *    and no figure runs past the sheet.
+ *  - Every figure is a still thumbnail: it fills its box, plays no entrance and
+ *    runs no animation, and keeps its description beside it even in a slim card.
  *
  * @covers tugdeck/src/components/tugways/cards/data-visualization-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/data-visualization-sheet.css
@@ -135,13 +134,15 @@ describe.skipIf(!SHOULD_RUN)("at0771 — the Data Visualization sheet", () => {
         expect(live?.state).toBe("live");
         expect(live?.sampled).toBe(false);
 
-        // At `xl` a figure is drawn at the size it was laid out at, not scaled.
-        const scaled = await body.evalJS<string[]>(
-          `Array.from(document.querySelectorAll(${JSON.stringify(`${ROW} .tugx-chart-svg`)})).filter(function (svg) {
-            return Math.abs(svg.getBoundingClientRect().width - Number(svg.getAttribute("width"))) > 0.5;
-          }).map(function (svg) { return svg.closest("[data-tugx-recipe]").getAttribute("data-tugx-recipe"); })`,
+        // Every figure is a thumbnail, and nothing in one ever moves.
+        const moving = await body.evalJS<string[]>(
+          `Array.from(document.querySelectorAll(${JSON.stringify(`${ROW} .tugx-chart`)})).filter(function (figure) {
+            return !figure.hasAttribute("data-tugx-chart-thumbnail") ||
+              figure.hasAttribute("data-tugx-chart-animate") ||
+              figure.getAnimations({ subtree: true }).length > 0;
+          }).map(function (figure) { return figure.closest("[data-tugx-recipe]").getAttribute("data-tugx-recipe"); })`,
         );
-        expect(scaled).toEqual([]);
+        expect(moving).toEqual([]);
 
         const failed = byName.get(FAILED_RECIPE);
         expect(failed?.state).toBe("failed");
@@ -191,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)("at0771 — the Data Visualization sheet", () => {
   );
 
   test(
-    "a slim card stacks the row, so the text stays readable and no figure overflows",
+    "a slim card keeps the description beside the thumbnail, and no figure overflows",
     async () => {
       const repo = scratchRepository();
       const app = await launchTugApp({ testName: "at0771-data-visualization-slim" });
@@ -221,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("at0771 — the Data Visualization sheet", () => {
             return { text: text, over: over, scrolls: scroller.scrollWidth > scroller.clientWidth };
           })()`,
         );
-        expect(fit.text).toBeGreaterThan(300);
+        expect(fit.text).toBeGreaterThan(200);
         expect(fit.over).toBeLessThanOrEqual(0);
         expect(fit.scrolls).toBe(false);
       } finally {

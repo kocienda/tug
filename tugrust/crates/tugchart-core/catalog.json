@@ -52,7 +52,7 @@
       "tugchart": 1,
       "unit": "commits"
     },
-    "tells": "How steady the work is, and which days spiked."
+    "tells": "Commits per day."
   },
   {
     "args": [
@@ -122,7 +122,7 @@
         "Sun"
       ]
     },
-    "tells": "How many lines were added and removed each day, so size shows where commit counts can't."
+    "tells": "Lines added and removed per day."
   },
   {
     "args": [
@@ -202,7 +202,7 @@
         "Sun"
       ]
     },
-    "tells": "Which areas of the project each day's work went to."
+    "tells": "Commits per day, split by the prefix of each subject."
   },
   {
     "args": [
@@ -286,7 +286,7 @@
         2
       ]
     },
-    "tells": "Which hours of the day work tends to land."
+    "tells": "Commits by hour of day."
   },
   {
     "args": [
@@ -348,7 +348,7 @@
       "tugchart": 1,
       "unit": "lines changed"
     },
-    "tells": "Where changes concentrate, which is often where the risk is."
+    "tells": "The paths with the most lines changed."
   },
   {
     "args": [
@@ -417,7 +417,7 @@
       "tugchart": 1,
       "unit": "lines changed"
     },
-    "tells": "How a change spreads across the tree, and whether it stayed where you meant it to."
+    "tells": "Lines changed per directory in the working tree or a range."
   },
   {
     "args": [
@@ -473,7 +473,7 @@
       "tugchart": 1,
       "unit": "seconds"
     },
-    "tells": "Which stages and steps an arc's time went to."
+    "tells": "Time spent in each stage and step of an arc."
   },
   {
     "args": [
@@ -543,7 +543,7 @@
         "0"
       ]
     },
-    "tells": "Whether each suite is slowing down, and when that started."
+    "tells": "Wall time of each test suite, run by run."
   },
   {
     "args": [
@@ -592,7 +592,7 @@
         12.0
       ]
     },
-    "tells": "Whether test time is evenly spread or dominated by a few slow files."
+    "tells": "How test file wall times spread across the latest runs."
   },
   {
     "args": [
@@ -669,7 +669,7 @@
       "tugchart": 1,
       "unit": "seconds"
     },
-    "tells": "Which app-test files are closest to going over their time budget."
+    "tells": "App-test files closest to their time budget."
   },
   {
     "args": [
@@ -733,7 +733,7 @@
       "title": "App-test history",
       "tugchart": 1
     },
-    "tells": "Which files have been red, and whether a failure is new or persistent."
+    "tells": "Which files passed or failed, run by run."
   },
   {
     "args": [
@@ -776,6 +776,6 @@
       "tugchart": 1,
       "unit": "wall time"
     },
-    "tells": "Which long commands ran without reporting progress, so which to fix next."
+    "tells": "Long commands that reported no progress."
   }
 ]

@@ -125,8 +125,8 @@ export function recipeSections(rows: readonly RecipeRow[]): RecipeSection[] {
 
 /**
  * What a row shows. `spec` is the figure, null until a read has answered; `sampled`
- * says it is the recipe's sample rather than the project's numbers; `line` is the
- * text beside it.
+ * says it is the recipe's sample rather than the project's numbers; `line` says
+ * why a sample stands there, and a live row has none.
  */
 export interface RecipeFace {
   state: "pending" | "live" | "no-data" | "failed";
@@ -142,7 +142,7 @@ export function recipeFace(row: RecipeRow): RecipeFace {
     case "pending":
       return { state: "pending", spec: null, sampled: false, line: null };
     case "chart":
-      return { state: "live", spec: outcome.spec, sampled: false, line: outcome.summary };
+      return { state: "live", spec: outcome.spec, sampled: false, line: null };
     case "noData":
       return { state: "no-data", spec: sample, sampled: true, line: outcome.summary };
     case "failed":

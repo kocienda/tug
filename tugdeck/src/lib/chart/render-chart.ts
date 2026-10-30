@@ -43,6 +43,12 @@
  * chart still enters the first time it is rendered where someone can see
  * it ([L23]). {@link takeEntrance} is that decision, pure.
  *
+ * **A thumbnail is the figure alone, and it never moves.** It is laid out at
+ * one fixed width and scaled by CSS to fit its host, so the shape stays true
+ * and its small text is not meant to be read. It has no header and no table
+ * alternative, shows nothing while it waits, plays no entrance, and spends no
+ * hash, so the same chart in the transcript still enters.
+ *
  * Laws: [L06] every state is a `data-` attribute styled by CSS; [L24] the
  * DOM is structure written once, the entrance set is module-local data;
  * [L32] the source is on screen until the figure replaces it; [L33] both
@@ -77,6 +83,11 @@ export const CHART_ANIMATE_ATTR = "data-tugx-chart-animate";
 export const CHART_UNTITLED_ATTR = "data-tugx-chart-untitled";
 /** The fence transformer's flag; its presence means "not yet rendered". */
 export const CHART_PENDING_ATTR = "data-tugx-chart-pending";
+/** Present on a figure drawn as a thumbnail. */
+export const CHART_THUMBNAIL_ATTR = "data-tugx-chart-thumbnail";
+
+/** The width a thumbnail is laid out at, before CSS scales it to its host. */
+export const THUMBNAIL_LAYOUT_WIDTH = 480;
 
 /** How long a chart waits for the engine before showing the source as code. */
 export const ENGINE_DEADLINE_MS = 10_000;
@@ -93,6 +104,8 @@ const FACE_SAMPLE = "Chart 0123456789";
 export interface RenderChartOptions {
   /** Which layers this door accepts. A fence takes charts only; a tool's stdout either. */
   layers?: ChartLayers;
+  /** Draw the figure alone, scaled to its host and still. */
+  thumbnail?: boolean;
 }
 
 /** The source hashes that have entered on this page, oldest first. */
@@ -283,6 +296,7 @@ function hasTable(table: ChartTable): boolean {
  */
 export async function renderChartInto(el: HTMLElement, source: string, options: RenderChartOptions = {}): Promise<void> {
   const layers: ChartLayers = options.layers ?? "chart";
+  const thumbnail = options.thumbnail ?? false;
   const token = {};
   renders.set(el, token);
   const current = (): boolean => renders.get(el) === token;
@@ -293,8 +307,9 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   el.removeAttribute(CHART_ANIMATE_ATTR);
   el.removeAttribute(CHART_VIEW_ATTR);
   el.removeAttribute(CHART_UNTITLED_ATTR);
+  el.toggleAttribute(CHART_THUMBNAIL_ATTR, thumbnail);
   el.setAttribute(CHART_STATE_ATTR, "pending");
-  el.textContent = source;
+  el.textContent = thumbnail ? "" : source;
 
   let engine: TuggraphicsEngine;
   try {
@@ -324,15 +339,16 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   }
 
   const hash = textHash(source);
-  const animate = takeEntrance(entered, hash, isShown(el));
+  const animate = !thumbnail && takeEntrance(entered, hash, isShown(el));
   nextId += 1;
   const idPrefix = `tgc${nextId}`;
   const avail = el.clientWidth;
+  const width = thumbnail ? THUMBNAIL_LAYOUT_WIDTH : avail > 0 ? avail : undefined;
   const round = runMeasureLoop(
     (table) =>
       engine.compile_round(
         source,
-        { width: avail > 0 ? avail : undefined, id_prefix: idPrefix, motion: animate, layers, figure_title: false },
+        { width, id_prefix: idPrefix, motion: animate, layers, figure_title: false },
         table,
       ),
     measure,
@@ -340,6 +356,16 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   if (!current()) return;
   if (round.status === "invalid") {
     showInvalid(el, source, round.errors);
+    return;
+  }
+
+  if (thumbnail) {
+    const body = document.createElement("div");
+    body.className = "tugx-chart-body";
+    body.innerHTML = round.svg;
+    if (hasTable(round.table)) attachChartHover(body, round.table);
+    el.replaceChildren(body);
+    el.setAttribute(CHART_STATE_ATTR, "rendered");
     return;
   }
 

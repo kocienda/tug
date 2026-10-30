@@ -6,6 +6,7 @@
  * so this file names no recipe and a new one needs no change here. A recipe with
  * data over the card's project draws live; one with none, or whose read failed,
  * draws its sample, marked as one so it is not read as the project's numbers.
+ * A row is its title over its description and a thumbnail, which never animates.
  * Draw hands the recipe's name to the card, which places the command in the
  * composer and leaves the send to the user.
  *
@@ -23,6 +24,18 @@
 
 import "./data-visualization-sheet.css";
 
+import {
+  ChartArea,
+  ChartBar,
+  ChartBarBig,
+  ChartColumn,
+  ChartColumnBig,
+  ChartGantt,
+  ChartLine,
+  ChartScatter,
+  Grid3x3,
+  type LucideIcon,
+} from "lucide-react";
 import React, { useCallback, useEffect, useRef } from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -176,6 +189,19 @@ function DataVisualizationSheetBody({
   );
 }
 
+/** The icon for a catalog `form`. A form this does not know wears the plain chart. */
+function formIcon(form: string): LucideIcon {
+  if (form.includes("area")) return ChartArea;
+  if (form.includes("line")) return ChartLine;
+  if (form.includes("spans")) return ChartGantt;
+  if (form.includes("histogram")) return ChartColumnBig;
+  if (form.includes("heat")) return Grid3x3;
+  if (form.includes("bullet")) return ChartBarBig;
+  if (form.includes("dots") || form.includes("scatter")) return ChartScatter;
+  if (form.includes("horizontal")) return ChartBar;
+  return ChartColumn;
+}
+
 function RecipeRowView({
   row,
   onDraw,
@@ -184,11 +210,17 @@ function RecipeRowView({
   onDraw: (name: string) => void;
 }): React.ReactElement {
   const face = recipeFace(row);
+  const Icon = formIcon(row.form);
   return (
     <div className="data-visualization-sheet-row" data-tugx-recipe={row.name} data-tugx-recipe-state={face.state}>
+      <div className="data-visualization-sheet-title">
+        <div className="data-visualization-sheet-heading">
+          <Icon className="data-visualization-sheet-icon" size={16} aria-hidden />
+          <div className="data-visualization-sheet-name">{row.name}</div>
+        </div>
+        {face.sampled ? <div className="data-visualization-sheet-sample-mark">Sample</div> : null}
+      </div>
       <div className="data-visualization-sheet-text">
-        <div className="data-visualization-sheet-name">{row.name}</div>
-        <div className="data-visualization-sheet-question">{row.question}</div>
         <div className="data-visualization-sheet-tells">{row.tells}</div>
         {face.line !== null ? <div className="data-visualization-sheet-line">{face.line}</div> : null}
         <div className="data-visualization-sheet-actions">
@@ -201,10 +233,7 @@ function RecipeRowView({
         {face.spec === null ? (
           <div className="data-visualization-sheet-running">Running…</div>
         ) : (
-          <>
-            {face.sampled ? <div className="data-visualization-sheet-sample-mark">Sample</div> : null}
-            <ChartBlock source={JSON.stringify(face.spec)} />
-          </>
+          <ChartBlock source={JSON.stringify(face.spec)} thumbnail />
         )}
       </div>
     </div>

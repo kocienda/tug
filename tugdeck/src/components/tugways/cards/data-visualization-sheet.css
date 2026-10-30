@@ -2,16 +2,15 @@
  * data-visualization-sheet.css — layout for the Data Visualization sheet
  * (data-visualization-sheet.tsx).
  *
- * One section per recipe group, one row per recipe: its text on the left and its
- * figure on the right, in a column as wide as a chart's default frame, so a
- * figure is drawn at its real size ([L20]: the figure keeps its own paint). A
- * sheet too narrow for both stacks them, and the figure takes the column whole.
+ * One section per recipe group, one row per recipe: its title across the top,
+ * then its description on the left and a thumbnail of its figure on the right
+ * ([L20]: the figure keeps its own paint). A sheet too narrow for both stacks them.
  */
 
 .data-visualization-sheet-body {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-xl);
+  gap: calc(var(--tug-space-2xl) * 1.5);
   font-size: var(--tug-font-size-sm);
   line-height: 1.4;
   padding-bottom: var(--tug-space-md);
@@ -44,7 +43,7 @@
 .data-visualization-sheet-section {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-lg);
+  gap: var(--tug-space-2xl);
 }
 
 /* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
@@ -60,21 +59,50 @@
 
 .data-visualization-sheet-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 600px;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-areas:
+    "title title"
+    "text figure";
   column-gap: var(--tug-space-xl);
+  row-gap: var(--tug-space-xs);
   align-items: start;
 }
 
-/* The text's least useful width beside the figure's column. A container query
+/* The text's least useful width beside the thumbnail's column. A container query
    cannot read a custom property, so this is the literal sum. */
-@container (max-width: 860px) {
+@container (max-width: 480px) {
   .data-visualization-sheet-row {
     grid-template-columns: minmax(0, 1fr);
-    row-gap: var(--tug-space-md);
+    grid-template-areas:
+      "title"
+      "text"
+      "figure";
   }
 }
 
+.data-visualization-sheet-title {
+  grid-area: title;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--tug-space-md);
+}
+
+.data-visualization-sheet-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}
+
+/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+.data-visualization-sheet-icon {
+  flex: none;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
 .data-visualization-sheet-text {
+  grid-area: text;
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-2xs);
@@ -89,13 +117,8 @@
 }
 
 /* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
-.data-visualization-sheet-question {
-  color: var(--tug7-element-global-text-normal-default-rest);
-}
-
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
 .data-visualization-sheet-tells {
-  color: var(--tug7-element-global-text-normal-muted-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
 }
 
 /* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
@@ -110,15 +133,13 @@
 }
 
 .data-visualization-sheet-figure {
-  display: flex;
-  flex-direction: column;
-  gap: var(--tug-space-2xs);
+  grid-area: figure;
+  height: 125px;
   min-width: 0;
 }
 
 /* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
 .data-visualization-sheet-sample-mark {
-  align-self: flex-end;
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-2xs);
   font-weight: var(--tug-font-weight-medium);
