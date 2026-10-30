@@ -4,10 +4,12 @@
 <text x="0" y="76" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">implement</text>
 <text x="0" y="96" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">audit</text>
 <text x="72.8" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0s</text>
-<text x="233.87" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">8m20s</text>
-<text x="394.93" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">16m40s</text>
+<text x="169.44" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">5m00s</text>
+<text x="266.08" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">10m00s</text>
+<text x="362.72" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">15m00s</text>
+<text x="459.36" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">20m00s</text>
 <text x="540.2" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">25m00s</text>
-<path d="M72.8 46 L72.8 106 M233.87 46 L233.87 106 M394.93 46 L394.93 106 M556 46 L556 106" class="tgs-grid" fill="none" stroke-width="1"/>
+<path d="M72.8 46 L72.8 106 M169.44 46 L169.44 106 M266.08 46 L266.08 106 M362.72 46 L362.72 106 M459.36 46 L459.36 106 M556 46 L556 106" class="tgs-grid" fill="none" stroke-width="1"/>
 <path d="M0 27 L10 27 L10 37 L0 37 Z" class="tgf-series-1"/>
 <text x="14" y="32" class="tgt-label tgf-ink" text-anchor="start" dominant-baseline="central">model</text>
 <path d="M62 27 L72 27 L72 37 L62 37 Z" class="tgf-series-2"/>

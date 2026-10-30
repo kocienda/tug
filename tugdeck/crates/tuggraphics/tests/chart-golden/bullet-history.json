@@ -1,0 +1,11 @@
+{
+  "tugchart": 1,
+  "form": "bullet",
+  "title": "Files nearest the budget",
+  "format": "secs",
+  "items": [
+    {"label": "resume", "value": 16, "range": [0, 20], "target": 20, "history": [12, 14, null, 15, 16]},
+    {"label": "settle", "value": 8.3, "range": [0, 20], "target": 20, "history": [8, 9, 8, 8.5, 8.3]},
+    {"label": "find", "value": 4, "range": [0, 20], "target": 20}
+  ]
+}

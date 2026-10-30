@@ -171,8 +171,7 @@ fn class_fits(policy: &Policy, tag: &str, value: &str) -> bool {
             .iter()
             .any(|p| t.starts_with(p.as_str()))
             || (tag == "span" && t.starts_with("tug-syn-"))
-            || (tag == "div"
-                && (t.starts_with("tugx-katex") || t == "tugx-chart"))
+            || (tag == "div" && (t.starts_with("tugx-katex") || t == "tugx-chart"))
     })
 }
 

@@ -15,7 +15,10 @@
  * read for their `<text>` runs, and this holds:
  *
  *  - Both carry the same strings in the same order: truncation and
- *    thinning agreed.
+ *    thinning agreed. The file's title run is set aside first: a file draws
+ *    its title, and the deck's title is its block header.
+ *    The file's frame is one title row taller for the same reason, so both
+ *    lay out the same plot and thin their ticks alike.
  *  - Every pair of `x` attributes agrees within 0.5 px.
  *
  * The binary is the checkout's own build, through `tugtoolPath` — never
@@ -51,6 +54,11 @@ const WIDTH = 320;
 const X_TOLERANCE_PX = 0.5;
 
 const SPEC = { ...BAR_SPEC, size: { w: WIDTH, h: 200 } };
+
+/** The compiler's `TITLE_ROW`: what the file's title takes from its frame and the deck's does not. */
+const TITLE_ROW = 20;
+
+const FILE_SPEC = { ...SPEC, size: { w: WIDTH, h: SPEC.size.h + TITLE_ROW } };
 
 interface DeckFacts {
   state: string;
@@ -108,7 +116,7 @@ describe.skipIf(!SHOULD_RUN)("at0767 — the standalone render agrees with the d
         const out = join(dir, "standalone.svg");
         const bin = tugtoolPath(CHECKOUT);
         const run = Bun.spawnSync([bin, "chart", "render", "-", "--out", out, "--width", String(WIDTH)], {
-          stdin: new TextEncoder().encode(JSON.stringify(SPEC)),
+          stdin: new TextEncoder().encode(JSON.stringify(FILE_SPEC)),
           stdout: "pipe",
           stderr: "pipe",
         });
@@ -116,7 +124,9 @@ describe.skipIf(!SHOULD_RUN)("at0767 — the standalone render agrees with the d
         const standalone = readFileSync(out, "utf-8");
 
         const deckRuns = textRuns(deck.svg);
-        const fileRuns = textRuns(standalone);
+        const allFileRuns = textRuns(standalone);
+        expect(allFileRuns[0]?.text, "the file draws its title first").toBe(SPEC.title);
+        const fileRuns = allFileRuns.slice(1);
         note(`at0767 deck texts: ${deckRuns.length}; standalone texts: ${fileRuns.length}`);
 
         expect(deckRuns.length, "the chart has text").toBeGreaterThan(0);

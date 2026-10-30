@@ -1,0 +1,15 @@
+/* Chart Recipes gallery card: layout, and the state a section's attribute names. */
+
+.gallery-chart-recipes-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gallery-chart-recipes-line {
+  white-space: normal;
+}
+
+[data-tugx-recipe-state="pending"] .gallery-chart-recipes-line {
+  opacity: 0.6;
+}

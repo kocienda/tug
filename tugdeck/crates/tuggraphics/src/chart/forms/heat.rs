@@ -11,6 +11,10 @@ use crate::measure::{Measure, TypeRole};
 
 const STEPS: f64 = 5.0;
 
+/// A cell's height. The default frame grows to fit it, so a header cannot
+/// squeeze the cells to a hairline; an explicit `size.h` is taken as given.
+pub(crate) const CELL_H: f64 = 24.0;
+
 pub(super) fn layout(
     b: &mut Builder,
     spec: &Spec,
@@ -37,14 +41,26 @@ pub(super) fn layout(
     finite.sort_by(f64::total_cmp);
     if bottom > top {
         for (i, v) in values.iter().enumerate() {
-            let cell = rect(plot.left + band * i as f64 + gap, top, band - 2.0 * gap, bottom - top);
+            let cell = rect(
+                plot.left + band * i as f64 + gap,
+                top,
+                band - 2.0 * gap,
+                bottom - top,
+            );
             match v {
                 None => b.fill(cell, ColourRole::Grid, b.enter(Enter::Fade, i)),
                 Some(v) => {
                     // The share of values at or below this one, in fifths.
                     let at_or_below = finite.partition_point(|f| f <= v) as f64;
-                    let step = (at_or_below / finite.len() as f64 * STEPS).ceil().clamp(1.0, STEPS);
-                    b.fill_opacity(cell, ColourRole::Accent, step / STEPS, b.enter(Enter::Fade, i));
+                    let step = (at_or_below / finite.len() as f64 * STEPS)
+                        .ceil()
+                        .clamp(1.0, STEPS);
+                    b.fill_opacity(
+                        cell,
+                        ColourRole::Accent,
+                        step / STEPS,
+                        b.enter(Enter::Fade, i),
+                    );
                 }
             }
         }

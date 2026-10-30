@@ -4,8 +4,8 @@
  *
  * tugcast renders the turn's text and promotes the closed fence to the
  * `tug-chart` placeholder; the page's enhancer hands it to the one chart
- * renderer. One turn streams two messages — a bar spec and a spec the
- * validator refuses — and this holds:
+ * renderer. One turn streams three messages — a bar spec, a spec the
+ * validator refuses and a sparkline — and this holds:
  *
  *  - The bar's figure reaches `data-tugx-chart-state="rendered"`, and its
  *    `<svg>` holds no `<style>`: colour is a class over a token, never a
@@ -22,6 +22,10 @@
  *    in the product DOM.
  *  - The refused spec shows `invalid`, its source in a `<pre>` and its
  *    errors as `.tugx-chart-note` items.
+ *  - The title is drawn once: the header reads it and no `<text>` repeats it.
+ *  - The sparkline, which has no title, wears quiet chrome: the figure carries
+ *    `data-tugx-chart-untitled`, and its header has no title and no placeholder
+ *    word.
  *
  * @covers tugdeck/src/lib/chart/render-chart.ts
  * @covers tugdeck/src/lib/markdown/enhance-chart.ts
@@ -41,6 +45,8 @@ import { SHOULD_RUN } from "./settle-frames-fixture";
 import { BAR_SPEC, CHART, INVALID_SPEC, launchWithCharts } from "./tugchart-fixture";
 
 const TEST_NAME = "at0765-tugchart-fence";
+
+const SPARKLINE_SPEC = { tugchart: 1, form: "sparkline", values: [3, 5, 4, 8, 6, 9, 12], highlight: "last" };
 
 /** The layout contract: a laid-out string and its drawn width agree to this. */
 const WIDTH_TOLERANCE_PX = 0.5;
@@ -63,6 +69,10 @@ interface ChartFacts {
   hasHeader: boolean;
   invalidPre: boolean;
   notes: string[];
+  title: string;
+  untitledFigures: number;
+  quietTitles: number;
+  quietHeaderText: string;
 }
 
 const READ_FACTS = `(function(){
@@ -71,7 +81,8 @@ const READ_FACTS = `(function(){
   var fig = charts.filter(function (c) { return c.getAttribute("data-tugx-chart-state") === "rendered"; })[0] || null;
   var invalid = charts.filter(function (c) { return c.getAttribute("data-tugx-chart-state") === "invalid"; })[0] || null;
   var out = { count: charts.length, states: states, styles: -1, barFill: "", tokenColor: "", texts: [],
-              hasTable: false, hasHeader: false, invalidPre: false, notes: [] };
+              hasTable: false, hasHeader: false, invalidPre: false, notes: [],
+              title: "", untitledFigures: 0, quietTitles: -1, quietHeaderText: "" };
   if (fig !== null) {
     var svg = fig.querySelector("svg.tugx-chart-svg");
     if (svg !== null) {
@@ -95,6 +106,15 @@ const READ_FACTS = `(function(){
     }
     out.hasTable = fig.querySelector("table.tugx-chart-table") !== null;
     out.hasHeader = fig.querySelector(".tugx-md-chrome-header") !== null;
+    var title = fig.querySelector(".tugx-chart-title");
+    out.title = title === null ? "" : (title.textContent || "");
+  }
+  var untitled = charts.filter(function (c) { return c.hasAttribute("data-tugx-chart-untitled"); });
+  out.untitledFigures = untitled.length;
+  if (untitled.length > 0) {
+    var quiet = untitled[0].querySelector(".tugx-md-chrome-header");
+    out.quietTitles = untitled[0].querySelectorAll(".tugx-chart-title").length;
+    out.quietHeaderText = quiet === null ? "" : (quiet.textContent || "");
   }
   if (invalid !== null) {
     out.invalidPre = invalid.querySelector("pre.tugx-chart-source") !== null;
@@ -107,13 +127,13 @@ describe.skipIf(!SHOULD_RUN)("at0765 — a tugchart fence renders as a token-sty
   test(
     "the figure is laid out against the page's faces, coloured by token, and an invalid spec says why",
     async () => {
-      const { app, tugbankPath, page } = await launchWithCharts(TEST_NAME, [BAR_SPEC, INVALID_SPEC]);
+      const { app, tugbankPath, page } = await launchWithCharts(TEST_NAME, [BAR_SPEC, INVALID_SPEC, SPARKLINE_SPEC]);
       try {
         const facts = await page.evalJS<ChartFacts>(READ_FACTS);
         note(`at0765 chart states: ${JSON.stringify(facts.states)}; texts: ${facts.texts.length}`);
 
-        expect(facts.count, "both fences became charts").toBe(2);
-        expect(facts.states.sort(), "one rendered, one invalid").toEqual(["invalid", "rendered"]);
+        expect(facts.count, "every fence became a chart").toBe(3);
+        expect(facts.states.sort(), "two rendered, one invalid").toEqual(["invalid", "rendered", "rendered"]);
 
         expect(facts.styles, "the SVG carries no <style>").toBe(0);
         expect(facts.hasHeader, "the figure wears the block chrome header").toBe(true);
@@ -132,6 +152,13 @@ describe.skipIf(!SHOULD_RUN)("at0765 — a tugchart fence renders as a token-sty
         expect(facts.invalidPre, "the invalid spec shows its source").toBe(true);
         expect(facts.notes.length, "the invalid spec lists its errors").toBeGreaterThan(0);
         expect(facts.notes.join("\n")).toContain("form");
+
+        expect(facts.title, "the header reads the title").toBe(BAR_SPEC.title);
+        expect(facts.texts.map((t) => t.text), "no <text> repeats the title").not.toContain(BAR_SPEC.title);
+
+        expect(facts.untitledFigures, "only the sparkline is untitled").toBe(1);
+        expect(facts.quietTitles, "its header has no title").toBe(0);
+        expect(facts.quietHeaderText.toLowerCase(), "its header has no placeholder word").not.toContain("chart");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

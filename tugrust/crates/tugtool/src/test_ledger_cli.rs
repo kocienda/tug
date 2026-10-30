@@ -182,16 +182,21 @@ pub fn run_last(
 fn run_last_chart(base_root: &str, suite: Option<&str>) -> Result<(), AppError> {
     let runs = test_ledger::open_ledger(test_ledger::default_path())
         .and_then(|conn| {
-            test_ledger::recent_runs(&conn, base_root, suite, crate::chart::RUNS_PER_SUITE)
+            test_ledger::recent_runs(
+                &conn,
+                base_root,
+                suite,
+                tugchart_core::tests::RUNS_PER_SUITE,
+            )
         })
         .unwrap_or_else(|err| {
             eprintln!("[test] cannot read the test results ledger: {err}");
             Vec::new()
         });
-    let spec = crate::chart::suite_wall_times(
+    let spec = tugchart_core::tests::suite_wall_times(
         &runs,
-        crate::chart::RUNS_PER_SUITE,
-        crate::chart::MAX_SUITES,
+        tugchart_core::tests::RUNS_PER_SUITE,
+        tugchart_core::tests::MAX_SUITES,
         "Wall time per run",
     );
     match spec {
@@ -202,7 +207,7 @@ fn run_last_chart(base_root: &str, suite: Option<&str>) -> Result<(), AppError> 
                 runs.len(),
                 suites,
                 base_root,
-                crate::chart::RUNS_PER_SUITE
+                tugchart_core::tests::RUNS_PER_SUITE
             );
             println!("{}", crate::chart::chart_line(&spec)?);
         }

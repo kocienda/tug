@@ -1,31 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 64" width="560" height="64" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 70" width="560" height="70" aria-hidden="true">
 <text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Commits per day</text>
-<path d="M1 26 L39 26 L39 44 L1 44 Z" class="tgf-accent tge-fade" style="--tg-i:0" opacity="0.2"/>
-<path d="M41 26 L79 26 L79 44 L41 44 Z" class="tgf-accent tge-fade" style="--tg-i:1" opacity="0.4"/>
-<path d="M81 26 L119 26 L119 44 L81 44 Z" class="tgf-accent tge-fade" style="--tg-i:2" opacity="0.8"/>
-<path d="M121 26 L159 26 L159 44 L121 44 Z" class="tgf-accent tge-fade" style="--tg-i:3" opacity="0.4"/>
-<path d="M161 26 L199 26 L199 44 L161 44 Z" class="tgf-grid tge-fade" style="--tg-i:4"/>
-<path d="M201 26 L239 26 L239 44 L201 44 Z" class="tgf-accent tge-fade" style="--tg-i:5"/>
-<path d="M241 26 L279 26 L279 44 L241 44 Z" class="tgf-accent tge-fade" style="--tg-i:6" opacity="0.6"/>
-<path d="M281 26 L319 26 L319 44 L281 44 Z" class="tgf-accent tge-fade" style="--tg-i:7" opacity="0.6"/>
-<path d="M321 26 L359 26 L359 44 L321 44 Z" class="tgf-accent tge-fade" style="--tg-i:8"/>
-<path d="M361 26 L399 26 L399 44 L361 44 Z" class="tgf-accent tge-fade" style="--tg-i:9" opacity="0.2"/>
-<path d="M401 26 L439 26 L439 44 L401 44 Z" class="tgf-accent tge-fade" style="--tg-i:10" opacity="0.4"/>
-<path d="M441 26 L479 26 L479 44 L441 44 Z" class="tgf-accent tge-fade" style="--tg-i:11" opacity="0.8"/>
-<path d="M481 26 L519 26 L519 44 L481 44 Z" class="tgf-accent tge-fade" style="--tg-i:12" opacity="0.8"/>
-<path d="M521 26 L559 26 L559 44 L521 44 Z" class="tgf-accent tge-fade" style="--tg-i:13"/>
-<text x="20" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">01</text>
-<text x="60" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">02</text>
-<text x="100" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">03</text>
-<text x="140" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">04</text>
-<text x="180" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">05</text>
-<text x="220" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">06</text>
-<text x="260" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">07</text>
-<text x="300" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">08</text>
-<text x="340" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">09</text>
-<text x="380" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">10</text>
-<text x="420" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">11</text>
-<text x="460" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">12</text>
-<text x="500" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">13</text>
-<text x="540" y="56" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">14</text>
+<path d="M1 26 L39 26 L39 50 L1 50 Z" class="tgf-accent tge-fade" style="--tg-i:0" opacity="0.2"/>
+<path d="M41 26 L79 26 L79 50 L41 50 Z" class="tgf-accent tge-fade" style="--tg-i:1" opacity="0.4"/>
+<path d="M81 26 L119 26 L119 50 L81 50 Z" class="tgf-accent tge-fade" style="--tg-i:2" opacity="0.8"/>
+<path d="M121 26 L159 26 L159 50 L121 50 Z" class="tgf-accent tge-fade" style="--tg-i:3" opacity="0.4"/>
+<path d="M161 26 L199 26 L199 50 L161 50 Z" class="tgf-grid tge-fade" style="--tg-i:4"/>
+<path d="M201 26 L239 26 L239 50 L201 50 Z" class="tgf-accent tge-fade" style="--tg-i:5"/>
+<path d="M241 26 L279 26 L279 50 L241 50 Z" class="tgf-accent tge-fade" style="--tg-i:6" opacity="0.6"/>
+<path d="M281 26 L319 26 L319 50 L281 50 Z" class="tgf-accent tge-fade" style="--tg-i:7" opacity="0.6"/>
+<path d="M321 26 L359 26 L359 50 L321 50 Z" class="tgf-accent tge-fade" style="--tg-i:8"/>
+<path d="M361 26 L399 26 L399 50 L361 50 Z" class="tgf-accent tge-fade" style="--tg-i:9" opacity="0.2"/>
+<path d="M401 26 L439 26 L439 50 L401 50 Z" class="tgf-accent tge-fade" style="--tg-i:10" opacity="0.4"/>
+<path d="M441 26 L479 26 L479 50 L441 50 Z" class="tgf-accent tge-fade" style="--tg-i:11" opacity="0.8"/>
+<path d="M481 26 L519 26 L519 50 L481 50 Z" class="tgf-accent tge-fade" style="--tg-i:12" opacity="0.8"/>
+<path d="M521 26 L559 26 L559 50 L521 50 Z" class="tgf-accent tge-fade" style="--tg-i:13"/>
+<text x="20" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">01</text>
+<text x="60" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">02</text>
+<text x="100" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">03</text>
+<text x="140" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">04</text>
+<text x="180" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">05</text>
+<text x="220" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">06</text>
+<text x="260" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">07</text>
+<text x="300" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">08</text>
+<text x="340" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">09</text>
+<text x="380" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">10</text>
+<text x="420" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">11</text>
+<text x="460" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">12</text>
+<text x="500" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">13</text>
+<text x="540" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">14</text>
 </svg>

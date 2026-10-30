@@ -61,7 +61,8 @@ impl ColourRole {
             _ => {
                 let k: u8 = s.strip_prefix("series-")?.parse().ok()?;
                 // `parse` accepts "+3" and "03"; only the canonical spelling is a role.
-                ((1..=SERIES_COUNT).contains(&k) && s == format!("series-{k}")).then_some(ColourRole::Series(k))
+                ((1..=SERIES_COUNT).contains(&k) && s == format!("series-{k}"))
+                    .then_some(ColourRole::Series(k))
             }
         }
     }
@@ -142,7 +143,12 @@ pub enum Seg {
     Curve([f64; 6]),
     /// A circular arc of at most 180°, ending at `(x, y)`; `sweep` is
     /// clockwise.
-    Arc { r: f64, sweep: bool, x: f64, y: f64 },
+    Arc {
+        r: f64,
+        sweep: bool,
+        x: f64,
+        y: f64,
+    },
     Close,
 }
 
@@ -163,7 +169,10 @@ pub enum Join {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaintKind {
     Fill,
-    Stroke { cap: Option<Cap>, join: Option<Join> },
+    Stroke {
+        cap: Option<Cap>,
+        join: Option<Join>,
+    },
 }
 
 /// A painted path, carrying the paint state in force when it was painted.
@@ -258,7 +267,14 @@ mod tests {
         for role in ColourRole::all() {
             assert_eq!(ColourRole::parse(&role.name()), Some(role));
         }
-        for bad in ["series-0", "series-9", "series-03", "series-+3", "#ff0000", "red"] {
+        for bad in [
+            "series-0",
+            "series-9",
+            "series-03",
+            "series-+3",
+            "#ff0000",
+            "red",
+        ] {
             assert_eq!(ColourRole::parse(bad), None, "{bad}");
         }
     }

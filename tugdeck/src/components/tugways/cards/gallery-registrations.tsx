@@ -114,6 +114,7 @@ import { GalleryToolBlockFile } from "./gallery-tool-block-file";
 import { GalleryToolBlockDefault } from "./gallery-tool-block-default";
 import { GalleryImageBlock } from "./gallery-image-block";
 import { GalleryChartBlock } from "./gallery-chart-block";
+import { GalleryChartRecipes } from "./gallery-chart-recipes";
 import { GalleryDevChrome } from "./gallery-dev-chrome";
 import { GalleryTugLinearGauge } from "./gallery-tug-linear-gauge";
 import { GalleryTugArcGauge } from "./gallery-tug-arc-gauge";
@@ -775,6 +776,17 @@ export function registerGalleryCards(): void {
     componentId: "gallery-chart-block",
     contentFactory: (_cardId) => <GalleryChartBlock />,
     defaultMeta: { title: "ChartBlock", icon: "ChartColumn", closable: true },
+    family: "maker",
+    acceptsFamilies: ["maker"],
+    sizePolicy: GALLERY_COMPLEX_SIZE,
+    category: CATEGORIES.blockRenderers,
+  });
+
+  // Chart Recipes — one live example per recipe, over the frontmost project.
+  registerCard({
+    componentId: "gallery-chart-recipes",
+    contentFactory: (_cardId) => <GalleryChartRecipes />,
+    defaultMeta: { title: "Chart Recipes", icon: "ChartColumn", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,

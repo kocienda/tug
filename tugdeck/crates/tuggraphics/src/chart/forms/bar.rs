@@ -4,8 +4,8 @@
 //! A stacked chart labels its totals only.
 
 use super::{
-    legend, overlaps, pen, range, width, Annotations, AxisLayout, Builder, HPlot, Plot, RowsLayout, LABEL_ROW,
-    VALUE_ROW,
+    legend, overlaps, pen, range, width, Annotations, AxisLayout, Builder, HPlot, Plot, RowsLayout,
+    LABEL_ROW, VALUE_ROW,
 };
 use crate::chart::build::rect;
 use crate::chart::spec::{Orient, Series, Spec};
@@ -106,7 +106,12 @@ pub(super) fn layout(
         Labels {
             grouped: series
                 .iter()
-                .map(|s| s.values.iter().map(|v| v.map(fmt).unwrap_or_default()).collect())
+                .map(|s| {
+                    s.values
+                        .iter()
+                        .map(|v| v.map(fmt).unwrap_or_default())
+                        .collect()
+                })
                 .collect(),
             pos: Vec::new(),
             neg: Vec::new(),
@@ -139,10 +144,18 @@ pub(super) fn layout(
 fn vertical_slot(plot: &Plot, y: f64, height: f64, positive: bool) -> Option<(f64, ColourRole)> {
     let (beyond, inside, fits_beyond) = if positive {
         let beyond = y - 2.0 - VALUE_ROW / 2.0;
-        (beyond, y + 2.0 + VALUE_ROW / 2.0, beyond - VALUE_ROW / 2.0 >= plot.top - VALUE_ROW / 2.0)
+        (
+            beyond,
+            y + 2.0 + VALUE_ROW / 2.0,
+            beyond - VALUE_ROW / 2.0 >= plot.top - VALUE_ROW / 2.0,
+        )
     } else {
         let beyond = y + 2.0 + VALUE_ROW / 2.0;
-        (beyond, y - 2.0 - VALUE_ROW / 2.0, beyond + VALUE_ROW / 2.0 <= plot.bottom)
+        (
+            beyond,
+            y - 2.0 - VALUE_ROW / 2.0,
+            beyond + VALUE_ROW / 2.0 <= plot.bottom,
+        )
     };
     if fits_beyond {
         Some((beyond, ColourRole::InkMuted))
@@ -174,11 +187,24 @@ fn vertical_label(
     let Some((ly, fill)) = vertical_slot(plot, y, height, positive) else {
         return;
     };
-    let at = [cx - text_w / 2.0, ly - VALUE_ROW / 2.0, cx + text_w / 2.0, ly + VALUE_ROW / 2.0];
+    let at = [
+        cx - text_w / 2.0,
+        ly - VALUE_ROW / 2.0,
+        cx + text_w / 2.0,
+        ly + VALUE_ROW / 2.0,
+    ];
     if notes.boxes.iter().any(|n| overlaps(n, &at)) {
         return;
     }
-    b.text(cx, ly, text, TypeRole::Value, fill, Anchor::Middle, b.enter(Enter::Fade, delay));
+    b.text(
+        cx,
+        ly,
+        text,
+        TypeRole::Value,
+        fill,
+        Anchor::Middle,
+        b.enter(Enter::Fade, delay),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -222,35 +248,87 @@ fn vertical(
                 let height = (y0 - y1).abs();
                 if height > 0.0 {
                     let edge = if to >= from { Edge::Bottom } else { Edge::Top };
-                    b.fill(rect(x0(i), y0.min(y1), group, height), series[j].role, b.grow(edge, j));
+                    b.fill(
+                        rect(x0(i), y0.min(y1), group, height),
+                        series[j].role,
+                        b.grow(edge, j),
+                    );
                 }
             }
             let (pos, neg, _) = totals(series, i);
             let cx = x0(i) + group / 2.0;
             let yp = plot.y(pos);
-            vertical_label(b, &plot, &notes, m, &labels.pos[i], cx, yp, zero - yp, true, band - 2.0, i);
+            vertical_label(
+                b,
+                &plot,
+                &notes,
+                m,
+                &labels.pos[i],
+                cx,
+                yp,
+                zero - yp,
+                true,
+                band - 2.0,
+                i,
+            );
             let yn = plot.y(neg);
-            vertical_label(b, &plot, &notes, m, &labels.neg[i], cx, yn, yn - zero, false, band - 2.0, i);
+            vertical_label(
+                b,
+                &plot,
+                &notes,
+                m,
+                &labels.neg[i],
+                cx,
+                yn,
+                yn - zero,
+                false,
+                band - 2.0,
+                i,
+            );
         }
     } else {
         let n = series.len() as f64;
-        let gap = if group / n > 4.0 && series.len() > 1 { 1.0 } else { 0.0 };
+        let gap = if group / n > 4.0 && series.len() > 1 {
+            1.0
+        } else {
+            0.0
+        };
         let bar_w = (group - gap * (n - 1.0)) / n;
         // A value label's horizontal room: its band when bars stand alone,
         // its own bar and the gap beside it when they are grouped.
-        let room = if series.len() == 1 { band - 2.0 } else { bar_w + gap };
+        let room = if series.len() == 1 {
+            band - 2.0
+        } else {
+            bar_w + gap
+        };
         for i in 0..categories.len() {
             for (j, s) in series.iter().enumerate() {
                 let Some(v) = s.values[i] else { continue };
                 let x = x0(i) + j as f64 * (bar_w + gap);
                 let y = plot.y(v);
-                let (top, height) = if v >= 0.0 { (y, zero - y) } else { (zero, y - zero) };
+                let (top, height) = if v >= 0.0 {
+                    (y, zero - y)
+                } else {
+                    (zero, y - zero)
+                };
                 let from = if v >= 0.0 { Edge::Bottom } else { Edge::Top };
                 if height > 0.0 {
                     b.fill(rect(x, top, bar_w, height), s.role, b.grow(from, i));
                 }
                 let cx = x + bar_w / 2.0;
-                vertical_label(b, &plot, &notes, m, &labels.grouped[j][i], cx, y, height, v >= 0.0, room, i);
+                vertical_label(
+                    b,
+                    &plot,
+                    &notes,
+                    m,
+                    &labels.grouped[j][i],
+                    cx,
+                    y,
+                    height,
+                    v >= 0.0,
+                    room,
+                    i,
+                );
             }
         }
     }
@@ -304,12 +382,29 @@ fn horizontal_label(
     } else {
         return;
     };
-    let left = if anchor == Anchor::Start { x } else { x - text_w };
-    let at = [left, cy - VALUE_ROW / 2.0, left + text_w, cy + VALUE_ROW / 2.0];
+    let left = if anchor == Anchor::Start {
+        x
+    } else {
+        x - text_w
+    };
+    let at = [
+        left,
+        cy - VALUE_ROW / 2.0,
+        left + text_w,
+        cy + VALUE_ROW / 2.0,
+    ];
     if notes.boxes.iter().any(|n| overlaps(n, &at)) {
         return;
     }
-    b.text(x, cy, text, TypeRole::Value, fill, anchor, b.enter(Enter::Fade, delay));
+    b.text(
+        x,
+        cy,
+        text,
+        TypeRole::Value,
+        fill,
+        anchor,
+        b.enter(Enter::Fade, delay),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -333,6 +428,7 @@ fn horizontal(
         extra_row: if legend_row { LABEL_ROW } else { 0.0 },
         axis: Some(domain(series, categories.len(), stacked)),
         right_margin: 4.0,
+        lead: 0.0,
     };
     let (plot, legend_y) = rows.draw(b, m);
     let notes = Annotations::plan_rows(spec, &plot, m);
@@ -351,32 +447,77 @@ fn horizontal(
                 let length = (xb - xa).abs();
                 if length > 0.0 {
                     let edge = if to >= from { Edge::Left } else { Edge::Right };
-                    b.fill(rect(xa.min(xb), y0(i), length, group), series[j].role, b.grow(edge, j));
+                    b.fill(
+                        rect(xa.min(xb), y0(i), length, group),
+                        series[j].role,
+                        b.grow(edge, j),
+                    );
                 }
             }
             let (pos, neg, _) = totals(series, i);
             let cy = y0(i) + group / 2.0;
             let xp = plot.x(pos);
-            horizontal_label(b, &plot, &notes, m, &labels.pos[i], cy, xp, xp - zero, true, i);
+            horizontal_label(
+                b,
+                &plot,
+                &notes,
+                m,
+                &labels.pos[i],
+                cy,
+                xp,
+                xp - zero,
+                true,
+                i,
+            );
             let xn = plot.x(neg);
-            horizontal_label(b, &plot, &notes, m, &labels.neg[i], cy, xn, zero - xn, false, i);
+            horizontal_label(
+                b,
+                &plot,
+                &notes,
+                m,
+                &labels.neg[i],
+                cy,
+                xn,
+                zero - xn,
+                false,
+                i,
+            );
         }
     } else {
         let n = series.len() as f64;
-        let gap = if group / n > 4.0 && series.len() > 1 { 1.0 } else { 0.0 };
+        let gap = if group / n > 4.0 && series.len() > 1 {
+            1.0
+        } else {
+            0.0
+        };
         let bar_h = (group - gap * (n - 1.0)) / n;
         for i in 0..categories.len() {
             for (j, s) in series.iter().enumerate() {
                 let Some(v) = s.values[i] else { continue };
                 let y = y0(i) + j as f64 * (bar_h + gap);
                 let x = plot.x(v);
-                let (left, length) = if v >= 0.0 { (zero, x - zero) } else { (x, zero - x) };
+                let (left, length) = if v >= 0.0 {
+                    (zero, x - zero)
+                } else {
+                    (x, zero - x)
+                };
                 let from = if v >= 0.0 { Edge::Left } else { Edge::Right };
                 if length > 0.0 {
                     b.fill(rect(left, y, length, bar_h), s.role, b.grow(from, i));
                 }
                 let cy = y + bar_h / 2.0;
-                horizontal_label(b, &plot, &notes, m, &labels.grouped[j][i], cy, x, length, v >= 0.0, i);
+                horizontal_label(
+                    b,
+                    &plot,
+                    &notes,
+                    m,
+                    &labels.grouped[j][i],
+                    cy,
+                    x,
+                    length,
+                    v >= 0.0,
+                    i,
+                );
             }
         }
     }

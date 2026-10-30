@@ -101,6 +101,39 @@ fn log_chart_buckets_commits_per_committer_day_with_zero_days() {
 }
 
 #[test]
+fn log_path_lists_only_the_commits_touching_it_and_carries_their_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    GitFixture::init(&root);
+    std::fs::create_dir_all(root.join("a")).unwrap();
+    std::fs::create_dir_all(root.join("b")).unwrap();
+    commit_on(&root, "a/one.txt", "2026-01-01");
+    commit_on(&root, "b/two.txt", "2026-01-02");
+    commit_on(&root, "a/three.txt", "2026-01-03");
+
+    let out = tugtool()
+        .current_dir(&root)
+        .args(["log", "--path", "a", "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let commits = doc["data"]["commits"].as_array().unwrap();
+    let dates: Vec<&str> = commits
+        .iter()
+        .map(|c| c["date"].as_str().unwrap())
+        .collect();
+    assert_eq!(dates, ["2026-01-03", "2026-01-01"]);
+    assert!(
+        commits[0]["at"]
+            .as_str()
+            .unwrap()
+            .starts_with("2026-01-03T12:00:00")
+    );
+    assert!(doc["data"]["range"].as_str().unwrap().ends_with("under a"));
+}
+
+#[test]
 fn log_chart_refuses_json() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
@@ -251,18 +284,17 @@ fn apptest_history_chart_plots_each_files_outcomes_oldest_left() {
         String::from_utf8_lossy(&out.stderr)
     );
     let text = stdout(&out);
+    let summary = text.lines().next().unwrap();
     assert!(
-        text.lines()
-            .next()
-            .unwrap()
-            .starts_with("1 of 2 file(s) with recorded runs"),
+        summary.starts_with("1 of 2 file(s) with recorded runs"),
         "{text}"
     );
+    assert!(summary.ends_with("; no runs: at0000-never-ran"), "{text}");
     let spec = chart_of(&text);
     assert_eq!(spec["form"], "dots");
     let rows = spec["rows"].as_array().unwrap();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0]["label"], file);
+    assert_eq!(rows[0]["label"], "at0766-bash-tug-chart");
     assert_eq!(rows[0]["items"], serde_json::json!(["good", "bad", "good"]));
 
     let none = tugtool()

@@ -478,6 +478,96 @@ pub fn recent_file_runs(
     Ok(runs)
 }
 
+/// One file's recorded durations: the seconds of its newest runs, oldest
+/// first, their median, and the newest of them.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FileMedian {
+    pub file: String,
+    pub median_secs: f64,
+    pub latest_secs: f64,
+    pub history: Vec<f64>,
+}
+
+/// Every file with a recorded duration under `base_root`, over its newest
+/// `recent` runs that ran to a result, slowest median first. A `SKIP` took no
+/// time and a `STALLED` or `WEDGED` row is not a duration ([`file_history`]).
+pub fn file_medians(
+    conn: &Connection,
+    base_root: &str,
+    recent: usize,
+) -> Result<Vec<FileMedian>, ApptestLedgerError> {
+    let mut stmt = conn.prepare(
+        "SELECT file, secs FROM (
+             SELECT r.file AS file, r.secs AS secs,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY r.file ORDER BY u.ended_at DESC, u.id DESC
+                    ) AS nth
+               FROM results r JOIN runs u ON u.id = r.run_id
+              WHERE u.base_root = ?1
+                AND r.status IN ('PASS', 'FAIL', 'ERR', 'OVERTIME')
+         )
+         WHERE nth <= ?2
+         ORDER BY file, nth DESC",
+    )?;
+    let rows = stmt
+        .query_map(params![base_root, recent as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut medians: Vec<FileMedian> = Vec::new();
+    for (file, secs) in rows {
+        let secs = secs as f64;
+        match medians.last_mut().filter(|m| m.file == file) {
+            Some(median) => {
+                median.history.push(secs);
+                median.latest_secs = secs;
+            }
+            None => medians.push(FileMedian {
+                file,
+                median_secs: 0.0,
+                latest_secs: secs,
+                history: vec![secs],
+            }),
+        }
+    }
+    for median in &mut medians {
+        let mut sorted = median.history.clone();
+        sorted.sort_by(f64::total_cmp);
+        let mid = sorted.len() / 2;
+        median.median_secs = if sorted.len() % 2 == 1 {
+            sorted[mid]
+        } else {
+            (sorted[mid - 1] + sorted[mid]) / 2.0
+        };
+    }
+    medians.sort_by(|a, b| b.median_secs.total_cmp(&a.median_secs));
+    Ok(medians)
+}
+
+/// The `n` files whose newest red is most recent under `base_root`, newest
+/// first. A `SKIP` is not a red and a `STALLED` or `WEDGED` row says nothing
+/// about the file.
+pub fn recent_red_files(
+    conn: &Connection,
+    base_root: &str,
+    n: usize,
+) -> Result<Vec<String>, ApptestLedgerError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.file, MAX(u.ended_at)
+           FROM results r JOIN runs u ON u.id = r.run_id
+          WHERE u.base_root = ?1
+            AND r.status NOT IN ('PASS', 'SKIP', 'WEDGED', 'STALLED')
+          GROUP BY r.file
+          ORDER BY 2 DESC, r.file
+          LIMIT ?2",
+    )?;
+    let files = stmt
+        .query_map(params![base_root, n as i64], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(files)
+}
+
 fn answer_from(outcomes: &[Outcome]) -> History {
     let Some(newest) = outcomes.first() else {
         return History::NoHistory;
@@ -658,6 +748,100 @@ mod tests {
             .unwrap()
             .remove(0)
             .history
+    }
+
+    fn timed(name: &str, status: &str, secs: i64) -> FileResult {
+        FileResult {
+            secs,
+            ..file(name, status)
+        }
+    }
+
+    #[test]
+    fn file_medians_read_each_files_newest_runs_slowest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let runs = [
+            vec![
+                timed("slow.test.ts", "PASS", 100),
+                timed("quick.test.ts", "PASS", 1),
+            ],
+            vec![
+                timed("slow.test.ts", "FAIL", 9),
+                timed("quick.test.ts", "PASS", 2),
+            ],
+            vec![
+                timed("slow.test.ts", "OVERTIME", 21),
+                timed("quick.test.ts", "SKIP", 500),
+            ],
+            vec![
+                timed("slow.test.ts", "PASS", 30),
+                timed("quick.test.ts", "STALLED", 500),
+            ],
+            vec![
+                timed("slow.test.ts", "PASS", 12),
+                timed("quick.test.ts", "PASS", 6),
+            ],
+        ];
+        for (k, files) in runs.into_iter().enumerate() {
+            record_run(
+                &mut conn,
+                &run(&root, "abc", 1_700_000_000 + k as i64, files),
+            )
+            .unwrap();
+        }
+        let base = resolve_base_root(Path::new(&root));
+
+        let medians = file_medians(&conn, &base, 3).unwrap();
+        assert_eq!(medians.len(), 2);
+        assert_eq!(medians[0].file, "slow.test.ts");
+        assert_eq!(medians[0].history, vec![21.0, 30.0, 12.0]);
+        assert_eq!(medians[0].median_secs, 21.0);
+        assert_eq!(medians[0].latest_secs, 12.0);
+        assert_eq!(medians[1].file, "quick.test.ts");
+        assert_eq!(medians[1].history, vec![1.0, 2.0, 6.0]);
+        assert_eq!(medians[1].median_secs, 2.0);
+
+        let two = file_medians(&conn, &base, 2).unwrap();
+        assert_eq!(two[0].history, vec![30.0, 12.0]);
+        assert_eq!(two[0].median_secs, 21.0);
+        assert!(file_medians(&conn, "/nowhere", 3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn recent_red_files_read_newest_red_first_and_skip_what_is_not_red() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let runs = [
+            vec![file("old.test.ts", "FAIL"), file("new.test.ts", "PASS")],
+            vec![
+                file("new.test.ts", "OVERTIME"),
+                file("skipped.test.ts", "SKIP"),
+            ],
+            vec![
+                file("wedged.test.ts", "WEDGED"),
+                file("stalled.test.ts", "STALLED"),
+            ],
+        ];
+        for (k, files) in runs.into_iter().enumerate() {
+            record_run(
+                &mut conn,
+                &run(&root, "abc", 1_700_000_000 + k as i64, files),
+            )
+            .unwrap();
+        }
+        let base = resolve_base_root(Path::new(&root));
+
+        assert_eq!(
+            recent_red_files(&conn, &base, 5).unwrap(),
+            vec!["new.test.ts".to_string(), "old.test.ts".to_string()]
+        );
+        assert_eq!(
+            recent_red_files(&conn, &base, 1).unwrap(),
+            vec!["new.test.ts".to_string()]
+        );
     }
 
     /// **The batch-pressure fact.** Three files pass in isolation and fail in

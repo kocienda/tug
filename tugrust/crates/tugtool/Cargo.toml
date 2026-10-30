@@ -35,6 +35,7 @@ tugcore.workspace = true
 tugtool-core.workspace = true
 tugarc-core.workspace = true
 tugchanges-core.workspace = true
+tugchart-core.workspace = true
 tugedit-core.workspace = true
 tugbank-core.workspace = true
 rusqlite.workspace = true

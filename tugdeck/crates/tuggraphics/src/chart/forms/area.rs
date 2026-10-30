@@ -91,8 +91,16 @@ pub(super) fn layout(
             let mut poly = Vec::new();
             for k in run.clone() {
                 let (px, py) = point(k);
-                poly.push(if k == start { Seg::Move(px, py) } else { Seg::Line(px, py) });
-                line_path.push(if k == start { Seg::Move(px, py) } else { Seg::Line(px, py) });
+                poly.push(if k == start {
+                    Seg::Move(px, py)
+                } else {
+                    Seg::Line(px, py)
+                });
+                line_path.push(if k == start {
+                    Seg::Move(px, py)
+                } else {
+                    Seg::Line(px, py)
+                });
             }
             for k in run.rev() {
                 let floor = if stacked { plot.y(below[k]) } else { base_y };
@@ -116,6 +124,11 @@ pub(super) fn layout(
             below = top.iter().map(|v| v.unwrap_or(0.0)).collect();
         }
     }
-    line::end_labels(b, ends, series, &plot, w, cap, m);
+    let ties = if stacked {
+        line::TieOrder::StackTopFirst
+    } else {
+        line::TieOrder::SeriesOrder
+    };
+    line::end_labels(b, ends, ties, series, &plot, w, cap, m);
     notes.draw(b);
 }

@@ -12,7 +12,14 @@ use crate::measure::Measure;
 const PITCH: f64 = 14.0;
 const RADIUS: f64 = 5.0;
 
-pub(super) fn layout(b: &mut Builder, spec: &Spec, rows: &[DotRow], w: f64, h: f64, m: &dyn Measure) {
+pub(super) fn layout(
+    b: &mut Builder,
+    spec: &Spec,
+    rows: &[DotRow],
+    w: f64,
+    h: f64,
+    m: &dyn Measure,
+) {
     let labels: Vec<String> = rows.iter().map(|r| r.label.clone()).collect();
     let frame = RowsLayout {
         spec,
@@ -22,12 +29,16 @@ pub(super) fn layout(b: &mut Builder, spec: &Spec, rows: &[DotRow], w: f64, h: f
         extra_row: 0.0,
         axis: None,
         right_margin: 4.0,
+        lead: 0.0,
     };
     let (plot, _) = frame.draw(b, m);
     // Every row's dots fit the plot: the pitch shrinks for the longest row.
     let most = rows.iter().map(|r| r.items.len()).max().unwrap_or(1) as f64;
     let pitch = PITCH.min((plot.right - plot.left) / most).max(2.0);
-    let r = RADIUS.min(pitch / 2.0 - 1.0).min(plot.band() / 2.0 - 1.0).max(1.0);
+    let r = RADIUS
+        .min(pitch / 2.0 - 1.0)
+        .min(plot.band() / 2.0 - 1.0)
+        .max(1.0);
     for (i, row) in rows.iter().enumerate() {
         let cy = plot.center(i);
         for (k, dot) in row.items.iter().enumerate() {

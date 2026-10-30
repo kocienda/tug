@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use tuggraphics::chart::LAYER0_IN_FENCE;
 use tuggraphics::measure::table_key;
 use tuggraphics::{
-    compile_round, compile_with, find_text, validate, ChartError, CompileOpts, Compiled, FixedMetrics, Layers,
-    Measure, MeasureTable, Round, TypeRole,
+    compile_round, compile_with, find_text, validate, ChartError, CompileOpts, Compiled,
+    FixedMetrics, Layers, Measure, MeasureTable, Round, TypeRole,
 };
 
 fn golden_dir() -> PathBuf {
@@ -26,7 +26,8 @@ fn golden_names() -> Vec<String> {
         .unwrap()
         .filter_map(|e| {
             let p = e.unwrap().path();
-            (p.extension()? == "json").then(|| p.file_stem().unwrap().to_string_lossy().into_owned())
+            (p.extension()? == "json")
+                .then(|| p.file_stem().unwrap().to_string_lossy().into_owned())
         })
         .collect();
     names.sort();
@@ -43,7 +44,10 @@ fn opts() -> CompileOpts {
 #[test]
 fn chart_goldens() {
     let names = golden_names();
-    assert!(names.len() >= 8, "expected the chart goldens, found {names:?}");
+    assert!(
+        names.len() >= 8,
+        "expected the chart goldens, found {names:?}"
+    );
     let bless = std::env::var_os("TUGGRAPHICS_BLESS").is_some();
     let mut failed = Vec::new();
     for name in &names {
@@ -57,7 +61,11 @@ fn chart_goldens() {
             failed.push(format!("{name}:\n{}", out.svg));
         }
     }
-    assert!(failed.is_empty(), "goldens differ:\n{}", failed.join("\n\n"));
+    assert!(
+        failed.is_empty(),
+        "goldens differ:\n{}",
+        failed.join("\n\n")
+    );
 }
 
 #[test]
@@ -121,7 +129,10 @@ fn a_spec_needing_no_truncation_takes_one_measure_round() {
     let (requests, out) = drive(&golden("bar-single"), &opts());
     assert_eq!(requests, 1);
     let out = out.unwrap();
-    assert_eq!(out, compile_with(&golden("bar-single"), &opts(), &FixedMetrics).unwrap());
+    assert_eq!(
+        out,
+        compile_with(&golden("bar-single"), &opts(), &FixedMetrics).unwrap()
+    );
     assert!(!out.svg.contains('…'));
 }
 
@@ -145,7 +156,9 @@ fn a_sparkline_needs_no_measurement() {
 
 #[test]
 fn round_one_asks_for_full_strings_only() {
-    let Round::Measure { texts } = compile_round(&golden("bar-single"), &opts(), &MeasureTable::new()) else {
+    let Round::Measure { texts } =
+        compile_round(&golden("bar-single"), &opts(), &MeasureTable::new())
+    else {
         panic!("round 1 should ask");
     };
     assert!(texts.contains(&("title".into(), "Commits per day".into())));
@@ -174,8 +187,14 @@ fn the_frame_narrows_to_the_room_given() {
 fn crowded_categories_are_thinned() {
     let out = compile_with(&golden("bar-crowded"), &opts(), &FixedMetrics).unwrap();
     assert!(out.svg.contains(">day 01</text>"));
-    assert!(!out.svg.contains(">day 02</text>"), "every label shown:\n{}", out.svg);
-    let shown = (1..=60).filter(|i| out.svg.contains(&format!(">day {i:02}</text>"))).count();
+    assert!(
+        !out.svg.contains(">day 02</text>"),
+        "every label shown:\n{}",
+        out.svg
+    );
+    let shown = (1..=60)
+        .filter(|i| out.svg.contains(&format!(">day {i:02}</text>")))
+        .count();
     assert!((2..=15).contains(&shown), "{shown} labels shown");
     assert!(!out.svg.contains('…'));
 }
@@ -184,7 +203,10 @@ fn crowded_categories_are_thinned() {
 fn motion_none_writes_no_entrances() {
     let still = compile_with(&golden("bar-rule"), &opts(), &FixedMetrics).unwrap();
     assert!(!still.svg.contains("tge-"));
-    let off = CompileOpts { motion: false, ..opts() };
+    let off = CompileOpts {
+        motion: false,
+        ..opts()
+    };
     let out = compile_with(&golden("bar-single"), &off, &FixedMetrics).unwrap();
     assert!(!out.svg.contains("tge-"));
     let on = compile_with(&golden("bar-single"), &opts(), &FixedMetrics).unwrap();
@@ -203,7 +225,9 @@ fn one_error(source: &str) -> ChartError {
 
 #[test]
 fn too_many_series() {
-    let series: Vec<String> = (0..9).map(|i| format!("{{\"name\": \"s{i}\", \"values\": [1]}}")).collect();
+    let series: Vec<String> = (0..9)
+        .map(|i| format!("{{\"name\": \"s{i}\", \"values\": [1]}}"))
+        .collect();
     let src = format!(
         r#"{{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a"], "series": [{}]}}"#,
         series.join(", ")
@@ -227,17 +251,29 @@ fn unknown_form() {
 fn tables_for_the_other_forms() {
     let dots = compile_with(&golden("dots"), &opts(), &FixedMetrics).unwrap();
     assert_eq!(dots.table.head, vec!["", "good", "bad", "neutral"]);
-    assert_eq!(dots.table.rows[0], vec!["at0602-find-fidelity-sweep.test.ts", "5", "1", "1"]);
+    assert_eq!(
+        dots.table.rows[0],
+        vec!["at0602-find-fidelity-sweep.test.ts", "5", "1", "1"]
+    );
 
     let spans = compile_with(&golden("spans"), &opts(), &FixedMetrics).unwrap();
     assert_eq!(spans.table.head, vec!["", "start", "end", "status"]);
-    assert_eq!(spans.table.rows[0], vec!["Spec and validator", "0", "18", "good"]);
+    assert_eq!(
+        spans.table.rows[0],
+        vec!["Spec and validator", "0", "18", "good"]
+    );
     assert_eq!(spans.table.rows[1], vec!["Forms", "18", "55", ""]);
 
     let bullet = compile_with(&golden("bullet"), &opts(), &FixedMetrics).unwrap();
     assert_eq!(bullet.table.head, vec!["", "value", "range", "target"]);
-    assert_eq!(bullet.table.rows[0], vec!["rust", "1m12s", "1m00s–1m30s", "1m20s"]);
-    assert_eq!(bullet.table.rows[2], vec!["app-tests", "5m10s", "", "4m00s"]);
+    assert_eq!(
+        bullet.table.rows[0],
+        vec!["rust", "1m12s", "1m00s–1m30s", "1m20s"]
+    );
+    assert_eq!(
+        bullet.table.rows[2],
+        vec!["app-tests", "5m10s", "", "4m00s"]
+    );
 
     let heat = compile_with(&golden("heat"), &opts(), &FixedMetrics).unwrap();
     assert_eq!(heat.table.head, vec!["", "Commits per day"]);
@@ -246,8 +282,8 @@ fn tables_for_the_other_forms() {
 
     let hist = compile_with(&golden("histogram"), &opts(), &FixedMetrics).unwrap();
     assert_eq!(hist.table.head, vec!["", "count"]);
-    assert_eq!(hist.table.rows.len(), 6);
-    assert_eq!(hist.table.rows[0], vec!["2s–5s", "6"]);
+    assert_eq!(hist.table.rows.len(), 4);
+    assert_eq!(hist.table.rows[0], vec!["0s–5s", "6"]);
 
     let area = compile_with(&golden("area-stacked"), &opts(), &FixedMetrics).unwrap();
     assert_eq!(area.table.head, vec!["", "rust", "deck", "app"]);
@@ -256,10 +292,18 @@ fn tables_for_the_other_forms() {
 }
 
 #[test]
-fn histogram_bins_follow_freedman_diaconis_or_the_spec() {
+fn histogram_bins_ask_for_a_count_and_fall_on_nice_edges() {
     let auto = compile_with(&golden("histogram"), &opts(), &FixedMetrics).unwrap();
-    assert_eq!(auto.table.rows.len(), 6);
-    assert_eq!(auto.table.rows.iter().map(|r| r[1].parse::<u32>().unwrap()).sum::<u32>(), 20);
+    let labels: Vec<&str> = auto.table.rows.iter().map(|r| r[0].as_str()).collect();
+    assert_eq!(labels, vec!["0s–5s", "5s–10s", "10s–15s", "15s–20s"]);
+    assert_eq!(
+        auto.table
+            .rows
+            .iter()
+            .map(|r| r[1].parse::<u32>().unwrap())
+            .sum::<u32>(),
+        20
+    );
     let given = compile_with(&golden("histogram-bins"), &opts(), &FixedMetrics).unwrap();
     assert_eq!(given.table.rows.len(), 6);
     assert_eq!(given.table.rows[3], vec!["7–7.17", "4"]);
@@ -267,16 +311,26 @@ fn histogram_bins_follow_freedman_diaconis_or_the_spec() {
         let e = one_error(&format!(
             r#"{{"tugchart": 1, "form": "histogram", "title": "t", "bins": {bins}, "values": [1, 2]}}"#
         ));
-        assert_eq!((e.path.as_str(), e.message.as_str()), ("/bins", "bins is an integer from 4 to 40"));
+        assert_eq!(
+            (e.path.as_str(), e.message.as_str()),
+            ("/bins", "bins is an integer from 4 to 40")
+        );
     }
     let e = one_error(r#"{"tugchart": 1, "form": "histogram", "title": "t", "values": [null]}"#);
-    assert_eq!((e.path.as_str(), e.message.as_str()), ("/values", "a histogram needs at least one number"));
+    assert_eq!(
+        (e.path.as_str(), e.message.as_str()),
+        ("/values", "a histogram needs at least one number")
+    );
 }
 
 #[test]
 fn each_form_names_its_required_fields() {
     let cases: [(&str, &str, &str); 11] = [
-        (r#"{"tugchart": 1, "form": "dots", "title": "t"}"#, "/rows", "rows is required"),
+        (
+            r#"{"tugchart": 1, "form": "dots", "title": "t"}"#,
+            "/rows",
+            "rows is required",
+        ),
         (
             r#"{"tugchart": 1, "form": "dots", "title": "t", "rows": [{"label": "a", "items": ["good", "ok"]}]}"#,
             "/rows/0/items/1",
@@ -330,7 +384,11 @@ fn each_form_names_its_required_fields() {
     ];
     for (source, path, message) in cases {
         let e = one_error(source);
-        assert_eq!((e.path.as_str(), e.message.as_str()), (path, message), "{source}");
+        assert_eq!(
+            (e.path.as_str(), e.message.as_str()),
+            (path, message),
+            "{source}"
+        );
     }
     let rows: Vec<String> = (0..41).map(|i| format!("\"c{i}\"")).collect();
     let values = vec!["1"; 41].join(", ");
@@ -339,7 +397,10 @@ fn each_form_names_its_required_fields() {
         rows.join(", ")
     ));
     assert_eq!(e.path, "/categories");
-    assert_eq!(e.message, "a horizontal bar chart has at most 40 categories");
+    assert_eq!(
+        e.message,
+        "a horizontal bar chart has at most 40 categories"
+    );
 }
 
 #[test]
@@ -352,7 +413,7 @@ fn default_frames_follow_the_rows() {
     assert_eq!(frame("dots"), (560.0, 3.0 * 18.0 + 40.0));
     assert_eq!(frame("spans"), (560.0, 4.0 * 20.0 + 48.0));
     assert_eq!(frame("bullet"), (560.0, 3.0 * 28.0 + 40.0));
-    assert_eq!(frame("heat"), (560.0, 64.0));
+    assert_eq!(frame("heat"), (560.0, 20.0 + 6.0 + 24.0 + 4.0 + 16.0));
     assert_eq!(frame("histogram"), (560.0, 200.0));
     assert_eq!(frame("area-overlap"), (560.0, 240.0));
     // A row form is not held to the axis chart's minimum height.
@@ -362,7 +423,82 @@ fn default_frames_follow_the_rows() {
         r#"{"tugchart": 1, "form": "histogram", "title": "t", "values": [1, 2, 3], "size": {"h": 100}}"#,
     );
     assert_eq!(e.path, "/size/h");
-    assert_eq!(e.message, "size.h is a number from 120 to 1200 for a histogram");
+    assert_eq!(
+        e.message,
+        "size.h is a number from 120 to 1200 for a histogram"
+    );
+}
+
+#[test]
+fn a_heat_frame_grows_to_keep_its_cells_at_full_height() {
+    let height = |extra: &str| {
+        let source = format!(
+            r#"{{"tugchart": 1, "form": "heat", "title": "t", {extra} "categories": ["a", "b"], "values": [1, 2]}}"#
+        );
+        compile_with(&source, &opts(), &FixedMetrics)
+            .unwrap()
+            .height
+    };
+    let title_alone = 20.0 + 6.0 + 24.0 + 4.0 + 16.0;
+    let with_a_line = 20.0 + 16.0 + 6.0 + 24.0 + 4.0 + 16.0;
+    assert_eq!(height(""), title_alone);
+    assert_eq!(height(r#""subtitle": "s","#), with_a_line);
+    assert_eq!(height(r#""unit": "u","#), with_a_line);
+}
+
+#[test]
+fn bullet_history_stays_in_its_column_and_a_narrow_frame_drops_it() {
+    /// The `x` of every point in the first path on `line`.
+    fn path_xs(line: &str) -> Vec<f64> {
+        let d = line
+            .split("d=\"")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .unwrap_or("");
+        d.split_whitespace()
+            .filter(|t| t.starts_with(['M', 'L']))
+            .map(|t| t[1..].parse().unwrap())
+            .collect()
+    }
+    let svg = compile_with(&golden("bullet-history"), &opts(), &FixedMetrics)
+        .unwrap()
+        .svg;
+    let traces: Vec<&str> = svg
+        .lines()
+        .filter(|l| l.contains("opacity=\"0.35\""))
+        .collect();
+    assert_eq!(traces.len(), 2, "{svg}");
+    let bars: Vec<&str> = svg.lines().filter(|l| l.contains("tgf-series-1")).collect();
+    assert_eq!(bars.len(), 3, "{svg}");
+    let plot_left = bars
+        .iter()
+        .flat_map(|l| path_xs(l))
+        .fold(f64::INFINITY, f64::min);
+    for trace in traces {
+        let xs = path_xs(trace);
+        assert!(
+            xs.iter().all(|x| *x < plot_left),
+            "{xs:?} against {plot_left}"
+        );
+    }
+
+    let narrow = CompileOpts {
+        width: Some(200.0),
+        ..opts()
+    };
+    let svg = compile_with(&golden("bullet-history"), &narrow, &FixedMetrics)
+        .unwrap()
+        .svg;
+    assert!(!svg.contains("opacity=\"0.35\""), "{svg}");
+    let bars: Vec<f64> = svg
+        .lines()
+        .filter(|l| l.contains("tgf-series-1"))
+        .flat_map(path_xs)
+        .collect();
+    let (left, right) = bars
+        .iter()
+        .fold((f64::INFINITY, 0.0_f64), |(a, z), x| (a.min(*x), z.max(*x)));
+    assert!(left < right, "{svg}");
 }
 
 #[test]
@@ -370,7 +506,11 @@ fn stacked_bars_label_totals_only() {
     let out = compile_with(&golden("bar-stacked"), &opts(), &FixedMetrics).unwrap();
     assert!(out.svg.contains(">140</text>"), "{}", out.svg);
     assert!(out.svg.contains(">-30</text>"));
-    assert!(!out.svg.contains(">120</text>"), "a segment was labelled:\n{}", out.svg);
+    assert!(
+        !out.svg.contains(">120</text>"),
+        "a segment was labelled:\n{}",
+        out.svg
+    );
     assert!(out.svg.contains("tge-grow tge-from-top"));
 }
 
@@ -390,11 +530,17 @@ fn overlapping_areas_are_translucent_and_stacked_ones_are_not() {
 
 #[test]
 fn missing_title() {
-    let e = one_error(r#"{"tugchart": 1, "form": "line", "series": [{"name": "a", "values": [1, 2]}]}"#);
+    let e = one_error(
+        r#"{"tugchart": 1, "form": "line", "series": [{"name": "a", "values": [1, 2]}]}"#,
+    );
     assert_eq!(e.path, "/title");
     assert_eq!(e.message, "title is required");
     // A sparkline needs none.
-    assert!(validate(r#"{"tugchart": 1, "form": "sparkline", "values": [1]}"#, Layers::Chart).is_ok());
+    assert!(validate(
+        r#"{"tugchart": 1, "form": "sparkline", "values": [1]}"#,
+        Layers::Chart
+    )
+    .is_ok());
 }
 
 #[test]
@@ -403,7 +549,9 @@ fn a_121_grapheme_label() {
     let long = "👨\u{200d}👩\u{200d}👧".repeat(121);
     let ok = "👨\u{200d}👩\u{200d}👧".repeat(120);
     let src = |c: &str| {
-        format!(r#"{{"tugchart": 1, "form": "bar", "title": "t", "categories": ["{c}"], "series": [{{"values": [1]}}]}}"#)
+        format!(
+            r#"{{"tugchart": 1, "form": "bar", "title": "t", "categories": ["{c}"], "series": [{{"values": [1]}}]}}"#
+        )
     };
     let e = one_error(&src(&long));
     assert_eq!(e.path, "/categories/0");
@@ -420,10 +568,18 @@ fn every_error_is_reported_with_its_path() {
     let paths: Vec<&str> = errs.iter().map(|e| e.path.as_str()).collect();
     assert_eq!(
         paths,
-        vec!["/tugchart", "/colour", "/title", "/size/w", "/series/0/values/1"],
+        vec![
+            "/tugchart",
+            "/colour",
+            "/title",
+            "/size/w",
+            "/series/0/values/1"
+        ],
         "{errs:?}"
     );
-    let errs = errors(r#"{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a", "b"], "series": [{"values": [1]}]}"#);
+    let errs = errors(
+        r#"{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a", "b"], "series": [{"values": [1]}]}"#,
+    );
     assert_eq!(errs[0].path, "/series/0/values");
     assert_eq!(errs[0].message, "series has 1 values for 2 categories");
 }
@@ -451,8 +607,14 @@ fn a_drawing_is_refused_by_a_fence_and_taken_by_a_tool() {
     assert_eq!(out.find_text, "");
     assert_eq!(find_text(DRAWING, Layers::Any), "");
     assert!(out.svg.contains("tge-fade"));
-    let still = CompileOpts { motion: false, ..any };
-    assert!(!compile_with(DRAWING, &still, &FixedMetrics).unwrap().svg.contains("tge-"));
+    let still = CompileOpts {
+        motion: false,
+        ..any
+    };
+    assert!(!compile_with(DRAWING, &still, &FixedMetrics)
+        .unwrap()
+        .svg
+        .contains("tge-"));
     // A drawing's errors point into its ops.
     let bad = r#"{"tugdraw": 1, "frame": [40, 20], "ops": [["fill", "red"]]}"#;
     let errs = validate(bad, Layers::Any).unwrap_err();
@@ -467,7 +629,10 @@ fn opts_read_the_protocol_shape() {
     assert_eq!(json["status"], "done");
     assert_eq!(json["width"], 120.0);
     assert_eq!(json["table"]["head"][1], "value");
-    let o = CompileOpts::from_json(r#"{"width": 320, "id_prefix": "c7", "motion": false, "layers": "any"}"#).unwrap();
+    let o = CompileOpts::from_json(
+        r#"{"width": 320, "id_prefix": "c7", "motion": false, "layers": "any", "figure_title": false}"#,
+    )
+    .unwrap();
     assert_eq!(
         o,
         CompileOpts {
@@ -476,7 +641,40 @@ fn opts_read_the_protocol_shape() {
             motion: false,
             layers: Layers::Any,
             palette: None,
+            figure_title: false,
         }
     );
     assert!(CompileOpts::from_json(r#"{"layers": "all"}"#).is_err());
+}
+
+#[test]
+fn figure_title_false_omits_only_the_title_run() {
+    let untitled = CompileOpts {
+        figure_title: false,
+        ..opts()
+    };
+    let titled = compile_with(&golden("bar-single"), &opts(), &FixedMetrics).unwrap();
+    let out = compile_with(&golden("bar-single"), &untitled, &FixedMetrics).unwrap();
+    assert!(
+        titled.svg.contains(">Commits per day</text>"),
+        "{}",
+        titled.svg
+    );
+    assert!(!out.svg.contains(">Commits per day</text>"), "{}", out.svg);
+    assert!(
+        out.svg.contains(">main, last week · commits</text>"),
+        "{}",
+        out.svg
+    );
+    assert_eq!(out.table, titled.table);
+    assert_eq!(out.table.caption, "Commits per day");
+
+    // With no title row to carry, a heat frame shrinks and its cells keep their height.
+    let heat = compile_with(&golden("heat"), &untitled, &FixedMetrics).unwrap();
+    assert_eq!(heat.height, 24.0 + 4.0 + 16.0);
+    assert!(
+        heat.svg.contains("M1 0 L39 0 L39 24 L1 24 Z"),
+        "{}",
+        heat.svg
+    );
 }

@@ -12,7 +12,24 @@ pub(super) const END_LABEL_SHARE: f64 = 0.25;
 /// End labels sit at least one value row apart.
 const END_LABEL_PITCH: f64 = VALUE_ROW;
 
-pub(super) fn layout(b: &mut Builder, spec: &Spec, x: &[String], series: &[Series], w: f64, h: f64, m: &dyn Measure) {
+/// Which label goes above when two series end at the same `y`.
+#[derive(Clone, Copy)]
+pub(super) enum TieOrder {
+    /// The first series above, for lines and overlapping areas.
+    SeriesOrder,
+    /// The last series above: in a stack it is the one drawn on top.
+    StackTopFirst,
+}
+
+pub(super) fn layout(
+    b: &mut Builder,
+    spec: &Spec,
+    x: &[String],
+    series: &[Series],
+    w: f64,
+    h: f64,
+    m: &dyn Measure,
+) {
     for s in series {
         m.measure(TypeRole::Value, &s.name);
     }
@@ -69,23 +86,35 @@ pub(super) fn layout(b: &mut Builder, spec: &Spec, x: &[String], series: &[Serie
             ends.push((plot.y(v), plot.center(last), j));
         }
     }
-    end_labels(b, ends, series, &plot, w, cap, m);
+    end_labels(b, ends, TieOrder::SeriesOrder, series, &plot, w, cap, m);
     notes.draw(b);
+}
+
+/// Sorts `(y, x, series index)` ends top to bottom, breaking a tie by `ties`.
+fn order_ends(ends: &mut [(f64, f64, usize)], ties: TieOrder) {
+    ends.sort_by(|a, b| {
+        a.0.total_cmp(&b.0).then_with(|| match ties {
+            TieOrder::SeriesOrder => a.2.cmp(&b.2),
+            TieOrder::StackTopFirst => b.2.cmp(&a.2),
+        })
+    });
 }
 
 /// Direct labels at each series' end — `(y, x, series index)` — nudged
 /// apart vertically so none overlaps its neighbour, and kept inside the
 /// plot.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn end_labels(
     b: &mut Builder,
     mut ends: Vec<(f64, f64, usize)>,
+    ties: TieOrder,
     series: &[Series],
     plot: &Plot,
     w: f64,
     cap: f64,
     m: &dyn Measure,
 ) {
-    ends.sort_by(|a, b| a.0.total_cmp(&b.0));
+    order_ends(&mut ends, ties);
     let mut ys: Vec<f64> = ends.iter().map(|e| e.0).collect();
     for i in 1..ys.len() {
         ys[i] = ys[i].max(ys[i - 1] + END_LABEL_PITCH);
@@ -100,6 +129,28 @@ pub(super) fn end_labels(
         let s = &series[j];
         let lx = px + GAP;
         let fit = fit_text(&s.name, TypeRole::Value, (w - lx).min(cap), m);
-        b.text(lx, y.max(plot.top - VALUE_ROW / 2.0), &fit.text, TypeRole::Value, s.role, Anchor::Start, None);
+        b.text(
+            lx,
+            y.max(plot.top - VALUE_ROW / 2.0),
+            &fit.text,
+            TypeRole::Value,
+            s.role,
+            Anchor::Start,
+            None,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tie_goes_to_the_top_of_the_stack_or_the_first_series() {
+        let mut ends = [(10.0, 1.0, 0), (10.0, 1.0, 1), (4.0, 1.0, 0)];
+        order_ends(&mut ends, TieOrder::StackTopFirst);
+        assert_eq!(ends.map(|e| (e.0, e.2)), [(4.0, 0), (10.0, 1), (10.0, 0)]);
+        order_ends(&mut ends, TieOrder::SeriesOrder);
+        assert_eq!(ends.map(|e| (e.0, e.2)), [(4.0, 0), (10.0, 0), (10.0, 1)]);
     }
 }

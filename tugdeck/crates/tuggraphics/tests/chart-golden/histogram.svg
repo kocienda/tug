@@ -5,23 +5,17 @@
 <text x="13.2" y="114.5" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">5</text>
 <text x="13.2" y="49" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">10</text>
 <path d="M21.2 180 L556 180 M21.2 114.5 L556 114.5 M21.2 49 L556 49" class="tgs-grid" fill="none" stroke-width="1"/>
-<text x="65.77" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2s–5s</text>
-<text x="154.9" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">5s–8s</text>
-<text x="244.03" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">8s–11s</text>
-<text x="333.17" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">11s–14s</text>
-<text x="422.3" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">14s–17s</text>
-<text x="511.43" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">17s–20s</text>
-<path d="M30.11 101.4 L101.42 101.4 L101.42 180 L30.11 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:0"/>
-<text x="65.77" y="92.4" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="central">6</text>
-<path d="M119.25 75.2 L190.55 75.2 L190.55 180 L119.25 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:1"/>
-<text x="154.9" y="66.2" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="central">8</text>
-<path d="M208.38 153.8 L279.69 153.8 L279.69 180 L208.38 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:2"/>
-<text x="244.03" y="144.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="central">2</text>
-<path d="M297.51 166.9 L368.82 166.9 L368.82 180 L297.51 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:3"/>
-<text x="333.17" y="157.9" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">1</text>
-<path d="M386.65 166.9 L457.95 166.9 L457.95 180 L386.65 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:4"/>
-<text x="422.3" y="157.9" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="middle" dominant-baseline="central">1</text>
-<path d="M475.78 153.8 L547.09 153.8 L547.09 180 L475.78 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:5"/>
-<text x="511.43" y="144.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:5" text-anchor="middle" dominant-baseline="central">2</text>
+<text x="88.05" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0s–5s</text>
+<text x="221.75" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">5s–10s</text>
+<text x="355.45" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">10s–15s</text>
+<text x="489.15" y="192" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">15s–20s</text>
+<path d="M34.57 101.4 L141.53 101.4 L141.53 180 L34.57 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:0"/>
+<text x="88.05" y="92.4" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="central">6</text>
+<path d="M168.27 49 L275.23 49 L275.23 180 L168.27 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:1"/>
+<text x="221.75" y="58" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="central">10</text>
+<path d="M301.97 153.8 L408.93 153.8 L408.93 180 L301.97 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:2"/>
+<text x="355.45" y="144.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="central">2</text>
+<path d="M435.67 153.8 L542.63 153.8 L542.63 180 L435.67 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:3"/>
+<text x="489.15" y="144.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">2</text>
 <path d="M21.2 180 L556 180" class="tgs-ink-muted" fill="none" stroke-width="1"/>
 </svg>

@@ -34,6 +34,8 @@ export interface ChartCompileOpts {
   id_prefix: string;
   motion: boolean;
   layers: ChartLayers;
+  /** Whether the figure draws its title; absent, it does. The deck's block header shows it instead. */
+  figure_title?: boolean;
 }
 
 export interface ChartTable {

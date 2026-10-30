@@ -19,7 +19,9 @@
  *  5. Run the measure protocol at the host's width, read once.
  *  6. Build the figure off-document: the block header (title, Copy, a Table
  *     toggle), the SVG, and the `<table>` alternative built with
- *     `textContent`; the remembered view; the entrance attribute.
+ *     `textContent`; the remembered view; the entrance attribute. The header
+ *     is the title's one home, so the SVG is compiled without it, and an
+ *     untitled chart wears quiet chrome with no placeholder word.
  *  7. Replace the host's children in one write and set `rendered`.
  *
  * Colour and type never appear here: the SVG carries role classes and
@@ -69,6 +71,8 @@ export const CHART_STATE_ATTR = "data-tugx-chart-state";
 export const CHART_VIEW_ATTR = "data-tugx-chart-view";
 /** Present on a figure whose entrances play. */
 export const CHART_ANIMATE_ATTR = "data-tugx-chart-animate";
+/** Present on a figure with no title, whose header is quiet. */
+export const CHART_UNTITLED_ATTR = "data-tugx-chart-untitled";
 /** The fence transformer's flag; its presence means "not yet rendered". */
 export const CHART_PENDING_ATTR = "data-tugx-chart-pending";
 
@@ -285,6 +289,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   el.removeAttribute(CHART_PENDING_ATTR);
   el.removeAttribute(CHART_ANIMATE_ATTR);
   el.removeAttribute(CHART_VIEW_ATTR);
+  el.removeAttribute(CHART_UNTITLED_ATTR);
   el.setAttribute(CHART_STATE_ATTR, "pending");
   el.textContent = source;
 
@@ -324,7 +329,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
     (table) =>
       engine.compile_round(
         source,
-        { width: avail > 0 ? avail : undefined, id_prefix: idPrefix, motion: animate, layers },
+        { width: avail > 0 ? avail : undefined, id_prefix: idPrefix, motion: animate, layers, figure_title: false },
         table,
       ),
     measure,
@@ -340,13 +345,18 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   if (view === "table") el.setAttribute(CHART_VIEW_ATTR, "table");
   else el.setAttribute(CHART_VIEW_ATTR, "chart");
 
-  const title = document.createElement("span");
-  title.className = "tugx-chart-title";
-  title.textContent = round.table.caption !== "" ? round.table.caption : "chart";
   const actions: HTMLElement[] = [buildCopyButton(() => source, "Copy chart source")];
   const withTable = hasTable(round.table);
   if (withTable) actions.push(buildViewToggle(el, hash));
-  const header = buildBlockHeader({ identity: title, actions });
+  let identity: HTMLElement | null = null;
+  if (round.table.caption !== "") {
+    identity = document.createElement("span");
+    identity.className = "tugx-chart-title";
+    identity.textContent = round.table.caption;
+  } else {
+    el.setAttribute(CHART_UNTITLED_ATTR, "");
+  }
+  const header = buildBlockHeader({ identity, actions });
 
   const body = document.createElement("div");
   body.className = "tugx-chart-body";

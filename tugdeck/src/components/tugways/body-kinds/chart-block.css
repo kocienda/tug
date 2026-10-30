@@ -181,9 +181,26 @@ body {
 }
 
 .tugx-chart-title {
+  /* The header is a title's only home, and the engine no longer fits it: a
+   * long one ellipsizes rather than pushing Copy and Table out of the row.
+   * The table's caption keeps the whole string. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--tugx-block-text-color);
   font-size: var(--tug-font-size-sm);
   font-weight: var(--tug-font-weight-semibold);
+}
+
+/* An untitled chart (a sparkline) has no identity to show, so its header is
+ * only its two controls: shorter, and muted until reached for. */
+.tugx-chart[data-tugx-chart-untitled] > .tugx-md-chrome-header {
+  padding-block: 0;
+}
+/* @tug-renders-on: --tug7-surface-control-primary-ghost-action-rest */
+.tugx-chart[data-tugx-chart-untitled] > .tugx-md-chrome-header .tugx-md-chrome-btn:not(:hover) {
+  color: var(--tugx-chart-note-color);
 }
 
 .tugx-chart-view-toggle[aria-pressed="true"] {

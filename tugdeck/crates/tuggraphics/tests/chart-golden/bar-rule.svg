@@ -1,26 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 240" width="560" height="240" aria-hidden="true">
 <text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Build seconds</text>
 <text x="33" y="220" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">0s</text>
-<text x="33" y="126.5" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">50s</text>
-<text x="33" y="33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">1m40s</text>
+<text x="33" y="126.5" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">1m00s</text>
+<text x="33" y="33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">2m00s</text>
 <path d="M41 220 L556 220 M41 126.5 L556 126.5 M41 33 L556 33" class="tgs-grid" fill="none" stroke-width="1"/>
 <text x="92.5" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">a</text>
 <text x="195.5" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">b</text>
 <text x="298.5" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">c</text>
 <text x="401.5" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">d</text>
 <text x="504.5" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">e</text>
-<path d="M51.3 140.53 L133.7 140.53 L133.7 220 L51.3 220 Z" class="tgf-series-1"/>
-<text x="92.5" y="131.53" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">42.5s</text>
-<path d="M154.3 105.93 L236.7 105.93 L236.7 220 L154.3 220 Z" class="tgf-series-1"/>
-<text x="195.5" y="96.93" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1m01s</text>
-<path d="M257.3 148.94 L339.7 148.94 L339.7 220 L257.3 220 Z" class="tgf-series-1"/>
-<text x="298.5" y="139.94" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">38s</text>
-<path d="M360.3 42.35 L442.7 42.35 L442.7 220 L360.3 220 Z" class="tgf-series-1"/>
-<path d="M463.3 126.5 L545.7 126.5 L545.7 220 L463.3 220 Z" class="tgf-series-1"/>
-<text x="504.5" y="117.5" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">50s</text>
+<path d="M51.3 153.77 L133.7 153.77 L133.7 220 L51.3 220 Z" class="tgf-series-1"/>
+<text x="92.5" y="144.77" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">42.5s</text>
+<path d="M154.3 124.94 L236.7 124.94 L236.7 220 L154.3 220 Z" class="tgf-series-1"/>
+<text x="195.5" y="115.94" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1m01s</text>
+<path d="M257.3 160.78 L339.7 160.78 L339.7 220 L257.3 220 Z" class="tgf-series-1"/>
+<text x="298.5" y="151.78" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">38s</text>
+<path d="M360.3 71.96 L442.7 71.96 L442.7 220 L360.3 220 Z" class="tgf-series-1"/>
+<text x="401.5" y="62.96" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1m35s</text>
+<path d="M463.3 142.08 L545.7 142.08 L545.7 220 L463.3 220 Z" class="tgf-series-1"/>
+<text x="504.5" y="133.08" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">50s</text>
 <path d="M41 220 L556 220" class="tgs-ink-muted" fill="none" stroke-width="1"/>
-<path d="M41 126.5 L556 126.5" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-dasharray="4 3"/>
+<path d="M41 142.08 L556 142.08" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-dasharray="4 3"/>
 <path d="M401.5 33 L401.5 220" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-dasharray="4 3"/>
-<text x="556" y="119.5" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">median</text>
+<text x="556" y="135.08" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">median</text>
 <text x="404.5" y="40" class="tgt-value tgf-ink-muted" text-anchor="start" dominant-baseline="central">regression</text>
 </svg>

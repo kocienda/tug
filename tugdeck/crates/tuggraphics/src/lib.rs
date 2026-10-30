@@ -16,8 +16,15 @@ pub mod face;
 pub mod measure;
 mod num;
 
-pub use chart::{compile_round, compile_with, find_text, validate, ChartError, CompileOpts, Compiled, Layers, Round};
-pub use draw::{parse_program, render_program, render_svg, DrawError, Palette, Program, RenderOpts};
+pub use chart::{
+    compile_round, compile_with, find_text, validate, ChartError, CompileOpts, Compiled, Layers,
+    Round,
+};
+pub use draw::{
+    parse_program, render_program, render_svg, DrawError, Palette, Program, RenderOpts,
+};
 #[cfg(feature = "font")]
 pub use face::FaceMeasurer;
-pub use measure::{fit_text, run_rounds, Fit, FixedMetrics, Measure, MeasureTable, Metrics, RoundOutcome, TypeRole};
+pub use measure::{
+    fit_text, run_rounds, Fit, FixedMetrics, Measure, MeasureTable, Metrics, RoundOutcome, TypeRole,
+};

@@ -106,10 +106,18 @@ fn path_d(segs: &[Seg]) -> String {
         parts.push(match *seg {
             Seg::Move(x, y) => format!("M{} {}", fmt_num(x), fmt_num(y)),
             Seg::Line(x, y) => format!("L{} {}", fmt_num(x), fmt_num(y)),
-            Seg::Curve(c) => format!("C{}", c.iter().map(|&n| fmt_num(n)).collect::<Vec<_>>().join(" ")),
+            Seg::Curve(c) => format!(
+                "C{}",
+                c.iter().map(|&n| fmt_num(n)).collect::<Vec<_>>().join(" ")
+            ),
             Seg::Arc { r, sweep, x, y } => {
                 let r = fmt_num(r);
-                format!("A{r} {r} 0 0 {} {} {}", u8::from(sweep), fmt_num(x), fmt_num(y))
+                format!(
+                    "A{r} {r} 0 0 {} {} {}",
+                    u8::from(sweep),
+                    fmt_num(x),
+                    fmt_num(y)
+                )
             }
             Seg::Close => "Z".into(),
         });
@@ -167,7 +175,13 @@ fn write_paint(out: &mut String, p: &PaintOp) {
                 };
                 let _ = write!(out, " stroke-linejoin=\"{join}\"");
             }
-            if matches!(p.motion, Some(Motion { enter: Enter::Draw, .. })) {
+            if matches!(
+                p.motion,
+                Some(Motion {
+                    enter: Enter::Draw,
+                    ..
+                })
+            ) {
                 out.push_str(" pathLength=\"1\"");
             }
         }
@@ -182,7 +196,10 @@ fn write_text(out: &mut String, t: &TextOp) {
     let _ = write!(out, "<text x=\"{}\" y=\"{}\"", fmt_num(t.x), fmt_num(t.y));
     write_motion(
         out,
-        &[format!("tgt-{}", t.role.name()), format!("tgf-{}", t.fill.name())],
+        &[
+            format!("tgt-{}", t.role.name()),
+            format!("tgf-{}", t.fill.name()),
+        ],
         t.motion,
     );
     let anchor = match t.anchor {
@@ -198,7 +215,10 @@ fn write_text(out: &mut String, t: &TextOp) {
         Baseline::Alphabetic => "alphabetic",
         Baseline::Bottom => "text-after-edge",
     };
-    let _ = write!(out, " text-anchor=\"{anchor}\" dominant-baseline=\"{baseline}\"");
+    let _ = write!(
+        out,
+        " text-anchor=\"{anchor}\" dominant-baseline=\"{baseline}\""
+    );
     if t.opacity != 1.0 {
         let _ = write!(out, " opacity=\"{}\"", fmt_num(t.opacity));
     }
@@ -208,7 +228,10 @@ fn write_text(out: &mut String, t: &TextOp) {
 fn standalone_style(p: &Palette) -> String {
     let mut css = String::new();
     for (role, colour) in &p.colours {
-        let _ = write!(css, ".tgf-{role}{{fill:{colour}}}.tgs-{role}{{stroke:{colour}}}");
+        let _ = write!(
+            css,
+            ".tgf-{role}{{fill:{colour}}}.tgs-{role}{{stroke:{colour}}}"
+        );
     }
     for (role, font) in &p.fonts {
         let _ = write!(css, ".tgt-{role}{{font:{font}}}");
@@ -242,9 +265,13 @@ mod tests {
 
     #[test]
     fn text_is_escaped_and_deck_output_has_no_style_or_script() {
-        let src = r#"{"tugdraw": 1, "frame": [100, 20], "ops": [["text", 1, 15, "</text><script>&\""]]}"#;
+        let src =
+            r#"{"tugdraw": 1, "frame": [100, 20], "ops": [["text", 1, 15, "</text><script>&\""]]}"#;
         let svg = render_program(src, &DECK).unwrap();
-        assert!(svg.contains(">&lt;/text&gt;&lt;script&gt;&amp;&quot;</text>"), "{svg}");
+        assert!(
+            svg.contains(">&lt;/text&gt;&lt;script&gt;&amp;&quot;</text>"),
+            "{svg}"
+        );
         assert!(!svg.contains("<script"));
         assert!(!svg.contains("<style"));
     }
@@ -253,8 +280,11 @@ mod tests {
     fn standalone_carries_one_style() {
         let mut palette = Palette::default();
         palette.colours.insert("ink".into(), "#111".into());
-        palette.fonts.insert("label".into(), "400 12px \"IBM Plex Sans\"".into());
-        let src = r#"{"tugdraw": 1, "frame": [10, 10], "ops": [["rect", 0, 0, 5, 5], ["fill", "ink"]]}"#;
+        palette
+            .fonts
+            .insert("label".into(), "400 12px \"IBM Plex Sans\"".into());
+        let src =
+            r#"{"tugdraw": 1, "frame": [10, 10], "ops": [["rect", 0, 0, 5, 5], ["fill", "ink"]]}"#;
         let svg = render_program(
             src,
             &RenderOpts {

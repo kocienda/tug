@@ -296,7 +296,10 @@ mod tests {
         let mut out = html.to_string();
         apply_default_transformers(&mut kind, &mut out, "```tugchart\n{}\n```\n");
         assert_eq!(kind, "tug-chart");
-        assert_eq!(out, "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\">{}</div>");
+        assert_eq!(
+            out,
+            "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\">{}</div>"
+        );
 
         let mut kind = "code".to_string();
         let mut out = html.to_string();

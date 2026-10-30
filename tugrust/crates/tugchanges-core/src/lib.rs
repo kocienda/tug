@@ -36,8 +36,8 @@ pub use hunks::{
     filtered_patch, hunk_id, parse_hunks,
 };
 pub use preflight::{
-    DiffOptions, DiffReport, LogEntry, LogOptions, LogReport, PreflightOptions, PreflightReport,
-    diff, log, preflight,
+    DayStat, DiffOptions, DiffReport, LogEntry, LogOptions, LogReport, PathStat, PreflightOptions,
+    PreflightReport, diff, log, numstat_by_day, numstat_by_path, path_prefix, preflight,
 };
 pub use shell_ops::{DeclaredKind, DeclaredOp, ParseOutcome, parse_shell_ops};
 pub use trailer::{SHORT_SESSION_ID_LEN, append_trailers, session_citation};

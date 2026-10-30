@@ -46,7 +46,7 @@ Pick the form from what the reader has to do with the data, before anything else
 | compare a magnitude across categories | `bar` |
 | follow one or a few values over time | `line`, or `area` for a single series |
 | see part-to-whole across time | `area` with `"layout": "stacked"` |
-| see a trend at a glance inside a sentence or a table cell | `sparkline` |
+| see a trend at a glance in a small standalone figure | `sparkline` |
 | read a run of outcomes per item, oldest to newest | `dots` |
 | see how samples are distributed | `histogram` |
 | see when things started and ended on one timeline | `spans` |
@@ -89,7 +89,7 @@ One example per form. Each is a complete, valid spec.
             {"name": "miss", "values": [2400, 2100, 1500, 900, 700]}]}
 ```
 
-**`sparkline`** — `values` and a `highlight` of `last` (default), `min-max` or `none`. No title, no axes: it lives beside a number.
+**`sparkline`** — `values` and a `highlight` of `last` (default), `min-max` or `none`. No title, no axes: a small figure that stands alone, never inline in a sentence or a cell.
 
 ```tugchart
 {"tugchart": 1, "form": "sparkline", "values": [3, 5, 4, 8, 6, 9, 12], "highlight": "last"}
@@ -104,7 +104,7 @@ One example per form. Each is a complete, valid spec.
           {"label": "find", "items": ["good", "good", "good", "good", "good", "good", "good"]}]}
 ```
 
-**`histogram`** — `values` are the raw samples; `bins` (4 to 40) overrides the bin count the data chooses.
+**`histogram`** — `values` are the raw samples; `bins` (4 to 40) asks for about that many bins in place of the count the data chooses; the edges stay on nice numbers, so the count drawn can differ.
 
 ```tugchart
 {"tugchart": 1, "form": "histogram", "title": "Request latency has a long tail",
@@ -170,16 +170,14 @@ Give durations in seconds with `secs`, ratios as fractions with `percent`, and l
 - **Thin the data, not the labels.** A crowded category axis shows every k-th label and never rotates them, so for many categories prefer a horizontal `bar` or fewer categories.
 - **Gaps are `null`.** A missing value is a gap in the line, never a zero.
 
-## The repertoire
+## The recipes
 
-Some charts you will make often, and tugtool draws three of them for you. A verb run with `--chart` prints one summary line and then a line beginning `TUG-CHART: ` carrying the spec, which the Session card renders beneath the Bash block and strips from the terminal text. Run the verb and the chart appears; you write nothing. `--chart` cannot be combined with `--json`.
+A well-known chart is a `tugtool chart <recipe>` verb that computes its data from the project's own commits, test ledgers and arc record. Never retype a number a recipe can compute.
 
-| You want to show | Run |
-|---|---|
-| commits per day over a window | `tugtool log --chart [--days N]` — a `bar` of commits per day over the last N days (30 unless set), zero days included |
-| how each suite's wall time has moved | `tugtool test last --chart [--suite S]` — a `line` per suite over its newest thirty runs, oldest left, formatted as `secs` |
-| which app-test files have been red, and when | `tugtool apptest history --chart <files…>` — `dots`, one row per file, its newest twenty runs oldest left, green for a pass and red for a failure |
+`tugtool chart list` is the one place the list lives, with each recipe's question, form and arguments, and `tugtool chart <recipe> --help` says the rest. Read it when data you are about to chart might already have a recipe. Commits per day, each suite's wall time, which files have been red, and where a change landed are all there.
 
-The fourth you write yourself: **lines changed per directory**. `tugtool diff --json` reports one entry per file with its `path`, `added` and `deleted`; sum `added` plus `deleted` by top-level directory and write them as a horizontal `bar` with `"format": "count"`, as in the `bar` example above. A reader sees where the change landed before reading a single file name.
+A recipe prints one summary line and then a line beginning `TUG-CHART: ` carrying the spec, which the Session card renders beneath the Bash block and strips from the terminal text. Run the verb and the chart appears; you write nothing. When there is nothing to draw it prints one plain line saying why, and exits 0.
 
-When a verb already draws the chart you want, use the verb. The specs it emits are the same shapes documented here, so a chart from a verb and one you wrote by hand read as one system.
+`--json` reads the summary and the numbers without drawing. To put a finding in the title, read with `--json` first, then run once with `--title "<the finding>"`, because every run without `--json` draws another figure.
+
+`/viz` is the user's door to the same list. The fence above is for the one-off question no recipe answers, and a spec from a recipe is the same shape as one you write by hand, so the two read as one system.

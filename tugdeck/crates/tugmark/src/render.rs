@@ -174,10 +174,7 @@ mod tests {
 
     #[test]
     fn fenced_math_is_transformed() {
-        let blocks = render_blocks(
-            "```math\nx^2\n```\n\n```js\nA-->B\n```\n",
-            Highlight::Off,
-        );
+        let blocks = render_blocks("```math\nx^2\n```\n\n```js\nA-->B\n```\n", Highlight::Off);
         assert_eq!(blocks[0].kind, "tug-math-display");
         assert!(blocks[0].html.contains(">x^2</div>"), "{}", blocks[0].html);
         assert_eq!(blocks[1].kind, "code");

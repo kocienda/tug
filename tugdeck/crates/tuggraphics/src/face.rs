@@ -47,7 +47,9 @@ impl<'a> Face<'a> {
         let data = ReadScope::new(bytes)
             .read::<FontData<'_>>()
             .map_err(|e| format!("not a font file: {e}"))?;
-        let provider = data.table_provider(0).map_err(|e| format!("no font tables: {e}"))?;
+        let provider = data
+            .table_provider(0)
+            .map_err(|e| format!("no font tables: {e}"))?;
         let font = Font::new(provider).map_err(|e| format!("unreadable font tables: {e}"))?;
         let upem = f64::from(font.head_table.units_per_em);
         if upem <= 0.0 {
@@ -59,9 +61,16 @@ impl<'a> Face<'a> {
             .flatten()
             .filter(|os2| os2.fs_selection.contains(FsSelectionFlag::USE_TYPO_METRICS))
             .and_then(|os2| os2.version0)
-            .map(|v0| (f64::from(v0.s_typo_ascender), f64::from(v0.s_typo_descender)));
-        let (ascender, descender) =
-            typo.unwrap_or((f64::from(font.hhea_table.ascender), f64::from(font.hhea_table.descender)));
+            .map(|v0| {
+                (
+                    f64::from(v0.s_typo_ascender),
+                    f64::from(v0.s_typo_descender),
+                )
+            });
+        let (ascender, descender) = typo.unwrap_or((
+            f64::from(font.hhea_table.ascender),
+            f64::from(font.hhea_table.descender),
+        ));
         let px = |units: f64| (units * size / upem).ceil();
         Ok(Face {
             font: RefCell::new(font),
@@ -97,7 +106,8 @@ impl<'a> Face<'a> {
         let units: f64 = infos
             .iter()
             .map(|info| {
-                f64::from(font.horizontal_advance(info.glyph.glyph_index).unwrap_or(0)) + f64::from(info.kerning)
+                f64::from(font.horizontal_advance(info.glyph.glyph_index).unwrap_or(0))
+                    + f64::from(info.kerning)
             })
             .sum();
         let w = units * self.size / self.upem;
@@ -131,7 +141,8 @@ impl<'a> FaceMeasurer<'a> {
     pub fn from_woff2(faces: &[(TypeRole, &'a [u8], f64)]) -> Result<FaceMeasurer<'a>, String> {
         let mut parsed = HashMap::new();
         for (role, bytes, size) in faces {
-            let face = Face::parse(bytes, *size).map_err(|e| format!("{} face: {e}", role.name()))?;
+            let face =
+                Face::parse(bytes, *size).map_err(|e| format!("{} face: {e}", role.name()))?;
             parsed.insert(*role, face);
         }
         for role in TypeRole::ALL {
@@ -189,7 +200,12 @@ mod tests {
     fn kerned_pairs_are_narrower_than_their_letters_apart() {
         let m = measurer();
         let w = |s: &str| m.measure(TypeRole::Label, s).unwrap().w;
-        assert!(w("AV") < w("A") + w("V") - 0.05, "AV {} vs A+V {}", w("AV"), w("A") + w("V"));
+        assert!(
+            w("AV") < w("A") + w("V") - 0.05,
+            "AV {} vs A+V {}",
+            w("AV"),
+            w("A") + w("V")
+        );
         // An unkerned pair sums exactly.
         assert!((w("HH") - 2.0 * w("H")).abs() < 1e-9);
     }
@@ -199,7 +215,10 @@ mod tests {
         let m = measurer();
         let label = m.measure(TypeRole::Label, "2026").unwrap().w;
         let value = m.measure(TypeRole::Value, "2026").unwrap().w;
-        assert!((label / value - 12.0 / 11.0).abs() < 1e-9, "{label} vs {value}");
+        assert!(
+            (label / value - 12.0 / 11.0).abs() < 1e-9,
+            "{label} vs {value}"
+        );
         let narrow = m.measure(TypeRole::Mono, "iiii").unwrap().w;
         let wide = m.measure(TypeRole::Mono, "MMMM").unwrap().w;
         assert!((narrow - wide).abs() < 1e-9, "{narrow} vs {wide}");

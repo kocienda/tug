@@ -6,6 +6,7 @@
 //! `tugarc_core`), and the `host` namespace (instance/gate/state-dir/tell/init
 //! plumbing).
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -232,6 +233,9 @@ pub enum Commands {
         /// days on HEAD (default 30 under `--chart`).
         #[arg(long)]
         days: Option<u32>,
+        /// Only commits touching this path, relative to the repository root.
+        #[arg(long)]
+        path: Option<String>,
         /// Print a summary line and a `TUG-CHART:` line charting commits per
         /// day, instead of the commit list. Not with `--json`.
         #[arg(long)]
@@ -296,9 +300,13 @@ pub enum Commands {
     #[command(subcommand)]
     Test(TestCommands),
 
-    /// Render a chart spec or a drawing to a standalone SVG file, laid out
-    /// against the deck's own faces and coloured by one of its themes.
-    #[command(subcommand)]
+    /// Draw a well-known chart of this project, or render a chart spec or a
+    /// drawing to a standalone SVG file.
+    #[command(
+        subcommand,
+        after_help = "Any other name is a recipe, a well-known chart of this project: \
+                      `tugtool chart <recipe>`. `tugtool chart list` lists them."
+    )]
     Chart(ChartCommands),
 
     /// Tell the block this command runs under how far it has got — the
@@ -771,6 +779,12 @@ pub enum ChartCommands {
         #[arg(long)]
         width: Option<f64>,
     },
+    /// List the recipes: each one's name, form, question and arguments.
+    List,
+    /// One recipe and its arguments. The catalog parses them, so a recipe's
+    /// flags and its `--help` have one source.
+    #[command(external_subcommand)]
+    Recipe(Vec<OsString>),
 }
 
 #[derive(Subcommand)]

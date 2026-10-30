@@ -20,7 +20,9 @@
 
 use serde::Serialize;
 use tuggraphics::draw::DrawError;
-use tuggraphics::{render_program as render, ChartError, CompileOpts, Layers, MeasureTable, RenderOpts, Round};
+use tuggraphics::{
+    render_program as render, ChartError, CompileOpts, Layers, MeasureTable, RenderOpts, Round,
+};
 use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -123,7 +125,8 @@ mod tests {
 
     #[test]
     fn renders_a_program() {
-        let src = r#"{"tugdraw": 1, "frame": [10, 10], "ops": [["rect", 0, 0, 5, 5], ["fill", "ink"]]}"#;
+        let src =
+            r#"{"tugdraw": 1, "frame": [10, 10], "ops": [["rect", 0, 0, 5, 5], ["fill", "ink"]]}"#;
         let RenderOutcome::Done { svg } = render_program_outcome(src, "p") else {
             panic!("expected svg");
         };
@@ -136,7 +139,10 @@ mod tests {
         let RenderOutcome::Invalid { errors } = render_program_outcome(src, "p") else {
             panic!("expected errors");
         };
-        assert_eq!(errors.iter().map(|e| e.op).collect::<Vec<_>>(), vec![Some(0), Some(1)]);
+        assert_eq!(
+            errors.iter().map(|e| e.op).collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
     }
 
     const BAR: &str = r#"{"tugchart": 1, "form": "bar", "title": "T", "categories": ["a"], "series": [{"name": "n", "values": [3]}]}"#;
@@ -150,7 +156,9 @@ mod tests {
         assert!(texts.contains(&("title".to_string(), "T".to_string())));
         let table: Vec<String> = texts
             .iter()
-            .map(|(role, text)| format!("\"{role}\\u0000{text}\": {{\"w\": 1, \"a\": 1, \"d\": 1}}"))
+            .map(|(role, text)| {
+                format!("\"{role}\\u0000{text}\": {{\"w\": 1, \"a\": 1, \"d\": 1}}")
+            })
             .collect();
         let table = format!("{{{}}}", table.join(", "));
         let Round::Done(out) = compile_round_outcome(BAR, opts, &table) else {
@@ -159,19 +167,33 @@ mod tests {
         assert_eq!(out.width, 400.0);
         assert_eq!(out.find_text, "Tna3");
         assert!(out.svg.starts_with("<svg "));
+        let untitled = r#"{"width": 400, "id_prefix": "c1", "motion": true, "layers": "chart", "figure_title": false}"#;
+        assert!(matches!(
+            compile_round_outcome(BAR, untitled, &table),
+            Round::Done(_)
+        ));
     }
 
     #[test]
     fn bad_opts_and_tables_are_invalid() {
-        assert!(matches!(compile_round_outcome(BAR, "[]", "{}"), Round::Invalid { .. }));
-        assert!(matches!(compile_round_outcome(BAR, "{}", "[]"), Round::Invalid { .. }));
+        assert!(matches!(
+            compile_round_outcome(BAR, "[]", "{}"),
+            Round::Invalid { .. }
+        ));
+        assert!(matches!(
+            compile_round_outcome(BAR, "{}", "[]"),
+            Round::Invalid { .. }
+        ));
     }
 
     #[test]
     fn validate_and_find_text_take_the_door() {
         let draw = r#"{"tugdraw": 1, "frame": [10, 10], "ops": []}"#;
         assert_eq!(validate_outcome(BAR, "chart"), ValidateOutcome::Valid);
-        assert!(matches!(validate_outcome(draw, "chart"), ValidateOutcome::Invalid { .. }));
+        assert!(matches!(
+            validate_outcome(draw, "chart"),
+            ValidateOutcome::Invalid { .. }
+        ));
         assert_eq!(validate_outcome(draw, "any"), ValidateOutcome::Valid);
         assert_eq!(find_text_of(BAR, "chart"), "Tna3");
         assert_eq!(find_text_of(draw, "any"), "");

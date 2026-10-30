@@ -1,0 +1,29 @@
+[package]
+name = "tugchart-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The well-known charts: a catalog of recipes that compute their data and emit a tugchart spec"
+
+[lib]
+name = "tugchart_core"
+path = "src/lib.rs"
+
+[dependencies]
+chrono.workspace = true
+clap.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tugarc-core.workspace = true
+tugchanges-core.workspace = true
+tugcore.workspace = true
+# The spec's limits, and the validator the tests hold every recipe to. No
+# `font`: a recipe builds a spec and lays nothing out.
+tuggraphics = { path = "../../../tugdeck/crates/tuggraphics" }
+tugtool-core.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tugcore = { workspace = true, features = ["test-fixtures"] }

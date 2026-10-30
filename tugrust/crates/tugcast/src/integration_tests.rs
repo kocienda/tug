@@ -1648,3 +1648,130 @@ async fn test_prompt_history_routes_are_absent_without_a_ledger() {
         resp.status(),
     );
 }
+
+/// A GET of a chart route from `from`, as its status and JSON body.
+async fn chart_get(uri: &str, from: Ipv4Addr) -> (StatusCode, serde_json::Value) {
+    use axum::extract::connect_info::MockConnectInfo;
+
+    let (app, _token) = build_test_app(7890);
+    let addr = SocketAddr::new(IpAddr::V4(from), 0);
+    let response = app
+        .layer(MockConnectInfo(addr))
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+
+fn chart_uri(recipe: &str, project: &std::path::Path) -> String {
+    format!("/api/chart/{recipe}?project={}", project.display())
+}
+
+#[tokio::test]
+async fn chart_list_returns_every_recipe() {
+    let (status, body) = chart_get("/api/chart/list", Ipv4Addr::LOCALHOST).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "ok");
+    let recipes = body["recipes"].as_array().unwrap();
+    assert_eq!(recipes.len(), 12);
+    assert!(recipes.iter().any(|recipe| recipe["name"] == "commits"));
+}
+
+#[tokio::test]
+async fn chart_recipe_unknown_is_not_found() {
+    let (status, body) = chart_get("/api/chart/nosuch", Ipv4Addr::LOCALHOST).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["status"], "error");
+    assert_eq!(body["message"], "unknown recipe");
+}
+
+#[tokio::test]
+async fn chart_recipe_needs_a_project() {
+    let (status, body) = chart_get("/api/chart/commits", Ipv4Addr::LOCALHOST).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["status"], "error");
+}
+
+#[tokio::test]
+async fn chart_routes_refuse_off_loopback() {
+    let elsewhere = Ipv4Addr::new(10, 0, 0, 1);
+    let (list, _) = chart_get("/api/chart/list", elsewhere).await;
+    assert_eq!(list, StatusCode::FORBIDDEN);
+    let (recipe, _) = chart_get("/api/chart/commits?project=/tmp", elsewhere).await;
+    assert_eq!(recipe, StatusCode::FORBIDDEN);
+}
+
+/// The test's cwd is this crate, in a repository with its own history, so a
+/// count of the fixture's three commits says the project is what was read.
+#[tokio::test]
+async fn chart_recipe_reads_the_named_project() {
+    use tugcore::test_fixtures::git::GitFixture;
+
+    let temp = tempfile::tempdir().unwrap();
+    let fixture = GitFixture::init(&temp.path().join("repo"));
+    for message in ["one", "two", "three"] {
+        fixture.git(&["commit", "--allow-empty", "-q", "-m", message]);
+    }
+
+    let (status, body) =
+        chart_get(&chart_uri("commits", fixture.root()), Ipv4Addr::LOCALHOST).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["recipe"], "commits");
+    assert_eq!(body["spec"]["form"], "bar");
+    let summary = body["summary"].as_str().unwrap();
+    assert!(summary.starts_with("3 commit(s)"), "{summary}");
+}
+
+#[tokio::test]
+async fn chart_recipe_without_a_repository_has_no_spec() {
+    let temp = tempfile::tempdir().unwrap();
+    let (status, body) = chart_get(&chart_uri("commits", temp.path()), Ipv4Addr::LOCALHOST).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "ok");
+    assert!(body["spec"].is_null());
+    assert!(!body["summary"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn chart_recipe_without_a_record_has_no_spec() {
+    let temp = tempfile::tempdir().unwrap();
+    let previous = std::env::var_os("TUG_REPORT_GAPS_DB");
+    // SAFETY: `#[serial]`; no other thread reads the environment here.
+    unsafe {
+        std::env::set_var("TUG_REPORT_GAPS_DB", temp.path().join("absent.db"));
+    }
+    let (status, body) = chart_get(&chart_uri("gaps", temp.path()), Ipv4Addr::LOCALHOST).await;
+    // SAFETY: as above.
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("TUG_REPORT_GAPS_DB", value),
+            None => std::env::remove_var("TUG_REPORT_GAPS_DB"),
+        }
+    }
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["spec"].is_null());
+    assert!(!body["summary"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn chart_recipe_error_is_a_server_error() {
+    let response = crate::server::chart_outcome_response(
+        "commits",
+        Err(tugchart_core::context::RecipeError::Git(
+            "no such range".to_string(),
+        )),
+    );
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["status"], "error");
+    assert_eq!(body["message"], "no such range");
+}

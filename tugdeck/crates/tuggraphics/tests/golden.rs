@@ -18,11 +18,15 @@ fn layer0_goldens() {
         .unwrap()
         .filter_map(|e| {
             let p = e.unwrap().path();
-            (p.extension()? == "json").then(|| p.file_stem().unwrap().to_string_lossy().into_owned())
+            (p.extension()? == "json")
+                .then(|| p.file_stem().unwrap().to_string_lossy().into_owned())
         })
         .collect();
     names.sort();
-    assert!(names.len() >= 6, "expected the layer 0 goldens, found {names:?}");
+    assert!(
+        names.len() >= 6,
+        "expected the layer 0 goldens, found {names:?}"
+    );
     let mut failed = Vec::new();
     for name in &names {
         let source = fs::read_to_string(dir.join(format!("{name}.json"))).unwrap();
@@ -41,5 +45,9 @@ fn layer0_goldens() {
             failed.push(format!("{name}:\n{svg}"));
         }
     }
-    assert!(failed.is_empty(), "goldens differ:\n{}", failed.join("\n\n"));
+    assert!(
+        failed.is_empty(),
+        "goldens differ:\n{}",
+        failed.join("\n\n")
+    );
 }

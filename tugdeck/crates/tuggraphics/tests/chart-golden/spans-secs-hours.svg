@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 128" width="560" height="128" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Arc stages</text>
+<text x="0" y="28" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">from the start</text>
+<text x="0" y="50" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">Devise</text>
+<text x="0" y="66" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">Review</text>
+<text x="0" y="82" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">Implement</text>
+<text x="0" y="98" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">Audit</text>
+<text x="72.8" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0s</text>
+<text x="153.33" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">30m00s</text>
+<text x="233.87" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1h00m</text>
+<text x="314.4" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1h30m</text>
+<text x="394.93" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2h00m</text>
+<text x="475.47" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2h30m</text>
+<text x="543.5" y="121" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">3h00m</text>
+<path d="M72.8 42 L72.8 106 M153.33 42 L153.33 106 M233.87 42 L233.87 106 M314.4 42 L314.4 106 M394.93 42 L394.93 106 M475.47 42 L475.47 106 M556 42 L556 106" class="tgs-grid" fill="none" stroke-width="1"/>
+<path d="M72.8 45.2 L156.02 45.2 L156.02 54.8 L72.8 54.8 Z" class="tgf-good tge-grow tge-from-left" style="--tg-i:0"/>
+<path d="M156.02 61.2 L193.6 61.2 L193.6 70.8 L156.02 70.8 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:1"/>
+<path d="M193.6 77.2 L496.94 77.2 L496.94 86.8 L193.6 86.8 Z" class="tgf-accent tge-grow tge-from-left" style="--tg-i:2"/>
+<path d="M496.94 93.2 L526.47 93.2 L526.47 102.8 L496.94 102.8 Z" class="tgf-bad tge-grow tge-from-left" style="--tg-i:3"/>
+</svg>

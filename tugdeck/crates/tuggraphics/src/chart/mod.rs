@@ -42,6 +42,10 @@ pub struct CompileOpts {
     /// its classes to this palette. The deck passes `None` and styles the
     /// classes itself, so a theme switch restyles a chart in place.
     pub palette: Option<Palette>,
+    /// Whether the figure draws its title. The deck passes `false`: its block
+    /// header already shows the table's caption, and a title drawn in both
+    /// reads twice. A file keeps it, having no other place for it.
+    pub figure_title: bool,
 }
 
 impl Default for CompileOpts {
@@ -52,26 +56,35 @@ impl Default for CompileOpts {
             motion: true,
             layers: Layers::Chart,
             palette: None,
+            figure_title: true,
         }
     }
 }
 
 impl CompileOpts {
     /// Reads the protocol's opts: `{"width", "id_prefix", "motion",
-    /// "layers"}`, each optional.
+    /// "layers", "figure_title"}`, each optional.
     pub fn from_json(source: &str) -> Result<CompileOpts, ChartError> {
         let bad = |message: &str| ChartError {
             path: String::new(),
             message: format!("compile options: {message}"),
         };
-        let value: Value = serde_json::from_str(source).map_err(|e| bad(&format!("not JSON: {e}")))?;
+        let value: Value =
+            serde_json::from_str(source).map_err(|e| bad(&format!("not JSON: {e}")))?;
         let obj = value.as_object().ok_or_else(|| bad("an object"))?;
         let mut opts = CompileOpts::default();
         if let Some(w) = obj.get("width").filter(|v| !v.is_null()) {
-            opts.width = Some(w.as_f64().filter(|w| *w > 0.0).ok_or_else(|| bad("width is a positive number"))?);
+            opts.width = Some(
+                w.as_f64()
+                    .filter(|w| *w > 0.0)
+                    .ok_or_else(|| bad("width is a positive number"))?,
+            );
         }
         if let Some(p) = obj.get("id_prefix") {
-            opts.id_prefix = p.as_str().ok_or_else(|| bad("id_prefix is a string"))?.to_string();
+            opts.id_prefix = p
+                .as_str()
+                .ok_or_else(|| bad("id_prefix is a string"))?
+                .to_string();
         }
         if let Some(m) = obj.get("motion") {
             opts.motion = m.as_bool().ok_or_else(|| bad("motion is a boolean"))?;
@@ -81,6 +94,11 @@ impl CompileOpts {
                 .as_str()
                 .and_then(Layers::parse)
                 .ok_or_else(|| bad("layers is \"chart\" or \"any\""))?;
+        }
+        if let Some(t) = obj.get("figure_title") {
+            opts.figure_title = t
+                .as_bool()
+                .ok_or_else(|| bad("figure_title is a boolean"))?;
         }
         Ok(opts)
     }
@@ -101,9 +119,13 @@ pub struct Compiled {
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum Round {
     /// The `(role, text)` pairs still to measure.
-    Measure { texts: Vec<(String, String)> },
+    Measure {
+        texts: Vec<(String, String)>,
+    },
     Done(Compiled),
-    Invalid { errors: Vec<ChartError> },
+    Invalid {
+        errors: Vec<ChartError>,
+    },
 }
 
 /// The frame a spec is laid out in: its own or its form's width, narrowed
@@ -116,6 +138,16 @@ fn frame(spec: &Spec, width: Option<f64>) -> (f64, f64) {
 }
 
 fn layout(spec: &Spec, opts: &CompileOpts, m: &dyn Measure) -> Program {
+    if !opts.figure_title {
+        // A copy, as `histogram::layout` makes for its counts: no form learns
+        // of the option, and `finish` still reads the title for the table.
+        let untitled = Spec {
+            title: None,
+            ..spec.clone()
+        };
+        let (w, h) = frame(&untitled, opts.width);
+        return forms::layout(&untitled, w, h, opts.motion && spec.motion, m);
+    }
     let (w, h) = frame(spec, opts.width);
     forms::layout(spec, w, h, opts.motion && spec.motion, m)
 }
@@ -165,7 +197,11 @@ fn drawing(mut program: Program, opts: &CompileOpts) -> Compiled {
 
 /// Compiles natively, running the measure protocol to completion against
 /// `m` with the same rounds and limit the deck's loop has.
-pub fn compile_with(source: &str, opts: &CompileOpts, m: &dyn Measure) -> Result<Compiled, Vec<ChartError>> {
+pub fn compile_with(
+    source: &str,
+    opts: &CompileOpts,
+    m: &dyn Measure,
+) -> Result<Compiled, Vec<ChartError>> {
     match validate(source, opts.layers)? {
         Source::Draw(program) => Ok(drawing(program, opts)),
         Source::Chart(spec) => {
@@ -189,7 +225,10 @@ pub fn compile_round(source: &str, opts: &CompileOpts, table: &MeasureTable) -> 
         Ok(Source::Chart(spec)) => match measure_round(table, |m| layout(&spec, opts, m)) {
             RoundOutcome::Done(program) => Round::Done(finish(&spec, &program, opts)),
             RoundOutcome::Measure(texts) => Round::Measure {
-                texts: texts.into_iter().map(|(r, t)| (r.name().to_string(), t)).collect(),
+                texts: texts
+                    .into_iter()
+                    .map(|(r, t)| (r.name().to_string(), t))
+                    .collect(),
             },
         },
     }

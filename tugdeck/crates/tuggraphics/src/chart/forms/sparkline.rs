@@ -10,7 +10,13 @@ use crate::draw::{ColourRole, Enter, Seg};
 const INSET: f64 = 3.0;
 const DOT: f64 = 2.0;
 
-pub(super) fn layout(b: &mut Builder, values: &[Option<f64>], highlight: Highlight, w: f64, h: f64) {
+pub(super) fn layout(
+    b: &mut Builder,
+    values: &[Option<f64>],
+    highlight: Highlight,
+    w: f64,
+    h: f64,
+) {
     let (lo, hi) = range(values).unwrap_or((0.0, 0.0));
     let n = values.len();
     let x = |i: usize| {
@@ -79,7 +85,11 @@ pub(super) fn layout(b: &mut Builder, values: &[Option<f64>], highlight: Highlig
     }
     for i in dots {
         if let Some(v) = values[i] {
-            b.fill(circle(x(i), y(v), DOT), ColourRole::Accent, b.enter(Enter::Fade, 1));
+            b.fill(
+                circle(x(i), y(v), DOT),
+                ColourRole::Accent,
+                b.enter(Enter::Fade, 1),
+            );
         }
     }
 }

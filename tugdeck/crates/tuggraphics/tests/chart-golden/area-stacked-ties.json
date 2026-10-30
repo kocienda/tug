@@ -1,0 +1,12 @@
+{
+  "tugchart": 1,
+  "form": "area",
+  "layout": "stacked",
+  "title": "Added and removed fall to nothing",
+  "format": "count",
+  "x": ["Mon", "Tue", "Wed", "Thu"],
+  "series": [
+    {"name": "added", "values": [120, 90, 30, 0], "role": "good"},
+    {"name": "removed", "values": [40, 60, 10, 0], "role": "bad"}
+  ]
+}

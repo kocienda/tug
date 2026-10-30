@@ -27,7 +27,9 @@ pub enum Format {
 }
 
 impl Format {
-    pub const NAMES: [&'static str; 7] = ["auto", "int", "decimal", "percent", "secs", "bytes", "count"];
+    pub const NAMES: [&'static str; 7] = [
+        "auto", "int", "decimal", "percent", "secs", "bytes", "count",
+    ];
 
     pub fn parse(s: &str) -> Option<Format> {
         match s {

@@ -22,7 +22,12 @@ pub enum TypeRole {
 }
 
 impl TypeRole {
-    pub const ALL: [TypeRole; 4] = [TypeRole::Title, TypeRole::Label, TypeRole::Value, TypeRole::Mono];
+    pub const ALL: [TypeRole; 4] = [
+        TypeRole::Title,
+        TypeRole::Label,
+        TypeRole::Value,
+        TypeRole::Mono,
+    ];
 
     pub fn parse(s: &str) -> Option<TypeRole> {
         match s {
@@ -109,7 +114,8 @@ impl MeasureTable {
     /// Reads a table in the protocol's JSON shape:
     /// `{"<role>\u0000<text>": {"w": …, "a": …, "d": …}}`.
     pub fn from_json(source: &str) -> Result<MeasureTable, String> {
-        let value: Value = serde_json::from_str(source).map_err(|e| format!("measure table is not JSON: {e}"))?;
+        let value: Value =
+            serde_json::from_str(source).map_err(|e| format!("measure table is not JSON: {e}"))?;
         let obj = value.as_object().ok_or("measure table is a JSON object")?;
         let mut table = MeasureTable::new();
         for (key, m) in obj {
@@ -120,7 +126,11 @@ impl MeasureTable {
             let field = |k: &str| m.get(k).and_then(Value::as_f64).filter(|n| n.is_finite());
             match (field("w"), field("a"), field("d")) {
                 (Some(w), Some(a), Some(d)) => table.insert(role, text, Metrics { w, a, d }),
-                _ => return Err("measure table values are {\"w\", \"a\", \"d\"} finite numbers".into()),
+                _ => {
+                    return Err(
+                        "measure table values are {\"w\", \"a\", \"d\"} finite numbers".into(),
+                    )
+                }
             }
         }
         Ok(table)
@@ -133,7 +143,9 @@ impl MeasureTable {
     /// The pairs asked for and not known, in a stable order, clearing the
     /// record.
     pub fn take_misses(&self) -> Vec<(TypeRole, String)> {
-        std::mem::take(&mut *self.misses.borrow_mut()).into_iter().collect()
+        std::mem::take(&mut *self.misses.borrow_mut())
+            .into_iter()
+            .collect()
     }
 }
 
@@ -167,7 +179,11 @@ pub const ELLIPSIS: &str = "…";
 /// only once it is known to overflow — every candidate at once, so a
 /// table-backed layout settles in at most two measure rounds.
 pub fn fit_text(text: &str, role: TypeRole, max_w: f64, m: &dyn Measure) -> Fit {
-    const ZERO: Metrics = Metrics { w: 0.0, a: 0.0, d: 0.0 };
+    const ZERO: Metrics = Metrics {
+        w: 0.0,
+        a: 0.0,
+        d: 0.0,
+    };
     let Some(full) = m.measure(role, text) else {
         return Fit {
             text: text.to_string(),
@@ -227,7 +243,10 @@ pub const NOT_CONVERGED: &str = "measurement did not converge";
 /// Runs `layout` once against `table`: `Done` when it asked for nothing
 /// the table lacks, otherwise the pairs to measure. This is one round of
 /// the protocol the WASM shell speaks; the caller supplies the table.
-pub fn measure_round<T>(table: &MeasureTable, layout: impl FnOnce(&dyn Measure) -> T) -> RoundOutcome<T> {
+pub fn measure_round<T>(
+    table: &MeasureTable,
+    layout: impl FnOnce(&dyn Measure) -> T,
+) -> RoundOutcome<T> {
     table.take_misses();
     let out = layout(table);
     let misses = table.take_misses();
@@ -241,7 +260,10 @@ pub fn measure_round<T>(table: &MeasureTable, layout: impl FnOnce(&dyn Measure) 
 /// Runs the protocol natively to completion against any measurer, with
 /// the same rounds and the same limit the deck's loop enforces, so a
 /// layout that converges here converges there.
-pub fn run_rounds<T>(measurer: &dyn Measure, mut layout: impl FnMut(&dyn Measure) -> T) -> Result<T, String> {
+pub fn run_rounds<T>(
+    measurer: &dyn Measure,
+    mut layout: impl FnMut(&dyn Measure) -> T,
+) -> Result<T, String> {
     let mut table = MeasureTable::new();
     for request in 0..=MAX_MEASURE_REQUESTS {
         match measure_round(&table, &mut layout) {
@@ -249,9 +271,9 @@ pub fn run_rounds<T>(measurer: &dyn Measure, mut layout: impl FnMut(&dyn Measure
             RoundOutcome::Measure(_) if request == MAX_MEASURE_REQUESTS => break,
             RoundOutcome::Measure(missing) => {
                 for (role, text) in missing {
-                    let m = measurer
-                        .measure(role, &text)
-                        .ok_or_else(|| format!("no measurement for {} text {text:?}", role.name()))?;
+                    let m = measurer.measure(role, &text).ok_or_else(|| {
+                        format!("no measurement for {} text {text:?}", role.name())
+                    })?;
                     table.insert(role, &text, m);
                 }
             }
@@ -312,7 +334,10 @@ mod tests {
         assert!(fit.truncated);
         assert_eq!(fit.metrics.w, 0.0);
         // Exactly one grapheme wide leaves the ellipsis alone.
-        assert_eq!(fit_text("Wednesday", TypeRole::Label, G, &FixedMetrics).text, "…");
+        assert_eq!(
+            fit_text("Wednesday", TypeRole::Label, G, &FixedMetrics).text,
+            "…"
+        );
     }
 
     #[test]
@@ -341,7 +366,10 @@ mod tests {
         };
         assert_eq!(
             first,
-            vec![(TypeRole::Label, "Mon".to_string()), (TypeRole::Label, "Wednesday".to_string())]
+            vec![
+                (TypeRole::Label, "Mon".to_string()),
+                (TypeRole::Label, "Wednesday".to_string())
+            ]
         );
         for (role, text) in &first {
             table.insert(*role, text, FixedMetrics.measure(*role, text).unwrap());
@@ -380,10 +408,15 @@ mod tests {
 
     #[test]
     fn table_reads_the_protocol_shape() {
-        let table = MeasureTable::from_json(r#"{"label\u0000Mon": {"w": 21.5, "a": 9, "d": 2.5}}"#).unwrap();
+        let table = MeasureTable::from_json(r#"{"label\u0000Mon": {"w": 21.5, "a": 9, "d": 2.5}}"#)
+            .unwrap();
         assert_eq!(
             table.measure(TypeRole::Label, "Mon"),
-            Some(Metrics { w: 21.5, a: 9.0, d: 2.5 })
+            Some(Metrics {
+                w: 21.5,
+                a: 9.0,
+                d: 2.5
+            })
         );
         assert_eq!(table_key(TypeRole::Label, "Mon"), "label\u{0}Mon");
         assert!(MeasureTable::from_json(r#"{"serif\u0000x": {"w": 1, "a": 1, "d": 1}}"#).is_err());

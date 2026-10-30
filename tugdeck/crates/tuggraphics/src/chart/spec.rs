@@ -7,6 +7,8 @@ use serde_json::{Map, Value};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::format::Format;
+use super::forms::heat::CELL_H;
+use super::forms::{GAP, LABEL_ROW, TITLE_ROW};
 use crate::draw::{self, ColourRole, Program, SERIES_COUNT};
 
 /// At most this many series in one chart, one per categorical colour the
@@ -259,7 +261,8 @@ pub struct Spec {
 impl Spec {
     /// The form's default frame.
     pub fn default_size(&self) -> (f64, f64) {
-        let rows = |n: usize, pitch: f64, chrome: f64| (560.0, (n as f64 * pitch + chrome).min(MAX_H));
+        let rows =
+            |n: usize, pitch: f64, chrome: f64| (560.0, (n as f64 * pitch + chrome).min(MAX_H));
         match &self.data {
             Data::Bar {
                 orient: Orient::Horizontal,
@@ -271,7 +274,16 @@ impl Spec {
             Data::Dots { rows: r } => rows(r.len(), 18.0, 40.0),
             Data::Histogram { .. } => (560.0, 200.0),
             Data::Spans { items } => rows(items.len(), 20.0, 48.0),
-            Data::Heat { .. } => (560.0, 64.0),
+            Data::Heat { .. } => {
+                let rows = if self.title.is_some() { TITLE_ROW } else { 0.0 }
+                    + if self.subtitle.is_some() || self.unit.is_some() {
+                        LABEL_ROW
+                    } else {
+                        0.0
+                    };
+                let header = if rows > 0.0 { rows + GAP } else { 0.0 };
+                (560.0, header + CELL_H + 4.0 + LABEL_ROW)
+            }
             Data::Bullet { items } => rows(items.len(), 28.0, 40.0),
         }
     }
@@ -304,7 +316,8 @@ const COMMON: [&str; 9] = [
 /// Reads and validates `source` for a door taking `layers`, returning
 /// every error.
 pub fn validate(source: &str, layers: Layers) -> Result<Source, Vec<ChartError>> {
-    let value: Value = serde_json::from_str(source).map_err(|e| vec![err("", format!("not JSON: {e}"))])?;
+    let value: Value =
+        serde_json::from_str(source).map_err(|e| vec![err("", format!("not JSON: {e}"))])?;
     let Value::Object(obj) = &value else {
         return Err(vec![err("", "a chart spec is a JSON object")]);
     };
@@ -312,15 +325,17 @@ pub fn validate(source: &str, layers: Layers) -> Result<Source, Vec<ChartError>>
         if layers == Layers::Chart {
             return Err(vec![err("", LAYER0_IN_FENCE)]);
         }
-        return draw::parse_value(&value).map(Source::Draw).map_err(|errors| {
-            errors
-                .into_iter()
-                .map(|e| ChartError {
-                    path: e.op.map(|i| format!("/ops/{i}")).unwrap_or_default(),
-                    message: e.message,
-                })
-                .collect()
-        });
+        return draw::parse_value(&value)
+            .map(Source::Draw)
+            .map_err(|errors| {
+                errors
+                    .into_iter()
+                    .map(|e| ChartError {
+                        path: e.op.map(|i| format!("/ops/{i}")).unwrap_or_default(),
+                        message: e.message,
+                    })
+                    .collect()
+            });
     }
     let mut v = Validator::default();
     let spec = v.spec(obj);
@@ -376,14 +391,18 @@ impl Validator {
     }
 
     fn opt_label(&mut self, obj: &Map<String, Value>, base: &str, key: &str) -> Option<String> {
-        obj.get(key).and_then(|v| self.label(v, &key_path(base, key), key))
+        obj.get(key)
+            .and_then(|v| self.label(v, &key_path(base, key), key))
     }
 
     fn number(&mut self, value: &Value, path: &str, what: &str) -> Option<f64> {
         match value.as_f64() {
             Some(n) if n.abs() <= MAX_VALUE => Some(n),
             Some(_) => {
-                self.err(path, format!("{what} is out of range: magnitude above 1e15"));
+                self.err(
+                    path,
+                    format!("{what} is out of range: magnitude above 1e15"),
+                );
                 None
             }
             None => {
@@ -419,7 +438,13 @@ impl Validator {
         (self.errors.len() == before).then_some(out)
     }
 
-    fn labels(&mut self, value: Option<&Value>, path: &str, what: &str, numbers: bool) -> Option<Vec<String>> {
+    fn labels(
+        &mut self,
+        value: Option<&Value>,
+        path: &str,
+        what: &str,
+        numbers: bool,
+    ) -> Option<Vec<String>> {
         let Some(value) = value else {
             self.err(path, format!("{what} is required"));
             return None;
@@ -439,7 +464,9 @@ impl Validator {
             .map(|(i, item)| {
                 let p = format!("{path}/{i}");
                 match item {
-                    Value::Number(_) if numbers => self.number(item, &p, "an x value").map(|n| Format::Auto.apply(n)),
+                    Value::Number(_) if numbers => self
+                        .number(item, &p, "an x value")
+                        .map(|n| Format::Auto.apply(n)),
                     _ => self.label(item, &p, if numbers { "an x value" } else { "a category" }),
                 }
                 .unwrap_or_default()
@@ -470,14 +497,19 @@ impl Validator {
                 continue;
             };
             self.known_keys(s, &base, &["name", "values", "role"]);
-            let name = self.opt_label(s, &base, "name").unwrap_or_else(|| format!("series {}", i + 1));
+            let name = self
+                .opt_label(s, &base, "name")
+                .unwrap_or_else(|| format!("series {}", i + 1));
             let role = match s.get("role") {
                 None => ColourRole::Series(i as u8 + 1),
                 Some(Value::String(r)) if ["good", "bad", "accent"].contains(&r.as_str()) => {
                     ColourRole::parse(r).unwrap_or(ColourRole::Accent)
                 }
                 Some(_) => {
-                    self.err(format!("{base}/role"), "a series role is good, bad or accent");
+                    self.err(
+                        format!("{base}/role"),
+                        "a series role is good, bad or accent",
+                    );
                     ColourRole::Accent
                 }
             };
@@ -505,7 +537,10 @@ impl Validator {
             None => None,
             Some(Value::String(s)) if allowed.contains(&s.as_str()) => Some(s.clone()),
             Some(_) => {
-                self.err(key_path("", key), format!("{key} is one of {}", allowed.join(", ")));
+                self.err(
+                    key_path("", key),
+                    format!("{key} is one of {}", allowed.join(", ")),
+                );
                 None
             }
         }
@@ -552,9 +587,14 @@ impl Validator {
         let unit = self.opt_label(obj, "", "unit");
         let format = match obj.get("format") {
             None => Format::Auto,
-            Some(Value::String(f)) if Format::parse(f).is_some() => Format::parse(f).unwrap_or(Format::Auto),
+            Some(Value::String(f)) if Format::parse(f).is_some() => {
+                Format::parse(f).unwrap_or(Format::Auto)
+            }
             Some(_) => {
-                self.err("/format", format!("format is one of {}", Format::NAMES.join(", ")));
+                self.err(
+                    "/format",
+                    format!("format is one of {}", Format::NAMES.join(", ")),
+                );
                 Format::Auto
             }
         };
@@ -565,17 +605,27 @@ impl Validator {
 
         let data = match form.as_str() {
             "bar" => {
-                let orient = match self.one_of(obj, "orient", &["vertical", "horizontal"]).as_deref() {
+                let orient = match self
+                    .one_of(obj, "orient", &["vertical", "horizontal"])
+                    .as_deref()
+                {
                     Some("horizontal") => Orient::Horizontal,
                     _ => Orient::Vertical,
                 };
-                let stacked = self.one_of(obj, "layout", &["grouped", "stacked"]).as_deref() == Some("stacked");
-                let categories = self.labels(obj.get("categories"), "/categories", "categories", false);
+                let stacked = self
+                    .one_of(obj, "layout", &["grouped", "stacked"])
+                    .as_deref()
+                    == Some("stacked");
+                let categories =
+                    self.labels(obj.get("categories"), "/categories", "categories", false);
                 let series = self.series(obj);
                 if let (Some(c), Some(s)) = (&categories, &series) {
                     self.same_length(s, c.len(), "categories");
                     if orient == Orient::Horizontal && c.len() > MAX_ROWS {
-                        self.err("/categories", format!("a horizontal bar chart has at most {MAX_ROWS} categories"));
+                        self.err(
+                            "/categories",
+                            format!("a horizontal bar chart has at most {MAX_ROWS} categories"),
+                        );
                     }
                 }
                 Data::Bar {
@@ -586,12 +636,17 @@ impl Validator {
                 }
             }
             "line" | "area" => {
-                let stacked =
-                    form == "area" && self.one_of(obj, "layout", &["overlap", "stacked"]).as_deref() == Some("stacked");
+                let stacked = form == "area"
+                    && self
+                        .one_of(obj, "layout", &["overlap", "stacked"])
+                        .as_deref()
+                        == Some("stacked");
                 let series = self.series(obj)?;
                 let x = match obj.get("x") {
                     Some(x) => self.labels(Some(x), "/x", "x", true)?,
-                    None => (1..=series[0].values.len()).map(|i| i.to_string()).collect(),
+                    None => (1..=series[0].values.len())
+                        .map(|i| i.to_string())
+                        .collect(),
                 };
                 self.same_length(&series, x.len(), "x values");
                 if form == "line" {
@@ -605,7 +660,10 @@ impl Validator {
                 if values.iter().all(Option::is_none) {
                     self.err("/values", "a sparkline needs at least one number");
                 }
-                let highlight = match self.one_of(obj, "highlight", &["last", "min-max", "none"]).as_deref() {
+                let highlight = match self
+                    .one_of(obj, "highlight", &["last", "min-max", "none"])
+                    .as_deref()
+                {
                     Some("min-max") => Highlight::MinMax,
                     Some("none") => Highlight::None,
                     _ => Highlight::Last,
@@ -616,16 +674,25 @@ impl Validator {
                 rows: self.dot_rows(obj)?,
             },
             "histogram" => {
-                let values: Vec<f64> = self.values(obj.get("values"), "/values")?.into_iter().flatten().collect();
+                let values: Vec<f64> = self
+                    .values(obj.get("values"), "/values")?
+                    .into_iter()
+                    .flatten()
+                    .collect();
                 if values.is_empty() {
                     self.err("/values", "a histogram needs at least one number");
                 }
                 let bins = match obj.get("bins") {
                     None => None,
                     Some(b) => match b.as_u64() {
-                        Some(n) if (MIN_BINS as u64..=MAX_BINS as u64).contains(&n) => Some(n as usize),
+                        Some(n) if (MIN_BINS as u64..=MAX_BINS as u64).contains(&n) => {
+                            Some(n as usize)
+                        }
                         _ => {
-                            self.err("/bins", format!("bins is an integer from {MIN_BINS} to {MAX_BINS}"));
+                            self.err(
+                                "/bins",
+                                format!("bins is an integer from {MIN_BINS} to {MAX_BINS}"),
+                            );
                             None
                         }
                     },
@@ -636,11 +703,15 @@ impl Validator {
                 items: self.span_items(obj)?,
             },
             "heat" => {
-                let categories = self.labels(obj.get("categories"), "/categories", "categories", false);
+                let categories =
+                    self.labels(obj.get("categories"), "/categories", "categories", false);
                 let values = self.values(obj.get("values"), "/values");
                 if let (Some(c), Some(v)) = (&categories, &values) {
                     if v.len() != c.len() {
-                        self.err("/values", format!("values has {} entries for {} categories", v.len(), c.len()));
+                        self.err(
+                            "/values",
+                            format!("values has {} entries for {} categories", v.len(), c.len()),
+                        );
                     }
                 }
                 Data::Heat {
@@ -653,9 +724,18 @@ impl Validator {
             },
         };
         if h.is_some_and(|h| data.is_axis() && h < MIN_AXIS_H) {
-            self.err("/size/h", format!("size.h is a number from {MIN_AXIS_H} to {MAX_H} for a {}", data.form()));
+            self.err(
+                "/size/h",
+                format!(
+                    "size.h is a number from {MIN_AXIS_H} to {MAX_H} for a {}",
+                    data.form()
+                ),
+            );
         }
-        let annotated = matches!(data, Data::Bar { .. } | Data::Line { .. } | Data::Area { .. });
+        let annotated = matches!(
+            data,
+            Data::Bar { .. } | Data::Line { .. } | Data::Area { .. }
+        );
         let annotations = self.annotations(obj, annotated.then_some(data.points()), data.form());
         Some(Spec {
             title,
@@ -684,7 +764,10 @@ impl Validator {
             match v.as_f64() {
                 Some(n) if (lo..=hi).contains(&n) => Some(n),
                 _ => {
-                    self.err(format!("/size/{key}"), format!("size.{key} is a number from {lo} to {hi}"));
+                    self.err(
+                        format!("/size/{key}"),
+                        format!("size.{key} is a number from {lo} to {hi}"),
+                    );
                     None
                 }
             }
@@ -760,36 +843,43 @@ impl Validator {
     }
 
     fn span_items(&mut self, obj: &Map<String, Value>) -> Option<Vec<SpanItem>> {
-        self.rows(obj, "items", &["label", "start", "end", "status"], |v, row, base, label| {
-            let mut end_of = |key: &str| match row.get(key) {
-                Some(n) => v.number(n, &format!("{base}/{key}"), key),
-                None => {
-                    v.err(format!("{base}/{key}"), format!("{key} is required"));
-                    None
+        self.rows(
+            obj,
+            "items",
+            &["label", "start", "end", "status"],
+            |v, row, base, label| {
+                let mut end_of = |key: &str| match row.get(key) {
+                    Some(n) => v.number(n, &format!("{base}/{key}"), key),
+                    None => {
+                        v.err(format!("{base}/{key}"), format!("{key} is required"));
+                        None
+                    }
+                };
+                let start = end_of("start");
+                let end = end_of("end");
+                let status = match row.get("status") {
+                    None => None,
+                    Some(Value::String(s)) if ["good", "bad", "accent"].contains(&s.as_str()) => {
+                        Some(s.clone())
+                    }
+                    Some(_) => {
+                        v.err(format!("{base}/status"), "a status is good, bad or accent");
+                        None
+                    }
+                };
+                let (start, end) = (start?, end?);
+                if end < start {
+                    v.err(format!("{base}/end"), "end is at least start");
+                    return None;
                 }
-            };
-            let start = end_of("start");
-            let end = end_of("end");
-            let status = match row.get("status") {
-                None => None,
-                Some(Value::String(s)) if ["good", "bad", "accent"].contains(&s.as_str()) => Some(s.clone()),
-                Some(_) => {
-                    v.err(format!("{base}/status"), "a status is good, bad or accent");
-                    None
-                }
-            };
-            let (start, end) = (start?, end?);
-            if end < start {
-                v.err(format!("{base}/end"), "end is at least start");
-                return None;
-            }
-            Some(SpanItem {
-                label,
-                start,
-                end,
-                status,
-            })
-        })
+                Some(SpanItem {
+                    label,
+                    start,
+                    end,
+                    status,
+                })
+            },
+        )
     }
 
     fn bullet_items(&mut self, obj: &Map<String, Value>) -> Option<Vec<BulletItem>> {
@@ -813,7 +903,10 @@ impl Validator {
                         match (lo, hi) {
                             (Some(lo), Some(hi)) if lo <= hi => Some((lo, hi)),
                             (Some(_), Some(_)) => {
-                                v.err(format!("{base}/range"), "a range is [lo, hi] with lo at most hi");
+                                v.err(
+                                    format!("{base}/range"),
+                                    "a range is [lo, hi] with lo at most hi",
+                                );
                                 None
                             }
                             _ => None,
@@ -829,7 +922,9 @@ impl Validator {
                     .and_then(|t| v.number(t, &format!("{base}/target"), "target"));
                 let history = match row.get("history") {
                     None => Vec::new(),
-                    Some(h) => v.values(Some(h), &format!("{base}/history")).unwrap_or_default(),
+                    Some(h) => v
+                        .values(Some(h), &format!("{base}/history"))
+                        .unwrap_or_default(),
                 };
                 Some(BulletItem {
                     label,
@@ -844,7 +939,12 @@ impl Validator {
 
     /// `points` is how many a mark may index, or `None` for a form that
     /// takes no annotations at all.
-    fn annotations(&mut self, obj: &Map<String, Value>, points: Option<usize>, form: &str) -> Vec<Annotation> {
+    fn annotations(
+        &mut self,
+        obj: &Map<String, Value>,
+        points: Option<usize>,
+        form: &str,
+    ) -> Vec<Annotation> {
         let Some(value) = obj.get("annotations") else {
             return Vec::new();
         };
@@ -857,7 +957,10 @@ impl Validator {
             return Vec::new();
         };
         if items.len() > MAX_ANNOTATIONS {
-            self.err("/annotations", format!("a chart has at most {MAX_ANNOTATIONS} annotations"));
+            self.err(
+                "/annotations",
+                format!("a chart has at most {MAX_ANNOTATIONS} annotations"),
+            );
             return Vec::new();
         }
         let mut out = Vec::new();
@@ -873,7 +976,9 @@ impl Validator {
                     self.known_keys(a, &base, &["kind", "value", "label"]);
                     match a.get("value") {
                         Some(v) => {
-                            if let Some(value) = self.number(v, &format!("{base}/value"), "a rule value") {
+                            if let Some(value) =
+                                self.number(v, &format!("{base}/value"), "a rule value")
+                            {
                                 out.push(Annotation::Rule { value, label });
                             }
                         }
@@ -889,7 +994,10 @@ impl Validator {
                         }),
                         _ => self.err(
                             format!("{base}/at"),
-                            format!("a mark's at is an index from 0 to {}", points.saturating_sub(1)),
+                            format!(
+                                "a mark's at is an index from 0 to {}",
+                                points.saturating_sub(1)
+                            ),
                         ),
                     }
                 }

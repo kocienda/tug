@@ -9,7 +9,9 @@
 use axum::Extension;
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRef, Query, Request, State};
+use axum::extract::{
+    ConnectInfo, DefaultBodyLimit, FromRef, Path as UrlPath, Query, Request, State,
+};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -246,6 +248,99 @@ async fn report_gaps_handler(
         .map(|gaps| gaps.session(session))
         .unwrap_or_default();
     axum::Json(serde_json::json!({ "status": "ok", "gaps": gaps })).into_response()
+}
+
+/// `GET /api/chart/list`: the well-known chart recipes, as
+/// `{status, recipes: [{name, question, form, data, args}]}`, the list
+/// `tugtool chart list --json` prints. Loopback only and read-only.
+async fn chart_list_handler(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Response {
+    if !addr.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "status": "error", "message": "forbidden" })),
+        )
+            .into_response();
+    }
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "recipes": tugchart_core::catalog::catalog_json(),
+    }))
+    .into_response()
+}
+
+/// `GET /api/chart/{recipe}?project=<dir>`: one recipe run live over `project`
+/// with its defaults, as `{status, recipe, summary, spec}`, `spec` null when
+/// there is nothing to draw. Loopback only and read-only. The run reads git
+/// and the ledgers, so it goes on the blocking pool.
+async fn chart_recipe_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    UrlPath(name): UrlPath<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    if !addr.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "status": "error", "message": "forbidden" })),
+        )
+            .into_response();
+    }
+    let Some(recipe) = tugchart_core::catalog::find(&name) else {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({ "status": "error", "message": "unknown recipe" })),
+        )
+            .into_response();
+    };
+    let Some(project) = params.get("project").filter(|dir| !dir.is_empty()) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({ "status": "error", "message": "no project" })),
+        )
+            .into_response();
+    };
+    let dir = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(project));
+    let run = tokio::task::spawn_blocking(move || {
+        recipe.run(
+            &tugchart_core::context::RecipeContext::for_project(&dir),
+            &tugchart_core::context::RecipeArgs::default(),
+        )
+    })
+    .await;
+    match run {
+        Ok(outcome) => chart_outcome_response(recipe.name, outcome),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({ "status": "error", "message": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// A recipe's answer on the wire. No data is a good answer with a null `spec`;
+/// only a read that should have worked is a `500`.
+pub(crate) fn chart_outcome_response(
+    recipe: &str,
+    outcome: Result<tugchart_core::context::RecipeOutcome, tugchart_core::context::RecipeError>,
+) -> Response {
+    use tugchart_core::context::RecipeOutcome;
+    let (summary, spec) = match outcome {
+        Ok(RecipeOutcome::Chart { summary, spec }) => (summary, spec),
+        Ok(RecipeOutcome::NoData { summary }) => (summary, serde_json::Value::Null),
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({ "status": "error", "message": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "recipe": recipe,
+        "summary": summary,
+        "spec": spec,
+    }))
+    .into_response()
 }
 
 /// `GET /api/pages`: every live connection and the page it says it is,
@@ -2364,6 +2459,8 @@ pub(crate) fn build_app(
         .route("/api/changesets", get(changesets_handler))
         .route("/api/ink-census", get(ink_census_handler))
         .route("/api/report-gaps", get(report_gaps_handler))
+        .route("/api/chart/list", get(chart_list_handler))
+        .route("/api/chart/{recipe}", get(chart_recipe_handler))
         .route("/api/draft", post(draft_handler))
         .route("/api/arc", post(arc_handler))
         .route("/api/session", post(session_handler))

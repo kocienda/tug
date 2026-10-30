@@ -13,11 +13,11 @@ mod area;
 mod bar;
 mod bullet;
 mod dots;
+pub(crate) mod heat;
 pub(crate) mod histogram;
-mod heat;
 mod line;
-mod sparkline;
 mod spans;
+mod sparkline;
 
 use super::build::{rect, segment, Builder, Pen};
 use super::spec::{Annotation, Data, Series, Spec};
@@ -50,12 +50,18 @@ pub(crate) fn layout(spec: &Spec, w: f64, h: f64, animate: bool, m: &dyn Measure
             stacked,
         } => bar::layout(&mut b, spec, categories, series, *orient, *stacked, w, h, m),
         Data::Line { x, series } => line::layout(&mut b, spec, x, series, w, h, m),
-        Data::Area { x, series, stacked } => area::layout(&mut b, spec, x, series, *stacked, w, h, m),
-        Data::Sparkline { values, highlight } => sparkline::layout(&mut b, values, *highlight, w, h),
+        Data::Area { x, series, stacked } => {
+            area::layout(&mut b, spec, x, series, *stacked, w, h, m)
+        }
+        Data::Sparkline { values, highlight } => {
+            sparkline::layout(&mut b, values, *highlight, w, h)
+        }
         Data::Dots { rows } => dots::layout(&mut b, spec, rows, w, h, m),
         Data::Histogram { values, bins } => histogram::layout(&mut b, spec, values, *bins, w, h, m),
         Data::Spans { items } => spans::layout(&mut b, spec, items, w, h, m),
-        Data::Heat { categories, values } => heat::layout(&mut b, spec, categories, values, w, h, m),
+        Data::Heat { categories, values } => {
+            heat::layout(&mut b, spec, categories, values, w, h, m)
+        }
         Data::Bullet { items } => bullet::layout(&mut b, spec, items, w, h, m),
     }
     b.finish(w, h)
@@ -70,7 +76,15 @@ pub(crate) fn legend(b: &mut Builder, series: &[Series], w: f64, y: f64, m: &dyn
         let fit = fit_text(&s.name, TypeRole::Label, slot - SWATCH - 4.0 - 8.0, m);
         let mid = y + LABEL_ROW / 2.0;
         b.fill(rect(x, mid - SWATCH / 2.0, SWATCH, SWATCH), s.role, None);
-        b.text(x + SWATCH + 4.0, mid, &fit.text, TypeRole::Label, ColourRole::Ink, Anchor::Start, None);
+        b.text(
+            x + SWATCH + 4.0,
+            mid,
+            &fit.text,
+            TypeRole::Label,
+            ColourRole::Ink,
+            Anchor::Start,
+            None,
+        );
         x += SWATCH + 4.0 + fit.metrics.w + 12.0;
     }
 }
@@ -113,6 +127,8 @@ pub(crate) struct RowsLayout<'a> {
     /// The value domain, or `None` for a form with no value axis.
     pub axis: Option<(f64, f64)>,
     pub right_margin: f64,
+    /// Px held between the label column and the plot, for a form to draw in.
+    pub lead: f64,
 }
 
 impl RowsLayout<'_> {
@@ -130,14 +146,24 @@ impl RowsLayout<'_> {
             y += GAP;
         }
         let top = y;
-        let bottom = self.h - 4.0 - if self.axis.is_some() { VALUE_ROW + 4.0 } else { 0.0 };
+        let bottom = self.h
+            - 4.0
+            - if self.axis.is_some() {
+                VALUE_ROW + 4.0
+            } else {
+                0.0
+            };
         let cap = (self.w * LABEL_COLUMN_SHARE).floor();
         let col = self
             .labels
             .iter()
             .map(|l| width(m, TypeRole::Label, l).min(cap))
             .fold(0.0, f64::max);
-        let left = if col > 0.0 { col + 8.0 } else { 0.0 };
+        let left = if col > 0.0 {
+            col + 8.0 + self.lead
+        } else {
+            self.lead
+        };
         let right = self.w - self.right_margin;
         let (mut lo, mut hi) = self.axis.unwrap_or((0.0, 1.0));
         if self.axis.is_some() {
@@ -149,7 +175,7 @@ impl RowsLayout<'_> {
             }
         }
         let axis = match self.axis {
-            Some(_) => Axis::nice(lo, hi, right - left, PX_PER_TICK_H),
+            Some(_) => Axis::nice_for(spec.format, lo, hi, right - left, PX_PER_TICK_H),
             None => Axis {
                 lo: 0.0,
                 hi: 1.0,
@@ -167,10 +193,23 @@ impl RowsLayout<'_> {
         };
         for (i, l) in self.labels.iter().enumerate() {
             let fit = fit_text(l, TypeRole::Label, cap, m);
-            b.text(0.0, plot.center(i), &fit.text, TypeRole::Label, ColourRole::InkMuted, Anchor::Start, None);
+            b.text(
+                0.0,
+                plot.center(i),
+                &fit.text,
+                TypeRole::Label,
+                ColourRole::InkMuted,
+                Anchor::Start,
+                None,
+            );
         }
         if self.axis.is_some() {
-            let labels: Vec<String> = plot.axis.ticks.iter().map(|&t| spec.format.apply(t)).collect();
+            let labels: Vec<String> = plot
+                .axis
+                .ticks
+                .iter()
+                .map(|&t| spec.format.apply(t))
+                .collect();
             for l in &labels {
                 m.measure(TypeRole::Value, l);
             }
@@ -182,7 +221,15 @@ impl RowsLayout<'_> {
                 // Kept inside the frame at either end.
                 let half = width(m, TypeRole::Value, label) / 2.0;
                 let cx = tx.max(half).min(self.w - half);
-                b.text(cx, ty, label, TypeRole::Value, ColourRole::InkMuted, Anchor::Middle, None);
+                b.text(
+                    cx,
+                    ty,
+                    label,
+                    TypeRole::Value,
+                    ColourRole::InkMuted,
+                    Anchor::Middle,
+                    None,
+                );
             }
             b.stroke(grid, pen(ColourRole::Grid, 1.0), None);
         }
@@ -204,7 +251,8 @@ fn measure_header(spec: &Spec, m: &dyn Measure) {
         m.measure(TypeRole::Label, &s);
     }
     for a in &spec.annotations {
-        if let Annotation::Rule { label: Some(l), .. } | Annotation::Mark { label: Some(l), .. } = a {
+        if let Annotation::Rule { label: Some(l), .. } | Annotation::Mark { label: Some(l), .. } = a
+        {
             m.measure(TypeRole::Value, l);
         }
     }
@@ -225,12 +273,28 @@ fn header(b: &mut Builder, spec: &Spec, w: f64, m: &dyn Measure) -> f64 {
     let mut y = 0.0;
     if let Some(t) = &spec.title {
         let fit = fit_text(t, TypeRole::Title, w, m);
-        b.text(0.0, y + TITLE_ROW / 2.0, &fit.text, TypeRole::Title, ColourRole::Ink, Anchor::Start, None);
+        b.text(
+            0.0,
+            y + TITLE_ROW / 2.0,
+            &fit.text,
+            TypeRole::Title,
+            ColourRole::Ink,
+            Anchor::Start,
+            None,
+        );
         y += TITLE_ROW;
     }
     if let Some(s) = header_line(spec) {
         let fit = fit_text(&s, TypeRole::Label, w, m);
-        b.text(0.0, y + LABEL_ROW / 2.0, &fit.text, TypeRole::Label, ColourRole::InkMuted, Anchor::Start, None);
+        b.text(
+            0.0,
+            y + LABEL_ROW / 2.0,
+            &fit.text,
+            TypeRole::Label,
+            ColourRole::InkMuted,
+            Anchor::Start,
+            None,
+        );
         y += LABEL_ROW;
     }
     y
@@ -319,7 +383,7 @@ impl AxisLayout<'_> {
                 hi = hi.max(*value);
             }
         }
-        let axis = Axis::nice(lo, hi, bottom - top, PX_PER_TICK_V);
+        let axis = Axis::nice_for(spec.format, lo, hi, bottom - top, PX_PER_TICK_V);
         let labels: Vec<String> = axis.ticks.iter().map(|&t| spec.format.apply(t)).collect();
         let tick_w = labels
             .iter()
@@ -337,10 +401,25 @@ impl AxisLayout<'_> {
         for (t, label) in plot.axis.ticks.iter().zip(&labels) {
             let ty = plot.y(*t);
             segment(&mut grid, plot.left, ty, plot.right, ty);
-            b.text(tick_w, ty, label, TypeRole::Value, ColourRole::InkMuted, Anchor::End, None);
+            b.text(
+                tick_w,
+                ty,
+                label,
+                TypeRole::Value,
+                ColourRole::InkMuted,
+                Anchor::End,
+                None,
+            );
         }
         b.stroke(grid, pen(ColourRole::Grid, 1.0), None);
-        category_labels(b, &plot, self.categories, self.w, self.h - LABEL_ROW / 2.0, m);
+        category_labels(
+            b,
+            &plot,
+            self.categories,
+            self.w,
+            self.h - LABEL_ROW / 2.0,
+            m,
+        );
         (plot, extra_y)
     }
 }
@@ -358,9 +437,19 @@ pub(crate) fn pen(role: ColourRole, width: f64) -> Pen<'static> {
 /// would overlap, only every k-th is shown, with k the smallest that
 /// makes room — up to a slot of [`MAX_SLOT`] px, past which the shown
 /// labels truncate. A label never runs past the frame's edges.
-fn category_labels(b: &mut Builder, plot: &Plot, labels: &[String], w: f64, y: f64, m: &dyn Measure) {
+fn category_labels(
+    b: &mut Builder,
+    plot: &Plot,
+    labels: &[String],
+    w: f64,
+    y: f64,
+    m: &dyn Measure,
+) {
     let band = plot.band();
-    let widths: Vec<f64> = labels.iter().map(|l| width(m, TypeRole::Label, l)).collect();
+    let widths: Vec<f64> = labels
+        .iter()
+        .map(|l| width(m, TypeRole::Label, l))
+        .collect();
     let mut k = 1;
     while k < labels.len() {
         let slot = band * k as f64 - GAP;
@@ -374,7 +463,15 @@ fn category_labels(b: &mut Builder, plot: &Plot, labels: &[String], w: f64, y: f
         let cx = plot.center(i);
         let room = slot.min(2.0 * cx).min(2.0 * (w - cx));
         let fit = fit_text(&labels[i], TypeRole::Label, room, m);
-        b.text(cx, y, &fit.text, TypeRole::Label, ColourRole::InkMuted, Anchor::Middle, None);
+        b.text(
+            cx,
+            y,
+            &fit.text,
+            TypeRole::Label,
+            ColourRole::InkMuted,
+            Anchor::Middle,
+            None,
+        );
     }
 }
 
@@ -432,7 +529,9 @@ impl Annotations {
                 // A rule's label sits on it at the plot's right end.
                 (x, y, None) => (x, y, Anchor::End),
                 // A mark's label sits beside it, on whichever side has room.
-                (_, y, Some(x)) if x + 3.0 + fit.metrics.w > plot.right => (x - 3.0, y, Anchor::End),
+                (_, y, Some(x)) if x + 3.0 + fit.metrics.w > plot.right => {
+                    (x - 3.0, y, Anchor::End)
+                }
                 (_, y, Some(x)) => (x + 3.0, y, Anchor::Start),
             };
             out.boxes.push(value_box(x, y, fit.metrics.w, anchor));
@@ -492,15 +591,26 @@ impl Annotations {
             b.stroke(path, dashed, None);
         }
         for (x, y, text, anchor) in self.labels {
-            b.text(x, y, &text, TypeRole::Value, ColourRole::InkMuted, anchor, None);
+            b.text(
+                x,
+                y,
+                &text,
+                TypeRole::Value,
+                ColourRole::InkMuted,
+                anchor,
+                None,
+            );
         }
     }
 }
 
 /// The finite values' range, or `None` when every value is a gap.
 pub(crate) fn range<'a>(values: impl IntoIterator<Item = &'a Option<f64>>) -> Option<(f64, f64)> {
-    values.into_iter().flatten().fold(None, |acc, &v| match acc {
-        None => Some((v, v)),
-        Some((lo, hi)) => Some((lo.min(v), hi.max(v))),
-    })
+    values
+        .into_iter()
+        .flatten()
+        .fold(None, |acc, &v| match acc {
+            None => Some((v, v)),
+            Some((lo, hi)) => Some((lo.min(v), hi.max(v))),
+        })
 }

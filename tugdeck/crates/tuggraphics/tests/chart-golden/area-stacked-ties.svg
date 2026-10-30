@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 240" width="560" height="240" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Added and removed fall to nothing</text>
+<text x="19.8" y="220" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">0</text>
+<text x="19.8" y="126.5" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">100</text>
+<text x="19.8" y="33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">200</text>
+<path d="M27.8 220 L505.8 220 M27.8 126.5 L505.8 126.5 M27.8 33 L505.8 33" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="87.55" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">Mon</text>
+<text x="207.05" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">Tue</text>
+<text x="326.55" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">Wed</text>
+<text x="446.05" y="232" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">Thu</text>
+<path d="M87.55 107.8 L207.05 135.85 L326.55 191.95 L446.05 220 L446.05 220 L326.55 220 L207.05 220 L87.55 220 Z" class="tgf-good tge-fade" style="--tg-i:0"/>
+<path d="M87.55 107.8 L207.05 135.85 L326.55 191.95 L446.05 220" class="tgs-good tge-draw" style="--tg-i:0" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<path d="M87.55 70.4 L207.05 79.75 L326.55 182.6 L446.05 220 L446.05 220 L326.55 191.95 L207.05 135.85 L87.55 107.8 Z" class="tgf-bad tge-fade" style="--tg-i:1"/>
+<path d="M87.55 70.4 L207.05 79.75 L326.55 182.6 L446.05 220" class="tgs-bad tge-draw" style="--tg-i:1" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
+<text x="452.05" y="206" class="tgt-value tgf-bad" text-anchor="start" dominant-baseline="central">removed</text>
+<text x="452.05" y="220" class="tgt-value tgf-good" text-anchor="start" dominant-baseline="central">added</text>
+</svg>

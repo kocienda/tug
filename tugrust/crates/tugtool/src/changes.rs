@@ -514,6 +514,7 @@ pub fn run_log(
     limit: Option<u32>,
     range: Option<String>,
     days: Option<u32>,
+    path: Option<String>,
     chart: bool,
     json: bool,
 ) -> Result<(), AppError> {
@@ -524,10 +525,17 @@ pub fn run_log(
         (true, None, None, None) => Some(30),
         _ => days,
     };
-    let report = tugchanges_core::log(LogOptions { limit, range, days })?;
+    let report = tugchanges_core::log(LogOptions {
+        project: None,
+        limit,
+        range,
+        days,
+        path,
+    })?;
     if chart {
         let subtitle = report.range.clone();
-        match crate::chart::commits_per_day(&report.commits, "Commits per day", &subtitle) {
+        match tugchart_core::commits::commits_per_day(&report.commits, "Commits per day", &subtitle)
+        {
             Some(spec) => {
                 let days_shown = spec["categories"].as_array().map_or(0, Vec::len);
                 println!(

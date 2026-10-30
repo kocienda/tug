@@ -48,7 +48,10 @@ pub fn table(spec: &Spec) -> ChartTable {
     };
     let one_value = |labels: &[String], values: &[Option<f64>]| {
         (
-            vec![String::new(), spec.title.clone().unwrap_or_else(|| "value".into())],
+            vec![
+                String::new(),
+                spec.title.clone().unwrap_or_else(|| "value".into()),
+            ],
             labels
                 .iter()
                 .zip(values)
@@ -57,7 +60,9 @@ pub fn table(spec: &Spec) -> ChartTable {
         )
     };
     let (head, rows) = match &spec.data {
-        Data::Bar { categories, series, .. } => by_category(categories, series),
+        Data::Bar {
+            categories, series, ..
+        } => by_category(categories, series),
         Data::Line { x, series } | Data::Area { x, series, .. } => by_category(x, series),
         Data::Sparkline { values, .. } => {
             let labels: Vec<String> = (1..=values.len()).map(|i| i.to_string()).collect();
@@ -68,7 +73,12 @@ pub fn table(spec: &Spec) -> ChartTable {
             rows.iter()
                 .map(|r| {
                     let count = |d: Dot| r.items.iter().filter(|i| **i == d).count().to_string();
-                    vec![r.label.clone(), count(Dot::Good), count(Dot::Bad), count(Dot::Neutral)]
+                    vec![
+                        r.label.clone(),
+                        count(Dot::Good),
+                        count(Dot::Bad),
+                        count(Dot::Neutral),
+                    ]
                 })
                 .collect(),
         ),
@@ -107,7 +117,9 @@ pub fn table(spec: &Spec) -> ChartTable {
                         i.label.clone(),
                         spec.format.apply(i.value),
                         i.range
-                            .map(|(a, z)| format!("{}–{}", spec.format.apply(a), spec.format.apply(z)))
+                            .map(|(a, z)| {
+                                format!("{}–{}", spec.format.apply(a), spec.format.apply(z))
+                            })
                             .unwrap_or_default(),
                         i.target.map(|t| spec.format.apply(t)).unwrap_or_default(),
                     ]

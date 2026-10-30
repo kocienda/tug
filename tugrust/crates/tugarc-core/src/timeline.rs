@@ -121,25 +121,27 @@ fn parse_ms(timestamp: &str) -> Option<u64> {
     u64::try_from(at.timestamp_millis()).ok()
 }
 
-/// The pure fold behind [`read_timelines`].
-pub fn timelines_from_text(text: &str) -> Timelines {
-    let mut arcs: HashMap<String, ArcTimeline> = HashMap::new();
+/// What a walk of the log has seen so far. A terminal line is the walker's to
+/// read, since what it means differs between the two walks below.
+#[derive(Default)]
+struct Fold {
+    arcs: HashMap<String, ArcTimeline>,
     // An audit in progress per arc, by its start; spent into `audits` when it
     // finishes and dropped when anything else interrupts it.
-    let mut audit_open: HashMap<String, u64> = HashMap::new();
-    let mut audits: Vec<u64> = Vec::new();
+    audit_open: HashMap<String, u64>,
+    audits: Vec<u64>,
+}
 
-    for line in text.lines() {
-        let Some((timestamp, name, marker, note)) = split_log_line(line) else {
-            continue;
-        };
-        if is_terminal(marker, note) {
-            arcs.remove(name);
-            audit_open.remove(name);
-            continue;
-        }
+impl Fold {
+    /// Read one line that is not a terminal one.
+    fn apply(&mut self, timestamp: &str, name: &str, marker: &str, note: &str) {
+        let Self {
+            arcs,
+            audit_open,
+            audits,
+        } = self;
         let Some(at_ms) = parse_ms(timestamp) else {
-            continue;
+            return;
         };
         let finish_audit = |audit_open: &mut HashMap<String, u64>, audits: &mut Vec<u64>| {
             if let Some(start) = audit_open.remove(name) {
@@ -154,7 +156,7 @@ pub fn timelines_from_text(text: &str) -> Timelines {
             }
             "arc-stage" => {
                 let mut fields = note.split_whitespace();
-                let Some(stage) = fields.next() else { continue };
+                let Some(stage) = fields.next() else { return };
                 let _session = fields.next();
                 let model = fields.next().filter(|m| *m != "-").map(str::to_owned);
                 if stage == "audit" {
@@ -173,7 +175,7 @@ pub fn timelines_from_text(text: &str) -> Timelines {
             }
             "step-start" | "step-reopen" | "step-done" | "step-withdrawn" | "step-reset" => {
                 let Some((n, total)) = read_step_fields(note) else {
-                    continue;
+                    return;
                 };
                 let timeline = arcs.entry(name.to_owned()).or_default();
                 let index = match timeline.steps.iter().position(|s| s.n == n) {
@@ -247,14 +249,34 @@ pub fn timelines_from_text(text: &str) -> Timelines {
             "run-through" => {
                 arcs.entry(name.to_owned()).or_default().run_through = note.trim().parse().ok();
             }
-            "audited" => finish_audit(&mut audit_open, &mut audits),
+            "audited" => finish_audit(audit_open, audits),
             "arc-done" => {
-                finish_audit(&mut audit_open, &mut audits);
+                finish_audit(audit_open, audits);
                 arcs.entry(name.to_owned()).or_default().done_at_ms = Some(at_ms);
             }
             _ => {}
         }
     }
+}
+
+/// The pure fold behind [`read_timelines`]: every arc's current generation, so
+/// a terminal line drops its arc.
+pub fn timelines_from_text(text: &str) -> Timelines {
+    let mut fold = Fold::default();
+    for line in text.lines() {
+        let Some((timestamp, name, marker, note)) = split_log_line(line) else {
+            continue;
+        };
+        if is_terminal(marker, note) {
+            fold.arcs.remove(name);
+            fold.audit_open.remove(name);
+            continue;
+        }
+        fold.apply(timestamp, name, marker, note);
+    }
+    let Fold {
+        mut arcs, audits, ..
+    } = fold;
 
     for timeline in arcs.values_mut() {
         timeline.steps.sort_by_key(|s| s.n);
@@ -264,6 +286,47 @@ pub fn timelines_from_text(text: &str) -> Timelines {
         arcs,
         typical_audit_ms: median(recent),
     }
+}
+
+/// One arc's newest generation, whether or not it has ended: a terminal line
+/// closes the generation and stamps `done_at_ms` if nothing has, and only a
+/// later `arc-start` opens the name again. `None` when the log never saw the
+/// arc. What the branch held is gone at a join, so this is what remains.
+pub fn timeline_for(text: &str, name: &str) -> Option<ArcTimeline> {
+    let mut fold = Fold::default();
+    let mut closed = false;
+    for line in text.lines() {
+        let Some((timestamp, arc, marker, note)) = split_log_line(line) else {
+            continue;
+        };
+        if arc != name {
+            continue;
+        }
+        if is_terminal(marker, note) {
+            if let Some(timeline) = fold.arcs.get_mut(name) {
+                timeline.done_at_ms = timeline.done_at_ms.or(parse_ms(timestamp));
+            }
+            closed = true;
+            continue;
+        }
+        if closed && marker != "arc-start" {
+            continue;
+        }
+        closed = false;
+        fold.apply(timestamp, name, marker, note);
+    }
+    let mut timeline = fold.arcs.remove(name)?;
+    timeline.steps.sort_by_key(|s| s.n);
+    Some(timeline)
+}
+
+/// The name on the log's last `arc-start` line.
+pub fn newest_arc(text: &str) -> Option<String> {
+    text.lines()
+        .rev()
+        .filter_map(split_log_line)
+        .find(|(_, _, marker, _)| *marker == "arc-start")
+        .map(|(_, name, _, _)| name.to_owned())
 }
 
 fn median(xs: &[u64]) -> Option<u64> {
@@ -407,6 +470,101 @@ mod tests {
         ]
         .concat();
         assert!(!timelines_from_text(&log).arcs.contains_key("a"));
+    }
+
+    #[test]
+    fn timeline_for_keeps_a_joined_arc_that_the_current_read_drops() {
+        let joined_at = "2026-10-27T16:30:00.000Z";
+        let log = [
+            line(T0, "a", "arc-start", "brief.md"),
+            line(T0, "b", "arc-start", "other.md"),
+            line(
+                "2026-10-27T16:00:01.000Z",
+                "a",
+                "arc-stage",
+                "implement s1 opus",
+            ),
+            line(
+                "2026-10-27T16:01:00.000Z",
+                "a",
+                "step-start",
+                "1/2 Step 1: First",
+            ),
+            line("2026-10-27T16:02:00.000Z", "a", "step-done", "1/2 aaa"),
+            line(
+                "2026-10-27T16:03:00.000Z",
+                "a",
+                "step-start",
+                "2/2 Step 2: Second",
+            ),
+            line("2026-10-27T16:04:00.000Z", "a", "step-done", "2/2 bbb"),
+            line(joined_at, "a", "7d16f2ac6", "joined via card"),
+        ]
+        .concat();
+        let a = timeline_for(&log, "a").expect("a joined arc keeps its timeline");
+        assert_eq!(a.done_at_ms, Some(ms(joined_at)));
+        assert_eq!(a.stages.len(), 1);
+        assert_eq!(a.steps.len(), 2);
+        assert!(!timelines_from_text(&log).arcs.contains_key("a"));
+
+        // A line after the terminal one that does not open a new generation.
+        let late = line("2026-10-27T16:31:00.000Z", "a", "compact", "1 > 0");
+        let a = timeline_for(&(log + &late), "a").unwrap();
+        assert!(a.marks.is_empty());
+    }
+
+    #[test]
+    fn timeline_for_keeps_the_done_time_it_already_has() {
+        let done_at = "2026-10-27T16:10:00.000Z";
+        let log = [
+            line(T0, "a", "arc-start", "brief.md"),
+            line(done_at, "a", "arc-done", ""),
+            line("2026-10-27T17:00:00.000Z", "a", "abc", "joined"),
+        ]
+        .concat();
+        assert_eq!(
+            timeline_for(&log, "a").unwrap().done_at_ms,
+            Some(ms(done_at))
+        );
+    }
+
+    #[test]
+    fn timeline_for_starts_over_at_a_later_arc_start() {
+        let log = [
+            line(T0, "a", "arc-start", "brief.md"),
+            line(
+                "2026-10-27T16:01:00.000Z",
+                "a",
+                "step-start",
+                "1/1 Step 1: Old",
+            ),
+            line("2026-10-27T16:02:00.000Z", "a", "discarded", ""),
+            line("2026-10-27T16:03:00.000Z", "a", "arc-start", "brief.md"),
+            line(
+                "2026-10-27T16:04:00.000Z",
+                "a",
+                "step-start",
+                "1/1 Step 1: New",
+            ),
+        ]
+        .concat();
+        let a = timeline_for(&log, "a").unwrap();
+        assert_eq!(a.done_at_ms, None);
+        assert_eq!(a.steps.len(), 1);
+        assert_eq!(a.steps[0].title.as_deref(), Some("New"));
+        assert_eq!(timeline_for(&log, "nobody"), None);
+    }
+
+    #[test]
+    fn newest_arc_names_the_last_arc_start() {
+        let log = [
+            line(T0, "older", "arc-start", "brief.md"),
+            line("2026-10-27T16:01:00.000Z", "newer", "arc-start", "brief.md"),
+            line("2026-10-27T16:02:00.000Z", "older", "compact", "1 > 0"),
+        ]
+        .concat();
+        assert_eq!(newest_arc(&log).as_deref(), Some("newer"));
+        assert_eq!(newest_arc(""), None);
     }
 
     #[test]

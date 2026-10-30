@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 124" width="560" height="124" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Files nearest the budget</text>
+<text x="0" y="38.67" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">resume</text>
+<text x="0" y="64" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">settle</text>
+<text x="0" y="89.33" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">find</text>
+<text x="105.2" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0s</text>
+<text x="217.9" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">5s</text>
+<text x="330.6" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">10s</text>
+<text x="443.3" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">15s</text>
+<text x="550.1" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">20s</text>
+<path d="M105.2 26 L105.2 102 M217.9 26 L217.9 102 M330.6 26 L330.6 102 M443.3 26 L443.3 102 M556 26 L556 102" class="tgs-grid" fill="none" stroke-width="1"/>
+<path d="M105.2 30.67 L556 30.67 L556 46.67 L105.2 46.67 Z" class="tgf-grid"/>
+<path d="M51.2 46.67 L63.2 38.67 M87.2 34.67 L99.2 30.67" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M105.2 34.67 L465.84 34.67 L465.84 42.67 L105.2 42.67 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:0"/>
+<path d="M555 28.67 L557 28.67 L557 48.67 L555 48.67 Z" class="tgf-ink"/>
+<text x="469.84" y="38.67" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">16s</text>
+<path d="M105.2 56 L556 56 L556 72 L105.2 72 Z" class="tgf-grid"/>
+<path d="M51.2 72 L63.2 56 L75.2 72 L87.2 64 L99.2 67.2" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M105.2 60 L292.28 60 L292.28 68 L105.2 68 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:1"/>
+<path d="M555 54 L557 54 L557 74 L555 74 Z" class="tgf-ink"/>
+<text x="296.28" y="64" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">8.3s</text>
+<path d="M105.2 81.33 L556 81.33 L556 97.33 L105.2 97.33 Z" class="tgf-grid"/>
+<path d="M105.2 85.33 L195.36 85.33 L195.36 93.33 L105.2 93.33 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:2"/>
+<path d="M555 79.33 L557 79.33 L557 99.33 L555 99.33 Z" class="tgf-ink"/>
+<text x="199.36" y="89.33" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">4s</text>
+</svg>

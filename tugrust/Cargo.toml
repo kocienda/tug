@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/tugtool", "crates/tugtool-core", "crates/tugarc-core", "crates/tugchanges-core", "crates/tugedit-core", "crates/tugcast", "crates/tugcast-core", "crates/tugexec", "crates/tugrelaunch", "crates/tugbank-core", "crates/tugbank", "crates/tuggram", "crates/tuglog", "crates/tugcore", "crates/tugarclab"]
+members = ["crates/tugtool", "crates/tugtool-core", "crates/tugarc-core", "crates/tugchanges-core", "crates/tugchart-core", "crates/tugedit-core", "crates/tugcast", "crates/tugcast-core", "crates/tugexec", "crates/tugrelaunch", "crates/tugbank-core", "crates/tugbank", "crates/tuggram", "crates/tuglog", "crates/tugcore", "crates/tugarclab"]
 
 [workspace.package]
 version = "0.8.20"
@@ -77,6 +77,7 @@ tugtool-core = { path = "crates/tugtool-core" }
 tuggram = { path = "crates/tuggram" }
 tugarc-core = { path = "crates/tugarc-core" }
 tugchanges-core = { path = "crates/tugchanges-core" }
+tugchart-core = { path = "crates/tugchart-core" }
 tugedit-core = { path = "crates/tugedit-core" }
 
 # Async runtime

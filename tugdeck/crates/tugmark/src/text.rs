@@ -70,7 +70,10 @@ fn block_text(html: &str) -> String {
                     stack[at].1 == Mode::Chart && (at == 0 || stack[at - 1].1 != Mode::Chart);
                 stack.truncate(at);
                 if closes_chart {
-                    out.push_str(&tuggraphics::find_text(&chart_source, tuggraphics::Layers::Chart));
+                    out.push_str(&tuggraphics::find_text(
+                        &chart_source,
+                        tuggraphics::Layers::Chart,
+                    ));
                     chart_source.clear();
                 }
             }

@@ -41,7 +41,13 @@ pub fn parse_value(value: &Value) -> Result<Program, Vec<DrawError>> {
     match obj.get("ops") {
         Some(Value::Array(ops)) => {
             if ops.len() > MAX_OPS {
-                p.err(None, format!("a program holds at most {MAX_OPS} ops; this one holds {}", ops.len()));
+                p.err(
+                    None,
+                    format!(
+                        "a program holds at most {MAX_OPS} ops; this one holds {}",
+                        ops.len()
+                    ),
+                );
             }
             for (i, op) in ops.iter().enumerate() {
                 p.op(i, op);
@@ -52,7 +58,10 @@ pub fn parse_value(value: &Value) -> Result<Program, Vec<DrawError>> {
         None => p.err(None, "missing \"ops\""),
     }
     match (frame, p.errors.is_empty()) {
-        (Some(frame), true) => Ok(Program { frame, items: p.items }),
+        (Some(frame), true) => Ok(Program {
+            frame,
+            items: p.items,
+        }),
         _ => Err(p.errors),
     }
 }
@@ -166,7 +175,10 @@ impl Parser {
             match n.as_f64() {
                 Some(n) if n.is_finite() && (1.0..=MAX_FRAME).contains(&n) => out[k] = n,
                 _ => {
-                    self.err(None, format!("\"frame\" sides are numbers from 1 to {MAX_FRAME}"));
+                    self.err(
+                        None,
+                        format!("\"frame\" sides are numbers from 1 to {MAX_FRAME}"),
+                    );
                     ok = false;
                 }
             }
@@ -182,7 +194,10 @@ impl Parser {
                 None
             }
             Some(n) if n.abs() > MAX_MAGNITUDE => {
-                self.err(Some(i), format!("{verb} {what} is out of range: magnitude above 1000000"));
+                self.err(
+                    Some(i),
+                    format!("{verb} {what} is out of range: magnitude above 1000000"),
+                );
                 None
             }
             Some(n) => Some(n),
@@ -194,10 +209,23 @@ impl Parser {
     }
 
     /// Exactly `N` number operands.
-    fn nums<const N: usize>(&mut self, i: usize, verb: &str, args: &[Value], names: [&str; N]) -> Option<[f64; N]> {
+    fn nums<const N: usize>(
+        &mut self,
+        i: usize,
+        verb: &str,
+        args: &[Value],
+        names: [&str; N],
+    ) -> Option<[f64; N]> {
         if args.len() != N {
-            let want = if N == 0 { "no operands".to_string() } else { names.join(" ") };
-            self.err(Some(i), format!("{verb} takes {want}; it has {} operand(s)", args.len()));
+            let want = if N == 0 {
+                "no operands".to_string()
+            } else {
+                names.join(" ")
+            };
+            self.err(
+                Some(i),
+                format!("{verb} takes {want}; it has {} operand(s)", args.len()),
+            );
             return None;
         }
         let mut out = [0.0; N];
@@ -216,7 +244,10 @@ impl Parser {
         let Some(opts) = opts else { return };
         for key in opts.keys() {
             if !allowed.contains(&key.as_str()) {
-                self.err(Some(i), format!("unknown option \"{}\" on {verb}", clip_str(key)));
+                self.err(
+                    Some(i),
+                    format!("unknown option \"{}\" on {verb}", clip_str(key)),
+                );
             }
         }
     }
@@ -227,7 +258,10 @@ impl Parser {
             return None;
         };
         if s.chars().count() > MAX_STRING {
-            self.err(Some(i), format!("{verb} {what} is longer than {MAX_STRING} characters"));
+            self.err(
+                Some(i),
+                format!("{verb} {what} is longer than {MAX_STRING} characters"),
+            );
             return None;
         }
         if s.chars().any(char::is_control) {
@@ -249,22 +283,41 @@ impl Parser {
         role
     }
 
-    fn word<'v>(&mut self, i: usize, verb: &str, key: &str, v: &'v Value, words: &[&str]) -> Option<&'v str> {
+    fn word<'v>(
+        &mut self,
+        i: usize,
+        verb: &str,
+        key: &str,
+        v: &'v Value,
+        words: &[&str],
+    ) -> Option<&'v str> {
         match v.as_str() {
             Some(s) if words.contains(&s) => Some(s),
             _ => {
-                self.err(Some(i), format!("{verb} {key} is one of {}", words.join(", ")));
+                self.err(
+                    Some(i),
+                    format!("{verb} {key} is one of {}", words.join(", ")),
+                );
                 None
             }
         }
     }
 
-    fn motion(&mut self, i: usize, verb: &str, opts: Option<&Opts>, target: Target) -> Option<Motion> {
+    fn motion(
+        &mut self,
+        i: usize,
+        verb: &str,
+        opts: Option<&Opts>,
+        target: Target,
+    ) -> Option<Motion> {
         let opts = opts?;
         let (enter, from, delay) = (opts.get("enter"), opts.get("from"), opts.get("delay"));
         let Some(enter) = enter else {
             if from.is_some() {
-                self.err(Some(i), format!("{verb} has \"from\" with no enter; it applies to enter \"grow\""));
+                self.err(
+                    Some(i),
+                    format!("{verb} has \"from\" with no enter; it applies to enter \"grow\""),
+                );
             }
             if delay.is_some() {
                 self.err(Some(i), format!("{verb} has \"delay\" with no enter"));
@@ -276,19 +329,30 @@ impl Parser {
             Some(v) => match v.as_u64() {
                 Some(d) if d <= MAX_DELAY => d as u8,
                 _ => {
-                    self.err(Some(i), format!("{verb} delay is a stagger index, an integer from 0 to {MAX_DELAY}"));
+                    self.err(
+                        Some(i),
+                        format!(
+                            "{verb} delay is a stagger index, an integer from 0 to {MAX_DELAY}"
+                        ),
+                    );
                     0
                 }
             },
         };
         let kind = self.word(i, verb, "enter", enter, &["draw", "grow", "fade", "rise"])?;
         if kind != "grow" && from.is_some() {
-            self.err(Some(i), format!("{verb} \"from\" applies only to enter \"grow\""));
+            self.err(
+                Some(i),
+                format!("{verb} \"from\" applies only to enter \"grow\""),
+            );
         }
         let enter = match kind {
             "draw" => {
                 if target != Target::Stroke {
-                    self.err(Some(i), format!("enter \"draw\" applies only to stroke, not {verb}"));
+                    self.err(
+                        Some(i),
+                        format!("enter \"draw\" applies only to stroke, not {verb}"),
+                    );
                     return None;
                 }
                 Enter::Draw
@@ -296,12 +360,14 @@ impl Parser {
             "grow" => {
                 let edge = match from {
                     None => Edge::Bottom,
-                    Some(v) => match self.word(i, verb, "from", v, &["bottom", "top", "left", "right"])? {
-                        "top" => Edge::Top,
-                        "left" => Edge::Left,
-                        "right" => Edge::Right,
-                        _ => Edge::Bottom,
-                    },
+                    Some(v) => {
+                        match self.word(i, verb, "from", v, &["bottom", "top", "left", "right"])? {
+                            "top" => Edge::Top,
+                            "left" => Edge::Left,
+                            "right" => Edge::Right,
+                            _ => Edge::Bottom,
+                        }
+                    }
                 };
                 Enter::Grow(edge)
             }
@@ -350,7 +416,9 @@ impl Parser {
             }
             "arc" => {
                 self.check_opts(i, verb, opts, &[]);
-                if let Some([cx, cy, r, a0, a1]) = self.nums(i, verb, args, ["cx", "cy", "r", "a0", "a1"]) {
+                if let Some([cx, cy, r, a0, a1]) =
+                    self.nums(i, verb, args, ["cx", "cy", "r", "a0", "a1"])
+                {
                     if r < 0.0 {
                         self.err(Some(i), "arc r must not be negative");
                     } else {
@@ -366,14 +434,18 @@ impl Parser {
             }
             "rect" => {
                 self.check_opts(i, verb, opts, &["r"]);
-                let r = opts.and_then(|o| o.get("r")).map(|v| self.num(i, verb, "r", v));
+                let r = opts
+                    .and_then(|o| o.get("r"))
+                    .map(|v| self.num(i, verb, "r", v));
                 if let Some([x, y, w, h]) = self.nums(i, verb, args, ["x", "y", "w", "h"]) {
                     if w < 0.0 || h < 0.0 {
                         self.err(Some(i), "rect w and h must not be negative");
                     } else {
                         match r {
                             Some(None) => {}
-                            Some(Some(r)) if r < 0.0 => self.err(Some(i), "rect r must not be negative"),
+                            Some(Some(r)) if r < 0.0 => {
+                                self.err(Some(i), "rect r must not be negative")
+                            }
                             r => self.rect(i, x, y, w, h, r.flatten().unwrap_or(0.0)),
                         }
                     }
@@ -386,8 +458,24 @@ impl Parser {
                         self.err(Some(i), "circle r must not be negative");
                     } else {
                         self.path.push(i, Seg::Move(cx + r, cy));
-                        self.path.push(i, Seg::Arc { r, sweep: true, x: cx - r, y: cy });
-                        self.path.push(i, Seg::Arc { r, sweep: true, x: cx + r, y: cy });
+                        self.path.push(
+                            i,
+                            Seg::Arc {
+                                r,
+                                sweep: true,
+                                x: cx - r,
+                                y: cy,
+                            },
+                        );
+                        self.path.push(
+                            i,
+                            Seg::Arc {
+                                r,
+                                sweep: true,
+                                x: cx + r,
+                                y: cy,
+                            },
+                        );
                         self.path.push(i, Seg::Close);
                     }
                 }
@@ -423,7 +511,20 @@ impl Parser {
             }
             "text" => self.text(i, args, opts),
             "group" => {
-                self.check_opts(i, verb, opts, &["translate", "scale", "rotate", "clip", "enter", "from", "delay"]);
+                self.check_opts(
+                    i,
+                    verb,
+                    opts,
+                    &[
+                        "translate",
+                        "scale",
+                        "rotate",
+                        "clip",
+                        "enter",
+                        "from",
+                        "delay",
+                    ],
+                );
                 if self.nums(i, verb, args, []).is_some() {
                     self.unpainted();
                     let g = self.group(i, opts);
@@ -469,7 +570,10 @@ impl Parser {
         if self.path.cursor.is_some() {
             return true;
         }
-        self.err(Some(i), format!("{verb} with no current point; start the subpath with move"));
+        self.err(
+            Some(i),
+            format!("{verb} with no current point; start the subpath with move"),
+        );
         false
     }
 
@@ -493,7 +597,15 @@ impl Parser {
         let pieces = (sweep.abs() / 180.0).ceil().max(1.0) as usize;
         for k in 1..=pieces {
             let (x, y) = at(a0 + sweep * k as f64 / pieces as f64);
-            self.path.push(i, Seg::Arc { r, sweep: sweep > 0.0, x, y });
+            self.path.push(
+                i,
+                Seg::Arc {
+                    r,
+                    sweep: sweep > 0.0,
+                    x,
+                    y,
+                },
+            );
         }
     }
 
@@ -506,7 +618,12 @@ impl Parser {
             p.push(i, Seg::Line(x + w, y + h));
             p.push(i, Seg::Line(x, y + h));
         } else {
-            let arc = |x, y| Seg::Arc { r, sweep: true, x, y };
+            let arc = |x, y| Seg::Arc {
+                r,
+                sweep: true,
+                x,
+                y,
+            };
             p.push(i, Seg::Move(x + r, y));
             p.push(i, Seg::Line(x + w - r, y));
             p.push(i, arc(x + w, y + r));
@@ -524,7 +641,10 @@ impl Parser {
         let points = match args {
             [Value::Array(points)] if points.len() >= 2 => points,
             _ => {
-                self.err(Some(i), "polyline takes one operand, a list of at least two [x, y] points");
+                self.err(
+                    Some(i),
+                    "polyline takes one operand, a list of at least two [x, y] points",
+                );
                 return;
             }
         };
@@ -532,7 +652,10 @@ impl Parser {
         for pt in points {
             match pt.as_array().map(Vec::as_slice) {
                 Some([x, y]) => {
-                    let (x, y) = (self.num(i, "polyline", "x", x), self.num(i, "polyline", "y", y));
+                    let (x, y) = (
+                        self.num(i, "polyline", "x", x),
+                        self.num(i, "polyline", "y", y),
+                    );
                     if let (Some(x), Some(y)) = (x, y) {
                         out.push((x, y));
                     }
@@ -545,7 +668,14 @@ impl Parser {
         }
         if out.len() == points.len() {
             for (k, (x, y)) in out.into_iter().enumerate() {
-                self.path.push(i, if k == 0 { Seg::Move(x, y) } else { Seg::Line(x, y) });
+                self.path.push(
+                    i,
+                    if k == 0 {
+                        Seg::Move(x, y)
+                    } else {
+                        Seg::Line(x, y)
+                    },
+                );
             }
         }
     }
@@ -554,7 +684,10 @@ impl Parser {
         let items = match args {
             [Value::Array(items)] if items.len() <= 16 => items,
             _ => {
-                self.err(Some(i), "dash takes one operand, a list of at most 16 lengths ([] clears it)");
+                self.err(
+                    Some(i),
+                    "dash takes one operand, a list of at most 16 lengths ([] clears it)",
+                );
                 return;
             }
         };
@@ -590,23 +723,37 @@ impl Parser {
                 None
             }
         };
-        let motion = self.motion(i, verb, opts, if stroke { Target::Stroke } else { Target::Fill });
+        let motion = self.motion(
+            i,
+            verb,
+            opts,
+            if stroke { Target::Stroke } else { Target::Fill },
+        );
         let kind = if stroke {
             let cap = opts.and_then(|o| o.get("cap")).and_then(|v| {
-                self.word(i, verb, "cap", v, &["butt", "round", "square"]).map(|w| match w {
-                    "butt" => Cap::Butt,
-                    "round" => Cap::Round,
-                    _ => Cap::Square,
-                })
+                self.word(i, verb, "cap", v, &["butt", "round", "square"])
+                    .map(|w| match w {
+                        "butt" => Cap::Butt,
+                        "round" => Cap::Round,
+                        _ => Cap::Square,
+                    })
             });
             let join = opts.and_then(|o| o.get("join")).and_then(|v| {
-                self.word(i, verb, "join", v, &["miter", "round", "bevel"]).map(|w| match w {
-                    "miter" => Join::Miter,
-                    "round" => Join::Round,
-                    _ => Join::Bevel,
-                })
+                self.word(i, verb, "join", v, &["miter", "round", "bevel"])
+                    .map(|w| match w {
+                        "miter" => Join::Miter,
+                        "round" => Join::Round,
+                        _ => Join::Bevel,
+                    })
             });
-            if matches!(motion, Some(Motion { enter: Enter::Draw, .. })) && !self.state.dash.is_empty() {
+            if matches!(
+                motion,
+                Some(Motion {
+                    enter: Enter::Draw,
+                    ..
+                })
+            ) && !self.state.dash.is_empty()
+            {
                 self.err(Some(i), "enter \"draw\" cannot play on a dashed stroke; clear the dash with [\"dash\", []]");
             }
             PaintKind::Stroke { cap, join }
@@ -633,14 +780,24 @@ impl Parser {
 
     fn text(&mut self, i: usize, args: &[Value], opts: Option<&Opts>) {
         let verb = "text";
-        self.check_opts(i, verb, opts, &["role", "fill", "anchor", "baseline", "enter", "from", "delay"]);
+        self.check_opts(
+            i,
+            verb,
+            opts,
+            &[
+                "role", "fill", "anchor", "baseline", "enter", "from", "delay",
+            ],
+        );
         let (pos, text) = match args {
             [x, y, s] => {
                 let (x, y) = (self.num(i, verb, "x", x), self.num(i, verb, "y", y));
                 (x.zip(y), self.string(i, verb, "string", s))
             }
             _ => {
-                self.err(Some(i), format!("text takes x y string; it has {} operand(s)", args.len()));
+                self.err(
+                    Some(i),
+                    format!("text takes x y string; it has {} operand(s)", args.len()),
+                );
                 return;
             }
         };
@@ -661,16 +818,24 @@ impl Parser {
         };
         let anchor = match get("anchor") {
             None => Some(Anchor::Start),
-            Some(v) => self.word(i, verb, "anchor", v, &["start", "middle", "end"]).map(|w| match w {
-                "start" => Anchor::Start,
-                "middle" => Anchor::Middle,
-                _ => Anchor::End,
-            }),
+            Some(v) => self
+                .word(i, verb, "anchor", v, &["start", "middle", "end"])
+                .map(|w| match w {
+                    "start" => Anchor::Start,
+                    "middle" => Anchor::Middle,
+                    _ => Anchor::End,
+                }),
         };
         let baseline = match get("baseline") {
             None => Some(Baseline::Alphabetic),
             Some(v) => self
-                .word(i, verb, "baseline", v, &["top", "middle", "alphabetic", "bottom"])
+                .word(
+                    i,
+                    verb,
+                    "baseline",
+                    v,
+                    &["top", "middle", "alphabetic", "bottom"],
+                )
                 .map(|w| match w {
                     "top" => Baseline::Top,
                     "middle" => Baseline::Middle,
@@ -706,7 +871,10 @@ impl Parser {
         if let Some(v) = opts.get("translate") {
             match v.as_array().map(Vec::as_slice) {
                 Some([x, y]) => {
-                    let (x, y) = (self.num(i, verb, "translate x", x), self.num(i, verb, "translate y", y));
+                    let (x, y) = (
+                        self.num(i, verb, "translate x", x),
+                        self.num(i, verb, "translate y", y),
+                    );
                     g.translate = x.zip(y);
                 }
                 _ => self.err(Some(i), "group translate is [x, y]"),
@@ -718,7 +886,10 @@ impl Parser {
         if let Some(v) = opts.get("scale") {
             let scale = match v {
                 Value::Array(a) if a.len() == 2 => {
-                    let (x, y) = (self.num(i, verb, "scale x", &a[0]), self.num(i, verb, "scale y", &a[1]));
+                    let (x, y) = (
+                        self.num(i, verb, "scale x", &a[0]),
+                        self.num(i, verb, "scale y", &a[1]),
+                    );
                     x.zip(y)
                 }
                 Value::Number(_) => self.num(i, verb, "scale", v).map(|s| (s, s)),
@@ -765,13 +936,19 @@ impl Parser {
             let up = match opts.and_then(|o| o.get("up")) {
                 Some(Value::Bool(b)) => *b,
                 _ => {
-                    self.err(Some(i), "pen takes x y heading, or {\"up\": true|false} alone");
+                    self.err(
+                        Some(i),
+                        "pen takes x y heading, or {\"up\": true|false} alone",
+                    );
                     return;
                 }
             };
             match self.turtle.as_mut() {
                 Some(t) => t.down = !up,
-                None => self.err(Some(i), "pen up/down with no turtle; place one with pen x y heading"),
+                None => self.err(
+                    Some(i),
+                    "pen up/down with no turtle; place one with pen x y heading",
+                ),
             }
             return;
         }
@@ -867,10 +1044,16 @@ mod tests {
     fn non_finite_number_is_refused_by_the_reader() {
         // JSON has no spelling for a non-finite number; one that overflows
         // f64 is refused as the program is read.
-        let errs = parse_program(r#"{"tugdraw": 1, "frame": [10, 10], "ops": [["move", 1e999, 0]]}"#).unwrap_err();
+        let errs =
+            parse_program(r#"{"tugdraw": 1, "frame": [10, 10], "ops": [["move", 1e999, 0]]}"#)
+                .unwrap_err();
         assert_eq!(errs.len(), 1);
         assert_eq!(errs[0].op, None);
-        assert!(errs[0].message.starts_with("not JSON: number out of range"), "{}", errs[0].message);
+        assert!(
+            errs[0].message.starts_with("not JSON: number out of range"),
+            "{}",
+            errs[0].message
+        );
     }
 
     #[test]
@@ -880,7 +1063,10 @@ mod tests {
             let errs = parse_program(&src).unwrap_err();
             assert_eq!(errs.len(), 1, "{errs:?}");
             assert_eq!(errs[0].op, None);
-            assert_eq!(errs[0].message, "\"frame\" sides are numbers from 1 to 4096");
+            assert_eq!(
+                errs[0].message,
+                "\"frame\" sides are numbers from 1 to 4096"
+            );
         }
     }
 
@@ -890,8 +1076,14 @@ mod tests {
         let errs = errors(&ops);
         assert_eq!(errs.len(), 1, "{errs:?}");
         assert_eq!(errs[0].op, None);
-        assert_eq!(errs[0].message, "a program holds at most 20000 ops; this one holds 20001");
-        let ok = format!("{{\"tugdraw\": 1, \"frame\": [1, 1], \"ops\": [{}]}}", vec![r#"["opacity", 1]"#; MAX_OPS].join(","));
+        assert_eq!(
+            errs[0].message,
+            "a program holds at most 20000 ops; this one holds 20001"
+        );
+        let ok = format!(
+            "{{\"tugdraw\": 1, \"frame\": [1, 1], \"ops\": [{}]}}",
+            vec![r#"["opacity", 1]"#; MAX_OPS].join(",")
+        );
         assert!(parse_program(&ok).is_ok());
     }
 
@@ -913,16 +1105,23 @@ mod tests {
     fn unpainted_path() {
         let e = one(r#"["rect", 0, 0, 1, 1], ["fill", "ink"], ["move", 0, 0], ["line", 5, 5]"#);
         assert_eq!(e.op, Some(2));
-        assert!(e.message.starts_with("the path started here is never painted"));
+        assert!(e
+            .message
+            .starts_with("the path started here is never painted"));
         let at_group = one(r#"["move", 0, 0], ["line", 5, 5], ["group"], ["end"]"#);
         assert_eq!(at_group.op, Some(0));
     }
 
     #[test]
     fn draw_on_a_dashed_stroke() {
-        let e = one(r#"["dash", [4, 2]], ["move", 0, 0], ["line", 9, 9], ["stroke", "grid", {"enter": "draw"}]"#);
+        let e = one(
+            r#"["dash", [4, 2]], ["move", 0, 0], ["line", 9, 9], ["stroke", "grid", {"enter": "draw"}]"#,
+        );
         assert_eq!(e.op, Some(3));
-        assert_eq!(e.message, "enter \"draw\" cannot play on a dashed stroke; clear the dash with [\"dash\", []]");
+        assert_eq!(
+            e.message,
+            "enter \"draw\" cannot play on a dashed stroke; clear the dash with [\"dash\", []]"
+        );
         let cleared = r#"{"tugdraw": 1, "frame": [10, 10], "ops": [["dash", [4, 2]], ["dash", []], ["move", 0, 0], ["line", 9, 9], ["stroke", "grid", {"enter": "draw"}]]}"#;
         assert!(parse_program(cleared).is_ok());
     }
@@ -936,17 +1135,25 @@ mod tests {
 
     #[test]
     fn three_errors_are_all_reported() {
-        let errs = errors(r#"["line", 1, 1], ["width", 100], ["rect", 0, 0, 1, 1], ["fill", "red"], ["fill", "ink"]"#);
+        let errs = errors(
+            r#"["line", 1, 1], ["width", 100], ["rect", 0, 0, 1, 1], ["fill", "red"], ["fill", "ink"]"#,
+        );
         let got: Vec<_> = errs.iter().map(|e| e.op).collect();
         assert_eq!(got, vec![Some(0), Some(1), Some(3), Some(4)], "{errs:?}");
-        assert_eq!(errs[0].message, "line with no current point; start the subpath with move");
+        assert_eq!(
+            errs[0].message,
+            "line with no current point; start the subpath with move"
+        );
         assert_eq!(errs[1].message, "width is above 0 and at most 64");
     }
 
     #[test]
     fn delay_bounds_and_needs_an_enter() {
         let e = one(r#"["rect", 0, 0, 1, 1], ["fill", "ink", {"enter": "fade", "delay": 65}]"#);
-        assert_eq!(e.message, "fill delay is a stagger index, an integer from 0 to 64");
+        assert_eq!(
+            e.message,
+            "fill delay is a stagger index, an integer from 0 to 64"
+        );
         let e = one(r#"["rect", 0, 0, 1, 1], ["fill", "ink", {"delay": 2}]"#);
         assert_eq!(e.message, "fill has \"delay\" with no enter");
     }
@@ -956,7 +1163,10 @@ mod tests {
         let e = one(r#"["text", 1, 1, "x", {"font": "Helvetica"}]"#);
         assert_eq!(e.message, "unknown option \"font\" on text");
         let e = one(r#"["text", 1, 1, "x", {"role": "Helvetica"}]"#);
-        assert_eq!(e.message, "text role is one of title, label, value, mono; a font is a role, never a value");
+        assert_eq!(
+            e.message,
+            "text role is one of title, label, value, mono; a font is a role, never a value"
+        );
     }
 
     #[test]
@@ -972,7 +1182,9 @@ mod tests {
             ["forward", 50], ["turn", 90], ["forward", 50], ["turn", 90],
             ["forward", 50], ["turn", 90], ["forward", 50], ["stroke", "ink"]]}"#;
         let p = parse_program(src).unwrap();
-        let Item::Paint(paint) = &p.items[0] else { panic!() };
+        let Item::Paint(paint) = &p.items[0] else {
+            panic!()
+        };
         assert_eq!(paint.path.last(), Some(&Seg::Line(10.0, 10.0)));
         assert_eq!(paint.path.len(), 5);
     }

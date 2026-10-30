@@ -1,39 +1,34 @@
 /**
- * at0741-every-kind-a-body.test.ts — every registered card kind is a body.
+ * every-kind-fixture.ts — every registered card kind is a body.
  *
- * With maker tooling loaded (the harness runs the prebuilt bundle with
- * `__tugTestMode` set, which is one of the three doors), the shell's
- * registry is read through the eval door. No registration says whether its
- * kind is a body — every kind is — so the guarantee is read off the running
- * app: one card of every kind is seeded, four kinds to a deck
- * — the kinds the Session card's hand-off rides a spawn for are spawned onto
- * a stub — and each card's body stands `ready` while the shell's document
- * mounts no card host at all: every card id is in the host's body list, and
- * `[data-card-host]` counts zero in the shell.
+ * Shared by the two `at0741-*` files, each of which proves one half of the
+ * registry so that neither outgrows a file's budget as kinds are added; the
+ * union is every kind. With maker tooling loaded (the harness runs the prebuilt
+ * bundle with `__tugTestMode` set, which is one of the three doors), the shell's
+ * registry is read through the eval door. No registration says whether its kind
+ * is a body — every kind is — so the guarantee is read off the running app: one
+ * card of every kind is seeded, four kinds to a deck — the kinds the Session
+ * card's hand-off rides a spawn for are spawned onto a stub — and each card's
+ * body stands `ready` while the shell's document mounts no card host at all:
+ * every card id is in the host's body list, and `[data-card-host]` counts zero
+ * in the shell.
  *
  * Four to a deck rather than all at once: the cap on live bodies holds a
  * deck to a count, and a hundred bodies in one deck is a reading of the
  * machine's memory, not of the registry. Each deck proves its four kinds the
- * same way, and the union is every kind.
- *
- * @covers tugdeck/src/card-kinds.ts
- * @covers tugdeck/src/lib/body-handoff.ts
- * @covers tugdeck/src/components/tugways/cards/gallery-registrations.tsx
- * @covers tugdeck/src/spikes/spike-registry.tsx
- * @covers tugdeck/src/fixtures/fixture-registrations.tsx
+ * same way.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { BODY_READY_MS, settleFor, spawnStub } from "./body-grounding/_bodies";
 import { CARD_KINDS, kindPane, kindSidebars } from "./body-grounding/_kinds";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "./streaming-stub-fixture";
 
-const TEST_NAME = "at0741-every-kind-a-body";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 900_000;
 const KINDS_PER_DECK = 4;
+
+export const TEST_TIMEOUT_MS = 900_000;
 
 interface RegisteredKind {
   componentId: string;
@@ -99,26 +94,28 @@ async function proveDeck(app: App, kinds: readonly RegisteredKind[], stubDir: st
   expect(hosts, `${kinds.map((k) => k.componentId).join(", ")}: the shell's document mounts no card host`).toBe(0);
 }
 
-describe.skipIf(!SHOULD_RUN)("at0741: every registered kind is a body", () => {
-  test(
-    "one card of every registered kind stands ready in a body, with none in the shell's document",
-    async () => {
-      const stubDir = stubDirectory();
-      const app = await launchTugApp({ testName: TEST_NAME, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
-      try {
-        const kinds = await app.evalJS<RegisteredKind[]>("window.tugdeck.diag.registeredKinds()");
-        note(`registered kinds: ${kinds.length} (${kinds.filter((k) => k.hidden).length} hidden; ${kinds.filter((k) => k.bodyHandOff === "spawn").length} spawn-handed)`);
-        expect(kinds.length, "the registry holds the shipped kinds and the maker kinds").toBeGreaterThan(20);
+/**
+ * Prove one half of the registry, in registry order, cut on a deck's boundary
+ * so that each half seeds the decks the whole would have. A kind is in exactly
+ * one half whatever the registry holds, since both read the same list.
+ */
+export async function proveHalfOfTheKinds(testName: string, half: "first" | "second"): Promise<void> {
+  const stubDir = stubDirectory();
+  const app = await launchTugApp({ testName, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  try {
+    const kinds = await app.evalJS<RegisteredKind[]>("window.tugdeck.diag.registeredKinds()");
+    note(`registered kinds: ${kinds.length} (${kinds.filter((k) => k.hidden).length} hidden; ${kinds.filter((k) => k.bodyHandOff === "spawn").length} spawn-handed)`);
+    expect(kinds.length, "the registry holds the shipped kinds and the maker kinds").toBeGreaterThan(20);
 
-        const started = Date.now();
-        for (let i = 0; i < kinds.length; i += KINDS_PER_DECK) {
-          await proveDeck(app, kinds.slice(i, i + KINDS_PER_DECK), stubDir);
-        }
-        note(`${kinds.length} kinds stood up in bodies, ${KINDS_PER_DECK} to a deck, in ${((Date.now() - started) / 1000).toFixed(1)} s`);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+    const decks = Math.ceil(kinds.length / KINDS_PER_DECK);
+    const cut = Math.ceil(decks / 2) * KINDS_PER_DECK;
+    const mine = half === "first" ? kinds.slice(0, cut) : kinds.slice(cut);
+    const started = Date.now();
+    for (let i = 0; i < mine.length; i += KINDS_PER_DECK) {
+      await proveDeck(app, mine.slice(i, i + KINDS_PER_DECK), stubDir);
+    }
+    note(`${mine.length} of ${kinds.length} kinds stood up in bodies, ${KINDS_PER_DECK} to a deck, in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  } finally {
+    await app.close();
+  }
+}

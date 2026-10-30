@@ -1,0 +1,13 @@
+{
+  "tugchart": 1,
+  "form": "spans",
+  "title": "Arc stages",
+  "unit": "from the start",
+  "format": "secs",
+  "items": [
+    {"label": "Devise", "start": 0, "end": 1860, "status": "good"},
+    {"label": "Review", "start": 1860, "end": 2700},
+    {"label": "Implement", "start": 2700, "end": 9480, "status": "accent"},
+    {"label": "Audit", "start": 9480, "end": 10140, "status": "bad"}
+  ]
+}

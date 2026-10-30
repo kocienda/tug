@@ -4,8 +4,8 @@
 //! JSON and its op limit.
 
 use crate::draw::{
-    Anchor, Baseline, Cap, ColourRole, Edge, Enter, Item, Join, Motion, PaintKind, PaintOp, Program, Seg, TextOp,
-    TypeRole, MAX_DELAY,
+    Anchor, Baseline, Cap, ColourRole, Edge, Enter, Item, Join, Motion, PaintKind, PaintOp,
+    Program, Seg, TextOp, TypeRole, MAX_DELAY,
 };
 
 pub(crate) struct Builder {
@@ -48,7 +48,13 @@ impl Builder {
     }
 
     /// A translucent fill: an overlapping area, a heat cell's step.
-    pub fn fill_opacity(&mut self, path: Vec<Seg>, role: ColourRole, opacity: f64, motion: Option<Motion>) {
+    pub fn fill_opacity(
+        &mut self,
+        path: Vec<Seg>,
+        role: ColourRole,
+        opacity: f64,
+        motion: Option<Motion>,
+    ) {
         if path.is_empty() {
             return;
         }
@@ -68,7 +74,13 @@ impl Builder {
     }
 
     /// A translucent stroke: a bullet's faint history line.
-    pub fn stroke_opacity(&mut self, path: Vec<Seg>, pen: Pen, opacity: f64, motion: Option<Motion>) {
+    pub fn stroke_opacity(
+        &mut self,
+        path: Vec<Seg>,
+        pen: Pen,
+        opacity: f64,
+        motion: Option<Motion>,
+    ) {
         if path.is_empty() {
             return;
         }

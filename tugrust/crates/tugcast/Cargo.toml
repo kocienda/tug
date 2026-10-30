@@ -43,6 +43,7 @@ tugtool-core = { workspace = true }
 tuggram = { workspace = true }
 tugarc-core = { workspace = true }
 tugchanges-core = { workspace = true }
+tugchart-core = { workspace = true }
 tugbank-core = { workspace = true }
 # The markdown core the page's WASM build shares; `native` adds the
 # sanitizer and the block renderer. It lives under `tugdeck/crates` beside

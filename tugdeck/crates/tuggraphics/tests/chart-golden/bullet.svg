@@ -3,23 +3,22 @@
 <text x="0" y="38.67" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">rust</text>
 <text x="0" y="64" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">deck</text>
 <text x="0" y="89.33" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">app-tests</text>
-<text x="72.8" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0s</text>
-<text x="193.6" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1m40s</text>
-<text x="314.4" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">3m20s</text>
-<text x="435.2" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">5m00s</text>
-<text x="543.5" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">6m40s</text>
-<path d="M72.8 26 L72.8 102 M193.6 26 L193.6 102 M314.4 26 L314.4 102 M435.2 26 L435.2 102 M556 26 L556 102" class="tgs-grid" fill="none" stroke-width="1"/>
-<path d="M145.28 30.67 L181.52 30.67 L181.52 46.67 L145.28 46.67 Z" class="tgf-grid"/>
-<path d="M72.8 45.21 L169.44 42.3 L266.08 46.67 L362.72 30.67 L459.36 37.94 L556 42.3" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
-<path d="M72.8 34.67 L159.78 34.67 L159.78 42.67 L72.8 42.67 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:0"/>
-<path d="M168.44 28.67 L170.44 28.67 L170.44 48.67 L168.44 48.67 Z" class="tgf-ink"/>
-<text x="163.78" y="38.67" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">1m12s</text>
-<path d="M103 56 L121.12 56 L121.12 72 L103 72 Z" class="tgf-grid"/>
-<path d="M72.8 60 L110.25 60 L110.25 68 L72.8 68 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:1"/>
-<path d="M108.04 54 L110.04 54 L110.04 74 L108.04 74 Z" class="tgf-ink"/>
-<text x="114.25" y="64" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">31s</text>
-<path d="M72.8 97.33 L193.6 94.42 M435.2 88.61 L556 81.33" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
-<path d="M72.8 85.33 L447.28 85.33 L447.28 93.33 L72.8 93.33 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:2"/>
-<path d="M361.72 79.33 L363.72 79.33 L363.72 99.33 L361.72 99.33 Z" class="tgf-ink"/>
-<text x="451.28" y="89.33" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">5m10s</text>
+<text x="126.8" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0s</text>
+<text x="269.87" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2m00s</text>
+<text x="412.93" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">4m00s</text>
+<text x="543.5" y="117" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">6m00s</text>
+<path d="M126.8 26 L126.8 102 M269.87 26 L269.87 102 M412.93 26 L412.93 102 M556 26 L556 102" class="tgs-grid" fill="none" stroke-width="1"/>
+<path d="M198.33 30.67 L234.1 30.67 L234.1 46.67 L198.33 46.67 Z" class="tgf-grid"/>
+<path d="M72.8 45.21 L82.4 42.3 L92 46.67 L101.6 30.67 L111.2 37.94 L120.8 42.3" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M126.8 34.67 L212.64 34.67 L212.64 42.67 L126.8 42.67 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:0"/>
+<path d="M221.18 28.67 L223.18 28.67 L223.18 48.67 L221.18 48.67 Z" class="tgf-ink"/>
+<text x="216.64" y="38.67" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">1m12s</text>
+<path d="M156.61 56 L174.49 56 L174.49 72 L156.61 72 Z" class="tgf-grid"/>
+<path d="M126.8 60 L163.76 60 L163.76 68 L126.8 68 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:1"/>
+<path d="M161.57 54 L163.57 54 L163.57 74 L161.57 74 Z" class="tgf-ink"/>
+<text x="167.76" y="64" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">31s</text>
+<path d="M72.8 97.33 L84.8 94.42 M108.8 88.61 L120.8 81.33" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"/>
+<path d="M126.8 85.33 L496.39 85.33 L496.39 93.33 L126.8 93.33 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:2"/>
+<path d="M411.93 79.33 L413.93 79.33 L413.93 99.33 L411.93 99.33 Z" class="tgf-ink"/>
+<text x="500.39" y="89.33" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">5m10s</text>
 </svg>

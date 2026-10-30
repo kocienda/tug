@@ -11,10 +11,20 @@ use crate::measure::Measure;
 const BAR_SHARE: f64 = 0.6;
 const MAX_BAR_H: f64 = 12.0;
 
-pub(super) fn layout(b: &mut Builder, spec: &Spec, items: &[SpanItem], w: f64, h: f64, m: &dyn Measure) {
+pub(super) fn layout(
+    b: &mut Builder,
+    spec: &Spec,
+    items: &[SpanItem],
+    w: f64,
+    h: f64,
+    m: &dyn Measure,
+) {
     let labels: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
     let lo = items.iter().map(|i| i.start).fold(f64::INFINITY, f64::min);
-    let hi = items.iter().map(|i| i.end).fold(f64::NEG_INFINITY, f64::max);
+    let hi = items
+        .iter()
+        .map(|i| i.end)
+        .fold(f64::NEG_INFINITY, f64::max);
     let frame = RowsLayout {
         spec,
         w,
@@ -23,6 +33,7 @@ pub(super) fn layout(b: &mut Builder, spec: &Spec, items: &[SpanItem], w: f64, h
         extra_row: 0.0,
         axis: Some((lo, hi)),
         right_margin: 4.0,
+        lead: 0.0,
     };
     let (plot, _) = frame.draw(b, m);
     let bar_h = (plot.band() * BAR_SHARE).min(MAX_BAR_H);

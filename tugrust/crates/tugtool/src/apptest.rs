@@ -91,7 +91,7 @@ fn run_history_chart(
     base_root: &str,
     files: &[String],
 ) -> Result<(), AppError> {
-    let per_file = crate::chart::RUNS_PER_FILE;
+    let per_file = tugchart_core::tests::RUNS_PER_FILE;
     let mut rows = Vec::with_capacity(files.len());
     for file in files {
         let runs =
@@ -101,12 +101,13 @@ fn run_history_chart(
         rows.push((file.clone(), runs));
     }
     let subtitle = format!("newest {per_file} runs per file, oldest left");
-    match crate::chart::file_outcomes(&rows, "App-test history", &subtitle) {
+    match tugchart_core::tests::file_outcomes(&rows, "App-test history", &subtitle) {
         Some(spec) => {
             let plotted = spec["rows"].as_array().map_or(0, Vec::len);
             println!(
-                "{plotted} of {} file(s) with recorded runs for {base_root}, newest {per_file} each",
-                files.len()
+                "{plotted} of {} file(s) with recorded runs for {base_root}, newest {per_file} each{}",
+                files.len(),
+                tugchart_core::tests::dropped_files(&rows)
             );
             println!("{}", crate::chart::chart_line(&spec)?);
         }

@@ -3172,6 +3172,7 @@ dependencies = [
  "tugbank-core",
  "tugcast-core",
  "tugchanges-core",
+ "tugchart-core",
  "tugcore",
  "tuggram",
  "tuglog",
@@ -3204,6 +3205,23 @@ dependencies = [
  "sha2",
  "tempfile",
  "tugcore",
+]
+
+[[package]]
+name = "tugchart-core"
+version = "0.8.20"
+dependencies = [
+ "chrono",
+ "clap",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tugarc-core",
+ "tugchanges-core",
+ "tugcore",
+ "tuggraphics",
+ "tugtool-core",
 ]
 
 [[package]]
@@ -3334,6 +3352,7 @@ dependencies = [
  "tugarc-core",
  "tugbank-core",
  "tugchanges-core",
+ "tugchart-core",
  "tugcore",
  "tugedit-core",
  "tuggraphics",

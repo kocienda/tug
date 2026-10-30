@@ -110,11 +110,12 @@ fn main() -> ExitCode {
             limit,
             range,
             days,
+            path,
             chart,
         }) => changes::finish(
             "log",
             json,
-            changes::run_log(limit, range, days, chart, json),
+            changes::run_log(limit, range, days, path, chart, json),
         ),
         Some(Commands::Diff {
             range,
@@ -216,6 +217,12 @@ fn main() -> ExitCode {
             json,
             chart::run_render(&spec, &out, &theme, width, json),
         ),
+
+        // A well-known chart of this project.
+        Some(Commands::Chart(cli::ChartCommands::List)) => {
+            changes::finish("chart list", json, chart::run_list(json))
+        }
+        Some(Commands::Chart(cli::ChartCommands::Recipe(argv))) => chart::run_recipe(argv, json),
 
         // The unit-test results ledger.
         Some(Commands::Test(cmd)) => {

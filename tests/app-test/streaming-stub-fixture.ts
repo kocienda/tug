@@ -220,7 +220,8 @@ export function streamingTranscript(
  * `turns` size the transcript: the default is one turn that streams for
  * several minutes, and a reading that waits for every turn to end, or needs
  * many rows, asks for shorter turns and more of them; `text` writes each
- * message's markdown.
+ * message's markdown. `boundProjectDir` is the project to bind to, a fresh
+ * empty directory when not given.
  */
 export async function bindStreamingStubs(
   app: App,
@@ -229,13 +230,18 @@ export async function bindStreamingStubs(
   messages?: number,
   turns?: number,
   text?: (index: number) => string,
+  boundProjectDir?: string,
 ): Promise<StubCard[]> {
   const transcript = JSON.stringify(streamingTranscript(messages, turns, text));
   const cards: StubCard[] = [];
   for (const cardId of cardIds) {
     const tugSessionId = randomUUID();
-    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), `tug-stub-project-${cardId}-`)));
-    onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
+    let projectDir = boundProjectDir;
+    if (projectDir === undefined) {
+      const fresh = realpathSync(mkdtempSync(join(tmpdir(), `tug-stub-project-${cardId}-`)));
+      onTestRunEnd(() => rmSync(fresh, { recursive: true, force: true }));
+      projectDir = fresh;
+    }
     writeFileSync(join(stubDir, `${tugSessionId}.json`), transcript);
     await app.spawnSessionNew(cardId, { tugSessionId, projectDir });
     await withState(app, cardId, `binding ${cardId} to stub session ${tugSessionId}`, () =>
