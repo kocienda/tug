@@ -1705,12 +1705,16 @@ fn run_arc_run(
     // it. So the CLI takes the Re-audit button's own door, and the refusal
     // reads the same from both.
     if tugarc_core::arc::read_arc(paths, &root, name).is_some_and(|record| record.done) {
-        let response = post_arc_api(serde_json::json!({
-            "op": "arc_resume",
-            "tug_session_id": session.session_id,
-            "project_dir": binding_project(project)?.to_string_lossy(),
-            "arc": name,
-        }))
+        let response = post_instance_api(
+            "/api/arc",
+            "a re-audit",
+            serde_json::json!({
+                "op": "arc_resume",
+                "tug_session_id": session.session_id,
+                "project_dir": binding_project(project)?.to_string_lossy(),
+                "arc": name,
+            }),
+        )
         .map_err(|e| refuse(&session, e))?;
         let seated = answered_session(&response, &session);
         let arc = tugarc_core::arc::read_arc(paths, &root, name).ok_or_else(|| {

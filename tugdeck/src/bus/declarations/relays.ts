@@ -145,11 +145,21 @@ export const overviewDraft = defineSharedStore<OverviewComposerDraftState | null
 export type ArcTransportVerb = "start" | "resume" | "stop";
 
 /**
- * The verbs a refusal can name: the three transport presses, and a row's
- * Join, whose press is the composer's `changeset_join` rather than one of
- * this store's frames but whose refusal speaks in the same voice ([L31]).
+ * The verbs a refusal can name: every verb an arc row draws. The three
+ * transport presses are this store's own frames; the rest — Join, Changes,
+ * Diff, Bind, Unbind, Replay, Discard — are performed elsewhere, but a press
+ * the row refuses before anything is sent speaks in the same voice ([L31]),
+ * so a refused button is never only its hover.
  */
-export type ArcRefusedVerb = ArcTransportVerb | "join";
+export type ArcRefusedVerb =
+  | ArcTransportVerb
+  | "join"
+  | "changes"
+  | "diff"
+  | "bind"
+  | "unbind"
+  | "replay"
+  | "discard";
 
 /** A refused press: the arc, the verb, the reason the server gave, and when. */
 export interface ArcPressRefusal {
@@ -213,7 +223,16 @@ function isTransportVerb(value: unknown): value is ArcTransportVerb {
 }
 
 function isRefusedVerb(value: unknown): value is ArcRefusedVerb {
-  return isTransportVerb(value) || value === "join";
+  return (
+    isTransportVerb(value) ||
+    value === "join" ||
+    value === "changes" ||
+    value === "diff" ||
+    value === "bind" ||
+    value === "unbind" ||
+    value === "replay" ||
+    value === "discard"
+  );
 }
 
 function isPressRefusal(value: unknown): value is ArcPressRefusal {

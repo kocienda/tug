@@ -64,7 +64,7 @@ Deriving inverts both. The announcement is skippable only by not writing the rec
 
 ## Stages
 
-The **wheel** drives every arc through a schedule of rotations, carrying it from a plan through review, implement, and audit without anybody clicking between them — and from a brief through a devising stage first, when a brief is all it was handed. A *stage* is a rotation of the card's claude session — a fresh session seated under the same card, on a chosen model, opening on a composed prompt — and it is **not** one of the seven derived words above. The two senses share a spelling and nothing else: an arc is `implementing` because an `arc step` declaration says so, and it is in its `review` stage because that is the session currently seated.
+The **wheel** drives every arc through a schedule of rotations, carrying it from a plan through review, implement, and audit without anybody clicking between them — and from a brief through a devising stage first, when a brief is all it was handed. A *stage* is a rotation of the card's claude session — a fresh session seated under the same card, on a chosen model, opening on a composed prompt — and it is **not** one of the nine derived words above. The two senses share a spelling and nothing else: an arc is `implementing` because an `arc step` declaration says so, and it is in its `review` stage because that is the session currently seated.
 
 What a rotation is, what it cannot change, and when it is allowed to happen live in [wheel.md](wheel.md).
 
@@ -113,7 +113,7 @@ The side-question row is the **only** one whose middle cell is not a receipt, an
 
 The vocabulary is closed, and the compiler enforces it: `ArcStopReason` in `tugarc-core/src/arc.rs` carries every reason an arc can stop for, `append_arc_stop` takes it, and the receipt formatter matches it exhaustively with no fallback arm. A reason the receipt cannot explain is a reason the arc must not write.
 
-`lint` · `api error` · `compact failed` · `implement idle` · `stalled` · `needs a decision` · `records disagree` · `seat unavailable` · `review did not stamp` · `audit did not mark` · `audit went stale` · `document missing` · `plan missing` · `session gone` · `card taken` · `card closed` · `stopped by user` · `discarded` · `joined` · `prompt unavailable` · `session idle` · `session errored` · `session closed` · `spawn queue full` · `no stdin` · `stdin closed` · `arc running`
+`lint` · `api error` · `compact failed` · `implement idle` · `stalled` · `needs a decision` · `records disagree` · `seat unavailable` · `seat lost` · `review did not stamp` · `audit did not mark` · `audit went stale` · `document missing` · `plan missing` · `session gone` · `card taken` · `card closed` · `stopped by user` · `discarded` · `joined` · `prompt unavailable` · `session idle` · `session errored` · `session closed` · `spawn queue full` · `no stdin` · `stdin closed` · `arc running`
 
 The last seven are the wheel's own refusals, mapped through `Refusal::stop_reason`. `discarded` and `joined` exist for their sentence alone — nothing writes them to the arc log, because the ending's own terminal line has already closed the arc's generation.
 
@@ -187,7 +187,7 @@ The arc log is a per-project file that every instance over one checkout reads. A
 
 So the seat is named. `arc-owner <instance-id>` goes into the arc log immediately before each act it describes — before the dispatch, and before the `arc-stage` line the bridge writes — and `ArcRecord::owner` reads it back, last one winning within the generation. The identity is the raw `TUG_INSTANCE_ID`, opaque to every reader; a launch with no instance id writes no line at all rather than a placeholder.
 
-**Liveness is probed, not leased.** `instance_tmux_live` asks the owner's own `tug-<token>` tmux server whether its session exists — the same question already trusted to decide whether it is safe to touch a worktree an instance's app might hold. A lease here would need a heartbeat, because an arc mid-stage legitimately writes nothing for minutes, and a heartbeat in an append-only per-project file grows that file forever. That is precisely the cost `resolve_lease` avoids by riding checkpoints the resolve already writes; there is no equivalent write to ride here, so the question is asked of the process instead of inferred from the file.
+**Liveness is probed, not leased.** `instance_tmux_live` asks the owner's own `tug-<token>` tmux server whether its session exists — the same question already trusted to decide whether it is safe to touch a worktree an instance's app might hold. A lease here would need a heartbeat, because an arc mid-stage legitimately writes nothing for minutes, and a heartbeat in an append-only per-project file grows that file forever. There is no write an arc already makes that such a heartbeat could ride, so the question is asked of the process instead of inferred from the file.
 
 The verdict has four values and only one of them gates:
 

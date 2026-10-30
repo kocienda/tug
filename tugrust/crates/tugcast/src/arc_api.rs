@@ -371,13 +371,23 @@ pub(crate) fn arc_resume(
         // A quiet re-stamp inside its horizon is already answering the stale
         // audit, so the press refuses and says when it may come back; a job
         // past its horizon is released here and the press goes on.
-        if let crate::feeds::base_motion::RestampRelease::Running { deadline, .. } =
-            crate::feeds::base_motion::release_restamp(&arc_id)
-        {
-            let by = chrono::DateTime::<chrono::Local>::from(deadline).format("%H:%M:%S");
-            return ArcApiOutcome::Error(format!(
-                "{arc} is re-stamping its audit quietly — wait for it to finish, or press again after {by}"
-            ));
+        match crate::feeds::base_motion::release_restamp(&arc_id) {
+            crate::feeds::base_motion::RestampRelease::Running { deadline, .. } => {
+                let by = chrono::DateTime::<chrono::Local>::from(deadline).format("%H:%M:%S");
+                return ArcApiOutcome::Error(format!(
+                    "{arc} is re-stamping its audit quietly — wait for it to finish, or press again after {by}"
+                ));
+            }
+            // The job is writing its answer now; a press that went on would
+            // race that write and might be told nothing needs re-auditing
+            // over an audit just seated.
+            crate::feeds::base_motion::RestampRelease::Finishing => {
+                return ArcApiOutcome::Error(format!(
+                    "{arc}'s quiet re-stamp is writing its answer now — press again in a moment"
+                ));
+            }
+            crate::feeds::base_motion::RestampRelease::NotRunning
+            | crate::feeds::base_motion::RestampRelease::Released => {}
         }
         match tugarc_core::ops::reopen_stale_audit(&Paths::from_env(), project_dir, arc) {
             Ok(true) => {}

@@ -132,7 +132,7 @@ import {
 } from "@/lib/arc-verbs";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
-import { arcJoinRegister } from "@/lib/arc-join-register";
+import { arcJoinRegister, staleAuditFacts } from "@/lib/arc-join-register";
 import { useChangesetJoinLand } from "@/lib/changeset-join-store";
 import { toolCallPhaseVisual } from "@/lib/code-session-store/tool-call-phase-visual";
 import { TugListRow } from "@/components/tugways/tug-list-row";
@@ -914,8 +914,7 @@ function ArcRowCell({
     // The Arcs card is the one surface that renders arcs nobody is holding,
     // so it is the one that has to hand the register that fact ([D147]).
     bound: entry.bound_session !== undefined,
-    boundCallsign: entry.bound_callsign ?? null,
-    restampRunning: entry.restamp?.running_since !== undefined,
+    ...staleAuditFacts(entry),
     // A live wheel outranks the offer: the section shows the stage that is
     // running rather than a readiness the audit has not signed off on.
     run: entry.arc ?? null,

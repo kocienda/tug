@@ -82,7 +82,7 @@ pub fn join_state_for(
     let run = run_kind.map(|k| k.to_string());
 
     // Uncached, always: what would refuse a join right now.
-    let blockers: Vec<ArcJoinBlocker> = ops::join_blockers_from_detail(
+    let mut blockers: Vec<ArcJoinBlocker> = ops::join_blockers_from_detail(
         &Paths::from_env(),
         repo_root,
         detail,
@@ -103,6 +103,9 @@ pub fn join_state_for(
     .collect();
 
     let name = detail.name.as_str();
+    if let Some(blocker) = replay_conflict_blocker(detail) {
+        blockers.push(blocker);
+    }
     if !blockers.is_empty() {
         offer_receipt(detail, Some("blocked"));
         // The probe's answer would not be displayed, so it is not paid for.
@@ -160,6 +163,40 @@ pub fn join_state_for(
         resolved_base: receipts.get(name).cloned(),
     }
 }
+
+/// What refuses a hand arc whose last replay onto the base conflicted.
+///
+/// A Wheel arc needs nothing here: a conflicted replay seats its audit, so the
+/// derivation already reads it not ready and the readiness blocker says why.
+/// A hand arc has no audit to go stale, so before the board read the
+/// derivation alone it would offer a join the press then failed with a
+/// conflict. The engine knows the replay conflicted ([`conflict_paths_for`]),
+/// and it clears the paths on the next clean replay, so the blocker stands
+/// exactly as long as the conflict does.
+///
+/// [`conflict_paths_for`]: crate::feeds::base_motion::conflict_paths_for
+fn replay_conflict_blocker(detail: &ArcDetail) -> Option<ArcJoinBlocker> {
+    if detail.arc.is_some() {
+        return None;
+    }
+    let paths = crate::feeds::base_motion::conflict_paths_for(&detail.owner_key);
+    if paths.is_empty() {
+        return None;
+    }
+    let (name, base) = (detail.name.as_str(), detail.base.as_str());
+    let count = paths.len();
+    let noun = if count == 1 { "path" } else { "paths" };
+    Some(ArcJoinBlocker {
+        kind: "conflicted".to_string(),
+        title: "The arc conflicts with its base".to_string(),
+        detail: format!(
+            "Cannot join: arc '{name}' conflicts with '{base}' in {count} {noun}; replay it in its worktree with `tugtool arc replay {name}` and resolve them as a round."
+        ),
+        paths,
+        remedy: None,
+    })
+}
+
 /// Every arc's standing fold receipt, from one walk of the op log.
 ///
 /// **One walk per recompute, not one per arc.** `list_ops` is eager — a git
@@ -410,6 +447,42 @@ mod tests {
         let state = compose(repo);
         assert_eq!(state.phase, "previewed");
         assert!(state.conflicts.is_empty(), "{:?}", state.conflicts);
+    }
+
+    /// A hand arc whose last replay conflicted is blocked, not offered: no
+    /// audit stands over it to go stale, so the engine's conflict is the only
+    /// thing that can keep the press from failing on it.
+    #[test]
+    fn a_hand_arc_whose_replay_conflicted_is_blocked_until_it_replays_clean() {
+        let temp = fixture();
+        let repo = temp.path();
+        let detail = detail_for(repo);
+        assert!(detail.arc.is_none(), "precondition: a hand arc");
+
+        crate::feeds::base_motion::publish_conflicts_for_test(
+            &detail.owner_key,
+            vec!["f.txt".to_string()],
+        );
+        let blocked = compose_with(repo, &detail);
+        assert_eq!(blocked.phase, "blocked");
+        assert!(blocked.offer.is_none(), "a conflicted arc offers nothing");
+        let conflict = blocked
+            .blockers
+            .iter()
+            .find(|b| b.kind == "conflicted")
+            .expect("the conflict is the blocker");
+        assert_eq!(conflict.paths, vec!["f.txt".to_string()]);
+        assert!(
+            conflict.detail.contains("tugtool arc replay demo"),
+            "{}",
+            conflict.detail
+        );
+
+        crate::feeds::base_motion::publish_conflicts_for_test(&detail.owner_key, Vec::new());
+        assert!(
+            compose_with(repo, &detail).offer.is_some(),
+            "a clean replay clears it"
+        );
     }
 
     /// Readiness is the derivation's: an arc it does not call ready offers

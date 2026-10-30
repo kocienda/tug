@@ -158,8 +158,21 @@ fn verified_elsewhere(
         (true, true) => "the head and the base both moved since",
     };
     let short = |sha: &str| sha.chars().take(9).collect::<String>();
+    // The remedy is the act that clears the refusal. A verify records the
+    // arc's fork as its base, so when the arc no longer stands on the base
+    // tip no verify can match the mark until the arc is replayed onto it; only
+    // when it does stand there is a fresh verify the whole answer.
+    let on_base = git_stdout(repo_root, &["merge-base", &live.base, &live.head])
+        .is_ok_and(|fork| fork == live.base);
+    let remedy = if on_base {
+        format!("Run `tugtool arc verify {name}` on this tree first.")
+    } else {
+        format!(
+            "Replay it onto the base first (`tugtool arc replay {name}`), then run `tugtool arc verify {name}`."
+        )
+    };
     Some(format!(
-        "Cannot mark '{name}' audited: the last verify ran at {} onto {}, and {moved} (now {} onto {}). Run `tugtool arc verify {name}` on this tree first.",
+        "Cannot mark '{name}' audited: the last verify ran at {} onto {}, and {moved} (now {} onto {}). {remedy}",
         short(&head),
         short(&base),
         short(&live.head),

@@ -613,6 +613,19 @@ describe("the fold has its own sentence ([P07])", () => {
 describe("a stale audit takes the offer down and says where the re-audit is", () => {
   const stale = { stage: "audit-stale" };
 
+  test("the sentence leads with which side moved", () => {
+    const facts = { ...stale, run: { stage: "audit", done: true }, bound: false };
+    expect(reg(reconciled(), { ...facts, auditStaleness: "head" })?.line).toBe(
+      "a round landed on imposer2 after its audit — waiting for a card: bind one, or tugtool arc run imposer2",
+    );
+    expect(reg(reconciled(), { ...facts, auditStaleness: "base" })?.line).toBe(
+      "main moved under imposer2's audit — waiting for a card: bind one, or tugtool arc run imposer2",
+    );
+    expect(reg(reconciled(), { ...facts, auditStaleness: "both" })?.line).toBe(
+      "imposer2's audit is stale — waiting for a card: bind one, or tugtool arc run imposer2",
+    );
+  });
+
   test("nobody holds it: waiting for a card", () => {
     const waiting = reg(reconciled(), {
       ...stale,

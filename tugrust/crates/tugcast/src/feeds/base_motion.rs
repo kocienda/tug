@@ -460,6 +460,10 @@ pub struct RestampRun {
     pub since: SystemTime,
     pub deadline: SystemTime,
     generation: u64,
+    /// The job has claimed its write ([`ConflictBoard::claim_write`]): from
+    /// here to its end a press cannot release it, so the record is written by
+    /// the job or by the press and never by both.
+    committing: bool,
 }
 
 /// What a press on the Re-audit door finds about the quiet job.
@@ -473,6 +477,9 @@ pub enum RestampRelease {
         since: SystemTime,
         deadline: SystemTime,
     },
+    /// The job is writing its answer to the record now: the press refuses
+    /// for the moment that takes, rather than racing the write.
+    Finishing,
     /// The job ran past its horizon, so the press took the arc back from it.
     Released,
 }
@@ -501,6 +508,7 @@ impl ConflictBoard {
             since,
             deadline: since + horizon,
             generation,
+            committing: false,
         });
         fact.seated_why = None;
         Some(generation)
@@ -521,6 +529,27 @@ impl ConflictBoard {
             .get(owner_key)
             .and_then(|fact| fact.running.as_ref())
             .is_some_and(|run| run.generation == generation)
+    }
+
+    /// Claim the write for the job `generation` started: answers true, and
+    /// from then on [`Self::release_restamp`] answers `Finishing` rather than
+    /// releasing, when that job still holds the arc. Answers false when a
+    /// press already released it, and the job then writes nothing. The check
+    /// and the claim are one critical section, which is what makes "a
+    /// released job writes nothing" true by construction rather than by a
+    /// check a press can land behind.
+    fn claim_write(&self, owner_key: &str, generation: u64) -> bool {
+        let mut quiet = self.quiet.lock();
+        match quiet
+            .get_mut(owner_key)
+            .and_then(|fact| fact.running.as_mut())
+        {
+            Some(run) if run.generation == generation => {
+                run.committing = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// End the job `generation` started, recording why it seated the audit
@@ -548,6 +577,7 @@ impl ConflictBoard {
         };
         match fact.running.as_ref() {
             None => RestampRelease::NotRunning,
+            Some(run) if run.committing => RestampRelease::Finishing,
             Some(run) if now < run.deadline => RestampRelease::Running {
                 since: run.since,
                 deadline: run.deadline,
@@ -617,6 +647,15 @@ pub(crate) fn hold_restamp_for_test(owner_key: &str, horizon: Duration) -> u64 {
         .get_or_init(|| Arc::new(ConflictBoard::default()))
         .begin_restamp(owner_key, horizon)
         .expect("no quiet job already holds the arc")
+}
+
+/// Publish a conflicted replay's paths on `owner_key` (empty clears them), for
+/// a test of a reader that must meet one.
+#[cfg(test)]
+pub(crate) fn publish_conflicts_for_test(owner_key: &str, paths: Vec<String>) {
+    BOARD
+        .get_or_init(|| Arc::new(ConflictBoard::default()))
+        .set(owner_key, paths);
 }
 
 /// End the job [`hold_restamp_for_test`] published.
@@ -755,8 +794,9 @@ enum Wake {
     /// A session bound to an arc, so a stale audit that was waiting for a
     /// card may now have one. Every open workspace, as for a turn ending.
     Bind,
-    /// Startup, a lagged event stream, or a settled crossing: every open
-    /// workspace, because nothing says which arc moved.
+    /// Startup, a lagged event stream, a settled crossing, a round landing,
+    /// or a released quiet re-stamp: every open workspace, because nothing
+    /// says which arc moved.
     All,
 }
 
@@ -1322,7 +1362,19 @@ async fn finish_quiet(
     };
     let end = quiet_end(replay, verdict.as_deref());
     let seated_why = (end == QuietEnd::Seat).then(|| stop_why.unwrap_or(verify_why));
-    if !held.board.holds(&job.owner_key, held.generation) {
+    // Only an end that writes claims the write; `Leave`, and a seat with no
+    // card to seat on, write nothing and need no claim.
+    let writes = match end {
+        QuietEnd::Leave => false,
+        QuietEnd::Restamp => true,
+        QuietEnd::Seat => quiet.seat.is_some(),
+    };
+    let still_held = if writes {
+        held.board.claim_write(&job.owner_key, held.generation)
+    } else {
+        held.board.holds(&job.owner_key, held.generation)
+    };
+    if !still_held {
         info!(arc = %job.name, "base-motion: quiet job released mid-run, writing nothing");
         return (false, QuietEnd::Leave, None);
     }
@@ -1737,6 +1789,31 @@ mod tests {
         assert!(board.holds("a", second));
         assert!(board.end_restamp("a", second, None));
         assert!(!board.restamping("a"));
+    }
+
+    /// A job that has claimed its write cannot be released, however late it
+    /// runs, and a released job cannot claim one: the record is written by
+    /// the job or by the press, never by both.
+    #[test]
+    fn a_claimed_write_cannot_be_released_and_a_released_job_cannot_claim() {
+        let board = ConflictBoard::default();
+        let late = SystemTime::now() + Duration::from_secs(61);
+
+        let first = board.begin_restamp("a", Duration::from_secs(60)).unwrap();
+        assert!(board.claim_write("a", first), "the holding job claims");
+        assert_eq!(
+            board.release_restamp("a", late),
+            RestampRelease::Finishing,
+            "past the horizon, a claimed write still finishes"
+        );
+        assert!(board.end_restamp("a", first, None));
+
+        let second = board.begin_restamp("a", Duration::from_secs(60)).unwrap();
+        assert_eq!(board.release_restamp("a", late), RestampRelease::Released);
+        assert!(
+            !board.claim_write("a", second),
+            "a released job writes nothing"
+        );
     }
 
     /// The quiet path's verdict: a clean replay with a green fit re-stamps; a

@@ -784,9 +784,10 @@ pub(crate) async fn supervisor(
             supervisor_ledger: Arc::clone(&supervisor.ledger),
             session_ledger: Some(Arc::clone(&ledger)),
             bump: Arc::clone(&changeset_all_bump),
-            // A conflicted replay becomes an ordinary turn: the submission goes
+            // The mid-plan replay notice is an ordinary submission: it goes
             // down the same CODE_INPUT queue the router feeds, and the opener
-            // that makes it visible goes out on CODE_OUTPUT.
+            // that makes it visible goes out on CODE_OUTPUT. A conflicted
+            // replay is never a turn; it seats the arc's audit instead.
             code_input_tx: Some(code_input_tx.clone()),
             code_output: Some(supervisor.code_output.clone()),
             cancel: cancel.clone(),

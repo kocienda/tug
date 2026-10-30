@@ -899,7 +899,11 @@ pub struct ArcRestamp {
 /// it did, and an older server sends none, which parses as "nothing to say".
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ArcJoinState {
-    /// `blocked` | `previewed` | `conflicted`.
+    /// `blocked` | `previewed`. A `conflicted` phase still parses, because
+    /// older servers sent it and the shared golden fixture carries it, but the
+    /// board no longer emits one: a ready arc's fit was verified by its audit,
+    /// and a hand arc whose replay conflicted is `blocked` with a
+    /// `conflicted` blocker.
     ///
     /// **Derived on every recompute, never stored.** The board reads git and
     /// assembles; there is no state machine holding a phase that reality could
@@ -912,7 +916,8 @@ pub struct ArcJoinState {
     /// state, which moves without moving a commit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blockers: Vec<ArcJoinBlocker>,
-    /// Conflicted paths from the in-memory merge probe.
+    /// Conflicted paths the join itself answered with. The board sends none —
+    /// it runs no merge probe — and the field stays for the join's own reply.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<String>,
     /// What is running on this arc right now — `"join"` or `"resolve-base"`

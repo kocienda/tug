@@ -31,9 +31,23 @@
 
 import { useLayoutEffect, useRef } from "react";
 
-import { arcPressStore } from "@/lib/arc-press-store";
+import { arcPressStore, type ArcRefusedVerb } from "@/lib/arc-press-store";
 
 import { useTugPaneBulletin } from "../tug-pane-bulletin";
+
+/** What the notice's title says could not be done, by the verb refused. */
+const REFUSED_PHRASE: Record<ArcRefusedVerb, string> = {
+  start: "start",
+  resume: "resume",
+  stop: "stop",
+  join: "join",
+  changes: "show the changes of",
+  diff: "open the diff of",
+  bind: "bind",
+  unbind: "unbind",
+  replay: "replay",
+  discard: "discard",
+};
 
 export function ArcPressNoticeController({
   tugSessionId,
@@ -66,7 +80,7 @@ export function ArcPressNoticeController({
       postedSeqRef.current = refusal.seq;
       const id = `arc-press-${refusal.verb}`;
       postedIdRef.current = id;
-      api.caution(`Couldn't ${refusal.verb} ${refusal.arc}`, {
+      api.caution(`Couldn't ${REFUSED_PHRASE[refusal.verb]} ${refusal.arc}`, {
         id,
         description: refusal.reason,
         onGone: () => arcPressStore.clearRefusal(tugSessionId, refusal.seq),

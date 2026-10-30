@@ -107,6 +107,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { compareArcEntries } from "@/lib/arc-order";
 import { ArcJoinRegister } from "@/components/tugways/arc-join-register";
+import { staleAuditFacts } from "@/lib/arc-join-register";
 import { useChangesetJoinLand, useChangesetJoinResolve } from "@/lib/changeset-join-store";
 import { ARC_UNBOUND_LABEL, arcFrontedLabel } from "./changes-section-labels";
 import {
@@ -559,8 +560,7 @@ function ArcRow({
           // drives one ([D147]) — so this is the difference between "the check
           // is a beat away" and a promise nothing will ever keep.
           bound={entry.bound_session !== undefined}
-          boundCallsign={entry.bound_callsign ?? null}
-          restampRunning={entry.restamp?.running_since !== undefined}
+          {...staleAuditFacts(entry)}
           // The shade is where the offer is actually pressed, so a stage the
           // wheel still has seated is named here rather than read around.
           run={entry.arc ?? null}

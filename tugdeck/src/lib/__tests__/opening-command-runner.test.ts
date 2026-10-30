@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   CATALOG_WAIT_MS,
+  _setCatalogWaitMsForTest,
   openingCommandPayload,
   runOpeningCommand,
 } from "@/lib/opening-command-runner";
@@ -84,6 +85,7 @@ describe("runOpeningCommand", () => {
   });
   afterEach(() => {
     sent = [];
+    _setCatalogWaitMsForTest(CATALOG_WAIT_MS);
   });
 
   test("waits for the replay, the submit gate and the catalog, then sends once", () => {
@@ -128,6 +130,7 @@ describe("runOpeningCommand", () => {
   });
 
   test("with no catalog, the deadline sends under the written name", async () => {
+    _setCatalogWaitMsForTest(20);
     const dispose = runOpeningCommand(
       "c1",
       { name: "arc", args: "" },
@@ -136,7 +139,7 @@ describe("runOpeningCommand", () => {
     );
     session.set({ replayEverCompleted: true, canSubmit: true });
     expect(sent).toEqual([]);
-    await new Promise((r) => setTimeout(r, CATALOG_WAIT_MS + 50));
+    await new Promise((r) => setTimeout(r, 70));
     expect(sent.map((s) => s.values)).toEqual([["arc"]]);
     dispose();
   });

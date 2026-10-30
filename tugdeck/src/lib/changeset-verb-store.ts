@@ -60,7 +60,7 @@ import {
   type ArcReplayOutcomeWord,
 } from "./arc-replay-outcome-store";
 import { gitLogStore } from "./git-log-store";
-import { pressAcknowledgementMs } from "./changeset-join-store";
+import { getChangesetJoinStore, pressAcknowledgementMs } from "./changeset-join-store";
 
 export type GitInitPhase = "idle" | "pending" | "error";
 
@@ -661,6 +661,11 @@ export class ChangesetVerbStore extends Subscribable {
         // becoming a phase that outranks the feed's answer.
         this._setJoin(entryKey, JOIN_IDLE);
       } else if (commitHash !== null) {
+        // The landed arc's overlay cell goes with it, so a reused arc name
+        // never inherits a stale one. Done here rather than only by the
+        // press's own subscriber, because an answer that arrives after the
+        // press horizon finds that subscriber already gone.
+        getChangesetJoinStore()?.clear(sentDir, arc);
         this._setJoin(entryKey, {
           phase: "done",
           error: null,
@@ -1045,7 +1050,7 @@ export class ChangesetVerbStore extends Subscribable {
    */
   join(entryKey: string, workspaceKey: string, arc: string, args: JoinArgs): void {
     this._joinInflight.set(verbKey(workspaceKey, arc), entryKey);
-    this._armJoinDeadline(entryKey, verbKey(workspaceKey, arc));
+    this._armJoinDeadline(entryKey, workspaceKey, arc);
     this._setJoin(entryKey, {
       phase: "pending",
       error: null,
@@ -1078,14 +1083,23 @@ export class ChangesetVerbStore extends Subscribable {
    * Join verb already render, so neither holds "Joining…" forever and every
    * subscription waiting on the phase releases. The correlation stays: an
    * answer that arrives late still settles the phase it names.
+   *
+   * Any frame naming the join clears this deadline (see the receive path), so
+   * when it fires the server has said nothing at all. The only beat on the
+   * arc is then the placeholder the press wrote itself
+   * (`ChangesetJoinStore.beginLand`), which the register, the rows and the
+   * reveal gate all read as a landing in flight — so it is retracted here,
+   * and the named error is what every surface shows.
    */
-  private _armJoinDeadline(entryKey: string, k: string): void {
+  private _armJoinDeadline(entryKey: string, workspaceKey: string, arc: string): void {
+    const k = verbKey(workspaceKey, arc);
     this._clearJoinDeadline(k);
     this._joinDeadlines.set(
       k,
       setTimeout(() => {
         this._joinDeadlines.delete(k);
         if (this.joinState(entryKey).phase !== "pending") return;
+        getChangesetJoinStore()?.clearLand(workspaceKey, arc);
         this._setJoin(entryKey, {
           phase: "error",
           error: JOIN_UNACKNOWLEDGED,

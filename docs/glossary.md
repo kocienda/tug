@@ -90,7 +90,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Imposition.** The scheme under which the *deck* arranges cards. The word comes from printing, where imposition is the arrangement of pages on the press sheet so each lands in place when folded and bound. You choose one to six *slots*; every card lives in one at the width you set; the deck does the arithmetic. You never position a card by hand.
 
-**Join.** The merge of an arc back onto its *base*, done by Tug and asked for by you. It lands the whole arc as one commit, with the *join draft* as its message, a `Tug-Arc:` trailer, and one receipt in the transcript, and cleans up the branch and worktree. The model never joins. A conflicted join runs a resolution ladder and then a resolver in the arc's *workshop*; it asks you only when the two sides want incompatible things. `/arc-join <name>`. A join can be undone.
+**Join.** The merge of an arc back onto its *base*, done by Tug and asked for by you. It lands the whole arc as one commit, with the *join draft* as its message, a `Tug-Arc:` trailer, and one receipt in the transcript, and cleans up the branch and worktree. The model never joins. A join resolves nothing: an arc is offered only while its *audit* stands on the live base, and one whose base or rounds moved since goes back to its audit, which fits it to the new base before the offer returns. `/arc-join <name>`. A join can be undone.
 
 **Join draft.** The squash message the join will land, written by the *audit* stage with `tugtool draft set`. The only durable prose the base carries about an arc, so it describes the change, never the arc's history.
 

@@ -42,7 +42,7 @@ import {
   type ArcRestampWire,
   type ArcRunState,
 } from "@/lib/changeset-types";
-import { JOINABLE_STAGES } from "@/lib/arc-join-register";
+import { JOINABLE_STAGES, restampRunning } from "@/lib/arc-join-register";
 import {
   deriveJoinOutcome,
   evaluateJoinGate,
@@ -284,8 +284,8 @@ function nextVerb(input: ArcVerbInput): ArcVerbSet["next"] {
   // …and refused while the quiet re-stamp holds the arc, in the server's own
   // terms: a press then would seat a second answer beside the machine's.
   const refusal =
-    reaudit && input.restamp?.running_since !== undefined
-      ? restampRefusal(input.restamp.deadline)
+    reaudit && restampRunning(input)
+      ? restampRefusal(input.restamp?.deadline)
       : actor.reason;
   return {
     kind: face,

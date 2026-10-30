@@ -17,7 +17,7 @@ use super::{
 use crate::error::ArcError;
 use crate::log::{
     ArcDeclaration, ArcDeclarations, AuditStaleness, AuditedPair, FitFact, append_arc_log,
-    audit_staleness, read_declarations,
+    read_declarations,
 };
 
 /// How [`join_in`] integrates an arc into its base branch ([P14]).
@@ -728,7 +728,7 @@ fn empty_detail(name: &str, base_branch: &str) -> String {
 /// alike, and never called ready. What this gate refuses is a wheel still
 /// running, which would land a tree its own audit may yet change, and an
 /// audit that went stale, which would land a tree no audit read.
-fn readiness_blocker(paths: &Paths, repo_root: &Path, detail: &ArcDetail) -> Option<JoinBlocker> {
+fn readiness_blocker(detail: &ArcDetail) -> Option<JoinBlocker> {
     if detail.arc.is_none() || detail.join_ready || detail.rounds == 0 {
         return None;
     }
@@ -739,21 +739,14 @@ fn readiness_blocker(paths: &Paths, repo_root: &Path, detail: &ArcDetail) -> Opt
     if stopped && detail.audit_staleness.is_none() {
         return None;
     }
-    let name = detail.name.as_str();
-    let decls = read_declarations(paths, repo_root, name);
-    let tips = arc_tips(repo_root, &detail.branch, &detail.base);
-    let (title, sentence) = not_ready_detail(name, &detail.base, detail, &decls, &tips);
+    // The sentence reads the same derivation the gate did, off the same
+    // detail, so the two cannot disagree across a second read of the tips.
+    let (title, sentence) = not_ready_detail(&detail.name, &detail.base, detail);
     Some(plain_blocker("not-ready", title, sentence))
 }
 
 /// The title and sentence of the `not-ready` blocker.
-fn not_ready_detail(
-    name: &str,
-    base_branch: &str,
-    detail: &ArcDetail,
-    decls: &ArcDeclarations,
-    tips: &crate::log::ArcTips,
-) -> (&'static str, String) {
+fn not_ready_detail(name: &str, base_branch: &str, detail: &ArcDetail) -> (&'static str, String) {
     if detail.worktree_dirty_tracked {
         return (
             "The audit has not read this tree",
@@ -762,7 +755,7 @@ fn not_ready_detail(
             ),
         );
     }
-    match audit_staleness(decls, tips) {
+    match detail.audit_staleness {
         Some(AuditStaleness::Head) => (
             "The audit is stale",
             format!(
@@ -778,7 +771,7 @@ fn not_ready_detail(
         Some(AuditStaleness::Both) => (
             "The audit is stale",
             format!(
-                "Cannot join: a round landed on arc '{name}' and '{base_branch}' moved since its audit; it re-audits before it joins."
+                "Cannot join: arc '{name}' no longer matches what its audit read, because the arc and '{base_branch}' both moved or the mark does not say what it covered; it re-audits before it joins."
             ),
         ),
         None => (
@@ -1742,9 +1735,6 @@ pub fn join_blockers_from_detail(
     // open while the join is perfectly healthy. Only a teardown nobody holds is
     // stale.
     //
-    // A *resolve* holding the arc does not excuse it: it would be
-    // running over a crashed join's leavings, and the refusal is still right.
-    //
     // `held` is passed rather than read because the holder registry is
     // in-process and lives a crate away — the same reason the engine's
     // `decide_for_arc` takes its facts rather than fetching them.
@@ -1760,7 +1750,7 @@ pub fn join_blockers_from_detail(
     // join holding the arc reads `join_ready` false by construction, and is
     // the one reader this must not refuse.
     if held != Some("join")
-        && let Some(blocker) = readiness_blocker(paths, repo_root, detail)
+        && let Some(blocker) = readiness_blocker(detail)
     {
         blockers.push(blocker);
     }
@@ -1963,7 +1953,12 @@ pub fn join_in_with_progress(
                     .to_string(),
             ));
         }
-        let blockers = join_preflight_in(paths, &repo_root, name)?;
+        let mut blockers = join_preflight_in(paths, &repo_root, name)?;
+        // The hand door waives readiness on execute, so its preview must not
+        // report the blocker the land it previews would not refuse with.
+        if opts.unaudited {
+            blockers.retain(|b| b.kind != "not-ready");
+        }
         let probe = join_conflicts_in(&repo_root, name)?;
         // What the base did to each conflicted path, for the CLI's preview
         // report; read here, on demand, rather than on every probe.
@@ -2036,7 +2031,7 @@ pub fn join_in_with_progress(
             arc_detail_entry_in(paths, &repo_root, name).ok_or_else(|| ArcError::NotFound {
                 name: name.to_string(),
             })?;
-        if let Some(blocker) = readiness_blocker(paths, &repo_root, &detail) {
+        if let Some(blocker) = readiness_blocker(&detail) {
             return Err(ArcError::Blocked(vec![blocker]));
         }
         detail
@@ -6170,7 +6165,10 @@ mod tests {
         fs::write(root.join("base.txt"), "the base moved\n").unwrap();
         commit_all(&root, "base moves");
         let why = not_ready_refusal(join_in(&paths, &root, "stale-stop", mechanics()));
-        assert!(why.contains("moved since arc 'stale-stop' was audited"), "{why}");
+        assert!(
+            why.contains("moved since arc 'stale-stop' was audited"),
+            "{why}"
+        );
     }
 
     /// **The integrate lands on the audited pair or not at all.** Under the

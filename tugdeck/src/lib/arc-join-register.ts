@@ -27,6 +27,8 @@
 import type { ToolCallPhase } from "@/lib/code-session-store/tool-call-phase-visual";
 import {
   ARC_STAGE_AUDIT_STALE,
+  type ArcAuditStaleness,
+  type ArcChangesetEntry,
   type ArcJoinStateWire,
   type ArcRunState,
 } from "@/lib/changeset-types";
@@ -155,6 +157,13 @@ export interface ArcJoinRegisterInput {
    */
   restampRunning?: boolean;
   /**
+   * Which side moved under a stale audit, straight off the feed's
+   * `audit_staleness`: a round landed after it (`head`), the base moved
+   * under it (`base`), or `both`. The waiting states lead with it, so the
+   * reader knows what the re-audit has to look at.
+   */
+  auditStaleness?: ArcAuditStaleness | null;
+  /**
    * The run driving this arc, when one is — the wheel's own record of which
    * stage is seated and whether it has finished ([P06]).
    *
@@ -211,6 +220,43 @@ export const BEAT_WORDS: Record<string, string> = {
   release: "releasing the branch",
   record: "recording the landing",
 };
+
+/**
+ * The three facts a stale audit's sentences read off an arc's feed entry —
+ * the card the re-audit runs on, whether the machine's quiet re-stamp holds
+ * the arc, and which side moved. One reader, so the rows, the lane and the
+ * composer cannot spell them differently.
+ */
+export function staleAuditFacts(
+  entry: Pick<ArcChangesetEntry, "bound_callsign" | "restamp" | "audit_staleness">,
+): Pick<ArcJoinRegisterInput, "boundCallsign" | "restampRunning" | "auditStaleness"> {
+  return {
+    boundCallsign: entry.bound_callsign ?? null,
+    restampRunning: restampRunning(entry),
+    auditStaleness: entry.audit_staleness ?? null,
+  };
+}
+
+/** Whether the engine's quiet re-stamp holds the arc right now. */
+export function restampRunning(entry: { restamp?: ArcChangesetEntry["restamp"] | null }): boolean {
+  return entry.restamp?.running_since !== undefined;
+}
+
+/** How a stale audit's sentence opens, by which side moved. */
+function staleLead(
+  arc: string,
+  base: string,
+  staleness: ArcAuditStaleness | null | undefined,
+): string {
+  switch (staleness) {
+    case "head":
+      return `a round landed on ${arc} after its audit`;
+    case "base":
+      return `${base} moved under ${arc}'s audit`;
+    default:
+      return `${arc}'s audit is stale`;
+  }
+}
 
 /**
  * What the arc says about one arc.
@@ -340,6 +386,7 @@ export function arcJoinRegister(
   // already running needs no card at all. A stop inside the re-audit falls
   // through to the stop's own sentence.
   if (auditStale && (run?.stopped ?? "") === "") {
+    const lead = staleLead(arc, input.base, input.auditStaleness);
     const card =
       input.boundCallsign !== undefined && input.boundCallsign !== null && input.boundCallsign !== ""
         ? input.boundCallsign
@@ -347,26 +394,26 @@ export function arcJoinRegister(
     if (run !== null && run.done !== true) {
       return {
         phase: "in_flight",
-        line: `${arc}'s audit is stale — re-auditing on ${card}`,
+        line: `${lead} — re-auditing on ${card}`,
         word: "re-auditing",
       };
     }
     if (input.restampRunning === true) {
       return {
         phase: "in_flight",
-        line: `${arc}'s audit is stale — re-stamping it onto the moved base`,
+        line: `${lead} — re-stamping it onto the moved base`,
         word: "re-stamping",
       };
     }
     return input.bound === false
       ? {
           phase: "awaiting",
-          line: `${arc}'s audit is stale — waiting for a card: bind one, or tugtool arc run ${arc}`,
+          line: `${lead} — waiting for a card: bind one, or tugtool arc run ${arc}`,
           word: "audit-stale",
         }
       : {
           phase: "in_flight",
-          line: `${arc}'s audit is stale — the re-audit starts on ${card}, or press Re-audit`,
+          line: `${lead} — the re-audit starts on ${card}, or press Re-audit`,
           word: "audit-stale",
         };
   }

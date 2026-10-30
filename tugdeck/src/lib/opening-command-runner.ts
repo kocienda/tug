@@ -40,6 +40,16 @@ import { logSessionLifecycle } from "./session-lifecycle-log";
 /** How long the runner waits for the command catalog before sending anyway. */
 export const CATALOG_WAIT_MS = 5000;
 
+let catalogWaitMs = CATALOG_WAIT_MS;
+
+/**
+ * Test-only: shorten the catalog wait, so a test of the deadline does not
+ * spend five real seconds on it. Restore with {@link CATALOG_WAIT_MS}.
+ */
+export function _setCatalogWaitMsForTest(ms: number): void {
+  catalogWaitMs = ms;
+}
+
 /** A command to run: the bare name (no slash) and its argument text. */
 export interface OpeningCommand {
   name: string;
@@ -120,7 +130,7 @@ export function runOpeningCommand(
       name: command.name,
     });
     tryFire();
-  }, CATALOG_WAIT_MS);
+  }, catalogWaitMs);
   logSessionLifecycle("opening_command.armed", { card_id: cardId, name: command.name });
   tryFire();
   return dispose;

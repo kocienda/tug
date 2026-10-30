@@ -88,11 +88,17 @@ function useArcTransportPress({
   arc,
   verb,
   actor,
+  refusal,
   voice,
 }: {
   arc: string;
   verb: ArcTransportVerb;
   actor: TransportActor;
+  /**
+   * A refusal the verb set computed beside the actor's own — Re-audit while a
+   * quiet re-stamp holds the arc — which the press speaks rather than sends.
+   */
+  refusal: string | null;
   /** The card a refusal speaks on, or null when there is nowhere to speak. */
   voice: string | null;
 }): { pending: boolean; press: () => void } {
@@ -103,8 +109,12 @@ function useArcTransportPress({
   );
   const press = useCallback((): void => {
     if (pending) return;
+    // With no card to speak on, the hover is the surface.
+    if (refusal !== null) {
+      if (voice !== null) arcPressStore.refuse(voice, arc, verb, refusal);
+      return;
+    }
     if (actor.reason !== null) {
-      // With no card to speak on, the hover is the surface.
       if (voice !== null) arcPressStore.refuse(voice, arc, verb, actor.reason);
       return;
     }
@@ -115,7 +125,7 @@ function useArcTransportPress({
     // made — not silent, and not greyed either: the button stays pressable so
     // a reconnect makes the same press work ([L31]).
     arcPressStore.send(arc, verb, actor);
-  }, [actor, arc, pending, verb, voice]);
+  }, [actor, arc, pending, refusal, verb, voice]);
   return { pending, press };
 }
 
@@ -216,6 +226,7 @@ function TransportVerb({
     arc,
     verb: verb.kind,
     actor: verb.actor,
+    refusal: verb.refusal,
     voice,
   });
   return (
@@ -236,8 +247,13 @@ export function ArcVerbRow({
   const surfacePress =
     (verb: ArcVerb<ArcSurfaceVerbKind>) =>
     (anchor: HTMLButtonElement | null): void => {
-      // The hover already says why; a refused press does nothing more.
-      if (verb.refusal !== null) return;
+      // A refused press speaks on the pane ([L31]): by the time someone has
+      // pressed, they are looking at the result, not the hover. With no card
+      // to speak on, the hover is the surface.
+      if (verb.refusal !== null) {
+        if (voice !== null) arcPressStore.refuse(voice, arc, verb.kind, verb.refusal);
+        return;
+      }
       onVerb(verb.kind, anchor);
     };
 

@@ -21,7 +21,9 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { ChangesetVerbStore, JOIN_UNACKNOWLEDGED } from "../changeset-verb-store";
 import {
   PRESS_ACKNOWLEDGEMENT_MS,
+  _resetChangesetJoinStoreForTest,
   _setPressAcknowledgementMsForTest,
+  attachChangesetJoinStore,
 } from "../changeset-join-store";
 
 const ENTRY = "session:s1";
@@ -219,6 +221,7 @@ describe("the press horizon", () => {
 
   afterEach(() => {
     _setPressAcknowledgementMsForTest(PRESS_ACKNOWLEDGEMENT_MS);
+    _resetChangesetJoinStoreForTest();
   });
 
   test("a join nothing answers ends in a named error at the deadline", async () => {
@@ -237,6 +240,25 @@ describe("the press horizon", () => {
     expect(state.phase).toBe("error");
     expect(state.error).toBe(JOIN_UNACKNOWLEDGED);
     expect(released).toBe(true);
+  });
+
+  test("the deadline retracts the beat the press wrote for itself", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    const joinStore = attachChangesetJoinStore({
+      onFrame: () => () => {},
+      sendControlFrame: () => {},
+    } as never);
+    joinStore.beginLand(PROJECT, ARC);
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
+    expect(joinStore.landProgress(PROJECT, ARC)?.beat).toBe("requested");
+
+    await settle(40);
+
+    expect(h.store.joinState(ENTRY).error).toBe(JOIN_UNACKNOWLEDGED);
+    expect(
+      joinStore.landProgress(PROJECT, ARC),
+      "no surface may go on reading a landing in flight",
+    ).toBeNull();
   });
 
   test("a beat of the join's narration is acknowledgement", async () => {
@@ -268,5 +290,30 @@ describe("the press horizon", () => {
       commit_hash: "abc1234",
     });
     expect(h.store.joinState(ENTRY).phase).toBe("done");
+  });
+
+  test("a late landing clears the arc's cell, whose press watch is gone", async () => {
+    _setPressAcknowledgementMsForTest(20);
+    const joinStore = attachChangesetJoinStore({
+      onFrame: () => () => {},
+      sendControlFrame: () => {},
+    } as never);
+    let cleared = 0;
+    const clear = joinStore.clear.bind(joinStore);
+    joinStore.clear = (workspaceKey: string, arc: string) => {
+      if (workspaceKey === PROJECT && arc === ARC) cleared += 1;
+      clear(workspaceKey, arc);
+    };
+    h.store.join(ENTRY, PROJECT, ARC, { preview: false });
+    await settle(40);
+    h.reply({
+      action: "changeset_join_ok",
+      project_dir: PROJECT,
+      arc: ARC,
+      previewed: false,
+      conflicts: [],
+      commit_hash: "abc1234",
+    });
+    expect(cleared).toBe(1);
   });
 });

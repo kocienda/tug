@@ -311,9 +311,10 @@ pub struct CommandResult {
     /// The surface whose `check` list declared it.
     pub declared_by: String,
     /// `ran`, `already-run`, `not-reached` — a command after a red one in
-    /// the same surface, or any command after a deadline passed — or
+    /// the same surface, or any command after a deadline passed —
     /// `timed-out`, a check that was still running at the run's deadline and
-    /// was killed.
+    /// was killed, or `not-started`, the check the deadline had already
+    /// passed before, which ran nothing.
     pub status: String,
     /// The process exit code, when it ran.
     pub exit_code: Option<i32>,
@@ -434,7 +435,8 @@ fn run_plans(
             if quiet {
                 cmd.stdout(Stdio::null()).stderr(Stdio::null());
             }
-            let (exit_code, timed_out) = run_check(cmd, deadline);
+            let (exit_code, ended) = run_check(cmd, deadline);
+            let timed_out = ended != CheckEnd::Exited;
             if exit_code != 0 || timed_out {
                 red = true;
             }
@@ -443,8 +445,13 @@ fn run_plans(
             commands.push(CommandResult {
                 command: planned.command,
                 declared_by: planned.declared_by,
-                status: if timed_out { "timed-out" } else { "ran" }.to_string(),
-                exit_code: Some(exit_code),
+                status: match ended {
+                    CheckEnd::Exited => "ran",
+                    CheckEnd::Killed => "timed-out",
+                    CheckEnd::NotStarted => "not-started",
+                }
+                .to_string(),
+                exit_code: (ended != CheckEnd::NotStarted).then_some(exit_code),
                 already_run_for: None,
                 passed: child.passed,
                 total: child.total,
@@ -476,28 +483,37 @@ fn run_plans(
     results
 }
 
+/// How a check ended: on its own, killed at the deadline, or never started
+/// because the deadline had already passed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckEnd {
+    Exited,
+    Killed,
+    NotStarted,
+}
+
 /// Run one check to its exit, or to `deadline` if that comes first, and
-/// answer its exit code and whether the deadline ended it.
+/// answer its exit code and how it ended.
 ///
 /// With a deadline the check runs in a process group of its own, and a
 /// watchdog thread waits out the time left on a channel the exit closes. If
 /// the time runs out first it kills the whole group — `sh -c` and everything
 /// the check started, which is what a wedged test run is made of — and the
 /// wait below it returns. A deadline already past runs nothing.
-fn run_check(mut cmd: Command, deadline: Option<Instant>) -> (i32, bool) {
+fn run_check(mut cmd: Command, deadline: Option<Instant>) -> (i32, CheckEnd) {
     let code_of = |status: std::io::Result<std::process::ExitStatus>| match status {
         Ok(s) => s.code().unwrap_or(-1),
         Err(_) => -1,
     };
     let Some(deadline) = deadline else {
-        return (code_of(cmd.status()), false);
+        return (code_of(cmd.status()), CheckEnd::Exited);
     };
     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-        return (-1, true);
+        return (-1, CheckEnd::NotStarted);
     };
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     let Ok(mut child) = cmd.spawn() else {
-        return (-1, false);
+        return (-1, CheckEnd::Exited);
     };
     let group = child.id() as libc::pid_t;
     let (exited, exit_seen) = std::sync::mpsc::channel::<()>();
@@ -516,7 +532,12 @@ fn run_check(mut cmd: Command, deadline: Option<Instant>) -> (i32, bool) {
     let status = child.wait();
     let _ = exited.send(());
     let timed_out = watchdog.join().unwrap_or(false);
-    (code_of(status), timed_out)
+    let ended = if timed_out {
+        CheckEnd::Killed
+    } else {
+        CheckEnd::Exited
+    };
+    (code_of(status), ended)
 }
 
 /// The paths a range moved, in the order git reported them, with a rename
@@ -653,12 +674,24 @@ fn verify_run(
         Some(h) => crate::ops::git_stdout(&repo, &["rev-parse", h])?,
         None => crate::ops::git_stdout(&repo, &["rev-parse", &branch])?,
     };
+    // The base the fit line records is always the arc's fork at the verified
+    // head, whatever range the checks were scoped to. The line is a fact
+    // about a tree — this head on this base — which the audit's mark is
+    // cross-checked against; a `--base` override narrows which paths ran, not
+    // which base the head stands on, so recording the override would write a
+    // pair no mark could ever match. The scope rides the line's tail instead.
+    let fork = {
+        let base_branch = crate::ops::arc_base(&repo, name)?;
+        crate::ops::git_stdout(&repo, &["merge-base", &base_branch, &head])?
+    };
     let base = match base_override {
         Some(b) => crate::ops::git_stdout(&repo, &["rev-parse", b])?,
-        None => {
-            let base_branch = crate::ops::arc_base(&repo, name)?;
-            crate::ops::git_stdout(&repo, &["merge-base", &base_branch, &branch])?
-        }
+        None => fork.clone(),
+    };
+    let scope = if base == fork {
+        String::new()
+    } else {
+        format!(" · scoped from {}", short(&base))
     };
 
     let touched = touched_paths(&repo, &base, &head)?;
@@ -718,12 +751,19 @@ fn verify_run(
             let expired = results
                 .iter()
                 .flat_map(|r| r.commands.iter().map(move |c| (r, c)))
-                .find(|(_, c)| c.status == "timed-out");
+                .find(|(_, c)| c.status == "timed-out" || c.status == "not-started");
             let receipt = if let Some((surface, command)) = expired {
-                format!(
-                    "TUG-VERIFY-RECEIPT: timed out · {}: `{}` was still running at the deadline and was stopped",
-                    surface.name, command.command
-                )
+                if command.status == "not-started" {
+                    format!(
+                        "TUG-VERIFY-RECEIPT: timed out · {}: the deadline passed before `{}` could start",
+                        surface.name, command.command
+                    )
+                } else {
+                    format!(
+                        "TUG-VERIFY-RECEIPT: timed out · {}: `{}` was still running at the deadline and was stopped",
+                        surface.name, command.command
+                    )
+                }
             } else if reds.is_empty() {
                 format!(
                     "TUG-VERIFY-RECEIPT: verified {} · {} surfaces checked · {} claimed unchecked",
@@ -749,7 +789,7 @@ fn verify_run(
                     name,
                     "verified",
                     &format!(
-                        "{head} onto {base} · {checked} surfaces checked · {claimed_unchecked} claimed unchecked"
+                        "{head} onto {fork} · {checked} surfaces checked · {claimed_unchecked} claimed unchecked{scope}"
                     ),
                 )
                 .map_err(|e| ArcError::arc_log(paths, &repo, e))?;
@@ -1421,6 +1461,35 @@ mod fit_tests {
             after.last_activity.is_some(),
             "a verify is still activity, and dates the arc"
         );
+    }
+
+    /// A scoped verify — the re-audit's fold rung, `--base <audited head>` —
+    /// records the arc's fork as its base, not the scope, so the audit's mark
+    /// can be cross-checked against it and goes through.
+    #[test]
+    fn a_scoped_verify_records_the_fork_and_the_mark_goes_through() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        let worktree = project(&root, GREEN, &[("src/a.rs", "a\n")]);
+        let audited_head = git(&worktree, &["rev-parse", "HEAD"]).trim().to_string();
+        std::fs::write(worktree.join("src/b.rs"), "b\n").unwrap();
+        git(&worktree, &["add", "-A"]);
+        git(&worktree, &["commit", "-m", "a round after the audit"]);
+        let fork = git(&root, &["rev-parse", "main"]).trim().to_string();
+
+        verify_in(&paths, &root, "demo", Some(&audited_head), None).unwrap();
+        let note = crate::log::read_declarations(&paths, &root, "demo")
+            .last_verified
+            .expect("a green scoped verify records");
+        let (_, base) = crate::log::parse_verified_note(&note).unwrap();
+        assert_eq!(base, fork, "the line names the fork, not the scope: {note}");
+        assert!(note.contains("scoped from"), "{note}");
+
+        crate::ops::mark_in(&paths, &root, "demo", crate::log::MarkStage::Audited, None)
+            .expect("the fold rung's mark is not refused by its own verify");
     }
 
     #[test]

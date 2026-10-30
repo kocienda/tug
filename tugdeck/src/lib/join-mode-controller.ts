@@ -45,13 +45,14 @@ import {
   matchesJoinReceipt,
   sameRefusal,
 } from "@/lib/landing-mode";
-import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
+import { JOIN_UNACKNOWLEDGED, getChangesetVerbStore } from "@/lib/changeset-verb-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { sendLandingReceipt } from "@/lib/landing-press-receipt";
 import { getChangesetDraftStore, type DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
 import {
   arcJoinRegister,
+  staleAuditFacts,
   SETTLED_REST_MS,
   type ArcJoinRegister,
 } from "@/lib/arc-join-register";
@@ -314,6 +315,14 @@ export class JoinModeController extends Subscribable implements LandingMode {
 
   private readonly deps: JoinModeControllerDeps;
   private readonly unsubscribes: (() => void)[] = [];
+  /**
+   * The watch on this composer's in-flight join, released when the join
+   * ends, when the next press replaces it, and on dispose ([L27]). It
+   * outlives a press-horizon error on purpose: that error says nothing
+   * answered *yet*, and a landing that answers after it must still exit the
+   * mode it left the composer in.
+   */
+  private joinWatch: (() => void) | null = null;
 
   private active = false;
   private seedMessage: string | null = null;
@@ -496,8 +505,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
               // The composer says the same thing the two rows do, so a live
               // wheel holds this surface's offer shut too.
               run: entry?.arc ?? null,
-              boundCallsign: entry?.bound_callsign ?? null,
-              restampRunning: entry?.restamp?.running_since !== undefined,
+              ...(entry === undefined || entry === null ? {} : staleAuditFacts(entry)),
               runComplete: entry?.run_complete === true,
               resolvePhase: getChangesetJoinStore()?.state(
                 changesController.workspaceKey,
@@ -953,10 +961,24 @@ export class JoinModeController extends Subscribable implements LandingMode {
       message: text,
       sessionId: changesController.tugSessionId,
     });
+    this.joinWatch?.();
+    let toldUnanswered = false;
     const unsubscribe = verbStore.subscribe(() => {
-      const phase = verbStore.joinState(changesController.entryKey).phase;
+      const state = verbStore.joinState(changesController.entryKey);
+      const phase = state.phase;
       if (phase === "pending") return;
+      // A horizon error keeps watching, because the answer may still come,
+      // and is acted on once: the store notifies for every card's every
+      // change, and re-entering on each would undo the user dismissing it.
+      // Every other ending is the join's last word.
+      if (phase === "error" && state.error === JOIN_UNACKNOWLEDGED) {
+        if (toldUnanswered) return;
+        toldUnanswered = true;
+        if (!this.active) this.enter(target);
+        return;
+      }
       unsubscribe();
+      if (this.joinWatch === unsubscribe) this.joinWatch = null;
       if (phase === "done") {
         // The landed arc's draft row and bindings die server-side ([P14]);
         // clearing the arc's overlay cell is what keeps a reused arc name
@@ -967,6 +989,7 @@ export class JoinModeController extends Subscribable implements LandingMode {
         this.enter(target);
       }
     });
+    this.joinWatch = unsubscribe;
   }
 
   /**
@@ -1008,6 +1031,8 @@ export class JoinModeController extends Subscribable implements LandingMode {
 
   dispose(): void {
     for (const unsub of this.unsubscribes) unsub();
+    this.joinWatch?.();
+    this.joinWatch = null;
     this.clearListeners();
     if (this.narrationRestTimer !== null) clearTimeout(this.narrationRestTimer);
   }
@@ -1133,8 +1158,7 @@ export function joinModeOpenRefusal(entry: ArcChangesetEntry): string | null {
     join: entry.join ?? null,
     holdersBusy: entry.holders_busy === true,
     bound: entry.bound_session !== undefined && entry.bound_session !== null,
-    boundCallsign: entry.bound_callsign ?? null,
-    restampRunning: entry.restamp?.running_since !== undefined,
+    ...staleAuditFacts(entry),
     run: entry.arc ?? null,
     runComplete: entry.run_complete === true,
   });

@@ -478,7 +478,7 @@ pub fn spawner_for(
             turn_timeout: RESOLVER_TURN_TIMEOUT,
         }));
     }
-    production.ok_or_else(|| "no join resolver is configured for this host".to_string())
+    production.ok_or_else(|| "no crossing resolver is configured for this host".to_string())
 }
 
 /// The production spawn (Spec S04): a persistent streaming-input `claude` in
@@ -525,8 +525,8 @@ impl CrossingResolverSpawner for ClaudeCrossingResolverSpawner {
                 e.to_string()
             }
         })?;
-        let stdin = child.stdin.take().ok_or("join resolver: no stdin")?;
-        let stdout = child.stdout.take().ok_or("join resolver: no stdout")?;
+        let stdin = child.stdin.take().ok_or("crossing resolver: no stdin")?;
+        let stdout = child.stdout.take().ok_or("crossing resolver: no stdout")?;
 
         let (tx, rx) = mpsc::channel::<ResolverTurnRequest>(4);
         tokio::spawn(drive_claude(child, stdin, stdout, rx));
@@ -647,8 +647,14 @@ impl CrossingResolverSpawner for StubCrossingResolverSpawner {
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("tugarc.joinresolver would not start: {e}"))?;
-        let stdin = child.stdin.take().ok_or("join resolver stub: no stdin")?;
-        let stdout = child.stdout.take().ok_or("join resolver stub: no stdout")?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or("crossing resolver stub: no stdin")?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or("crossing resolver stub: no stdout")?;
         let stderr = child.stderr.take();
 
         let (tx, rx) = mpsc::channel::<ResolverTurnRequest>(4);
