@@ -188,7 +188,7 @@ pub fn bootstrap(conn: &Connection) -> rusqlite::Result<Migrated> {
     ledger_db::migrate(conn, &schema, create_current_shape)
 }
 
-/// The current shape, created idempotently on a fresh (0) or current
+/// The current shape, created idempotently on a fresh (0) or older
 /// database, plus the repairs a pre-versioning database needs because it
 /// takes no registered migration.
 fn create_current_shape(conn: &Connection) -> rusqlite::Result<()> {

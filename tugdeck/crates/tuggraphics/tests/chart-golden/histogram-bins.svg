@@ -18,4 +18,10 @@
 <text x="420.65" y="171" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="middle" dominant-baseline="central">0</text>
 <text x="510.88" y="171" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:5" text-anchor="middle" dominant-baseline="central">0</text>
 <path d="M14.6 180 L556 180" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+<path class="tgh" d="M14.6 33 L104.83 33 L104.83 180 L14.6 180 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M104.83 33 L195.07 33 L195.07 180 L104.83 180 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M195.07 33 L285.3 33 L285.3 180 L195.07 180 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M285.3 33 L375.53 33 L375.53 180 L285.3 180 Z" fill="none" pointer-events="all" data-row="3" data-col="1"/>
+<path class="tgh" d="M375.53 33 L465.77 33 L465.77 180 L375.53 180 Z" fill="none" pointer-events="all" data-row="4" data-col="1"/>
+<path class="tgh" d="M465.77 33 L556 33 L556 180 L465.77 180 Z" fill="none" pointer-events="all" data-row="5" data-col="1"/>
 </svg>

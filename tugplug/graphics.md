@@ -52,6 +52,7 @@ Pick the form from what the reader has to do with the data, before anything else
 | see when things started and ended on one timeline | `spans` |
 | see intensity along one ordered row | `heat` |
 | judge a value against its range and target | `bullet` |
+| see whether one measure moves with another | `scatter` |
 
 Sequential magnitude is the safe default. Categorical colour is for when the series are the subject; emphasis — one series in `accent`, the rest left to their defaults — is the honest answer when one series is the point and the rest are context. More than eight series is never more colours: fold the tail into one "other" series, or draw several charts.
 
@@ -142,6 +143,15 @@ One example per form. Each is a complete, valid spec.
            {"label": "find", "value": 21.6, "range": [0, 30], "target": 20, "history": [15, 17, 20, 22, 21.6]}]}
 ```
 
+**`scatter`** — `series`, each `{"name", "points"}` with points of `{"x", "y"}`, every number given. `unit` and `format` are the vertical axis's; `xunit` and `xformat` are the horizontal's. Two or more series are named at the plot's right; a lone one is named by the title.
+
+```tugchart
+{"tugchart": 1, "form": "scatter", "title": "Wall time follows the size of the change",
+ "unit": "wall time", "format": "secs", "xunit": "lines changed", "xformat": "count",
+ "series": [{"name": "unit", "points": [{"x": 120, "y": 4.2}, {"x": 340, "y": 6.1}, {"x": 900, "y": 11.5}, {"x": 1600, "y": 19}]},
+            {"name": "integration", "points": [{"x": 80, "y": 21}, {"x": 410, "y": 34}, {"x": 760, "y": 58}, {"x": 1400, "y": 92}]}]}
+```
+
 ## Colour is a role, never a value
 
 You name no colour anywhere. A chart's colours are roles — `ink`, `ink-muted`, `grid`, `surface`, `accent`, `good`, `bad` and `series-1` through `series-8` — and the user's theme decides what each one looks like, so a chart restyles itself when the theme changes. Series take `series-1` onward in order, fixed to the entity and never cycled. The only colour choice you make is a `role` on a series, a `status` on a span, or an item kind in `dots`, and each of those is a word about meaning: `good` and `bad` are reserved for outcomes and never used to tell two ordinary series apart.
@@ -162,6 +172,7 @@ Give durations in seconds with `secs`, ratios as fractions with `percent`, and l
 
 ## The rules
 
+- **Hover is there.** Every mark but a sparkline's reads its row of the chart's table on hover; there is nothing for you to add.
 - **Direct labels.** Lines and areas are labelled at their right end and value labels appear where they fit; there is nothing for you to add. Do not repeat the values in prose beneath the chart.
 - **No pie.** There is no pie or donut form, and no part-to-whole chart with one time point: a part-to-whole across time is a stacked `area`, and a part-to-whole at one moment is a `bar` with `"layout": "stacked"`, or a sentence.
 - **No legend for a single series.** The title names it. A legend appears on its own above a multi-series `bar`; nothing else needs one.
@@ -180,4 +191,4 @@ A recipe prints one summary line and then a line beginning `TUG-CHART: ` carryin
 
 `--json` reads the summary and the numbers without drawing. To put a finding in the title, read with `--json` first, then run once with `--title "<the finding>"`, because every run without `--json` draws another figure.
 
-`/viz` is the user's door to the same list. The fence above is for the one-off question no recipe answers, and a spec from a recipe is the same shape as one you write by hand, so the two read as one system.
+`/viz` is the one door to a chart when one is asked for, for the user and for you alike: when the user asks to chart, plot, graph or visualise something, reach for it, and it takes the recipe when there is one and otherwise reads the data the request names and writes the fence. A figure you add to your own explanation is simply the fence. A spec from a recipe is the same shape as one you write by hand, so the two read as one system.

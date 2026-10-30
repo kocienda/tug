@@ -219,6 +219,47 @@ body {
   height: auto;
 }
 
+/* ---- Hover ---------------------------------------------------------------
+ *
+ * The compiler's hit targets are invisible and the renderer marks the one being
+ * read [L06]; a band's crosshair is that target's next sibling. The bubble is
+ * the app's own (`.tug-tooltip-content` paints it), with only what a bubble
+ * placed from a mark's rect and holding a table row adds to it.
+ */
+
+.tgh[data-tgh-active] + .tgh-cross {
+  visibility: visible;
+}
+
+.tugx-chart-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.tugx-chart-tip-label {
+  font-weight: var(--tug-font-weight-semibold);
+}
+.tugx-chart-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--tug-space-md);
+}
+.tugx-chart-tip-row[data-current] {
+  font-weight: var(--tug-font-weight-semibold);
+}
+.tugx-chart-tip > .tug-tooltip-arrow {
+  position: absolute;
+  left: var(--tugx-chart-tip-arrow-x);
+  top: 100%;
+  transform: translateX(-50%);
+}
+.tugx-chart-tip[data-side="bottom"] > .tug-tooltip-arrow {
+  top: auto;
+  bottom: 100%;
+  transform: translateX(-50%) rotate(180deg);
+}
+
 /* ---- Table alternative ---------------------------------------------------
  *
  * Always in the DOM, so Find counts it. Visually clipped while the view is

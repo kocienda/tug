@@ -131,4 +131,5 @@ pub(super) fn layout(
     };
     line::end_labels(b, ends, ties, series, &plot, w, cap, m);
     notes.draw(b);
+    line::column_bands(b, series, n, &plot);
 }

@@ -1,0 +1,4 @@
+{"tugchart": 1, "form": "scatter", "title": "Wall time follows the size of the change",
+ "unit": "wall time", "format": "secs", "xunit": "lines changed", "xformat": "count",
+ "series": [{"name": "unit", "points": [{"x": 120, "y": 4.2}, {"x": 340, "y": 6.1}, {"x": 900, "y": 11.5}, {"x": 1600, "y": 19}]},
+            {"name": "integration", "points": [{"x": 80, "y": 21}, {"x": 410, "y": 34}, {"x": 760, "y": 58}, {"x": 1400, "y": 92}]}]}

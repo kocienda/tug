@@ -17,4 +17,16 @@
 <path d="M61.58 201.3 L142.35 182.6 L223.12 182.6 L303.88 163.9 L384.65 182.6 L465.42 201.3" class="tgs-series-2 tge-draw" style="--tg-i:1" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
 <text x="471.42" y="89.1" class="tgt-value tgf-series-1" text-anchor="start" dominant-baseline="central">session</text>
 <text x="471.42" y="201.3" class="tgt-value tgf-series-2" text-anchor="start" dominant-baseline="central">changes</text>
+<path class="tgh" d="M21.2 33 L101.97 33 L101.97 220 L21.2 220 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh-cross tgs-ink-muted" d="M61.58 33 L61.58 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M101.97 33 L182.73 33 L182.73 220 L101.97 220 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh-cross tgs-ink-muted" d="M142.35 33 L142.35 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M182.73 33 L263.5 33 L263.5 220 L182.73 220 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh-cross tgs-ink-muted" d="M223.12 33 L223.12 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M263.5 33 L344.27 33 L344.27 220 L263.5 220 Z" fill="none" pointer-events="all" data-row="3"/>
+<path class="tgh-cross tgs-ink-muted" d="M303.88 33 L303.88 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M344.27 33 L425.03 33 L425.03 220 L344.27 220 Z" fill="none" pointer-events="all" data-row="4"/>
+<path class="tgh-cross tgs-ink-muted" d="M384.65 33 L384.65 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M425.03 33 L505.8 33 L505.8 220 L425.03 220 Z" fill="none" pointer-events="all" data-row="5"/>
+<path class="tgh-cross tgs-ink-muted" d="M465.42 33 L465.42 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
 </svg>

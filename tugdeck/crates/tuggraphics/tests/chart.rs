@@ -14,7 +14,7 @@ use tuggraphics::chart::LAYER0_IN_FENCE;
 use tuggraphics::measure::table_key;
 use tuggraphics::{
     compile_round, compile_with, find_text, validate, ChartError, CompileOpts, Compiled,
-    FixedMetrics, Layers, Measure, MeasureTable, Round, TypeRole,
+    FixedMetrics, Layers, Measure, MeasureTable, Palette, Round, TypeRole,
 };
 
 fn golden_dir() -> PathBuf {
@@ -243,7 +243,7 @@ fn unknown_form() {
     assert_eq!(e.path, "/form");
     assert_eq!(
         e.message,
-        "unknown form \"pie\": expected bar, line, area, sparkline, dots, histogram, spans, heat or bullet"
+        "unknown form \"pie\": expected bar, line, area, sparkline, dots, histogram, spans, heat, bullet or scatter"
     );
 }
 
@@ -292,6 +292,29 @@ fn tables_for_the_other_forms() {
 }
 
 #[test]
+fn a_scatter_tabulates_every_point_under_its_own_axes() {
+    let out = compile_with(&golden("scatter"), &opts(), &FixedMetrics).unwrap();
+    assert_eq!(out.table.head, vec!["", "lines changed", "wall time"]);
+    assert_eq!(out.table.rows[0], vec!["unit", "120", "4.2s"]);
+    assert_eq!(out.table.rows.last().unwrap()[0], "integration");
+    // One point mark per row, and every series named at the plot's right.
+    assert_eq!(
+        out.svg.matches("opacity=\"0.7\"").count(),
+        out.table.rows.len(),
+        "{}",
+        out.svg
+    );
+    assert!(out.svg.contains(">unit</text>"), "{}", out.svg);
+    assert!(out.svg.contains(">integration</text>"), "{}", out.svg);
+    assert!(out.svg.contains(">lines changed</text>"), "{}", out.svg);
+
+    // A lone series is named by the title, and with no x unit there is no row for one.
+    let single = compile_with(&golden("scatter-single"), &opts(), &FixedMetrics).unwrap();
+    assert_eq!(single.table.head, vec!["", "x", "y"]);
+    assert!(!single.svg.contains(">errors</text>"), "{}", single.svg);
+}
+
+#[test]
 fn histogram_bins_ask_for_a_count_and_fall_on_nice_edges() {
     let auto = compile_with(&golden("histogram"), &opts(), &FixedMetrics).unwrap();
     let labels: Vec<&str> = auto.table.rows.iter().map(|r| r[0].as_str()).collect();
@@ -325,7 +348,7 @@ fn histogram_bins_ask_for_a_count_and_fall_on_nice_edges() {
 
 #[test]
 fn each_form_names_its_required_fields() {
-    let cases: [(&str, &str, &str); 11] = [
+    let cases: [(&str, &str, &str); 15] = [
         (
             r#"{"tugchart": 1, "form": "dots", "title": "t"}"#,
             "/rows",
@@ -380,6 +403,26 @@ fn each_form_names_its_required_fields() {
             r#"{"tugchart": 1, "form": "spans", "title": "t", "items": [{"label": "a", "start": 0, "end": 1, "status": "late"}]}"#,
             "/items/0/status",
             "a status is good, bad or accent",
+        ),
+        (
+            r#"{"tugchart": 1, "form": "scatter", "title": "t", "series": [{"name": "a"}]}"#,
+            "/series/0/points",
+            "points is required",
+        ),
+        (
+            r#"{"tugchart": 1, "form": "scatter", "title": "t", "series": [{"points": [{"x": 1}]}]}"#,
+            "/series/0/points/0/y",
+            "y is required",
+        ),
+        (
+            r#"{"tugchart": 1, "form": "scatter", "title": "t", "xformat": "miles", "series": [{"points": [{"x": 1, "y": 2}]}]}"#,
+            "/xformat",
+            "xformat is one of auto, int, decimal, percent, secs, bytes, count",
+        ),
+        (
+            r#"{"tugchart": 1, "form": "scatter", "title": "t", "series": [{"points": [{"x": 1, "y": 2}]}], "annotations": []}"#,
+            "/annotations",
+            "a scatter takes no annotations",
         ),
     ];
     for (source, path, message) in cases {
@@ -677,4 +720,124 @@ fn figure_title_false_omits_only_the_title_run() {
         "{}",
         heat.svg
     );
+}
+
+/// Each hit target's `(row, col)`, in the order the SVG holds them.
+fn hits(svg: &str) -> Vec<(usize, Option<usize>)> {
+    let attr = |line: &str, name: &str| -> Option<usize> {
+        let rest = line.split(&format!("{name}=\"")).nth(1)?;
+        rest.split('"').next()?.parse().ok()
+    };
+    svg.lines()
+        .filter(|l| l.contains("class=\"tgh\""))
+        .map(|l| (attr(l, "data-row").unwrap(), attr(l, "data-col")))
+        .collect()
+}
+
+fn targets(spec: &str) -> Vec<(usize, Option<usize>)> {
+    hits(&compile_with(spec, &opts(), &FixedMetrics).unwrap().svg)
+}
+
+#[test]
+fn every_golden_target_names_a_cell_of_its_table_and_sits_over_the_marks() {
+    for name in golden_names() {
+        let out = compile_with(&golden(&name), &opts(), &FixedMetrics).unwrap();
+        for (row, col) in hits(&out.svg) {
+            assert!(row < out.table.rows.len(), "{name}: row {row}");
+            if let Some(col) = col {
+                assert!(
+                    (1..out.table.head.len()).contains(&col),
+                    "{name}: col {col}"
+                );
+            }
+        }
+        if let Some(first) = out.svg.find("class=\"tgh\"") {
+            for painted in ["class=\"tgf-", "<text"] {
+                assert!(
+                    out.svg.rfind(painted).unwrap_or(0) < first,
+                    "{name}: {painted} after the first target"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_bar_is_a_target_and_a_gap_is_not() {
+    let spec = r#"{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a", "b", "c"],
+        "series": [{"name": "s", "values": [1, null, 0]}, {"name": "u", "values": [2, 2, null]}]}"#;
+    assert_eq!(
+        targets(spec),
+        [(0, Some(1)), (0, Some(2)), (1, Some(2)), (2, Some(1))]
+    );
+    let horizontal = spec.replace(
+        r#""form": "bar","#,
+        r#""form": "bar", "orient": "horizontal","#,
+    );
+    assert_eq!(targets(&horizontal), targets(spec));
+    // A stacked zero draws no segment, so there is nothing to point at.
+    let stacked = spec.replace(
+        r#""form": "bar","#,
+        r#""form": "bar", "layout": "stacked","#,
+    );
+    assert_eq!(
+        targets(&stacked),
+        [(0, Some(1)), (0, Some(2)), (1, Some(2))]
+    );
+}
+
+#[test]
+fn every_other_form_has_its_own_targets() {
+    let dots = r#"{"tugchart": 1, "form": "dots", "title": "t",
+        "rows": [{"label": "r", "items": ["good", "bad", "neutral"]}]}"#;
+    assert_eq!(targets(dots), [(0, Some(1)), (0, Some(2)), (0, Some(3))]);
+    let heat = r#"{"tugchart": 1, "form": "heat", "title": "t", "categories": ["a", "b"], "values": [1, null]}"#;
+    assert_eq!(targets(heat), [(0, Some(1)), (1, Some(1))]);
+    let spans = r#"{"tugchart": 1, "form": "spans", "title": "t",
+        "items": [{"label": "a", "start": 0, "end": 1}, {"label": "b", "start": 1, "end": 2}]}"#;
+    assert_eq!(targets(spans), [(0, None), (1, None)]);
+    let bullet =
+        r#"{"tugchart": 1, "form": "bullet", "title": "t", "items": [{"label": "a", "value": 1}]}"#;
+    assert_eq!(targets(bullet), [(0, Some(1))]);
+    let histogram = compile_with(&golden("histogram"), &opts(), &FixedMetrics).unwrap();
+    assert_eq!(hits(&histogram.svg).len(), histogram.table.rows.len());
+    // A scatter's rows run through its series, in the table's order.
+    let scatter = compile_with(&golden("scatter"), &opts(), &FixedMetrics).unwrap();
+    let rows: Vec<usize> = hits(&scatter.svg).iter().map(|h| h.0).collect();
+    assert_eq!(rows, (0..scatter.table.rows.len()).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_line_is_read_by_column_with_a_crosshair() {
+    let line = r#"{"tugchart": 1, "form": "line", "title": "t", "x": ["a", "b", "c"],
+        "series": [{"name": "s", "values": [1, null, 3]}, {"name": "u", "values": [2, null, 1]}]}"#;
+    let out = compile_with(line, &opts(), &FixedMetrics).unwrap();
+    assert_eq!(hits(&out.svg), [(0, None), (2, None)]);
+    assert_eq!(out.svg.matches("class=\"tgh-cross").count(), 2);
+    // The crosshair is the target's next sibling, which the deck's rule relies on.
+    let lines: Vec<&str> = out.svg.lines().collect();
+    let target = lines
+        .iter()
+        .position(|l| l.contains("class=\"tgh\""))
+        .unwrap();
+    assert!(lines[target + 1].contains("class=\"tgh-cross"));
+    let area = line.replace(r#""form": "line""#, r#""form": "area""#);
+    assert_eq!(targets(&area), [(0, None), (2, None)]);
+}
+
+#[test]
+fn a_sparkline_a_drawing_and_a_file_have_no_targets() {
+    assert_eq!(targets(&golden("sparkline-last")), []);
+    let any = CompileOpts {
+        layers: Layers::Any,
+        ..opts()
+    };
+    let drawing = compile_with(DRAWING, &any, &FixedMetrics).unwrap();
+    assert_eq!(hits(&drawing.svg), []);
+    let file = CompileOpts {
+        palette: Some(Palette::default()),
+        ..opts()
+    };
+    let out = compile_with(&golden("line-gap"), &file, &FixedMetrics).unwrap();
+    assert!(!out.svg.contains("tgh"), "{}", out.svg);
 }

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 280" width="560" height="280" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Errors rise with load</text>
+<text x="6.6" y="260" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">0</text>
+<text x="6.6" y="203.25" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">2</text>
+<text x="6.6" y="146.5" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">4</text>
+<text x="6.6" y="89.75" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">6</text>
+<text x="6.6" y="33" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">8</text>
+<path d="M14.6 260 L552 260 M14.6 203.25 L552 203.25 M14.6 146.5 L552 146.5 M14.6 89.75 L552 89.75 M14.6 33 L552 33" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="14.6" y="272" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">-1</text>
+<text x="122.08" y="272" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0</text>
+<text x="229.56" y="272" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1</text>
+<text x="337.04" y="272" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2</text>
+<text x="444.52" y="272" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">3</text>
+<text x="552" y="272" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">4</text>
+<path d="M14.6 33 L14.6 260 M122.08 33 L122.08 260 M229.56 33 L229.56 260 M337.04 33 L337.04 260 M444.52 33 L444.52 260 M552 33 L552 260" class="tgs-grid" fill="none" stroke-width="1"/>
+<path d="M178.82 203.25 A3 3 0 0 1 172.82 203.25 A3 3 0 0 1 178.82 203.25 Z" class="tgf-bad" opacity="0.7"/>
+<path d="M232.56 174.88 A3 3 0 0 1 226.56 174.88 A3 3 0 0 1 232.56 174.88 Z" class="tgf-bad" opacity="0.7"/>
+<path d="M340.04 174.88 A3 3 0 0 1 334.04 174.88 A3 3 0 0 1 340.04 174.88 Z" class="tgf-bad" opacity="0.7"/>
+<path d="M501.26 33 A3 3 0 0 1 495.26 33 A3 3 0 0 1 501.26 33 Z" class="tgf-bad" opacity="0.7"/>
+<path d="M17.6 260 A3 3 0 0 1 11.6 260 A3 3 0 0 1 17.6 260 Z" class="tgf-bad" opacity="0.7"/>
+<path class="tgh" d="M183.82 203.25 A8 8 0 0 1 167.82 203.25 A8 8 0 0 1 183.82 203.25 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M237.56 174.88 A8 8 0 0 1 221.56 174.88 A8 8 0 0 1 237.56 174.88 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh" d="M345.04 174.88 A8 8 0 0 1 329.04 174.88 A8 8 0 0 1 345.04 174.88 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh" d="M506.26 33 A8 8 0 0 1 490.26 33 A8 8 0 0 1 506.26 33 Z" fill="none" pointer-events="all" data-row="3"/>
+<path class="tgh" d="M22.6 260 A8 8 0 0 1 6.6 260 A8 8 0 0 1 22.6 260 Z" fill="none" pointer-events="all" data-row="4"/>
+</svg>

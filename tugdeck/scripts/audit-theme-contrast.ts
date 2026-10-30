@@ -180,6 +180,8 @@ export interface ThemeReport {
   /** Informational perceptual-only shortfalls (pass WCAG, miss perceptual target). */
   perceptualOnly: number;
   cvdWarnings: number;
+  /** One line per CVD warning: the vision it is under and the pair it names. */
+  cvdFindings: string[];
 }
 
 export function auditTheme(themeFile: string): ThemeReport {
@@ -227,7 +229,14 @@ export function auditTheme(themeFile: string): ThemeReport {
 
   const cvd = checkCVDDistinguishability(resolved, CVD_SEMANTIC_PAIRS);
 
-  return { theme, evaluated: results.length, failures, perceptualOnly, cvdWarnings: cvd.length };
+  return {
+    theme,
+    evaluated: results.length,
+    failures,
+    perceptualOnly,
+    cvdWarnings: cvd.length,
+    cvdFindings: cvd.map((w) => `${w.type}: ${w.tokenPair.join(" vs ")}`),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +311,11 @@ for (const file of targets) {
       );
       console.log(`      fg ${f.fg}`);
       console.log(`      bg ${f.bg}`);
+    }
+  }
+  if (listFailures) {
+    for (const finding of report.cvdFindings) {
+      console.log(`    CVD ${finding}`);
     }
   }
 }

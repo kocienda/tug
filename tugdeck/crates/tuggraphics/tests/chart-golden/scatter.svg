@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 560 280" width="560" height="280" aria-hidden="true">
+<text x="0" y="10" class="tgt-title tgf-ink" text-anchor="start" dominant-baseline="central">Wall time follows the size of the change</text>
+<text x="0" y="28" class="tgt-label tgf-ink-muted" text-anchor="start" dominant-baseline="central">wall time</text>
+<text x="33" y="244" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">0s</text>
+<text x="33" y="195.25" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">30s</text>
+<text x="33" y="146.5" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">1m00s</text>
+<text x="33" y="97.75" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">1m30s</text>
+<text x="33" y="49" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">2m00s</text>
+<path d="M41 244 L479.4 244 M41 195.25 L479.4 195.25 M41 146.5 L479.4 146.5 M41 97.75 L479.4 97.75 M41 49 L479.4 49" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="41" y="256" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">0</text>
+<text x="150.6" y="256" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">500</text>
+<text x="260.2" y="256" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1k</text>
+<text x="369.8" y="256" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">1.5k</text>
+<text x="479.4" y="256" class="tgt-value tgf-ink-muted" text-anchor="middle" dominant-baseline="central">2k</text>
+<path d="M41 49 L41 244 M150.6 49 L150.6 244 M260.2 49 L260.2 244 M369.8 49 L369.8 244 M479.4 49 L479.4 244" class="tgs-grid" fill="none" stroke-width="1"/>
+<text x="260.2" y="272" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">lines changed</text>
+<path d="M70.3 237.18 A3 3 0 0 1 64.3 237.18 A3 3 0 0 1 70.3 237.18 Z" class="tgf-series-1 tge-fade" style="--tg-i:0" opacity="0.7"/>
+<path d="M118.53 234.09 A3 3 0 0 1 112.53 234.09 A3 3 0 0 1 118.53 234.09 Z" class="tgf-series-1 tge-fade" style="--tg-i:0" opacity="0.7"/>
+<path d="M241.28 225.31 A3 3 0 0 1 235.28 225.31 A3 3 0 0 1 241.28 225.31 Z" class="tgf-series-1 tge-fade" style="--tg-i:0" opacity="0.7"/>
+<path d="M394.72 213.13 A3 3 0 0 1 388.72 213.13 A3 3 0 0 1 394.72 213.13 Z" class="tgf-series-1 tge-fade" style="--tg-i:0" opacity="0.7"/>
+<path d="M61.54 209.88 A3 3 0 0 1 55.54 209.88 A3 3 0 0 1 61.54 209.88 Z" class="tgf-series-2 tge-fade" style="--tg-i:1" opacity="0.7"/>
+<path d="M133.87 188.75 A3 3 0 0 1 127.87 188.75 A3 3 0 0 1 133.87 188.75 Z" class="tgf-series-2 tge-fade" style="--tg-i:1" opacity="0.7"/>
+<path d="M210.59 149.75 A3 3 0 0 1 204.59 149.75 A3 3 0 0 1 210.59 149.75 Z" class="tgf-series-2 tge-fade" style="--tg-i:1" opacity="0.7"/>
+<path d="M350.88 94.5 A3 3 0 0 1 344.88 94.5 A3 3 0 0 1 350.88 94.5 Z" class="tgf-series-2 tge-fade" style="--tg-i:1" opacity="0.7"/>
+<text x="485.4" y="94.5" class="tgt-value tgf-series-2" text-anchor="start" dominant-baseline="central">integration</text>
+<text x="485.4" y="213.13" class="tgt-value tgf-series-1" text-anchor="start" dominant-baseline="central">unit</text>
+<path class="tgh" d="M75.3 237.18 A8 8 0 0 1 59.3 237.18 A8 8 0 0 1 75.3 237.18 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M123.53 234.09 A8 8 0 0 1 107.53 234.09 A8 8 0 0 1 123.53 234.09 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh" d="M246.28 225.31 A8 8 0 0 1 230.28 225.31 A8 8 0 0 1 246.28 225.31 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh" d="M399.72 213.13 A8 8 0 0 1 383.72 213.13 A8 8 0 0 1 399.72 213.13 Z" fill="none" pointer-events="all" data-row="3"/>
+<path class="tgh" d="M66.54 209.88 A8 8 0 0 1 50.54 209.88 A8 8 0 0 1 66.54 209.88 Z" fill="none" pointer-events="all" data-row="4"/>
+<path class="tgh" d="M138.87 188.75 A8 8 0 0 1 122.87 188.75 A8 8 0 0 1 138.87 188.75 Z" fill="none" pointer-events="all" data-row="5"/>
+<path class="tgh" d="M215.59 149.75 A8 8 0 0 1 199.59 149.75 A8 8 0 0 1 215.59 149.75 Z" fill="none" pointer-events="all" data-row="6"/>
+<path class="tgh" d="M355.88 94.5 A8 8 0 0 1 339.88 94.5 A8 8 0 0 1 355.88 94.5 Z" fill="none" pointer-events="all" data-row="7"/>
+</svg>

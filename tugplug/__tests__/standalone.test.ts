@@ -138,9 +138,11 @@ describe("the hook script, from the bundle alone", () => {
     expect(decision?.hookSpecificOutput?.permissionDecision).toBe("allow");
   });
 
-  test("allows the model-invocable brief skill", () => {
-    const decision = hook({ tool_name: "Skill", tool_input: { skill: "tugplug:brief" } });
-    expect(decision?.hookSpecificOutput?.permissionDecision).toBe("allow");
+  test("allows the model-invocable skills", () => {
+    for (const skill of ["tugplug:brief", "tugplug:viz"]) {
+      const decision = hook({ tool_name: "Skill", tool_input: { skill } });
+      expect(decision?.hookSpecificOutput?.permissionDecision).toBe("allow");
+    }
   });
 
   test("finds tugtool through TUG_BUNDLE_PATH when the plugin root is elsewhere", () => {
@@ -504,8 +506,8 @@ describe("the arc verbs on a project that declares nothing", () => {
   });
 });
 
-describe("brief is the one skill a model may reach for", () => {
-  test("only skills/brief carries no disable-model-invocation", () => {
+describe("brief and viz are the skills a model may reach for", () => {
+  test("only skills/brief and skills/viz carry no disable-model-invocation", () => {
     const skills = join(pluginRoot, "skills");
     const invocable: string[] = [];
     for (const skill of readdirSync(skills).filter((s) => statSync(join(skills, s)).isDirectory())) {
@@ -514,10 +516,11 @@ describe("brief is the one skill a model may reach for", () => {
       const front = readFileSync(skillMd, "utf8").split("---")[1] ?? "";
       if (!/^disable-model-invocation:\s*true$/m.test(front)) invocable.push(skill);
     }
-    // The exception is singular and deliberate: a model reaching for a door
-    // would start work nobody asked for, while a brief is a document written
-    // where the user said to write one.
-    expect(invocable).toEqual(["brief"]);
+    // The exceptions are few and deliberate: a model reaching for a door would
+    // start work nobody asked for, while a brief is a document written where
+    // the user said to write one, and a chart is a figure in the transcript
+    // that starts nothing and writes no file.
+    expect(invocable.sort()).toEqual(["brief", "viz"]);
   });
 });
 

@@ -12,6 +12,8 @@ import {
   buildCommandSubmission,
   buildSlashCommandLine,
   matchLocalSlashCommand,
+  redirectSlashCommandLine,
+  redirectSlashSubmission,
   slashCommandName,
   type CommandLineAtom,
   type DraftAtom,
@@ -246,6 +248,65 @@ describe("mergeCommandProviders", () => {
     expect(ranked).toContain("arc-bind");
     expect(ranked).toContain("arc-join");
     expect(ranked).toContain("arc-review");
+  });
+});
+
+describe("the /dataviz redirect", () => {
+  test("rewrites the line to /tugplug:viz, with arguments and without", () => {
+    expect(redirectSlashCommandLine("/dataviz")).toBe("/tugplug:viz");
+    expect(redirectSlashCommandLine("/dataviz plot this\nand that")).toBe(
+      "/tugplug:viz plot this\nand that",
+    );
+    expect(redirectSlashCommandLine("  /dataviz plot this  ")).toBe(
+      "  /tugplug:viz plot this  ",
+    );
+  });
+
+  test("leaves every other line alone", () => {
+    for (const line of [
+      "/viz plot this",
+      "/tugplug:viz plot this",
+      "/dataviz-extra",
+      "/commit",
+      "dataviz plot this",
+      "chart /dataviz please",
+      "",
+    ]) {
+      expect(redirectSlashCommandLine(line)).toBe(line);
+    }
+  });
+
+  test("the rewritten line is neither a local command nor a named one the notice reads", () => {
+    const line = redirectSlashCommandLine("/dataviz plot this");
+    expect(matchLocalSlashCommand(line)).toBeNull();
+    expect(slashCommandName(line)).toBeNull();
+  });
+
+  test("a typed submission keeps its argument atoms", () => {
+    const file = { kind: "atom", type: "file", label: "a.csv", value: "a.csv" };
+    expect(redirectSlashSubmission(`/dataviz plot ${TUG_ATOM_CHAR}`, [file])).toEqual({
+      text: `/tugplug:viz plot ${TUG_ATOM_CHAR}`,
+      atoms: [file],
+    });
+  });
+
+  test("a leading command atom takes the new name, and what follows it stays", () => {
+    const command = { kind: "atom", type: "command", label: "dataviz", value: "dataviz" };
+    const file = { kind: "atom", type: "file", label: "a.csv", value: "a.csv" };
+    const text = `${TUG_ATOM_CHAR} plot ${TUG_ATOM_CHAR}`;
+    expect(redirectSlashSubmission(text, [command, file])).toEqual({
+      text,
+      atoms: [{ ...command, label: "tugplug:viz", value: "tugplug:viz" }, file],
+    });
+  });
+
+  test("any other command atom passes through", () => {
+    const command = { kind: "atom", type: "command", label: "commit", value: "commit" };
+    const atoms = [command];
+    expect(redirectSlashSubmission(TUG_ATOM_CHAR, atoms)).toEqual({
+      text: TUG_ATOM_CHAR,
+      atoms,
+    });
   });
 });
 

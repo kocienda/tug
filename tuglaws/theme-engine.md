@@ -130,6 +130,8 @@ WCAG is normative per role; perceptual is informational. The gate is **comparati
 (`ironclad`) sets the accessibility budget, and no other theme may ship with *more* WCAG failures than
 it. Run `audit:theme-contrast <name>` for one theme (with the full failure list), or `--list` for all.
 
+The CVD check takes two measures. A status pair warns on a small luminance delta under a simulated deficiency. An adjacent chart-series pair warns on its OKLab distance: below 8 under any deficiency, or below 15 under normal vision. Series are told apart by hue as much as by lightness, so a luminance delta says nothing about them. CVD warnings are findings, not part of the gate.
+
 ---
 
 ## Activation Model

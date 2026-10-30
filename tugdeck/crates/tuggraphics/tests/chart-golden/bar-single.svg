@@ -25,4 +25,10 @@
 <path d="M487.24 117.4 L548.36 117.4 L548.36 220 L487.24 220 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:6"/>
 <text x="517.8" y="108.4" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:6" text-anchor="middle" dominant-baseline="central">9</text>
 <path d="M21.2 220 L556 220" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+<path class="tgh" d="M21.2 49 L97.6 49 L97.6 220 L21.2 220 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M97.6 49 L174 49 L174 220 L97.6 220 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M174 49 L250.4 49 L250.4 220 L174 220 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M250.4 49 L326.8 49 L326.8 220 L250.4 220 Z" fill="none" pointer-events="all" data-row="3" data-col="1"/>
+<path class="tgh" d="M326.8 49 L403.2 49 L403.2 220 L326.8 220 Z" fill="none" pointer-events="all" data-row="4" data-col="1"/>
+<path class="tgh" d="M479.6 49 L556 49 L556 220 L479.6 220 Z" fill="none" pointer-events="all" data-row="6" data-col="1"/>
 </svg>

@@ -81,6 +81,14 @@ pub struct Series {
     pub role: ColourRole,
 }
 
+/// One series of a `scatter`: its `(x, y)` points in the order given.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScatterSeries {
+    pub name: String,
+    pub points: Vec<(f64, f64)>,
+    pub role: ColourRole,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Highlight {
     Last,
@@ -207,6 +215,13 @@ pub enum Data {
     Bullet {
         items: Vec<BulletItem>,
     },
+    /// One measure against another. The spec's `unit` and `format` are the
+    /// vertical axis's; these two are the horizontal's.
+    Scatter {
+        series: Vec<ScatterSeries>,
+        x_unit: Option<String>,
+        x_format: Format,
+    },
 }
 
 impl Data {
@@ -222,6 +237,7 @@ impl Data {
             Data::Spans { .. } => "spans",
             Data::Heat { .. } => "heat",
             Data::Bullet { .. } => "bullet",
+            Data::Scatter { .. } => "scatter",
         }
     }
 
@@ -230,7 +246,10 @@ impl Data {
     pub fn is_axis(&self) -> bool {
         match self {
             Data::Bar { orient, .. } => *orient == Orient::Vertical,
-            Data::Line { .. } | Data::Area { .. } | Data::Histogram { .. } => true,
+            Data::Line { .. }
+            | Data::Area { .. }
+            | Data::Histogram { .. }
+            | Data::Scatter { .. } => true,
             _ => false,
         }
     }
@@ -285,11 +304,12 @@ impl Spec {
                 (560.0, header + CELL_H + 4.0 + LABEL_ROW)
             }
             Data::Bullet { items } => rows(items.len(), 28.0, 40.0),
+            Data::Scatter { .. } => (560.0, 280.0),
         }
     }
 }
 
-const FORM_NAMES: [&str; 9] = [
+const FORM_NAMES: [&str; 10] = [
     "bar",
     "line",
     "area",
@@ -299,8 +319,9 @@ const FORM_NAMES: [&str; 9] = [
     "spans",
     "heat",
     "bullet",
+    "scatter",
 ];
-const FORMS: &str = "bar, line, area, sparkline, dots, histogram, spans, heat or bullet";
+const FORMS: &str = "bar, line, area, sparkline, dots, histogram, spans, heat, bullet or scatter";
 const COMMON: [&str; 9] = [
     "tugchart",
     "form",
@@ -475,6 +496,22 @@ impl Validator {
         (self.errors.len() == before).then_some(out)
     }
 
+    fn series_role(&mut self, s: &Map<String, Value>, base: &str, i: usize) -> ColourRole {
+        match s.get("role") {
+            None => ColourRole::Series(i as u8 + 1),
+            Some(Value::String(r)) if ["good", "bad", "accent"].contains(&r.as_str()) => {
+                ColourRole::parse(r).unwrap_or(ColourRole::Accent)
+            }
+            Some(_) => {
+                self.err(
+                    format!("{base}/role"),
+                    "a series role is good, bad or accent",
+                );
+                ColourRole::Accent
+            }
+        }
+    }
+
     fn series(&mut self, obj: &Map<String, Value>) -> Option<Vec<Series>> {
         let Some(value) = obj.get("series") else {
             self.err("/series", "series is required");
@@ -500,21 +537,83 @@ impl Validator {
             let name = self
                 .opt_label(s, &base, "name")
                 .unwrap_or_else(|| format!("series {}", i + 1));
-            let role = match s.get("role") {
-                None => ColourRole::Series(i as u8 + 1),
-                Some(Value::String(r)) if ["good", "bad", "accent"].contains(&r.as_str()) => {
-                    ColourRole::parse(r).unwrap_or(ColourRole::Accent)
-                }
-                Some(_) => {
-                    self.err(
-                        format!("{base}/role"),
-                        "a series role is good, bad or accent",
-                    );
-                    ColourRole::Accent
-                }
-            };
+            let role = self.series_role(s, &base, i);
             if let Some(values) = self.values(s.get("values"), &format!("{base}/values")) {
                 out.push(Series { name, values, role });
+            }
+        }
+        (self.errors.len() == before).then_some(out)
+    }
+
+    /// A scatter's series: as [`Self::series`], with `points` for `values`.
+    fn scatter_series(&mut self, obj: &Map<String, Value>) -> Option<Vec<ScatterSeries>> {
+        let Some(value) = obj.get("series") else {
+            self.err("/series", "series is required");
+            return None;
+        };
+        let Value::Array(items) = value else {
+            self.err("/series", "series is an array of {\"name\", \"points\"}");
+            return None;
+        };
+        if items.is_empty() || items.len() > MAX_SERIES {
+            self.err("/series", format!("a chart has 1 to {MAX_SERIES} series"));
+            return None;
+        }
+        let before = self.errors.len();
+        let mut out = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            let base = format!("/series/{i}");
+            let Value::Object(s) = item else {
+                self.err(&base, "a series is an object {\"name\", \"points\"}");
+                continue;
+            };
+            self.known_keys(s, &base, &["name", "points", "role"]);
+            let name = self
+                .opt_label(s, &base, "name")
+                .unwrap_or_else(|| format!("series {}", i + 1));
+            let role = self.series_role(s, &base, i);
+            if let Some(points) = self.points(s.get("points"), &format!("{base}/points")) {
+                out.push(ScatterSeries { name, points, role });
+            }
+        }
+        (self.errors.len() == before).then_some(out)
+    }
+
+    /// An array of `{x, y}` objects, 1 to [`MAX_VALUES`] long. A point has
+    /// both numbers or it is not a point, so there is no gap to hold.
+    fn points(&mut self, value: Option<&Value>, path: &str) -> Option<Vec<(f64, f64)>> {
+        let Some(value) = value else {
+            self.err(path, "points is required");
+            return None;
+        };
+        let Value::Array(items) = value else {
+            self.err(path, "points is an array of {\"x\", \"y\"}");
+            return None;
+        };
+        if items.is_empty() || items.len() > MAX_VALUES {
+            self.err(path, format!("points holds 1 to {MAX_VALUES} entries"));
+            return None;
+        }
+        let before = self.errors.len();
+        let mut out = Vec::with_capacity(items.len());
+        for (i, item) in items.iter().enumerate() {
+            let base = format!("{path}/{i}");
+            let Value::Object(p) = item else {
+                self.err(&base, "a point is an object {\"x\", \"y\"}");
+                continue;
+            };
+            self.known_keys(p, &base, &["x", "y"]);
+            let mut axis = |key: &str| match p.get(key) {
+                Some(n) => self.number(n, &format!("{base}/{key}"), key),
+                None => {
+                    self.err(format!("{base}/{key}"), format!("{key} is required"));
+                    None
+                }
+            };
+            let x = axis("x");
+            let y = axis("y");
+            if let (Some(x), Some(y)) = (x, y) {
+                out.push((x, y));
             }
         }
         (self.errors.len() == before).then_some(out)
@@ -574,6 +673,7 @@ impl Validator {
             "histogram" => &["values", "bins"],
             "spans" => &["items"],
             "heat" => &["categories", "values"],
+            "scatter" => &["series", "xunit", "xformat"],
             _ => &["items"],
         };
         let allowed: Vec<&str> = COMMON.iter().chain(data_keys).copied().collect();
@@ -585,19 +685,7 @@ impl Validator {
         }
         let subtitle = self.opt_label(obj, "", "subtitle");
         let unit = self.opt_label(obj, "", "unit");
-        let format = match obj.get("format") {
-            None => Format::Auto,
-            Some(Value::String(f)) if Format::parse(f).is_some() => {
-                Format::parse(f).unwrap_or(Format::Auto)
-            }
-            Some(_) => {
-                self.err(
-                    "/format",
-                    format!("format is one of {}", Format::NAMES.join(", ")),
-                );
-                Format::Auto
-            }
-        };
+        let format = self.format_field(obj, "format");
         let motion = self.one_of(obj, "motion", &["enter", "none"]).as_deref() != Some("none");
         // Read before the data, so a bad size is reported beside bad data;
         // the axis forms' taller floor is checked once the form is known.
@@ -719,6 +807,15 @@ impl Validator {
                     values: values?,
                 }
             }
+            "scatter" => {
+                let x_unit = self.opt_label(obj, "", "xunit");
+                let x_format = self.format_field(obj, "xformat");
+                Data::Scatter {
+                    series: self.scatter_series(obj)?,
+                    x_unit,
+                    x_format,
+                }
+            }
             _ => Data::Bullet {
                 items: self.bullet_items(obj)?,
             },
@@ -748,6 +845,22 @@ impl Validator {
             annotations,
             data,
         })
+    }
+
+    fn format_field(&mut self, obj: &Map<String, Value>, key: &str) -> Format {
+        match obj.get(key) {
+            None => Format::Auto,
+            Some(Value::String(f)) if Format::parse(f).is_some() => {
+                Format::parse(f).unwrap_or(Format::Auto)
+            }
+            Some(_) => {
+                self.err(
+                    key_path("", key),
+                    format!("{key} is one of {}", Format::NAMES.join(", ")),
+                );
+                Format::Auto
+            }
+        }
     }
 
     fn size(&mut self, obj: &Map<String, Value>) -> (Option<f64>, Option<f64>) {

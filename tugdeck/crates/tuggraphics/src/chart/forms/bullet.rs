@@ -65,6 +65,12 @@ pub(super) fn layout(
     let zero = plot.x(0.0);
     for (i, item) in items.iter().enumerate() {
         let cy = plot.center(i);
+        // The whole row, label and history included.
+        b.hit(
+            rect(0.0, cy - plot.band() / 2.0, w, plot.band()),
+            i,
+            Some(1),
+        );
         if let Some((a, z)) = item.range {
             let (xa, xz) = (plot.x(a), plot.x(z));
             b.fill(

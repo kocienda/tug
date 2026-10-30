@@ -17,4 +17,8 @@
 <path d="M156.02 61.2 L193.6 61.2 L193.6 70.8 L156.02 70.8 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:1"/>
 <path d="M193.6 77.2 L496.94 77.2 L496.94 86.8 L193.6 86.8 Z" class="tgf-accent tge-grow tge-from-left" style="--tg-i:2"/>
 <path d="M496.94 93.2 L526.47 93.2 L526.47 102.8 L496.94 102.8 Z" class="tgf-bad tge-grow tge-from-left" style="--tg-i:3"/>
+<path class="tgh" d="M0 42 L560 42 L560 58 L0 58 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M0 58 L560 58 L560 74 L0 74 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh" d="M0 74 L560 74 L560 90 L0 90 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh" d="M0 90 L560 90 L560 106 L0 106 Z" fill="none" pointer-events="all" data-row="3"/>
 </svg>

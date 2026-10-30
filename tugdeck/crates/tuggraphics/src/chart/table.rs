@@ -126,6 +126,25 @@ pub fn table(spec: &Spec) -> ChartTable {
                 })
                 .collect(),
         ),
+        Data::Scatter {
+            series,
+            x_unit,
+            x_format,
+        } => (
+            vec![
+                String::new(),
+                x_unit.clone().unwrap_or_else(|| "x".into()),
+                spec.unit.clone().unwrap_or_else(|| "y".into()),
+            ],
+            series
+                .iter()
+                .flat_map(|s| {
+                    s.points.iter().map(|(x, y)| {
+                        vec![s.name.clone(), x_format.apply(*x), spec.format.apply(*y)]
+                    })
+                })
+                .collect(),
+        ),
     };
     ChartTable {
         caption: spec.title.clone().unwrap_or_default(),

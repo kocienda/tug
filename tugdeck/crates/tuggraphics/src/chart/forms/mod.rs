@@ -16,6 +16,7 @@ mod dots;
 pub(crate) mod heat;
 pub(crate) mod histogram;
 mod line;
+mod scatter;
 mod spans;
 mod sparkline;
 
@@ -63,6 +64,11 @@ pub(crate) fn layout(spec: &Spec, w: f64, h: f64, animate: bool, m: &dyn Measure
             heat::layout(&mut b, spec, categories, values, w, h, m)
         }
         Data::Bullet { items } => bullet::layout(&mut b, spec, items, w, h, m),
+        Data::Scatter {
+            series,
+            x_unit,
+            x_format,
+        } => scatter::layout(&mut b, spec, series, x_unit.as_deref(), *x_format, w, h, m),
     }
     b.finish(w, h)
 }

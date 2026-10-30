@@ -36,6 +36,7 @@
 // `slash-supported`, which imports this module back before it has finished.
 import { TUG_ATOM_CHAR } from "./tug-atom-char";
 import type { AtomSegment } from "./tug-atom-img";
+import { hasLeadingCommandAtom } from "./command-atom";
 
 /** One locally-handled slash command's static descriptor. */
 export interface LocalSlashCommandSpec {
@@ -500,5 +501,50 @@ export function buildCommandSubmission(
 export function slashCommandName(text: string): string | null {
   const m = COMMAND_LINE.exec(text.trim());
   return m === null ? null : m[1];
+}
+
+/**
+ * Commands that hand over to another command at submission, mapped to the bare
+ * name of the command that takes the line. Claude Code's bundled `dataviz` is
+ * off in every session Tug spawns, and `/viz` takes any chart request, so a hand
+ * that already knows the bundled name gets what it meant rather than an *Unknown
+ * command* alert. Deliberately unlisted: a redirect appears in no popup and no
+ * help sheet, because a listed alias would be a second name for the one door.
+ */
+const SLASH_COMMAND_REDIRECTS: ReadonlyMap<string, string> = new Map([
+  ["dataviz", "tugplug:viz"],
+]);
+
+/**
+ * Rewrite a `/command …` line whose command hands over to another, keeping the
+ * arguments as they stand; any other line returns unchanged. The result is the
+ * line the popup would have composed. Pure.
+ */
+export function redirectSlashCommandLine(line: string): string {
+  const name = slashCommandName(line);
+  const target = name === null ? undefined : SLASH_COMMAND_REDIRECTS.get(name);
+  if (target === undefined) return line;
+  const start = line.indexOf("/");
+  return `${line.slice(0, start)}/${target}${line.slice(start + 1 + name!.length)}`;
+}
+
+/**
+ * {@link redirectSlashCommandLine} for a submission's substrate, which holds the
+ * command either as typed characters or as a leading command atom: a line
+ * recalled from history, or a chip clicked in an older transcript, still carries
+ * the old name. Argument text and further atoms pass through. Pure.
+ */
+export function redirectSlashSubmission<
+  A extends { readonly type: string; readonly label: string; readonly value: string },
+>(text: string, atoms: A[]): { text: string; atoms: A[] } {
+  if (!hasLeadingCommandAtom(text, atoms, TUG_ATOM_CHAR)) {
+    return { text: redirectSlashCommandLine(text), atoms };
+  }
+  const target = SLASH_COMMAND_REDIRECTS.get(atoms[0]!.value);
+  if (target === undefined) return { text, atoms };
+  return {
+    text,
+    atoms: [{ ...atoms[0]!, value: target, label: target }, ...atoms.slice(1)],
+  };
 }
 

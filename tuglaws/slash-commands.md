@@ -265,6 +265,14 @@ answers to two spellings of one verb teaches both. A typed old spelling is
 submitted to claude as a prompt, which spends a turn — the cost of the rename,
 paid once by whoever's fingers remember.
 
+**Hand a name over to another command**: add it to `SLASH_COMMAND_REDIRECTS` in
+`tugdeck/src/lib/slash-commands.ts`. The composer rewrites the line at submission,
+before the local registry and the unknown-command notice read it, so the name
+needs no tier and appears in no popup and no help sheet. `/dataviz` is the worked
+example: Tug turns Claude Code's bundled skill off at the spawn, and `/viz` takes
+any chart request, so a hand that knows the old name lands on `/tugplug:viz`
+rather than on an alert about a command it can no longer see.
+
 **Reclaim a bare name for a catalogued command**: the one case where deleting a
 local entry is right, because falling through to claude is the *intent* rather
 than the accident the rule above guards against. `/arc` is the worked example.

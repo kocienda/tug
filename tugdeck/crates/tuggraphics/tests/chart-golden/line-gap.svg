@@ -15,4 +15,16 @@
 <path d="M81.38 220 L162.15 216.88 L242.92 210.65 L323.68 213.77" class="tgs-series-2 tge-draw" style="--tg-i:1" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/>
 <text x="491.22" y="79.75" class="tgt-value tgf-series-1" text-anchor="start" dominant-baseline="central">rust</text>
 <text x="491.22" y="207.53" class="tgt-value tgf-series-2" text-anchor="start" dominant-baseline="central">deck</text>
+<path class="tgh" d="M41 33 L121.77 33 L121.77 220 L41 220 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh-cross tgs-ink-muted" d="M81.38 33 L81.38 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M121.77 33 L202.53 33 L202.53 220 L121.77 220 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh-cross tgs-ink-muted" d="M162.15 33 L162.15 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M202.53 33 L283.3 33 L283.3 220 L202.53 220 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh-cross tgs-ink-muted" d="M242.92 33 L242.92 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M283.3 33 L364.07 33 L364.07 220 L283.3 220 Z" fill="none" pointer-events="all" data-row="3"/>
+<path class="tgh-cross tgs-ink-muted" d="M323.68 33 L323.68 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M364.07 33 L444.83 33 L444.83 220 L364.07 220 Z" fill="none" pointer-events="all" data-row="4"/>
+<path class="tgh-cross tgs-ink-muted" d="M404.45 33 L404.45 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M444.83 33 L525.6 33 L525.6 220 L444.83 220 Z" fill="none" pointer-events="all" data-row="5"/>
+<path class="tgh-cross tgs-ink-muted" d="M485.22 33 L485.22 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
 </svg>

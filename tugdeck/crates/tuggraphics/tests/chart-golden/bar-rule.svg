@@ -24,4 +24,9 @@
 <path d="M401.5 33 L401.5 220" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-dasharray="4 3"/>
 <text x="556" y="135.08" class="tgt-value tgf-ink-muted" text-anchor="end" dominant-baseline="central">median</text>
 <text x="404.5" y="40" class="tgt-value tgf-ink-muted" text-anchor="start" dominant-baseline="central">regression</text>
+<path class="tgh" d="M41 33 L144 33 L144 220 L41 220 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M144 33 L247 33 L247 220 L144 220 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M247 33 L350 33 L350 220 L247 220 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M350 33 L453 33 L453 220 L350 220 Z" fill="none" pointer-events="all" data-row="3" data-col="1"/>
+<path class="tgh" d="M453 33 L556 33 L556 220 L453 220 Z" fill="none" pointer-events="all" data-row="4" data-col="1"/>
 </svg>

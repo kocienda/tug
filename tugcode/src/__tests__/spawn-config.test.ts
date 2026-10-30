@@ -210,6 +210,25 @@ describe("buildClaudeArgs", () => {
 });
 
 describe("buildClaudeArgs session commands", () => {
+  test("turns the bundled dataviz skill off on every spawn shape", () => {
+    const shapes = [
+      defaultConfig,
+      { ...defaultConfig, sessionId: "parent-id" },
+      { ...defaultConfig, continue: true },
+      { ...defaultConfig, sessionIdOverride: "new-id" },
+      { ...defaultConfig, continue: true, forkSession: true },
+      { ...defaultConfig, sessionId: "parent-id", forkSession: true },
+      { ...defaultConfig, sessionId: "parent-id", forkSession: true, sessionIdOverride: "new-id" },
+    ];
+    for (const config of shapes) {
+      const args = buildClaudeArgs(config);
+      expect(args.filter((a) => a === "--settings")).toHaveLength(1);
+      expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({
+        skillOverrides: { dataviz: "off" },
+      });
+    }
+  });
+
   test("buildClaudeArgs with continue + forkSession produces --continue --fork-session", () => {
     const args = buildClaudeArgs({
       pluginDir: "/repo",

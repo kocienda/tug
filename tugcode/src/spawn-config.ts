@@ -283,6 +283,20 @@ export function tugDataRoot(): string {
 }
 
 /**
+ * The settings every spawn carries by `--settings`: Claude Code's bundled
+ * `dataviz` skill is off. It claims every chart in every medium and draws
+ * nothing a Session card can show, so left on it competes with `/viz` for
+ * "chart this" and pulls the model toward a hand-drawn figure. It rides the
+ * spawn rather than a settings file so the user's own `~/.claude` and their
+ * terminal Claude are untouched, and so it holds on a project with no `.claude/`
+ * directory at all. The other bundled skills stay, which is why this is the
+ * per-skill override and not `disableBundledSkills`.
+ */
+export const CLAUDE_SPAWN_SETTINGS = JSON.stringify({
+  skillOverrides: { dataviz: "off" },
+});
+
+/**
  * Build the CLI argument array for spawning the claude process.
  * Exported for unit tests.
  */
@@ -331,6 +345,7 @@ export function buildClaudeArgs(config: ClaudeSpawnConfig): string[] {
     // Grant frictionless reads of out-of-repo Tug runtime state (arc-log,
     // code-sign sentinel, side-command output) for every session.
     "--add-dir", tugDataRoot(),
+    "--settings", CLAUDE_SPAWN_SETTINGS,
   ];
 
   // Extra working directories from `/add-dir` ([#step-13c]) — one `--add-dir`

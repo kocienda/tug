@@ -229,6 +229,18 @@ pub struct GroupOp {
     pub motion: Option<Motion>,
 }
 
+/// An invisible region of a chart that names the row of its table, and the
+/// column when one value in that row is the one pointed at. The chart forms
+/// write these; the drawing language has no spelling for one, so a drawing has
+/// no hover. `cross` is a line the deck shows while the region is hovered.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HitOp {
+    pub path: Vec<Seg>,
+    pub row: usize,
+    pub col: Option<usize>,
+    pub cross: Vec<Seg>,
+}
+
 /// One item of a validated program, in paint order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Item {
@@ -236,6 +248,7 @@ pub enum Item {
     Text(TextOp),
     Group(GroupOp),
     End,
+    Hit(HitOp),
 }
 
 /// A validated layer 0 program.

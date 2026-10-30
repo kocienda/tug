@@ -14,6 +14,35 @@ use crate::measure::{Measure, TypeRole};
 
 /// The share of a band the bars of one category take.
 const GROUP_SHARE: f64 = 0.8;
+/// The thinnest a stacked segment's hit target is, along the value axis.
+const MIN_SEGMENT_HIT: f64 = 4.0;
+
+/// A grouped bar's hit target along its band: the bar and the gap after it,
+/// `start` for `length`, widened to the band's edge for the group's first and
+/// last, so a band has no dead margin.
+fn grouped_slot(
+    band_start: f64,
+    band: f64,
+    start: f64,
+    length: f64,
+    j: usize,
+    n: usize,
+) -> (f64, f64) {
+    let from = if j == 0 { band_start } else { start };
+    let to = if j + 1 == n {
+        band_start + band
+    } else {
+        start + length
+    };
+    (from, to - from)
+}
+
+/// A stacked segment's hit target along the value axis: the segment, or a
+/// sliver around it when it is too thin to reach with a pointer.
+fn segment_slot(start: f64, length: f64) -> (f64, f64) {
+    let hit = length.max(MIN_SEGMENT_HIT);
+    (start - (hit - length) / 2.0, hit)
+}
 
 /// The value labels a chart may place: one per bar when grouped, or the
 /// positive and negative totals per category when stacked. An empty
@@ -253,6 +282,12 @@ fn vertical(
                         series[j].role,
                         b.grow(edge, j),
                     );
+                    let (hit_top, hit_h) = segment_slot(y0.min(y1), height);
+                    b.hit(
+                        rect(plot.left + band * i as f64, hit_top, band, hit_h),
+                        i,
+                        Some(j + 1),
+                    );
                 }
             }
             let (pos, neg, _) = totals(series, i);
@@ -315,6 +350,19 @@ fn vertical(
                 if height > 0.0 {
                     b.fill(rect(x, top, bar_w, height), s.role, b.grow(from, i));
                 }
+                let (hit_x, hit_w) = grouped_slot(
+                    plot.left + band * i as f64,
+                    band,
+                    x,
+                    bar_w + gap,
+                    j,
+                    series.len(),
+                );
+                b.hit(
+                    rect(hit_x, plot.top, hit_w, plot.bottom - plot.top),
+                    i,
+                    Some(j + 1),
+                );
                 let cx = x + bar_w / 2.0;
                 vertical_label(
                     b,
@@ -452,6 +500,12 @@ fn horizontal(
                         series[j].role,
                         b.grow(edge, j),
                     );
+                    let (hit_left, hit_w) = segment_slot(xa.min(xb), length);
+                    b.hit(
+                        rect(hit_left, plot.top + band * i as f64, hit_w, band),
+                        i,
+                        Some(j + 1),
+                    );
                 }
             }
             let (pos, neg, _) = totals(series, i);
@@ -505,6 +559,19 @@ fn horizontal(
                 if length > 0.0 {
                     b.fill(rect(left, y, length, bar_h), s.role, b.grow(from, i));
                 }
+                let (hit_y, hit_h) = grouped_slot(
+                    plot.top + band * i as f64,
+                    band,
+                    y,
+                    bar_h + gap,
+                    j,
+                    series.len(),
+                );
+                b.hit(
+                    rect(plot.left, hit_y, plot.right - plot.left, hit_h),
+                    i,
+                    Some(j + 1),
+                );
                 let cy = y + bar_h / 2.0;
                 horizontal_label(
                     b,

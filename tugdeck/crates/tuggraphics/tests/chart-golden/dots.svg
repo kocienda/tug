@@ -24,4 +24,24 @@
 <path d="M342 82 A5 5 0 0 1 332 82 A5 5 0 0 1 342 82 Z" class="tgf-good tge-fade" style="--tg-i:7"/>
 <path d="M356 82 A5 5 0 0 1 346 82 A5 5 0 0 1 356 82 Z" class="tgf-good tge-fade" style="--tg-i:8"/>
 <path d="M370 82 A5 5 0 0 1 360 82 A5 5 0 0 1 370 82 Z" class="tgf-good tge-fade" style="--tg-i:9"/>
+<path class="tgh" d="M232 42 L246 42 L246 58 L232 58 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M246 42 L260 42 L260 58 L246 58 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M260 42 L274 42 L274 58 L260 58 Z" fill="none" pointer-events="all" data-row="0" data-col="2"/>
+<path class="tgh" d="M274 42 L288 42 L288 58 L274 58 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M288 42 L302 42 L302 58 L288 58 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M302 42 L316 42 L316 58 L302 58 Z" fill="none" pointer-events="all" data-row="0" data-col="3"/>
+<path class="tgh" d="M316 42 L330 42 L330 58 L316 58 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M232 58 L246 58 L246 74 L232 74 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M246 58 L260 58 L260 74 L246 74 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M260 58 L274 58 L274 74 L260 74 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M232 74 L246 74 L246 90 L232 90 Z" fill="none" pointer-events="all" data-row="2" data-col="2"/>
+<path class="tgh" d="M246 74 L260 74 L260 90 L246 90 Z" fill="none" pointer-events="all" data-row="2" data-col="2"/>
+<path class="tgh" d="M260 74 L274 74 L274 90 L260 90 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M274 74 L288 74 L288 90 L274 90 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M288 74 L302 74 L302 90 L288 90 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M302 74 L316 74 L316 90 L302 90 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M316 74 L330 74 L330 90 L316 90 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M330 74 L344 74 L344 90 L330 90 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M344 74 L358 74 L358 90 L344 90 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M358 74 L372 74 L372 90 L358 90 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
 </svg>

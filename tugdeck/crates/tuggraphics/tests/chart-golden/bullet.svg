@@ -21,4 +21,7 @@
 <path d="M126.8 85.33 L496.39 85.33 L496.39 93.33 L126.8 93.33 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:2"/>
 <path d="M411.93 79.33 L413.93 79.33 L413.93 99.33 L411.93 99.33 Z" class="tgf-ink"/>
 <text x="500.39" y="89.33" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">5m10s</text>
+<path class="tgh" d="M0 26 L560 26 L560 51.33 L0 51.33 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M0 51.33 L560 51.33 L560 76.67 L0 76.67 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M0 76.67 L560 76.67 L560 102 L0 102 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
 </svg>

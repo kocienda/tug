@@ -137,6 +137,13 @@ pub enum Migrated {
 /// savepoint, so a failure leaves the database at the version it was found
 /// at rather than half-migrated; a savepoint rather than a transaction,
 /// because it nests inside one a caller may hold.
+///
+/// A database already at the build's version takes none of that and writes
+/// nothing. Every open comes through here, the ones that only read included,
+/// and a write begun inside a deferred savepoint upgrades a read lock, which
+/// SQLite refuses at once with "database is locked" rather than waiting out
+/// `busy_timeout` when another connection has written since. So several
+/// readers at once could fail one another with no writer in sight.
 pub fn migrate<E: From<rusqlite::Error>>(
     conn: &Connection,
     schema: &LedgerSchema<'_>,
@@ -145,6 +152,9 @@ pub fn migrate<E: From<rusqlite::Error>>(
     let on_disk: i64 = conn.pragma_query_value(Some(schema.db), "user_version", |r| r.get(0))?;
     if on_disk > schema.version {
         return Ok(Migrated::TooNew { on_disk });
+    }
+    if on_disk == schema.version {
+        return Ok(Migrated::Current);
     }
     conn.execute_batch("SAVEPOINT ledger_migrate")?;
     let applied = (|| {
@@ -563,6 +573,29 @@ mod tests {
             Migrated::Current
         );
         assert_eq!(version(&conn, "main"), 3);
+    }
+
+    #[test]
+    fn migrate_at_the_current_version_runs_nothing_and_needs_no_write_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ledger.db");
+        let reader = open(&path).unwrap();
+        migrate(&reader, &schema_v3(), create_v3).unwrap();
+        // No waiting: this is the open that was failing, not one that queues.
+        reader.pragma_update(None, "busy_timeout", 0i64).unwrap();
+
+        let writer = open(&path).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let mut created = false;
+        let outcome = migrate(&reader, &schema_v3(), |_| {
+            created = true;
+            Ok::<_, rusqlite::Error>(())
+        })
+        .unwrap();
+        writer.execute_batch("ROLLBACK").unwrap();
+
+        assert_eq!(outcome, Migrated::Current);
+        assert!(!created, "a current schema has nothing to create");
     }
 
     #[test]

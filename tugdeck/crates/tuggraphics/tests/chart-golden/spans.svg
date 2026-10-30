@@ -15,4 +15,8 @@
 <path d="M231.74 61.2 L425.25 61.2 L425.25 70.8 L231.74 70.8 Z" class="tgf-series-1 tge-grow tge-from-left" style="--tg-i:1"/>
 <path d="M425.25 77.2 L514.16 77.2 L514.16 86.8 L425.25 86.8 Z" class="tgf-bad tge-grow tge-from-left" style="--tg-i:2"/>
 <path d="M514.16 93.2 L515.16 93.2 L515.16 102.8 L514.16 102.8 Z" class="tgf-accent tge-grow tge-from-left" style="--tg-i:3"/>
+<path class="tgh" d="M0 42 L560 42 L560 58 L0 58 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M0 58 L560 58 L560 74 L0 74 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh" d="M0 74 L560 74 L560 90 L0 90 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh" d="M0 90 L560 90 L560 106 L0 106 Z" fill="none" pointer-events="all" data-row="3"/>
 </svg>

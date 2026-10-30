@@ -33,4 +33,14 @@
 <path d="M438.64 139.28 L542.96 139.28 L542.96 142.07 L438.64 142.07 Z" class="tgf-series-3 tge-grow tge-from-bottom" style="--tg-i:2"/>
 <text x="490.8" y="130.28" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">45</text>
 <path d="M34.4 164.33 L556 164.33" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+<path class="tgh" d="M34.4 97.53 L164.8 97.53 L164.8 164.33 L34.4 164.33 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M34.4 164.33 L164.8 164.33 L164.8 181.03 L34.4 181.03 Z" fill="none" pointer-events="all" data-row="0" data-col="2"/>
+<path class="tgh" d="M34.4 86.4 L164.8 86.4 L164.8 97.53 L34.4 97.53 Z" fill="none" pointer-events="all" data-row="0" data-col="3"/>
+<path class="tgh" d="M164.8 119.8 L295.2 119.8 L295.2 164.33 L164.8 164.33 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M164.8 164.33 L295.2 164.33 L295.2 197.73 L164.8 197.73 Z" fill="none" pointer-events="all" data-row="1" data-col="2"/>
+<path class="tgh" d="M164.8 111.45 L295.2 111.45 L295.2 119.8 L164.8 119.8 Z" fill="none" pointer-events="all" data-row="1" data-col="3"/>
+<path class="tgh" d="M295.2 164.33 L425.6 164.33 L425.6 169.9 L295.2 169.9 Z" fill="none" pointer-events="all" data-row="2" data-col="2"/>
+<path class="tgh" d="M295.2 150.42 L425.6 150.42 L425.6 164.33 L295.2 164.33 Z" fill="none" pointer-events="all" data-row="2" data-col="3"/>
+<path class="tgh" d="M425.6 142.07 L556 142.07 L556 164.33 L425.6 164.33 Z" fill="none" pointer-events="all" data-row="3" data-col="1"/>
+<path class="tgh" d="M425.6 138.68 L556 138.68 L556 142.68 L425.6 142.68 Z" fill="none" pointer-events="all" data-row="3" data-col="3"/>
 </svg>

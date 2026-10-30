@@ -35,7 +35,7 @@ export interface ContrastResult {
 }
 
 export interface CVDWarning {
-  type: CVDType;
+  type: CVDType | "normal";
   tokenPair: [string, string];
   description: string;
   suggestion: string;
@@ -114,6 +114,41 @@ export function computeWcagContrast(fgHex: string, bgHex: string): number {
 // ---------------------------------------------------------------------------
 
 /**
+ * Convert a linear-sRGB triplet to OKLab, per Björn Ottosson (2020).
+ */
+function linearSRGBToOKLab(linear: { r: number; g: number; b: number }): { L: number; a: number; b: number } {
+  // OKLab M1 matrix: linear sRGB → linear LMS
+  const l = 0.4122214708 * linear.r + 0.5363325363 * linear.g + 0.0514459929 * linear.b;
+  const m = 0.2119034982 * linear.r + 0.6806995451 * linear.g + 0.1073969566 * linear.b;
+  const s = 0.0883024619 * linear.r + 0.2817188376 * linear.g + 0.6299787005 * linear.b;
+
+  // Cube-root each LMS channel
+  const l_ = Math.cbrt(l);
+  const m_ = Math.cbrt(m);
+  const s_ = Math.cbrt(s);
+
+  // OKLab M2 matrix: LMS^ → Lab
+  return {
+    L: 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+    a: 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+    b: 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+  };
+}
+
+/**
+ * The perceptual distance between two linear-sRGB colours: Euclidean distance
+ * in OKLab, ×100. White against black is 100; identical colours are 0.
+ */
+export function oklabDistance(
+  a: { r: number; g: number; b: number },
+  b: { r: number; g: number; b: number },
+): number {
+  const labA = linearSRGBToOKLab(a);
+  const labB = linearSRGBToOKLab(b);
+  return 100 * Math.hypot(labA.L - labB.L, labA.a - labB.a, labA.b - labB.b);
+}
+
+/**
  * Convert a #rrggbb hex color to OKLab perceptual lightness (L).
  *
  * Follows the OKLab specification by Björn Ottosson (2020):
@@ -138,22 +173,7 @@ export function computeWcagContrast(fgHex: string, bgHex: string): number {
  * @returns OKLab perceptual lightness L ∈ [0, 1]
  */
 export function hexToOkLabL(hex: string): number {
-  const r = srgbChannelToLinear(parseInt(hex.slice(1, 3), 16) / 255);
-  const g = srgbChannelToLinear(parseInt(hex.slice(3, 5), 16) / 255);
-  const b = srgbChannelToLinear(parseInt(hex.slice(5, 7), 16) / 255);
-
-  // OKLab M1 matrix: linear sRGB → linear LMS (Ottosson 2020)
-  const l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
-  const m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
-  const s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
-
-  // Cube-root each LMS channel
-  const l_ = Math.cbrt(l);
-  const m_ = Math.cbrt(m);
-  const s_ = Math.cbrt(s);
-
-  // OKLab M2 matrix: LMS^ → Lab (L component only)
-  return 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
+  return linearSRGBToOKLab(hexToLinearSRGB(hex)).L;
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +602,24 @@ export function simulateCVDForHex(
 const CVD_LIGHTNESS_DELTA_THRESHOLD = 0.05;
 
 /**
+ * Minimum perceptual distance (`oklabDistance`) between two adjacent chart
+ * series under each simulated deficiency. Series are told apart by more than
+ * lightness, so a luminance delta says nothing about them: two hues at one
+ * lightness are fine until a deficiency folds them together.
+ */
+export const SERIES_CVD_DISTANCE_FLOOR = 8;
+
+/**
+ * Minimum perceptual distance between two adjacent chart series under normal
+ * vision. Higher than the deficiency floor, since a pair below it is hard to
+ * tell apart for everyone.
+ */
+export const SERIES_NORMAL_DISTANCE_FLOOR = 15;
+
+/** Every chart-series token starts here, which is what picks a pair's measure. */
+const CHART_SERIES_TOKEN_PREFIX = "--tug7-element-chart-fill-";
+
+/**
  * The four CVD types enumerated for iteration.
  */
 const ALL_CVD_TYPES: CVDType[] = [
@@ -624,12 +662,13 @@ export const CVD_SEMANTIC_PAIRS: [string, string][] = [
  * Check whether semantic token pairs remain distinguishable under each CVD type.
  *
  * Consumes the resolved OKLCH map from `deriveTheme()` per [D09].
- * For each CVD type, simulates both tokens in a pair via `simulateCVDFromOKLCH`
- * and measures the luminance delta of the simulated outputs.
+ * For each CVD type, simulates both tokens in a pair via `simulateCVDFromOKLCH`.
  *
- * A warning is emitted if the luminance delta drops below
- * `CVD_LIGHTNESS_DELTA_THRESHOLD` (0.05), indicating the pair becomes
- * difficult to distinguish.
+ * A status pair warns when the luminance delta of the simulated outputs drops
+ * below `CVD_LIGHTNESS_DELTA_THRESHOLD` (0.05). A chart-series pair warns when
+ * its `oklabDistance` drops below `SERIES_CVD_DISTANCE_FLOOR`, and also, with
+ * the warning's type `normal`, when its unsimulated distance drops below
+ * `SERIES_NORMAL_DISTANCE_FLOOR`.
  *
  * Pairs where either token is absent from the resolved map are silently skipped.
  *
@@ -655,6 +694,24 @@ export function checkCVDDistinguishability(
       const simA = simulateCVDFromOKLCH(colorA.L, colorA.C, colorA.h, cvdType);
       const simB = simulateCVDFromOKLCH(colorB.L, colorB.C, colorB.h, cvdType);
 
+      if (tokenA.startsWith(CHART_SERIES_TOKEN_PREFIX)) {
+        const distance = oklabDistance(simA, simB);
+        if (distance < SERIES_CVD_DISTANCE_FLOOR) {
+          warnings.push({
+            type: cvdType,
+            tokenPair: [tokenA, tokenB],
+            description:
+              `Under ${cvdType}, "${tokenA}" and "${tokenB}" have an OKLab ` +
+              `distance of ${distance.toFixed(1)}, below the floor of ` +
+              `${SERIES_CVD_DISTANCE_FLOOR}. They may appear indistinguishable.`,
+            suggestion:
+              `Move the two series apart in lightness or hue until they clear ` +
+              `the floor under ${cvdType} simulation.`,
+          });
+        }
+        continue;
+      }
+
       // Compute luminance of each simulated colour (WCAG relative luminance formula)
       const lumA = 0.2126 * simA.r + 0.7152 * simA.g + 0.0722 * simA.b;
       const lumB = 0.2126 * simB.r + 0.7152 * simB.g + 0.0722 * simB.b;
@@ -673,6 +730,30 @@ export function checkCVDDistinguishability(
             `hues that remain distinguishable under ${cvdType} simulation.`,
         });
       }
+    }
+  }
+
+  for (const [tokenA, tokenB] of semanticPairs) {
+    if (!tokenA.startsWith(CHART_SERIES_TOKEN_PREFIX)) continue;
+    const colorA = resolved[tokenA];
+    const colorB = resolved[tokenB];
+    if (!colorA || !colorB) continue;
+
+    // Severity 0 is the colour as the screen shows it: unsimulated, in gamut.
+    const distance = oklabDistance(
+      simulateCVDFromOKLCH(colorA.L, colorA.C, colorA.h, "protanopia", 0),
+      simulateCVDFromOKLCH(colorB.L, colorB.C, colorB.h, "protanopia", 0),
+    );
+    if (distance < SERIES_NORMAL_DISTANCE_FLOOR) {
+      warnings.push({
+        type: "normal",
+        tokenPair: [tokenA, tokenB],
+        description:
+          `Under normal vision, "${tokenA}" and "${tokenB}" have an OKLab ` +
+          `distance of ${distance.toFixed(1)}, below the floor of ` +
+          `${SERIES_NORMAL_DISTANCE_FLOOR}. They are hard to tell apart for everyone.`,
+        suggestion: `Move the two series apart in lightness or hue.`,
+      });
     }
   }
 

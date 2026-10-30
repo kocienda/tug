@@ -46,5 +46,12 @@ pub(super) fn layout(
             item.role(),
             b.grow(Edge::Left, i),
         );
+        // The whole row, label included. A span's table row is several values
+        // and none of them is the one this bar draws.
+        b.hit(
+            rect(0.0, plot.center(i) - plot.band() / 2.0, w, plot.band()),
+            i,
+            None,
+        );
     }
 }

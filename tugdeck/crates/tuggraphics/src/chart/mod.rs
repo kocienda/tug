@@ -183,6 +183,7 @@ fn drawing(mut program: Program, opts: &CompileOpts) -> Compiled {
                 Item::Text(t) => t.motion = None,
                 Item::Group(g) => g.motion = None,
                 Item::End => {}
+                Item::Hit(_) => {}
             }
         }
     }

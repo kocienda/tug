@@ -18,4 +18,8 @@
 <path d="M435.67 153.8 L542.63 153.8 L542.63 180 L435.67 180 Z" class="tgf-series-1 tge-grow tge-from-bottom" style="--tg-i:3"/>
 <text x="489.15" y="144.8" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">2</text>
 <path d="M21.2 180 L556 180" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+<path class="tgh" d="M21.2 49 L154.9 49 L154.9 180 L21.2 180 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M154.9 49 L288.6 49 L288.6 180 L154.9 180 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M288.6 49 L422.3 49 L422.3 180 L288.6 180 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M422.3 49 L556 49 L556 180 L422.3 180 Z" fill="none" pointer-events="all" data-row="3" data-col="1"/>
 </svg>

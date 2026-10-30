@@ -18,4 +18,12 @@
 <text x="468.55" y="94.09" class="tgt-value tgf-series-3" text-anchor="start" dominant-baseline="central">app</text>
 <text x="468.55" y="108.09" class="tgt-value tgf-series-2" text-anchor="start" dominant-baseline="central">deck</text>
 <text x="468.55" y="145.2" class="tgt-value tgf-series-1" text-anchor="start" dominant-baseline="central">rust</text>
+<path class="tgh" d="M21.2 33 L147.3 33 L147.3 220 L21.2 220 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh-cross tgs-ink-muted" d="M84.25 33 L84.25 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M147.3 33 L273.4 33 L273.4 220 L147.3 220 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh-cross tgs-ink-muted" d="M210.35 33 L210.35 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M273.4 33 L399.5 33 L399.5 220 L273.4 220 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh-cross tgs-ink-muted" d="M336.45 33 L336.45 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
+<path class="tgh" d="M399.5 33 L525.6 33 L525.6 220 L399.5 220 Z" fill="none" pointer-events="all" data-row="3"/>
+<path class="tgh-cross tgs-ink-muted" d="M462.55 33 L462.55 220" fill="none" stroke-width="1" visibility="hidden" pointer-events="none"/>
 </svg>

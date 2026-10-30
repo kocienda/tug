@@ -22,6 +22,7 @@
  *     `textContent`; the remembered view; the entrance attribute. The header
  *     is the title's one home, so the SVG is compiled without it, and an
  *     untitled chart wears quiet chrome with no placeholder word.
+ *     A chart's marks read their row of that table on hover (`chart-hover`).
  *  7. Replace the host's children in one write and set `rendered`.
  *
  * Colour and type never appear here: the SVG carries role classes and
@@ -50,6 +51,7 @@
  * @module lib/chart/render-chart
  */
 
+import { attachChartHover, endChartHoverIn } from "@/lib/chart/chart-hover";
 import { awaitRoleFaces, ensureRoleProbes, probeMeasurer, roleFacesLoaded, runMeasureLoop } from "@/lib/chart/chart-measure";
 import { recallChartView, rememberChartView, type ChartView } from "@/lib/chart/chart-view-memory";
 import { textHash } from "@/lib/ingest/text-hash";
@@ -284,6 +286,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   const token = {};
   renders.set(el, token);
   const current = (): boolean => renders.get(el) === token;
+  endChartHoverIn(el);
 
   el.classList.add(CHART_CLASS);
   el.removeAttribute(CHART_PENDING_ATTR);
@@ -361,6 +364,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   const body = document.createElement("div");
   body.className = "tugx-chart-body";
   body.innerHTML = round.svg;
+  if (withTable) attachChartHover(body, round.table);
 
   const children: Node[] = [header, body];
   if (withTable) children.push(buildTable(round.table));

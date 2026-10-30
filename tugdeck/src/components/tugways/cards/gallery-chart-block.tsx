@@ -14,6 +14,7 @@
  *  9. **Spans** — durations on one axis, a status per bar.
  * 10. **Heat** — one row of cells at five opacity steps by quantile.
  * 11. **Bullet** — value, range band, target tick and a faint history.
+ * 12. **Scatter** — two series, one measure against another.
  *
  * Switch themes to watch the figures restyle in place; press Table on any
  * figure to see the alternative the Find index reads.
@@ -167,6 +168,20 @@ const BULLET_SPEC = JSON.stringify({
   ],
 });
 
+const SCATTER_SPEC = JSON.stringify({
+  tugchart: 1,
+  form: "scatter",
+  title: "Wall time follows the size of the change",
+  unit: "wall time",
+  format: "secs",
+  xunit: "lines changed",
+  xformat: "count",
+  series: [
+    { name: "unit", points: [{ x: 120, y: 4.2 }, { x: 340, y: 6.1 }, { x: 900, y: 11.5 }, { x: 1600, y: 19 }] },
+    { name: "integration", points: [{ x: 80, y: 21 }, { x: 410, y: 34 }, { x: 760, y: 58 }, { x: 1400, y: 92 }] },
+  ],
+});
+
 const SECTIONS: ReadonlyArray<{ title: string; source: string }> = [
   { title: "Bar — one series, a gap and a zero, `int` format", source: BAR_SPEC },
   { title: "Line — two series with null gaps, `secs` format", source: LINE_SPEC },
@@ -180,6 +195,7 @@ const SECTIONS: ReadonlyArray<{ title: string; source: string }> = [
   { title: "Spans — durations on one axis, a status per bar", source: SPANS_SPEC },
   { title: "Heat — one row of cells at five opacity steps by quantile", source: HEAT_SPEC },
   { title: "Bullet — value bar, range band, target tick, faint history", source: BULLET_SPEC },
+  { title: "Scatter — two series, named at the plot's right, `count` against `secs`", source: SCATTER_SPEC },
 ];
 
 export function GalleryChartBlock(): React.ReactElement {

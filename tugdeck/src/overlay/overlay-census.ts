@@ -113,6 +113,11 @@ export const SURFACE_CENSUS: readonly SurfaceCensusEntry[] = [
     why: "Raised by a control in a card, over that card, from the card's own canvas overlay root.",
   },
   {
+    module: "lib/chart/chart-hover.ts",
+    page: "card",
+    why: "A chart mark's row of its table, in the tooltip's bubble, in the page that draws the chart.",
+  },
+  {
     module: "components/tugways/tug-tooltip.tsx",
     page: "card",
     why: "A control's tooltip, in the page that draws the control.",

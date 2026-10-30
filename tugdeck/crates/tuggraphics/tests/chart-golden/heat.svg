@@ -28,4 +28,18 @@
 <text x="460" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">12</text>
 <text x="500" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">13</text>
 <text x="540" y="62" class="tgt-label tgf-ink-muted" text-anchor="middle" dominant-baseline="central">14</text>
+<path class="tgh" d="M0 26 L40 26 L40 70 L0 70 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M40 26 L80 26 L80 70 L40 70 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M80 26 L120 26 L120 70 L80 70 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M120 26 L160 26 L160 70 L120 70 Z" fill="none" pointer-events="all" data-row="3" data-col="1"/>
+<path class="tgh" d="M160 26 L200 26 L200 70 L160 70 Z" fill="none" pointer-events="all" data-row="4" data-col="1"/>
+<path class="tgh" d="M200 26 L240 26 L240 70 L200 70 Z" fill="none" pointer-events="all" data-row="5" data-col="1"/>
+<path class="tgh" d="M240 26 L280 26 L280 70 L240 70 Z" fill="none" pointer-events="all" data-row="6" data-col="1"/>
+<path class="tgh" d="M280 26 L320 26 L320 70 L280 70 Z" fill="none" pointer-events="all" data-row="7" data-col="1"/>
+<path class="tgh" d="M320 26 L360 26 L360 70 L320 70 Z" fill="none" pointer-events="all" data-row="8" data-col="1"/>
+<path class="tgh" d="M360 26 L400 26 L400 70 L360 70 Z" fill="none" pointer-events="all" data-row="9" data-col="1"/>
+<path class="tgh" d="M400 26 L440 26 L440 70 L400 70 Z" fill="none" pointer-events="all" data-row="10" data-col="1"/>
+<path class="tgh" d="M440 26 L480 26 L480 70 L440 70 Z" fill="none" pointer-events="all" data-row="11" data-col="1"/>
+<path class="tgh" d="M480 26 L520 26 L520 70 L480 70 Z" fill="none" pointer-events="all" data-row="12" data-col="1"/>
+<path class="tgh" d="M520 26 L560 26 L560 70 L520 70 Z" fill="none" pointer-events="all" data-row="13" data-col="1"/>
 </svg>

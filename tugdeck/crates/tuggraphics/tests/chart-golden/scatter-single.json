@@ -1,0 +1,2 @@
+{"tugchart": 1, "form": "scatter", "title": "Errors rise with load", "motion": "none",
+ "series": [{"name": "errors", "role": "bad", "points": [{"x": 0.5, "y": 2}, {"x": 1, "y": 3}, {"x": 2, "y": 3}, {"x": 3.5, "y": 8}, {"x": -1, "y": 0}]}]}

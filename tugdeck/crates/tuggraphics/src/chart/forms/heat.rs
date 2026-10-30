@@ -63,6 +63,11 @@ pub(super) fn layout(
                     );
                 }
             }
+            b.hit(
+                rect(plot.left + band * i as f64, top, band, h - top),
+                i,
+                Some(1),
+            );
         }
     }
     category_labels(b, &plot, categories, w, h - LABEL_ROW / 2.0, m);

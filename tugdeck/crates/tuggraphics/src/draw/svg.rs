@@ -80,6 +80,9 @@ pub fn render_svg(p: &Program, opts: &RenderOpts) -> String {
                 body.push_str(">\n");
             }
             Item::End => body.push_str("</g>\n"),
+            // A file has nothing to show on hover, and no stylesheet.
+            Item::Hit(hit) if opts.standalone.is_none() => write_hit(&mut body, hit),
+            Item::Hit(_) => {}
         }
     }
 
@@ -190,6 +193,29 @@ fn write_paint(out: &mut String, p: &PaintOp) {
         let _ = write!(out, " opacity=\"{}\"", fmt_num(p.opacity));
     }
     out.push_str("/>\n");
+}
+
+/// A region the pointer reaches whatever it paints, written without a colour
+/// so it stays invisible with no stylesheet at all, and the hidden crosshair
+/// after it, which is the region's next sibling for the deck's rule.
+fn write_hit(out: &mut String, hit: &HitOp) {
+    let _ = write!(
+        out,
+        "<path class=\"tgh\" d=\"{}\" fill=\"none\" pointer-events=\"all\" data-row=\"{}\"",
+        path_d(&hit.path),
+        hit.row
+    );
+    if let Some(col) = hit.col {
+        let _ = write!(out, " data-col=\"{col}\"");
+    }
+    out.push_str("/>\n");
+    if !hit.cross.is_empty() {
+        let _ = writeln!(
+            out,
+            "<path class=\"tgh-cross tgs-ink-muted\" d=\"{}\" fill=\"none\" stroke-width=\"1\" visibility=\"hidden\" pointer-events=\"none\"/>",
+            path_d(&hit.cross)
+        );
+    }
 }
 
 fn write_text(out: &mut String, t: &TextOp) {

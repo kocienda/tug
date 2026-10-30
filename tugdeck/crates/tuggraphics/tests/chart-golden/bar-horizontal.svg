@@ -25,4 +25,9 @@
 <path d="M313 42 L313 154" class="tgs-ink-muted" fill="none" stroke-width="1"/>
 <path d="M475 42 L475 154" class="tgs-ink-muted" fill="none" stroke-width="1" stroke-dasharray="4 3"/>
 <text x="478" y="49" class="tgt-value tgf-ink-muted" text-anchor="start" dominant-baseline="central">budget</text>
+<path class="tgh" d="M232 42 L556 42 L556 64.4 L232 64.4 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M232 64.4 L556 64.4 L556 86.8 L232 86.8 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M232 86.8 L556 86.8 L556 109.2 L232 109.2 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M232 109.2 L556 109.2 L556 131.6 L232 131.6 Z" fill="none" pointer-events="all" data-row="3" data-col="1"/>
+<path class="tgh" d="M232 131.6 L556 131.6 L556 154 L232 154 Z" fill="none" pointer-events="all" data-row="4" data-col="1"/>
 </svg>

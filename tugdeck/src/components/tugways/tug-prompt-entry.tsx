@@ -137,6 +137,8 @@ import {
   buildSlashCommandLine,
   type CommandLineAtom,
   matchLocalSlashCommand,
+  redirectSlashCommandLine,
+  redirectSlashSubmission,
   slashCommandName,
 } from "@/lib/slash-commands";
 import {
@@ -2811,7 +2813,11 @@ export const TugPromptEntry = React.forwardRef<
       // (command → `/name`, file/doc/link → its path/value, image dropped).
       // A draft that doesn't lead with a slash command won't match the
       // registry, so non-command drafts are unaffected.
-      const commandLine: string = buildSlashCommandLine(draftText, draftAtoms);
+      // A command that hands over to another is read as its target from here on,
+      // so it meets neither the local registry nor the unknown-command notice.
+      const commandLine: string = redirectSlashCommandLine(
+        buildSlashCommandLine(draftText, draftAtoms),
+      );
       // One namespace: the local slash-command registry (`/model`, `/shell`,
       // `/rewind`, …), dispatched to the card responder. An arbitrary claude
       // slash command falls through to `send()`, and a non-command draft
@@ -2996,8 +3002,10 @@ export const TugPromptEntry = React.forwardRef<
     // trimming only removes surrounding spaces / newlines and never
     // touches an atom, keeping the placeholder count aligned with
     // `sendAtoms`.
-    const submitText = captured.text.trim();
-    const sendAtoms: AtomSegment[] = positionedAtoms.map((a) => a.segment);
+    const { text: submitText, atoms: sendAtoms } = redirectSlashSubmission<AtomSegment>(
+      captured.text.trim(),
+      positionedAtoms.map((a) => a.segment),
+    );
     // A whitespace-only draft (no atoms) trims to nothing — treat it like
     // the empty-input guard and don't send a blank turn.
     if (submitText.length === 0 && sendAtoms.length === 0) return;

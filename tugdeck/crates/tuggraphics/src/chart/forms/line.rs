@@ -2,7 +2,7 @@
 //! wherever a value is null, each series named at its last point.
 
 use super::{fit_text, range, Annotations, AxisLayout, Builder, Pen, Plot, GAP, VALUE_ROW};
-use crate::chart::build::circle;
+use crate::chart::build::{circle, rect};
 use crate::chart::spec::{Series, Spec};
 use crate::draw::{Anchor, Enter, Seg};
 use crate::measure::{Measure, TypeRole};
@@ -88,6 +88,26 @@ pub(super) fn layout(
     }
     end_labels(b, ends, TieOrder::SeriesOrder, series, &plot, w, cap, m);
     notes.draw(b);
+    column_bands(b, series, x.len(), &plot);
+}
+
+/// One hit target per column that holds a value: the column's whole band, with
+/// a crosshair at its centre, since a line is read at a position along it and
+/// not at a mark. The row is the whole column, so no one value is named.
+pub(super) fn column_bands(b: &mut Builder, series: &[Series], n: usize, plot: &Plot) {
+    let band = plot.band();
+    for i in 0..n {
+        if series.iter().all(|s| s.values[i].is_none()) {
+            continue;
+        }
+        let cx = plot.center(i);
+        b.hit_with_cross(
+            rect(cx - band / 2.0, plot.top, band, plot.bottom - plot.top),
+            i,
+            None,
+            vec![Seg::Move(cx, plot.top), Seg::Line(cx, plot.bottom)],
+        );
+    }
 }
 
 /// Sorts `(y, x, series index)` ends top to bottom, breaking a tie by `ties`.

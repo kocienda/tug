@@ -40,4 +40,16 @@
 <path d="M508.25 155.98 L542.8 155.98 L542.8 164.33 L508.25 164.33 Z" class="tgf-accent tge-grow tge-from-bottom" style="--tg-i:3"/>
 <text x="525.52" y="146.98" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">150</text>
 <path d="M27.8 164.33 L556 164.33" class="tgs-ink-muted" fill="none" stroke-width="1"/>
+<path class="tgh" d="M27.8 53 L76.55 53 L76.55 220 L27.8 220 Z" fill="none" pointer-events="all" data-row="0" data-col="1"/>
+<path class="tgh" d="M76.55 53 L112.1 53 L112.1 220 L76.55 220 Z" fill="none" pointer-events="all" data-row="0" data-col="2"/>
+<path class="tgh" d="M112.1 53 L159.85 53 L159.85 220 L112.1 220 Z" fill="none" pointer-events="all" data-row="0" data-col="3"/>
+<path class="tgh" d="M159.85 53 L208.6 53 L208.6 220 L159.85 220 Z" fill="none" pointer-events="all" data-row="1" data-col="1"/>
+<path class="tgh" d="M208.6 53 L244.15 53 L244.15 220 L208.6 220 Z" fill="none" pointer-events="all" data-row="1" data-col="2"/>
+<path class="tgh" d="M244.15 53 L291.9 53 L291.9 220 L244.15 220 Z" fill="none" pointer-events="all" data-row="1" data-col="3"/>
+<path class="tgh" d="M291.9 53 L340.65 53 L340.65 220 L291.9 220 Z" fill="none" pointer-events="all" data-row="2" data-col="1"/>
+<path class="tgh" d="M340.65 53 L376.2 53 L376.2 220 L340.65 220 Z" fill="none" pointer-events="all" data-row="2" data-col="2"/>
+<path class="tgh" d="M376.2 53 L423.95 53 L423.95 220 L376.2 220 Z" fill="none" pointer-events="all" data-row="2" data-col="3"/>
+<path class="tgh" d="M423.95 53 L472.7 53 L472.7 220 L423.95 220 Z" fill="none" pointer-events="all" data-row="3" data-col="1"/>
+<path class="tgh" d="M472.7 53 L508.25 53 L508.25 220 L472.7 220 Z" fill="none" pointer-events="all" data-row="3" data-col="2"/>
+<path class="tgh" d="M508.25 53 L556 53 L556 220 L508.25 220 Z" fill="none" pointer-events="all" data-row="3" data-col="3"/>
 </svg>

@@ -4,12 +4,14 @@
 //! JSON and its op limit.
 
 use crate::draw::{
-    Anchor, Baseline, Cap, ColourRole, Edge, Enter, Item, Join, Motion, PaintKind, PaintOp,
+    Anchor, Baseline, Cap, ColourRole, Edge, Enter, HitOp, Item, Join, Motion, PaintKind, PaintOp,
     Program, Seg, TextOp, TypeRole, MAX_DELAY,
 };
 
 pub(crate) struct Builder {
     items: Vec<Item>,
+    /// Hit targets, written after every mark so that they sit over them all.
+    hits: Vec<Item>,
     animate: bool,
 }
 
@@ -26,6 +28,7 @@ impl Builder {
     pub fn new(animate: bool) -> Builder {
         Builder {
             items: Vec::new(),
+            hits: Vec::new(),
             animate,
         }
     }
@@ -127,7 +130,30 @@ impl Builder {
         }));
     }
 
-    pub fn finish(self, w: f64, h: f64) -> Program {
+    /// A hit target for row `row` of the chart's table, and for `col` when one
+    /// of the row's values is the one this mark draws.
+    pub fn hit(&mut self, path: Vec<Seg>, row: usize, col: Option<usize>) {
+        self.hit_with_cross(path, row, col, Vec::new());
+    }
+
+    /// A hit target with a line to show while it is hovered.
+    pub fn hit_with_cross(
+        &mut self,
+        path: Vec<Seg>,
+        row: usize,
+        col: Option<usize>,
+        cross: Vec<Seg>,
+    ) {
+        self.hits.push(Item::Hit(HitOp {
+            path,
+            row,
+            col,
+            cross,
+        }));
+    }
+
+    pub fn finish(mut self, w: f64, h: f64) -> Program {
+        self.items.append(&mut self.hits);
         Program {
             frame: (w, h),
             items: self.items,
