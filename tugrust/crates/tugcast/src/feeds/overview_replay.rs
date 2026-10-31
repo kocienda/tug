@@ -73,7 +73,7 @@ use super::session_digest::{
 #[derive(Debug, Clone)]
 pub struct ReplayOptions {
     /// Seconds of continuous activity after which the Observer wakes.
-    /// Zero disables the sitrep timer, leaving turn-end and session-end.
+    /// Zero disables the sitrep timer, leaving turn-end.
     pub sitrep_secs: i64,
     /// Seconds after a user submission at which the Observer wakes to write
     /// the turn's current line. Zero turns the submission wake off, which is
@@ -731,8 +731,10 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
     }
 
     if !pending.buffer.is_empty() {
+        // A transcript's end is not a wake the live bridge has. This flushes the
+        // tail so the run accounts for every line it read.
         let at = frames.last().map(|f| f.at_ms).unwrap_or_default();
-        pending.wake(&mut windows, &session_id, at, WakeReason::SessionEnd);
+        pending.wake(&mut windows, &session_id, at, WakeReason::TurnEnd);
     }
     windows
 }
@@ -1160,7 +1162,6 @@ fn print_footer(
         WakeReason::TurnEnd,
         WakeReason::SitrepTimer,
         WakeReason::Submission,
-        WakeReason::SessionEnd,
         WakeReason::TokenThreshold,
     ] {
         let count = windows.iter().filter(|w| w.reason == reason).count();

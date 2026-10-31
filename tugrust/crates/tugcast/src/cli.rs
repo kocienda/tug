@@ -176,7 +176,7 @@ pub struct OverviewReplayArgs {
     pub jsonl: PathBuf,
 
     /// Seconds of continuous activity before a sitrep wake. The number the
-    /// sweep is about; 0 leaves only turn-end and session-end wakes.
+    /// sweep is about; 0 leaves only turn-end wakes.
     #[arg(long)]
     pub sitrep_secs: Option<i64>,
 

@@ -1263,8 +1263,11 @@ export class SessionManager {
    * the pending scheduled triggers, wakeups and crons alike; then the
    * teardown. `killAndCleanup({ escalate: false })` lets a healthy claude
    * exit on its stdin EOF and then sweeps its process group unconditionally,
-   * which is the rung that actually ends the work — the ladders never run
-   * for a claude that exits politely. Then the respawn, exactly as
+   * which is the rung that ends what stayed in the group — the ladders never
+   * run for a claude that exits politely. A foreground Bash call leads a group
+   * of its own: claude does not exit on EOF while one runs, so it takes the
+   * ladder, and it ends when claude handles the SIGTERM rung. Then the respawn,
+   * exactly as
    * {@link forceTerminateAndRespawn} does it: same claude id, `--resume`,
    * JSONL intact, synthetic `session_init`, so the card stays bound.
    *

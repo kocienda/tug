@@ -193,6 +193,17 @@ impl AgentSupervisor {
         }
     }
 
+    /// Close a session: stop its subprocess, keep its history.
+    ///
+    /// The `closed` frame this publishes means **asked to stop**, not stopped.
+    /// It goes out once the worker's token is cancelled, while the bridge is
+    /// still running tugcode's quiesce ladder (`quiesce_cancelled_child`), and no
+    /// later frame reports the exit. Waiting for the exit first would make the
+    /// frame mean stopped, but only a ladder reliably under a second could pay
+    /// for that wait, and this one is not: a close mid-tool on claude 2.1.314
+    /// measured the tool gone at 1303–1320 ms and claude and tugcode at
+    /// 1724–1797 ms (`at0772-close-stops-the-tool`). What proves the work ended
+    /// is that test, and the bridge's bounded wait is what ends it.
     pub(in crate::feeds::agent_supervisor) async fn do_close_session(
         &self,
         card_id: &str,
@@ -282,8 +293,9 @@ impl AgentSupervisor {
         // session_id; close is a "stop the subprocess but keep the
         // history pointer" operation.
 
-        // Phase 5: publish `closed`. (The `Arc<Mutex<LedgerEntry>>` we hold
-        // is dropped at the end of this scope.)
+        // Phase 5: publish `closed`, which says the session was asked to stop:
+        // see this function's doc comment. (The `Arc<Mutex<LedgerEntry>>` we
+        // hold is dropped at the end of this scope.)
         self.session_state.publish_tagged(build_session_state_frame(
             tug_session_id,
             "closed",

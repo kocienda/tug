@@ -241,13 +241,13 @@ export class ClaudeProcess {
       env,
       // `setsid()` before exec, the same move tugcast's shell feed makes for
       // its shells: claude leads a NEW session with NO controlling TTY and is
-      // its own process-group leader (pgid == pid), so `kill(-pid, …)` reaps
-      // claude AND every tool subprocess it has running — the backgrounded
-      // `sleep`, the test sweep, the build. That is what makes a stop end
-      // the work rather than the process that started it ([P04]). macOS
-      // ships no `setsid` binary, so this option is the only route. This is
-      // the one site that spawns the CLI; every respawn and the fork come
-      // through it.
+      // its own process-group leader (pgid == pid), so `kill(-pid, …)` reaches
+      // claude and whatever stayed in its group. A foreground Bash call is not
+      // among them: claude gives each its own group, so a build or a test sweep
+      // ends when claude handles the signal, and a SIGKILL to this group does
+      // not reach it. macOS ships no `setsid` binary, so this option is the only
+      // route. This is the one site that spawns the CLI; every respawn and the
+      // fork come through it.
       detached: true,
     });
   }
@@ -493,8 +493,9 @@ export class ClaudeProcess {
    * it unchanged.
    *
    * The group is the point ([P04]): claude leads it (`detached: true` in
-   * {@link spawnReal}), so `kill(-pid, …)` reaches every tool subprocess
-   * it has running. `ESRCH` on the group means no such group — a claude
+   * {@link spawnReal}), so `kill(-pid, …)` reaches everything still in it. A
+   * foreground Bash call leads a group of its own, which claude ends when it
+   * handles the signal. `ESRCH` on the group means no such group — a claude
    * that never became a leader, or one whose group has already emptied —
    * and the child itself is signalled instead, which is what this did
    * before it was group-wide.

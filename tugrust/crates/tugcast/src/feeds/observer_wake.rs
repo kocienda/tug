@@ -97,9 +97,9 @@ pub fn counts_as_ask(text: &str) -> bool {
 
 /// Why the Observer is being asked now.
 ///
-/// The reason rides the job input because the model uses it well — a
-/// session-end wake produces a wrap-up, a turn-end wake produces "here is what
-/// that turn did", and a sitrep wake produces either progress or silence. It
+/// The reason rides the job input because the model uses it well — a turn-end
+/// wake produces "here is what that turn did", and a sitrep wake produces either
+/// progress or silence. It
 /// is a fact about the moment, not a hint about the answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WakeReason {
@@ -110,8 +110,6 @@ pub enum WakeReason {
     /// Enough continuous activity has accumulated since this session's last
     /// post. The dominant wake in practice.
     SitrepTimer,
-    /// The session ended.
-    SessionEnd,
     /// Cumulative token usage since the last post crossed the threshold.
     TokenThreshold,
     /// The user submitted a new ask, and the window was armed short so this
@@ -140,7 +138,6 @@ impl WakeReason {
         match self {
             Self::TurnEnd => "turn-end",
             Self::SitrepTimer => "sitrep-timer",
-            Self::SessionEnd => "session-end",
             Self::TokenThreshold => "token-threshold",
             Self::Submission => "submission",
             Self::Rewind => "rewind",
@@ -1322,7 +1319,6 @@ mod tests {
     fn every_wake_reason_has_a_stable_wire_spelling() {
         assert_eq!(WakeReason::TurnEnd.as_str(), "turn-end");
         assert_eq!(WakeReason::SitrepTimer.as_str(), "sitrep-timer");
-        assert_eq!(WakeReason::SessionEnd.as_str(), "session-end");
         assert_eq!(WakeReason::TokenThreshold.as_str(), "token-threshold");
         assert_eq!(WakeReason::Submission.as_str(), "submission");
         assert_eq!(WakeReason::Rewind.as_str(), "rewind");

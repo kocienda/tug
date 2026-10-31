@@ -5,9 +5,8 @@
 //! Topology:
 //!
 //!   CODE_OUTPUT ──allowlist tap──┐
-//!   CODE_INPUT submissions ──────┼▶ session_digest ──▶ per-session window ─┐
-//!   SESSION_STATE ───────────────────▶ session-end wake ───────────────────┼─ wake ──▶ observer-post
-//!                                                                          │              │
+//!   CODE_INPUT submissions ──────┼▶ session_digest ──▶ per-session window ─── wake ──▶ observer-post
+//!   SESSION_STATE ── an end evicts the window ─────────────▲                              │
 //!                                                    silence ◀── envelope ─────────────────┤
 //!                                                                                         ▼
 //!                                              overview_posts row + OVERVIEW broadcast
@@ -40,6 +39,16 @@
 //! the Overview's own frames travel on `OVERVIEW`, a feed this module never
 //! subscribes to — a post can therefore never become evidence for the next
 //! post.
+//!
+//! ## An ended session is left alone
+//!
+//! A closed or errored session wakes nothing: its card is gone, and a model call
+//! that writes under its name afterwards is work the user was told had stopped.
+//! Its window is evicted, and the answer to a job already in flight finds no
+//! window and posts nothing. State and work frames reach this loop on separate
+//! wires, so a frame queued behind the close could recreate the window and arm
+//! the timer; the ended ids are kept to refuse it, until a later state says the
+//! session is back.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -101,7 +110,7 @@ pub struct ObserverBridgeConfig {
     /// Inherently live (replay never rides CODE_INPUT), so it needs no mute
     /// set of its own.
     pub submission_tx: broadcast::Sender<Frame>,
-    /// SESSION_STATE, watched for the frame that says a session ended.
+    /// SESSION_STATE, watched for the frames that say a session ended or came back.
     pub session_state_tx: broadcast::Sender<Frame>,
     /// Where posts are persisted and where a wake reads its own prior posts.
     /// Absent in a build with no ledger, which reads as "post nothing".
@@ -274,6 +283,9 @@ async fn observer_bridge_task(
     // Sessions inside a replay bracket. Mute state tracks the wire: a
     // session that entered replay does not get that replay narrated.
     let mut muted: HashSet<String> = HashSet::new();
+    // Sessions that have closed or errored and not come back, with the rewind
+    // spans their evicted windows held, which a reopened session still owes.
+    let mut ended: HashMap<String, Vec<DroppedSpan>> = HashMap::new();
 
     loop {
         // The only timer is the earliest armed deadline. Recomputed each pass,
@@ -306,7 +318,9 @@ async fn observer_bridge_task(
                         return;
                     }
                 };
-                handle_code_frame(&config, &mut sessions, &mut digester, &mut muted, &frame, &outcome_tx);
+                if !from_ended_session(&ended, &frame.payload) {
+                    handle_code_frame(&config, &mut sessions, &mut digester, &mut muted, &frame, &outcome_tx);
+                }
             }
             recv = submission_rx.recv() => {
                 let frame = match recv {
@@ -317,7 +331,9 @@ async fn observer_bridge_task(
                     }
                     Err(broadcast::error::RecvError::Closed) => continue,
                 };
-                handle_submission_frame(&config, &mut sessions, &mut digester, &frame);
+                if !from_ended_session(&ended, &frame.payload) {
+                    handle_submission_frame(&config, &mut sessions, &mut digester, &frame);
+                }
             }
             recv = state_rx.recv() => {
                 let frame = match recv {
@@ -328,9 +344,7 @@ async fn observer_bridge_task(
                     }
                     Err(broadcast::error::RecvError::Closed) => continue,
                 };
-                if let Some(session_id) = ended_session(&frame.payload) {
-                    wake(&config, &mut sessions, &session_id, WakeReason::SessionEnd, &outcome_tx);
-                }
+                handle_state_frame(&config, &mut sessions, &mut ended, &mut muted, &frame.payload);
             }
             Some(outcome) = outcome_rx.recv() => {
                 let session_id = outcome.session_id.clone();
@@ -554,18 +568,50 @@ fn push(window: &mut SessionWindow, line: crate::feeds::session_digest::DigestLi
     window.buffer.push(line);
 }
 
-/// The session id on a SESSION_STATE frame that reports an ended session.
-///
-/// `errored` counts alongside `closed`: a session that died mid-work is
-/// exactly the thing someone wants to be told about, and the wrap-up the
-/// Observer writes for it is the record of how far it got.
-fn ended_session(payload: &[u8]) -> Option<String> {
+/// The session id on a SESSION_STATE frame, and whether the state ends it.
+fn session_state(payload: &[u8]) -> Option<(String, bool)> {
     let parsed: serde_json::Value = serde_json::from_slice(payload).ok()?;
     let state = parsed.get("state")?.as_str()?;
-    if !matches!(state, "closed" | "errored") {
-        return None;
+    let session_id = parsed.get("tug_session_id")?.as_str()?.to_string();
+    Some((session_id, matches!(state, "closed" | "errored")))
+}
+
+/// Evict an ended session's window, or let a returning session narrate again.
+fn handle_state_frame(
+    config: &ObserverBridgeConfig,
+    sessions: &mut HashMap<String, SessionWindow>,
+    ended: &mut HashMap<String, Vec<DroppedSpan>>,
+    muted: &mut HashSet<String>,
+    payload: &[u8],
+) {
+    let Some((session_id, is_end)) = session_state(payload) else {
+        return;
+    };
+    if is_end {
+        muted.remove(&session_id);
+        let dropped = sessions
+            .remove(&session_id)
+            .map(|window| window.dropped)
+            .unwrap_or_default();
+        ended.entry(session_id).or_default().extend(dropped);
+    } else if let Some(dropped) = ended.remove(&session_id)
+        && !dropped.is_empty()
+    {
+        window_for(config, sessions, &session_id).dropped = dropped;
     }
-    parsed.get("tug_session_id")?.as_str().map(str::to_string)
+}
+
+/// Whether a CODE_OUTPUT or CODE_INPUT frame belongs to a session that has
+/// ended. Reads the id and nothing else, so a frame no other reader here can
+/// parse is still refused rather than let through to recreate the window.
+fn from_ended_session(ended: &HashMap<String, Vec<DroppedSpan>>, payload: &[u8]) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Addressed {
+        tug_session_id: String,
+    }
+    !ended.is_empty()
+        && serde_json::from_slice::<Addressed>(payload)
+            .is_ok_and(|frame| ended.contains_key(&frame.tug_session_id))
 }
 
 /// A turn's cost, as the only live frame that carries usage reports it.
@@ -2257,35 +2303,229 @@ mod tests {
         h.cancel.cancel();
     }
 
-    /// A session ending is its own wake, and the reason rides the post so the
-    /// model can write a wrap-up rather than a progress note.
-    #[tokio::test]
-    async fn a_session_ending_wakes_with_its_own_reason() {
-        let spawner = FakeSpawner::always(Ok(envelope("That session is done.")));
-        let mut h = start(spawner, 0).await;
-
-        h.code_tx
-            .send(assistant_text(
-                "s1",
-                "The last thing it did before the end.",
-            ))
-            .unwrap();
-        // Two wires, one loop: let the work land before the end arrives, or
-        // the wake finds an empty window and correctly declines it.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        h.state_tx
-            .send(Frame::new(
-                FeedId::SESSION_STATE,
-                serde_json::json!({
-                    "tug_session_id": "s1", "state": "closed", "detail": null,
-                })
+    fn state_frame(session: &str, state: &str) -> Frame {
+        Frame::new(
+            FeedId::SESSION_STATE,
+            serde_json::json!({ "tug_session_id": session, "state": state, "detail": null })
                 .to_string()
                 .into_bytes(),
-            ))
+        )
+    }
+
+    /// Two wires, one loop: let what was sent on one land before the next
+    /// arrives on the other.
+    async fn let_the_loop_read() {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    /// An ended session spends no model call and writes no post, however much
+    /// unread work its window held.
+    #[tokio::test]
+    async fn an_ended_session_wakes_nothing() {
+        for state in ["closed", "errored"] {
+            let spawner = FakeSpawner::always(Ok(envelope("That session is done.")));
+            let fake = Arc::clone(&spawner);
+            let mut h = start(spawner, 0).await;
+
+            h.code_tx
+                .send(assistant_text(
+                    "s1",
+                    "The last thing it did before the end.",
+                ))
+                .unwrap();
+            let_the_loop_read().await;
+            h.state_tx.send(state_frame("s1", state)).unwrap();
+
+            expect_no_post(&mut h.overview_rx).await;
+            assert!(fake.turns_seen().is_empty(), "{state} called the model");
+            h.cancel.cancel();
+        }
+    }
+
+    /// A job already running when the session closes cannot be recalled, but
+    /// what it answers has no window to settle against and goes nowhere.
+    #[tokio::test]
+    async fn a_job_in_flight_at_the_close_posts_nothing() {
+        struct Held {
+            asked: Arc<tokio::sync::Notify>,
+            release: Arc<tokio::sync::Notify>,
+        }
+        impl AgentWorkerSpawner for Held {
+            fn spawn(
+                &self,
+                _model: String,
+            ) -> Result<mpsc::Sender<crate::shared_agent::TurnRequest>, String> {
+                let (tx, mut rx) = mpsc::channel::<crate::shared_agent::TurnRequest>(8);
+                let asked = Arc::clone(&self.asked);
+                let release = Arc::clone(&self.release);
+                tokio::spawn(async move {
+                    while let Some(crate::shared_agent::TurnRequest { reply, .. }) = rx.recv().await
+                    {
+                        asked.notify_one();
+                        release.notified().await;
+                        let _ =
+                            reply
+                                .send(Ok(serde_json::json!({ "post": { "body": "Too late." } })
+                                    .to_string()));
+                    }
+                });
+                Ok(tx)
+            }
+        }
+        let asked = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let mut h = start(
+            Arc::new(Held {
+                asked: Arc::clone(&asked),
+                release: Arc::clone(&release),
+            }),
+            0,
+        )
+        .await;
+
+        h.code_tx
+            .send(assistant_text("s1", "Work the job is reading."))
             .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), asked.notified())
+            .await
+            .expect("the turn end asked the model");
+
+        h.state_tx.send(state_frame("s1", "closed")).unwrap();
+        let_the_loop_read().await;
+        release.notify_one();
+
+        expect_no_post(&mut h.overview_rx).await;
+        assert!(h.ledger.list_overview_posts_tail(10).unwrap().is_empty());
+        h.cancel.cancel();
+    }
+
+    /// A frame queued behind the close on another wire must not recreate the
+    /// window: neither its turn end nor the timer it would arm wakes anything.
+    #[tokio::test]
+    async fn a_frame_behind_the_close_arms_nothing() {
+        let spawner = FakeSpawner::always(Ok(envelope("Still going?")));
+        let fake = Arc::clone(&spawner);
+        let mut h = start(spawner, 1).await;
+
+        h.state_tx.send(state_frame("s1", "closed")).unwrap();
+        let_the_loop_read().await;
+        h.code_tx
+            .send(assistant_text("s1", "A line that was on its way."))
+            .unwrap();
+        h.submission_tx
+            .send(submission("s1", "A prompt that was on its way."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+
+        // Past the one-second sitrep the line would have armed.
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
+        expect_no_post(&mut h.overview_rx).await;
+        assert!(fake.turns_seen().is_empty());
+        h.cancel.cancel();
+    }
+
+    /// A close is not the end of the session's history: a later state means it
+    /// reopened, and it narrates again.
+    #[tokio::test]
+    async fn a_reopened_session_narrates_again() {
+        let spawner = FakeSpawner::always(Ok(envelope("Back at it.")));
+        let mut h = start(spawner, 0).await;
+
+        h.state_tx.send(state_frame("s1", "closed")).unwrap();
+        h.state_tx.send(state_frame("s1", "spawning")).unwrap();
+        let_the_loop_read().await;
+        h.code_tx
+            .send(assistant_text("s1", "Work after the reopen."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
 
         let post = next_post(&mut h.overview_rx).await;
-        assert_eq!(post.wake_reason.as_deref(), Some("session-end"));
+        assert_eq!(post.body, "Back at it.");
+        h.cancel.cancel();
+    }
+
+    /// What a rewind cut stays cut across a close and a reopen, though the
+    /// window that remembered it was evicted in between.
+    #[tokio::test]
+    async fn a_rewound_span_stays_cut_after_a_reopen() {
+        let spawner = FakeSpawner::always(Ok(r#"{"post": null}"#.to_string()));
+        let fake = Arc::clone(&spawner);
+        let h = start(spawner, 0).await;
+
+        let t0 = now_ms();
+        h.ledger
+            .record_overview_post(&OverviewPost {
+                id: None,
+                at_ms: t0 - 1_000,
+                author: OverviewAuthor::Observer,
+                session_id: Some("s1".to_string()),
+                wake_reason: Some("turn-end".to_string()),
+                body: "Reworked the parser around the new tokens.".to_string(),
+                refs: Vec::new(),
+                elapsed_ms: None,
+                project_dir: None,
+                attachments: Vec::new(),
+                request_id: None,
+                transient: false,
+            })
+            .expect("post");
+        h.code_tx
+            .send(code_frame(serde_json::json!({
+                "type": "rewind_result",
+                "tug_session_id": "s1",
+                "promptUuid": "uuid-dropped",
+                "scope": "conversation",
+                "canRewind": true,
+                "cutAtMs": t0 - 5_000,
+            })))
+            .unwrap();
+        let_the_loop_read().await;
+
+        h.state_tx.send(state_frame("s1", "closed")).unwrap();
+        h.state_tx.send(state_frame("s1", "live")).unwrap();
+        let_the_loop_read().await;
+        h.code_tx
+            .send(assistant_text("s1", "Work after the reopen."))
+            .unwrap();
+        h.code_tx.send(turn_complete("s1")).unwrap();
+        let_the_loop_read().await;
+
+        let input = fake
+            .turns_seen()
+            .last()
+            .cloned()
+            .expect("the turn end woke the Observer");
+        assert!(input.contains("WAKE REASON: turn-end"), "{input}");
+        assert!(!input.contains("Reworked the parser"), "{input}");
+        h.cancel.cancel();
+    }
+
+    /// Posts stored before the wake was removed keep the reason they were
+    /// written with, and it is stored as text so they still read.
+    #[tokio::test]
+    async fn a_post_stored_with_the_retired_reason_still_reads() {
+        let h = start(FakeSpawner::always(Ok(r#"{"post": null}"#.to_string())), 0).await;
+        h.ledger
+            .record_overview_post(&OverviewPost {
+                id: None,
+                at_ms: now_ms(),
+                author: OverviewAuthor::Observer,
+                session_id: Some("s1".to_string()),
+                wake_reason: Some("session-end".to_string()),
+                body: "That session wrapped up.".to_string(),
+                refs: Vec::new(),
+                elapsed_ms: None,
+                project_dir: None,
+                attachments: Vec::new(),
+                request_id: None,
+                transient: false,
+            })
+            .expect("post");
+
+        let posts = h.ledger.list_overview_posts_tail(10).unwrap();
+        assert_eq!(posts[0].wake_reason.as_deref(), Some("session-end"));
+        assert_eq!(posts[0].body, "That session wrapped up.");
         h.cancel.cancel();
     }
 
@@ -2320,18 +2560,12 @@ mod tests {
     fn only_a_terminal_session_state_is_an_end() {
         let frame =
             |state: &str| serde_json::json!({ "tug_session_id": "s1", "state": state }).to_string();
-        assert_eq!(
-            ended_session(frame("closed").as_bytes()),
-            Some("s1".to_string())
-        );
-        assert_eq!(
-            ended_session(frame("errored").as_bytes()),
-            Some("s1".to_string()),
-            "a session that died mid-work still wants its wrap-up",
-        );
-        assert_eq!(ended_session(frame("live").as_bytes()), None);
-        assert_eq!(ended_session(frame("spawning").as_bytes()), None);
-        assert_eq!(ended_session(b"not json"), None);
+        let ends = |state: &str| session_state(frame(state).as_bytes()).map(|(_, end)| end);
+        assert_eq!(ends("closed"), Some(true));
+        assert_eq!(ends("errored"), Some(true));
+        assert_eq!(ends("live"), Some(false));
+        assert_eq!(ends("spawning"), Some(false));
+        assert_eq!(session_state(b"not json"), None);
     }
 
     #[test]

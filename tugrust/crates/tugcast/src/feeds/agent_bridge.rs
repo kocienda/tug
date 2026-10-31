@@ -606,6 +606,38 @@ impl AuthProbe {
     }
 }
 
+/// Ask a cancelled session's tugcode to quiesce, and wait for it to exit.
+///
+/// A SIGKILL to tugcode skips the only ladder that signals claude, and a claude
+/// inside a tool call does not exit on a closed stdin, so everything the session
+/// was running would outlive its card. The wait runs after the bridge has
+/// cleared the entry's child facts and holds no lock, so a respawn on the same
+/// entry neither waits on this child nor has its own facts overwritten. Dropping
+/// the keepalive afterwards leaves `kill_on_drop` as the backstop for a tugcode
+/// that did not exit in time. A mock spawner's keepalive holds no process.
+async fn quiesce_cancelled_child(
+    tug_session_id: &TugSessionId,
+    keepalive: &mut Box<dyn std::any::Any + Send>,
+    deadline: Duration,
+) {
+    let Some(child) = keepalive.downcast_mut::<tokio::process::Child>() else {
+        return;
+    };
+    // `None` once the child has been reaped, so a recycled pid is never signalled.
+    let Some(pid) = child.id() else {
+        return;
+    };
+    // SAFETY: `kill` takes no pointers, and the pid is a live child of ours.
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+    if tokio::time::timeout(deadline, child.wait()).await.is_err() {
+        warn!(
+            session = %tug_session_id,
+            pid,
+            "tugcode did not exit within the quiesce deadline; killing it"
+        );
+    }
+}
+
 /// Per-session bridge task. Spawns and supervises the tugcode subprocess
 /// for a single `TugSessionId`. On crash, re-spawns until the per-session
 /// `CrashBudget` (lives inside the ledger entry) is exhausted, at which point
@@ -884,9 +916,16 @@ pub async fn run_session_bridge(
         // failure reason.
         let stderr_tail = Arc::clone(&child.stderr_tail);
 
-        // `child._keepalive` (holding tokio::process::Child) drops here at end
-        // of iteration if we fall through. `kill_on_drop(true)` cleans up.
-        drop(child._keepalive);
+        // `child._keepalive` holds the tokio::process::Child, and
+        // `kill_on_drop(true)` cleans up when it drops. Only a crashed or
+        // ended relay drops it here. A cancelled one keeps it for the arm
+        // below, which asks tugcode to quiesce first.
+        let cancelled_child = if matches!(outcome, RelayOutcome::Cancelled) {
+            Some(child._keepalive)
+        } else {
+            drop(child._keepalive);
+            None
+        };
 
         // The child is gone — clear its (pid, start_time) so the sampler stops
         // attributing a subtree to a dead process, and drop any in-flight
@@ -928,6 +967,14 @@ pub async fn run_session_bridge(
                     tug_session_id = %tug_session_id,
                     outcome = "cancelled",
                 );
+                if let Some(mut keepalive) = cancelled_child {
+                    quiesce_cancelled_child(
+                        &tug_session_id,
+                        &mut keepalive,
+                        Duration::from_millis(tugcore::quiesce::DRAIN_DEADLINE_MS),
+                    )
+                    .await;
+                }
                 return;
             }
             RelayOutcome::Crashed => {
@@ -7030,6 +7077,173 @@ mod tests {
             "SessionChild drop must terminate the underlying subprocess within {MAX_WAIT:?} \
              (kill_on_drop(true) is load-bearing for tugcode cleanup)"
         );
+    }
+
+    /// Spawns one real shell in place of tugcode, running `script` with the
+    /// given arguments.
+    struct ShellSpawner {
+        script: &'static str,
+        args: Vec<PathBuf>,
+    }
+
+    impl ChildSpawner for ShellSpawner {
+        fn spawn_child(
+            &self,
+            _project_dir: &std::path::Path,
+            _session_id: &str,
+            _session_mode: SessionMode,
+            _resume_claude_session_id: Option<&str>,
+            _permission_mode: Option<&str>,
+            _relocate_from: Option<&RelocateOrigin>,
+            _crash_respawn: bool,
+        ) -> SpawnFuture {
+            let mut command = tokio::process::Command::new("/bin/sh");
+            command
+                .env_clear()
+                .env("PATH", "/usr/bin:/bin")
+                .env("HOME", std::env::temp_dir())
+                .arg("-c")
+                .arg(self.script)
+                .arg("sh")
+                .args(&self.args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .kill_on_drop(true);
+            Box::pin(async move {
+                let mut child = command.spawn().expect("spawn /bin/sh");
+                let pid = child.id();
+                let stdin = child.stdin.take().unwrap();
+                let stdout = child.stdout.take().unwrap();
+                Ok(SessionChild {
+                    stdin: Box::new(stdin),
+                    stdout: Box::new(stdout),
+                    pid,
+                    _keepalive: Box::new(child),
+                    stderr_tail: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
+                })
+            })
+        }
+    }
+
+    async fn wait_for_file(path: &std::path::Path) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !path.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "{} never appeared",
+                path.display()
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_bridge_signals_tugcode_and_waits_for_it_before_the_drop() {
+        // tugcode's quiesce is the only code that signals claude, and it runs on
+        // SIGTERM. A SIGKILL from the drop would never reach this trap, and a
+        // bridge that did not wait could return before the marker was written,
+        // so reading the marker with no poll proves both.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ready = dir.path().join("ready");
+        let quiesced = dir.path().join("quiesced");
+        let spawner = ShellSpawner {
+            script: r#"trap ': > "$2"; exit 0' TERM
+                echo '{"type":"protocol_ack","version":1}'
+                : > "$1"
+                while :; do sleep 0.02; done"#,
+            args: vec![ready.clone(), quiesced.clone()],
+        };
+
+        let tug_id = TugSessionId::new("sess-cancel-quiesces");
+        let entry = Arc::new(Mutex::new(LedgerEntry::new(
+            tug_id.clone(),
+            crate::feeds::workspace_registry::WorkspaceKey::from_test_str(env!(
+                "CARGO_MANIFEST_DIR"
+            )),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            SessionMode::New,
+            CrashBudget::new(1, Duration::from_secs(60)),
+        )));
+        let (_input_tx, input_rx) = mpsc::channel::<Frame>(4);
+        let (merger_tx, _merger_rx) = mpsc::channel::<Frame>(16);
+        let (state_tx, _state_rx) = broadcast::channel::<Frame>(16);
+        let cancel = CancellationToken::new();
+        let bridge = tokio::spawn(run_session_bridge(
+            tug_id,
+            entry,
+            input_rx,
+            merger_tx,
+            state_tx,
+            None,
+            Arc::new(spawner),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            SessionMode::New,
+            Arc::new(crate::feeds::agent_supervisor::NoopSessionsRecorder),
+            None,
+            crate::feeds::changeset::ChangesetBumper::disconnected(),
+            cancel.clone(),
+            Duration::from_millis(1),
+            AuthProbe::Fixed(crate::feeds::claude_auth::AuthState::LoggedIn(
+                crate::feeds::claude_auth::AccountInfo::default(),
+            )),
+        ));
+
+        wait_for_file(&ready).await;
+        cancel.cancel();
+        bridge.await.expect("the bridge ends");
+
+        assert!(
+            quiesced.exists(),
+            "a cancelled bridge must SIGTERM tugcode and wait for it before dropping it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tugcode_that_ignores_the_quiesce_is_killed_by_the_drop_past_the_deadline() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ready = dir.path().join("ready");
+        let spawner = ShellSpawner {
+            script: r#"trap '' TERM; : > "$1"; while :; do sleep 0.02; done"#,
+            args: vec![ready.clone()],
+        };
+        let child = spawner
+            .spawn_child(
+                std::path::Path::new("."),
+                "sess-ignores-term",
+                SessionMode::New,
+                None,
+                None,
+                None,
+                false,
+            )
+            .await
+            .expect("spawn");
+        wait_for_file(&ready).await;
+        let pid = child.pid.expect("a real child") as i32;
+
+        let mut keepalive = child._keepalive;
+        quiesce_cancelled_child(
+            &TugSessionId::new("sess-ignores-term"),
+            &mut keepalive,
+            Duration::from_millis(50),
+        )
+        .await;
+        assert_eq!(
+            unsafe { libc::kill(pid, 0) },
+            0,
+            "the child ignored SIGTERM, so the deadline is what ended the wait"
+        );
+
+        drop(keepalive);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            assert!(
+                Instant::now() < deadline,
+                "kill_on_drop remains the backstop"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
     }
 
     #[tokio::test]
