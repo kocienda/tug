@@ -1677,7 +1677,7 @@ async fn chart_list_returns_every_recipe() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "ok");
     let recipes = body["recipes"].as_array().unwrap();
-    assert_eq!(recipes.len(), 12);
+    assert_eq!(recipes.len(), tugchart_core::RECIPES.len());
     assert!(recipes.iter().any(|recipe| recipe["name"] == "commits"));
 }
 

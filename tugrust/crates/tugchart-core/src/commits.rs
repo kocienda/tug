@@ -2,11 +2,11 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use chrono::{DateTime, NaiveDate, Timelike};
+use chrono::{DateTime, Datelike, Days, NaiveDate, Timelike};
 use serde_json::{Value, json};
 use tugchanges_core::{
     DayStat, DiffOptions, FileStat, LogEntry, LogOptions, LogReport, PathStat, diff, log,
-    numstat_by_day, numstat_by_path, path_prefix,
+    numstat_by_commit, numstat_by_day, numstat_by_path, path_prefix,
 };
 use tuggraphics::chart::spec::{MAX_LABEL, MAX_ROWS, MAX_SERIES, MAX_VALUES};
 
@@ -15,9 +15,11 @@ use crate::context::{
 };
 
 const DEFAULT_DAYS: u32 = 30;
+/// A weekly bucket needs weeks to show, so its chart reads a quarter.
+const DEFAULT_VELOCITY_DAYS: u32 = 90;
 const DEFAULT_HOTSPOT_DEPTH: u32 = 2;
 const DEFAULT_LANDED_DEPTH: u32 = 1;
-const DEFAULT_HOTSPOT_LIMIT: usize = 20;
+const DEFAULT_HOTSPOT_LIMIT: usize = 10;
 const OTHER_KIND: &str = "other";
 /// The longest subject prefix that still reads as a kind.
 const MAX_KIND_CHARS: usize = 20;
@@ -54,10 +56,14 @@ fn charted(summary: String, mut spec: Value, args: &RecipeArgs) -> RecipeOutcome
 }
 
 fn left_out_days(left_out: usize) -> String {
+    left_out_older(left_out, "day")
+}
+
+pub(crate) fn left_out_older(left_out: usize, noun: &str) -> String {
     if left_out == 0 {
         String::new()
     } else {
-        format!("; left out: {left_out} older day(s)")
+        format!("; left out: {left_out} older {noun}(s)")
     }
 }
 
@@ -71,7 +77,7 @@ fn left_out_rows(left_out: usize) -> String {
 
 /// Every day from the first to the last of `days`, oldest first, keeping the
 /// newest `MAX_VALUES`, and how many older ones that cut.
-fn day_axis(days: impl IntoIterator<Item = NaiveDate>) -> (Vec<NaiveDate>, usize) {
+pub(crate) fn day_axis(days: impl IntoIterator<Item = NaiveDate>) -> (Vec<NaiveDate>, usize) {
     let known: BTreeSet<NaiveDate> = days.into_iter().collect();
     let (Some(&first), Some(&last)) = (known.first(), known.last()) else {
         return (Vec::new(), 0);
@@ -82,7 +88,77 @@ fn day_axis(days: impl IntoIterator<Item = NaiveDate>) -> (Vec<NaiveDate>, usize
     (axis, left_out)
 }
 
-fn labels(axis: &[NaiveDate]) -> Vec<String> {
+/// The Monday of `day`'s week.
+fn week_start(day: NaiveDate) -> NaiveDate {
+    day - Days::new(u64::from(day.weekday().num_days_from_monday()))
+}
+
+/// Every week from the first to the last of `days`, by its Monday, oldest
+/// first, keeping the newest `MAX_VALUES`, and how many older ones that cut.
+pub(crate) fn week_axis(days: impl IntoIterator<Item = NaiveDate>) -> (Vec<NaiveDate>, usize) {
+    let known: BTreeSet<NaiveDate> = days.into_iter().map(week_start).collect();
+    let (Some(&first), Some(&last)) = (known.first(), known.last()) else {
+        return (Vec::new(), 0);
+    };
+    let mut axis: Vec<NaiveDate> = first
+        .iter_days()
+        .step_by(7)
+        .take_while(|week| *week <= last)
+        .collect();
+    let left_out = axis.len().saturating_sub(MAX_VALUES);
+    axis.drain(..left_out);
+    (axis, left_out)
+}
+
+/// The bucket a commit count is drawn in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bucket {
+    Day,
+    Week,
+}
+
+impl Bucket {
+    fn from_args(args: &RecipeArgs) -> Bucket {
+        match args.by.as_deref() {
+            Some("week") => Bucket::Week,
+            _ => Bucket::Day,
+        }
+    }
+
+    fn start(self, day: NaiveDate) -> NaiveDate {
+        match self {
+            Bucket::Day => day,
+            Bucket::Week => week_start(day),
+        }
+    }
+
+    fn axis(self, days: impl IntoIterator<Item = NaiveDate>) -> (Vec<NaiveDate>, usize) {
+        match self {
+            Bucket::Day => day_axis(days),
+            Bucket::Week => week_axis(days),
+        }
+    }
+
+    fn noun(self) -> &'static str {
+        match self {
+            Bucket::Day => "day",
+            Bucket::Week => "week",
+        }
+    }
+}
+
+pub(crate) fn median(values: &[f64]) -> Option<f64> {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let mid = sorted.len() / 2;
+    match sorted.len() {
+        0 => None,
+        n if n % 2 == 1 => Some(sorted[mid]),
+        _ => Some((sorted[mid - 1] + sorted[mid]) / 2.0),
+    }
+}
+
+pub(crate) fn labels(axis: &[NaiveDate]) -> Vec<String> {
     axis.iter()
         .map(|day| day.format("%Y-%m-%d").to_string())
         .collect()
@@ -110,14 +186,19 @@ struct DayChart {
     left_out: usize,
 }
 
-/// Commits per committer day as a bar chart: one category per day from the
-/// first to the last dated commit, zero days included, oldest left.
-fn commits_chart(entries: &[LogEntry], title: &str, subtitle: &str) -> Option<DayChart> {
+/// Commits per committer day or week as a bar chart: one category per bucket
+/// from the first to the last dated commit, empty ones included, oldest left.
+fn commits_chart(
+    entries: &[LogEntry],
+    bucket: Bucket,
+    title: &str,
+    subtitle: &str,
+) -> Option<DayChart> {
     let mut by_day: HashMap<NaiveDate, u32> = HashMap::new();
     for day in entries.iter().filter_map(entry_day) {
-        *by_day.entry(day).or_insert(0) += 1;
+        *by_day.entry(bucket.start(day)).or_insert(0) += 1;
     }
-    let (axis, left_out) = day_axis(by_day.keys().copied());
+    let (axis, left_out) = bucket.axis(by_day.keys().copied());
     if axis.is_empty() {
         return None;
     }
@@ -144,7 +225,7 @@ fn commits_chart(entries: &[LogEntry], title: &str, subtitle: &str) -> Option<Da
 /// Commits per committer day, as a bar chart. `None` when no commit carries a
 /// date the chart can place.
 pub fn commits_per_day(commits: &[LogEntry], title: &str, subtitle: &str) -> Option<Value> {
-    commits_chart(commits, title, subtitle).map(|chart| chart.spec)
+    commits_chart(commits, Bucket::Day, title, subtitle).map(|chart| chart.spec)
 }
 
 pub(crate) fn commits(
@@ -155,16 +236,19 @@ pub(crate) fn commits(
         return Ok(answer);
     }
     let report = read_log(ctx, args)?;
-    let title = titled("Commits per day", args.path.as_deref());
-    let Some(chart) = commits_chart(&report.commits, &title, &report.range) else {
+    let bucket = Bucket::from_args(args);
+    let base = format!("Commits per {}", bucket.noun());
+    let title = titled(&base, args.path.as_deref());
+    let Some(chart) = commits_chart(&report.commits, bucket, &title, &report.range) else {
         return Ok(no_commits(&report.range));
     };
     let summary = format!(
-        "{} commit(s) over {} day(s), {}{}",
+        "{} commit(s) over {} {}(s), {}{}",
         report.commits.len(),
         chart.days,
+        bucket.noun(),
         report.range,
-        left_out_days(chart.left_out)
+        left_out_older(chart.left_out, bucket.noun())
     );
     Ok(charted(summary, chart.spec, args))
 }
@@ -499,8 +583,7 @@ fn hours(entries: &[LogEntry]) -> Option<[u32; 24]> {
     any.then_some(counts)
 }
 
-fn hours_chart(counts: &[u32; 24], title: &str, subtitle: &str) -> Value {
-    let categories: Vec<String> = (0..24).map(|hour| format!("{hour:02}")).collect();
+fn heat_chart(categories: &[String], counts: &[u32], title: &str, subtitle: &str) -> Value {
     json!({
         "tugchart": 1,
         "form": "heat",
@@ -511,6 +594,11 @@ fn hours_chart(counts: &[u32; 24], title: &str, subtitle: &str) -> Value {
         "categories": categories,
         "values": counts,
     })
+}
+
+fn hours_chart(counts: &[u32; 24], title: &str, subtitle: &str) -> Value {
+    let categories: Vec<String> = (0..24).map(|hour| format!("{hour:02}")).collect();
+    heat_chart(&categories, counts, title, subtitle)
 }
 
 pub(crate) fn commit_hours(
@@ -532,6 +620,199 @@ pub(crate) fn commit_hours(
     );
     let spec = hours_chart(&counts, &title, &report.range);
     Ok(charted(summary, spec, args))
+}
+
+/// Commits per weekday, Monday first, in the committer's own offset. `None`
+/// when no commit carries a time that parses.
+fn weekdays(entries: &[LogEntry]) -> Option<[u32; 7]> {
+    let mut counts = [0u32; 7];
+    let mut any = false;
+    for entry in entries {
+        if let Ok(at) = DateTime::parse_from_rfc3339(&entry.at) {
+            counts[at.weekday().num_days_from_monday() as usize] += 1;
+            any = true;
+        }
+    }
+    any.then_some(counts)
+}
+
+pub(crate) fn commit_days(
+    ctx: &RecipeContext,
+    args: &RecipeArgs,
+) -> Result<RecipeOutcome, RecipeError> {
+    if let Some(answer) = git_gate(ctx) {
+        return Ok(answer);
+    }
+    let report = read_log(ctx, args)?;
+    let Some(counts) = weekdays(&report.commits) else {
+        return Ok(no_commits(&report.range));
+    };
+    let title = titled("Commits by day of week", args.path.as_deref());
+    let summary = format!(
+        "{} commit(s) by committer's local weekday, {}",
+        report.commits.len(),
+        report.range
+    );
+    let categories: Vec<String> = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        .map(String::from)
+        .to_vec();
+    let spec = heat_chart(&categories, &counts, &title, &report.range);
+    Ok(charted(summary, spec, args))
+}
+
+/// `sizes` up to their 90th percentile, in the order given, and that size. One
+/// generated file changes more lines than a month of ordinary commits, and on a
+/// linear axis it would press every other commit into the first bin.
+pub(crate) fn without_the_largest_tenth(sizes: &[u64]) -> (Vec<u64>, u64) {
+    let mut sorted = sizes.to_vec();
+    sorted.sort_unstable();
+    let cap = match sorted.len() {
+        0 => 0,
+        n => sorted[(n * 9).div_ceil(10) - 1],
+    };
+    let drawn = sizes
+        .iter()
+        .copied()
+        .filter(|lines| *lines <= cap)
+        .collect();
+    (drawn, cap)
+}
+
+pub(crate) fn commit_size(
+    ctx: &RecipeContext,
+    args: &RecipeArgs,
+) -> Result<RecipeOutcome, RecipeError> {
+    if let Some(answer) = git_gate(ctx) {
+        return Ok(answer);
+    }
+    let days = args.days.unwrap_or(DEFAULT_DAYS);
+    let path = args.path.as_deref();
+    let range = window(days, path);
+    let sizes = numstat_by_commit(&ctx.repo_root, days, path).map_err(RecipeError::Git)?;
+    if sizes.is_empty() {
+        return Ok(no_commits(&range));
+    }
+    // Newest first from the read, so the commits past the limit are the oldest.
+    let kept = &sizes[..sizes.len().min(MAX_VALUES)];
+    let as_f64: Vec<f64> = kept.iter().map(|lines| *lines as f64).collect();
+    let middle = median(&as_f64).unwrap_or(0.0);
+    let (drawn, cap) = without_the_largest_tenth(kept);
+    let not_drawn = kept.len() - drawn.len();
+    let tail = if not_drawn == 0 {
+        String::new()
+    } else {
+        format!("; {not_drawn} over {cap} line(s) not drawn")
+    };
+    let summary = format!(
+        "{} commit(s), median {middle} line(s) changed, {range}{tail}{}",
+        kept.len(),
+        left_out_older(sizes.len() - kept.len(), "commit")
+    );
+    let spec = json!({
+        "tugchart": 1,
+        "form": "histogram",
+        "title": titled("Lines changed per commit", path),
+        "subtitle": clip_front(&format!("{range}{tail}"), MAX_LABEL),
+        "unit": "lines changed",
+        "format": "count",
+        "values": drawn,
+    });
+    Ok(charted(summary, spec, args))
+}
+
+/// A built velocity chart, and what the summary line reports of it.
+struct VelocityChart {
+    spec: Value,
+    weeks: usize,
+    left_out: usize,
+    total: i64,
+    median: f64,
+}
+
+/// Lines per week as an area, empty weeks included, with a rule at the median
+/// week. `net` draws added minus removed in place of added plus removed.
+fn velocity_chart(
+    stats: &[DayStat],
+    net: bool,
+    title: &str,
+    subtitle: &str,
+) -> Option<VelocityChart> {
+    let mut by_week: HashMap<NaiveDate, i64> = HashMap::new();
+    for stat in stats {
+        let Ok(day) = NaiveDate::parse_from_str(&stat.day, "%Y-%m-%d") else {
+            continue;
+        };
+        let (added, deleted) = (stat.added as i64, stat.deleted as i64);
+        let lines = if net {
+            added - deleted
+        } else {
+            added + deleted
+        };
+        *by_week.entry(week_start(day)).or_insert(0) += lines;
+    }
+    let (axis, left_out) = week_axis(by_week.keys().copied());
+    if axis.is_empty() {
+        return None;
+    }
+    let values: Vec<i64> = axis
+        .iter()
+        .map(|week| by_week.get(week).copied().unwrap_or(0))
+        .collect();
+    let as_f64: Vec<f64> = values.iter().map(|lines| *lines as f64).collect();
+    let middle = median(&as_f64)?;
+    let name = if net { "net lines" } else { "lines changed" };
+    Some(VelocityChart {
+        weeks: axis.len(),
+        left_out,
+        total: values.iter().sum(),
+        median: middle,
+        spec: json!({
+            "tugchart": 1,
+            "form": "area",
+            "title": title,
+            "subtitle": clip_front(subtitle, MAX_LABEL),
+            "unit": name,
+            "format": "count",
+            "x": labels(&axis),
+            "series": [{ "name": name, "values": values }],
+            "annotations": [{ "kind": "rule", "value": middle, "label": "median" }],
+        }),
+    })
+}
+
+pub(crate) fn velocity(
+    ctx: &RecipeContext,
+    args: &RecipeArgs,
+) -> Result<RecipeOutcome, RecipeError> {
+    if let Some(answer) = git_gate(ctx) {
+        return Ok(answer);
+    }
+    let days = args.days.unwrap_or(DEFAULT_VELOCITY_DAYS);
+    let path = args.path.as_deref();
+    let range = window(days, path);
+    let stats = numstat_by_day(&ctx.repo_root, days, path).map_err(RecipeError::Git)?;
+    let base = if args.net {
+        "Net lines per week"
+    } else {
+        "Lines changed per week"
+    };
+    let title = titled(base, path);
+    let Some(chart) = velocity_chart(&stats, args.net, &title, &range) else {
+        return Ok(no_commits(&range));
+    };
+    let noun = if args.net {
+        "net line(s)"
+    } else {
+        "line(s) changed"
+    };
+    let summary = format!(
+        "{} {noun} over {} week(s), median {} a week, {range}{}",
+        chart.total,
+        chart.weeks,
+        chart.median,
+        left_out_older(chart.left_out, "week")
+    );
+    Ok(charted(summary, chart.spec, args))
 }
 
 #[cfg(test)]
@@ -589,7 +870,7 @@ mod tests {
             entry("b", "2026-10-28"),
             entry("c", "2026-10-31"),
         ];
-        let chart = commits_chart(&entries, "t", "s").unwrap();
+        let chart = commits_chart(&entries, Bucket::Day, "t", "s").unwrap();
         assert_eq!(chart.days, 4);
         assert_eq!(chart.left_out, 0);
         assert_eq!(
@@ -598,7 +879,88 @@ mod tests {
         );
         assert_eq!(chart.spec["series"][0]["values"], json!([2, 0, 0, 1]));
         assert_valid(&chart.spec);
-        assert!(commits_chart(&[], "t", "s").is_none());
+        assert!(commits_chart(&[], Bucket::Day, "t", "s").is_none());
+    }
+
+    #[test]
+    fn a_weekly_commit_chart_buckets_by_monday_and_fills_its_empty_weeks() {
+        let entries = [
+            entry("a", "2026-10-05"),
+            entry("b", "2026-10-11"),
+            entry("c", "2026-10-19"),
+        ];
+        let chart = commits_chart(&entries, Bucket::Week, "t", "s").unwrap();
+        assert_eq!(chart.days, 3);
+        assert_eq!(
+            chart.spec["categories"],
+            json!(["2026-10-05", "2026-10-12", "2026-10-19"])
+        );
+        assert_eq!(chart.spec["series"][0]["values"], json!([2, 0, 1]));
+        assert_valid(&chart.spec);
+    }
+
+    fn stat(day: &str, added: u64, deleted: u64) -> DayStat {
+        DayStat {
+            day: day.to_string(),
+            added,
+            deleted,
+            commits: 1,
+        }
+    }
+
+    #[test]
+    fn velocity_sums_each_week_and_rules_the_median_week() {
+        let stats = [
+            stat("2026-10-05", 10, 2),
+            stat("2026-10-07", 3, 1),
+            stat("2026-10-19", 100, 50),
+        ];
+        let chart = velocity_chart(&stats, false, "t", "s").unwrap();
+        assert_valid(&chart.spec);
+        assert_eq!(chart.weeks, 3);
+        assert_eq!(chart.total, 166);
+        assert_eq!(chart.median, 16.0);
+        assert_eq!(chart.spec["form"], "area");
+        assert_eq!(
+            chart.spec["x"],
+            json!(["2026-10-05", "2026-10-12", "2026-10-19"])
+        );
+        assert_eq!(chart.spec["series"][0]["values"], json!([16, 0, 150]));
+        assert_eq!(chart.spec["annotations"][0]["value"], 16.0);
+        assert_eq!(chart.spec["annotations"][0]["label"], "median");
+        assert!(velocity_chart(&[], false, "t", "s").is_none());
+    }
+
+    #[test]
+    fn net_velocity_goes_below_zero_when_a_week_removes_more_than_it_adds() {
+        let stats = [stat("2026-10-05", 10, 2), stat("2026-10-12", 1, 9)];
+        let chart = velocity_chart(&stats, true, "t", "s").unwrap();
+        assert_valid(&chart.spec);
+        assert_eq!(chart.spec["series"][0]["name"], "net lines");
+        assert_eq!(chart.spec["series"][0]["values"], json!([8, -8]));
+        assert_eq!(chart.total, 0);
+        assert_eq!(chart.median, 0.0);
+    }
+
+    #[test]
+    fn a_commit_size_chart_leaves_out_the_largest_tenth() {
+        let mut sizes: Vec<u64> = (1..=9).collect();
+        sizes.insert(0, 60_000);
+        assert_eq!(
+            without_the_largest_tenth(&sizes),
+            ((1..=9).collect::<Vec<u64>>(), 9)
+        );
+        // Too few commits to have a tenth keep every one of them.
+        assert_eq!(without_the_largest_tenth(&[3, 5, 3]), (vec![3, 5, 3], 5));
+        assert_eq!(without_the_largest_tenth(&[]), (Vec::new(), 0));
+    }
+
+    #[test]
+    fn a_weekday_is_read_in_the_committers_own_offset() {
+        // 23:30 on a Thursday in its own offset is already Friday in UTC.
+        let counts = weekdays(&[at("2026-10-29T23:30:00-07:00"), at("not a time")]).unwrap();
+        assert_eq!(counts, [0, 0, 0, 1, 0, 0, 0]);
+        assert!(weekdays(&[at("not a time")]).is_none());
     }
 
     #[test]
@@ -765,6 +1127,9 @@ mod tests {
             "landed",
             "commit-kinds",
             "commit-hours",
+            "commit-size",
+            "commit-days",
+            "velocity",
         ] {
             let outcome = crate::find(name)
                 .unwrap()
@@ -814,6 +1179,8 @@ mod tests {
             "hotspots",
             "commit-kinds",
             "commit-hours",
+            "commit-size",
+            "commit-days",
         ] {
             assert_eq!(
                 crate::find(name).unwrap().run(&ctx, &args).unwrap(),
@@ -823,6 +1190,12 @@ mod tests {
                 "{name}"
             );
         }
+        assert_eq!(
+            crate::find("velocity").unwrap().run(&ctx, &args).unwrap(),
+            RecipeOutcome::NoData {
+                summary: "no commits, last 90 days under nowhere".to_string()
+            }
+        );
         // Nothing dirty in the tree.
         assert!(matches!(
             crate::find("landed")

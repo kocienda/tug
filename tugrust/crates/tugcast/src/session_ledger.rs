@@ -16565,6 +16565,33 @@ mod tests {
     }
 
     #[test]
+    fn the_usage_reader_reads_the_tables_as_the_ledger_writes_them() {
+        let l = fresh();
+        let ended_at = 1_793_000_000_000;
+        seed_live(&l, "live", "ws", "card-1", millis(0));
+        l.record_session_metadata("live", &sample_metadata_payload("claude-opus-5-5[1m]"), 0)
+            .unwrap();
+        l.record_turn_telemetry(&sample_telemetry("live", "msg-1", ended_at))
+            .unwrap();
+        seed_live(&l, "staged", "ws", "card-2", millis(0));
+        l.set_stage_provenance("staged", "implement", Some("fable"))
+            .unwrap();
+        l.record_turn_telemetry(&sample_telemetry("staged", "msg-1", ended_at))
+            .unwrap();
+
+        let usage = tugcore::session_usage::usage_from(&l.db.lock(), Path::new("/proj"));
+        let families: Vec<&str> = usage.iter().map(|u| u.family.as_str()).collect();
+        assert_eq!(families, vec!["fable", "opus"]);
+        let opus = &usage[1];
+        assert_eq!(opus.turns, 1);
+        assert_eq!(opus.input_tokens, 100);
+        assert_eq!(opus.output_tokens, 50);
+        assert_eq!(opus.cache_creation_tokens, 10);
+        assert_eq!(opus.cache_read_tokens, 20);
+        assert_eq!(opus.cost_usd, 0.0123);
+    }
+
+    #[test]
     fn list_turn_telemetry_filters_by_session() {
         let l = fresh();
         seed_live(&l, "s1", "ws", "card-1", millis(0));

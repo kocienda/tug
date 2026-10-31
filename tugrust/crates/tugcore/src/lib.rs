@@ -37,6 +37,7 @@ mod session_identity_scan;
 pub mod session_index;
 pub mod session_schema;
 pub mod session_transcript;
+pub mod session_usage;
 #[cfg(test)]
 mod source_scan;
 #[cfg(any(test, feature = "test-fixtures"))]

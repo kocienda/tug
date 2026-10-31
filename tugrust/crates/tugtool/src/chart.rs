@@ -216,7 +216,7 @@ fn arg_usage(arg: &Arg) -> String {
         ArgKind::Flag => format!("--{}", arg.flag),
         ArgKind::U32 | ArgKind::Usize => format!("--{} N", arg.flag),
         ArgKind::Str => format!("--{} TEXT", arg.flag),
-        ArgKind::StrMany => format!("--{} TEXT...", arg.flag),
+        ArgKind::Choice(values) => format!("--{} {}", arg.flag, values.join("|")),
         ArgKind::Positional => format!("[{}]", arg.flag),
         ArgKind::PositionalMany => format!("[{}...]", arg.flag),
     }

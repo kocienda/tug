@@ -183,9 +183,9 @@ Give durations in seconds with `secs`, ratios as fractions with `percent`, and l
 
 ## The recipes
 
-A well-known chart is a `tugtool chart <recipe>` verb that computes its data from the project's own commits, test ledgers and arc record. Never retype a number a recipe can compute.
+A well-known chart is a `tugtool chart <recipe>` verb that computes its data from the project's own commits, test ledgers, arc record and session ledger. Never retype a number a recipe can compute.
 
-`tugtool chart list` is the one place the list lives, with each recipe's question, what its data tells, its form and its arguments, and `tugtool chart <recipe> --help` says the rest. Read it when data you are about to chart might already have a recipe. Commits per day, each suite's wall time, which files have been red, and where a change landed are all there.
+`tugtool chart list` is the one place the list lives, with each recipe's question, what its data tells, its form and its arguments, and `tugtool chart <recipe> --help` says the rest. Read it when data you are about to chart might already have a recipe. Commits per day, lines changed per week, which files have been red, how many arcs ran, tokens by model, and where a change landed are all there.
 
 A recipe prints one summary line and then a line beginning `TUG-CHART: ` carrying the spec, which the Session card renders beneath the Bash block and strips from the terminal text. Run the verb and the chart appears; you write nothing. When there is nothing to draw it prints one plain line saying why, and exits 0.
 

@@ -8,20 +8,15 @@ use tugchanges_core::{git_output, repo_root_for};
 use tugcore::host_tools;
 use tugcore::instance::Paths;
 use tugcore::report_gaps::ReportGaps;
-use tugtool_core::{apptest_ledger, test_ledger};
-
-/// The per-file budget an app-test runs under when the environment names none.
-const DEFAULT_APPTEST_BUDGET_SECS: f64 = 20.0;
+use tugtool_core::apptest_ledger;
 
 /// Where a recipe's data lives, for one project.
 #[derive(Debug, Clone)]
 pub struct RecipeContext {
     pub repo_root: PathBuf,
     pub paths: Paths,
-    pub test_ledger: PathBuf,
     pub apptest_ledger: PathBuf,
     pub report_gaps: PathBuf,
-    pub apptest_budget_secs: f64,
 }
 
 impl RecipeContext {
@@ -34,18 +29,11 @@ impl RecipeContext {
         } else {
             project_dir.to_path_buf()
         };
-        let apptest_budget_secs = std::env::var("TUG_APPTEST_FILE_BUDGET_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .filter(|secs: &f64| *secs > 0.0)
-            .unwrap_or(DEFAULT_APPTEST_BUDGET_SECS);
         RecipeContext {
             repo_root,
             paths: Paths::from_env(),
-            test_ledger: test_ledger::default_path(),
             apptest_ledger: apptest_ledger::default_path(),
             report_gaps: ReportGaps::default_path(),
-            apptest_budget_secs,
         }
     }
 }
@@ -60,11 +48,11 @@ pub struct RecipeArgs {
     pub staged: bool,
     pub session: bool,
     pub title: Option<String>,
-    pub suites: Vec<String>,
-    pub all: bool,
-    pub runs: Option<usize>,
+    pub by: Option<String>,
+    pub net: bool,
     pub depth: Option<u32>,
     pub limit: Option<usize>,
+    pub kind: Option<String>,
     pub subjects: Vec<String>,
 }
 
@@ -104,6 +92,16 @@ pub(crate) fn clip_front(text: &str, max: usize) -> String {
     format!("…{kept}")
 }
 
+/// `text` within `max` characters, losing its end, for a label whose front is
+/// the part that says what it is.
+pub(crate) fn clip_back(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let kept: String = text.chars().take(max.saturating_sub(1)).collect();
+    format!("{kept}…")
+}
+
 /// A file's row label: its last path component without `.test.ts`.
 pub fn row_label(file: &str) -> String {
     let name = file.rsplit('/').next().unwrap_or(file);
@@ -141,13 +139,13 @@ pub(crate) mod test_support {
 
     /// A context whose ledgers are all under `dir`, none of them there yet.
     pub(crate) fn context_at(dir: &Path) -> RecipeContext {
+        let mut paths = Paths::from_env();
+        paths.sessions_db = dir.join("sessions.db");
         RecipeContext {
             repo_root: dir.to_path_buf(),
-            paths: Paths::from_env(),
-            test_ledger: dir.join("test_results.db"),
+            paths,
             apptest_ledger: dir.join("apptest_results.db"),
             report_gaps: dir.join("report_gaps.db"),
-            apptest_budget_secs: DEFAULT_APPTEST_BUDGET_SECS,
         }
     }
 

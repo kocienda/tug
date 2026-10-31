@@ -1,9 +1,11 @@
-//! The recipe over the report-gaps record.
+//! The recipes over the report-gaps record.
 
 use serde_json::{Value, json};
-use tugcore::report_gaps::{GapSummary, summarize};
-use tuggraphics::chart::spec::{MAX_LABEL, MAX_ROWS};
+use tugcore::report_gaps::{GapSummary, call_wall_times, summarize};
+use tuggraphics::chart::format::Format;
+use tuggraphics::chart::spec::{MAX_LABEL, MAX_ROWS, MAX_VALUES};
 
+use crate::commits::{left_out_older, median, without_the_largest_tenth};
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, clip_front,
 };
@@ -64,6 +66,61 @@ pub(crate) fn gaps(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutco
     Ok(RecipeOutcome::Chart { summary, spec })
 }
 
+fn secs(wall_ms: u64) -> f64 {
+    wall_ms as f64 / 1000.0
+}
+
+/// The histogram and its summary over call times, newest first. Calls run from
+/// milliseconds to hours, so the longest tenth is named and not drawn: at full
+/// range every other call would stand in one bin.
+fn calls_chart(times: &[i64]) -> (String, Value) {
+    let kept: Vec<u64> = times
+        .iter()
+        .take(MAX_VALUES)
+        .map(|wall_ms| (*wall_ms).max(0) as u64)
+        .collect();
+    let (drawn, cap) = without_the_largest_tenth(&kept);
+    let not_drawn = kept.len() - drawn.len();
+    let tail = if not_drawn == 0 {
+        String::new()
+    } else {
+        format!(
+            "; {not_drawn} over {} not drawn",
+            Format::Secs.apply(secs(cap))
+        )
+    };
+    let all: Vec<f64> = kept.iter().map(|wall_ms| secs(*wall_ms)).collect();
+    let middle = Format::Secs.apply(median(&all).unwrap_or(0.0));
+    let summary = format!(
+        "{} call(s), median {middle}{tail}{}",
+        kept.len(),
+        left_out_older(times.len() - kept.len(), "call")
+    );
+    let values: Vec<f64> = drawn.iter().map(|wall_ms| secs(*wall_ms)).collect();
+    let spec = json!({
+        "tugchart": 1,
+        "form": "histogram",
+        "title": "Wall time of Bash calls",
+        "subtitle": clip_front(&format!("newest {} calls{tail}", kept.len()), MAX_LABEL),
+        "unit": "wall time",
+        "format": "secs",
+        "values": values,
+    });
+    (summary, spec)
+}
+
+pub(crate) fn calls(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutcome, RecipeError> {
+    let times = call_wall_times(&ctx.report_gaps);
+    if times.is_empty() {
+        return Ok(RecipeOutcome::NoData {
+            summary: "no call times recorded".to_string(),
+        });
+    }
+    let (summary, mut spec) = calls_chart(&times);
+    apply_title(&mut spec, args);
+    Ok(RecipeOutcome::Chart { summary, spec })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,6 +163,46 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ctx = context_at(dir.path());
         let outcome = crate::find("gaps")
+            .unwrap()
+            .run(&ctx, &RecipeArgs::default())
+            .unwrap();
+        assert!(matches!(outcome, RecipeOutcome::NoData { .. }));
+        assert!(!ctx.report_gaps.exists());
+    }
+
+    #[test]
+    fn the_longest_tenth_of_calls_is_named_and_not_drawn() {
+        let mut times: Vec<i64> = (1..=9).map(|n| n * 1000).collect();
+        times.push(8_000_000);
+        let (summary, spec) = calls_chart(&times);
+        assert_valid(&spec);
+        assert_eq!(summary, "10 call(s), median 5.5s; 1 over 9s not drawn");
+        assert_eq!(spec["form"], "histogram");
+        assert_eq!(spec["format"], "secs");
+        assert_eq!(spec["values"].as_array().unwrap().len(), 9);
+        assert_eq!(spec["values"][8], json!(9.0));
+        assert_eq!(spec["subtitle"], "newest 10 calls; 1 over 9s not drawn");
+    }
+
+    #[test]
+    fn only_the_newest_calls_a_chart_can_hold_are_read() {
+        // Newest first, so what passes the limit is the oldest.
+        let mut times = vec![1000_i64; MAX_VALUES];
+        times.extend([9_000_000, 9_000_000]);
+        let (summary, spec) = calls_chart(&times);
+        assert_valid(&spec);
+        assert_eq!(
+            summary,
+            format!("{MAX_VALUES} call(s), median 1s; left out: 2 older call(s)")
+        );
+        assert_eq!(spec["values"].as_array().unwrap().len(), MAX_VALUES);
+    }
+
+    #[test]
+    fn calls_over_a_missing_record_has_no_data_and_stays_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = context_at(dir.path());
+        let outcome = crate::find("calls")
             .unwrap()
             .run(&ctx, &RecipeArgs::default())
             .unwrap();

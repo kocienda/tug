@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::context::{RecipeArgs, RecipeContext, RecipeError, RecipeOutcome};
 use crate::tests as test_recipes;
-use crate::{arcs, commits, gaps};
+use crate::{arcs, commits, gaps, models};
 
 /// How one argument is spelled and what it holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,7 +16,8 @@ pub enum ArgKind {
     U32,
     Usize,
     Str,
-    StrMany,
+    /// Text that must be one of these.
+    Choice(&'static [&'static str]),
     Positional,
     PositionalMany,
 }
@@ -75,7 +76,7 @@ const TITLE: Arg = Arg {
 /// The categories of a sample that covers days.
 const WEEK: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-pub static RECIPES: [Recipe; 12] = [
+pub static RECIPES: [Recipe; 18] = [
     Recipe {
         name: "commits",
         question: "How active has this been?",
@@ -83,7 +84,16 @@ pub static RECIPES: [Recipe; 12] = [
         group: "Activity",
         form: "bar",
         data: "git log",
-        args: &[DAYS, PATH, TITLE],
+        args: &[
+            DAYS,
+            PATH,
+            Arg {
+                flag: "by",
+                kind: ArgKind::Choice(&["day", "week"]),
+                help: "Count commits per day or per week (default day)",
+            },
+            TITLE,
+        ],
         sample: || {
             json!({
                 "tugchart": 1, "form": "bar",
@@ -162,6 +172,44 @@ pub static RECIPES: [Recipe; 12] = [
         run: commits::commit_hours,
     },
     Recipe {
+        name: "commit-size",
+        question: "Does work land small or big?",
+        tells: "How many lines each commit changed, leaving out the largest tenth.",
+        group: "Activity",
+        form: "histogram",
+        data: "git log --numstat, per commit",
+        args: &[DAYS, PATH, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "histogram",
+                "title": "Lines changed per commit", "unit": "lines changed", "format": "count",
+                "values": [
+                    4, 8, 12, 12, 18, 20, 25, 30, 34, 40,
+                    46, 55, 60, 75, 90, 120, 160, 240, 380, 640,
+                ],
+            })
+        },
+        run: commits::commit_size,
+    },
+    Recipe {
+        name: "commit-days",
+        question: "Which days does work land on?",
+        tells: "Commits by day of the week.",
+        group: "Activity",
+        form: "heat",
+        data: "git log committer times",
+        args: &[DAYS, PATH, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "heat",
+                "title": "Commits by day of week", "unit": "commits", "format": "int",
+                "categories": WEEK,
+                "values": [18, 22, 25, 30, 21, 4, 2],
+            })
+        },
+        run: commits::commit_days,
+    },
+    Recipe {
         name: "hotspots",
         question: "Which files or directories change most?",
         tells: "The paths with the most lines changed.",
@@ -179,7 +227,7 @@ pub static RECIPES: [Recipe; 12] = [
             Arg {
                 flag: "limit",
                 kind: ArgKind::Usize,
-                help: "Most rows to draw (default 20)",
+                help: "Most rows to draw (default 10)",
             },
             TITLE,
         ],
@@ -237,6 +285,38 @@ pub static RECIPES: [Recipe; 12] = [
         run: commits::landed,
     },
     Recipe {
+        name: "velocity",
+        question: "Is throughput rising or falling?",
+        tells: "Lines changed per week, against the median week.",
+        group: "Changes",
+        form: "area",
+        data: "git log --numstat, per week",
+        args: &[
+            Arg {
+                flag: "days",
+                kind: ArgKind::U32,
+                help: "Days of history to read, ending now (default 90)",
+            },
+            PATH,
+            Arg {
+                flag: "net",
+                kind: ArgKind::Flag,
+                help: "Lines added minus removed, in place of added plus removed",
+            },
+            TITLE,
+        ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "area",
+                "title": "Lines changed per week", "unit": "lines changed", "format": "count",
+                "x": ["09-07", "09-14", "09-21", "09-28", "10-05", "10-12", "10-19"],
+                "series": [{ "name": "lines changed", "values": [3200, 4100, 2800, 5200, 6100, 4700, 7300] }],
+                "annotations": [{ "kind": "rule", "value": 4700, "label": "median" }],
+            })
+        },
+        run: commits::velocity,
+    },
+    Recipe {
         name: "arc-timeline",
         question: "Where did this arc's time go?",
         tells: "Time spent in each stage and step of an arc.",
@@ -254,111 +334,76 @@ pub static RECIPES: [Recipe; 12] = [
         sample: || {
             json!({
                 "tugchart": 1, "form": "spans",
-                "title": "Arc sample: stages and steps", "unit": "seconds", "format": "secs",
+                "title": "Arc sample: 2 steps, 55m00s", "unit": "seconds", "format": "secs",
                 "items": [
-                    { "label": "devise", "start": 0, "end": 420 },
-                    { "label": "review", "start": 420, "end": 660 },
-                    { "label": "step 1", "start": 660, "end": 1500, "status": "good" },
-                    { "label": "step 2", "start": 1500, "end": 2700, "status": "good" },
-                    { "label": "audit", "start": 2700, "end": 3300 },
+                    { "label": "Devise", "start": 0, "end": 420 },
+                    { "label": "Review", "start": 420, "end": 660 },
+                    { "label": "1/2 Cut the old recipes", "start": 660, "end": 1500, "status": "good" },
+                    { "label": "2/2 Add the new ones", "start": 1500, "end": 2700, "status": "good" },
+                    { "label": "Audit", "start": 2700, "end": 3300 },
                 ],
             })
         },
         run: arcs::arc_timeline,
     },
     Recipe {
-        name: "suite-times",
-        question: "Are the suites getting slower?",
-        tells: "Wall time of each test suite, run by run.",
-        group: "Tests",
-        form: "line",
-        data: "the test ledger",
+        name: "arcs",
+        question: "How many arcs have run recently?",
+        tells: "Arcs started, joined and discarded per week.",
+        group: "Arcs",
+        form: "stacked bar",
+        data: "the arc log",
         args: &[
             Arg {
-                flag: "suite",
-                kind: ArgKind::StrMany,
-                help: "Plot exactly this suite; repeatable",
-            },
-            Arg {
-                flag: "all",
-                kind: ArgKind::Flag,
-                help: "Plot every suite, however small beside the slowest",
-            },
-            Arg {
-                flag: "runs",
-                kind: ArgKind::Usize,
-                help: "Newest runs per suite (default 30)",
+                flag: "days",
+                kind: ArgKind::U32,
+                help: "Days of history to read, ending now (default 90)",
             },
             TITLE,
         ],
         sample: || {
             json!({
-                "tugchart": 1, "form": "line",
-                "title": "Suite wall time, newest 6 runs",
-                "subtitle": "runs ago", "unit": "s", "format": "secs",
-                "x": ["5", "4", "3", "2", "1", "0"],
+                "tugchart": 1, "form": "bar", "layout": "stacked",
+                "title": "Arcs per week", "unit": "arcs", "format": "int",
+                "categories": ["09-07", "09-14", "09-21", "09-28", "10-05", "10-12"],
                 "series": [
-                    { "name": "unit", "values": [41.0, 43.0, 42.0, 58.0, 61.0, 60.0] },
-                    { "name": "integration", "values": [122.0, 120.0, 124.0, 171.0, 168.0, 176.0] },
+                    { "name": "started", "values": [6, 9, 7, 12, 10, 14] },
+                    { "name": "joined", "values": [5, 8, 7, 10, 9, 13], "role": "good" },
+                    { "name": "discarded", "values": [1, 0, 1, 1, 0, 1], "role": "bad" },
                 ],
             })
         },
-        run: test_recipes::suite_times,
+        run: arcs::arcs,
     },
     Recipe {
-        name: "test-distribution",
-        question: "How are test times spread?",
-        tells: "How test file wall times spread across the latest runs.",
-        group: "Tests",
-        form: "histogram",
-        data: "the test ledger's latest runs",
-        args: &[
-            Arg {
-                flag: "suite",
-                kind: ArgKind::Str,
-                help: "Only this suite",
-            },
-            TITLE,
-        ],
-        sample: || {
-            json!({
-                "tugchart": 1, "form": "histogram",
-                "title": "Test file wall times, latest run", "unit": "wall time", "format": "secs",
-                "values": [
-                    0.2, 0.3, 0.3, 0.4, 0.4, 0.4, 0.5, 0.5, 0.6, 0.7,
-                    0.8, 0.9, 1.1, 1.3, 1.6, 2.2, 3.1, 4.8, 7.5, 12.0,
-                ],
-            })
-        },
-        run: test_recipes::test_distribution,
-    },
-    Recipe {
-        name: "test-budget",
-        question: "Which tests are near their budget?",
-        tells: "App-test files closest to their time budget.",
-        group: "Tests",
-        form: "bullet",
-        data: "the app-test ledger",
+        name: "arc-stages",
+        question: "How do recent arcs compare?",
+        tells: "Time each recent arc spent in each stage.",
+        group: "Arcs",
+        form: "horizontal stacked bar",
+        data: "the arc log",
         args: &[
             Arg {
                 flag: "limit",
                 kind: ArgKind::Usize,
-                help: "Most files to draw (default 12)",
+                help: "Newest arcs to draw (default 8)",
             },
             TITLE,
         ],
         sample: || {
             json!({
-                "tugchart": 1, "form": "bullet",
-                "title": "App-test files nearest the budget", "unit": "seconds", "format": "secs",
-                "items": [
-                    { "label": "resume.test.ts", "value": 18.5, "range": [0, 30], "target": 20, "history": [12, 14, 16, 18, 18.5] },
-                    { "label": "find.test.ts", "value": 14.2, "range": [0, 30], "target": 20, "history": [11, 12, 13, 14, 14.2] },
-                    { "label": "settle.test.ts", "value": 8.3, "range": [0, 30], "target": 20, "history": [8, 9, 8, 8.5, 8.3] },
+                "tugchart": 1, "form": "bar", "orient": "horizontal", "layout": "stacked",
+                "title": "Time in each stage, newest 3 arc(s)", "unit": "wall time", "format": "secs",
+                "categories": ["recipe-sheet", "one-chart-door", "chart-engine"],
+                "series": [
+                    { "name": "Devise", "values": [0, 0, 420] },
+                    { "name": "Review", "values": [0, 0, 240] },
+                    { "name": "Implement", "values": [1520, 880, 3100] },
+                    { "name": "Audit", "values": [570, 310, 640] },
                 ],
             })
         },
-        run: test_recipes::test_budget,
+        run: arcs::arc_stages,
     },
     Recipe {
         name: "test-history",
@@ -413,6 +458,97 @@ pub static RECIPES: [Recipe; 12] = [
         },
         run: gaps::gaps,
     },
+    Recipe {
+        name: "calls",
+        question: "How long do commands take?",
+        tells: "How long Bash calls run, leaving out the longest tenth.",
+        group: "Telemetry",
+        form: "histogram",
+        data: "the report-gaps record's call times",
+        args: &[TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "histogram",
+                "title": "Wall time of Bash calls", "unit": "wall time", "format": "secs",
+                "values": [
+                    0.1, 0.2, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.1, 1.4,
+                    1.8, 2.3, 2.9, 3.6, 4.5, 5.8, 7.2, 9.1, 11.5, 13.0,
+                ],
+            })
+        },
+        run: gaps::calls,
+    },
+    Recipe {
+        name: "tokens",
+        question: "How many tokens does the work use?",
+        tells: "Tokens per day by model, one kind at a time, from each turn's last API call.",
+        group: "Models",
+        form: "stacked bar",
+        data: "the session ledger's turns",
+        args: &[
+            DAYS,
+            Arg {
+                flag: "kind",
+                kind: ArgKind::Choice(&models::TOKEN_KINDS),
+                help: "Which tokens to draw (default output)",
+            },
+            TITLE,
+        ],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bar", "layout": "stacked",
+                "title": "Output tokens per day", "unit": "tokens", "format": "count",
+                "categories": WEEK,
+                "series": [
+                    { "name": "fable", "values": [12000, 18000, 9000, 22000, 16000, 3000, 0] },
+                    { "name": "opus", "values": [41000, 52000, 38000, 61000, 47000, 8000, 2000] },
+                ],
+            })
+        },
+        run: models::tokens,
+    },
+    Recipe {
+        name: "cost",
+        question: "What does the work cost?",
+        tells: "Dollars per day by model.",
+        group: "Models",
+        form: "stacked bar",
+        data: "the session ledger's turns",
+        args: &[DAYS, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bar", "layout": "stacked",
+                "title": "Cost per day", "unit": "dollars", "format": "auto",
+                "categories": WEEK,
+                "series": [
+                    { "name": "fable", "values": [18.5, 26.0, 12.25, 31.0, 22.5, 4.0, 0] },
+                    { "name": "opus", "values": [52.0, 66.5, 48.0, 78.25, 59.0, 11.0, 2.5] },
+                ],
+            })
+        },
+        run: models::cost,
+    },
+    Recipe {
+        name: "turns",
+        question: "How many turns run each day?",
+        tells: "Turns per day by model.",
+        group: "Models",
+        form: "stacked bar",
+        data: "the session ledger's turns",
+        args: &[DAYS, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bar", "layout": "stacked",
+                "title": "Turns per day", "unit": "turns", "format": "int",
+                "categories": WEEK,
+                "series": [
+                    { "name": "fable", "values": [14, 21, 9, 25, 18, 3, 0] },
+                    { "name": "opus", "values": [38, 47, 33, 55, 42, 8, 2] },
+                ],
+            })
+        },
+        run: models::turns,
+    },
 ];
 
 /// The recipe of this name.
@@ -435,7 +571,13 @@ pub fn clap_command(recipe: &Recipe) -> Command {
             ArgKind::U32 => built.long(arg.flag).value_parser(value_parser!(u32)),
             ArgKind::Usize => built.long(arg.flag).value_parser(value_parser!(usize)),
             ArgKind::Str => built.long(arg.flag),
-            ArgKind::StrMany => built.long(arg.flag).action(ArgAction::Append),
+            ArgKind::Choice(values) => {
+                built
+                    .long(arg.flag)
+                    .value_parser(clap::builder::PossibleValuesParser::new(
+                        values.iter().copied(),
+                    ))
+            }
             ArgKind::Positional => built,
             ArgKind::PositionalMany => built.num_args(0..).action(ArgAction::Append),
         });
@@ -460,11 +602,11 @@ pub fn args_from_matches(recipe: &Recipe, m: &ArgMatches) -> RecipeArgs {
             "staged" => out.staged = m.get_flag(arg.flag),
             "session" => out.session = m.get_flag(arg.flag),
             "title" => out.title = m.get_one::<String>(arg.flag).cloned(),
-            "suite" => out.suites = strings(arg, m),
-            "all" => out.all = m.get_flag(arg.flag),
-            "runs" => out.runs = m.get_one::<usize>(arg.flag).copied(),
+            "by" => out.by = m.get_one::<String>(arg.flag).cloned(),
+            "net" => out.net = m.get_flag(arg.flag),
             "depth" => out.depth = m.get_one::<u32>(arg.flag).copied(),
             "limit" => out.limit = m.get_one::<usize>(arg.flag).copied(),
+            "kind" => out.kind = m.get_one::<String>(arg.flag).cloned(),
             "name" | "files" => out.subjects = strings(arg, m),
             other => unreachable!("no RecipeArgs field reads --{other}"),
         }
@@ -482,12 +624,12 @@ pub fn catalog_json() -> Value {
                 .iter()
                 .map(|arg| {
                     let takes = match arg.kind {
-                        ArgKind::Flag => "nothing",
-                        ArgKind::U32 | ArgKind::Usize => "number",
-                        ArgKind::Str => "text",
-                        ArgKind::StrMany => "text, repeatable",
-                        ArgKind::Positional => "positional",
-                        ArgKind::PositionalMany => "positional, repeatable",
+                        ArgKind::Flag => "nothing".to_string(),
+                        ArgKind::U32 | ArgKind::Usize => "number".to_string(),
+                        ArgKind::Str => "text".to_string(),
+                        ArgKind::Choice(values) => values.join(" or "),
+                        ArgKind::Positional => "positional".to_string(),
+                        ArgKind::PositionalMany => "positional, repeatable".to_string(),
                     };
                     json!({ "flag": arg.flag, "help": arg.help, "takes": takes })
                 })
@@ -521,9 +663,7 @@ mod tests {
                 ArgKind::Flag => out.push(long),
                 ArgKind::U32 | ArgKind::Usize => out.extend([long, "7".to_string()]),
                 ArgKind::Str => out.extend([long, "v".to_string()]),
-                ArgKind::StrMany => {
-                    out.extend([long.clone(), "v".to_string(), long, "w".to_string()])
-                }
+                ArgKind::Choice(values) => out.extend([long, values[0].to_string()]),
                 ArgKind::Positional => out.push("v".to_string()),
                 ArgKind::PositionalMany => out.extend(["v".to_string(), "w".to_string()]),
             }
@@ -534,7 +674,7 @@ mod tests {
     fn landed_in(flag: &str, kind: ArgKind, args: &RecipeArgs) -> bool {
         let many = vec!["v".to_string(), "w".to_string()];
         let one = vec!["v".to_string()];
-        let strings = if matches!(kind, ArgKind::StrMany | ArgKind::PositionalMany) {
+        let strings = if matches!(kind, ArgKind::PositionalMany) {
             &many
         } else {
             &one
@@ -546,11 +686,11 @@ mod tests {
             "staged" => args.staged,
             "session" => args.session,
             "title" => args.title.as_deref() == Some("v"),
-            "suite" => &args.suites == strings,
-            "all" => args.all,
-            "runs" => args.runs == Some(7),
+            "by" => args.by.as_deref() == Some("day"),
+            "net" => args.net,
             "depth" => args.depth == Some(7),
             "limit" => args.limit == Some(7),
+            "kind" => args.kind.as_deref() == Some("output"),
             "name" | "files" => &args.subjects == strings,
             _ => false,
         }
@@ -620,7 +760,14 @@ mod tests {
         sections.dedup();
         assert_eq!(
             sections,
-            vec!["Activity", "Changes", "Arcs", "Tests", "Telemetry"]
+            vec![
+                "Activity",
+                "Changes",
+                "Arcs",
+                "Tests",
+                "Telemetry",
+                "Models"
+            ]
         );
     }
 
@@ -644,14 +791,15 @@ mod tests {
     fn the_catalog_lists_every_recipe_with_its_arguments() {
         let catalog = catalog_json();
         let recipes = catalog.as_array().unwrap();
-        assert_eq!(recipes.len(), 12);
+        assert_eq!(recipes.len(), 18);
         assert_eq!(recipes[0]["name"], "commits");
         assert_eq!(recipes[0]["args"][0]["flag"], "days");
         assert_eq!(recipes[0]["args"][0]["takes"], "number");
         assert_eq!(recipes[0]["group"], "Activity");
         assert_eq!(recipes[0]["tells"], RECIPES[0].tells);
         assert_eq!(recipes[0]["sample"]["form"], "bar");
-        assert_eq!(recipes[11]["name"], "gaps");
+        assert_eq!(recipes[14]["name"], "calls");
+        assert_eq!(recipes[17]["name"], "turns");
         assert!(find("commits").is_some());
         assert!(find("nothing").is_none());
     }

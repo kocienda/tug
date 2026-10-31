@@ -36,7 +36,7 @@ describe("chart recipes — narrowing", () => {
           { ...recipe("churn"), question: 3 },
           { ...recipe("hotspots"), tells: undefined },
           { ...recipe("landed"), group: undefined },
-          { ...recipe("suite-times"), sample: null },
+          { ...recipe("test-history"), sample: null },
           recipe("gaps", "What ran dark?"),
         ],
       }),

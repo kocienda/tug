@@ -12,6 +12,11 @@
         "takes": "text"
       },
       {
+        "flag": "by",
+        "help": "Count commits per day or per week (default day)",
+        "takes": "day or week"
+      },
+      {
         "flag": "title",
         "help": "The chart's title, in place of the recipe's own",
         "takes": "text"
@@ -301,13 +306,117 @@
         "takes": "text"
       },
       {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git log --numstat, per commit",
+    "form": "histogram",
+    "group": "Activity",
+    "name": "commit-size",
+    "question": "Does work land small or big?",
+    "sample": {
+      "form": "histogram",
+      "format": "count",
+      "title": "Lines changed per commit",
+      "tugchart": 1,
+      "unit": "lines changed",
+      "values": [
+        4,
+        8,
+        12,
+        12,
+        18,
+        20,
+        25,
+        30,
+        34,
+        40,
+        46,
+        55,
+        60,
+        75,
+        90,
+        120,
+        160,
+        240,
+        380,
+        640
+      ]
+    },
+    "tells": "How many lines each commit changed, leaving out the largest tenth."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "path",
+        "help": "Only commits touching this path, relative to the repository root",
+        "takes": "text"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git log committer times",
+    "form": "heat",
+    "group": "Activity",
+    "name": "commit-days",
+    "question": "Which days does work land on?",
+    "sample": {
+      "categories": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "form": "heat",
+      "format": "int",
+      "title": "Commits by day of week",
+      "tugchart": 1,
+      "unit": "commits",
+      "values": [
+        18,
+        22,
+        25,
+        30,
+        21,
+        4,
+        2
+      ]
+    },
+    "tells": "Commits by day of the week."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "path",
+        "help": "Only commits touching this path, relative to the repository root",
+        "takes": "text"
+      },
+      {
         "flag": "depth",
         "help": "Path components to group by (default 2)",
         "takes": "number"
       },
       {
         "flag": "limit",
-        "help": "Most rows to draw (default 20)",
+        "help": "Most rows to draw (default 10)",
         "takes": "number"
       },
       {
@@ -422,6 +531,73 @@
   {
     "args": [
       {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 90)",
+        "takes": "number"
+      },
+      {
+        "flag": "path",
+        "help": "Only commits touching this path, relative to the repository root",
+        "takes": "text"
+      },
+      {
+        "flag": "net",
+        "help": "Lines added minus removed, in place of added plus removed",
+        "takes": "nothing"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "git log --numstat, per week",
+    "form": "area",
+    "group": "Changes",
+    "name": "velocity",
+    "question": "Is throughput rising or falling?",
+    "sample": {
+      "annotations": [
+        {
+          "kind": "rule",
+          "label": "median",
+          "value": 4700
+        }
+      ],
+      "form": "area",
+      "format": "count",
+      "series": [
+        {
+          "name": "lines changed",
+          "values": [
+            3200,
+            4100,
+            2800,
+            5200,
+            6100,
+            4700,
+            7300
+          ]
+        }
+      ],
+      "title": "Lines changed per week",
+      "tugchart": 1,
+      "unit": "lines changed",
+      "x": [
+        "09-07",
+        "09-14",
+        "09-21",
+        "09-28",
+        "10-05",
+        "10-12",
+        "10-19"
+      ]
+    },
+    "tells": "Lines changed per week, against the median week."
+  },
+  {
+    "args": [
+      {
         "flag": "name",
         "help": "The arc (default: the one started most recently)",
         "takes": "positional"
@@ -443,33 +619,33 @@
       "items": [
         {
           "end": 420,
-          "label": "devise",
+          "label": "Devise",
           "start": 0
         },
         {
           "end": 660,
-          "label": "review",
+          "label": "Review",
           "start": 420
         },
         {
           "end": 1500,
-          "label": "step 1",
+          "label": "1/2 Cut the old recipes",
           "start": 660,
           "status": "good"
         },
         {
           "end": 2700,
-          "label": "step 2",
+          "label": "2/2 Add the new ones",
           "start": 1500,
           "status": "good"
         },
         {
           "end": 3300,
-          "label": "audit",
+          "label": "Audit",
           "start": 2700
         }
       ],
-      "title": "Arc sample: stages and steps",
+      "title": "Arc sample: 2 steps, 55m00s",
       "tugchart": 1,
       "unit": "seconds"
     },
@@ -478,18 +654,8 @@
   {
     "args": [
       {
-        "flag": "suite",
-        "help": "Plot exactly this suite; repeatable",
-        "takes": "text, repeatable"
-      },
-      {
-        "flag": "all",
-        "help": "Plot every suite, however small beside the slowest",
-        "takes": "nothing"
-      },
-      {
-        "flag": "runs",
-        "help": "Newest runs per suite (default 30)",
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 90)",
         "takes": "number"
       },
       {
@@ -498,107 +664,71 @@
         "takes": "text"
       }
     ],
-    "data": "the test ledger",
-    "form": "line",
-    "group": "Tests",
-    "name": "suite-times",
-    "question": "Are the suites getting slower?",
+    "data": "the arc log",
+    "form": "stacked bar",
+    "group": "Arcs",
+    "name": "arcs",
+    "question": "How many arcs have run recently?",
     "sample": {
-      "form": "line",
-      "format": "secs",
+      "categories": [
+        "09-07",
+        "09-14",
+        "09-21",
+        "09-28",
+        "10-05",
+        "10-12"
+      ],
+      "form": "bar",
+      "format": "int",
+      "layout": "stacked",
       "series": [
         {
-          "name": "unit",
+          "name": "started",
           "values": [
-            41.0,
-            43.0,
-            42.0,
-            58.0,
-            61.0,
-            60.0
+            6,
+            9,
+            7,
+            12,
+            10,
+            14
           ]
         },
         {
-          "name": "integration",
+          "name": "joined",
+          "role": "good",
           "values": [
-            122.0,
-            120.0,
-            124.0,
-            171.0,
-            168.0,
-            176.0
+            5,
+            8,
+            7,
+            10,
+            9,
+            13
+          ]
+        },
+        {
+          "name": "discarded",
+          "role": "bad",
+          "values": [
+            1,
+            0,
+            1,
+            1,
+            0,
+            1
           ]
         }
       ],
-      "subtitle": "runs ago",
-      "title": "Suite wall time, newest 6 runs",
+      "title": "Arcs per week",
       "tugchart": 1,
-      "unit": "s",
-      "x": [
-        "5",
-        "4",
-        "3",
-        "2",
-        "1",
-        "0"
-      ]
+      "unit": "arcs"
     },
-    "tells": "Wall time of each test suite, run by run."
-  },
-  {
-    "args": [
-      {
-        "flag": "suite",
-        "help": "Only this suite",
-        "takes": "text"
-      },
-      {
-        "flag": "title",
-        "help": "The chart's title, in place of the recipe's own",
-        "takes": "text"
-      }
-    ],
-    "data": "the test ledger's latest runs",
-    "form": "histogram",
-    "group": "Tests",
-    "name": "test-distribution",
-    "question": "How are test times spread?",
-    "sample": {
-      "form": "histogram",
-      "format": "secs",
-      "title": "Test file wall times, latest run",
-      "tugchart": 1,
-      "unit": "wall time",
-      "values": [
-        0.2,
-        0.3,
-        0.3,
-        0.4,
-        0.4,
-        0.4,
-        0.5,
-        0.5,
-        0.6,
-        0.7,
-        0.8,
-        0.9,
-        1.1,
-        1.3,
-        1.6,
-        2.2,
-        3.1,
-        4.8,
-        7.5,
-        12.0
-      ]
-    },
-    "tells": "How test file wall times spread across the latest runs."
+    "tells": "Arcs started, joined and discarded per week."
   },
   {
     "args": [
       {
         "flag": "limit",
-        "help": "Most files to draw (default 12)",
+        "help": "Newest arcs to draw (default 8)",
         "takes": "number"
       },
       {
@@ -607,69 +737,60 @@
         "takes": "text"
       }
     ],
-    "data": "the app-test ledger",
-    "form": "bullet",
-    "group": "Tests",
-    "name": "test-budget",
-    "question": "Which tests are near their budget?",
+    "data": "the arc log",
+    "form": "horizontal stacked bar",
+    "group": "Arcs",
+    "name": "arc-stages",
+    "question": "How do recent arcs compare?",
     "sample": {
-      "form": "bullet",
+      "categories": [
+        "recipe-sheet",
+        "one-chart-door",
+        "chart-engine"
+      ],
+      "form": "bar",
       "format": "secs",
-      "items": [
+      "layout": "stacked",
+      "orient": "horizontal",
+      "series": [
         {
-          "history": [
-            12,
-            14,
-            16,
-            18,
-            18.5
-          ],
-          "label": "resume.test.ts",
-          "range": [
+          "name": "Devise",
+          "values": [
             0,
-            30
-          ],
-          "target": 20,
-          "value": 18.5
+            0,
+            420
+          ]
         },
         {
-          "history": [
-            11,
-            12,
-            13,
-            14,
-            14.2
-          ],
-          "label": "find.test.ts",
-          "range": [
+          "name": "Review",
+          "values": [
             0,
-            30
-          ],
-          "target": 20,
-          "value": 14.2
+            0,
+            240
+          ]
         },
         {
-          "history": [
-            8,
-            9,
-            8,
-            8.5,
-            8.3
-          ],
-          "label": "settle.test.ts",
-          "range": [
-            0,
-            30
-          ],
-          "target": 20,
-          "value": 8.3
+          "name": "Implement",
+          "values": [
+            1520,
+            880,
+            3100
+          ]
+        },
+        {
+          "name": "Audit",
+          "values": [
+            570,
+            310,
+            640
+          ]
         }
       ],
-      "title": "App-test files nearest the budget",
+      "title": "Time in each stage, newest 3 arc(s)",
       "tugchart": 1,
-      "unit": "seconds"
+      "unit": "wall time"
     },
-    "tells": "App-test files closest to their time budget."
+    "tells": "Time each recent arc spent in each stage."
   },
   {
     "args": [
@@ -777,5 +898,243 @@
       "unit": "wall time"
     },
     "tells": "Long commands that reported no progress."
+  },
+  {
+    "args": [
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the report-gaps record's call times",
+    "form": "histogram",
+    "group": "Telemetry",
+    "name": "calls",
+    "question": "How long do commands take?",
+    "sample": {
+      "form": "histogram",
+      "format": "secs",
+      "title": "Wall time of Bash calls",
+      "tugchart": 1,
+      "unit": "wall time",
+      "values": [
+        0.1,
+        0.2,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.8,
+        1.1,
+        1.4,
+        1.8,
+        2.3,
+        2.9,
+        3.6,
+        4.5,
+        5.8,
+        7.2,
+        9.1,
+        11.5,
+        13.0
+      ]
+    },
+    "tells": "How long Bash calls run, leaving out the longest tenth."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "kind",
+        "help": "Which tokens to draw (default output)",
+        "takes": "output or input or cache-read or cache-creation"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the session ledger's turns",
+    "form": "stacked bar",
+    "group": "Models",
+    "name": "tokens",
+    "question": "How many tokens does the work use?",
+    "sample": {
+      "categories": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "form": "bar",
+      "format": "count",
+      "layout": "stacked",
+      "series": [
+        {
+          "name": "fable",
+          "values": [
+            12000,
+            18000,
+            9000,
+            22000,
+            16000,
+            3000,
+            0
+          ]
+        },
+        {
+          "name": "opus",
+          "values": [
+            41000,
+            52000,
+            38000,
+            61000,
+            47000,
+            8000,
+            2000
+          ]
+        }
+      ],
+      "title": "Output tokens per day",
+      "tugchart": 1,
+      "unit": "tokens"
+    },
+    "tells": "Tokens per day by model, one kind at a time, from each turn's last API call."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the session ledger's turns",
+    "form": "stacked bar",
+    "group": "Models",
+    "name": "cost",
+    "question": "What does the work cost?",
+    "sample": {
+      "categories": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "form": "bar",
+      "format": "auto",
+      "layout": "stacked",
+      "series": [
+        {
+          "name": "fable",
+          "values": [
+            18.5,
+            26.0,
+            12.25,
+            31.0,
+            22.5,
+            4.0,
+            0
+          ]
+        },
+        {
+          "name": "opus",
+          "values": [
+            52.0,
+            66.5,
+            48.0,
+            78.25,
+            59.0,
+            11.0,
+            2.5
+          ]
+        }
+      ],
+      "title": "Cost per day",
+      "tugchart": 1,
+      "unit": "dollars"
+    },
+    "tells": "Dollars per day by model."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the session ledger's turns",
+    "form": "stacked bar",
+    "group": "Models",
+    "name": "turns",
+    "question": "How many turns run each day?",
+    "sample": {
+      "categories": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "form": "bar",
+      "format": "int",
+      "layout": "stacked",
+      "series": [
+        {
+          "name": "fable",
+          "values": [
+            14,
+            21,
+            9,
+            25,
+            18,
+            3,
+            0
+          ]
+        },
+        {
+          "name": "opus",
+          "values": [
+            38,
+            47,
+            33,
+            55,
+            42,
+            8,
+            2
+          ]
+        }
+      ],
+      "title": "Turns per day",
+      "tugchart": 1,
+      "unit": "turns"
+    },
+    "tells": "Turns per day by model."
   }
 ]

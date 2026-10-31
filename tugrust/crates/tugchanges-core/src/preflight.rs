@@ -298,6 +298,26 @@ pub fn numstat_by_path(
     ))
 }
 
+/// The same read as the lines each commit changed, newest first. A commit that
+/// changed no lines, such as a merge, says nothing about size and has no entry.
+pub fn numstat_by_commit(
+    repo_root: &Path,
+    days: u32,
+    path: Option<&str>,
+) -> Result<Vec<u64>, String> {
+    Ok(read_numstat_log(repo_root, days, path)?
+        .iter()
+        .map(|commit| {
+            commit
+                .files
+                .iter()
+                .map(|file| file.added + file.deleted)
+                .sum()
+        })
+        .filter(|lines| *lines > 0)
+        .collect())
+}
+
 fn read_numstat_log(
     repo_root: &Path,
     days: u32,

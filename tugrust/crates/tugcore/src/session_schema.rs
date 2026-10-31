@@ -10,8 +10,10 @@
 //! DDL lives here so that contract is written once, on purpose; tugcast runs
 //! these strings, and the ledger fixture builds its `sessions.db` from them.
 //!
-//! The rest of `sessions.db` is tugcast's alone and stays there. These tables
-//! are not versioned — `sessions.db` upgrades itself by idempotent column
+//! The rest of `sessions.db` is tugcast's and its DDL stays there, though
+//! `session_usage` reads `turn_telemetry` and `session_metadata` by name, and
+//! a tugcast test holds that read to what the ledger writes. These tables are
+//! not versioned — `sessions.db` upgrades itself by idempotent column
 //! adds in tugcast — so a column added here is added there too, by the same
 //! self-healing migration that would have added it before.
 

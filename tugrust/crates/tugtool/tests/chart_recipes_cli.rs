@@ -11,16 +11,17 @@ use common::tugtool;
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tugcore::instance::Paths;
 use tugcore::report_gaps::{GapRow, ReportGaps};
+use tugcore::session_schema::{CREATE_LINES_SQL, CREATE_SESSIONS_SQL};
 use tugcore::test_fixtures::git::{GitFixture, command as git_command};
 use tuggraphics::{Layers, validate};
 use tugtool_core::apptest_ledger::{self, FileResult, RunRecord};
 use tugtool_core::paths::arc_log_path_at;
-use tugtool_core::test_ledger::{self, JunitFile, JunitRun, TestRun};
 
 const PREFIX: &str = "TUG-CHART: ";
 const LONG_WINDOW: &str = "3650";
@@ -100,12 +101,12 @@ impl Project {
         );
     }
 
-    fn test_ledger(&self) -> PathBuf {
-        self.scratch.join("test_results.db")
-    }
-
     fn apptest_ledger(&self) -> PathBuf {
         self.scratch.join("apptest_results.db")
+    }
+
+    fn sessions_db(&self) -> PathBuf {
+        self.scratch.join("sessions.db")
     }
 
     fn report_gaps(&self) -> PathBuf {
@@ -125,11 +126,10 @@ impl Project {
         tugtool()
             .args(args)
             .current_dir(&self.root)
-            .env("TUG_TEST_RESULTS_DB", self.test_ledger())
             .env("TUG_APPTEST_RESULTS_DB", self.apptest_ledger())
             .env("TUG_REPORT_GAPS_DB", self.report_gaps())
+            .env("TUG_SESSIONS_DB", self.sessions_db())
             .env("TUG_DATA_DIR", self.data_dir())
-            .env("TUG_APPTEST_FILE_BUDGET_SECS", "10")
             .output()
             .unwrap()
     }
@@ -166,39 +166,53 @@ impl Project {
         (lines[0].to_string(), spec)
     }
 
-    /// One run of `suite` taking `wall_secs`, with `files` timed inside it.
-    fn seed_suite(&self, suite: &str, at: i64, wall_secs: f64, files: &[(&str, f64)]) {
-        let mut conn = test_ledger::open_ledger(self.test_ledger()).unwrap();
-        let run = TestRun {
-            started_at: at - 1,
-            ended_at: at,
-            run_root: self.root_text(),
-            branch: "main".to_string(),
-            head_sha: "abc".to_string(),
-            dirty: false,
-            suite: suite.to_string(),
-            session_id: None,
-            tool_use_id: None,
-            command: "bun test".to_string(),
-            exit_code: 0,
-            wall_secs,
-        };
-        let junit = JunitRun {
-            tests: 1,
-            failed: 0,
-            skipped: 0,
-            files: files
-                .iter()
-                .map(|(file, secs)| JunitFile {
-                    file: (*file).to_string(),
-                    tests: 1,
-                    failed: 0,
-                    secs: *secs,
-                })
-                .collect(),
-            failures: Vec::new(),
-        };
-        test_ledger::record_run(&mut conn, &run, Some(&junit)).unwrap();
+    /// A session ledger with one turn of `model` per entry, in `project_dir`,
+    /// that many days ago. `turn_telemetry` and `session_metadata` are
+    /// tugcast's own, so the columns read here are named here.
+    fn seed_ledger(&self, turns: &[(&str, &str, i64)]) {
+        let conn = rusqlite::Connection::open(self.sessions_db()).unwrap();
+        conn.execute_batch(CREATE_LINES_SQL).unwrap();
+        conn.execute_batch(CREATE_SESSIONS_SQL).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE turn_telemetry (
+                 session_id TEXT NOT NULL, msg_id TEXT NOT NULL,
+                 input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+                 cache_creation_input_tokens INTEGER NOT NULL,
+                 cache_read_input_tokens INTEGER NOT NULL,
+                 total_cost_usd REAL NOT NULL, ended_at INTEGER NOT NULL,
+                 PRIMARY KEY (session_id, msg_id));
+             CREATE TABLE session_metadata (
+                 session_id TEXT PRIMARY KEY, payload BLOB NOT NULL, captured_at INTEGER NOT NULL);
+             INSERT INTO lines (line_id, tag, project_dir, created_at, last_used_at)
+                 VALUES ('line', 'odd-kiln', '/p', 0, 0);",
+        )
+        .unwrap();
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        for (n, (project_dir, model, days_ago)) in turns.iter().enumerate() {
+            let session = format!("s{n}");
+            conn.execute(
+                "INSERT INTO sessions (session_id, workspace_key, project_dir, created_at,
+                                       last_used_at, state, line_id)
+                 VALUES (?1, 'ws', ?2, 0, 0, 'closed', 'line')",
+                rusqlite::params![session, project_dir],
+            )
+            .unwrap();
+            let payload = json!({ "model": model }).to_string();
+            conn.execute(
+                "INSERT INTO session_metadata (session_id, payload, captured_at)
+                 VALUES (?1, ?2, 0)",
+                rusqlite::params![session, payload.as_bytes()],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO turn_telemetry VALUES (?1, 'm', 2, 3, 7, 5, 0.5, ?2)",
+                rusqlite::params![session, now_ms - days_ago * 86_400_000],
+            )
+            .unwrap();
+        }
     }
 
     /// One app-test run of `file`, ended at `at`.
@@ -272,6 +286,59 @@ fn commits_counts_each_day_and_narrows_to_a_path() {
     assert_starts(&summary, "2 commit(s) over 3 day(s), ");
     assert_eq!(spec["title"], "Commits per day under a");
     assert_eq!(spec["series"][0]["values"], json!([1, 0, 1]));
+}
+
+#[test]
+fn commits_by_week_buckets_on_mondays_and_a_stray_bucket_is_a_usage_error() {
+    let project = Project::with_history();
+    let (summary, spec) = project.chart(&["commits", "--days", LONG_WINDOW, "--by", "week"]);
+    assert_starts(&summary, "3 commit(s) over 1 week(s), ");
+    assert_eq!(spec["title"], "Commits per week");
+    assert_eq!(spec["categories"], json!(["2026-09-28"]));
+    assert_eq!(spec["series"][0]["values"], json!([3]));
+
+    let wrong = project.run(&["chart", "commits", "--by", "month"]);
+    assert_eq!(wrong.status.code(), Some(2));
+}
+
+#[test]
+fn velocity_sums_lines_per_week_and_net_subtracts_the_removed() {
+    let project = Project::with_history();
+    let (summary, spec) = project.chart(&["velocity", "--days", LONG_WINDOW]);
+    assert_starts(
+        &summary,
+        "11 line(s) changed over 1 week(s), median 11 a week, ",
+    );
+    assert_eq!(spec["form"], "area");
+    assert_eq!(spec["title"], "Lines changed per week");
+    assert_eq!(spec["x"], json!(["2026-09-28"]));
+    assert_eq!(spec["series"][0]["values"], json!([11]));
+    assert_eq!(spec["annotations"][0]["value"], 11.0);
+
+    let (summary, spec) = project.chart(&["velocity", "--days", LONG_WINDOW, "--net"]);
+    assert_starts(&summary, "7 net line(s) over 1 week(s), median 7 a week, ");
+    assert_eq!(spec["title"], "Net lines per week");
+    assert_eq!(spec["series"][0]["values"], json!([7]));
+}
+
+#[test]
+fn commit_size_draws_the_lines_of_each_commit() {
+    let project = Project::with_history();
+    let (summary, spec) = project.chart(&["commit-size", "--days", LONG_WINDOW]);
+    assert_starts(&summary, "3 commit(s), median 3 line(s) changed, ");
+    assert_eq!(spec["form"], "histogram");
+    // Newest first: the third commit, then the second, then the first.
+    assert_eq!(spec["values"], json!([3, 5, 3]));
+}
+
+#[test]
+fn commit_days_buckets_by_the_committers_weekday() {
+    let project = Project::with_history();
+    let (summary, spec) = project.chart(&["commit-days", "--days", LONG_WINDOW]);
+    assert_starts(&summary, "3 commit(s) by committer's local weekday, ");
+    assert_eq!(spec["form"], "heat");
+    assert_eq!(spec["categories"][0], "Mon");
+    assert_eq!(spec["values"], json!([0, 0, 0, 1, 1, 1, 0]));
 }
 
 #[test]
@@ -355,16 +422,23 @@ fn arc_timeline_draws_the_named_arc_and_defaults_to_the_newest() {
     ));
 
     let (summary, spec) = project.chart(&["arc-timeline", "old"]);
-    assert_eq!(summary, "arc old: 1 stage(s), 1 step span(s)");
+    assert_eq!(
+        summary,
+        "arc old: 1 of 1 step(s) finished, 1 stage(s), 1 step span(s)"
+    );
     assert_eq!(spec["form"], "spans");
-    assert_eq!(spec["title"], "Arc old: stages and steps");
-    assert_eq!(spec["items"][1]["label"], "Only");
+    assert_starts(spec["title"].as_str().unwrap(), "Arc old: 1 step, ");
+    assert_eq!(spec["items"][0]["label"], "Implement");
+    assert_eq!(spec["items"][1]["label"], "1/1 Only");
     assert_eq!(spec["items"][1]["start"], 10.0);
     assert_eq!(spec["items"][1]["end"], 20.0);
     assert_eq!(spec["items"][1]["status"], "good");
 
     let (summary, _) = project.chart(&["arc-timeline"]);
-    assert_eq!(summary, "arc new: 1 stage(s), 0 step span(s)");
+    assert_eq!(
+        summary,
+        "arc new: 0 of 0 step(s) finished, 1 stage(s), 0 step span(s)"
+    );
 
     let (summary, spec) = project.answer(&["arc-timeline", "nosuch"]);
     assert_eq!(summary, "no arc named nosuch in the log");
@@ -372,74 +446,52 @@ fn arc_timeline_draws_the_named_arc_and_defaults_to_the_newest() {
 }
 
 #[test]
-fn suite_times_leaves_out_a_suite_too_small_to_read() {
+fn arcs_counts_per_week_within_the_window() {
     let project = Project::bare();
-    project.seed_suite("tiny", 100, 0.1, &[]);
-    project.seed_suite("deck", 101, 20.0, &[]);
-    project.seed_suite("rust", 102, 50.0, &[]);
-    project.seed_suite("rust", 103, 70.0, &[]);
-
-    let (summary, spec) = project.chart(&["suite-times"]);
+    project.seed_arc_log(concat!(
+        "2026-10-07T12:00:00.000Z  a  arc-start  brief.md\n",
+        "2026-10-07T12:30:00.000Z  a  abc123  joined via card\n",
+        "2026-10-14T12:00:00.000Z  b  arc-start  brief.md\n",
+        "2026-10-14T12:30:00.000Z  b  discarded\n",
+    ));
+    let (summary, spec) = project.chart(&["arcs", "--days", LONG_WINDOW]);
     assert_eq!(
         summary,
-        format!(
-            "3 run(s) across 2 suite(s) for {}, newest 30 per suite; left out: tiny",
-            project.root_text()
-        )
+        format!("2 started, 1 joined, 1 discarded over 2 week(s), last {LONG_WINDOW} days")
     );
-    assert_eq!(spec["format"], "secs");
-    assert_eq!(series_names(&spec), ["rust", "deck"]);
-    assert_eq!(spec["series"][0]["values"][29], 70.0);
-    assert_eq!(spec["series"][0]["values"][28], 50.0);
+    assert_eq!(spec["form"], "bar");
+    assert_eq!(spec["categories"], json!(["2026-10-05", "2026-10-12"]));
+    assert_eq!(series_names(&spec), ["started", "joined", "discarded"]);
 
-    let (_, spec) = project.chart(&["suite-times", "--all"]);
-    assert_eq!(series_names(&spec), ["rust", "deck", "tiny"]);
-
-    let (_, spec) = project.chart(&["suite-times", "--suite", "deck", "--title", "Deck alone"]);
-    assert_eq!(series_names(&spec), ["deck"]);
-    assert_eq!(spec["title"], "Deck alone");
+    // A window older than any calendar reads the whole log.
+    let (summary, _) = project.chart(&["arcs", "--days", "4294967295"]);
+    assert_starts(&summary, "2 started, 1 joined, 1 discarded over 2 week(s), ");
 }
 
 #[test]
-fn test_distribution_bins_the_latest_run_of_each_suite() {
+fn arc_stages_draws_the_newest_arcs_first() {
     let project = Project::bare();
-    project.seed_suite("rust", 100, 9.0, &[("old.rs", 99.0)]);
-    project.seed_suite("rust", 101, 9.0, &[("a.rs", 1.0), ("b.rs", 2.0)]);
-    project.seed_suite("deck", 102, 9.0, &[("c.ts", 3.0)]);
-
-    let (summary, spec) = project.chart(&["test-distribution"]);
-    assert_eq!(summary, "3 file(s) across 2 suite(s), latest runs");
-    assert_eq!(spec["form"], "histogram");
-    let mut values: Vec<f64> = spec["values"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_f64().unwrap())
-        .collect();
-    values.sort_by(f64::total_cmp);
-    assert_eq!(values, [1.0, 2.0, 3.0]);
-}
-
-#[test]
-fn test_budget_measures_each_file_against_the_budget() {
-    let project = Project::bare();
-    project.seed_apptest(100, "tests/quick.test.ts", "PASS", 5);
-    project.seed_apptest(101, "tests/slow.test.ts", "PASS", 15);
-
-    let (summary, spec) = project.chart(&["test-budget"]);
+    project.seed_arc_log(concat!(
+        "2026-10-27T16:00:00.000Z  old  arc-start  brief.md\n",
+        "2026-10-27T16:00:00.000Z  old  arc-stage  implement s1 -\n",
+        "2026-10-27T16:01:00.000Z  old  arc-stage  audit s2 opus\n",
+        "2026-10-27T16:02:00.000Z  old  abc123  joined via card\n",
+        "2026-10-27T17:00:00.000Z  new  arc-start  brief.md\n",
+        "2026-10-27T17:00:00.000Z  new  arc-stage  implement s3 -\n",
+        "2026-10-27T17:00:30.000Z  new  abc124  joined via card\n",
+    ));
+    let (summary, spec) = project.chart(&["arc-stages"]);
     assert_eq!(
         summary,
-        format!(
-            "2 of 2 file(s) with recorded times for {}, budget 10s, 1 over it by median",
-            project.root_text()
-        )
+        "2 newest arc(s), 2m30s of wall time in their stages"
     );
-    assert_eq!(spec["form"], "bullet");
-    assert_eq!(spec["items"][0]["label"], "slow");
-    assert_eq!(spec["items"][0]["value"], 15.0);
-    assert_eq!(spec["items"][0]["target"], 10.0);
-    assert_eq!(spec["items"][0]["range"], json!([0.0, 15.0]));
-    assert_eq!(spec["items"][1]["label"], "quick");
+    assert_eq!(spec["categories"], json!(["new", "old"]));
+    assert_eq!(series_names(&spec), ["Implement", "Audit"]);
+    assert_eq!(spec["series"][0]["values"], json!([30.0, 60.0]));
+    assert_eq!(spec["series"][1]["values"], json!([0.0, 60.0]));
+
+    let (_, spec) = project.chart(&["arc-stages", "--limit", "1"]);
+    assert_eq!(spec["categories"], json!(["new"]));
 }
 
 #[test]
@@ -500,27 +552,67 @@ fn gaps_ranks_the_silent_heads_by_total_time() {
     assert_eq!(spec["series"][0]["values"], json!([30.0, 25.0]));
 }
 
+#[test]
+fn calls_draws_a_histogram_of_the_recorded_wall_times() {
+    let project = Project::bare();
+    let gaps = ReportGaps::open(project.report_gaps()).unwrap();
+    for (ended_at_ms, wall_ms) in [(1, 1_000), (2, 3_000), (3, 2_000)] {
+        gaps.time("git status", wall_ms, ended_at_ms).unwrap();
+    }
+    drop(gaps);
+
+    let (summary, spec) = project.chart(&["calls"]);
+    assert_eq!(summary, "3 call(s), median 2s");
+    assert_eq!(spec["form"], "histogram");
+    assert_eq!(spec["values"], json!([2.0, 3.0, 1.0]));
+}
+
+#[test]
+fn the_model_recipes_read_this_projects_turns_by_family() {
+    let project = Project::bare();
+    let here = project.root_text();
+    project.seed_ledger(&[
+        (&here, "claude-opus-5-5[1m]", 0),
+        (&here, "opus", 0),
+        (&here, "claude-fable-5-1", 0),
+        // Past the default window, and only inside a longer one.
+        (&here, "claude-opus-5-5", 40),
+        ("/somewhere/else", "claude-opus-5-5", 0),
+    ]);
+
+    let (summary, spec) = project.chart(&["tokens"]);
+    assert_eq!(
+        summary,
+        "9 output tokens over 1 day(s), 2 model(s), last 30 days, each turn's last API call"
+    );
+    assert_eq!(spec["form"], "bar");
+    assert_eq!(spec["layout"], "stacked");
+    assert_eq!(spec["series"][0]["name"], "fable");
+    assert_eq!(spec["series"][0]["values"], json!([3.0]));
+    assert_eq!(spec["series"][1]["name"], "opus");
+    assert_eq!(spec["series"][1]["values"], json!([6.0]));
+
+    let (_, spec) = project.chart(&["tokens", "--kind", "cache-read"]);
+    assert_eq!(spec["title"], "Cache-read tokens per day");
+    assert_eq!(spec["series"][1]["values"], json!([10.0]));
+
+    let (summary, spec) = project.chart(&["cost"]);
+    assert_starts(&summary, "$1.50 over 1 day(s), 2 model(s)");
+    assert_eq!(spec["series"][1]["values"], json!([1.0]));
+
+    let (summary, _) = project.chart(&["turns", "--days", "60"]);
+    assert_starts(&summary, "4 turn(s) over ");
+
+    let out = project.run(&["chart", "tokens", "--kind", "nonsense"]);
+    assert!(!out.status.success());
+}
+
 /// One plain line, no chart, exit 0, and the record it looked for left
 /// uncreated.
 #[test]
 fn a_recipe_over_an_empty_record_says_so_in_one_line() {
     let project = Project::bare();
-    let cases: [(&str, &Path, &str); 6] = [
-        (
-            "suite-times",
-            &project.test_ledger(),
-            "no recorded test runs for",
-        ),
-        (
-            "test-distribution",
-            &project.test_ledger(),
-            "no recorded test runs for",
-        ),
-        (
-            "test-budget",
-            &project.apptest_ledger(),
-            "no recorded app-test runs for",
-        ),
+    let cases: [(&str, &Path, &str); 9] = [
         (
             "test-history",
             &project.apptest_ledger(),
@@ -531,8 +623,22 @@ fn a_recipe_over_an_empty_record_says_so_in_one_line() {
             &project.report_gaps(),
             "no long calls recorded that reported nothing",
         ),
+        ("calls", &project.report_gaps(), "no call times recorded"),
+        ("tokens", &project.sessions_db(), "no model usage in the"),
+        ("cost", &project.sessions_db(), "no model usage in the"),
+        ("turns", &project.sessions_db(), "no model usage in the"),
         (
             "arc-timeline",
+            &arc_log_path_at(&Paths::under(&project.data_dir()), &project.root),
+            "no arc log for",
+        ),
+        (
+            "arcs",
+            &arc_log_path_at(&Paths::under(&project.data_dir()), &project.root),
+            "no arc log for",
+        ),
+        (
+            "arc-stages",
             &arc_log_path_at(&Paths::under(&project.data_dir()), &project.root),
             "no arc log for",
         ),
@@ -555,6 +661,9 @@ fn a_commit_recipe_outside_any_history_says_so_in_one_line() {
         "landed",
         "commit-kinds",
         "commit-hours",
+        "commit-size",
+        "commit-days",
+        "velocity",
     ] {
         let (summary, spec) = project.answer(&[recipe]);
         assert_starts(&summary, "no commits in ");
@@ -597,7 +706,7 @@ fn list_names_every_recipe_with_its_arguments() {
     let envelope: Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert_eq!(envelope["command"], "chart list");
     let recipes = envelope["data"].as_array().unwrap();
-    assert_eq!(recipes.len(), 12);
+    assert_eq!(recipes.len(), 18);
     assert_eq!(recipes[0]["name"], "commits");
     assert_eq!(recipes[0]["group"], "Activity");
     assert_eq!(recipes[0]["sample"]["form"], "bar");
@@ -606,18 +715,18 @@ fn list_names_every_recipe_with_its_arguments() {
     assert!(out.status.success(), "{}", stderr(&out));
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 36, "{text}");
+    assert_eq!(lines.len(), 54, "{text}");
     assert_eq!(lines[0], "commits  bar  How active has this been?");
-    assert_eq!(lines[1], "    --days N  --path TEXT  --title TEXT");
+    assert_eq!(
+        lines[1],
+        "    --days N  --path TEXT  --by day|week  --title TEXT"
+    );
     assert_eq!(lines[2], "    Activity: Commits per day.");
     assert!(
         text.contains("    [name]  --title TEXT"),
         "the arc's positional: {text}"
     );
-    assert!(
-        text.contains("    --suite TEXT...  --all  --runs N  --title TEXT"),
-        "{text}"
-    );
+    assert!(text.contains("    [files...]  --title TEXT"), "{text}");
 }
 
 #[test]

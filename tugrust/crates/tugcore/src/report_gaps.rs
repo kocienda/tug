@@ -387,6 +387,24 @@ pub fn summarize(path: &Path) -> Vec<GapSummary> {
     summaries
 }
 
+/// Every recorded call's wall time, newest first. Read-only; a missing file
+/// or table answers with nothing.
+pub fn call_wall_times(path: &Path) -> Vec<i64> {
+    if !path.exists() {
+        return Vec::new();
+    }
+    let Ok(conn) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+        return Vec::new();
+    };
+    let Ok(mut stmt) = conn.prepare("SELECT wall_ms FROM call_times ORDER BY id DESC") else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |r| r.get(0)) else {
+        return Vec::new();
+    };
+    rows.flatten().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,6 +586,27 @@ mod tests {
             .execute_batch("CREATE TABLE x (a)")
             .unwrap();
         assert!(summarize(&other).is_empty());
+    }
+
+    #[test]
+    fn call_times_read_newest_first_and_a_missing_record_or_table_has_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("report_gaps.db");
+        assert!(call_wall_times(&path).is_empty());
+        assert!(!path.exists(), "a read creates nothing");
+
+        let gaps = ReportGaps::open(&path).unwrap();
+        gaps.time("cargo build", 30_000, 1).unwrap();
+        gaps.time("git status", 40, 2).unwrap();
+        drop(gaps);
+        assert_eq!(call_wall_times(&path), vec![40, 30_000]);
+
+        let old = dir.path().join("old.db");
+        Connection::open(&old)
+            .unwrap()
+            .execute_batch(CREATE_REPORT_GAPS_SQL)
+            .unwrap();
+        assert!(call_wall_times(&old).is_empty());
     }
 
     #[test]

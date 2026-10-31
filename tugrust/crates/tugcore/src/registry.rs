@@ -247,6 +247,15 @@ pub fn linked_worktree_base(cwd: &Path) -> Option<PathBuf> {
     Some(common.parent()?.to_path_buf())
 }
 
+/// The checkout a directory belongs to: a linked worktree's base, and anything
+/// else itself. Canonicalized so two spellings of one path are one answer; a
+/// path that cannot be canonicalized, such as a root since deleted, keeps its
+/// literal form.
+pub fn base_checkout(dir: &Path) -> PathBuf {
+    let base = linked_worktree_base(dir).unwrap_or_else(|| dir.to_path_buf());
+    base.canonicalize().unwrap_or(base)
+}
+
 /// Alias for [`load`] — every instance returned by `load` is live by
 /// definition. Provided so call sites can read more naturally.
 pub fn list_live() -> Result<Vec<Instance>, Error> {

@@ -329,6 +329,17 @@ pub fn newest_arc(text: &str) -> Option<String> {
         .map(|(_, name, _, _)| name.to_owned())
 }
 
+/// Every arc the log started, by its last `arc-start`, newest first.
+pub fn arcs_newest_first(text: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for (_, name, marker, _) in text.lines().rev().filter_map(split_log_line) {
+        if marker == "arc-start" && !names.iter().any(|known| known == name) {
+            names.push(name.to_owned());
+        }
+    }
+    names
+}
+
 fn median(xs: &[u64]) -> Option<u64> {
     if xs.is_empty() {
         return None;
