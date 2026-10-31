@@ -465,7 +465,10 @@ fn arcs_counts_per_week_within_the_window() {
 
     // A window older than any calendar reads the whole log.
     let (summary, _) = project.chart(&["arcs", "--days", "4294967295"]);
-    assert_starts(&summary, "2 started, 1 joined, 1 discarded over 2 week(s), ");
+    assert_starts(
+        &summary,
+        "2 started, 1 joined, 1 discarded over 2 week(s), ",
+    );
 }
 
 #[test]
