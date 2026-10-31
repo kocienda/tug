@@ -794,12 +794,15 @@ struct MenuBarBuilder {
         mainMenu.addItem(helpMenuItem)
         let helpMenu = NSMenu(title: "Help")
         helpMenuItem.submenu = helpMenu
-        // The app's two help documents, each opened as a rendered help card.
+        // The app's help documents, each opened as a rendered help card.
         // The represented object is the document's name, which tugcast serves
         // and the card is keyed by.
         let tugHelpItem = NSMenuItem(title: "Tug Help", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.tugHelp")
         tugHelpItem.representedObject = "features"
         helpMenu.addItem(tugHelpItem)
+        let recipesItem = NSMenuItem(title: "How Do I…", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.recipes")
+        recipesItem.representedObject = "recipes"
+        helpMenu.addItem(recipesItem)
         let glossaryItem = NSMenuItem(title: "Glossary", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.glossary")
         glossaryItem.representedObject = "glossary"
         helpMenu.addItem(glossaryItem)

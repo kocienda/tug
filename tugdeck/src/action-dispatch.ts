@@ -1365,12 +1365,12 @@ function wireActionDispatch(
     if (component === "about") {
       appInfoStore.setFromPayload(payload);
     }
-    // The Help menu's two items: one card per document, so the document is
+    // The Help menu's document items: one card per document, so the document is
     // the key, not the component.
     if (component === "help") {
       const doc = payload.document;
       if (!isHelpDocName(doc)) {
-        console.warn("show-card: help needs a document of features or glossary", payload);
+        console.warn("show-card: help needs a document of features, recipes or glossary", payload);
         return;
       }
       openHelpInCard(deckManager, { doc }, originOf(payload));
@@ -1436,7 +1436,7 @@ function wireActionDispatch(
   });
 
   // open-help: raise a help document in its card, at an anchor when one is
-  // named. Dispatched by a link between the two documents and by an Overview
+  // named. Dispatched by a link between the documents and by an Overview
   // help ref; the Help menu reaches the same opener through show-card.
   registerAction(TUG_ACTIONS.OPEN_HELP, (payload) => {
     const doc = payload.doc;

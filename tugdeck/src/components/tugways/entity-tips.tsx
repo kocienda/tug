@@ -184,7 +184,7 @@ export function fileTip(facts: FileTipFacts): React.ReactNode {
 
 /** What a help ref's hover says. */
 export interface HelpTipFacts {
-  /** The document's name as the Help menu spells it: "Glossary", "Tug Help". */
+  /** The document's name as the Help menu spells it: "Glossary", "How Do I…". */
   document: string;
   /** The passage, in words; absent when the ref names the whole document. */
   passage?: string;

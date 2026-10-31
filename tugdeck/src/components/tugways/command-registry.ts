@@ -1395,7 +1395,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   },
   {
     // Its doors are the Help menu (through `show-card`), a link between the
-    // two help documents, and an Overview help ref — no chord of its own.
+    // help documents, and an Overview help ref — no chord of its own.
     id: TUG_ACTIONS.OPEN_HELP,
     title: "Open Help",
     routing: "registry",

@@ -1,8 +1,8 @@
 /**
- * at0758-help-menu-opens-help-cards.test.ts — Help ▸ Tug Help and Help ▸
- * Glossary open the bundled documents as rendered help cards.
+ * at0758-help-menu-opens-help-cards.test.ts — Help ▸ Tug Help, How Do I… and
+ * Help ▸ Glossary open the bundled documents as rendered help cards.
  *
- * The two items are the app's door to its own documentation, and the whole
+ * The three items are the app's door to its own documentation, and the whole
  * path is real: the `NSMenuItem` is performed (validation, the action, the
  * `show-card` control), the deck opens a help card keyed by the document,
  * the card's body fetches it from tugcast's `/api/help/{name}` — the bundled
@@ -11,15 +11,15 @@
  * show a `# ` in front of it.
  *
  * Then the keying. Picking Tug Help a second time must bring the card that is
- * already open forward rather than add another, and the Glossary is its own
- * card beside it.
+ * already open forward rather than add another, and How Do I… and the Glossary
+ * are each their own card beside it.
  *
  * Scenario:
  *   1. Perform Help ▸ Tug Help. The active card is a help card holding
  *      `features`, and its body renders the feature guide's heading.
- *   2. Perform Help ▸ Glossary. A second card, holding `glossary`, renders
- *      the glossary's heading.
- *   3. Perform Help ▸ Tug Help again. The card that comes forward is the
+ *   2. Perform Help ▸ How Do I…. A second card, holding `recipes`, renders its heading.
+ *   3. Perform Help ▸ Glossary. A third card, holding `glossary`, renders its heading.
+ *   4. Perform Help ▸ Tug Help again. The card that comes forward is the
  *      first one.
  *
  * Throughout, the document's prose is selectable: the pane content sets
@@ -91,7 +91,7 @@ async function headingOf(app: App, cardId: string): Promise<string> {
 
 describe.skipIf(!SHOULD_RUN)("at0758 — the Help menu opens the help documents", () => {
   test(
-    "Tug Help and Glossary each open a rendered help card, keyed by document",
+    "Tug Help, How Do I… and Glossary each open a rendered help card, keyed by document",
     async () => {
       const app = await launchTugApp({ testName: "at0758-help-menu" });
       try {
@@ -100,6 +100,13 @@ describe.skipIf(!SHOULD_RUN)("at0758 — the Help menu opens the help documents"
         note(`Tug Help heading: ${JSON.stringify(featuresHeading)}`);
         expect(featuresHeading).toBe("Tug: what it does and how to use it");
         expect(await proseSelectOf(app, features), "the guide's prose is selectable").toBe("text");
+
+        const recipes = await pick(app, "help.recipes", "recipes");
+        expect(recipes, "the recipes are their own card").not.toBe(features);
+        const recipesHeading = await headingOf(app, recipes);
+        note(`How Do I… heading: ${JSON.stringify(recipesHeading)}`);
+        expect(recipesHeading).toBe("How do I…");
+        expect(await proseSelectOf(app, recipes), "the recipes' prose is selectable").toBe("text");
 
         const glossary = await pick(app, "help.glossary", "glossary");
         expect(glossary, "the glossary is its own card").not.toBe(features);

@@ -1,5 +1,5 @@
 /**
- * The help card's naming, titling and link reading, over the strings the two
+ * The help card's naming, titling and link reading, over the strings the
  * shipped documents actually contain.
  *
  * @covers tugdeck/src/lib/help-docs.ts
@@ -24,8 +24,9 @@ const DOCS = join(import.meta.dir, "..", "..", "..", "..", "docs");
 const shipped = (name: string) => readFileSync(join(DOCS, name), "utf8");
 
 describe("help document names", () => {
-  test("only the two documents are names", () => {
+  test("only the three documents are names", () => {
     expect(isHelpDocName("features")).toBe(true);
+    expect(isHelpDocName("recipes")).toBe(true);
     expect(isHelpDocName("glossary")).toBe(true);
     for (const other of ["", "Glossary", "glossary.md", "../CLAUDE", 3, null]) {
       expect(isHelpDocName(other)).toBe(false);
@@ -46,6 +47,7 @@ describe("help document names", () => {
 describe("help card titles", () => {
   test("the title is the shipped document's own heading", () => {
     expect(helpDocTitle("glossary", shipped("glossary.md"))).toBe("Tug glossary");
+    expect(helpDocTitle("recipes", shipped("recipes.md"))).toBe("How do I…");
     expect(helpDocTitle("features", shipped("features.md"))).toBe(
       "Tug: what it does and how to use it",
     );
@@ -54,6 +56,7 @@ describe("help card titles", () => {
   test("before the document loads, the title is the menu item's", () => {
     expect(helpDocTitle("features", null)).toBe("Tug Help");
     expect(helpDocTitle("glossary", null)).toBe("Glossary");
+    expect(helpDocTitle("recipes", null)).toBe("How Do I…");
   });
 });
 
@@ -66,9 +69,14 @@ describe("help anchors", () => {
     expect(helpAnchorSlug("Tug-Arc trailer.")).toBe("tug-arc-trailer");
   });
 
-  test("links read as a jump within, a jump to the other document, or neither", () => {
+  test("links read as a jump within, a jump to another document, or neither", () => {
     expect(readHelpLink("#getting-help")).toEqual({ kind: "anchor", anchor: "getting-help" });
     expect(readHelpLink("glossary.md")).toEqual({ kind: "doc", doc: "glossary", anchor: null });
+    expect(readHelpLink("recipes.md#stop-an-arc")).toEqual({
+      kind: "doc",
+      doc: "recipes",
+      anchor: "stop-an-arc",
+    });
     expect(readHelpLink("./features.md#fit-and-flow")).toEqual({
       kind: "doc",
       doc: "features",
@@ -93,6 +101,7 @@ describe("help refs", () => {
       doc: "features",
       anchor: "stack-and-split",
     });
+    expect(readHelpRefTarget("recipes#stop-an-arc")).toEqual({ doc: "recipes", anchor: "stop-an-arc" });
     expect(readHelpRefTarget("glossary")).toEqual({ doc: "glossary" });
     expect(readHelpRefTarget("glossary#")).toEqual({ doc: "glossary" });
     for (const other of ["", "#split", "readme#intro", "Glossary#split", "glossary.md#split"]) {

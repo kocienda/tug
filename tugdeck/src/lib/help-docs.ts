@@ -1,11 +1,11 @@
 /**
- * help-docs.ts — the app's two help documents, as the deck names, fetches and
+ * help-docs.ts — the app's help documents, as the deck names, fetches and
  * links them.
  *
- * The feature guide and the glossary ship inside the app bundle and tugcast
+ * The feature guide, the recipes and the glossary ship inside the app bundle and tugcast
  * serves them at `GET /api/help/{name}` ([B01], [B02]). A help card is keyed
  * by the document it shows, and a link inside one is either a jump within it
- * (`#getting-help`) or a jump to the other (`glossary.md`, `glossary.md#fold`).
+ * (`#getting-help`) or a jump to another (`glossary.md`, `glossary.md#fold`).
  * Everything here is pure over strings except {@link fetchHelpDoc}, so the
  * card's naming, its title and its link reading are one implementation the
  * tests can drive without a page.
@@ -14,20 +14,21 @@
  */
 
 /** A help document's name — the route's key and the help card's. */
-export type HelpDocName = "features" | "glossary";
+export type HelpDocName = "features" | "recipes" | "glossary";
 
 /** Every help document, in the order the Help menu lists them. */
-export const HELP_DOC_NAMES: readonly HelpDocName[] = ["features", "glossary"];
+export const HELP_DOC_NAMES: readonly HelpDocName[] = ["features", "recipes", "glossary"];
 
 /** What a help card is called before its document has loaded. */
 const FALLBACK_TITLES: Record<HelpDocName, string> = {
   features: "Tug Help",
+  recipes: "How Do I…",
   glossary: "Glossary",
 };
 
 /** Narrow an unknown value to a help document name. */
 export function isHelpDocName(value: unknown): value is HelpDocName {
-  return value === "features" || value === "glossary";
+  return value === "features" || value === "recipes" || value === "glossary";
 }
 
 /**
@@ -90,7 +91,7 @@ export type HelpLink =
 
 /**
  * Read a link's `href` as a help link, or `null` for one that leaves the help
- * documents — a URL, a mail link, a path to anything but the two documents —
+ * documents — a URL, a mail link, a path to anything but the documents —
  * which the card lets navigate as any other link does.
  */
 export function readHelpLink(href: string): HelpLink | null {
@@ -98,7 +99,7 @@ export function readHelpLink(href: string): HelpLink | null {
     const anchor = decodeAnchor(href.slice(1));
     return anchor.length > 0 ? { kind: "anchor", anchor } : null;
   }
-  const match = /^(?:\.\/)?(features|glossary)\.md(?:#(.*))?$/.exec(href);
+  const match = /^(?:\.\/)?(features|recipes|glossary)\.md(?:#(.*))?$/.exec(href);
   if (match === null) return null;
   const doc = match[1] as HelpDocName;
   const anchor = match[2] === undefined ? "" : decodeAnchor(match[2]);

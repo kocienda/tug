@@ -272,6 +272,7 @@ mod tests {
         assert!(matches!(scrub_text(plain), Cow::Borrowed(_)));
         for document in [
             include_str!("../../../../../docs/features.md"),
+            include_str!("../../../../../docs/recipes.md"),
             include_str!("../../../../../docs/glossary.md"),
         ] {
             assert_eq!(scrub_text(document), document);

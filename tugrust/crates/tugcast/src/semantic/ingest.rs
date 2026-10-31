@@ -402,6 +402,7 @@ fn content_hash(context: &str, text: &str, meta: Option<&str>, lexical: Option<&
 fn help_title(doc: HelpDoc) -> &'static str {
     match doc {
         HelpDoc::Features => "Tug feature guide",
+        HelpDoc::Recipes => "Tug recipes",
         HelpDoc::Glossary => "Tug glossary",
     }
 }
@@ -653,6 +654,7 @@ mod tests {
     }
 
     const FEATURES: &str = "# Tug\n\nThe opening prose.\n\n## Opening an arc\n\nType a prompt at the door.\n\n## The join\n\nThe join lands the branch.\n";
+    const RECIPES: &str = "# How do I\n\nOne recipe per task.\n";
     const GLOSSARY: &str =
         "**Arc.** One piece of work.\n\n**Door.** The skill that opens an arc.\n";
 
@@ -661,6 +663,7 @@ mod tests {
         let docs = dir.path().join("docs");
         std::fs::create_dir(&docs).unwrap();
         std::fs::write(docs.join("features.md"), FEATURES).unwrap();
+        std::fs::write(docs.join("recipes.md"), RECIPES).unwrap();
         std::fs::write(docs.join("glossary.md"), GLOSSARY).unwrap();
         let index = Arc::new(SemanticIndex::open(dir.path().join("semantic.db")).unwrap());
         let indexer = Indexer::new(Arc::clone(&index), client(&state), sessions);
@@ -716,7 +719,8 @@ mod tests {
                 "features#the-join",
                 "features#tug",
                 "glossary#arc",
-                "glossary#door"
+                "glossary#door",
+                "recipes#how-do-i"
             ]
         );
         let chunk = f.chunk("features#opening-an-arc");
@@ -739,7 +743,7 @@ mod tests {
     async fn nothing_is_embedded_again_when_nothing_changed() {
         let f = fixture(Some("nl-a"));
         f.index_help().await;
-        assert_eq!(f.state.take_embedded().len(), 5);
+        assert_eq!(f.state.take_embedded().len(), 6);
         f.index_help().await;
         assert_eq!(f.state.take_embedded(), Vec::<String>::new());
     }
@@ -773,7 +777,7 @@ mod tests {
             .await
             .unwrap();
         f.index_help().await;
-        assert_eq!(f.state.take_embedded().len(), 5);
+        assert_eq!(f.state.take_embedded().len(), 6);
         assert!(
             f.index
                 .chunks()
@@ -847,7 +851,7 @@ mod tests {
         let f = fixture_with(state, None);
         f.index_help().await;
         let chunks = f.index.chunks();
-        assert_eq!(chunks.len(), 5);
+        assert_eq!(chunks.len(), 6);
         assert!(
             chunks
                 .iter()
@@ -1432,7 +1436,7 @@ mod tests {
 
         let all_of = |index: &SemanticIndex, model: &str| {
             let chunks = index.chunks();
-            chunks.len() == 5 && chunks.iter().all(|c| c.model.as_deref() == Some(model))
+            chunks.len() == 6 && chunks.iter().all(|c| c.model.as_deref() == Some(model))
         };
         while !all_of(&index, "nl-static") {
             tokio::task::yield_now().await;

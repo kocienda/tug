@@ -318,6 +318,8 @@ mod tests {
         ] {
             assert!(assert_sound("Tug help", document).len() > 10);
         }
+        let recipes = include_str!("../../../../docs/recipes.md");
+        assert!(!assert_sound("Tug help", recipes).is_empty());
     }
 
     #[test]

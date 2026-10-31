@@ -31,6 +31,7 @@
  *
  *   just operator-eval
  *   just operator-eval --only arc     # the questions containing "arc"
+ *   just operator-eval --only recipes#  # the questions expecting a passage of the recipes
  */
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -324,7 +325,8 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const narrowed = (all: Question[]) => (only ? all.filter((item) => item.question.toLowerCase().includes(only)) : all);
+  const narrowed = (all: Question[]) =>
+    only ? all.filter((item) => `${item.question} ${item.anchor ?? ""}`.toLowerCase().includes(only)) : all;
   const help = narrowed(await Bun.file(QUESTIONS).json());
   const history = narrowed(await Bun.file(HISTORY_QUESTIONS).json());
   const runDir = mkdtempSync(join(tmpdir(), "operator-eval-"));

@@ -1411,7 +1411,7 @@ pub enum OverviewRefKind {
     /// serialize as `"arc"`.
     #[serde(alias = "dash")]
     Arc,
-    /// A passage of the app's own help: `features` or `glossary`, then
+    /// A passage of the app's own help: `features`, `recipes` or `glossary`, then
     /// `#<anchor>` naming a section or an entry — `glossary#split`. Opens the
     /// help card there. Validated against the bundled documents, never
     /// against the frames the model saw.

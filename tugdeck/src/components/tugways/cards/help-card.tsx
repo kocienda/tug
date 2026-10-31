@@ -1,7 +1,7 @@
 /**
  * help-card.tsx — one of the app's help documents, rendered and read-only.
  *
- * Tug ships two help documents, the feature guide and the glossary, and the
+ * Tug ships three help documents, the feature guide, the recipes and the glossary, and the
  * Help menu opens each as a card ([B03], [B04]). The card fetches its document
  * from tugcast (`GET /api/help/{name}`, the resolver the Operator reads
  * through too) and renders it in the house markdown style with
@@ -14,7 +14,7 @@
  * `useCardStatePreservation`, which is also what `findHelpCardInDeck` reads to
  * bring an open card forward instead of adding a second.
  *
- * Links: `#anchor` scrolls this card; `glossary.md` or `features.md` (with or
+ * Links: `#anchor` scrolls this card; `glossary.md`, `recipes.md` or `features.md` (with or
  * without an anchor) opens that document's card; anything else navigates as
  * any link in the deck does.
  *

@@ -1,8 +1,8 @@
 //! The app's help documents and `GET /api/help/{name}`, which serves them to
 //! the help card.
 //!
-//! There are exactly two documents, the feature guide and the glossary, and
-//! they are named, never addressed by path: a request names one of the two
+//! There are exactly three documents, the guide, the recipes and the glossary, and
+//! they are named, never addressed by path: a request names one of the three
 //! and anything else is refused before the filesystem is touched, so the
 //! route cannot be walked out of the docs directory. The directory itself is
 //! `resources::docs_dir()`, the one resolver the Operator reads through too.
@@ -11,9 +11,13 @@
 //!
 //! The documents' retrieval units live here too, because the Operator's `help`
 //! verbs and the help card have to agree on them: a glossary entry is one
-//! paragraph opening on its bold term, a feature-guide section is a heading
+//! paragraph opening on its bold term, a guide section or a recipe is a heading
 //! and the prose under it, and each carries the anchor the help card scrolls
 //! to, slugged the way the card slugs it.
+//!
+//! A comment that owns its lines names where a recipe's gesture was read. It is
+//! for whoever maintains the document, so `HelpDoc::read` drops it and neither a
+//! card nor the Operator sees it.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -29,16 +33,18 @@ use tracing::warn;
 pub(crate) enum HelpDoc {
     /// `features.md` — each part of the app in turn, section by section.
     Features,
+    /// `recipes.md` — one recipe per thing a person does, headed as they say it.
+    Recipes,
     /// `glossary.md` — every word Tug uses, one paragraph per term.
     Glossary,
 }
 
 impl HelpDoc {
     /// Every help document, in the order the Help menu lists them.
-    pub(crate) const ALL: [HelpDoc; 2] = [HelpDoc::Features, HelpDoc::Glossary];
+    pub(crate) const ALL: [HelpDoc; 3] = [HelpDoc::Features, HelpDoc::Recipes, HelpDoc::Glossary];
 
     /// The document a request names: its bare name, or its file name. Any
-    /// other string — a path, a traversal, a third document — is `None`.
+    /// other string — a path, a traversal, an unknown document — is `None`.
     pub(crate) fn from_name(name: &str) -> Option<HelpDoc> {
         HelpDoc::ALL
             .into_iter()
@@ -49,6 +55,7 @@ impl HelpDoc {
     pub(crate) fn name(self) -> &'static str {
         match self {
             HelpDoc::Features => "features",
+            HelpDoc::Recipes => "recipes",
             HelpDoc::Glossary => "glossary",
         }
     }
@@ -57,14 +64,40 @@ impl HelpDoc {
     pub(crate) fn file_name(self) -> &'static str {
         match self {
             HelpDoc::Features => "features.md",
+            HelpDoc::Recipes => "recipes.md",
             HelpDoc::Glossary => "glossary.md",
         }
     }
 
-    /// The document's markdown, read from `docs_dir`.
+    /// The document's markdown, read from `docs_dir`, less its source comments.
     pub(crate) fn read(self, docs_dir: &Path) -> std::io::Result<String> {
-        std::fs::read_to_string(docs_dir.join(self.file_name()))
+        std::fs::read_to_string(docs_dir.join(self.file_name())).map(|raw| strip_comments(&raw))
     }
+}
+
+/// A document without the comments that own their lines, outside a code fence.
+/// This is the one read every reader goes through, so a source comment reaches
+/// neither the help card, nor the model, nor the embedder.
+fn strip_comments(markdown: &str) -> String {
+    let mut out = String::with_capacity(markdown.len());
+    let mut in_fence = false;
+    let mut in_comment = false;
+    for line in markdown.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if in_comment {
+            in_comment = !trimmed.ends_with("-->");
+            continue;
+        }
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+        }
+        if !in_fence && trimmed.starts_with("<!--") {
+            in_comment = !trimmed.ends_with("-->");
+            continue;
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 /// The route's answer for a requested name against a docs directory, pure
@@ -130,17 +163,17 @@ pub(crate) async fn get_help(
 
 // ── Retrieval units ──────────────────────────────────────────────────────────
 
-/// One retrieval unit of a help document: a glossary entry, or a feature-guide
+/// One retrieval unit of a help document: a glossary entry, a recipe, or a feature-guide
 /// section.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HelpUnit {
-    /// The glossary term, or the section heading, as the document spells it.
+    /// The glossary term, or the heading, as the document spells it.
     pub title: String,
     /// The slug the help card scrolls to for this unit.
     pub anchor: String,
     /// The heading level, 1 to 6, or 0 for a glossary entry.
     pub level: u8,
-    /// The unit's own markdown: an entry's paragraph, or a section's heading
+    /// The unit's own markdown: an entry's paragraph, or a heading
     /// and the lines under it up to the next heading of any level.
     pub text: String,
 }
@@ -149,7 +182,7 @@ impl HelpDoc {
     /// The document's retrieval units, in document order.
     pub(crate) fn units(self, markdown: &str) -> Vec<HelpUnit> {
         match self {
-            HelpDoc::Features => features_sections(markdown),
+            HelpDoc::Features | HelpDoc::Recipes => heading_sections(markdown),
             HelpDoc::Glossary => glossary_entries(markdown),
         }
     }
@@ -158,6 +191,7 @@ impl HelpDoc {
     pub(crate) fn unit_kind(self) -> &'static str {
         match self {
             HelpDoc::Features => "section",
+            HelpDoc::Recipes => "recipe",
             HelpDoc::Glossary => "entry",
         }
     }
@@ -213,10 +247,10 @@ fn heading(line: &str) -> Option<(u8, &str)> {
     (!text.is_empty()).then_some((hashes as u8, text))
 }
 
-/// The feature guide's sections: every heading, with the lines under it up to
+/// The guide's sections and the recipes: every heading, with the lines under it up to
 /// the next heading of any level. The document's opening prose belongs to its
 /// title heading.
-fn features_sections(markdown: &str) -> Vec<HelpUnit> {
+fn heading_sections(markdown: &str) -> Vec<HelpUnit> {
     let mut sections: Vec<HelpUnit> = Vec::new();
     let mut in_fence = false;
     for line in markdown.lines() {
@@ -370,8 +404,8 @@ pub(crate) fn search_units(units: &[HelpUnit], query: &str, limit: usize) -> (Ve
 /// A help ref's target in its one stored spelling, or `None` when it names no
 /// passage the documents have.
 ///
-/// The target is `<doc>` or `<doc>#<anchor>`. The document is one of the two
-/// names; the anchor is matched the way `help.read` matches a name — by anchor,
+/// The target is `<doc>` or `<doc>#<anchor>`. The document is one of the
+/// documents' names; the anchor is matched the way `help.read` matches a name — by anchor,
 /// or by title in any case — and written back as the unit's own anchor, so a
 /// model that spelled `glossary#Split` still links to `glossary#split`. A ref
 /// is a promise the chip will land somewhere, which is why one that names
@@ -400,11 +434,12 @@ mod tests {
     #[test]
     fn names_resolve_bare_or_as_file_names() {
         assert_eq!(HelpDoc::from_name("features"), Some(HelpDoc::Features));
+        assert_eq!(HelpDoc::from_name("recipes"), Some(HelpDoc::Recipes));
         assert_eq!(HelpDoc::from_name("glossary.md"), Some(HelpDoc::Glossary));
     }
 
     #[test]
-    fn anything_but_the_two_documents_is_refused() {
+    fn anything_but_the_documents_is_refused() {
         for name in [
             "",
             "README",
@@ -412,6 +447,7 @@ mod tests {
             "docs/glossary.md",
             "/etc/passwd",
             "Glossary",
+            "How Do I",
             "glossary.md/",
         ] {
             let (status, body) = help_response(Some(Path::new("/nonexistent")), name);
@@ -430,7 +466,7 @@ mod tests {
         let set: Vec<Value> =
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert!(
-            (20..=30).contains(&set.len()),
+            set.len() >= 20,
             "the eval set holds {} questions",
             set.len()
         );
@@ -445,7 +481,7 @@ mod tests {
         }
         assert!(set.iter().any(|item| {
             item["question"] == "how do I create an arc?"
-                && item["anchor"] == "features#opening-an-arc"
+                && item["anchor"] == "recipes#create-an-arc"
         }));
     }
 
@@ -458,6 +494,24 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["name"], "glossary");
         assert_eq!(body["markdown"], "# Tug glossary\n");
+    }
+
+    #[test]
+    fn a_comment_reaches_no_reader_of_a_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let md = "# How do I…\n<!-- source: a.swift -->\n\n## Stop an arc\n<!-- source: b.ts\n     and c.ts -->\n\nPress stop.\n\n```\n<!-- kept -->\n```\n";
+        std::fs::write(dir.path().join("recipes.md"), md).unwrap();
+
+        let read = HelpDoc::Recipes.read(dir.path()).unwrap();
+        assert_eq!(
+            read,
+            "# How do I…\n\n## Stop an arc\n\nPress stop.\n\n```\n<!-- kept -->\n```\n"
+        );
+        let units = HelpDoc::Recipes.units(&read);
+        assert_eq!(units[1].title, "Stop an arc");
+        assert!(!units[1].text.contains("source:"));
+        let (_, body) = help_response(Some(dir.path()), "recipes");
+        assert!(!body["markdown"].as_str().unwrap().contains("source:"));
     }
 
     #[test]
@@ -497,7 +551,7 @@ mod tests {
     #[test]
     fn sections_run_to_the_next_heading_and_read_with_their_children() {
         let md = "# Guide\n\nIntro.\n\n## Cards\n\nAbout cards.\n\n```\n# not a heading\n```\n\n### Masthead\n\nThe top.\n\n## Arcs\n\nArcs.\n";
-        let sections = features_sections(md);
+        let sections = heading_sections(md);
         let titles: Vec<&str> = sections.iter().map(|s| s.title.as_str()).collect();
         assert_eq!(titles, ["Guide", "Cards", "Masthead", "Arcs"]);
         assert!(sections[0].text.ends_with("Intro."));
@@ -538,6 +592,21 @@ mod tests {
             assert!(
                 markdown.starts_with("# "),
                 "{} has no heading",
+                doc.file_name()
+            );
+            // A comment that does not own its lines would show in the card.
+            assert!(
+                !markdown.contains("<!--") && !markdown.contains("-->"),
+                "{} has a comment that does not own its lines",
+                doc.file_name()
+            );
+            // One left open would swallow the document after it and leave no
+            // trace in what was read, so this one looks at the file itself.
+            let raw = std::fs::read_to_string(dir.join(doc.file_name())).unwrap();
+            assert_eq!(
+                raw.matches("<!--").count(),
+                raw.matches("-->").count(),
+                "{} has a comment left open",
                 doc.file_name()
             );
         }

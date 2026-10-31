@@ -57,7 +57,7 @@ pub(crate) fn source_tree() -> PathBuf {
     );
 }
 
-/// The directory holding the app's help documents (`features.md` and
+/// The directory holding the app's help documents (`features.md`, `recipes.md` and
 /// `glossary.md`), which the app bundle ships at `Contents/Resources/docs/`.
 ///
 /// One resolver for every reader — the help card's route and the Overview's
@@ -236,9 +236,10 @@ mod tests {
 
     #[cfg(debug_assertions)]
     #[test]
-    fn checkout_docs_holds_both_help_documents() {
+    fn checkout_docs_holds_every_help_document() {
         let docs = checkout_docs().expect("debug build has a checkout");
         assert!(docs.join("features.md").is_file(), "{}", docs.display());
+        assert!(docs.join("recipes.md").is_file(), "{}", docs.display());
         assert!(docs.join("glossary.md").is_file(), "{}", docs.display());
     }
 

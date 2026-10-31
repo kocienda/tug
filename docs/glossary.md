@@ -64,7 +64,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Disclaim.** Let a file or hunk go from this session's *claims*, so it shows as unattributed. ⌃⇧⌘A disclaims everything in the Changes tab; ⌃⌘A claims everything.
 
-**Discard.** End an arc without landing it. The worktree's uncommitted work is returned to the base first, the branch and worktree are removed, and the arc's documents are kept so you can come back to the decisions. `/arc-discard <name>`. A discard can be undone.
+**Discard.** End an arc without landing it. The worktree's uncommitted work is returned to the base first, the branch and worktree are removed, and the arc's documents are kept so you can come back to the decisions. Press **Discard** on the arc's row in the Arcs sidebar, or in the Changes tab of the card that holds it. A discard can be undone.
 
 **Door.** The one skill that opens the arc lane, `/arc`. It sharpens the conversation into a *brief* (or takes one you hand it), decides the arc's *kind* from the work, says which shape it chose and why, hands the brief to the *wheel*, and ends the turn. The door creates no worktree, commits nothing and joins nothing.
 
@@ -78,7 +78,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Fold.** Collapse a card to its *masthead*. It keeps its slot, its address and its live readings and opens again on one press (⌃⌘Y). In a *split* slot, folding makes a *wall*.
 
-**Help.** Tug's help is two documents, the feature guide and this glossary, each opened as a read-only card from the Help menu: Help ▸ Tug Help and Help ▸ Glossary. A link from one opens the other. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help ▸ Keyboard Shortcuts & Commands opens a session's `/help` sheet, and ⌃⌘K opens the Keyboard Shortcuts card.
+**Help.** Tug's help is three documents, the feature guide, the recipes and this glossary, each opened as a read-only card from the Help menu: Help ▸ Tug Help, Help ▸ How Do I… and Help ▸ Glossary. A link from one opens another. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help ▸ Keyboard Shortcuts & Commands opens a session's `/help` sheet, and ⌃⌘K opens the Keyboard Shortcuts card.
 
 **Hint.** What a shell command earns in the *ledger* when it names no files: a note of what git saw change while it ran. A hint never makes a session an owner of a change.
 

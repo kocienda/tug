@@ -1,6 +1,6 @@
 # Tug: what it does and how to use it
 
-Tug is a macOS IDE for AI-assisted development. It runs Claude Code sessions, many at once, in one window, and keeps track of what each of them is doing, what each of them changed, and how big changes get from an idea to a commit on your main branch. This document describes each part of the app in turn, with the controls and keyboard chords for it. The [glossary](glossary.md) defines the words.
+Tug is a macOS IDE for AI-assisted development. It runs Claude Code sessions, many at once, in one window, and keeps track of what each of them is doing, what each of them changed, and how big changes get from an idea to a commit on your main branch. This document describes each part of the app in turn, with the controls and keyboard chords for it. The [recipes](recipes.md) say how to do one thing at a time, and the [glossary](glossary.md) defines the words.
 
 The three verbs of the loop organize what follows. You **prompt** in session cards. You **monitor** through one graphical language and the sidebars. You **review** through attributed edits and arcs.
 
@@ -11,7 +11,7 @@ Tug needs a Mac with Apple silicon and macOS 14 Sonoma or later, plus two things
 - A paid Claude plan that includes Claude Code (Pro or Max; the free plan does not). First launch installs the `claude` program if needed and logs you in.
 - `git`, for changes and commits. If it is missing, setup offers to install Apple's Command Line Tools (about 3 GB). You can skip this at first and add `git` before your first commit.
 
-Open a project with File ▸ Open, or create a new session card with ⌘T and point it at a directory. Tug is beta software: expect rough edges and frequent changes.
+Press ⌘N, or choose File ▸ New Session, for a session card, and pick a project or an earlier session from the list it opens. Tug ▸ Configure Tug… runs setup again, and Tug ▸ Log Out… or `/logout` logs you out and returns you to it. Tug ▸ Check for Updates… fetches a new version; a build that cannot replace itself does not show the item. Tug is beta software: expect rough edges and frequent changes.
 
 ## The window: canvas, deck, cards
 
@@ -21,7 +21,7 @@ You never position a card by hand. The deck arranges cards under a scheme called
 
 ### Fit and Flow
 
-Slots resolve across the window in one of two ways, chosen in the Layout card.
+Slots resolve across the window in one of two ways, chosen in the Layout card (⌃⌘L). Neither has a chord or a menu item of its own.
 
 - **Fit** spreads the slots so every card is inside the window at once. When cards are wider than the window, neighbors overlap and the front one wins. Fit is for monitoring a deck of sessions.
 - **Flow** stands the cards side by side at their full widths and lets the row run past the window's edge. Activating a card slides the row just far enough to bring it into view, and a strip along the bottom draws the whole arrangement to scale. Flow is for reading one transcript.
@@ -33,7 +33,7 @@ A slot can hold more than one card.
 - By default the cards in a slot **stack**: they share one place, the front card is the one you see, and a layers badge in its masthead counts the ones behind it. Click the badge or press ⌘R for a picker of what is in the stack. ⌥⌘[ and ⌥⌘] step through it.
 - **Split** the slot instead when you want its cards in view at once, for instance a test log above the transcript driving it. The slot's height is divided among its cards, each lettered A, B, C from the top, with a seam to drag between them.
 
-⌃⌘/ toggles a slot between stack and split, so the choice is never a commitment. In a split slot, ⌃⌘↑ and ⌃⌘↓ move a card up or down, and ⌃⇧⌘↑ and ⌃⇧⌘↓ send it to the top or bottom.
+⌃⌘/, or Window ▸ Split or Stack Column, toggles a slot between stack and split, so the choice is never a commitment. In a split slot, ⌃⌘↑ and ⌃⌘↓ move a card up or down, and ⌃⇧⌘↑ and ⌃⇧⌘↓ send it to the top or bottom. ⌃⌘E, or View ▸ Equalize Heights, evens out one slot, and ⌥⇧⌘E, or View ▸ Equalize All Heights, every slot.
 
 ### Addresses
 
@@ -43,24 +43,24 @@ Every card shows its **address** in its masthead. The first part is the slot num
 
 - **By name.** Press the slot badge in a card's masthead and the whole arrangement opens as a picker, a miniature of the deck with every slot drawn. One click sends the card there. From the keyboard, ⌘1 through ⌘6 does the same. ⌥⇧⌘[ and ⌥⇧⌘] nudge a card one slot left or right.
 - **By hand.** Drag a card by its masthead. Exactly one drop zone lights at a time, the slot it will land in if you let go, and the zone snaps from slot to slot as the pointer crosses the deck. Escape cancels and the card goes home.
-- **Moving yourself.** ⌃⌘1 through ⌃⌘6 go to a slot, bringing it into view under Flow. ⇧⌘[ and ⇧⌘] step to the previous or next card across the deck. ⌥⌘ with an arrow key hands the keyboard to the card to the left, above, right or below.
+- **Moving yourself.** ⌃⌘1 through ⌃⌘6 go to a slot, bringing it into view under Flow. ⇧⌘[ and ⇧⌘] step to the previous or next card across the deck. ⌥⌘ with an arrow key hands the keyboard to the card to the left, above, right or below. The Go menu carries the same moves, with Reveal Stack and a Go to Slot row for each slot.
 
 ### Fold and Bullseye
 
 Two ways to concentrate without rebuilding the deck.
 
-- **Fold** (⌃⌘Y) collapses a card to its masthead. It keeps its slot, its address and its live readings, takes almost no room, and opens again on one press. In a split slot, folding makes a **wall**: open any card in the wall and its neighbors fold, so you read one at a time while the rest stay a glance away.
-- **Bullseye** (⌃⌘B) takes the focused card to the center of the window at a comfortable reading width and slides every other card off to the side it was on. It is a posture, not a rearrangement: it writes nothing to the layout. Click another card, move keyboard focus, or press the chord again and everything returns.
+- **Fold** (⌃⌘Y) collapses a card to its masthead. It keeps its slot, its address and its live readings, takes almost no room, and opens again on one press. View ▸ Fold Card is the same act. In a split slot, folding makes a **wall**: open any card in the wall and its neighbors fold, so you read one at a time while the rest stay a glance away.
+- **Bullseye** (⌃⌘B, or View ▸ Bullseye) takes the focused card to the center of the window at a comfortable reading width and slides every other card off to the side it was on. It is a posture, not a rearrangement: it writes nothing to the layout. Click another card, move keyboard focus, or press the chord again and everything returns.
 
 ### Workspaces
 
-A **workspace** is a named deck with its own arrangement and its own theme, one per project or per kind of work. The Window menu cuts between workspaces, and carries New, Rename, Duplicate and Delete. A parked workspace keeps every card exactly as you left it, so coming back to a project is a cut, not a rebuild. The Workspaces sidebar lists every workspace with the cards on each, and you can drop a session on another workspace to move it there.
+A **workspace** is a named deck with its own arrangement and its own theme, one per project or per kind of work. The Window menu cuts between workspaces, and carries New Workspace, Rename Workspace…, Duplicate Workspace and Delete Workspace; none has a chord. A parked workspace keeps every card exactly as you left it, so coming back to a project is a cut, not a rebuild. The Workspaces sidebar lists every workspace with the cards on each, and you can drop a session on another workspace to move it there.
 
 ### Zoom and themes
 
-⌘+ and ⌘− zoom the whole app from 50 to 200 percent, scaling layout, type and spacing together. ⌘0 returns to actual size, and ⌥⌘0 toggles between actual size and your zoom. Transcripts have a magnification of their own, so the words can be larger without the chrome growing with them.
+⌘+ (⌘= works too) and ⌘− zoom the whole app from 50 to 200 percent, scaling layout, type and spacing together. The View menu has all of these. ⌘0 returns to actual size, and ⌥⌘0 toggles between actual size and your zoom. Transcripts have a magnification of their own, under Transcript on the Sessions tab of Settings, so the words can be larger without the chrome growing with them.
 
-Ten **themes** ship, five dark (Ironclad, Caravel, Barque, Galleon, Collier) and five light (Sloop, Ketch, Skiff, Kayak, Pinnace). Each is a single tint hue laid over a shared tone skeleton, so every theme has the same structure and only the color changes, and all ten stay within a contrast budget that keeps text, links and controls legible. A workspace wears its theme on its own, so the color of the window tells you which project you are in. Choose a theme from the View menu, step to the next with ⇧⌘T, or apply one to every workspace at once.
+Ten **themes** ship, five dark (Ironclad, Caravel, Barque, Galleon, Collier) and five light (Sloop, Ketch, Skiff, Kayak, Pinnace). Each is a single tint hue laid over a shared tone skeleton, so every theme has the same structure and only the color changes, and all ten stay within a contrast budget that keeps text, links and controls legible. A workspace wears its theme on its own, so the color of the window tells you which project you are in. Choose a theme from View ▸ Theme, step to the next with ⇧⌘T, or give every workspace this one with View ▸ Apply To All Workspaces, which is lit only while some workspace wears a different theme.
 
 ## Session cards
 
@@ -68,7 +68,7 @@ A **session card** holds one Claude Code session as one scrolling document: the 
 
 ### The masthead
 
-The masthead carries, left to right: the session's **pulsing dot**, its name (which you can set with `/rename`), the address badges that say where it sits on the deck, a live activity **sparkline**, and two lines of narration written by the Observer: what the session is working on, and what it is doing right now to get there. Hover the masthead and its verbs unfurl from behind an ellipsis. Right-click the session's atom for its copy menu.
+The masthead carries, left to right: the session's **pulsing dot**, its name (which you can set with `/rename`), the address badges that say where it sits on the deck, a live activity **sparkline**, and two lines of narration written by the Observer: what the session is working on, and what it is doing right now to get there. Hover the masthead and its verbs unfurl from behind an ellipsis. Right-click the session's atom for its copy menu: Copy as Atom, Copy as Citation, Copy Session ID, Copy Description and, while it runs, Copy Activity Line. A summary button shows the session's summary, and another reveals the project folder in Finder.
 
 ### The transcript
 
@@ -76,65 +76,73 @@ Read it top to bottom. Your prompts, the model's replies, and each shell command
 
 When the model needs an answer or a permission, it asks in the transcript, with its options and Cancel and Submit buttons, and you answer there. The status row reads Awaiting and the dot turns yellow until you do.
 
-⌃⌘[ and ⌃⌘] move between turns; ⌃⇧⌘[ and ⌃⇧⌘] jump to the first and last.
+⌃⌘[ and ⌃⌘] move between turns; ⌃⇧⌘[ and ⌃⇧⌘] jump to the first and last. The Go menu has all four. `/copy` or Edit ▸ Copy Last Response copies the model's latest message, and `/export` or File ▸ Export Session… saves the whole transcript as Markdown or JSON Lines.
 
-**Find.** ⌘F opens a find bar under the transcript. Matches highlight as you type, the bar counts them ("3 of 12"), and the current one is brought into view. ⌘G and ⇧⌘G step to the next and previous match, Return and ⇧Return do the same from the field, and Escape closes the bar. ⌘E searches for whatever you have selected. Case, Word and Grep narrow the search, and they are one setting across the deck. The same bar finds in a Text card's file and in a help card, so this guide and the glossary can be searched too.
+**Find.** ⌘F opens a find bar under the transcript. Matches highlight as you type, the bar counts them ("3 of 12"), and the current one is brought into view. ⌘G and ⇧⌘G step to the next and previous match, Return and ⇧Return do the same from the field, and Escape closes the bar. ⌘E searches for whatever you have selected. Case, Word and Grep narrow the search, and they are one setting across the deck. The same bar finds in a Text card's file and in a help card, so every help document can be searched too.
 
 ### The status row
 
-Under the transcript, the status row reads out the session's **state** (Idle, Working, Thinking, Streaming, Awaiting, Compacting, Done, Error or Stopped), its elapsed time, its context window usage, its tasks as a fraction, and its background jobs as they appear, run and finish.
+Under the transcript, the status row reads out five things, and each opens a panel of detail when pressed: the session's **state**, its elapsed **time**, its **context** window usage, its **tasks** as a fraction, and its background **jobs** as they appear, run and finish. `/context`, `/tasks` and `/bashes` open the last three from the composer. A `/btw` side question's answers open from under this row too.
+
+The state reads one of: **Idle** or **Ready**, with no turn in flight; **Sending** and **Waiting**, on the way to the model; **Streaming** while it writes; **Working** while it runs tools; **Running** when a turn has ended and background work carries on; **Awaiting** when it needs your answer; **Interrupting** while a stop is on its way, and **Unanswered** if it goes unheeded; **Restoring** while an earlier session is read back; **Reconnecting** and **Disconnected** for the link to the session; and **Error**.
 
 ### The prompt entry
 
-The composer is at the bottom, where any messaging app puts it. ⌘K focuses it from anywhere in the card.
+The composer is at the bottom, where any messaging app puts it. ⌘K, or Session ▸ Focus Prompt, focuses it from anywhere in the card. It always talks to the model; a shell command, a side question or a search each has a slash command of its own, and there is no mode to switch into first.
 
+- **Sending.** ⇧Return or the send button sends, Return starts a new line, and a numeric keypad's Enter sends. Settings ▸ Sessions ▸ Prompt Editor swaps Return and ⇧Return, and keeps the keypad's Enter apart. While a turn runs the same key, or the **+** button beside Stop, queues the prompt, and the model picks it up at its next pause.
+- **Earlier prompts.** ⌥↑ and ⌥↓ walk your prompts wherever the caret is; ⌘↑ does so with the caret at the very start and ⌘↓ at the very end.
 - **Markdown styles itself as you type**: headings, bold, code, italics and task lists.
 - **Atoms paste intact.** Drop or paste a file, a commit, a session or an arc from anywhere in Tug and the prompt carries the same mark the rest of the app uses. A session atom becomes a session reference the model can read.
-- **Insert File…** (⇧⌘I) puts a file's contents or reference into the prompt.
+- **Files.** Type `@` and part of a name to pick a file. **Insert File…** (⇧⌘I, or the Session menu) picks one from a panel, and a dragged file lands the same way. `@` completes files only.
 - **Jots.** Drag a saved fragment from the Jots sidebar into the composer.
-- **Dictation.** ⌘D starts dictation into the composer; ⇧⌘D stops it and sends.
-- **Stop** a running turn from the masthead's verbs, or cancel with ⌘. or Escape.
-- **Quote and Unquote** (⌘' and ⇧⌘'), **Paste as Quote** (⌥⌘V) and **Paste as Plain Text** (⌥⇧⌘V) are in the Edit menu, with Make Uppercase and Make Lowercase.
+- **Dictation.** ⌘D or the microphone starts dictation into the composer, and ⌘D again stops it; ⇧⌘D stops it and sends. Session ▸ Start Dictation and Stop Dictation and Send are the same two acts. A microphone that cannot start says why on its hover.
+- **Stop.** The send button becomes a red Stop while a turn runs. It, ⌘. and Escape each take back the newest queued prompt first and stop the turn once the queue is empty, and an open sheet takes the Escape before any of that. Session ▸ Stop stops the turn. A taken-back prompt returns to the composer if the composer is empty.
+- **Routes.** ⌃⌘P is the prompt route and ⌃⌘C the Changes route, which the tabs on the card also choose. In the Changes route the composer is the commit message editor.
+- **Quote and Unquote** (⌘' and ⇧⌘'), **Paste as Quote** (⌥⌘V), **Paste as Plain Text** (⌥⇧⌘V), **Copy as Plain Text** (⌥⇧⌘C), **Make Uppercase** (⌥⌘U) and **Make Lowercase** (⌥⌘L) are in the Edit menu.
 
 ### Slash commands and the command picker
 
-⌘/ opens the command picker. Commands the model understands are typed into the composer with a leading slash. The ones you will use most:
+⌘/, or Session ▸ Open Command Picker, opens the command picker; typing `/` at the start of an empty composer does the same, and anywhere else `/` is an ordinary character. `/help` opens a sheet of the commands, and `/skills` and `/agents` list what your project adds. A command the app and the session do not know brings up an **Unknown Command** alert rather than spending a turn. By kind:
 
-- `/arc <idea or brief path>` opens an arc (see Arcs below). `/arc-run <name>` resumes a stopped one. `/arc-join <name>` and `/arc-discard <name>` land or abandon one.
-- `/tugplug:brief` writes the conversation's settled findings and decisions as a brief.
-- `/btw <question>` asks a side question without disturbing the work in hand.
-- `/compact` reduces the session's context. `/new` starts a fresh session on the same card. `/model` switches the model. `/rename <name>` names the session.
+- **Arcs.** `/arc <idea or brief path>` opens one (see Arcs below). `/arc-bind <name>` binds this card to one, and `/arc-join <name>` lands one. `/arc-review` reviews a plan.
+- **Documents and charts.** `/tugplug:brief` writes the conversation's settled findings and decisions as a brief. `/tugplug:viz` draws a chart, and `/data-visualization` (⌃⌘V) shows every chart recipe.
+- **Asking and looking aside.** `/btw <question>` asks a side question without disturbing the work in hand. `/shell <command>` runs one shell command. `/match <name>` and `/search <text>` find files and lines as numbered rows, and `/ref 3` opens rows by number.
+- **The conversation.** `/compact` reduces the session's context, and `/rewind` cuts back to an earlier message. `/clear`, `/new` or `/reset` starts a fresh session on the same card, and `/resume` or `/continue` brings an earlier one back. `/rename <name>` or `/name` names the session and `/unname` clears it. `/private` keeps it out of the Overview. `/copy` and `/export` copy and save it.
+- **Its settings.** `/ai` (⌃⌘I) opens the AI settings, with `/model`, `/effort` and `/mode` at their own rows. `/permissions` or `/allowed-tools` edits the tool rules. `/cd <path>` or `/change-directory` moves the card to another directory, and `/add-dir` gives it a second one. `/memory` and `/hooks` open what those name.
+- **Its readings.** `/context`, `/tasks`, `/bashes`, `/usage` (⌃⌘U) and `/diff`.
+- **Landing.** `/commit` opens the commit editor and `/push` pushes the branch.
 
 ### Model and permission mode
 
-The model menu in the card chooses which Claude model the session runs on. ⌃⌥⌘P cycles the permission mode, which decides how much the model may do without asking: Default asks before it edits or runs anything consequential, Accept Edits lets file edits through, Plan has it plan without changing anything, and Auto lets it decide which actions are safe on its own. Bypass, which asks for nothing, is never in the cycle; choose it from the mode chip's sheet if you mean it. A card on an arc may be running a different model for the current stage; it returns to your own when the stage ends.
+The **AI Model Settings** chip, ⌃⌘I, `/ai` or Session ▸ AI Settings… open one sheet that holds the model, the effort and the permission mode, and it refuses while a turn is running. ⌃⌥⌘P or Session ▸ Cycle Permission Mode cycles the permission mode, which decides how much the model may do without asking: Default asks before it edits or runs anything consequential, Accept Edits lets file edits through, Plan has it plan without changing anything, and Auto lets it decide which actions are safe on its own. Bypass, which asks for nothing, is never in the cycle; choose it in the AI settings sheet if you mean it. ⇧Tab moves the keyboard between the card's controls and does not touch the mode. Rules for single tools are apart, in `/permissions` or Session ▸ Permission Rules…. A card on an arc may be running a different model for the current stage; it returns to your own when the stage ends.
 
 ### Narration and questions
 
-Every session's masthead says what the session is doing. The narrator, the **Observer**, writes those lines and posts a digest of each session's progress to the Overview sidebar. It only narrates. Questions go to the **Operator**, in the Overview's composer: ask it how Tug works or what any session did, today or last week. It answers from what Tug has recorded and from this guide and the glossary, and links each answer to what it rests on.
+Every session's masthead says what the session is doing. The narrator, the **Observer**, writes those lines and posts a digest of each session's progress to the Overview sidebar. It only narrates. Questions go to the **Operator**, in the Overview's composer: ask it how Tug works or what any session did, today or last week. It answers from what Tug has recorded and from this guide, the recipes and the glossary, and links each answer to what it rests on.
 
 ## Other cards
 
-What a session works with opens beside it, on the same deck, rather than in another app. A file, a diff, a screenshot or a PDF the model mentions opens as a card in a slot next to the session. File ▸ New Text File, Open File…, Open Quickly…, Open Diff and Open Commit open them by hand. ⌘T makes a new card in the active pane. ⌘W closes a card; ⌥⌘W closes every card in its stack.
+What a session works with opens beside it, on the same deck, rather than in another app. A file, a diff, a screenshot or a PDF the model mentions opens as a card in a slot next to the session. File ▸ New Text File (⌥⌘N), Open File… (⌘O), Open Quickly… (⇧⌘O) and Open Recent open files by hand, `/diff` or Session ▸ Show Project Diff opens the project diff, and a commit atom opens its commit on a click. ⌘T makes a new card in the active pane. ⌘W or File ▸ Close closes a card; ⌥⌘W or File ▸ Close All Tabs closes every card in its stack.
 
-- **Text card.** A CodeMirror editor with line numbers, a find bar (⌘F), and a status bar. Save with ⌘S, or turn on autosave in Card Settings. Save As… (⇧⌘S), Save a Copy…, Revert to Saved and Reload from Disk are in the File menu. If the file changes on disk while you have unsaved edits, the card says so and lets you choose.
+- **Text card.** A CodeMirror editor with line numbers, a find bar (⌘F), and a status bar. Save with ⌘S, or turn on autosave in Card Settings. Save As… (⇧⌘S), Save a Copy…, Revert to Saved and Reload from Disk are in the File menu. Settings ▸ Text Files holds the defaults. If the file changes on disk while you have unsaved edits, the card says so and lets you choose.
 - **Diff card.** The project diff, inline or side by side, whole or scoped to a path, a range or a commit.
-- **Image card.** A picture fit to the card, filling it, or at actual size. A click opens it full screen.
-- **PDF card.** A document page by page, continuous, single or two-up, at any zoom. The arrow and page keys turn pages.
+- **Image card.** A picture at Fit, Fill or Actual Size, over a Checkerboard, Surface, Black or White background. A click opens it full screen. Read-only.
+- **PDF card.** A document as Continuous, Single Page or Two Pages, at Fit Width, Fit Page or Actual Size. The arrow and page keys turn pages. Read-only.
 - **Commit card.** One commit's full record: message, trailers, and files with their diffs.
-- **Settings** (⌘,), **Keyboard Shortcuts** (⌃⌘K), **About** and the two **help** cards (this guide and the glossary, from the Help menu) round out the set. Card Settings… in a card's menu holds the per-kind preferences for text, image and PDF cards.
+- **Settings** (⌘,), **Keyboard Shortcuts** (⌃⌘K), **About** and the three **help** cards (this guide, the recipes and the glossary, from the Help menu) round out the set. Settings has four tabs: General, Sessions, Text Files and Viewer Cards. Keyboard Shortcuts shows every command, its chord and any chord that shadows it, and rebinds the ones that are yours to change. Card Settings… in a card's menu holds the same preferences for that one text, image or PDF card.
 
-Reveal in Finder is in the File menu for any card backed by a file.
+Reveal in Finder is in the card's menu for any card backed by a file.
 
 ## Sidebar cards
 
-Sidebar cards pin to the **rails** along the window's left and right edges rather than taking a slot. ⌃⌘← and ⌃⌘→ show a rail or hand it the keyboard, ⌃⌘S hides and shows the sidebars, and ⌥⇧⌘S resizes them to fit. Where each sidebar sits is set in the Layout card.
+Sidebar cards pin to the **rails** along the window's left and right edges rather than taking a slot. ⌃⌘← and ⌃⌘→ show a rail or hand it the keyboard, ⌃⌘S hides and shows the sidebars, and ⌥⇧⌘S resizes them to fit. ⌃⌘O, ⌃⌘R, ⌃⌘J, ⌃⌘W and ⌃⌘L show the Overview, Arcs, Jots, Workspaces and Layout one by one, and the View menu has a row for each. Where each sidebar sits is set in the Layout card.
 
 - **Overview.** The narration channel. One feed reports every session's progress across every project as it happens, each post timestamped and carrying its session's atom. Its composer asks the Operator, which answers questions about how Tug works and about what any session did.
-- **Arcs.** Every arc in every open project, with its lifecycle strip, the stage in hand lit, and each step's progress, plus the verbs to run, stop, join, replay or discard it. An arc that has stopped reads as a red cell before you read why. File ▸ Reveal Arcs brings it up.
-- **Jots.** Prompt fragments you find yourself typing again, filterable, ready to drag into any composer. ⌘J makes a new one.
+- **Arcs.** Every arc in every open project, with its lifecycle strip, the stage in hand lit, and each step's progress, plus its verbs in one order: its next step (**Start**, **Stop**, **Resume** or **Join**), **Changes**, **Bind** or **Unbind**, **Replay** and **Discard**. A refused verb stays and says why on its hover. An arc that has stopped reads as a red cell before you read why.
+- **Jots.** Prompt fragments you find yourself typing again, filterable, ready to drag into any composer. ⌘J or File ▸ New Jot makes a new one, and so does the **+**. Arrows walk the rows and Return opens one to edit, and each row has a **Copy** and a **✕**.
 - **Workspaces.** The map of everything open: every workspace, and under it every card on that workspace's deck, grouped by kind. A session's row shows its name, the line that says what it is for, its latest activity and its state dot, with slot badges for where it sits. The open eye marks the workspace you are in; the others show a closed eye. Click a row to bring its card to the front, filter the list to find a session, drag rows to reorder cards and workspaces, or drop a session on another workspace to move it there.
-- **Layout** (⌃⌘L). A to-scale miniature of the deck you can press and hover, with rows for slot count, Fit or Flow, card width, gap, zoom and sidebar placement.
+- **Layout** (⌃⌘L). A to-scale miniature of the deck you can press and hover, with rows for slot count (One Up to Six Up), Fit or Flow, card width (Slim, Comfy or Wide), gap (Snug, Cozy or Roomy), zoom and sidebar placement.
 
 ## One graphical language
 
@@ -158,12 +166,14 @@ What this buys: three sessions can run on main at once, each committing its own 
 
 ⌃⌘C shows the Changes tab on a session card. It sorts the checkout into this session's changes, unattributed changes, orphaned changes and the arcs in flight, with a status mark, a line count and a diff on every file, and a checkbox on every hunk.
 
-- **Claim** brings a file or a hunk into this session; **Disclaim** lets it go. ⌃⌘A claims everything, ⌃⇧⌘A disclaims everything.
+- **Claim** brings a file or a hunk into this session; **Disclaim** lets it go. **Claim all** and **Disclaim all** take a section; ⌃⌘A claims everything, ⌃⇧⌘A disclaims everything. The chords are live only while the tab is up.
 - A commit takes exactly this session's work by default. Anything unattributed or shared starts unchecked, so nothing lands that you did not decide on.
 - **Generate a Commit Message** (⌃⌘M) drafts one from the diff and the session's prompts, word by word into the composer: a subject, a paragraph, and bullets. Edit it or send it as is.
 - Press Commit. The tab drops and the commit's receipt lands in the transcript with its hash, message and files. The commit itself carries the session that made it, and the arc if any, as trailers.
 
-⌃⌘H shows the commit history. A push and any other landing you make from the card is recorded the same way, and the model is told of it on its next turn.
+**Push** in the header, showing only while the branch is ahead of its upstream, is the same act as `/push`, and a button opens the whole diff in a card. ⌃⌘C, `/commit` or Session ▸ Commit Changes enters the commit editor, setting aside a prompt you had typed; ⌃⌘P or Escape leaves it and brings the prompt back. A commit is never made by a chord alone.
+
+⌃⌘H or Session ▸ Show Commit History shows the commit history, with a **Filter commit history** field whose **Hash**, **Message**, **Detail** and **Files** toggles say where it looks, **Author**, **Date** and **Time** to choose what a row shows, and **Done** to close it. A push and any other landing you make from the card is recorded the same way, and the model is told of it on its next turn.
 
 ### Edits with receipts
 
@@ -197,13 +207,13 @@ Every hand-off is checked by machine. A stage that ends without what it owed sto
 
 ### Stops and resumes
 
-An interrupted arc always ends in a state the receipt can name and a gesture that picks it back up. The receipt reads `arc stopped · <name> · in <stage> — <why>`, and carries a Resume button; `tugtool arc run <name>` or `/arc-run <name>` is the same act typed. Among the reasons: `needs a decision` (the stage met a choice that is yours, and wrote its question as the arc's last note), `stopped by user`, `card taken` (you started a new session on the card), `card closed`, `stalled` (a turn that never ended, judged by a half-hour clock), and `implement idle` (the stage was asked twice and closed no step).
+An interrupted arc always ends in a state the receipt can name and a gesture that picks it back up. The receipt reads `arc stopped · <name> · in <stage> — <why>`, and carries a Resume button; `tugtool arc run <name>` is the same act from a shell. Among the reasons: `needs a decision` (the stage met a choice that is yours, and wrote its question as the arc's last note), `stopped by user`, `card taken` (you started a new session on the card), `card closed`, `stalled` (a turn that never ended, judged by a half-hour clock), and `implement idle` (the stage was asked twice and closed no step).
 
 You can take the card back at any time: a prompt typed into a stage during implement redirects it, and `/btw` asks a side question without disturbing anything.
 
 ### Replay: main keeps moving
 
-As your main branch advances, Tug replays the arc's commits onto it automatically, whenever the arc's worktree is clean, no join is in flight, and no bound session is mid-turn. A clean replay interrupts nobody: it leaves a line in the arc log and a settled mark on the Arcs row. A conflicted replay becomes an ordinary turn on the arc's bound session, which resolves it with the whole tree and the tests in hand. By the time the arc is finished it already fits the main you have now. The Arcs sidebar has a Replay verb to run one by hand, and a replay can be undone.
+As your main branch advances, Tug replays the arc's commits onto it automatically, whenever the arc's worktree is clean, no join is in flight, and no bound session is mid-turn. A clean replay interrupts nobody: it leaves a line in the arc log and a settled mark on the Arcs row. A conflict on an arc still being walked is a mark on its row and nothing more: the arc's audit replays it onto the live base and resolves what conflicts there as ordinary rounds, with the worktree and the tests in hand. So the arc that reaches you already fits the main you have now. The Arcs sidebar has a Replay verb to run one by hand, `tugtool arc replay <name>` is the same act, and a replay can be undone.
 
 ### The join
 
@@ -211,11 +221,11 @@ A **join** is the merge back to main, done by Tug and asked for by you. The mode
 
 The join resolves nothing, because there is nothing left to resolve: an arc reads ready only while its audit stands on the live base, so its fit was verified against exactly the tree the join lands. If the base moves under it, or a round lands after the audit, the arc goes back to its audit on the Wheel, which fits it to the new base in the transcript, and the join offer comes back when the audit marks again. Tug checks that the base is clean where it meets the arc's files, then lands the whole arc as one commit with the join draft as its message and a `Tug-Arc:` trailer, leaves one receipt in the transcript, and removes the branch and the worktree. You never open a terminal to merge, prune or delete anything.
 
-Nothing here is a one-way door. `/arc-discard <name>` ends an arc without landing it, copying its uncommitted work back to you and keeping its documents. A join, a replay or a discard can be undone.
+Nothing here is a one-way door. **Discard** on the arc's row in the Arcs sidebar, or `tugtool arc discard <name>`, ends an arc without landing it, copying its uncommitted work back to you and keeping its documents. `tugtool arc undo` reverses a join, a replay or a discard.
 
 ### Arcs from the command line
 
-Everything the Arcs sidebar does has a `tugtool arc` verb: `list`, `status`, `record`, `show`, `run`, `stop`, `replay`, `join`, `discard`, `documents`. A session can read another session's transcript with `tugtool session show <uuid>`, read-only.
+Everything the Arcs sidebar does has a `tugtool arc` verb: `list`, `status`, `record`, `show`, `run`, `stop`, `replay`, `join`, `discard`, `undo`, `redo`, `documents`. A session can read another session's transcript with `tugtool session show <uuid>`, read-only.
 
 ## Keyboard shortcuts
 
@@ -223,6 +233,8 @@ The Keyboard Shortcuts card (⌃⌘K) lists everything. The ones that matter mos
 
 | Chord | What it does |
 |---|---|
+| ⌘N / ⌥⌘N | New session card; new text file |
+| ⌘O / ⇧⌘O | Open File…; Open Quickly… |
 | ⌘T | New card in the active pane |
 | ⌘W / ⌥⌘W | Close the card, or every card in its stack |
 | ⌘1 … ⌘6 | Move the focused card to slot 1 through 6 |
@@ -235,36 +247,46 @@ The Keyboard Shortcuts card (⌃⌘K) lists everything. The ones that matter mos
 | ⌃⌘↑ / ⌃⌘↓ | Move the card up or down within its split slot |
 | ⌃⇧⌘↑ / ⌃⇧⌘↓ | Move the card to the top or bottom of its split slot |
 | ⌃⌘/ | Split or stack the slot |
+| ⌃⌘E / ⌥⇧⌘E | Equalize one slot's heights; every slot's |
 | ⌃⌘Y | Fold or unfold the card |
 | ⌃⌘B | Bullseye the focused card, or leave Bullseye |
 | ⌃⌘← / ⌃⌘→ | Show the left or right rail, or hand it the keyboard |
 | ⌃⌘S / ⌥⇧⌘S | Hide or show the sidebars; resize them to fit |
-| ⌃⌘L | Show the Layout card |
-| ⌘+ / ⌘− / ⌘0 / ⌥⌘0 | Zoom in, zoom out, actual size, toggle actual size |
+| ⌃⌘O / ⌃⌘R / ⌃⌘J / ⌃⌘W / ⌃⌘L | Show the Overview, Arcs, Jots, Workspaces or Layout |
+| ⌘+ or ⌘= / ⌘− / ⌘0 / ⌥⌘0 | Zoom in, zoom out, actual size, toggle actual size |
 | ⇧⌘T | Next theme |
 | ⌘K | Focus the prompt |
 | ⌘/ | Open the command picker |
 | ⇧⌘I | Insert a file into the prompt |
 | ⌘D / ⇧⌘D | Start dictation; stop dictation and send |
-| ⌘. or Escape | Cancel |
+| ⌘. or Escape | Cancel; take back a queued prompt, then stop the turn |
+| ⌥↑ / ⌥↓ | Earlier or later prompt |
+| ⌘' / ⇧⌘' | Quote; Unquote |
+| ⌥⌘V / ⌥⇧⌘V / ⌥⇧⌘C | Paste as Quote; Paste as Plain Text; Copy as Plain Text |
+| ⌥⌘U / ⌥⌘L | Make Uppercase; Make Lowercase |
 | ⌃⌘[ / ⌃⌘] | Previous or next turn |
 | ⌃⇧⌘[ / ⌃⇧⌘] | First or last turn |
 | ⌘F / ⌘G / ⇧⌘G / ⌘E | Find; find next; find previous; use selection for find |
-| ⌃⌘C | Show the session's Changes tab |
+| ⌃⌘P / ⌃⌘C | The prompt route; the session's Changes tab |
 | ⌃⌘M | Generate a commit message |
 | ⌃⌘A / ⌃⇧⌘A | Claim or disclaim all changes |
 | ⌃⌘H | Show the commit history |
 | ⌃⌥⌘P | Cycle the permission mode |
+| ⌃⌘I | AI settings |
+| ⌃⌘U / ⌃⌘V | Usage; Data Visualization |
 | ⌘J | New jot |
 | ⌘S / ⇧⌘S | Save; Save As… |
 | ⌘, | Settings |
 | ⌃⌘K | Keyboard Shortcuts |
 | ⌃⌘F | Enter full screen |
+| ⌘M | Minimize |
+| ⌘H / ⌥⌘H | Hide Tug; Hide Others |
+| ⌘Q | Quit |
 | ⌥Tab | Cycle the focus mode |
 
 ## Getting help
 
-- **Help ▸ Tug Help** opens this guide as a card, and **Help ▸ Glossary** opens the glossary. Links between them open the other card.
-- **Ask the Overview.** The Overview's composer asks the Operator, which answers questions about how the app works from these two documents, as well as questions about your projects, and links to the passage it answered from.
+- **Help ▸ Tug Help** opens this guide as a card, **Help ▸ How Do I…** opens the recipes, one per thing a person does, and **Help ▸ Glossary** opens the glossary. A link from one opens another's card.
+- **Ask the Overview.** The Overview's composer asks the Operator, which answers questions about how the app works from these documents, as well as questions about your projects, and links to the passage it answered from.
 - **Help ▸ Keyboard Shortcuts & Commands** opens the `/help` sheet in the session card, listing its slash commands.
 - **⌃⌘K** opens the Keyboard Shortcuts card, which lists every chord.

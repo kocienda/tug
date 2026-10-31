@@ -2316,13 +2316,15 @@ fn help_dir(ctx: &OperatorContext) -> Result<&Path, String> {
         .ok_or_else(|| "the help documents are not available in this build".to_string())
 }
 
-/// The `doc` argument: `features` or `glossary`, or `None` for both.
+/// The `doc` argument: `features`, `recipes` or `glossary`, or `None` for all.
 fn help_doc_arg(args: &Value) -> Result<Option<HelpDoc>, String> {
     let Some(name) = opt_str(args, "doc")? else {
         return Ok(None);
     };
     HelpDoc::from_name(name).map(Some).ok_or_else(|| {
-        format!("doc {name:?} is not a help document; the documents are features and glossary")
+        format!(
+            "doc {name:?} is not a help document; the documents are features, recipes and glossary"
+        )
     })
 }
 
@@ -2349,7 +2351,7 @@ fn help_unit_json(doc: HelpDoc, unit: &HelpUnit, text: &str, max_bytes: usize) -
     })
 }
 
-/// `help.outline` — the feature guide's headings and the glossary's terms.
+/// `help.outline` — the guide's and the recipes' headings, and the glossary's terms.
 ///
 /// The map of the app's own documentation, so a question about a part of Tug
 /// can be aimed at the section or the entry that answers it. Each row carries
@@ -2366,7 +2368,7 @@ fn help_outline(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
         let (_, units) = help_units(dir, doc)?;
         count += units.len();
         out[doc.name()] = match doc {
-            HelpDoc::Features => json!(
+            HelpDoc::Features | HelpDoc::Recipes => json!(
                 units
                     .iter()
                     .map(|u| json!({ "level": u.level, "heading": u.title, "anchor": u.anchor }))
@@ -2384,7 +2386,7 @@ fn help_outline(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     Ok(out)
 }
 
-/// `help.read` — one glossary entry, one feature-guide section, or a whole
+/// `help.read` — one glossary entry, one recipe, one feature-guide section, or a whole
 /// document.
 ///
 /// A section is read with the sections nested under it, so reading `Arcs`
@@ -2394,7 +2396,7 @@ fn help_outline(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
 fn help_read(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let dir = help_dir(ctx)?;
     let doc = help_doc_arg(args)?
-        .ok_or_else(|| "argument \"doc\" is required: features or glossary".to_string())?;
+        .ok_or_else(|| "argument \"doc\" is required: features, recipes or glossary".to_string())?;
     let name = match opt_str(args, "entry")? {
         Some(name) => Some(name),
         None => opt_str(args, "heading")?,
@@ -2434,10 +2436,10 @@ fn help_read(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     }
 }
 
-/// `help.search` — full text across both documents, returning whole entries
+/// `help.search` — full text across every document, returning whole entries, recipes
 /// and sections.
 ///
-/// A hit is a retrieval unit rather than a line, because a glossary entry or a
+/// A hit is a retrieval unit rather than a line, because a glossary entry, a recipe or a
 /// section is the smallest passage that answers a question about the app.
 ///
 /// Hybrid when the semantic index can answer, BM25 and meaning fused by rank. The
@@ -2498,7 +2500,7 @@ async fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Strin
     let mut out = json!({ "query": query, "hits": rows, "count": count });
     if count == 0 {
         out["note"] = json!(
-            "no passage holds those words; help.outline lists the glossary's terms and the guide's headings"
+            "no passage holds those words; help.outline lists the glossary's terms and the guide's and the recipes' headings"
         );
     } else if !any_terms {
         out["note"] = json!(
@@ -7415,8 +7417,8 @@ mod tests {
 
         let err = run_verb(&f.ctx, "help.read", &json!({"doc": "../CLAUDE.md"}))
             .await
-            .expect_err("only the two documents");
-        assert!(err.contains("features and glossary"), "{err}");
+            .expect_err("only the three documents");
+        assert!(err.contains("features, recipes and glossary"), "{err}");
         let err = run_verb(&f.ctx, "help.read", &json!({}))
             .await
             .expect_err("doc is required");
@@ -7444,7 +7446,10 @@ mod tests {
         );
         for hit in hits {
             assert!(hit["anchor"].as_str().is_some_and(|a| !a.is_empty()));
-            assert!(matches!(hit["kind"].as_str(), Some("entry" | "section")));
+            assert!(matches!(
+                hit["kind"].as_str(),
+                Some("entry" | "section" | "recipe")
+            ));
         }
 
         let glossary_only = run_verb(
@@ -8467,8 +8472,14 @@ mod tests {
             assert!(hit["anchor"].as_str().is_some_and(|a| !a.is_empty()));
             assert!(hit["text"].as_str().is_some_and(|t| !t.is_empty()));
             assert!(hit["truncated"].is_boolean());
-            assert!(matches!(hit["kind"].as_str(), Some("entry" | "section")));
-            assert!(matches!(hit["doc"].as_str(), Some("glossary" | "features")));
+            assert!(matches!(
+                hit["kind"].as_str(),
+                Some("entry" | "section" | "recipe")
+            ));
+            assert!(matches!(
+                hit["doc"].as_str(),
+                Some("glossary" | "features" | "recipes")
+            ));
             // A hit is a whole unit, so its ref resolves as the plain search's do.
             let target = format!(
                 "{}#{}",

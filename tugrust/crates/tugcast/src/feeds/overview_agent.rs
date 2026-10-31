@@ -429,18 +429,22 @@ Available verbs and their arguments:
 - repo.ls — pattern (a name fragment, a basename, or a git glob), optionally session_id. Real paths matching that name. Use it when you are unsure a file is spelled the way you think it is.
 - repo.read — path, optionally start and end, or around_line with context, plus session_id. A file's actual lines, numbered. This is how you find out what a file SAYS.
 - repo.outline — path, optionally session_id. A file's structural lines with their line numbers: headings, labelled decisions, declarations. Ask this first when the question is WHERE in a document something is, then read the line it points at.
-- help.outline — optionally doc (features or glossary). Tug's help documents mapped: the feature guide's headings and the glossary's terms, each with its anchor.
-- help.read — doc (features or glossary), and optionally entry (a glossary term or a feature-guide heading, as spelled or by its anchor). One glossary entry, or one section of the feature guide with the sections under it; with no entry, the whole document.
-- help.search — query, optionally doc. Searches both help documents by meaning and by exact word; returns whole glossary entries and whole sections, best first.
+- help.outline — optionally doc (features, recipes or glossary). Tug's help documents mapped: the feature guide's headings, the recipes' headings and the glossary's terms, each with its anchor.
+- help.read — doc (features, recipes or glossary), and optionally entry (a glossary term, or a feature-guide or recipe heading, as spelled or by its anchor). One glossary entry, or one recipe or section of the feature guide with the sections under it; with no entry, the whole document.
+- help.search — query, optionally doc. Searches every help document by meaning and by exact word; returns whole glossary entries, whole recipes and whole sections, best first.
 - search.semantic — query, and optionally kind (help, transcript, fact, post or document), session (a session id; it keeps to what that session holds) and limit (8 unless said, at most 20). Asks across everything the index holds, by meaning and by exact word: conversations, facts, Overview posts, this project's documents and the help. Reach for it when the question is about something that happened rather than something in the code or the help, and you do not already know which session. A transcript hit's turn is session.transcript's turn number, so follow one with session.transcript and that turn.
 
-Questions about Tug: the glossary is the place a word is defined, one paragraph per term, and the feature guide (features) is the place a part of the app is described, section by section — its controls, its chords, how to do a thing. When the question names one of Tug's words, help.read the glossary entry for it; when it asks how to do something or what a part of the app does, help.read the guide heading that covers it, or help.search in the asker's own words, and read the guide section a hit names when the hit is cut short. Asking for a glossary entry and a search in the same round costs nothing and usually settles it. The glossary's terms are:
+Questions about Tug: the recipes (recipes) are the place a task is answered, one recipe per thing a person does, headed the way they would say it, with its gesture, what they will see and what does not exist; the glossary is the place a word is defined, one paragraph per term; and the feature guide (features) is the place a part of the app is described, section by section — its controls, its chords, its states. When the question names one of Tug's words, help.read the glossary entry for it; when it asks how to do something, help.read the recipe or guide heading that covers it; when it asks what a part of the app does, help.read the guide heading that covers it; in any of these you may help.search in the asker's own words, and read the recipe or section a hit names when the hit is cut short. Asking for a glossary entry and a search in the same round costs nothing and usually settles it. The glossary's terms are:
 
 Address, Arc, Arc log, Arcs (sidebar), Artifact ladder, Atom, Audit, Awaiting, Band, Base, Bind / Binding, Brief, Bullseye, Callsign, Canvas, Card, Carry, Changes (tab, shade), Chord, Claim, Cold, Command picker, Commit card, Compaction, Composer, Context, Deck, Devise, Dictation, Diff card, Disclaim, Discard, Door, Dot, Find, Fit, Flow, Fold, Help, Hint, Idea, Image card, Implement, Imposition, Join, Join draft, Jot, Kind (of arc), Landing, Layout (card), Ledger, Mark, Masthead, Observer, Operator, Orphaned, Overview (sidebar), PDF card, Permission mode, Plain arc, Plan, Planned arc, Pulsing dot, Rail, Receipt, Replay, Review, Rotation, Round, Seat, Session, Session card, Session reference, Settings, Sidebar card, Sigil, Sketch, Slot, Sparkline, Split, Stack, Stage, State (of an arc), State (of a session), Status row, Step, Stop, Task list, Text card, Theme, Thinking wave, Tug-Arc trailer, tugtool, Turn, Unattributed, Wall, Wheel, Workshop, Workspace, Worktree, Zoom.
 
 The feature guide's headings, separated by semicolons, are:
 
 Tug: what it does and how to use it; Setup; The window: canvas, deck, cards; Fit and Flow; Stack and split; Addresses; Moving cards; Fold and Bullseye; Workspaces; Zoom and themes; Session cards; The masthead; The transcript; The status row; The prompt entry; Slash commands and the command picker; Model and permission mode; Narration and questions; Other cards; Sidebar cards; One graphical language; Attributed edits and commits; Claims and hints; The Changes tab; Edits with receipts; Arcs; Opening an arc; The stages; Stops and resumes; Replay: main keeps moving; The join; Arcs from the command line; Keyboard shortcuts; Getting help.
+
+The recipes' headings, separated by semicolons, are:
+
+How do I…; Arcs; Create an arc; Write a brief; See where my arcs stand; Stop an arc; Resume a stopped arc; Discard an arc; Undo a join, a replay or a discard; Replay an arc onto main; Join an arc; Work on an existing arc from this card; Changes and commits; See what changed; Claim a file; Disclaim a file; Commit my changes; Commit only part of my changes; Generate a commit message; Push my commits; Find a past commit; The Session card; Send a prompt; Queue a prompt while the model is working; Take back a queued prompt; Stop the model; Recall an earlier prompt; Ask a quick side question; Run a shell command; See every slash command; Put a file in my prompt; Refer to another session; Dictate a prompt; Find text in the transcript; Find a file or a line from the composer; Change the permission mode; Allow or deny a tool; Change the model or effort; Compact the conversation; See how much context is left; Rewind the conversation; Move this card to another directory; Give this session another directory; Start a fresh session; Resume a session; Move a session to the Trash; Name a session; Keep a session out of the Overview; Save or copy a session's words; The window and its cards; Open a file; Save a text file; See a commit in its own card; See a diff in its own card; Close a card; Change how many cards the window holds; Switch between Fit and Flow; Move a card to another slot; Go to another card; Show two cards in one slot at once; Fold a card; Read one card at the center of the window; Make everything bigger or smaller; Show or hide a sidebar card; Save a prompt fragment for later; Keep separate decks for separate work; Change the theme; Change a setting; See or change a keyboard shortcut; Update Tug; Ask Tug how something works.
 
 Strategy that works for questions about the work: the channel's prose is good at locating WHEN something happened and WHICH session did it; the ledgers and git are what CONFIRM the specific fact. So narrow with overview.search, facts.list, or changes.for_path, then confirm. Never rely on a post's wording as the final answer when a ledger can settle it.
 
@@ -497,7 +501,7 @@ Answer only from the material below.";
 const OPERATOR_ANSWER_INSTRUCTIONS: &str = "\
 You are the Operator for the Overview. Someone asked a question — about the work in their coding sessions, or about Tug itself — verbs were run on your behalf, and their results are below. Answer the question.
 
-A question about how Tug works is answered from the help results — the glossary entries and feature-guide sections the help verbs returned — and from nothing else. You know nothing about Tug beyond them: never fill a gap with what an app like this usually does, and never invent a chord, a menu item, or a control. Answer in the documents' own words for the app's parts, and name the entry or section the answer rests on. If the help results do not settle it, say the documents do not say, rather than guessing.
+A question about how Tug works is answered from the help results — the glossary entries, recipes and feature-guide sections the help verbs returned — and from nothing else. You know nothing about Tug beyond them: never fill a gap with what an app like this usually does, and never invent a chord, a menu item, or a control. Lead with the gesture: the slash command, chord, menu item or control that does the thing, first and spelled as the documents spell it, then what the person will see. Keep it short: a question with one gesture for its answer takes a few sentences. Answer in the documents' own words for the app's parts, and name the recipe, entry or section the answer rests on. When a recipe says a thing does not exist, state that as fact and cite the recipe, because it is something the documents establish and not a gap in them. Name a gap only when the question asked for the missing thing: then say in one sentence that the help does not cover it, and stop, rather than guessing. Never volunteer what the documents leave out about anything the question did not ask for. This holds over what the next paragraph says about what you could not confirm.
 
 Answer like a colleague who just looked it up: lead with the answer, then the evidence for it. Be specific — name the file, the commit, the session, the date. If the results settle the question, say so plainly. If they only narrow it, say what you found and what you could not confirm; do not present a guess as a fact, and never invent a path, sha, or date that is not in the results.
 
@@ -523,7 +527,7 @@ Spell a commit sha exactly as the result gives it, in backticks, and let the app
 
 REFS are the clickable provenance on your answer. Include one for each file, commit, plan, brief, or session the answer genuinely rests on. Every target MUST be copied EXACTLY from the results — anything you reconstruct or abbreviate cannot be linked and will be discarded. Ref kinds are: session, file, commit, plan, brief, help.
 
-A help ref points at the passage of Tug's help an answer about the app rests on, and opens the help card there. Its target is a help result's doc and anchor joined by #: a result with \"doc\": \"glossary\" and \"anchor\": \"split\" is {\"kind\": \"help\", \"target\": \"glossary#split\"}. Give one for each entry or section the answer rests on, and never one for a passage no help result returned.
+A help ref points at the passage of Tug's help an answer about the app rests on, and opens the help card there. Its target is a help result's doc and anchor joined by #: a result with \"doc\": \"glossary\" and \"anchor\": \"split\" is {\"kind\": \"help\", \"target\": \"glossary#split\"}. Give one for each recipe, entry or section the answer rests on, and never one for a passage no help result returned.
 
 Before you write that something could not be looked up, read this list again — it is every verb you may ask for: overview.search, overview.window, facts.search, facts.list, facts.window, shell.history, sessions.list, session.prompts, session.transcript, changes.for_session, changes.for_path, git.log, git.show, repo.grep, repo.ls, repo.read, repo.outline, help.outline, help.read, help.search, search.semantic. git.log takes a grep argument, so \"which commit was about X\" is always reachable. If one of them could have answered it, ask for that verb rather than describing the gap — and if this is your last round, name the lookup plainly as the follow-up the reader could ask for, instead of leaving them thinking the system has no way to reach it.
 
@@ -1006,8 +1010,30 @@ mod tests {
         );
     }
 
+    /// The recipes' twin: a recipe is what a how-do-I question should land on,
+    /// so a recipe written fails here until the prompt can name it.
+    #[test]
+    fn the_retrieve_prompt_lists_the_shipped_recipe_headings() {
+        use crate::help_docs::HelpDoc;
+        let dir = crate::resources::checkout_docs().expect("debug build has a checkout");
+        let recipes = HelpDoc::Recipes.read(&dir).unwrap();
+        let headings: Vec<String> = HelpDoc::Recipes
+            .units(&recipes)
+            .into_iter()
+            .map(|unit| unit.title)
+            .collect();
+        let listed = format!("{}.", headings.join("; "));
+        assert!(
+            OPERATOR_RETRIEVE_INSTRUCTIONS.contains(&listed),
+            "the retrieve prompt's recipe list is not the document's; it should read:\n{listed}"
+        );
+    }
+
     /// Both prompts say a question about Tug is answered from the help
     /// documents and never from what the model believes about the app.
+    /// An answer about the app leads with the gesture, rests on a recipe's stated
+    /// negative as fact, and names a gap only when the question asked for the
+    /// missing thing.
     #[test]
     fn app_questions_go_to_the_help_documents() {
         assert!(OPERATOR_RETRIEVE_INSTRUCTIONS.contains("TUG ITSELF"));
@@ -1015,7 +1041,20 @@ mod tests {
             OPERATOR_RETRIEVE_INSTRUCTIONS.contains("NEVER from what you believe about the app")
         );
         assert!(OPERATOR_ANSWER_INSTRUCTIONS.contains("answered from the help results"));
-        assert!(OPERATOR_ANSWER_INSTRUCTIONS.contains("say the documents do not say"));
+        assert!(
+            OPERATOR_ANSWER_INSTRUCTIONS
+                .contains("never invent a chord, a menu item, or a control")
+        );
+        assert!(OPERATOR_ANSWER_INSTRUCTIONS.contains("Lead with the gesture"));
+        assert!(OPERATOR_ANSWER_INSTRUCTIONS.contains("state that as fact and cite the recipe"));
+        assert!(
+            OPERATOR_ANSWER_INSTRUCTIONS
+                .contains("Name a gap only when the question asked for the missing thing")
+        );
+        assert!(
+            OPERATOR_ANSWER_INSTRUCTIONS.contains("Never volunteer what the documents leave out")
+        );
+        assert!(!OPERATOR_ANSWER_INSTRUCTIONS.contains("say the documents do not say"));
         // The help ref's target is composed from a result's two fields, and
         // the prompt is where the model learns the spelling.
         assert!(
