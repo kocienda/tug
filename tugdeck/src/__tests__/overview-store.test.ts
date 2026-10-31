@@ -130,6 +130,26 @@ describe("OverviewStore", () => {
     expect(newest.requestId).toBeNull();
   });
 
+  it("another page's later tail leaves held posts in ledger order", () => {
+    const { store } = makeStore();
+    stores.push(store);
+    store.getSnapshot();
+    const tail = (ids: number[]) =>
+      publishListOverviewPostsOk({
+        posts: ids.map((id) => post(id, `post ${id}`)) as unknown as OverviewPostWire[],
+        has_more: true,
+      });
+    tail([1, 2, 3, 4]);
+    // The response bus is a broadcast: a card opening elsewhere reads its own
+    // tail, and by then posts 1 and 2 have fallen out of that window.
+    tail([3, 4, 5, 6]);
+    // A third, later still, pushes 3 and 4 out the same way.
+    tail([5, 6, 7, 8]);
+    expect(store.getSnapshot().posts.map((p) => p.id)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+  });
+
   it("live frames fold, dedupe against the tail by ledger id, survive pending", () => {
     const { store, conn } = makeStore();
     stores.push(store);

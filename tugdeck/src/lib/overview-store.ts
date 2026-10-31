@@ -436,10 +436,10 @@ export class OverviewStore extends Subscribable {
    *
    * The response is a CONTROL **broadcast**, not a reply: every subscriber
    * sees every response, and nothing on the wire says whose request it
-   * answers. That cost nothing while the only read was the tail, which is
-   * idempotent — applied twice it replaced the list with itself. A page is
-   * not: applied twice it prepends twice. So a page is honored only when its
-   * echoed `before_id` is the one this store has outstanding, and any other is
+   * answers. A tail merges in ledger order, so hearing another page's is
+   * harmless. A page is not: applied twice it prepends twice. So a page is
+   * honored only when its echoed `before_id` is the one this store has
+   * outstanding, and any other is
    * dropped. One field, one comparison, and a stale page crossing a
    * reconnect-driven tail becomes a no-op instead of a double prepend.
    */
@@ -473,13 +473,20 @@ export class OverviewStore extends Subscribable {
     // reader never scrolled to.
     this.pendingBefore = null;
     this.hasMore = payload.has_more ?? false;
-    // Tail (history) first, then any live posts that landed while the load was
-    // in flight. Dedupe on ledger id where there is one and on key otherwise:
-    // the ledger does not persist a request id, so the same post arrives keyed
-    // one way live and another way from the tail, and only its rowid is the
-    // same on both wires.
+    // Held posts older than the tail stay in front of it: the bus is a
+    // broadcast, every page that opens reads its own tail, and by then the posts
+    // this store already holds may have fallen out of that window. Then the
+    // tail, then any live posts that landed while the load was in flight. Dedupe
+    // on ledger id where there is one and on key otherwise: the ledger does not
+    // persist a request id, so the same post arrives keyed one way live and
+    // another way from the tail, and only its rowid is the same on both wires.
+    const tailStart = incoming.find((p) => p.id !== null)?.id ?? null;
+    const older =
+      tailStart === null
+        ? []
+        : this.snapshot.posts.filter((p) => p.id !== null && p.id < tailStart);
     this.commit(
-      dedupe([...incoming, ...this.snapshot.posts]),
+      dedupe([...older, ...incoming, ...this.snapshot.posts]),
       "ready",
       this.snapshot.pendingRequestId,
     );
